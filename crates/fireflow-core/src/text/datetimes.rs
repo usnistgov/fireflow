@@ -1,5 +1,4 @@
 use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
-use crate::core::Key0LossError;
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keywords::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};

@@ -2,7 +2,10 @@ use crate::config::{
     ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
     ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
-use crate::core::{AnyMetarootKeyLossError, Key0LossError, KeyLossError};
+use crate::core::{
+    AnyMetarootKeyLossError, AnyOpticalKeyLossError, AnyTemporalKeyLossError, KeyLossError,
+    PeakLossError,
+};
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
@@ -345,6 +348,7 @@ pub enum OptMeasKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
 pub enum OptOpticalKeyword<'a> {
     Longname(NEStringKeyword1<'a, Longname>),
     Filter(NEStringKeyword1<'a, Filter>),
@@ -370,6 +374,7 @@ pub enum OptOpticalKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
 pub enum OptTemporalKeyword<'a> {
     Longname(NEStringKeyword1<'a, Longname>),
     TemporalType(OptZSTKeyword1<TemporalType, TemporalTypeInner>),
@@ -382,6 +387,7 @@ pub enum OptTemporalKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
 pub enum OptPeakKeyword {
     PeakBin(SplitKeyword1<PeakBin>),
     PeakIndex(SplitKeyword1<PeakIndex>),
@@ -513,7 +519,7 @@ impl<'a> OptOpticalKeyword<'a> {
     }
 }
 
-impl<'a> OptTemporalKeyword<'a> {
+impl OptTemporalKeyword<'_> {
     pub(crate) fn from_timestep(x: Timestep) -> Self {
         let ret = SplitKeyword::new(DKey0::default(), x);
         Self::from(ret)
@@ -595,6 +601,10 @@ impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 #[delegatable_trait]
 pub(crate) trait HasMembership {
     fn membership(&self) -> VersionMembership;
+
+    // fn contains_version(&self, version: Version) -> bool {
+    //     self.membership().contains_version(version)
+    // }
 
     fn is_2_0(&self) -> bool {
         self.membership().is_2_0()
@@ -734,7 +744,7 @@ impl HasDelim for OptMeasKeyword<'_> {
             Self::Shortname(x) => x.value.has_delim(d),
             Self::Optical(x) => x.has_delim(d),
             Self::Temporal(x) => x.has_delim(d),
-            _ => None,
+            Self::NumType(_) => None,
         }
     }
 }
@@ -844,6 +854,65 @@ impl OptRootKeyword<'_> {
             | Self::Smno(_)
             | Self::Src(_)
             | Self::Sys(_) => return None,
+        };
+        Some(ret)
+    }
+}
+
+impl OptOpticalKeyword<'_> {
+    pub(crate) fn as_loss_error(&self) -> Option<AnyOpticalKeyLossError> {
+        let ret = match self {
+            Self::DetectorName(kw) => KeyLossError(kw.key).into(),
+            Self::Tag(kw) => KeyLossError(kw.key).into(),
+            Self::Analyte(kw) => KeyLossError(kw.key).into(),
+            Self::OpticalType(kw) => KeyLossError(kw.key).into(),
+            Self::Gain(kw) => KeyLossError(kw.key).into(),
+            Self::Display(kw) => KeyLossError(kw.key).into(),
+            Self::Feature(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_1(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_2(kw) => KeyLossError(kw.key).into(),
+            Self::Peak(kw) => {
+                let ret = match kw {
+                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError(k.key)),
+                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError(k.key)),
+                };
+                ret.into()
+            }
+            // These are shared b/t all versions so cannot result in loss when
+            // converting. Note that wavelength(s) will fail if the downgrading
+            // to a version that only allows scaler when multiple values are
+            // present; this is dealt with elsewhere
+            Self::Wavelength(_)
+            | Self::Wavelengths(_)
+            | Self::Filter(_)
+            | Self::DetectorType(_)
+            | Self::Power(_)
+            | Self::PercentEmitted(_)
+            | Self::DetectorVoltage(_)
+            | Self::Longname(_)
+            | Self::Scale(_) => return None,
+        };
+        Some(ret)
+    }
+}
+
+impl OptTemporalKeyword<'_> {
+    pub(crate) fn as_loss_error(&self) -> Option<AnyTemporalKeyLossError> {
+        let ret = match self {
+            Self::TemporalType(kw) => KeyLossError(kw.key).into(),
+            Self::Display(kw) => KeyLossError(kw.key).into(),
+            Self::Peak(kw) => {
+                let ret = match kw {
+                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError(k.key)),
+                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError(k.key)),
+                };
+                ret.into()
+            }
+            // These are shared b/t all versions so cannot result in loss when
+            // converting. NOTE $TIMESTEP is special because it will only
+            // result in data loss if it is anything but 1.0 since in 2.0 it
+            // does not exist and therefore the time unit is implied to be 1.0.
+            Self::Timestep(_) | Self::TemporalScale2_0(_) | Self::Longname(_) => return None,
         };
         Some(ret)
     }
@@ -1209,9 +1278,9 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn loss_error(self) -> Option<Key0LossError<Self>> {
-        (!self.0.is_one()).then_some(Key0LossError::default())
-    }
+    // pub(crate) fn loss_error(self) -> Option<Key0LossError<Self>> {
+    //     (!self.0.is_one()).then_some(Key0LossError::default())
+    // }
 
     pub(crate) fn lookup(
         std: &mut StdKeywords,
@@ -4945,7 +5014,7 @@ mod tests {
         // this can basically be everything, even though only a few values make sense
         let go = |v| {
             let t = OpticalType::from_str(v).unwrap();
-            let k = OptMeasKeyword::from_str(&t, MeasIndex::from(0)).unwrap();
+            let k = OptOpticalKeyword::from_str(&t, MeasIndex::from(0)).unwrap();
             assert!(k.as_std_key_pair().1.as_ref() == v);
         };
         go("Forward Scatter");
@@ -4962,7 +5031,7 @@ mod tests {
     #[test]
     fn pntype_time() {
         let t = TemporalType::from_str("Time").unwrap();
-        let k = OptMeasKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
+        let k = OptTemporalKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
         assert!(k.as_std_key_pair().1.as_ref() == "Time");
         assert!(TemporalType::from_str("Space").is_err());
     }

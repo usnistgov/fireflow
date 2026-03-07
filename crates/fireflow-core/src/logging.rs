@@ -2652,17 +2652,17 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
     //     }
     // }
 
-    pub(crate) fn new_deferred_switchable_maybe3(value: T, error: Option<E>, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: TriErrorFlag,
-    {
-        match error {
-            Some(e) => Self::new_deferred_switchable3(value, e, flag),
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_deferred_switchable_maybe3(value: T, error: Option<E>, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: TriErrorFlag,
+    // {
+    //     match error {
+    //         Some(e) => Self::new_deferred_switchable3(value, e, flag),
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
     where

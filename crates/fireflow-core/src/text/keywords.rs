@@ -3,8 +3,8 @@ use crate::config::{
     ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::core::{
-    AnyMetarootKeyLossError, AnyOpticalKeyLossError, AnyTemporalKeyLossError, KeyLossError,
-    PeakLossError,
+    AnyMetarootKeyLossError, AnyOpticalKeyLossError, AnyTemporalKeyLossError, GatingLossError,
+    KeyLossError, PeakLossError, RegionLossError, TimestepLossError,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
@@ -413,9 +413,9 @@ pub enum GateMeasKeyword<'a> {
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
 pub enum RegionKeyword<'a> {
-    GateIndex2_0(SplitKeyword1<RegionGateIndex<GateIndex>>),
-    GateIndex3_0(SplitKeyword1<RegionGateIndex<MeasOrGateIndex>>),
-    GateIndex3_2(SplitKeyword1<RegionGateIndex<PrefixedMeasIndex>>),
+    GateIndex2_0(SplitKeyword1<RegionGateIndex2_0>),
+    GateIndex3_0(SplitKeyword1<RegionGateIndex3_0>),
+    GateIndex3_2(SplitKeyword1<RegionGateIndex3_2>),
     Window(RegionWindowSplitKeyword<'a>),
 }
 
@@ -774,7 +774,41 @@ impl HasDelim for GateMeasKeyword<'_> {
 }
 
 impl OptRootKeyword<'_> {
-    pub(crate) fn as_loss_error(&self) -> Option<AnyMetarootKeyLossError> {
+    pub(crate) fn as_loss_error(
+        &self,
+        current_version: Version,
+        target_version: Version,
+    ) -> Option<AnyMetarootKeyLossError> {
+        let go_region = |kw: &RegionKeyword<'_>| {
+            let (i, is_index) = match kw {
+                // If $RnI in refers to $Gn* and $Pn* in 2.0 and 3.2
+                // respectively, which means they are totally incompatible and
+                // can be dropped outright
+                RegionKeyword::GateIndex2_0(k) => (k.key.index(), true),
+                RegionKeyword::GateIndex3_2(k) => (k.key.index(), true),
+                // $RnI in 3.0/3.1 is different since they can refer to either
+                // $Gn* or $Pn*; It is easier to simply deal with these when
+                // trying to transform the version of the entire gating object
+                // since the regions need to be rewritten anyways to keep
+                // regions which still have valid links.
+                RegionKeyword::GateIndex3_0(_) => return None,
+                // $RnW follows the same pattern as above since it is always
+                // paired with an $RnI, and pairs with matching 'n' must be
+                // dropped together.
+                RegionKeyword::Window(k) => match current_version {
+                    Version::FCS2_0 | Version::FCS3_2 => (k.key.index(), false),
+                    _ => return None,
+                },
+            };
+            let is_2_0 = current_version == Version::FCS2_0;
+            let match_target = if is_2_0 {
+                Version::FCS3_2
+            } else {
+                Version::FCS2_0
+            };
+            (target_version == match_target)
+                .then_some(RegionLossError::new(is_2_0, is_index, i.into()).into())
+        };
         let ret = match self {
             Self::GateMeas(kw) => match kw {
                 GateMeasKeyword::Scale(x) => KeyLossError(x.key).into(),
@@ -811,12 +845,19 @@ impl OptRootKeyword<'_> {
             Self::Platename(kw) => KeyLossError(kw.key).into(),
             Self::Wellid(kw) => KeyLossError(kw.key).into(),
             Self::Cytsn(kw) => KeyLossError(kw.key).into(),
+            Self::GateRegion(kw) => return go_region(kw),
+            // $GATING follows the same pattern as $RnI/$RnW above
+            Self::Gating(_) => match (current_version, target_version) {
+                (Version::FCS2_0, Version::FCS3_2) | (Version::FCS3_2, Version::FCS2_0) => {
+                    let is_2_0 = current_version == Version::FCS2_0;
+                    GatingLossError::new(is_2_0).into()
+                }
+                _ => return None,
+            },
             // All of these are shared b/t versions and therefore cannot cause
             // loss when converting. Note $MODE is valid in all versions but its
             // value is constrained in 3.2; this is dealt with elsewhere
-            Self::GateRegion(_)
-            | Self::Gating(_)
-            | Self::Mode3_2(_)
+            Self::Mode3_2(_)
             | Self::Btim2_0(_)
             | Self::Btim3_0(_)
             | Self::Btim3_1(_)
@@ -850,7 +891,6 @@ impl OptOpticalKeyword<'_> {
             Self::Tag(kw) => KeyLossError(kw.key).into(),
             Self::Analyte(kw) => KeyLossError(kw.key).into(),
             Self::OpticalType(kw) => KeyLossError(kw.key).into(),
-            Self::Gain(kw) => KeyLossError(kw.key).into(),
             Self::Display(kw) => KeyLossError(kw.key).into(),
             Self::Feature(kw) => KeyLossError(kw.key).into(),
             Self::Calibration3_1(kw) => KeyLossError(kw.key).into(),
@@ -863,9 +903,12 @@ impl OptOpticalKeyword<'_> {
                 ret.into()
             }
             // These are shared b/t all versions so cannot result in loss when
-            // converting. Note that wavelength(s) will fail if the downgrading
-            // to a version that only allows scaler when multiple values are
-            // present; this is dealt with elsewhere
+            // converting, or they are dealt with elsewhere as follows:
+            // * Wavelengths: error emitted when converting from vector
+            //   (3.1/3.2) to scaler (2.0/3.0), done when converting
+            //   Wavelengths -> Wavelength
+            // * Gain: error emitted when going to 2.0 and the value is not 1.0,
+            //   done when mapping ScaleTransform -> Scale.
             Self::Wavelength(_)
             | Self::Wavelengths(_)
             | Self::Filter(_)
@@ -874,6 +917,7 @@ impl OptOpticalKeyword<'_> {
             | Self::PercentEmitted(_)
             | Self::DetectorVoltage(_)
             | Self::Longname(_)
+            | Self::Gain(_)
             | Self::Scale(_) => return None,
         };
         Some(ret)
@@ -892,11 +936,14 @@ impl OptTemporalKeyword<'_> {
                 };
                 ret.into()
             }
+            // $TIMESTEP is only lossy if not one since it is implied to be
+            // one if not in target version
+            Self::Timestep(kw) => {
+                return (!kw.value.0.is_one()).then_some(TimestepLossError.into());
+            }
             // These are shared b/t all versions so cannot result in loss when
-            // converting. NOTE $TIMESTEP is special because it will only
-            // result in data loss if it is anything but 1.0 since in 2.0 it
-            // does not exist and therefore the time unit is implied to be 1.0.
-            Self::Timestep(_) | Self::TemporalScale2_0(_) | Self::Longname(_) => return None,
+            // converting.
+            Self::TemporalScale2_0(_) | Self::Longname(_) => return None,
         };
         Some(ret)
     }
@@ -2460,6 +2507,10 @@ pub enum RegionGateIndex<I> {
     Bivariate(IndexPair<I>),
 }
 
+pub type RegionGateIndex2_0 = RegionGateIndex<GateIndex>;
+pub type RegionGateIndex3_0 = RegionGateIndex<MeasOrGateIndex>;
+pub type RegionGateIndex3_2 = RegionGateIndex<PrefixedMeasIndex>;
+
 impl<'a, I> ToDisplayNE<'a> for RegionGateIndex<I>
 where
     for<'b> I: ToDisplayNE<'b> + Copy,
@@ -3718,7 +3769,7 @@ macro_rules! newtype_opt_bool {
 }
 
 macro_rules! impl_versioned_key {
-    ($t:ident, $m:expr) => {
+    ($t:path, $m:expr) => {
         impl crate::validated::keys::VersionedKey for $t {
             const VERS: fireflow_types::keywords::VersionMembership = $m;
         }
@@ -4274,10 +4325,8 @@ kw_opt_gate_string!(GateDetectorType, tk::DET_TYPE_KW_SUFFIX);
 kw_opt_gate_other!(GateDetectorVoltage, tk::DET_VOLTAGE_KW_SUFFIX);
 kw_opt_meta!(Gating, tk::GATING_KW, tk::GATING_VERS, Option<Self>);
 
-const REGION_VERS: VersionMembership = VersionMembership::All;
-
 impl VersionedKey for RegionWindow {
-    const VERS: VersionMembership = REGION_VERS;
+    const VERS: VersionMembership = VersionMembership::All;
 }
 
 impl IndexedKey for RegionWindow {
@@ -4286,18 +4335,34 @@ impl IndexedKey for RegionWindow {
 
 opt_meas!(RegionWindow, Option<Self>);
 
-impl<I> VersionedKey for RegionGateIndex<I> {
-    const VERS: VersionMembership = REGION_VERS;
+const REGION_INDEX_PRE_SUF: PrefixSuffix =
+    PrefixSuffix::Both(REGION_KW_PREFIX, REGION_INDEX_KW_SUFFIX);
+
+macro_rules! impl_region_index {
+    ($t:path, $m:expr) => {
+        impl_versioned_key!($t, $m);
+        impl crate::validated::keys::IndexedKey for $t {
+            const C: PrefixSuffix = REGION_INDEX_PRE_SUF;
+        }
+        impl Optional for $t {
+            type Outer = Option<Self>;
+        }
+        impl OptIndexedKey for $t {}
+    };
 }
 
-impl<I> IndexedKey for RegionGateIndex<I> {
-    const C: PrefixSuffix = PrefixSuffix::Both(REGION_KW_PREFIX, REGION_INDEX_KW_SUFFIX);
-}
+impl_region_index!(RegionGateIndex2_0, VersionMembership::One(Version::FCS2_0));
+impl_region_index!(
+    RegionGateIndex3_0,
+    VersionMembership::Two([Version::FCS3_0, Version::FCS3_1])
+);
+impl_region_index!(RegionGateIndex3_2, VersionMembership::One(Version::FCS3_2));
 
-impl<I> Optional for RegionGateIndex<I> {
-    type Outer = Option<Self>;
+// dummy to help print stuff
+impl_versioned_key!(RegionGateIndex<()>, VersionMembership::All);
+impl IndexedKey for RegionGateIndex<()> {
+    const C: PrefixSuffix = REGION_INDEX_PRE_SUF;
 }
-impl<I> OptIndexedKey for RegionGateIndex<I> {}
 
 // offsets for all versions
 kw_req_meta!(Nextdata, tk::NEXTDATA_KW, tk::NEXTDATA_VERS);
@@ -4657,15 +4722,11 @@ impl KeywordOptimizer {
             AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
             AnyKeywordClass::RegionWindow => self.n_any += 1,
             AnyKeywordClass::RegionIndex => {
-                if RegionGateIndex::<GateIndex>::from_str_delim(value, true.into()).is_ok() {
+                if RegionGateIndex2_0::from_str_delim(value, true.into()).is_ok() {
                     self.n_opt_eq2_0 += 1;
-                } else if RegionGateIndex::<MeasOrGateIndex>::from_str_delim(value, true.into())
-                    .is_ok()
-                {
+                } else if RegionGateIndex3_0::from_str_delim(value, true.into()).is_ok() {
                     self.n_opt_eq3_0or3_1 += 1;
-                } else if RegionGateIndex::<PrefixedMeasIndex>::from_str_delim(value, true.into())
-                    .is_ok()
-                {
+                } else if RegionGateIndex3_2::from_str_delim(value, true.into()).is_ok() {
                     self.n_opt_eq3_2 += 1;
                 }
             }
@@ -5034,59 +5095,57 @@ mod tests {
     #[test]
     fn rni_2_0() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1,2", (), &conf);
-        assert!(RegionGateIndex::<GateIndex>::from_str_with("x", (), &conf).is_err());
-        assert!(RegionGateIndex::<GateIndex>::from_str_with("1,2,3", (), &conf).is_err());
+        assert_from_to_str_with::<RegionGateIndex2_0>("1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex2_0>("1,2", (), &conf);
+        assert!(RegionGateIndex2_0::from_str_with("x", (), &conf).is_err());
+        assert!(RegionGateIndex2_0::from_str_with("1,2,3", (), &conf).is_err());
     }
 
     #[test]
     fn rni_2_0_commas() {
         let v = "1, 2";
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex::<GateIndex>::from_str_with(v, (), &conf).is_err());
+        assert!(RegionGateIndex2_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<RegionGateIndex<GateIndex>>(v, "1,2", (), &conf);
+        assert_from_to_str_almost_with::<RegionGateIndex2_0>(v, "1,2", (), &conf);
     }
 
     #[test]
     fn rni_3_0() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("P1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("P1,P2", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1,G2", (), &conf);
-        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with("x", (), &conf).is_err());
-        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with("P1,G2,P3", (), &conf).is_err());
+        assert_from_to_str_with::<RegionGateIndex3_0>("P1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>("P1,P2", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>("G1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>("G1,G2", (), &conf);
+        assert!(RegionGateIndex3_0::from_str_with("x", (), &conf).is_err());
+        assert!(RegionGateIndex3_0::from_str_with("P1,G2,P3", (), &conf).is_err());
     }
 
     #[test]
     fn rni_3_0_commas() {
         let v = "P1, G2";
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with(v, (), &conf).is_err());
+        assert!(RegionGateIndex3_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<RegionGateIndex<MeasOrGateIndex>>(v, "P1,G2", (), &conf);
+        assert_from_to_str_almost_with::<RegionGateIndex3_0>(v, "P1,G2", (), &conf);
     }
 
     #[test]
     fn rni_3_2() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2", (), &conf);
-        assert!(RegionGateIndex::<PrefixedMeasIndex>::from_str_with("x", (), &conf).is_err());
-        assert!(
-            RegionGateIndex::<PrefixedMeasIndex>::from_str_with("P1,P2,P3", (), &conf).is_err()
-        );
+        assert_from_to_str_with::<RegionGateIndex3_2>("P1", (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_2>("P1,P2", (), &conf);
+        assert!(RegionGateIndex3_2::from_str_with("x", (), &conf).is_err());
+        assert!(RegionGateIndex3_2::from_str_with("P1,P2,P3", (), &conf).is_err());
     }
 
     #[test]
     fn rni_3_2_commas() {
         let v = "P1, P2";
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex::<PrefixedMeasIndex>::from_str_with(v, (), &conf).is_err());
+        assert!(RegionGateIndex3_2::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<RegionGateIndex<PrefixedMeasIndex>>(v, "P1,P2", (), &conf);
+        assert_from_to_str_almost_with::<RegionGateIndex3_2>(v, "P1,P2", (), &conf);
     }
 
     #[test]

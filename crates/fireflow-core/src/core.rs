@@ -39,11 +39,11 @@ use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
 };
 use crate::text::gating::{
-    AppliedGates2_0, AppliedGates2_0To3_2LossError, AppliedGates3_0, AppliedGates3_0To2_0Error,
-    AppliedGates3_0To3_2Error, AppliedGates3_2, GatedMeasurements, GatingSchemeLossError,
-    LookupAppliedGates2_0Error, LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
+    AppliedGates2_0, AppliedGates3_0, AppliedGates3_0To2_0Error, AppliedGates3_0To3_2Error,
+    AppliedGates3_2, GatedMeasurements, LookupAppliedGates2_0Error, LookupAppliedGates3_0Error,
+    LookupAppliedGates3_2Error,
 };
-use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
     Abrt, AlphaNumType, Analyte, AnyKeyword, AnyMeasScaleFix, AsKeywordPair as _, CSMode, CSTot,
     CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype,
@@ -102,9 +102,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey};
-use fireflow_types::keywords::{
-    Version as KwVersion, Version2_0, Version3_0, Version3_1, Version3_2,
-};
+use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::nonempty_string::{DisplayableNE as _, NEStr, NEString};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
@@ -454,7 +452,7 @@ macro_rules! match_anycore {
 
 impl<A, D, O> AnyCore<A, D, O> {
     #[must_use]
-    pub fn version(&self) -> KwVersion {
+    pub fn version(&self) -> Version {
         match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             (*x).fcs_version()
         })
@@ -497,7 +495,7 @@ impl<A, D, O> AnyCore<A, D, O> {
 impl AnyCoreTEXT {
     #[allow(clippy::type_complexity)]
     pub(crate) fn parse_flat<C>(
-        version: KwVersion,
+        version: Version,
         kws: ValidKeywords,
         segs: &mut HeaderAndSuppOffsets,
         st: &ReadState<C>,
@@ -530,10 +528,10 @@ impl AnyCoreTEXT {
 
         match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
             Ok((ver, scores)) => match ver {
-                KwVersion::FCS2_0 => go!(CoreTEXT2_0, scores),
-                KwVersion::FCS3_0 => go!(CoreTEXT3_0, scores),
-                KwVersion::FCS3_1 => go!(CoreTEXT3_1, scores),
-                KwVersion::FCS3_2 => go!(CoreTEXT3_2, scores),
+                Version::FCS2_0 => go!(CoreTEXT2_0, scores),
+                Version::FCS3_0 => go!(CoreTEXT3_0, scores),
+                Version::FCS3_1 => go!(CoreTEXT3_1, scores),
+                Version::FCS3_2 => go!(CoreTEXT3_2, scores),
             },
             Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
         }
@@ -579,10 +577,10 @@ impl AnyCoreDataset {
 
         match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
             Ok((ver, scores)) => match ver {
-                KwVersion::FCS2_0 => go!(CoreDataset2_0, scores),
-                KwVersion::FCS3_0 => go!(CoreDataset3_0, scores),
-                KwVersion::FCS3_1 => go!(CoreDataset3_1, scores),
-                KwVersion::FCS3_2 => go!(CoreDataset3_2, scores),
+                Version::FCS2_0 => go!(CoreDataset2_0, scores),
+                Version::FCS3_0 => go!(CoreDataset3_0, scores),
+                Version::FCS3_1 => go!(CoreDataset3_1, scores),
+                Version::FCS3_2 => go!(CoreDataset3_2, scores),
             },
             Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
         }
@@ -1531,7 +1529,7 @@ pub trait Versioned {
     type Layout: VersionedDataLayout;
     type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::Tot>;
 
-    fn fcs_version() -> KwVersion;
+    fn fcs_version() -> Version;
 }
 
 pub(crate) trait PrivVersioned: Versioned {
@@ -1631,11 +1629,12 @@ pub trait ConvertFromMetaroot<M: VersionedMetaroot>: Sized + VersionedMetaroot {
     fn convert_from_metaroot_inner(value: M, flag: AllowLoss) -> MetarootConvertResult<Self>;
 
     fn convert_from_metaroot(value: M, flag: AllowLoss) -> MetarootConvertResult<Self> {
+        let current_version = M::Ver::fcs_version();
         let target_version = Self::Ver::fcs_version();
         let es: Vec<_> = value
             .keywords_opt_inner()
             .filter(|x| !x.contains_version(target_version))
-            .filter_map(|k| k.as_loss_error())
+            .filter_map(|k| k.as_loss_error(current_version, target_version))
             .collect();
         let res = Self::convert_from_metaroot_inner(value, flag);
         res.extend_warnings_or_errors3(
@@ -2079,7 +2078,7 @@ impl<O> Optical<O> {
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         O: LookupOptical,
-        KwVersion: From<O::Ver>,
+        Version: From<O::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         macro_rules! go {
@@ -2444,9 +2443,9 @@ where
     M: VersionedMetaroot,
 {
     /// Show FCS version.
-    pub fn fcs_version(&self) -> KwVersion
+    pub fn fcs_version(&self) -> Version
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         M::Ver::fcs_version()
     }
@@ -2457,7 +2456,7 @@ where
         conf: &WriteTEXTInnerConfig,
     ) -> Result<Option<Nextdata>, ImpureError<WriteTEXTHeaderError>>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         let n = cores.len();
         let mut nd = None;
@@ -2478,7 +2477,7 @@ where
         conf: &WriteMultiTEXTConfig,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         let opts = conf.multi.append.file_options();
         let f = opts.open(path)?;
@@ -2494,7 +2493,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         if conf.big_other.is_set() {
             self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
@@ -2510,7 +2509,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
@@ -2523,7 +2522,7 @@ where
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let hdr_kws: HeaderKeywordsToWrite<T> = self
@@ -3506,7 +3505,7 @@ where
         ConvertSummary,
     >
     where
-        KwVersion: From<M::Ver> + From<ToM::Ver>,
+        Version: From<M::Ver> + From<ToM::Ver>,
         ToM: VersionedMetaroot + ConvertFromMetaroot<M>,
         ToM::Optical: VersionedOptical + ConvertFromOptical<M::Optical>,
         ToM::Temporal: VersionedTemporal + ConvertFromTemporal<M::Temporal>,
@@ -3921,7 +3920,7 @@ where
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<HeaderKeywordsToWrite<T>, WriteTEXTHeaderError>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
     {
         let req = self
@@ -3933,7 +3932,7 @@ where
             .opt_root_keywords()
             .map(OptKeyword::from)
             .chain(self.opt_meas_keywords().map(OptKeyword::from));
-        if M::Ver::fcs_version() == KwVersion::FCS2_0 {
+        if M::Ver::fcs_version() == Version::FCS2_0 {
             let ks: Vec<_> = req
                 .map(AnyKeyword::from)
                 .chain(opt.map(AnyKeyword::from))
@@ -4168,7 +4167,7 @@ where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M: LookupMetaroot,
         M::Name: Pointed<Shortname>,
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         nonstd
             .iter_mut()
@@ -4204,7 +4203,7 @@ where
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical,
         M::Name: Pointed<Shortname>,
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let mut found_time = false;
@@ -4395,7 +4394,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4436,7 +4435,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4461,7 +4460,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         <M::Ver as Versioned>::Layout: VersionedDataLayout,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
         M::Optical: LookupOptical + AsScaleOrTransform,
@@ -4724,7 +4723,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M::Optical: AsScaleOrTransform,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4852,7 +4851,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -4895,7 +4894,7 @@ where
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -4942,7 +4941,7 @@ where
         WriteDatasetSummary,
     >
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         let n = cores.len();
         let mut results = vec![];
@@ -4970,7 +4969,7 @@ where
         conf: &WriteMultiDatasetConfig,
     ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         let opts = conf.multi.append.file_options();
         let f = io_to_log!(opts.open(path));
@@ -4986,7 +4985,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
     where
-        KwVersion: From<M::Ver>,
+        Version: From<M::Ver>,
     {
         let df = &self.data;
         let layout = &self.layout;
@@ -5979,26 +5978,20 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        // TODO add scale back
-
-        // let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
-        //     .map_errors(AnyOpticalKeyLossError::from)
-        //     .repack_errors::<Vec<_>>()
-        //     .extend_deferred_errors(check_errs)
-        //     .map_errors(OpticalConvertWarning::from)
-        //     .repack_errors::<Vec<_>>();
-
-        let scale = Some(value.scale.to_scale());
-
-        value
+        let scale = ScaleTransform::try_convert_to_scale(value.scale, i)
+            .map_errors(AnyOpticalKeyLossError::from)
+            .map_errors(OpticalConvertWarning::from)
+            .into_semigroup();
+        let wave = value
             .wavelengths
             .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
-            .repack_errors::<Vec<_>>()
+            .into_semigroup();
+        scale
+            .lift_f2_once(wave, |s, w| Self::new(s, w, value.peak))
             .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
-            .map_ok_value(|wave| Self::new(scale, wave, value.peak))
             .set_err_value(())
     }
 }
@@ -6009,23 +6002,20 @@ impl ConvertFromOptical<InnerOptical3_2> for InnerOptical2_0 {
         i: MeasIndex,
         flag: AllowLoss,
     ) -> OpticalConvertResult<Self> {
-        let scale = Some(value.scale.to_scale());
-
-        // let xform = ScaleTransform::try_convert_to_scale(value.scale, i)
-        //     .map_errors(AnyOpticalKeyLossError::from)
-        //     .repack_errors::<Vec<_>>()
-        //     .extend_deferred_errors(check_errs)
-        //     .map_errors(OpticalConvertWarning::from)
-        //     .repack_errors::<Vec<_>>();
-        value
+        let scale = ScaleTransform::try_convert_to_scale(value.scale, i)
+            .map_errors(AnyOpticalKeyLossError::from)
+            .map_errors(OpticalConvertWarning::from)
+            .into_semigroup();
+        let wave = value
             .wavelengths
             .into_wavelength(i)
             .map_errors(OpticalConvertWarning::from)
-            .repack_errors::<Vec<_>>()
+            .into_semigroup();
+        scale
+            .lift_f2_once(wave, |s, w| Self::new(s, w, PeakData::default()))
             .nowarn_into_switchable3(flag)
             .switchable_into_commutative()
             .map_errors(OpticalConvertError::from)
-            .map_ok_value(|wave| Self::new(scale, wave, PeakData::default()))
             .set_err_value(())
     }
 }
@@ -6646,7 +6636,6 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
         value: InnerMetaroot2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        // TODO add back gates loss errors
         let mode_res = Mode3_2::try_from(value.mode)
             .into_deferred_switchable_opt3::<_, Vec<_>>(flag)
             .switchable_into_commutative()
@@ -6686,7 +6675,6 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
         value: InnerMetaroot3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
-        // TODO this may produce redundant loss errors
         let ag_res = value
             .applied_gates
             .try_into_3_2(flag)
@@ -6771,22 +6759,15 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
 }
 
 impl ScaleTransform {
-    fn to_scale(self) -> Scale {
-        match self {
-            Self::Lin(_) => Scale::Linear,
-            Self::Log(x) => Scale::Log(x),
-        }
-    }
-
     /// Convert to a simple scale value (just $PnE, no $PnG).
     ///
     /// This may be lossy because the $PnG value cannot be represented with
     /// just a `Scale` object, and thus needs to be dropped if present and
     /// not equal to 1.0.
-    fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, Key1LossError<Gain>> {
+    fn try_convert_to_scale(self, i: MeasIndex) -> DeferredError<Scale, GainLossError> {
         match self {
             Self::Lin(x) => {
-                let e = KeyLossError(DKey1::new_i1(i));
+                let e = GainLossError::new(i);
                 let v = Scale::Linear;
                 LogResult::new_log_if(x.is_one(), v, v, e)
             }
@@ -6968,7 +6949,7 @@ macro_rules! impl_versioned {
             type Layout = $l;
             type Offsets = $o;
 
-            fn fcs_version() -> KwVersion {
+            fn fcs_version() -> Version {
                 Self.into()
             }
         }
@@ -9251,14 +9232,14 @@ pub enum OpticalToTemporalError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct OpticalNonLinearError {
     index: MeasIndex,
-    version: KwVersion,
+    version: Version,
 }
 
 impl fmt::Display for OpticalNonLinearError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = self.index;
         let e = Scale::std(i);
-        if self.version < KwVersion::FCS3_0 {
+        if self.version < Version::FCS3_0 {
             write!(f, "{e} must be '0,0'")
         } else {
             let g = Gain::std(i);
@@ -9329,23 +9310,54 @@ pub enum AnyMetarootKeyLossError {
     GateLongname(Key1LossError<GateLongname>),
     GateDetType(Key1LossError<GateDetectorType>),
     GateDetVolt(Key1LossError<GateDetectorVoltage>),
-    // TODO maybe explain why these are dropped. The scheme keywords are present
-    // in 3.2 but are incompabible with 2.0 since they reference measurements
-    // rather than Gn* keywords.
-    AppliedGates2_0To3_2(AppliedGates2_0To3_2LossError),
-    // TODO ditto
-    AppliedGates3_2To2_0(GatingSchemeLossError),
+    Region(RegionLossError),
+    Gating(GatingLossError),
+}
+
+/// Error when $RnW/$RnI keyword must be dropped due to reference incompatibility.
+///
+/// This will only happen when converting between 2.0 and 3.2.
+#[derive(Debug, Error, new)]
+#[error(
+    "$R{index}{region_type} keyword must be dropped as it refers to ${kw_type}n* \
+     keywords which is incompatible with version {ver}",
+    region_type = if self.is_index { "I" } else { "W" },
+    kw_type = if self.current_is_2_0 { "G" } else { "P" },
+    ver = if self.current_is_2_0 { Version::FCS3_2 } else { Version::FCS2_0 },
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct RegionLossError {
+    current_is_2_0: bool,
+    is_index: bool,
+    index: RegionIndex,
+}
+
+/// Error when the $GATING keyword must be dropped due to reference incompatibility.
+///
+/// This will only happen when converting between 2.0 and 3.2.
+#[derive(Debug, Error, new)]
+#[error(
+    "$GATING keyword must be dropped since it refers to $RnI/$RnW keywords which \
+     must also be dropped since they refer to ${kw_type}n* keywords which is \
+     incompatible with version {ver}",
+    kw_type = if self.current_is_2_0 { "G" } else { "P" },
+    ver = if self.current_is_2_0 { Version::FCS3_2 } else { Version::FCS2_0 },
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct GatingLossError {
+    current_is_2_0: bool,
 }
 
 /// Error when an optical keyword will be lost when converting versions
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalKeyLossError {
-    // TODO PnDATATYPE?
     MeasType(Key1LossError<OpticalType>),
     Analyte(Key1LossError<Analyte>),
     Tag(Key1LossError<Tag>),
-    Gain(Key1LossError<Gain>),
+    Gain(GainLossError),
     Display(Key1LossError<Display>),
     DetectorName(Key1LossError<DetectorName>),
     Feature(Key1LossError<Feature>),
@@ -9360,9 +9372,19 @@ pub enum AnyOpticalKeyLossError {
 pub enum AnyTemporalKeyLossError {
     TempType(Key1LossError<TemporalType>),
     Display(Key1LossError<Display>),
-    Timestamp(Key0LossError<Timestep>),
+    Timestamp(TimestepLossError),
     Peak(PeakLossError),
 }
+
+/// Error when the $PnG does not exist in target version and is not 1.0.
+#[derive(Debug, Error, new)]
+#[error(
+    "$TIMESTEP does not exist in target version and is currently not 1.0 \
+     which means data will be lost on dropping"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct TimestepLossError;
 
 /// Error when an optical keyword will be lost when converting to temporal
 #[derive(From, Display, Debug)]
@@ -9378,11 +9400,23 @@ pub enum AnyOpticalToTemporalKeyLossError {
     MeasType(Key1LossError<OpticalType>),
     Analyte(Key1LossError<Analyte>),
     Tag(Key1LossError<Tag>),
-    Gain(Key1LossError<Gain>),
+    Gain(GainLossError),
     DetectorName(Key1LossError<DetectorName>),
     Feature(Key1LossError<Feature>),
     Calibration3_1(Key1LossError<Calibration3_1>),
     Calibration3_2(Key1LossError<Calibration3_2>),
+}
+
+/// Error when the $PnG does not exist in target version and is not 1.0.
+#[derive(Debug, Error, new)]
+#[error(
+    "$P{index}G does not exist in target version and is currently not 1.0 \
+     which means data will be lost on dropping"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct GainLossError {
+    index: MeasIndex,
 }
 
 /// Error when a temporal keyword will be lost when converting to optical
@@ -9800,8 +9834,8 @@ def_summary!(NewCoreDatasetSummary, "could not make new CoreDataset");
 #[derive(Display, new)]
 #[display("could not convert version from {from} to {to}")]
 pub struct ConvertSummary {
-    from: KwVersion,
-    to: KwVersion,
+    from: Version,
+    to: Version,
 }
 
 def_summary!(

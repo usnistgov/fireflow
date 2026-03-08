@@ -511,6 +511,10 @@ impl<T> DKey1<T> {
     pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
         Self(Key1::new_i1(i))
     }
+
+    pub(crate) fn index(self) -> IndexFromOne {
+        self.0.index
+    }
 }
 
 impl<T> DKey2<T> {

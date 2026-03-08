@@ -711,12 +711,12 @@ pub(crate) trait ResultExt: Sized {
         self.into_succ_opt().fmap_once(|x| x.unwrap_or(default))
     }
 
-    fn infallible_err_into<E>(self) -> Option<E>
-    where
-        Self: ResultExt<Ok = (), Error = Infallible>,
-    {
-        None
-    }
+    // fn infallible_err_into<E>(self) -> Option<E>
+    // where
+    //     Self: ResultExt<Ok = (), Error = Infallible>,
+    // {
+    //     None
+    // }
 
     fn unwrap_infallible(self) -> Self::Ok
     where

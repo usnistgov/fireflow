@@ -3,8 +3,9 @@ use crate::config::{
     ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::core::{
-    AnyMetarootKeyLossError, AnyOpticalKeyLossError, AnyTemporalKeyLossError, GatingLossError,
-    KeyLossError, PeakLossError, RegionLossError, TimestepLossError,
+    AnyMetarootKeyLossError, AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError,
+    AnyTemporalKeyLossError, AnyTemporalToOpticalKeyLossError, GatingLossError, KeyLossError,
+    NonLinearScaleError, NonUnitGainError, PeakLossError, RegionLossError, TimestepLossError,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
@@ -922,6 +923,45 @@ impl OptOpticalKeyword<'_> {
         };
         Some(ret)
     }
+
+    pub(crate) fn as_temporal_loss_error(&self) -> Option<AnyOpticalToTemporalKeyLossError> {
+        let ret = match self {
+            Self::DetectorName(kw) => KeyLossError(kw.key).into(),
+            Self::Tag(kw) => KeyLossError(kw.key).into(),
+            Self::Analyte(kw) => KeyLossError(kw.key).into(),
+            Self::OpticalType(kw) => KeyLossError(kw.key).into(),
+            Self::Feature(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_1(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_2(kw) => KeyLossError(kw.key).into(),
+            Self::Wavelength(kw) => KeyLossError(kw.key).into(),
+            Self::Wavelengths(kw) => KeyLossError(kw.key).into(),
+            Self::Filter(kw) => KeyLossError(kw.key).into(),
+            Self::DetectorType(kw) => KeyLossError(kw.key).into(),
+            Self::Power(kw) => KeyLossError(kw.key).into(),
+            Self::PercentEmitted(kw) => KeyLossError(kw.key).into(),
+            Self::DetectorVoltage(kw) => KeyLossError(kw.key).into(),
+            // $PnE and $PnG are dealt with here because the temporal structs
+            // don't actually hold anything for scale and gain since these values
+            // are always the same.
+            //
+            // $PnE must always be linear for temporal measurement
+            Self::Scale(kw) => {
+                let i = kw.key.index().into();
+                return (!matches!(kw.value, Scale::Linear))
+                    .then_some(NonLinearScaleError(i).into());
+            }
+            // $PnG must be 1.0 is it exists since temporal measurement does not
+            // have gain
+            Self::Gain(kw) => {
+                let i = kw.key.index().into();
+                return (!kw.value.0.is_one()).then_some(NonUnitGainError(i).into());
+            }
+            // These are shared b/t temporal and optical so cannot result in
+            // loss.
+            Self::Peak(_) | Self::Display(_) | Self::Longname(_) => return None,
+        };
+        Some(ret)
+    }
 }
 
 impl OptTemporalKeyword<'_> {
@@ -944,6 +984,21 @@ impl OptTemporalKeyword<'_> {
             // These are shared b/t all versions so cannot result in loss when
             // converting.
             Self::TemporalScale2_0(_) | Self::Longname(_) => return None,
+        };
+        Some(ret)
+    }
+
+    pub(crate) fn as_optical_loss_error(&self) -> Option<AnyTemporalToOpticalKeyLossError> {
+        let ret = match self {
+            Self::TemporalType(kw) => KeyLossError(kw.key).into(),
+            // These are shared with optical so cannot result in loss. $TIMESTEP
+            // is dealt with separately since it is usually either moved to a
+            // new measurement or returned and thus is not lossy.
+            Self::Display(_)
+            | Self::Peak(_)
+            | Self::Timestep(_)
+            | Self::TemporalScale2_0(_)
+            | Self::Longname(_) => return None,
         };
         Some(ret)
     }

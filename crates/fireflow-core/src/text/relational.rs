@@ -36,8 +36,7 @@ use crate::text::keywords::{
     Trigger, UnstainedCenters,
 };
 use crate::validated::keys::{
-    BiIndex, DollarKey, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
-    StdKey,
+    BiIndex, DollarKey, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
 };
 use crate::validated::shortname::Shortname;
 
@@ -120,9 +119,9 @@ pub enum AnyExistingIndexLinkError {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct ExistingNamedLinkError<T, I> {
-    pub key: SpecificKey<T, I>,
+    pub key: DollarKey<T, I>,
     pub names: NEVec<Shortname>,
 }
 
@@ -134,9 +133,9 @@ pub struct ExistingNamedLinkError<T, I> {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct ExistingIndexedLinkError<T, I> {
-    pub key: SpecificKey<T, I>,
+    pub key: DollarKey<T, I>,
     pub names: NEVec<IndexFromOne>,
 }
 
@@ -237,7 +236,7 @@ pub(crate) type BrokenRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGate
 /// Error when key which references a non-existent optical $PnN or the temporal $PnN
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub enum NamedLinkError<T, I> {
     Optical(OpticalNamedLinkError<T, I>),
     Temporal(TemporalNamedLinkError<T, I>),
@@ -253,10 +252,10 @@ pub enum NamedLinkError<T, I> {
     feature = "python",
     derive(DisplayAsPyErr),
     pyerr(py::RelationalError),
-    bound(SpecificKey<T, I>: Display)
+    bound(DollarKey<T, I>: Display)
 )]
 pub struct OpticalNamedLinkError<T, I> {
-    key: SpecificKey<T, I>,
+    key: DollarKey<T, I>,
     names: NEVec<Shortname>,
 }
 
@@ -266,10 +265,10 @@ pub struct OpticalNamedLinkError<T, I> {
     feature = "python",
     derive(DisplayAsPyErr),
     pyerr(py::RelationalError),
-    bound(SpecificKey<T, I>: Display)
+    bound(DollarKey<T, I>: Display)
 )]
 pub struct TemporalNamedLinkError<T, I> {
-    key: SpecificKey<T, I>,
+    key: DollarKey<T, I>,
     name: Shortname,
 }
 
@@ -295,10 +294,10 @@ pub struct IndexLinkError<T, I> {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct DependentKeyErrorInner<T, I> {
     deps: NEVec<StdKey>,
-    key: SpecificKey<T, I>,
+    key: DollarKey<T, I>,
 }
 
 pub type KeyToNameLinkError<T> = NamedLinkError<T, ()>;
@@ -312,13 +311,13 @@ pub type DependentIndexedKeyError<T> = DependentKeyErrorInner<T, IndexFromOne>;
 
 impl<T> OpticalNamedLinkError<T, ()> {
     pub(crate) fn new_i0(js: NEVec<Shortname>) -> Self {
-        Self::new(SpecificKey::default(), js)
+        Self::new(DollarKey::default(), js)
     }
 }
 
 impl<T> TemporalNamedLinkError<T, ()> {
     pub(crate) fn new_i0(name: Shortname) -> Self {
-        Self::new(SpecificKey::default(), name)
+        Self::new(DollarKey::default(), name)
     }
 }
 
@@ -330,13 +329,13 @@ impl<T> IndexLinkError<T, ()> {
 
 impl<T> DependentKeyError<T> {
     pub(crate) fn new1(deps: NEVec<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::default())
+        Self::new(deps, DollarKey::default())
     }
 }
 
 impl<T> DependentIndexedKeyError<T> {
     pub(crate) fn new2(i: IndexFromOne, deps: NEVec<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::new_i1(i))
+        Self::new(deps, DollarKey::new_i1(i))
     }
 }
 

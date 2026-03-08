@@ -378,9 +378,9 @@ macro_rules! lookup_req {
         match $kws.$fun(&k.as_std_key()) {
             Some(v) => v
                 .parse::<i128>()
-                .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
                 .map_err(ReqKeyErrorInner::from),
-            None => Err(ReqKeyErrorInner::from(MissingKeyError(k))),
+            None => Err(ReqKeyErrorInner::from(MissingKeyError(k.into()))),
         }
     }};
 }
@@ -620,7 +620,7 @@ macro_rules! lookup_opt {
         $kws.$fun(&k.as_std_key())
             .map(|v| {
                 v.parse::<i128>()
-                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
             })
             .transpose()
     }};

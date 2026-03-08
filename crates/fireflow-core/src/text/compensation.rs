@@ -5,7 +5,7 @@ use crate::text::keywords::{Dfc, Par};
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
-use crate::validated::keys::{BiIndex, DKey2, DollarKey, Key2, SpecificKey, StdKeywords};
+use crate::validated::keys::{BiIndex, DKey2, DollarKey, SpecificKey, StdKeywords};
 
 use fireflow_types::nonempty_string::{NEConcat, NEConcat3, NEDelim, ToDisplayNE};
 
@@ -183,7 +183,7 @@ impl Compensation2_0 {
     ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
         self.non_zero_indices().map(|kw| {
             let xs = [kw.col.into(), kw.row.into()].into_nonempty_vec();
-            ExistingIndexedLinkError::new(Key2::new_i2(kw.col, kw.row), xs)
+            ExistingIndexedLinkError::new(DKey2::new_i2(kw.col, kw.row), xs)
         })
     }
 

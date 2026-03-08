@@ -94,7 +94,7 @@ use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
-    DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key0, Key1, NonStdKey, NonStdKeywords,
+    DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key1, NonStdKey, NonStdKeywords,
     NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
@@ -8093,7 +8093,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
             (0..par.0)
                 .map(IndexFromOne::from)
                 .try_into_nonempty_iter()
-                .map(|js| ExistingIndexedLinkError::new(Key0::default(), js.collect()))
+                .map(|js| ExistingIndexedLinkError::new(DKey0::default(), js.collect()))
                 .map(AnyExistingIndexLinkError::from)
         });
         let ag = self

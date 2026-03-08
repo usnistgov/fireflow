@@ -1,6 +1,6 @@
 use crate::config::{ConfigFlag as _, ReadStdKeywordsConfig, TrimIntraValueWhitespace};
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
-use crate::validated::keys::Key0;
+use crate::validated::keys::DKey0;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 
@@ -77,7 +77,7 @@ impl Spillover {
             .filter(|n| names.as_ref().contains(n))
             .cloned()
             .try_into_nonempty_iter();
-        ns.map(|js| ExistingNamedLinkError::new(Key0::default(), js.collect()))
+        ns.map(|js| ExistingNamedLinkError::new(DKey0::default(), js.collect()))
     }
 
     /// Return error if any names in matrix are not in measurement vector

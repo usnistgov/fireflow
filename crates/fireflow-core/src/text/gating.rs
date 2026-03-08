@@ -23,8 +23,7 @@ use crate::text::relational::{
     IndicesToRemove, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
-    AsStdKey as _, DKey1, IndexedKey as _, Key1, NonStdKeywords, NonStdKeywordsExt as _,
-    StdKeywords,
+    AsStdKey as _, DKey1, IndexedKey as _, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
 };
 use fireflow_types::nonempty_string::{DisplayNE as _, ToNE};
 use type_families::{
@@ -701,7 +700,7 @@ impl<I> GatingScheme<I> {
             .filter(|(_, mi)| indices.as_ref().contains(mi))
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi.into());
-                ExistingIndexedLinkError::new(Key1::new_i1(ri), js)
+                ExistingIndexedLinkError::new(DKey1::new_i1(ri), js)
             })
     }
 

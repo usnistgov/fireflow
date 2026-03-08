@@ -4,8 +4,8 @@ use crate::config::{
 };
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
-    AsStdKey, IndexedKey, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey, StdKey,
-    StdKeywords, TruncatedString,
+    AsStdKey, DollarKey, IndexedKey, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
+    StdKey, StdKeywords, TruncatedString,
 };
 
 use super::index::{IndexFromOne, MeasIndex};
@@ -50,7 +50,7 @@ pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, Ind
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Display))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub enum ReqKeyErrorInner<E, T, I> {
     /// Error due to parsing
     Parse(ParseKeyError<E, T, I>),
@@ -67,7 +67,7 @@ pub enum ReqKeyErrorInner<E, T, I> {
 #[cfg_attr(feature = "python", bound(ParseKeyError<E, T, I>: Display))]
 pub struct ParseKeyError<E, T, I> {
     pub error: E,
-    pub key: SpecificKey<T, I>,
+    pub key: DollarKey<T, I>,
     pub value: TruncatedString,
 }
 
@@ -76,8 +76,8 @@ pub struct ParseKeyError<E, T, I> {
 #[error("missing required key: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
-pub struct MissingKeyError<T, I>(pub SpecificKey<T, I>);
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
+pub struct MissingKeyError<T, I>(pub DollarKey<T, I>);
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
 
@@ -255,7 +255,7 @@ pub(crate) trait Required: Sized {
     {
         let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -272,7 +272,7 @@ pub(crate) trait Required: Sized {
     {
         let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(v, data, conf)
-            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -286,7 +286,7 @@ pub(crate) trait Required: Sized {
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -303,7 +303,7 @@ pub(crate) trait Required: Sized {
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(&v, data, conf)
-            .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -316,7 +316,7 @@ pub(crate) trait Required: Sized {
     {
         match kws.get(&k.as_std_key()) {
             Some(v) => Ok(v),
-            None => Err(MissingKeyError(k)),
+            None => Err(MissingKeyError(k.into())),
         }
     }
 
@@ -329,7 +329,7 @@ pub(crate) trait Required: Sized {
     {
         match kws.remove(&k.as_std_key()) {
             Some(v) => Ok(v),
-            None => Err(MissingKeyError(k)),
+            None => Err(MissingKeyError(k.into())),
         }
     }
 }
@@ -349,7 +349,7 @@ pub(crate) trait Optional: Sized {
         kws.get(&k.as_std_key())
             .map(|v| {
                 v.parse()
-                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
             })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -403,7 +403,7 @@ pub(crate) trait Optional: Sized {
         kws.remove(&k.as_std_key())
             .map(|v| {
                 v.parse()
-                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
             })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -424,7 +424,7 @@ pub(crate) trait Optional: Sized {
         kws.remove(&k.as_std_key())
             .map(|v| {
                 Self::from_str_with(v.as_str(), data, conf)
-                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v)))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
             })
             .transpose()
             .map(|x| {

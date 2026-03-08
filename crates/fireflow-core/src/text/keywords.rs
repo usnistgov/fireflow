@@ -38,7 +38,7 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
-    AnyKey, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key0, Key1, Key2,
+    AnyKey, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key1, Key2,
     NonStdKey, NonStdKeywords, PrefixSuffix, SpecificKey, StdKeywords, TruncatedString,
     VersionedKey,
 };
@@ -1422,7 +1422,7 @@ impl Trigger {
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
         let m = &self.measurement;
         (names.as_ref().contains(m))
-            .then(|| ExistingNamedLinkError::new(Key0::default(), NEVec::new(m.clone())))
+            .then(|| ExistingNamedLinkError::new(DKey0::default(), NEVec::new(m.clone())))
     }
 
     pub(crate) fn invalid_link_error(
@@ -3511,7 +3511,7 @@ impl UnstainedCenters {
             .filter(|n| names.as_ref().contains(n))
             .cloned()
             .try_into_nonempty_iter()
-            .map(|js| ExistingNamedLinkError::new(Key0::default(), js.collect()))
+            .map(|js| ExistingNamedLinkError::new(DKey0::default(), js.collect()))
     }
 
     /// Return error if any names in matrix are not in measurement vector
@@ -4310,7 +4310,7 @@ impl Dfc {
     ) -> Result<Option<Self>, LookupDfcError> {
         kws.remove(&k.as_std_key()).map_or(Ok(None), |v| {
             v.parse::<Self>()
-                .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.clone())))
+                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.clone())))
                 .map(Some)
         })
     }

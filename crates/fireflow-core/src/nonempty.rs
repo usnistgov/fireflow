@@ -11,7 +11,7 @@ use serde::Serialize;
 // deciding in favor.
 #[derive(Into, From, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[serde(bound = "T: Serialize + Clone")]
+#[cfg_attr(feature = "serde", serde(bound = "T: Serialize + Clone"))]
 pub struct FcsNEVec<T>(pub NEVec<T>);
 
 #[cfg(feature = "python")]
@@ -22,7 +22,6 @@ mod python {
 
     use nonempty_collections::NEVec;
     use pyo3::prelude::*;
-    use pyo3::types::PyList;
 
     // NOTE this is only used for keywords that cannot be an empty list
     impl<'py, T> FromPyObject<'py> for FcsNEVec<T>
@@ -43,12 +42,12 @@ mod python {
     where
         T: IntoPyObject<'py>,
     {
-        type Target = PyList;
+        type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            PyList::new(py, Vec::from(self.0))
+            Vec::from(self.0).into_pyobject(py)
         }
     }
 }

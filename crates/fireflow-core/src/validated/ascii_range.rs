@@ -51,7 +51,7 @@ pub struct AsciiRangeValue(pub u64);
 /// Width to use when parsing OTHER segments.
 ///
 /// Must be an integer between 8 and 20.
-#[derive(Clone, Copy, Into, PartialEq)]
+#[derive(Clone, Copy, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[into(NonZeroU8, u8, NonZeroUsize)]

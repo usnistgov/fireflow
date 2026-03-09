@@ -3458,6 +3458,20 @@ class TestConfig:
         self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
     @all_versions
+    def test_allow_empty_pairs(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0///"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> int:
+            out = pf.api.fcs_read_flat_text(
+                p, allow_empty_keys=f, delim_escape_mode="unescaped"
+            )
+            return out.flat_diagnostics.primary_split.skipped_pairs
+
+        self._test_tri_flag(go, 1, [pf.FileLayoutError])
+
+    @all_versions
     @pytest.mark.parametrize(
         "text",
         [

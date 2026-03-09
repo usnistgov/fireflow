@@ -1902,6 +1902,7 @@ class SplitTEXTDiagnostics:
         escaped: bool,
         keys_with_blank_values: list[bytes | str],
         values_with_blank_keys: list[bytes | str],
+        skipped_pairs: int,
         tokens_with_boundary_delims: list[bytes | str],
         last_odd_token: bytes | str,
         missing_final_delim: bool,
@@ -1917,6 +1918,8 @@ class SplitTEXTDiagnostics:
     def keys_with_blank_values(self) -> list[bytes | str]: ...
     @property
     def values_with_blank_keys(self) -> list[bytes | str]: ...
+    @property
+    def skipped_pairs(self) -> int: ...
     @property
     def tokens_with_boundary_delims(self) -> list[bytes | str]: ...
     @property

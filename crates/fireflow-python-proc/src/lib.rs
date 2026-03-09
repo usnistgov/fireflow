@@ -1540,6 +1540,13 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.values_with_blank_keys.clone()),
     );
 
+    let skipped_pairs = DocArgROIvar::new_ivar_ro(
+        "skipped_pairs",
+        RsInt::Usize,
+        "Number of key/value pairs that were skipped because both were blank.",
+        |_, _| quote!(self.0.skipped_pairs),
+    );
+
     let tokens_with_boundary_delims = DocArgROIvar::new_ivar_ro(
         "tokens_with_boundary_delims",
         PyList::new1(PyUnion::new_ne_string_or_bytes()),
@@ -1580,6 +1587,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         escaped,
         keys_with_blank_values,
         values_with_blank_keys,
+        skipped_pairs,
         tokens_with_boundary_delims,
         last_odd_token,
         missing_final_delim,

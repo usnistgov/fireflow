@@ -57,6 +57,7 @@ use thiserror::Error;
 
 use std::fs;
 use std::io::{BufReader, Read, Seek};
+use std::num::NonZeroUsize;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -518,6 +519,9 @@ pub struct SplitTEXTDiagnostics {
     /// Values with blank keys.
     pub values_with_blank_keys: Vec<NEStringOrBytes>,
 
+    /// Number of key/value pairs that were skipped because both were blank.
+    pub skipped_pairs: usize,
+
     /// Tokens with delimiters at their boundaries (without the delimiters).
     ///
     /// Only relevant in escaped delimiter mode.
@@ -539,6 +543,7 @@ pub struct SplitTEXTDiagnostics {
 struct SplitTEXTOutputInner {
     keys_with_blank_values: Vec<NEStringOrBytes>,
     values_with_blank_keys: Vec<NEStringOrBytes>,
+    skipped_pairs: usize,
     tokens_with_boundary_delims: Vec<NEStringOrBytes>,
     last_odd_token: StringOrBytes,
     missing_final_delim: bool,
@@ -781,6 +786,7 @@ pub enum ParseSupplementalTEXTError {
 #[derive(Display, From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseKeywordsIssue {
+    BlankPair(BlankPairError),
     BlankKey(BlankKeyError),
     Uneven(UnevenTokensError),
     Final(MissingFinalDelimError),
@@ -826,6 +832,16 @@ pub struct NoTEXTWordsError;
 pub struct BlankKeyError {
     kind: TEXTKind,
     value: NEStringOrBytes,
+}
+
+/// Error when blank key is encountered in TEXT
+#[derive(Debug, Error, new)]
+#[error("there were {n} blank key/value pairs in {kind} TEXT")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct BlankPairError {
+    kind: TEXTKind,
+    n: NonZeroUsize,
 }
 
 /// Error when number of tokens in TEXT is not even
@@ -1362,6 +1378,7 @@ impl SplitTEXTDiagnostics {
             keys_with_blank_values: inner.keys_with_blank_values,
             values_with_blank_keys: inner.values_with_blank_keys,
             tokens_with_boundary_delims: inner.tokens_with_boundary_delims,
+            skipped_pairs: inner.skipped_pairs,
             last_odd_token: inner.last_odd_token,
             missing_final_delim: inner.missing_final_delim,
             has_extra_delim: has_final,
@@ -1382,6 +1399,7 @@ impl SplitTEXTOutputInner {
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
         let mut keys_with_blank_values = vec![];
         let mut values_with_blank_keys = vec![];
+        let mut skipped_pairs = 0;
         let mut insert_results = vec![];
 
         let mut it = bytes.split(|x| *x == delim).peekable();
@@ -1419,9 +1437,10 @@ impl SplitTEXTOutputInner {
             } else if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_token = value;
-                // TODO what if there are two blanks in a row?
                 if let Some(ne_value) = NESlice::try_from_slice(value) {
                     values_with_blank_keys.push(NEStringOrBytes::from(ne_value));
+                } else {
+                    skipped_pairs += 1;
                 }
             } else {
                 // if everything is correct, we should exit here since the
@@ -1467,10 +1486,24 @@ impl SplitTEXTOutputInner {
         .map_switchable_errors(ParseKeywordsIssue::from)
         .switchable_into_commutative();
 
+        let blank_pair_error = NonZeroUsize::new(skipped_pairs).map(|n| BlankPairError::new(tk, n));
+
+        let skipped_res = SwitchableErrorsResult::new_switchable_iter3(
+            (),
+            (),
+            blank_pair_error,
+            // TODO could use a better flag for this, but this error is likely
+            // so rare it won't matter much
+            conf.allow_empty_keys,
+        )
+        .map_switchable_errors(ParseKeywordsIssue::from)
+        .switchable_into_commutative();
+
         let ret = Self {
             keys_with_blank_values,
             values_with_blank_keys,
             tokens_with_boundary_delims: vec![],
+            skipped_pairs,
             last_odd_token,
             missing_final_delim,
         };
@@ -1483,7 +1516,7 @@ impl SplitTEXTOutputInner {
         insert_results
             .into_iter()
             .map(LogResult::into_semigroup)
-            .chain([uneven_res, blank_key_res, final_delim_res])
+            .chain([uneven_res, blank_key_res, skipped_res, final_delim_res])
             .sequence_def_void()
             .set_ok_value(ret)
     }
@@ -1522,7 +1555,6 @@ impl SplitTEXTOutputInner {
         let mut keybuf: Vec<u8> = vec![];
         let mut valuebuf: Vec<u8> = vec![];
 
-        // TODO use ne and enum to verify all states the segments can take
         for segment in bytes.split(|x| *x == delim) {
             if let Some(ne_segment) = NESlice::try_from_slice(segment) {
                 if consec_blanks & 1 == 0 {
@@ -1637,6 +1669,7 @@ impl SplitTEXTOutputInner {
         let ret = Self {
             keys_with_blank_values: vec![],
             values_with_blank_keys: vec![],
+            skipped_pairs: 0,
             tokens_with_boundary_delims,
             last_odd_token,
             missing_final_delim,
@@ -1650,17 +1683,6 @@ impl SplitTEXTOutputInner {
             .set_ok_value(ret)
     }
 }
-
-// impl FlatTEXTDiagnostics {
-//     /// Extract HEADER offset data for use in reading offsets from TEXT
-//     fn non_data_segments(&self) -> NonDataSegments {
-//         let hs = self.header_supp.header.segments.clone();
-//         let supp = self.header_supp.supp_text.as_ref().copied().map(|(c, _)| c);
-//         let ud = self.header_supp.header.uncorrected_segments.data;
-//         let ua = self.header_supp.header.uncorrected_segments.analysis;
-//         NonDataSegments::new(hs, supp, ud, ua)
-//     }
-// }
 
 impl GuessedEscapeMode {
     fn is_escaped(delim: u8, bytes: &[u8], mode: DelimEscapeMode) -> bool {

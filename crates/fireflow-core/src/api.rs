@@ -1519,6 +1519,7 @@ impl SplitTEXTOutputInner {
         let mut keybuf: Vec<u8> = vec![];
         let mut valuebuf: Vec<u8> = vec![];
 
+        // TODO use ne and enum to verify all states the segments can take
         for segment in bytes.split(|x| *x == delim) {
             if segment.is_empty() {
                 consec_blanks += 1;

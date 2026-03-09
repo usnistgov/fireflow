@@ -3150,6 +3150,7 @@ class TestConfig:
                 pf.FileLayoutError,
                 pf.FileLayoutError,
                 pf.FileLayoutError,
+                pf.FileLayoutError,
             ):
                 pf.api.fcs_read_header(p, guess_other_width="none")
         elif other_width in [13, 17, 20]:

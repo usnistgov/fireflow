@@ -18,7 +18,7 @@ use crate::text::keywords::{
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
-use crate::validated::ascii_range::{MAX_CHARS, OtherWidth};
+use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 use crate::validated::ascii_uint::{
     HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
@@ -30,6 +30,7 @@ use crate::validated::keys::{
 use fireflow_types::config::ProcessKeywordFailure;
 use fireflow_types::keywords::Version as KwVersion;
 
+use nonempty_collections::NESlice;
 use type_families::Functor as _;
 
 use derive_more::{Display, From};
@@ -1366,17 +1367,20 @@ impl OtherSegment20 {
             }
             n_valid_bytes += 1;
         }
-        let valid_buf = &buf[0..n_valid_bytes];
 
-        // Exit early if there are only spaces or nulls
-        if valid_buf.iter().all(|&x| x == 0) | valid_buf.iter().all(|&x| x == 32) {
+        // Exit early if there are no valid chars or all bytes are null or space
+        let valid_buf = if let Some(ne) = NESlice::try_from_slice(&buf[0..n_valid_bytes])
+            && !ne.iter().all(|&x| x == 0) | ne.iter().all(|&x| x == 32)
+        {
+            ne
+        } else {
             return LogResult::new_ok(None);
-        }
+        };
 
         // Guess offset width if desired.
         let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
         let width_res = if let Some(guess) = guess_maybe {
-            match Self::guess_other_width(valid_buf, max_other) {
+            match Self::guess_other_width(valid_buf.as_ref(), max_other) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),
                 Err(e) => {
                     let w = hconf.other_width;
@@ -1390,35 +1394,50 @@ impl OtherSegment20 {
         width_res
             .map_errors(HeaderSegmentError::from)
             .and_then_commutative(|width| {
-                let n_valid = valid_buf.len();
-                let w = u8::from(width);
-                let n_segs = n_valid / (usize::from(w) * 2);
-
-                let mut results = vec![];
-
+                let buf_pairs = valid_buf.nonempty_chunks(width.into()).into_iter().tuples();
                 let corrs = hconf
                     .other_corrections
                     .iter()
                     .copied()
-                    .chain(repeat(OffsetCorrection::default()))
-                    .take(hconf.max_other.map_or(n_segs, |x| x.min(n_segs)));
+                    .chain(repeat(OffsetCorrection::default()));
+                let limit = hconf.max_other.unwrap_or(usize::MAX);
+                let mut results = vec![];
 
-                for (i, corr) in corrs.enumerate() {
+                for ((buf0, buf1), corr) in buf_pairs.zip(corrs).take(limit) {
                     let seg_conf = NewSegmentConfig::from_read_config(corr, st);
-                    let uw = usize::from(w);
-                    let i0 = 2 * i * uw;
-                    let i1 = ((2 * i) + 1) * uw;
-                    let i2 = ((2 * i) + 2) * uw;
-                    let buf0 = &buf[i0..i1];
-                    let buf1 = &buf[i1..i2];
-
-                    // If any regions are entirely blank/zero/null, just ignore them
                     let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
                     if !(all_are(0) || all_are(32) || all_are(48)) {
-                        let r = Self::parse_other(buf0, buf1, &seg_conf);
+                        let r = Self::parse_other(buf0.as_ref(), buf1.as_ref(), &seg_conf);
                         results.push(r);
                     }
                 }
+                // let n_valid = valid_buf.len().get();
+                // let w = u8::from(width);
+                // let n_segs = n_valid / (usize::from(w) * 2);
+
+                // let corrs = hconf
+                //     .other_corrections
+                //     .iter()
+                //     .copied()
+                //     .chain(repeat(OffsetCorrection::default()))
+                //     .take(hconf.max_other.map_or(n_segs, |x| x.min(n_segs)));
+
+                // for (i, corr) in corrs.enumerate() {
+                //     let seg_conf = NewSegmentConfig::from_read_config(corr, st);
+                //     let uw = usize::from(w);
+                //     let i0 = 2 * i * uw;
+                //     let i1 = ((2 * i) + 1) * uw;
+                //     let i2 = ((2 * i) + 2) * uw;
+                //     let buf0 = &buf[i0..i1];
+                //     let buf1 = &buf[i1..i2];
+
+                //     // If any regions are entirely blank/zero/null, just ignore them
+                //     let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
+                //     if !(all_are(0) || all_are(32) || all_are(48)) {
+                //         let r = Self::parse_other(buf0, buf1, &seg_conf);
+                //         results.push(r);
+                //     }
+                // }
 
                 results
                     .into_iter()
@@ -1459,8 +1478,6 @@ impl OtherSegment20 {
         xs: &[u8],
         max_other: Option<NonZeroU64>,
     ) -> Result<OtherWidth, GuessOtherWidthError> {
-        const MIN_WIDTH: u8 = 8;
-
         #[cfg(debug_assertions)]
         {
             let cs: Vec<_> = xs.iter().copied().map(CharType::from).collect();
@@ -1487,7 +1504,7 @@ impl OtherSegment20 {
 
         // Iterate through all possible widths and test if the width is
         // compatible with the bytestring.
-        let go = |w| {
+        let go = |w: u8| {
             digit_starts.clear();
             digit_ends.clear();
 
@@ -1586,7 +1603,10 @@ impl OtherSegment20 {
             }
             Some(w)
         };
-        let mut candidates = (MIN_WIDTH..=MAX_CHARS).filter_map(go).peekable();
+        // TODO use NZU8 directly
+        let mut candidates = (MIN_OTHER_WIDTH.get()..=MAX_CHARS.get())
+            .filter_map(go)
+            .peekable();
 
         // TODO for now we are assuming that checking digit boundaries is good
         // enough to figure out what the offset width should be. We could also

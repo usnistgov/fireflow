@@ -5,13 +5,14 @@ use crate::config::{
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
     AsStdKey, DollarKey, IndexedKey, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
-    StdKey, StdKeywords, TruncatedString,
+    StdKey, StdKeywords, TruncatedNEString,
 };
 
 use super::index::{IndexFromOne, MeasIndex};
 
 use derive_more::{Display, From};
 use derive_new::new;
+use fireflow_types::nonempty_string::{NEStr, NEString};
 use thiserror::Error;
 use type_families::{BifunctorOnce, Sibling2, impl_functor_once, impl_kind1, impl_kind2};
 
@@ -68,7 +69,7 @@ pub enum ReqKeyErrorInner<E, T, I> {
 pub struct ParseKeyError<E, T, I> {
     pub error: E,
     pub key: DollarKey<T, I>,
-    pub value: TruncatedString,
+    pub value: TruncatedNEString,
 }
 
 /// An error caused by a required standard key being missing
@@ -81,8 +82,9 @@ pub struct MissingKeyError<T, I>(pub DollarKey<T, I>);
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
 
-pub type Trimmed = Option<String>;
+pub type Trimmed = Option<NEString>;
 
+// TODO this is just like diagnosed keyword
 /// Return value for string converted to native type that has delimiters.
 #[derive(new)]
 pub struct TrimmedKeyword<T> {
@@ -135,14 +137,14 @@ impl<T> DiagnosedKeyword<T, ()> {
 }
 
 impl<T> DiagnosedKeyword<T, Trimmed> {
-    pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, String)>)
+    pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, NEString)>)
     where
         T: Key,
     {
         (self.native, self.diagnostic.map(|t| (T::std(), t)))
     }
 
-    pub(crate) fn into_indexed_pair(self, i: MeasIndex) -> (T, Option<(StdKey, String)>)
+    pub(crate) fn into_indexed_pair(self, i: MeasIndex) -> (T, Option<(StdKey, NEString)>)
     where
         T: IndexedKey,
     {
@@ -151,7 +153,7 @@ impl<T> DiagnosedKeyword<T, Trimmed> {
 }
 
 impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
-    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, String)>)
+    pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, NEString)>)
     where
         T: Key,
     {
@@ -161,7 +163,7 @@ impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
     pub(crate) fn into_opt_indexed_pair(
         self,
         i: IndexFromOne,
-    ) -> (Option<T>, Option<(StdKey, String)>)
+    ) -> (Option<T>, Option<(StdKey, NEString)>)
     where
         T: IndexedKey,
     {
@@ -189,10 +191,10 @@ pub trait FromStrDelim: Sized {
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err>;
 
     fn from_str_delim(
-        s: &str,
+        s: &NEStr,
         trim_whitespace: TrimIntraValueWhitespace,
     ) -> Result<TrimmedKeyword<Self>, Self::Err> {
-        let it = s.split(Self::DELIM);
+        let it = s.as_ref().split(Self::DELIM);
         if trim_whitespace.is_set() {
             let mut was_trimmed = false;
             Self::from_iter(it.map(|x| {
@@ -217,7 +219,7 @@ pub trait FromStrWith: Sized {
     type Diagnostic;
     type Config;
 
-    fn from_str_with(_: &str, _: Self::Payload<'_>, _: &Self::Config) -> FromStrWithResult<Self>;
+    fn from_str_with(_: &NEStr, _: Self::Payload<'_>, _: &Self::Config) -> FromStrWithResult<Self>;
 }
 
 // this won't be necessary once rust gets specialization
@@ -226,15 +228,20 @@ macro_rules! impl_from_str_with_delim {
         impl crate::text::lookup::FromStrWith for $t {
             type Err = $e;
             type Payload<'a> = ();
-            type Diagnostic = Option<String>;
+            type Diagnostic = Option<fireflow_types::nonempty_string::NEString>;
             type Config = crate::config::ReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &str,
+                s: &fireflow_types::nonempty_string::NEStr,
                 (): (),
                 conf: &crate::config::ReadStdKeywordsConfig,
-            ) -> Result<crate::text::lookup::DiagnosedKeyword<Self, Option<String>>, Self::Err>
-            {
+            ) -> Result<
+                crate::text::lookup::DiagnosedKeyword<
+                    Self,
+                    Option<fireflow_types::nonempty_string::NEString>,
+                >,
+                Self::Err,
+            > {
                 Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(|x| x.lift())
             }
         }
@@ -255,7 +262,7 @@ pub(crate) trait Required: Sized {
     {
         let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -271,8 +278,8 @@ pub(crate) trait Required: Sized {
         Self: FromStrWith,
     {
         let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
-        Self::from_str_with(v, data, conf)
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
+        Self::from_str_with(v.as_ne_str(), data, conf)
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -286,7 +293,7 @@ pub(crate) trait Required: Sized {
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
@@ -302,15 +309,15 @@ pub(crate) trait Required: Sized {
         Self: FromStrWith,
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
-        Self::from_str_with(&v, data, conf)
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
+        Self::from_str_with(v.as_ne_str(), data, conf)
+            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
     fn get_req_inner<I>(
         kws: &StdKeywords,
         k: SpecificKey<Self, I>,
-    ) -> Result<&str, MissingKeyError<Self, I>>
+    ) -> Result<&NEString, MissingKeyError<Self, I>>
     where
         SpecificKey<Self, I>: AsStdKey,
     {
@@ -323,7 +330,7 @@ pub(crate) trait Required: Sized {
     fn remove_req_inner<I>(
         kws: &mut StdKeywords,
         k: SpecificKey<Self, I>,
-    ) -> Result<String, MissingKeyError<Self, I>>
+    ) -> Result<NEString, MissingKeyError<Self, I>>
     where
         SpecificKey<Self, I>: AsStdKey,
     {
@@ -349,7 +356,7 @@ pub(crate) trait Optional: Sized {
         kws.get(&k.as_std_key())
             .map(|v| {
                 v.parse()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
             })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -403,7 +410,7 @@ pub(crate) trait Optional: Sized {
         kws.remove(&k.as_std_key())
             .map(|v| {
                 v.parse()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
             })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -423,8 +430,8 @@ pub(crate) trait Optional: Sized {
     {
         kws.remove(&k.as_std_key())
             .map(|v| {
-                Self::from_str_with(v.as_str(), data, conf)
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v)))
+                Self::from_str_with(v.as_ne_str(), data, conf)
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
             })
             .transpose()
             .map(|x| {

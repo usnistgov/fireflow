@@ -8,7 +8,7 @@ use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords
 use crate::validated::timepattern::ParseWithTimePatternError;
 
 use fireflow_types::config::DEFAULT_DATE_FORMAT;
-use fireflow_types::nonempty_string::{NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
+use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -83,12 +83,12 @@ where
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with<'a>(
-        s: &str,
+        s: &NEStr,
         (): (),
         conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
-            pat.parse_str(s)?.into()
+            pat.parse_str(s.as_str())?.into()
         } else {
             s.parse::<T>().map_err(FCSFixedTimeError::Native)?
         };
@@ -270,12 +270,12 @@ impl FromStrWith for FCSDate {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
-        s: &str,
+        s: &NEStr,
         (): (),
         conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pattern) = &conf.date_pattern {
-            Self::parse_with_pattern(s, pattern.as_ref())
+            Self::parse_with_pattern(s.as_str(), pattern.as_ref())
         } else {
             s.parse::<Self>()
         };

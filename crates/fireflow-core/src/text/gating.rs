@@ -934,7 +934,7 @@ impl<I> Region<I> {
         let demote_window = |w: RegionWindow, ns: &mut NonStdKeywords| {
             let k = DKey1::<RegionWindow>::new_i1(ri).as_std_key();
             let v = ToNE(w).to_ne_string();
-            ns.insert_demoted(k, v.to_string());
+            ns.insert_demoted(k, v);
         };
         index_res
             .zip_f2_once(window_res)

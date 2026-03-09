@@ -38,8 +38,9 @@ use crate::validated::header_segments::{
     NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
 };
 use crate::validated::keys::{
-    InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NonStdKey, ParsedKeywords,
-    StdKey, StdKeywords, StdPresent, StringOrBytes, TruncatedBytes, TruncatedString, ValidKeywords,
+    InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
+    ParsedKeywords, StdKey, StdKeywords, StdPresent, StringOrBytes, TruncatedNEString,
+    ValidKeywords,
 };
 
 use fireflow_types::config::DelimEscapeMode;
@@ -446,16 +447,16 @@ pub struct FlatTEXTDiagnostics {
     ///
     /// These have either a non-ASCII key or a non-UTF8 value (or both).
     /// Included here for debugging
-    pub byte_pairs: Vec<(KeyOrBytes, StringOrBytes)>,
+    pub byte_pairs: Vec<(KeyOrBytes, NEStringOrBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, TruncatedString)>,
+    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
 
     /// Nonstandard keys which appear more than once with their values.
-    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedString)>,
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
 
     /// Ignored standard keys with their values
-    pub ignored_standard_keywords: Vec<(StdKey, StringOrBytes)>,
+    pub ignored_standard_keywords: Vec<(StdKey, NEStringOrBytes)>,
 
     /// Keys with empty values as a result of trimming whitespace.
     pub keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
@@ -463,7 +464,7 @@ pub struct FlatTEXTDiagnostics {
     /// Keys with values that are not empty after whitespace was trimmed off.
     ///
     /// Values included here are the original values before trimming.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, StringOrBytes)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, NEStringOrBytes)>,
 
     /// Output from splitting primary TEXT
     pub primary_split: SplitTEXTDiagnostics,
@@ -512,15 +513,15 @@ pub struct SplitTEXTDiagnostics {
     /// Keys that have blank values.
     ///
     /// Only relevant in escaped delimiter mode.
-    pub keys_with_blank_values: Vec<StringOrBytes>,
+    pub keys_with_blank_values: Vec<NEStringOrBytes>,
 
     /// Values with blank keys.
-    pub values_with_blank_keys: Vec<StringOrBytes>,
+    pub values_with_blank_keys: Vec<NEStringOrBytes>,
 
     /// Tokens with delimiters at their boundaries (without the delimiters).
     ///
     /// Only relevant in escaped delimiter mode.
-    pub tokens_with_boundary_delims: Vec<StringOrBytes>,
+    pub tokens_with_boundary_delims: Vec<NEStringOrBytes>,
 
     /// Last token if the number of tokens was odd.
     pub last_odd_token: StringOrBytes,
@@ -532,13 +533,13 @@ pub struct SplitTEXTDiagnostics {
     pub has_extra_delim: bool,
 
     /// Training bytes after TEXT
-    pub trailing_bytes: Vec<u8>,
+    pub trailing_bytes: StringOrBytes,
 }
 
 struct SplitTEXTOutputInner {
-    keys_with_blank_values: Vec<StringOrBytes>,
-    values_with_blank_keys: Vec<StringOrBytes>,
-    tokens_with_boundary_delims: Vec<StringOrBytes>,
+    keys_with_blank_values: Vec<NEStringOrBytes>,
+    values_with_blank_keys: Vec<NEStringOrBytes>,
+    tokens_with_boundary_delims: Vec<NEStringOrBytes>,
     last_odd_token: StringOrBytes,
     missing_final_delim: bool,
 }
@@ -782,7 +783,7 @@ pub enum ParseSupplementalTEXTError {
 pub enum ParseKeywordsIssue {
     BlankKey(BlankKeyError),
     Uneven(UnevenTokensError),
-    Final(FinalDelimError),
+    Final(MissingFinalDelimError),
     EvenFinal(EvenFinalDelimError),
     Insert(KeywordInsertError),
     Bound(DelimBoundError),
@@ -824,7 +825,7 @@ pub struct NoTEXTWordsError;
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct BlankKeyError {
     kind: TEXTKind,
-    value: StringOrBytes,
+    value: NEStringOrBytes,
 }
 
 /// Error when number of tokens in TEXT is not even
@@ -836,15 +837,12 @@ pub struct UnevenTokensError(TEXTKind);
 
 /// Error when final character in TEXT is not a delimiter
 #[derive(Debug, Error, new)]
-#[error(
-    "{kind} TEXT does not end with delim; instead ends with {n}-byte sequence: {bytes}",
-    n = self.bytes.0.len()
-)]
+#[error("{kind} TEXT does not end with delim; instead ends with '{bytes}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct FinalDelimError {
+pub struct MissingFinalDelimError {
     kind: TEXTKind,
-    bytes: TruncatedBytes,
+    bytes: NEStringOrBytes,
 }
 
 /// Error when TEXT ends with even number of delimiters
@@ -868,7 +866,7 @@ pub struct EvenFinalDelimError;
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimBoundError {
     kind: TEXTKind,
-    value: StringOrBytes,
+    value: NEStringOrBytes,
 }
 
 /// Error when delimiter of supplemental TEXT does not match primary TEXT
@@ -1367,7 +1365,7 @@ impl SplitTEXTDiagnostics {
             last_odd_token: inner.last_odd_token,
             missing_final_delim: inner.missing_final_delim,
             has_extra_delim: has_final,
-            trailing_bytes: remainder.to_vec(),
+            trailing_bytes: StringOrBytes::from(remainder.to_vec()),
             escaped,
         })
     }
@@ -1410,7 +1408,7 @@ impl SplitTEXTOutputInner {
                         // delimiter, and the "value" is the blank after the last
                         // delimiter
                         if it.peek().is_some() {
-                            keys_with_blank_values.push(StringOrBytes::from(key.to_vec()));
+                            keys_with_blank_values.push(NEStringOrBytes::from(ne_key));
                         }
                     }
                 } else {
@@ -1421,7 +1419,10 @@ impl SplitTEXTOutputInner {
             } else if let Some(value) = it.next() {
                 prev_was_key = false;
                 prev_token = value;
-                values_with_blank_keys.push(StringOrBytes::from(value.to_vec()));
+                // TODO what if there are two blanks in a row?
+                if let Some(ne_value) = NESlice::try_from_slice(value) {
+                    values_with_blank_keys.push(NEStringOrBytes::from(ne_value));
+                }
             } else {
                 // if everything is correct, we should exit here since the
                 // last token will be the blank slice after the final delim
@@ -1438,14 +1439,16 @@ impl SplitTEXTOutputInner {
                 .switchable_into_commutative();
         let last_odd_token = if uneven_ok {
             StringOrBytes::default()
+        } else if let Some(ne) = NESlice::try_from_slice(prev_token) {
+            StringOrBytes::from(ne.as_ref().to_vec())
         } else {
-            prev_token.to_vec().into()
+            StringOrBytes::default()
         };
 
         // If the last token was not a blank, we did not end on a delimiter.
         let delim_flag = conf.allow_missing_final_delim;
         let final_delim_err = NEVec::try_from_slice(prev_token)
-            .map(|bs| FinalDelimError::new(tk, TruncatedBytes(Vec::from(bs))))
+            .map(|bs| MissingFinalDelimError::new(tk, NEStringOrBytes::from(bs)))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();
         let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
@@ -1521,25 +1524,23 @@ impl SplitTEXTOutputInner {
 
         // TODO use ne and enum to verify all states the segments can take
         for segment in bytes.split(|x| *x == delim) {
-            if segment.is_empty() {
-                consec_blanks += 1;
-            } else {
+            if let Some(ne_segment) = NESlice::try_from_slice(segment) {
                 if consec_blanks & 1 == 0 {
                     if consec_blanks > 0 {
-                        let seg = StringOrBytes::from(segment.to_vec());
+                        let seg = NEStringOrBytes::from(ne_segment);
                         tokens_with_boundary_delims.push(seg);
                     }
                     // Previous number of delimiters is odd, treat this as a token
                     // boundary
-                    if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
-                        let ne_key = NESlice::try_from_slice(&keybuf[..])
-                            .expect("key buffer should not be empty");
-                        push_pair(&ne_key, &ne_val);
-                        keybuf.clear();
-                        valuebuf.clear();
-                        keybuf.extend_from_slice(segment);
-                    } else if !keybuf.is_empty() {
-                        valuebuf.extend_from_slice(segment);
+                    if let Some(ne_key) = NESlice::try_from_slice(&keybuf[..]) {
+                        if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
+                            push_pair(&ne_key, &ne_val);
+                            keybuf.clear();
+                            valuebuf.clear();
+                            keybuf.extend_from_slice(segment);
+                        } else {
+                            valuebuf.extend_from_slice(segment);
+                        }
                     } else {
                         // this should only be reached on first iteration
                         keybuf.extend_from_slice(segment);
@@ -1556,6 +1557,8 @@ impl SplitTEXTOutputInner {
                     }
                 }
                 consec_blanks = 0;
+            } else {
+                consec_blanks += 1;
             }
             lastbuf = segment;
         }
@@ -1581,30 +1584,31 @@ impl SplitTEXTOutputInner {
         let mut even_delim_err = None;
 
         if consec_blanks > 1 {
-            let seg = if valuebuf.is_empty() {
-                keybuf.clone()
-            } else {
-                valuebuf.clone()
-            };
-
             if consec_blanks & 1 == 0 {
                 even_delim_err = Some(EvenFinalDelimError.into());
-            } else {
-                tokens_with_boundary_delims.push(StringOrBytes::from(seg));
+            } else if let Some(seg) =
+                NEVec::try_from_slice(&valuebuf[..]).or(NEVec::try_from_slice(&keybuf[..]))
+            {
+                tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
             }
         }
 
         let (uneven_err, last_odd_token) =
-            if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
-                let ne_key =
-                    NESlice::try_from_slice(&keybuf[..]).expect("key buffer should not be empty");
-                push_pair(&ne_key, &ne_val);
-                (None, None)
+            if let Some(ne_key) = NESlice::try_from_slice(&keybuf[..]) {
+                if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
+                    // both key and value are present, this is the last pair in
+                    // TEXT so push to the end of keywords
+                    push_pair(&ne_key, &ne_val);
+                    (None, StringOrBytes::default())
+                } else {
+                    // Only key is present which means we have an odd number of
+                    // tokens. Scream at user so they will be enlightened.
+                    let last = StringOrBytes::from(ne_key.as_ref().to_vec());
+                    (Some(UnevenTokensError(tk).into()), last)
+                }
             } else {
-                (
-                    Some(UnevenTokensError(tk).into()),
-                    Some(keybuf.clone().into()),
-                )
+                debug_assert!(false, "both buffers should not be empty");
+                (None, StringOrBytes::default())
             };
 
         let uneven_res = LogResult::new_switchable_maybe3((), (), uneven_err, conf.allow_odd)
@@ -1617,7 +1621,7 @@ impl SplitTEXTOutputInner {
         let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
             .switchable_into_commutative();
         let final_delim_err = NEVec::try_from_slice(lastbuf)
-            .map(|bs| FinalDelimError::new(tk, TruncatedBytes(Vec::from(bs))))
+            .map(|bs| MissingFinalDelimError::new(tk, NEStringOrBytes::from(bs)))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();
         let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
@@ -1634,7 +1638,7 @@ impl SplitTEXTOutputInner {
             keys_with_blank_values: vec![],
             values_with_blank_keys: vec![],
             tokens_with_boundary_delims,
-            last_odd_token: last_odd_token.unwrap_or_default(),
+            last_odd_token,
             missing_final_delim,
         };
 
@@ -2112,6 +2116,7 @@ def_summary!(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use fireflow_types::{ne_str, nonempty_string::DisplayableNE as _};
 
     #[test]
     fn split_text_escape() {
@@ -2126,10 +2131,10 @@ mod tests {
         let v = kws
             .std
             .iter()
-            .map(|(k, v)| (k.to_string(), v.clone()))
+            .map(|(k, v)| (k.as_ne_string(), v.as_ref()))
             .next()
             .unwrap();
-        assert_eq!(("$P4F".into(), "700/75 BP".into()), v);
+        assert_eq!((ne_str!("$P4F").to_owned(), "700/75 BP"), v);
         assert!(es.is_empty(), "errors: {es:?}");
         assert!(ws.is_empty(), "warnings: {ws:?}");
     }

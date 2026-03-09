@@ -1906,7 +1906,7 @@ class SplitTEXTDiagnostics:
         last_odd_token: bytes | str,
         missing_final_delim: bool,
         has_extra_delim: bool,
-        trailing_bytes: bytes,
+        trailing_bytes: bytes | str,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1926,7 +1926,7 @@ class SplitTEXTDiagnostics:
     @property
     def has_extra_delim(self) -> bool: ...
     @property
-    def trailing_bytes(self) -> bytes: ...
+    def trailing_bytes(self) -> bytes | str: ...
 
 @final
 class HeaderAndSuppOffsets:

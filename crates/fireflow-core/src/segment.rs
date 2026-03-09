@@ -24,20 +24,20 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
 use crate::validated::keys::{
-    AsStdKey as _, Key, SpecificKey, StdKeywords, StringOrBytes, TruncatedString,
+    AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
 };
 
 use fireflow_types::config::ProcessKeywordFailure;
 use fireflow_types::keywords::Version as KwVersion;
+use fireflow_types::nonempty_string::NESliceExt as _;
 
-use nonempty_collections::{IntoIteratorExt as _, NESlice};
 use type_families::Functor as _;
 
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty_collections::{
-    NEVec,
+    IntoIteratorExt as _, NESlice, NEVec, NonEmptyArrayExt as _,
     iter::{NonEmptyIterator as _, once},
 };
 use num_traits::identities::Zero;
@@ -379,7 +379,7 @@ macro_rules! lookup_req {
         match $kws.$fun(&k.as_std_key()) {
             Some(v) => v
                 .parse::<i128>()
-                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
+                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
                 .map_err(ReqKeyErrorInner::from),
             None => Err(ReqKeyErrorInner::from(MissingKeyError(k.into()))),
         }
@@ -621,7 +621,7 @@ macro_rules! lookup_opt {
         $kws.$fun(&k.as_std_key())
             .map(|v| {
                 v.parse::<i128>()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
             })
             .transpose()
     }};
@@ -1238,7 +1238,7 @@ impl<I: Copy> HeaderSegment<I> {
             // TEXT segment should never be blank
             let allow_blank = !is_text;
             UintSpacePad8::from_bytes(bs, allow_blank).map_err(|error| {
-                let src = StringOrBytes::from(bs.to_vec());
+                let src = NEStringOrBytes::from(bs.into_nonempty_vec());
                 ParseOffsetError::new(error, is_begin, I::REGION, src).into()
             })
         };
@@ -1429,7 +1429,7 @@ impl OtherSegment20 {
     ) -> ErrorsResult<(Self, UncorrectedSegment), (), HeaderSegmentError> {
         let parse_one = |bs: &NESlice<'_, u8>, is_begin| {
             UintSpacePad20::from_bytes(bs.as_ref()).map_err(|error| {
-                let src = StringOrBytes::from(bs.as_ref().to_vec());
+                let src = NEStringOrBytes::from(bs.to_ne_vec());
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, src).into()
             })
         };
@@ -1933,7 +1933,7 @@ pub struct ParseOffsetError {
     error: ParseFixedUintError,
     is_begin: bool,
     location: AnyRegion,
-    src: StringOrBytes,
+    src: NEStringOrBytes,
 }
 
 /// Error when TEXT offsets are overridden using corresponding offsets from HEADER

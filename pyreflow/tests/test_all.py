@@ -3605,20 +3605,20 @@ class TestConfig:
     @pytest.mark.parametrize(
         "delim, extra, errors",
         [
-            (False, b" ", [pf.FileLayoutError, pf.FileLayoutError]),
-            (True, b"", [pf.FileLayoutError]),
-            (True, b" ", [pf.FileLayoutError]),
+            (False, " ", [pf.FileLayoutError, pf.FileLayoutError]),
+            (True, "", [pf.FileLayoutError]),
+            (True, " ", [pf.FileLayoutError]),
         ],
     )
     def test_trim_text_end_extra_blank(
         self,
         version: pt.FCSVersion,
         delim: bool,
-        extra: bytes,
+        extra: str,
         errors: list[type],
         tmp_path: Path,
     ) -> None:
-        xs = (b"/" if delim else b"") + extra
+        xs = (b"/" if delim else b"") + extra.encode()
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/" + xs
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)

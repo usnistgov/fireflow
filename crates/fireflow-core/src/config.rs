@@ -1440,7 +1440,7 @@ impl<C> ReadState<C> {
 pub struct DatasetOffsetError(DatasetOffset, FileLen);
 
 type TemporalOpticalResult = WarningsAndErrorsResult<
-    Vec<(StdKey, String)>,
+    Vec<(StdKey, NEString)>,
     (),
     TemporalHasOpticalKeyError,
     TemporalHasOpticalKeyError,

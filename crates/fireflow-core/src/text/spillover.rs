@@ -10,7 +10,7 @@ use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use fireflow_types::config::SpilloverMeasurementMode;
-use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NEDelim, ToDisplayNE, ToNE};
+use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NEDelim, NEStr, ToDisplayNE, ToNE};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -233,12 +233,12 @@ impl FromStrWith for Spillover {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
-        s: &str,
+        s: &NEStr,
         ordered_names: Self::Payload<'_>,
         conf: &Self::Config,
     ) -> FromStrWithResult<Self> {
         let trim_flag = conf.trim_intra_value_whitespace;
-        let (m, was_trimmed) = GenericSpillover::from_str(s, trim_flag)?;
+        let (m, was_trimmed) = GenericSpillover::from_str(s.as_str(), trim_flag)?;
         let d = was_trimmed.then(|| s.to_owned());
         let use_indices = match conf.spillover_measurement_mode {
             SpilloverMeasurementMode::Guess => m.measurements.iter().all(|x| {
@@ -320,7 +320,7 @@ mod tests {
     use super::*;
     use crate::test::*;
 
-    use fireflow_types::nonempty_string::DisplayableNE as _;
+    use fireflow_types::{ne_str, nonempty_string::DisplayableNE as _};
 
     #[test]
     fn spillover() {
@@ -329,9 +329,12 @@ mod tests {
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
         ];
-        assert_from_to_str_with::<Spillover>("2,X,Y,0,0,0,0", &ns, &conf);
-        assert_from_to_str_with::<Spillover>("3,X,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf);
-        assert_from_to_str_with::<Spillover>("2,X,Y,1.1,1,0,-1.5", &ns, &conf);
+        let v0 = ne_str!("2,X,Y,0,0,0,0");
+        let v1 = ne_str!("3,X,Y,Z,0,0,0,0,0,0,0,0,0");
+        let v2 = ne_str!("2,X,Y,1.1,1,0,-1.5");
+        assert_from_to_str_with::<Spillover>(v0, &ns, &conf);
+        assert_from_to_str_with::<Spillover>(v1, &ns, &conf);
+        assert_from_to_str_with::<Spillover>(v2, &ns, &conf);
     }
 
     #[test]
@@ -344,7 +347,8 @@ mod tests {
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
         ];
-        let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
+        let v = ne_str!("2,1,2,0,0,0,0");
+        let res = Spillover::from_str_with(v, &ns, &conf);
         let spill = res.unwrap().native.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
@@ -359,7 +363,8 @@ mod tests {
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
         ];
-        let res = Spillover::from_str_with("2,1,2,0,0,0,0", &ns, &conf);
+        let v = ne_str!("2,1,2,0,0,0,0");
+        let res = Spillover::from_str_with(v, &ns, &conf);
         let spill = res.unwrap().native.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
@@ -374,7 +379,8 @@ mod tests {
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
         ];
-        assert_from_to_str_with::<Spillover>("2,X,Y,0,0,0,0", &ns, &conf);
+        let v = ne_str!("2,X,Y,0,0,0,0");
+        assert_from_to_str_with::<Spillover>(v, &ns, &conf);
     }
 
     #[test]
@@ -387,7 +393,8 @@ mod tests {
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
         ];
-        let res = Spillover::from_str_with("2, X,  Y , 0, 0,    0, 0", &ns, &conf);
+        let v = ne_str!("2, X,  Y , 0, 0,    0, 0");
+        let res = Spillover::from_str_with(v, &ns, &conf);
         let spill = res.unwrap().native.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
@@ -399,14 +406,16 @@ mod tests {
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
         ];
-        assert!(Spillover::from_str_with("3,Y,Y,Z,0,0,0,0,0,0,0,0,0", &ns, &conf).is_err());
+        let v = ne_str!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0");
+        assert!(Spillover::from_str_with(v, &ns, &conf).is_err());
     }
 
     #[test]
     fn spillover_toosmall() {
         let conf = ReadStdKeywordsConfig::default();
         let ns = [&"potato".parse::<Shortname>().unwrap()];
-        assert!(Spillover::from_str_with("1,potato,0", &ns, &conf).is_err());
+        let v = ne_str!("1,potato,0");
+        assert!(Spillover::from_str_with(v, &ns, &conf).is_err());
     }
 
     #[test]
@@ -417,7 +426,8 @@ mod tests {
             &"padfoot".parse::<Shortname>().unwrap(),
             &"prongs".parse::<Shortname>().unwrap(),
         ];
-        assert!(Spillover::from_str_with("2,moody,padfoot,prongs,0,0,0,0", &ns, &conf).is_err());
+        let v = ne_str!("2,moody,padfoot,prongs,0,0,0,0");
+        assert!(Spillover::from_str_with(v, &ns, &conf).is_err());
     }
 }
 

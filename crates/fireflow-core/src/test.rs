@@ -1,4 +1,4 @@
-use fireflow_types::nonempty_string::DisplayableNE;
+use fireflow_types::nonempty_string::{DisplayableNE, NEStr};
 
 use crate::text::lookup::FromStrWith;
 
@@ -22,7 +22,7 @@ where
 
 /// Assert that ToDisplayNE and FromStrWith are perfect inverses for given input
 pub fn assert_from_to_str_with<T>(
-    s: &str,
+    s: &NEStr,
     payload: <T as FromStrWith>::Payload<'_>,
     conf: &<T as FromStrWith>::Config,
 ) where
@@ -32,7 +32,7 @@ pub fn assert_from_to_str_with<T>(
     match T::from_str_with(s, payload, conf) {
         Ok(x) => {
             let ss = x.native.as_string();
-            assert_eq!(s, ss.as_str());
+            assert_eq!(s.as_str(), ss.as_str());
         }
         Err(e) => panic!("could not parse {s}, got error: {e}"),
     }
@@ -55,7 +55,7 @@ where
 
 /// Assert that ToDisplayNE and FromStr are near-perfect inverses for given input
 pub fn assert_from_to_str_almost_with<T>(
-    s0: &str,
+    s0: &NEStr,
     s1: &str,
     payload: <T as FromStrWith>::Payload<'_>,
     conf: &<T as FromStrWith>::Config,

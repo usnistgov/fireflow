@@ -103,7 +103,7 @@ use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
-use fireflow_types::nonempty_string::{DisplayableNE as _, NEStr, NEString};
+use fireflow_types::nonempty_string::{DisplayableNE as _, NEString};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -1372,7 +1372,7 @@ pub struct StdTEXTDiagnostics {
     /// Keys which do not belong in this version but are valid in another.
     pub other_version: StdKeywords,
     /// $TIMESTEP if it is given but not used.
-    pub timestep: Option<String>,
+    pub timestep: Option<NEString>,
     /// Original $PnN if they are renamed.
     pub original_names: Vec<Option<Shortname>>,
     /// Diagnostic outcomes from fixing $PnE keys.
@@ -1382,12 +1382,12 @@ pub struct StdTEXTDiagnostics {
     /// Original keyword values that were trimmed for whitespace between commas.
     pub trimmed: TrimmedKeywords,
     /// Optical keys that were found in the temporal measurement.
-    pub temporal_optical_pairs: Vec<(StdKey, String)>,
+    pub temporal_optical_pairs: Vec<(StdKey, NEString)>,
     /// $TIMESTEP was missing and was added via config
     pub timestep_added: TimestepAdded,
 }
 
-pub(crate) type TrimmedKeywords = Vec<(StdKey, String)>;
+pub(crate) type TrimmedKeywords = Vec<(StdKey, NEString)>;
 
 impl StdTEXTDiagnostics {
     fn from_extra(
@@ -1416,7 +1416,7 @@ impl StdTEXTDiagnostics {
 pub struct MeasurementDiagnostics {
     scale: Vec<AnyMeasScaleFix>,
     trimmed: TrimmedKeywords,
-    tmp_opt_pairs: Vec<(StdKey, String)>,
+    tmp_opt_pairs: Vec<(StdKey, NEString)>,
     timestep_added: TimestepAdded,
 }
 
@@ -1439,14 +1439,14 @@ pub struct DiagnosedTemporal<M> {
     this: M,
     scale: TemporalScaleFix,
     trimmed: TrimmedKeywords,
-    tmp_opt_pairs: Vec<(StdKey, String)>,
+    tmp_opt_pairs: Vec<(StdKey, NEString)>,
     timestep_added: TimestepAdded,
 }
 
 #[derive(new)]
 struct DiagnosedUnstainedData {
     this: UnstainedData,
-    trimmed: Option<(StdKey, String)>,
+    trimmed: Option<(StdKey, NEString)>,
 }
 
 impl WriteHeaderAndTextConfig<'_> {
@@ -1998,7 +1998,7 @@ impl<T> Temporal<T> {
             .common
             .nonstandard_keywords
             .iter()
-            .filter_map(|(k, v)| NEStr::try_new(v.as_str()).map(|y| NonStdKeyword::new(k, y)))
+            .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
             .map(StdOrNonStdOptMeasKeyword::from);
         self.opt_meas_keywords(i)
             .map(OptMeasKeyword::from)
@@ -2137,7 +2137,7 @@ impl<O> Optical<O> {
             .common
             .nonstandard_keywords
             .iter()
-            .filter_map(|(k, v)| NEStr::try_new(v.as_str()).map(|y| NonStdKeyword::new(k, y)))
+            .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
             .map(StdOrNonStdOptMeasKeyword::from);
         self.opt_indexed_keywords(i)
             .map(StdOrNonStdOptMeasKeyword::from)
@@ -2243,7 +2243,7 @@ where
         let ns = self
             .nonstandard_keywords
             .iter()
-            .filter_map(|(k, v)| NEStr::try_new(v.as_str()).map(|y| NonStdKeyword::new(k, y)))
+            .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
             .map(StdOrNonStdOptRootKeyword::from);
         [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12]
             .into_iter()
@@ -2692,7 +2692,7 @@ where
     /// Read nonstandard key/value pairs for each measurement.
     ///
     /// This includes the time measurement if present.
-    pub fn get_meas_nonstandard(&self) -> Vec<&HashMap<NonStdKey, String>> {
+    pub fn get_meas_nonstandard(&self) -> Vec<&HashMap<NonStdKey, NEString>> {
         self.measurements.iter_common_values().collect()
     }
 
@@ -2701,7 +2701,7 @@ where
     /// This includes the time measurement if present.
     pub fn set_meas_nonstandard(
         &mut self,
-        xs: impl IntoIterator<Item = HashMap<NonStdKey, String>>,
+        xs: impl IntoIterator<Item = HashMap<NonStdKey, NEString>>,
     ) -> Result<(), InputLengthError> {
         self.measurements
             .alter_common_values_zip(xs, |_, y: &mut HashMap<_, _>, x| *y = x)

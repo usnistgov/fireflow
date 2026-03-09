@@ -1118,7 +1118,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let timestep = DocArgROIvar::new_ivar_ro(
         "timestep",
-        PyOpt::new1(PyStr::default()),
+        PyOpt::new1(PyStr::new_ne_str()),
         format!("Unused {TIMESTEP} keyword"),
         |_, _| quote!(self.0.timestep.clone()),
     );
@@ -1146,14 +1146,14 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "trimmed",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::default())),
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_str())),
         "Keywords which had whitespace between commas trimmed.",
         |_, _| quote!(self.0.trimmed.clone()),
     );
 
     let tmp_opt_pairs = DocArgROIvar::new_ivar_ro(
         "temporal_optical_pairs",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::default())),
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_str())),
         "Optical keys that were found in the temporal measurement.",
         |_, _| quote!(self.0.temporal_optical_pairs.clone()),
     );
@@ -1416,7 +1416,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
         PyList::new1(
-            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_string_or_bytes()),
+            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_ne_string_or_bytes()),
         ),
         "Keywords with keys that are not ASCII or values that are not UTF-8.",
         |_, _| quote!(self.0.byte_pairs.clone()),
@@ -1426,7 +1426,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "non_unique_std_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_std_keyword()),
-            PyStr::new_truncated_str().into(),
+            PyStr::new_ne_truncated_str().into(),
         ])),
         format!("Standard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_std_keywords.clone()),
@@ -1436,7 +1436,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "non_unique_nonstd_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_nonstd_keyword()),
-            PyStr::new_truncated_str().into(),
+            PyStr::new_ne_truncated_str().into(),
         ])),
         format!("Nonstandard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_nonstd_keywords.clone()),
@@ -1446,7 +1446,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "ignored_standard_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_std_keyword()),
-            PyUnion::new_string_or_bytes().into(),
+            PyUnion::new_ne_string_or_bytes().into(),
         ])),
         "Standard keys which were ignored by the user.",
         |_, _| quote!(self.0.ignored_standard_keywords.clone()),
@@ -1462,7 +1462,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     let trimmed = DocArgROIvar::new_ivar_ro(
         "keys_with_trimmed_values",
         PyList::new1(
-            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_string_or_bytes()),
+            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_ne_string_or_bytes()),
         ),
         "Keys with values that are not empty after whitespace was trimmed off.",
         |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
@@ -1528,21 +1528,21 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let keys_with_blank_values = DocArgROIvar::new_ivar_ro(
         "keys_with_blank_values",
-        PyList::new1(PyUnion::new_string_or_bytes()),
+        PyList::new1(PyUnion::new_ne_string_or_bytes()),
         "Keys which have blank values (relatively common).",
         |_, _| quote!(self.0.keys_with_blank_values.clone()),
     );
 
     let values_with_blank_keys = DocArgROIvar::new_ivar_ro(
         "values_with_blank_keys",
-        PyList::new1(PyUnion::new_string_or_bytes()),
+        PyList::new1(PyUnion::new_ne_string_or_bytes()),
         "Values which have blank keys (relatively rare).",
         |_, _| quote!(self.0.values_with_blank_keys.clone()),
     );
 
     let tokens_with_boundary_delims = DocArgROIvar::new_ivar_ro(
         "tokens_with_boundary_delims",
-        PyList::new1(PyUnion::new_string_or_bytes()),
+        PyList::new1(PyUnion::new_ne_string_or_bytes()),
         "Tokens (keys or values) which have delimiters at their boundary.",
         |_, _| quote!(self.0.tokens_with_boundary_delims.clone()),
     );
@@ -1570,7 +1570,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let trailing_bytes = DocArgROIvar::new_ivar_ro(
         "trailing_bytes",
-        PyBytes::default(),
+        PyUnion::new_string_or_bytes(),
         format!("Trailing bytes after {TEXT}"),
         |_, _| quote!(self.0.trailing_bytes.clone()),
     );
@@ -6374,8 +6374,8 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
-    fn new_truncated_str() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::TruncatedString);
+    fn new_ne_truncated_str() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
         Self::default().rstype(path)
     }
 
@@ -6418,12 +6418,12 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
-    fn new_non_empty_str() -> Self {
+    fn new_ne_str() -> Self {
         let path: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
-        Self::new_non_empty_str_inner(path)
+        Self::new_ne_str_inner(path)
     }
 
-    fn new_non_empty_str_inner(path: Path) -> Self {
+    fn new_ne_str_inner(path: Path) -> Self {
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
         Self::default().rstype(path).exc(e)
@@ -6504,15 +6504,15 @@ impl<E: From<PyException>> PyDict<E> {
     }
 
     fn new_std_keywords() -> Self {
-        Self::new1(PyStr::new_std_keyword(), PyStr::default())
+        Self::new1(PyStr::new_std_keyword(), PyStr::new_ne_str())
     }
 
     fn new_nonstd_keywords() -> Self {
-        Self::new1(PyStr::new_nonstd_keyword(), PyStr::default())
+        Self::new1(PyStr::new_nonstd_keyword(), PyStr::new_ne_str())
     }
 
     fn new_keywords() -> Self {
-        Self::new1(PyStr::new_non_empty_str(), PyStr::new_non_empty_str())
+        Self::new1(PyStr::new_ne_str(), PyStr::new_ne_str())
     }
 
     fn new_sub_patterns() -> Self {
@@ -6675,13 +6675,13 @@ impl<E> PyOpt<E> {
 impl<E: From<PyException>> PyOpt<E> {
     fn new_scale_fix() -> Self {
         let path = keyword_path("AnyMeasScaleFix");
-        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_scale_fix());
+        let inner = PyTuple::new1(PyStr::new_ne_str()).add(PyLiteral::new_scale_fix());
         Self::new1(inner).rstype(path)
     }
 
     fn new_gate_scale_fix() -> Self {
         let path = keyword_path("ScaleFix");
-        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_gate_scale_fix());
+        let inner = PyTuple::new1(PyStr::new_ne_str()).add(PyLiteral::new_gate_scale_fix());
         Self::new1(inner).rstype(path)
     }
 }
@@ -6903,6 +6903,11 @@ impl<E: From<PyException>> PyUnion<E> {
             ALL_VERSIONS.into_iter().map(PyClass::new_coredataset),
             parse_quote!(PyAnyCoreDataset),
         )
+    }
+
+    fn new_ne_string_or_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::NEStringOrBytes);
+        Self::new2(PyStr::default(), PyBytes::default(), path)
     }
 
     fn new_string_or_bytes() -> Self {
@@ -8916,7 +8921,7 @@ impl DocArgParam {
     fn new_replace_standard_key_values() -> Self {
         Self::new_param(
             "replace_standard_key_values",
-            PyDict::new1(PyStr::new_keystring(), PyStr::new_non_empty_str()),
+            PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str()),
             format!(
                 "Replace values for standard keys in {TEXT} Comparisons are case \
                  insensitive. The leading {DOLLAR_STR} is implied so do not include it."
@@ -8949,7 +8954,7 @@ impl DocArgParam {
     fn new_append_standard_keywords() -> Self {
         Self::new_param(
             "append_standard_keywords",
-            PyDict::new1(PyStr::new_keystring(), PyStr::new_non_empty_str()),
+            PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str()),
             format!(
                 "Append standard key/value pairs to {TEXT}. All keys and values \
                  will be included as they appear here. The leading {DOLLAR_STR} \
@@ -10041,7 +10046,7 @@ impl Kw {
             | Self::Carriertype
             | Self::Locationid
             | Self::UnstainedInfo => PyStr::default().rstype(path).into(),
-            Self::Cyt3_2 => PyStr::new_non_empty_str_inner(path).into(),
+            Self::Cyt3_2 => PyStr::new_ne_str_inner(path).into(),
             Self::Abrt | Self::Lost => PyOpt::new1(PyInt::new_u32().rstype(path)).into(),
             Self::CSVBits | Self::CSTot => PyInt::new_u32().rstype(path).into(),
             Self::Unicode => {

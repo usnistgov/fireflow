@@ -16,6 +16,7 @@ use std::num::{NonZeroU8, NonZeroU32};
 use std::ptr::from_ref;
 use std::slice;
 use std::str::{FromStr, Utf8Error};
+use std::string::FromUtf8Error;
 use std::{borrow::Borrow, num::NonZeroUsize};
 
 use sealed::DisplayNEInner;
@@ -45,11 +46,21 @@ macro_rules! ne_str {
 pub struct NEStr(str);
 
 /// A string which can never be empty.
-#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Default, Display, Into, Debug, AsRef)]
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord, Hash, Display, Into, Debug, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
 #[as_ref(str)]
 pub struct NEString(String);
+
+impl AsRef<NEStr> for NEString {
+    fn as_ref(&self) -> &NEStr {
+        NEStr::new_unchecked(self.0.as_ref())
+    }
+}
+
+/// Like a [`FromUtf8Error`] but for non-empty strings.
+#[derive(Into)]
+pub struct FromNEUtf8Error(FromUtf8Error);
 
 /// Allows a type with [`ToDisplayNE`] to be displayed with [`DisplayNE`].
 #[derive(From)]
@@ -160,7 +171,7 @@ impl ToOwned for NEStr {
 }
 
 // TODO these should be added upstream
-pub trait NESliceExt<'a> {
+pub trait NESliceExt<'a>: Sized {
     type Inner;
 
     /// Convert a borrowed [`NESlice`] to an owned [`NESlice`].
@@ -177,6 +188,15 @@ pub trait NESliceExt<'a> {
     /// Split the last element from the rest.
     #[must_use]
     fn split_last(&'a self) -> (&'a Self::Inner, &'a [Self::Inner]);
+
+    /// Convert to NEVec
+    #[must_use]
+    fn to_ne_vec(&'a self) -> NEVec<Self::Inner>
+    where
+        Self::Inner: Clone,
+    {
+        self.by_ref().into_nonempty_iter().cloned().collect()
+    }
 }
 
 impl<'a, T> NESliceExt<'a> for NESlice<'a, T> {
@@ -316,8 +336,23 @@ impl NEString {
     }
 
     #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.as_ref()
+    }
+
+    #[must_use]
     pub fn as_ne_str(&self) -> &NEStr {
         NEStr::new_unchecked(self.as_ref())
+    }
+
+    pub fn parse<F: FromStr>(&self) -> Result<F, <F as FromStr>::Err> {
+        self.0.parse()
+    }
+
+    /// Like [`String::from_utf8`] but requires a [`NEVec<u8>`].
+    pub fn from_utf8(bytes: NEVec<u8>) -> Result<Self, FromNEUtf8Error> {
+        let s = String::from_utf8(bytes.into()).map_err(FromNEUtf8Error)?;
+        Ok(Self(s))
     }
 
     /// Like [`String::from_utf8_unchecked`] but requires a [`NEVec<u8>`].
@@ -341,6 +376,10 @@ impl NEStr {
         } else {
             Some(Self::new_unchecked(s))
         }
+    }
+
+    pub fn parse<F: FromStr>(&self) -> Result<F, <F as FromStr>::Err> {
+        self.as_ref().parse()
     }
 
     pub fn from_utf8<'a>(bytes: &'a NESlice<u8>) -> Result<&'a Self, Utf8Error> {
@@ -368,6 +407,13 @@ impl NEStr {
         let p: *const str = from_ref(s);
         // SAFETY: NEStr and str have same layout
         unsafe { &*(p as *const Self) }
+    }
+}
+
+impl FromNEUtf8Error {
+    #[must_use]
+    pub fn into_bytes(self) -> NEVec<u8> {
+        NEVec::try_from_vec(self.0.into_bytes()).unwrap()
     }
 }
 

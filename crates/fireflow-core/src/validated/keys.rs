@@ -27,7 +27,7 @@ use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, iter::NonEmptyIterator as _,
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
 };
 use thiserror::Error;
 use unicase::Ascii;
@@ -153,22 +153,22 @@ pub struct ParsedKeywords {
 #[derive(Default)]
 pub struct ParsedKeywordsDiagnostic {
     /// Valid keys with non-UTF8 values.
-    pub keys_with_non_utf8_values: Vec<(AnyKey, TruncatedBytes)>,
+    pub keys_with_non_utf8_values: Vec<(AnyKey, TruncatedNEBytes)>,
 
     /// Valid values with non-ASCII keys.
-    pub values_with_non_ascii_keys: Vec<(TruncatedBytes, TruncatedString)>,
+    pub values_with_non_ascii_keys: Vec<(TruncatedNEBytes, TruncatedNEString)>,
 
     /// Keywords that have invalid bytes in either key or value
-    pub byte_pairs: Vec<(TruncatedBytes, TruncatedBytes)>,
+    pub byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, TruncatedString)>,
+    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
 
     /// Non-standard keys which appear more than once with their values.
-    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedString)>,
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
 
     /// Standard keys which were ignored
-    pub ignored_std_keywords: Vec<(StdKey, StringOrBytes)>,
+    pub ignored_std_keywords: Vec<(StdKey, NEStringOrBytes)>,
 
     /// Keys with empty values.
     ///
@@ -179,7 +179,7 @@ pub struct ParsedKeywordsDiagnostic {
     /// Keys with values that were trimmed
     ///
     /// The value included here is the original value.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, StringOrBytes)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, NEStringOrBytes)>,
 }
 
 /// Either a standard or non-standard key.
@@ -201,7 +201,7 @@ impl<'a> ToDisplayNE<'a> for AnyKey {
     }
 }
 
-pub type StdKeywords = HashMap<StdKey, String>;
+pub type StdKeywords = HashMap<StdKey, NEString>;
 
 /// [`ParsedKeywords`] without the bad stuff
 #[derive(Clone, Default, PartialEq, new)]
@@ -234,7 +234,7 @@ pub(crate) struct KeyMatcher<'a, T> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum KeyOrBytes {
     Ascii(AnyKey),
-    Bytes(TruncatedBytes),
+    Bytes(TruncatedNEBytes),
 }
 
 /// A either a UTF-8 string or a non-UTF-8 byte sequence.
@@ -260,6 +260,73 @@ impl From<Vec<u8>> for StringOrBytes {
         }
     }
 }
+
+/// A either a UTF-8 string or a non-UTF-8 byte sequence (both non-empty).
+#[derive(Clone, Display, PartialEq, Debug, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum NEStringOrBytes {
+    Utf8(TruncatedNEString),
+    Bytes(TruncatedNEBytes),
+}
+
+impl<'a> From<NESlice<'a, u8>> for NEStringOrBytes {
+    fn from(value: NESlice<'a, u8>) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl<'a> From<&NESlice<'a, u8>> for NEStringOrBytes {
+    fn from(value: &NESlice<'a, u8>) -> Self {
+        Self::from(value.to_ne_vec())
+    }
+}
+
+impl From<NEVec<u8>> for NEStringOrBytes {
+    fn from(value: NEVec<u8>) -> Self {
+        match NEString::from_utf8(value) {
+            Ok(s) => Self::Utf8(TruncatedNEString(s)),
+            Err(e) => Self::Bytes(TruncatedNEBytes(e.into_bytes())),
+        }
+    }
+}
+
+/// A [`Vec<u8>`] optimized for displaying in errors.
+#[derive(Clone, From, PartialEq, Debug, Display)]
+#[display("{}", trunc_bytes(self.0.as_ref()))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedBytes(pub Vec<u8>);
+
+/// A [`NEVec<u8>`] optimized for displaying in errors.
+#[derive(Clone, From, PartialEq, Debug, Display)]
+#[display("{}", trunc_bytes(self.0.as_ref()))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedNEBytes(pub NEVec<u8>);
+
+impl<'a> From<NESlice<'a, u8>> for TruncatedNEBytes {
+    fn from(value: NESlice<'a, u8>) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl<'a> From<&NESlice<'a, u8>> for TruncatedNEBytes {
+    fn from(value: &NESlice<'a, u8>) -> Self {
+        Self::from(value.to_ne_vec())
+    }
+}
+
+/// A normal [`String`] that will be shortened when displaying if too long.
+#[derive(Clone, From, PartialEq, Debug, Default)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedString(pub String);
+
+/// A normal [`NEString`] that will be shortened when displaying if too long.
+#[derive(Clone, From, PartialEq, Debug)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedNEString(pub NEString);
 
 /// An FCS key with a specific version;
 // TODO const_trait_impl will be able to clean this up once stable
@@ -616,7 +683,7 @@ impl<T: BiIndexedKey> fmt::Display for Key2<T> {
     }
 }
 
-pub type NonStdKeywords = HashMap<NonStdKey, String>;
+pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
 
 #[derive(From, Delegate)]
 #[delegate(AsStdKeywordPair)]
@@ -626,11 +693,11 @@ pub(crate) enum StdOptKeyword<'a> {
 }
 
 pub(crate) trait NonStdKeywordsExt {
-    fn insert_demoted(&mut self, key: StdKey, value: String);
+    fn insert_demoted(&mut self, key: StdKey, value: NEString);
 
     fn insert_demoted_keyword(&mut self, keyword: StdOptKeyword<'_>) {
         let (k, v) = keyword.as_std_key_pair();
-        self.insert_demoted(k, v.to_string());
+        self.insert_demoted(k, v);
     }
 
     fn insert_demoted_keyword_opt(&mut self, keyword: Option<StdOptKeyword<'_>>) {
@@ -647,7 +714,7 @@ pub(crate) trait NonStdKeywordsExt {
 }
 
 impl NonStdKeywordsExt for NonStdKeywords {
-    fn insert_demoted(&mut self, key: StdKey, value: String) {
+    fn insert_demoted(&mut self, key: StdKey, value: NEString) {
         let mut k = NonStdKey(key.0);
         while self.contains_key(&k) {
             k.0.disambiguate();
@@ -691,7 +758,7 @@ impl Serialize for KeyString {
     where
         S: serde::Serializer,
     {
-        self.as_ref().serialize(serializer)
+        AsRef::<str>::as_ref(self).serialize(serializer)
     }
 }
 
@@ -846,12 +913,12 @@ impl ParsedKeywords {
         }
 
         enum KeyValueResult<'a> {
-            Ignore(StdKey, StringOrBytes),
+            Ignore(StdKey, NEStringOrBytes),
             Empty(KeyOrBytes, DummyTriFlag),
             NonEmpty(AnyKey, Cow<'a, NEStr>, bool),
-            NonUtf8Value(AnyKey, TruncatedBytes),
-            NonAsciiKey(TruncatedBytes, TruncatedString, bool),
-            BothInvalid(TruncatedBytes, TruncatedBytes),
+            NonUtf8Value(AnyKey, TruncatedNEBytes),
+            NonAsciiKey(TruncatedNEBytes, TruncatedNEString, bool),
+            BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
         }
 
         let to_std = conf.promote_to_standard.as_matcher();
@@ -910,7 +977,7 @@ impl ParsedKeywords {
             if is_std {
                 // Standard key: starts with '$' and is ASCII
                 if ignore.is_match(&kstr) {
-                    KeyValueResult::Ignore(StdKey(kstr), StringOrBytes::from(val.as_ref().to_vec()))
+                    KeyValueResult::Ignore(StdKey(kstr), NEStringOrBytes::from(val))
                 } else {
                     let ak = AnyKey::Std(StdKey(kstr));
                     if let Some(trim_res) = parse_value() {
@@ -921,7 +988,7 @@ impl ParsedKeywords {
                             }
                         }
                     } else {
-                        KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.as_ref().to_vec()))
+                        KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                     }
                 }
             } else {
@@ -935,31 +1002,31 @@ impl ParsedKeywords {
                         }
                     }
                 } else {
-                    KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.as_ref().to_vec()))
+                    KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                 }
             }
         } else {
             // Non-ascii key with possibly non-Utf-8 value
-            let kbytes = TruncatedBytes(key.as_ref().to_vec());
+            let kbytes = TruncatedNEBytes::from(key);
             if let Some(trim_res) = parse_value() {
                 match trim_res {
                     TrimResult::Empty(flag) => {
                         KeyValueResult::Empty(KeyOrBytes::from(kbytes), flag)
                     }
                     TrimResult::Trimmed(value, was_trimmed) => {
-                        let tv = String::from(value.into_owned()).into();
+                        let tv = value.into_owned().into();
                         KeyValueResult::NonAsciiKey(kbytes, tv, was_trimmed)
                     }
                 }
             } else {
-                KeyValueResult::BothInvalid(kbytes, val.as_ref().to_vec().into())
+                KeyValueResult::BothInvalid(kbytes, val.into())
             }
         };
 
         match kv_res {
             KeyValueResult::NonEmpty(k, v, was_trimmed) => {
                 if was_trimmed {
-                    let vo = StringOrBytes::from(TruncatedString(v.as_ref().to_string()));
+                    let vo = NEStringOrBytes::from(TruncatedNEString(v.clone().into_owned()));
                     let pair = (k.clone().into(), vo);
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
@@ -1003,7 +1070,7 @@ impl ParsedKeywords {
             }
             KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
                 if was_trimmed {
-                    let vo = StringOrBytes::from(v.clone());
+                    let vo = NEStringOrBytes::from(v.clone());
                     let pair = (k.clone().into(), vo);
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
@@ -1056,8 +1123,8 @@ impl ParsedKeywords {
     }
 
     fn insert_nonunique<K>(
-        kws: &mut HashMap<K, String>,
-        nonunique: &mut Vec<(K, TruncatedString)>,
+        kws: &mut HashMap<K, NEString>,
+        nonunique: &mut Vec<(K, TruncatedNEString)>,
         k: K,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
@@ -1074,7 +1141,7 @@ impl ParsedKeywords {
                     key: key.clone(),
                     value: value.clone(),
                 };
-                nonunique.push((key, TruncatedString(value.into())));
+                nonunique.push((key, TruncatedNEString(value)));
                 LogResult::new_deferred_switchable3((), err.into(), flag)
                     .switchable_into_non_commutative()
             }
@@ -1082,8 +1149,8 @@ impl ParsedKeywords {
                 let v = conf
                     .replace_standard_key_values
                     .get(ent.key().as_ref())
-                    .map(ToString::to_string)
-                    .unwrap_or(value.into());
+                    .cloned()
+                    .unwrap_or(value);
                 ent.insert(v);
                 LogResult::new_ok(())
             }
@@ -1101,11 +1168,11 @@ impl ParsedKeywords {
                 Entry::Occupied(e) => {
                     self.diag
                         .non_unique_std_keywords
-                        .push((StdKey(k.clone()), TruncatedString(v.clone().into())));
+                        .push((StdKey(k.clone()), TruncatedNEString(v.clone())));
                     Some(KeyPresent::new(e.key().clone(), v.clone()))
                 }
                 Entry::Vacant(e) => {
-                    e.insert(v.clone().into());
+                    e.insert(v.clone());
                     None
                 }
             });
@@ -1172,7 +1239,7 @@ impl ParsedKeywordsDiagnostic {
             ($field:ident) => {
                 self.$field
                     .into_iter()
-                    .map(|(k, v)| (KeyOrBytes::from(k), StringOrBytes::from(v)))
+                    .map(|(k, v)| (KeyOrBytes::from(k), NEStringOrBytes::from(v)))
             };
         }
 
@@ -1305,8 +1372,8 @@ pub enum InvalidKeywordCharsError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonAsciiOrUtf8KeywordError {
-    key: TruncatedBytes,
-    value: TruncatedBytes,
+    key: TruncatedNEBytes,
+    value: TruncatedNEBytes,
 }
 
 /// Error when key is not ASCII
@@ -1315,8 +1382,8 @@ pub struct NonAsciiOrUtf8KeywordError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonAsciiKeyError {
-    key: TruncatedBytes,
-    value: TruncatedString,
+    key: TruncatedNEBytes,
+    value: TruncatedNEString,
 }
 
 /// Error when value is not Utf8
@@ -1326,72 +1393,146 @@ pub struct NonAsciiKeyError {
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonUtf8ValueError {
     key: AnyKey,
-    value: TruncatedBytes,
+    value: TruncatedNEBytes,
 }
 
-// TODO use NEVec for this
-/// A [`Vec<u8>`] optimized for displaying in errors.
-#[derive(Clone, From, PartialEq, Debug)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TruncatedBytes(pub Vec<u8>);
+// impl fmt::Display for TruncatedBytes {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         let mut s = String::new();
+//         for (i, &x) in self.0.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
+//             // Display all 'easy' control characters with escaped
+//             // representation, display all printable chars as quoted characters,
+//             // and display the rest as plain numbers
+//             match x {
+//                 0 => s.push_str("\\0"),
+//                 7 => s.push_str("\\a"),
+//                 8 => s.push_str("\\b"),
+//                 9 => s.push_str("\\t"),
+//                 10 => s.push_str("\\n"),
+//                 11 => s.push_str("\\v"),
+//                 12 => s.push_str("\\f"),
+//                 13 => s.push_str("\\r"),
+//                 27 => s.push_str("\\e"),
+//                 c => {
+//                     if (32..=127).contains(&c) {
+//                         s.push('\'');
+//                         s.push(char::from(c));
+//                         s.push('\'');
+//                     } else {
+//                         let n = c.to_string();
+//                         s.push_str(n.as_str());
+//                     }
+//                 }
+//             }
+//             if i + 1 < TRUNCATED_BYTES_LIMIT {
+//                 s.push(',');
+//             }
+//         }
+//         if self.0.len() > TRUNCATED_BYTES_LIMIT {
+//             write!(f, "[{s},...]")
+//         } else {
+//             write!(f, "[{s}]")
+//         }
+//     }
+// }
 
-impl fmt::Display for TruncatedBytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let mut s = String::new();
-        for (i, &x) in self.0.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
-            // Display all 'easy' control characters with escaped
-            // representation, display all printable chars as quoted characters,
-            // and display the rest as plain numbers
-            match x {
-                0 => s.push_str("\\0"),
-                7 => s.push_str("\\a"),
-                8 => s.push_str("\\b"),
-                9 => s.push_str("\\t"),
-                10 => s.push_str("\\n"),
-                11 => s.push_str("\\v"),
-                12 => s.push_str("\\f"),
-                13 => s.push_str("\\r"),
-                27 => s.push_str("\\e"),
-                c => {
-                    if (32..=127).contains(&c) {
-                        s.push('\'');
-                        s.push(char::from(c));
-                        s.push('\'');
-                    } else {
-                        let n = c.to_string();
-                        s.push_str(n.as_str());
-                    }
+fn trunc_bytes(xs: &[u8]) -> String {
+    let mut s = String::new();
+    for (i, &x) in xs.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
+        // Display all 'easy' control characters with escaped
+        // representation, display all printable chars as quoted characters,
+        // and display the rest as plain numbers
+        match x {
+            0 => s.push_str("\\0"),
+            7 => s.push_str("\\a"),
+            8 => s.push_str("\\b"),
+            9 => s.push_str("\\t"),
+            10 => s.push_str("\\n"),
+            11 => s.push_str("\\v"),
+            12 => s.push_str("\\f"),
+            13 => s.push_str("\\r"),
+            27 => s.push_str("\\e"),
+            c => {
+                if (32..=127).contains(&c) {
+                    s.push('\'');
+                    s.push(char::from(c));
+                    s.push('\'');
+                } else {
+                    let n = c.to_string();
+                    s.push_str(n.as_str());
                 }
             }
-            if i + 1 < TRUNCATED_BYTES_LIMIT {
-                s.push(',');
-            }
         }
-        if self.0.len() > TRUNCATED_BYTES_LIMIT {
-            write!(f, "[{s},...]")
-        } else {
-            write!(f, "[{s}]")
+        if i + 1 < TRUNCATED_BYTES_LIMIT {
+            s.push(',');
         }
+    }
+    if xs.len() > TRUNCATED_BYTES_LIMIT {
+        format!("[{s},...]")
+    } else {
+        format!("[{s}]")
     }
 }
 
-// TODO make this a nonempty string
-/// A normal [`String`] that will be shortened when displaying if too long.
-#[derive(Clone, From, PartialEq, Debug, Default)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TruncatedString(pub String);
+// impl fmt::Display for TruncatedNEBytes {
+//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+//         let mut s = String::new();
+//         for (i, &x) in self.0.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
+//             // Display all 'easy' control characters with escaped
+//             // representation, display all printable chars as quoted characters,
+//             // and display the rest as plain numbers
+//             match x {
+//                 0 => s.push_str("\\0"),
+//                 7 => s.push_str("\\a"),
+//                 8 => s.push_str("\\b"),
+//                 9 => s.push_str("\\t"),
+//                 10 => s.push_str("\\n"),
+//                 11 => s.push_str("\\v"),
+//                 12 => s.push_str("\\f"),
+//                 13 => s.push_str("\\r"),
+//                 27 => s.push_str("\\e"),
+//                 c => {
+//                     if (32..=127).contains(&c) {
+//                         s.push('\'');
+//                         s.push(char::from(c));
+//                         s.push('\'');
+//                     } else {
+//                         let n = c.to_string();
+//                         s.push_str(n.as_str());
+//                     }
+//                 }
+//             }
+//             if i + 1 < TRUNCATED_BYTES_LIMIT {
+//                 s.push(',');
+//             }
+//         }
+//         if self.0.len().get() > TRUNCATED_BYTES_LIMIT {
+//             write!(f, "[{s},...]")
+//         } else {
+//             write!(f, "[{s}]")
+//         }
+//     }
+// }
 
 impl fmt::Display for TruncatedString {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.0.chars().count();
-        if n > TRUNCATED_STR_LIMIT {
-            let s: String = self.0.chars().take(n).collect();
-            write!(f, "{s}…(more)")
-        } else {
-            write!(f, "{}", self.0)
-        }
+        fmt_trunc_str(self.0.as_ref(), f)
+    }
+}
+
+impl fmt::Display for TruncatedNEString {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        fmt_trunc_str(self.0.as_ref(), f)
+    }
+}
+
+fn fmt_trunc_str(s: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    let n = s.chars().count();
+    if n > TRUNCATED_STR_LIMIT {
+        let t: String = s.chars().take(n).collect();
+        write!(f, "{t}…(more)")
+    } else {
+        write!(f, "{s}")
     }
 }
 
@@ -1429,11 +1570,12 @@ const STD_PREFIX: u8 = 36; // '$'
 
 #[cfg(feature = "serde")]
 mod serialize {
+    use fireflow_types::nonempty_string::NEString;
     use serde::Serialize;
     use std::collections::{BTreeMap, HashMap};
 
     pub fn ordered_map<K: Serialize + Clone + Ord, S>(
-        value: &HashMap<K, String>,
+        value: &HashMap<K, NEString>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -1545,5 +1687,35 @@ mod tests {
         let s = "";
         let k = s.parse::<NonStdKey>();
         assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::TruncatedNEBytes;
+
+    use nonempty_collections::NEVec;
+
+    use pyo3::{exceptions::PyValueError, prelude::*};
+
+    impl<'py> FromPyObject<'py> for TruncatedNEBytes {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let xs = ob.extract::<Vec<_>>()?;
+            if let Some(ne) = NEVec::try_from_vec(xs) {
+                Ok(Self(ne))
+            } else {
+                Err(PyValueError::new_err("bytes must be non-empty"))
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TruncatedNEBytes {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            Vec::from(self.0).into_pyobject(py)
+        }
     }
 }

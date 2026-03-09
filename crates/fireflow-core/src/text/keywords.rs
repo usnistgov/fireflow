@@ -39,7 +39,7 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
     AnyKey, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key1, Key2,
-    NonStdKey, NonStdKeywords, PrefixSuffix, SpecificKey, StdKeywords, TruncatedString,
+    NonStdKey, NonStdKeywords, PrefixSuffix, SpecificKey, StdKeywords, TruncatedNEString,
     VersionedKey,
 };
 use crate::validated::keys::{AsStdKey, NonStdKeywordsExt as _, StdKey};
@@ -1031,7 +1031,7 @@ impl Nextdata {
         } else {
             let ret = kws
                 .get(&k.as_std_key())
-                .and_then(|v| Self::from_str_with(v, (), conf).ok())
+                .and_then(|v| Self::from_str_with(v.as_ne_str(), (), conf).ok())
                 .map(|x| x.native);
             LogResult::new_ok(ret)
         }
@@ -1065,7 +1065,7 @@ impl FromStrWith for Nextdata {
     type Diagnostic = ();
     type Config = ReadHeaderAndTEXTConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let corr = i128::from(conf.nextdata_correction);
         let x = s.parse::<i128>()?;
         let y = x.saturating_add(corr);
@@ -1124,7 +1124,7 @@ impl ToDisplayNE<'_> for Scale {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalScaleFix {
     /// Was forced to be linear (which overrides everything else)
-    Forced(String),
+    Forced(NEString),
     /// Fixes shared with $Gn* keywords
     Inner(ScaleFix),
 }
@@ -1143,11 +1143,11 @@ pub enum ScaleFix {
     #[default]
     None,
     /// Whitespace was trimmed
-    Trimmed(String),
+    Trimmed(NEString),
     /// Zero log offset was corrected
-    LogFixed(String),
+    LogFixed(NEString),
     /// Trimmed and zero log offset was corrected
-    TrimmedLogFixed(String),
+    TrimmedLogFixed(NEString),
 }
 
 #[derive(Clone, Copy, PartialEq, Debug, new)]
@@ -1170,7 +1170,7 @@ impl Scale {
     }
 
     fn parse_fix_maybe(
-        s: &str,
+        s: &NEStr,
         conf: &ReadStdKeywordsConfig,
     ) -> Result<DiagnosedKeyword<Self, ScaleFix>, ScaleError> {
         let go = |x: TrimmedKeyword<_>| {
@@ -1224,7 +1224,7 @@ impl FromStrWith for Scale {
     type Diagnostic = OpticalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
         if (matches!(conf.force_linear_scale, ForceLinearScale::AllNonInt)
             && !matches!(dt, AlphaNumType::Integer))
             || matches!(conf.force_linear_scale, ForceLinearScale::All)
@@ -1829,8 +1829,8 @@ impl ToDisplayNE<'_> for TemporalScaleInner {
 pub enum TemporalScaleFix {
     #[default]
     None,
-    Forced(String),
-    Trimmed(String),
+    Forced(NEString),
+    Trimmed(NEString),
 }
 
 #[derive(From, Clone, PartialEq)]
@@ -1871,7 +1871,7 @@ impl FromStrWith for TemporalScale3_0 {
     type Diagnostic = TemporalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if conf.force_linear_scale.time_selected() {
             let d = TemporalScaleFix::Forced(s.to_owned());
             Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
@@ -2199,14 +2199,14 @@ impl FromStrWith for LastModified {
     type Diagnostic = ();
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if let Some(pat) = conf.last_modified_pattern.as_ref() {
-            return NaiveDateTime::parse_from_str(s, pat.as_str())
+            return NaiveDateTime::parse_from_str(s.as_ref(), pat.as_str())
                 .map(Self)
                 .map(DiagnosedKeyword::new1)
                 .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
         }
-        let mut it = s.split('.');
+        let mut it = s.as_ref().split('.');
         let (t, cc) = match (it.by_ref().next(), it.by_ref().next(), it.next()) {
             (Some(t), None, None) => (t, ""),
             (Some(t), Some(cc), None) => (t, cc),
@@ -2271,7 +2271,7 @@ impl FromStrWith for Compensation3_0 {
     type Diagnostic = Trimmed;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
@@ -2500,7 +2500,11 @@ impl FromStr for Feature {
         };
         // throw away diagnostic flag here since this is only for python
         // conversion
-        Self::from_str_with(s, (), &conf).map(|x| x.native)
+        if let Some(ne) = NEStr::try_new(s) {
+            Self::from_str_with(ne, (), &conf).map(|x| x.native)
+        } else {
+            Err(FeatureError::Other)
+        }
     }
 }
 
@@ -2510,7 +2514,7 @@ impl FromStrWith for Feature {
     type Diagnostic = bool;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         match s.parse::<OpticalFeature>() {
             Ok(f) => Ok(DiagnosedKeyword::new(Self::Optical(f), false)),
             Err(e) => {
@@ -2616,7 +2620,7 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Diagnostic = Trimmed;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
@@ -2822,16 +2826,20 @@ impl<'a> ToDisplayNE<'a> for UniGate {
     }
 }
 
-impl FromStrDelim for RegionWindow {
+impl FromStrWith for RegionWindow {
     type Err = RegionWindowError;
-    const DELIM: char = ';';
+    type Payload<'a> = ();
+    type Diagnostic = Trimmed;
+    type Config = ReadStdKeywordsConfig;
 
-    fn from_str_delim(
-        s: &str,
-        trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<TrimmedKeyword<Self>, Self::Err> {
-        let it = s.split(Self::DELIM);
-        if trim_whitespace.is_set() {
+    fn from_str_with(
+        s: &NEStr,
+        (): Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> FromStrWithResult<Self> {
+        let it = s.as_ref().split(';');
+        let flag = conf.trim_intra_value_whitespace;
+        if flag.is_set() {
             let mut was_trimmed = false;
             Self::from_iter_inner(
                 s,
@@ -2840,51 +2848,44 @@ impl FromStrDelim for RegionWindow {
                     was_trimmed = was_trimmed || y.len() < x.len();
                     y
                 }),
-                trim_whitespace,
+                flag,
             )
             .map(|x| {
-                let d = (x.trimmed.is_some() || was_trimmed).then(|| s.to_owned());
-                TrimmedKeyword::new(x.native, d)
+                let d = (x.diagnostic.is_some() || was_trimmed).then(|| s.to_owned());
+                DiagnosedKeyword::new(x.native, d)
             })
         } else {
             Self::from_iter_inner(s, it, false.into())
         }
     }
-
-    // TODO this function should never be used, it normally is supposed to be
-    // called by Self::from_str_delim but it is overridden above to get the
-    // nested behavior to work
-    #[allow(clippy::unimplemented)]
-    fn from_iter<'a>(_: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        unimplemented!()
-    }
 }
-
-impl_from_str_with_delim!(RegionWindow, RegionWindowError);
 
 impl RegionWindow {
     fn from_iter_inner<'a>(
-        original: &str,
+        original: &NEStr,
         ss: impl Iterator<Item = &'a str>,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<TrimmedKeyword<Self>, RegionWindowError> {
+    ) -> Result<DiagnosedKeyword<Self, Trimmed>, RegionWindowError> {
         let mut it = ss.peekable();
         if let Some(head) = it.next() {
+            let ne_head = NEStr::try_new(head).ok_or(RegionWindowError::Format)?;
             if it.by_ref().peek().is_none() {
-                UniGate::from_str_delim(head, trim_whitespace)
+                UniGate::from_str_delim(ne_head, trim_whitespace)
                     .map(|x| x.fmap_once(RegionWindow::Univariate))
+                    .map(|x| DiagnosedKeyword::new(x.native, x.trimmed))
             } else {
                 let mut was_trimmed = false;
                 let ys = once(head)
                     .chain(it)
                     .map(|x| {
-                        let y = Vertex::from_str_delim(x, trim_whitespace)?;
+                        let ne = NEStr::try_new(x).ok_or(RegionWindowError::Format)?;
+                        let y = Vertex::from_str_delim(ne, trim_whitespace)?;
                         was_trimmed = was_trimmed || y.trimmed.is_some();
                         Ok(y.native)
                     })
                     .collect::<Result<_, _>>()?;
                 let d = was_trimmed.then(|| original.to_owned());
-                Ok(TrimmedKeyword::new(Self::Bivariate(ys), d))
+                Ok(DiagnosedKeyword::new(Self::Bivariate(ys), d))
             }
         } else {
             // this will happen if the input string is empty
@@ -3404,7 +3405,7 @@ impl FromStrWith for GateScale {
     type Diagnostic = ScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         // use the same fix we use for PnE here
         Scale::parse_fix_maybe(s, conf).map(|x| x.first_once(Self))
     }
@@ -3585,7 +3586,7 @@ pub struct ExtraStdKeywords {
     pub hyper_par: StdKeywords,
     pub hyper_gate: StdKeywords,
     pub other_version: StdKeywords,
-    pub timestep: Option<String>,
+    pub timestep: Option<NEString>,
 }
 
 pub(crate) enum ExtraKeywordClass {
@@ -4246,7 +4247,7 @@ impl FromStrWith for TemporalScale2_0 {
     type Diagnostic = TemporalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let go = |x| Self(OptionalZST(Some(x)));
         if conf.force_linear_scale.time_selected() {
             let d = TemporalScaleFix::Forced(s.to_owned());
@@ -4310,7 +4311,7 @@ impl Dfc {
     ) -> Result<Option<Self>, LookupDfcError> {
         kws.remove(&k.as_std_key()).map_or(Ok(None), |v| {
             v.parse::<Self>()
-                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedString(v.clone())))
+                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.clone())))
                 .map(Some)
         })
     }
@@ -4699,7 +4700,7 @@ impl KeywordOptimizer {
         score
     }
 
-    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &str) {
+    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &NEStr) {
         match AnyKeywordClass::classify_keyword(key) {
             AnyKeywordClass::Root(r) => match r {
                 RootKeywordClass::Beginanalysis => self.found_beginanalysis = true,
@@ -4935,16 +4936,16 @@ mod tests {
     #[test]
     fn tr() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Trigger>("Wooden Leg Pt 3,456", (), &conf);
-        assert!(Trigger::from_str_with("x,x", (), &conf).is_err());
-        assert!(Trigger::from_str_with("x,0.0", (), &conf).is_err());
-        assert!(Trigger::from_str_with("x", (), &conf).is_err());
-        assert!(Trigger::from_str_with("x,x,x", (), &conf).is_err());
+        assert_from_to_str_with::<Trigger>(ne_str!("Wooden Leg Pt 3,456"), (), &conf);
+        assert!(Trigger::from_str_with(ne_str!("x,x"), (), &conf).is_err());
+        assert!(Trigger::from_str_with(ne_str!("x,0.0"), (), &conf).is_err());
+        assert!(Trigger::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(Trigger::from_str_with(ne_str!("x,x,x"), (), &conf).is_err());
     }
 
     #[test]
     fn tr_commas() {
-        let v = "Wookie Leg Pt 3, 666";
+        let v = ne_str!("Wookie Leg Pt 3, 666");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Trigger::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -4969,17 +4970,17 @@ mod tests {
     #[test]
     fn pnd() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Display>("Linear,0,1", (), &conf);
-        assert_from_to_str_with::<Display>("Logarithmic,1,1", (), &conf);
-        assert_from_to_str_with::<Display>("Logarithmic,1,0.1", (), &conf);
-        assert!(Display::from_str_with("LIN,0,1", (), &conf).is_err());
-        assert!(Display::from_str_with("LOG,1,1", (), &conf).is_err());
-        assert!(Display::from_str_with("Logicle,0,1,2,3", (), &conf).is_err());
+        assert_from_to_str_with::<Display>(ne_str!("Linear,0,1"), (), &conf);
+        assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,1"), (), &conf);
+        assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,0.1"), (), &conf);
+        assert!(Display::from_str_with(ne_str!("LIN,0,1"), (), &conf).is_err());
+        assert!(Display::from_str_with(ne_str!("LOG,1,1"), (), &conf).is_err());
+        assert!(Display::from_str_with(ne_str!("Logicle,0,1,2,3"), (), &conf).is_err());
     }
 
     #[test]
     fn pnd_commas() {
-        let v = "Linear, 0 , 1";
+        let v = ne_str!("Linear, 0 , 1");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Display::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5006,16 +5007,16 @@ mod tests {
     #[test]
     fn pncalibration_3_1() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Calibration3_1>("0.1,cubic imperial lightyears", (), &conf);
-        assert!(Calibration3_1::from_str_with("x", (), &conf).is_err());
-        assert!(Calibration3_1::from_str_with("x,x", (), &conf).is_err());
-        assert!(Calibration3_1::from_str_with("x,0.1", (), &conf).is_err());
+        assert_from_to_str_with::<Calibration3_1>(ne_str!("0.1,imperial lightyears"), (), &conf);
+        assert!(Calibration3_1::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(Calibration3_1::from_str_with(ne_str!("x,x"), (), &conf).is_err());
+        assert!(Calibration3_1::from_str_with(ne_str!("x,0.1"), (), &conf).is_err());
     }
 
     #[test]
     fn pncalibration_3_1_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
-        let v = "1000 , yodabytes";
+        let v = ne_str!("1000 , yodabytes");
         assert!(Calibration3_1::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Calibration3_1>(v, "1000,yodabytes", (), &conf);
@@ -5024,18 +5025,18 @@ mod tests {
     #[test]
     fn pncalibration_3_2() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Calibration3_2>("1.1,3.5813,progressive metal albums", (), &conf);
-        assert_from_to_str_with::<Calibration3_2>("1.61,0,quartic slugs", (), &conf);
-        assert!(Calibration3_2::from_str_with("x", (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with("x,x", (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with("x,0.1", (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with("0.1,x,x", (), &conf).is_err());
+        assert_from_to_str_with::<Calibration3_2>(ne_str!("1.1,3.5813,prog albums"), (), &conf);
+        assert_from_to_str_with::<Calibration3_2>(ne_str!("1.61,0,quartic slugs"), (), &conf);
+        assert!(Calibration3_2::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with(ne_str!("x,x"), (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with(ne_str!("x,0.1"), (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with(ne_str!("0.1,x,x"), (), &conf).is_err());
     }
 
     #[test]
     fn pncalibration_3_2_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
-        let v = "1, 0.2, nanobytes";
+        let v = ne_str!("1, 0.2, nanobytes");
         assert!(Calibration3_2::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Calibration3_2>(v, "1,0.2,nanobytes", (), &conf);
@@ -5044,20 +5045,20 @@ mod tests {
     #[test]
     fn pnl_3_1() {
         let conf = ReadStdKeywordsConfig::default();
-        let go = |v: &str| {
+        let go = |v: &NEStr| {
             let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
             let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
-            assert_eq!(w_str.as_ref(), v);
+            assert_eq!(w_str.as_ne_str(), v);
         };
-        go("0.5");
-        go("0.5,2");
-        assert!(Wavelengths::from_str_with("x", (), &conf).is_err());
+        go(ne_str!("0.5"));
+        go(ne_str!("0.5,2"));
+        assert!(Wavelengths::from_str_with(ne_str!("x"), (), &conf).is_err());
     }
 
     #[test]
     fn pnl_3_1_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
-        let v = "1, 2";
+        let v = ne_str!("1, 2");
         assert!(Wavelengths::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
         let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
@@ -5068,14 +5069,14 @@ mod tests {
     #[test]
     fn last_modified() {
         let mut conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<LastModified>("01-Jan-2112 00:00:00.01", (), &conf);
+        assert_from_to_str_with::<LastModified>(ne_str!("01-Jan-2112 00:00:00.01"), (), &conf);
         assert_from_to_str_almost_with::<LastModified>(
-            "01-Jan-2112 00:00:00",
+            ne_str!("01-Jan-2112 00:00:00"),
             "01-Jan-2112 00:00:00.00",
             (),
             &conf,
         );
-        let v = "01-Jan-2112 00:00";
+        let v = ne_str!("01-Jan-2112 00:00");
         assert!(LastModified::from_str_with(v, (), &conf).is_err());
         conf.last_modified_pattern = Some("%d-%b-%Y %H:%M".into());
         assert_from_to_str_almost_with::<LastModified>(v, "01-Jan-2112 00:00:00.00", (), &conf);
@@ -5093,16 +5094,16 @@ mod tests {
     #[test]
     fn unicode() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Unicode>("42,$BYTEORD", (), &conf);
+        assert_from_to_str_with::<Unicode>(ne_str!("42,$BYTEORD"), (), &conf);
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
-        assert_from_to_str_with::<Unicode>("42,$40DOLLARBILL", (), &conf);
-        assert!(Unicode::from_str_with("42", (), &conf).is_err());
+        assert_from_to_str_with::<Unicode>(ne_str!("42,$40DOLLARBILL"), (), &conf);
+        assert!(Unicode::from_str_with(ne_str!("42"), (), &conf).is_err());
     }
 
     #[test]
     fn unicode_commas() {
-        let v = "50 ,something tour";
+        let v = ne_str!("50 ,something tour");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Unicode::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5115,7 +5116,7 @@ mod tests {
         let go = |v| {
             let t = OpticalType::from_str(v).unwrap();
             let k = OptOpticalKeyword::from_str(&t, MeasIndex::from(0)).unwrap();
-            assert!(k.as_std_key_pair().1.as_ref() == v);
+            assert!(k.as_std_key_pair().1.as_str() == v);
         };
         go("Forward Scatter");
         go("Side Scatter");
@@ -5132,33 +5133,33 @@ mod tests {
     fn pntype_time() {
         let t = TemporalType::from_str("Time").unwrap();
         let k = OptTemporalKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
-        assert!(k.as_std_key_pair().1.as_ref() == "Time");
+        assert!(k.as_std_key_pair().1.as_str() == "Time");
         assert!(TemporalType::from_str("Space").is_err());
     }
 
     #[test]
     fn pnfeature() {
         let mut conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Feature>("Area", (), &conf);
-        assert_from_to_str_with::<Feature>("Width", (), &conf);
-        assert_from_to_str_with::<Feature>("Height", (), &conf);
-        assert!(Feature::from_str_with("Volume", (), &conf).is_err());
+        assert_from_to_str_with::<Feature>(ne_str!("Area"), (), &conf);
+        assert_from_to_str_with::<Feature>(ne_str!("Width"), (), &conf);
+        assert_from_to_str_with::<Feature>(ne_str!("Height"), (), &conf);
+        assert!(Feature::from_str_with(ne_str!("Volume"), (), &conf).is_err());
         conf.allow_other_feature = true.into();
-        assert_from_to_str_with::<Feature>("Volume", (), &conf);
+        assert_from_to_str_with::<Feature>(ne_str!("Volume"), (), &conf);
     }
 
     #[test]
     fn rni_2_0() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex2_0>("1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex2_0>("1,2", (), &conf);
-        assert!(RegionGateIndex2_0::from_str_with("x", (), &conf).is_err());
-        assert!(RegionGateIndex2_0::from_str_with("1,2,3", (), &conf).is_err());
+        assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1,2"), (), &conf);
+        assert!(RegionGateIndex2_0::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(RegionGateIndex2_0::from_str_with(ne_str!("1,2,3"), (), &conf).is_err());
     }
 
     #[test]
     fn rni_2_0_commas() {
-        let v = "1, 2";
+        let v = ne_str!("1, 2");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(RegionGateIndex2_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5168,17 +5169,17 @@ mod tests {
     #[test]
     fn rni_3_0() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex3_0>("P1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex3_0>("P1,P2", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex3_0>("G1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex3_0>("G1,G2", (), &conf);
-        assert!(RegionGateIndex3_0::from_str_with("x", (), &conf).is_err());
-        assert!(RegionGateIndex3_0::from_str_with("P1,G2,P3", (), &conf).is_err());
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("P1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("P1,P2"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("G1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("G1,G2"), (), &conf);
+        assert!(RegionGateIndex3_0::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(RegionGateIndex3_0::from_str_with(ne_str!("P1,G2,P3"), (), &conf).is_err());
     }
 
     #[test]
     fn rni_3_0_commas() {
-        let v = "P1, G2";
+        let v = ne_str!("P1, G2");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(RegionGateIndex3_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5188,15 +5189,15 @@ mod tests {
     #[test]
     fn rni_3_2() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex3_2>("P1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex3_2>("P1,P2", (), &conf);
-        assert!(RegionGateIndex3_2::from_str_with("x", (), &conf).is_err());
-        assert!(RegionGateIndex3_2::from_str_with("P1,P2,P3", (), &conf).is_err());
+        assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1,P2"), (), &conf);
+        assert!(RegionGateIndex3_2::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(RegionGateIndex3_2::from_str_with(ne_str!("P1,P2,P3"), (), &conf).is_err());
     }
 
     #[test]
     fn rni_3_2_commas() {
-        let v = "P1, P2";
+        let v = ne_str!("P1, P2");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(RegionGateIndex3_2::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5206,17 +5207,17 @@ mod tests {
     #[test]
     fn rnw() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionWindow>("1,1", (), &conf);
-        assert_from_to_str_with::<RegionWindow>("1,1;2,3;5,8;13,21", (), &conf);
-        assert!(RegionWindow::from_str_with("1", (), &conf).is_err());
-        assert!(RegionWindow::from_str_with("1,1,1", (), &conf).is_err());
-        assert!(RegionWindow::from_str_with("1;1", (), &conf).is_err());
-        assert!(RegionWindow::from_str_with("1,1,1;1,1,1", (), &conf).is_err());
+        assert_from_to_str_with::<RegionWindow>(ne_str!("1,1"), (), &conf);
+        assert_from_to_str_with::<RegionWindow>(ne_str!("1,1;2,3;5,8;13,21"), (), &conf);
+        assert!(RegionWindow::from_str_with(ne_str!("1"), (), &conf).is_err());
+        assert!(RegionWindow::from_str_with(ne_str!("1,1,1"), (), &conf).is_err());
+        assert!(RegionWindow::from_str_with(ne_str!("1;1"), (), &conf).is_err());
+        assert!(RegionWindow::from_str_with(ne_str!("1,1,1;1,1,1"), (), &conf).is_err());
     }
 
     #[test]
     fn rnw_commas() {
-        let v = "1, 1 ; 2, 2";
+        let v = ne_str!("1, 1 ; 2, 2");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(RegionWindow::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5234,64 +5235,64 @@ mod tests {
     #[test]
     fn unstained_centers() {
         let conf = ReadStdKeywordsConfig::default();
-        let v = "1,X,0";
+        let v = ne_str!("1,X,0");
         let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
         let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
-        assert_eq!(s.as_ref(), v);
+        assert_eq!(s.as_ne_str(), v);
     }
 
     #[test]
     fn unstained_centers_commas() {
-        let v = "1, X , 0";
+        let v = ne_str!("1, X , 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(UnstainedCenters::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
         let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
         let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
-        assert_eq!(s.as_ref(), "1,X,0");
+        assert_eq!(s.as_str(), "1,X,0");
     }
 
     #[test]
     fn unstained_centers_wrong_len() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(UnstainedCenters::from_str_with("2,X,0", (), &conf).is_err());
+        assert!(UnstainedCenters::from_str_with(ne_str!("2,X,0"), (), &conf).is_err());
     }
 
     #[test]
     fn unstained_centers_nonunique() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(UnstainedCenters::from_str_with("3,Y,Y,Z,0,0,0", (), &conf).is_err());
+        assert!(UnstainedCenters::from_str_with(ne_str!("3,Y,Y,Z,0,0,0"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Compensation3_0>("2,0,0,0,0", (), &conf);
-        assert_from_to_str_with::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0", (), &conf);
-        assert_from_to_str_with::<Compensation3_0>("2,1.1,1,0,-1.5", (), &conf);
+        assert_from_to_str_with::<Compensation3_0>(ne_str!("2,0,0,0,0"), (), &conf);
+        assert_from_to_str_with::<Compensation3_0>(ne_str!("3,0,0,0,0,0,0,0,0,0"), (), &conf);
+        assert_from_to_str_with::<Compensation3_0>(ne_str!("2,1.1,1,0,-1.5"), (), &conf);
     }
 
     #[test]
     fn str_compensation_too_small() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with("1,0", (), &conf).is_err());
+        assert!(Compensation3_0::from_str_with(ne_str!("1,0"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_mismatch() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with("2,0,0,0", (), &conf).is_err());
+        assert!(Compensation3_0::from_str_with(ne_str!("2,0,0,0"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_badfloats() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with("2,zero,0,coconut", (), &conf).is_err());
+        assert!(Compensation3_0::from_str_with(ne_str!("2,zero,0,coconut"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_commas() {
-        let v = "2, 0, 0, 0, 0";
+        let v = ne_str!("2, 0, 0, 0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Compensation3_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5348,13 +5349,13 @@ mod tests {
     fn scale() {
         let conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
-        assert_from_to_str_with::<Scale>("0,0", dt, &conf);
-        assert_from_to_str_with::<Scale>("4.5,0.01", dt, &conf);
+        assert_from_to_str_with::<Scale>(ne_str!("0,0"), dt, &conf);
+        assert_from_to_str_with::<Scale>(ne_str!("4.5,0.01"), dt, &conf);
     }
 
     #[test]
     fn scale_zero_log() {
-        let v = "4.5,0";
+        let v = ne_str!("4.5,0");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert!(Scale::from_str_with(v, dt, &conf).is_err());
@@ -5364,7 +5365,7 @@ mod tests {
 
     #[test]
     fn scale_force_linear() {
-        let v = "1,1";
+        let v = ne_str!("1,1");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Float;
         assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
@@ -5374,7 +5375,7 @@ mod tests {
 
     #[test]
     fn scale_force_linear_int() {
-        let v = "1,1";
+        let v = ne_str!("1,1");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
@@ -5386,7 +5387,7 @@ mod tests {
 
     #[test]
     fn scale_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert!(Scale::from_str_with(v, dt, &conf).is_err());
@@ -5398,13 +5399,13 @@ mod tests {
     fn tmp_scale2() {
         let conf = ReadStdKeywordsConfig::default();
         // no display, so just check parse
-        assert!(TemporalScale2_0::from_str_with("0,0", (), &conf).is_ok());
-        assert!(TemporalScale2_0::from_str_with("1,1", (), &conf).is_err());
+        assert!(TemporalScale2_0::from_str_with(ne_str!("0,0"), (), &conf).is_ok());
+        assert!(TemporalScale2_0::from_str_with(ne_str!("1,1"), (), &conf).is_err());
     }
 
     #[test]
     fn tmp_scale2_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(TemporalScale2_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5414,13 +5415,13 @@ mod tests {
     #[test]
     fn tmp_scale3() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<TemporalScale3_0>("0,0", (), &conf);
-        assert!(TemporalScale3_0::from_str_with("1,1", (), &conf).is_err());
+        assert_from_to_str_with::<TemporalScale3_0>(ne_str!("0,0"), (), &conf);
+        assert!(TemporalScale3_0::from_str_with(ne_str!("1,1"), (), &conf).is_err());
     }
 
     #[test]
     fn tmp_scale3_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(TemporalScale3_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5430,13 +5431,13 @@ mod tests {
     #[test]
     fn gate_scale() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<GateScale>("0,0", (), &conf);
-        assert_from_to_str_with::<GateScale>("4.5,0.01", (), &conf);
+        assert_from_to_str_with::<GateScale>(ne_str!("0,0"), (), &conf);
+        assert_from_to_str_with::<GateScale>(ne_str!("4.5,0.01"), (), &conf);
     }
 
     #[test]
     fn gate_scale_zero_log() {
-        let v = "4.5,0";
+        let v = ne_str!("4.5,0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(GateScale::from_str_with(v, (), &conf).is_err());
         conf.fix_log_scale_offsets = true.into();
@@ -5445,7 +5446,7 @@ mod tests {
 
     #[test]
     fn gate_scale_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(GateScale::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -5708,8 +5709,8 @@ mod python {
 
     impl<'py> FromPyObject<'py> for ScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
-                match y.as_str() {
+            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+                match y.as_ref() {
                     SCALE_DIAGNOSTIC_LOG => Ok(Self::LogFixed(x)),
                     SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
                     SCALE_DIAGNOSTIC_TRIMMED_LOG => Ok(Self::TrimmedLogFixed(x)),
@@ -5727,8 +5728,8 @@ mod python {
 
     impl<'py> FromPyObject<'py> for OpticalScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
-                match y.as_str() {
+            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+                match y.as_ref() {
                     SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
                     SCALE_DIAGNOSTIC_LOG => Ok(ScaleFix::LogFixed(x).into()),
                     SCALE_DIAGNOSTIC_TRIMMED => Ok(ScaleFix::Trimmed(x).into()),
@@ -5747,8 +5748,8 @@ mod python {
 
     impl<'py> FromPyObject<'py> for TemporalScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
-                match y.as_str() {
+            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+                match y.as_ref() {
                     TEMPORAL_SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
                     TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
                     _ => Err(PyValueError::new_err(format!(

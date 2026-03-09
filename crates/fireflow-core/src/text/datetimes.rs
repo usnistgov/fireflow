@@ -7,7 +7,7 @@ use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords
 use fireflow_types::keywords::{
     ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
 };
-use fireflow_types::nonempty_string::{NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
+use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 use type_families::BifunctorOnce as _;
 
 use ambassador::Delegate;
@@ -176,7 +176,7 @@ macro_rules! impl_from_str_with {
             type Config = ReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &str,
+                s: &fireflow_types::nonempty_string::NEStr,
                 (): (),
                 conf: &Self::Config,
             ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
@@ -196,17 +196,17 @@ impl FromStrWith for FCSDateTime {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
-        s: &str,
+        s: &NEStr,
         (): (),
         conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         if let Some(pat) = conf.datetime_pattern.as_ref() {
             // first, try the given alternative format if it exists
-            DateTime::parse_from_str(s, pat.as_str())
+            DateTime::parse_from_str(s.as_str(), pat.as_str())
                 .map(Self)
                 .map(DiagnosedKeyword::new1)
                 .map_err(|e| FCSDateTimeError::AltFormat(e, pat.to_owned()))
-        } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, ISO_DATETIME_NO_TZ) {
+        } else if let Ok(naive) = NaiveDateTime::parse_from_str(s.as_str(), ISO_DATETIME_NO_TZ) {
             // next, try to parse without a timezone, defaulting to localtime and
             // converting to a fixed offset
             if conf.disallow_localtime.is_set() {
@@ -230,7 +230,7 @@ impl FromStrWith for FCSDateTime {
                 ISO_DATETIME_TZ_HH,
             ];
             for f in formats {
-                if let Ok(t) = DateTime::parse_from_str(s, f) {
+                if let Ok(t) = DateTime::parse_from_str(s.as_ref(), f) {
                     return Ok(DiagnosedKeyword::new1(Self(t)));
                 }
             }
@@ -287,7 +287,7 @@ mod tests {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let conf = ReadStdKeywordsConfig::default();
-            Self::from_str_with(s, (), &conf).map(|x| x.native)
+            Self::from_str_with(NEStr::try_new(s).unwrap(), (), &conf).map(|x| x.native)
         }
     }
 

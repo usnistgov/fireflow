@@ -364,7 +364,7 @@ impl RemovedLink {
             Self::Comp2_0(xs) => {
                 for x in xs {
                     let (k, v) = x.as_keyval();
-                    kws.insert_demoted(k, v.to_string());
+                    kws.insert_demoted(k, v);
                 }
             }
             Self::Comp3_0(x) => go_ref(&x.key, kws),

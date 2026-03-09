@@ -6545,7 +6545,7 @@ impl<E> PyList<E> {
 
 impl<E: From<PyException>> PyList<E> {
     fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: &Path) -> Self {
-        let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
+        let nonempty = quote!(fireflow_core::nonempty::FcsNEVec);
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
         Self::new(

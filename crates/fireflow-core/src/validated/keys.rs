@@ -7,6 +7,7 @@ use crate::logging::{
     DeferredWarningsAndErrors, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
     WarningOrErrorResult,
 };
+use crate::nonempty::FcsNEVec;
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     self as kws, AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
@@ -286,7 +287,7 @@ impl From<NEVec<u8>> for NEStringOrBytes {
     fn from(value: NEVec<u8>) -> Self {
         match NEString::from_utf8(value) {
             Ok(s) => Self::Utf8(TruncatedNEString(s)),
-            Err(e) => Self::Bytes(TruncatedNEBytes(e.into_bytes())),
+            Err(e) => Self::Bytes(TruncatedNEBytes::from(e.into_bytes())),
         }
     }
 }
@@ -300,9 +301,11 @@ pub struct TruncatedBytes(pub Vec<u8>);
 
 /// A [`NEVec<u8>`] optimized for displaying in errors.
 #[derive(Clone, From, PartialEq, Debug, Display)]
-#[display("{}", trunc_bytes(self.0.as_ref()))]
+#[display("{}", trunc_bytes(self.0.0.as_ref()))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TruncatedNEBytes(pub NEVec<u8>);
+#[from(NEVec<u8>, FcsNEVec<u8>)]
+pub struct TruncatedNEBytes(pub FcsNEVec<u8>);
 
 impl<'a> From<NESlice<'a, u8>> for TruncatedNEBytes {
     fn from(value: NESlice<'a, u8>) -> Self {
@@ -317,13 +320,15 @@ impl<'a> From<&NESlice<'a, u8>> for TruncatedNEBytes {
 }
 
 /// A normal [`String`] that will be shortened when displaying if too long.
-#[derive(Clone, From, PartialEq, Debug, Default)]
+#[derive(Clone, From, PartialEq, Debug, Display, Default)]
+#[display("{}", trunc_str(self.0.as_ref()))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TruncatedString(pub String);
 
 /// A normal [`NEString`] that will be shortened when displaying if too long.
-#[derive(Clone, From, PartialEq, Debug)]
+#[derive(Clone, From, PartialEq, Debug, Display)]
+#[display("{}", trunc_str(self.0.as_ref()))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct TruncatedNEString(pub NEString);
@@ -1396,46 +1401,6 @@ pub struct NonUtf8ValueError {
     value: TruncatedNEBytes,
 }
 
-// impl fmt::Display for TruncatedBytes {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         let mut s = String::new();
-//         for (i, &x) in self.0.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
-//             // Display all 'easy' control characters with escaped
-//             // representation, display all printable chars as quoted characters,
-//             // and display the rest as plain numbers
-//             match x {
-//                 0 => s.push_str("\\0"),
-//                 7 => s.push_str("\\a"),
-//                 8 => s.push_str("\\b"),
-//                 9 => s.push_str("\\t"),
-//                 10 => s.push_str("\\n"),
-//                 11 => s.push_str("\\v"),
-//                 12 => s.push_str("\\f"),
-//                 13 => s.push_str("\\r"),
-//                 27 => s.push_str("\\e"),
-//                 c => {
-//                     if (32..=127).contains(&c) {
-//                         s.push('\'');
-//                         s.push(char::from(c));
-//                         s.push('\'');
-//                     } else {
-//                         let n = c.to_string();
-//                         s.push_str(n.as_str());
-//                     }
-//                 }
-//             }
-//             if i + 1 < TRUNCATED_BYTES_LIMIT {
-//                 s.push(',');
-//             }
-//         }
-//         if self.0.len() > TRUNCATED_BYTES_LIMIT {
-//             write!(f, "[{s},...]")
-//         } else {
-//             write!(f, "[{s}]")
-//         }
-//     }
-// }
-
 fn trunc_bytes(xs: &[u8]) -> String {
     let mut s = String::new();
     for (i, &x) in xs.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
@@ -1474,65 +1439,13 @@ fn trunc_bytes(xs: &[u8]) -> String {
     }
 }
 
-// impl fmt::Display for TruncatedNEBytes {
-//     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-//         let mut s = String::new();
-//         for (i, &x) in self.0.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
-//             // Display all 'easy' control characters with escaped
-//             // representation, display all printable chars as quoted characters,
-//             // and display the rest as plain numbers
-//             match x {
-//                 0 => s.push_str("\\0"),
-//                 7 => s.push_str("\\a"),
-//                 8 => s.push_str("\\b"),
-//                 9 => s.push_str("\\t"),
-//                 10 => s.push_str("\\n"),
-//                 11 => s.push_str("\\v"),
-//                 12 => s.push_str("\\f"),
-//                 13 => s.push_str("\\r"),
-//                 27 => s.push_str("\\e"),
-//                 c => {
-//                     if (32..=127).contains(&c) {
-//                         s.push('\'');
-//                         s.push(char::from(c));
-//                         s.push('\'');
-//                     } else {
-//                         let n = c.to_string();
-//                         s.push_str(n.as_str());
-//                     }
-//                 }
-//             }
-//             if i + 1 < TRUNCATED_BYTES_LIMIT {
-//                 s.push(',');
-//             }
-//         }
-//         if self.0.len().get() > TRUNCATED_BYTES_LIMIT {
-//             write!(f, "[{s},...]")
-//         } else {
-//             write!(f, "[{s}]")
-//         }
-//     }
-// }
-
-impl fmt::Display for TruncatedString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        fmt_trunc_str(self.0.as_ref(), f)
-    }
-}
-
-impl fmt::Display for TruncatedNEString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        fmt_trunc_str(self.0.as_ref(), f)
-    }
-}
-
-fn fmt_trunc_str(s: &str, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+fn trunc_str(s: &str) -> Cow<'_, str> {
     let n = s.chars().count();
     if n > TRUNCATED_STR_LIMIT {
         let t: String = s.chars().take(n).collect();
-        write!(f, "{t}…(more)")
+        Cow::Owned(format!("{t}…(more)"))
     } else {
-        write!(f, "{s}")
+        Cow::Borrowed(s)
     }
 }
 
@@ -1687,35 +1600,5 @@ mod tests {
         let s = "";
         let k = s.parse::<NonStdKey>();
         assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::TruncatedNEBytes;
-
-    use nonempty_collections::NEVec;
-
-    use pyo3::{exceptions::PyValueError, prelude::*};
-
-    impl<'py> FromPyObject<'py> for TruncatedNEBytes {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs = ob.extract::<Vec<_>>()?;
-            if let Some(ne) = NEVec::try_from_vec(xs) {
-                Ok(Self(ne))
-            } else {
-                Err(PyValueError::new_err("bytes must be non-empty"))
-            }
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for TruncatedNEBytes {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            Vec::from(self.0).into_pyobject(py)
-        }
     }
 }

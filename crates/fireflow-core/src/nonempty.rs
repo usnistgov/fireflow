@@ -3,43 +3,29 @@
 use derive_more::{From, Into};
 use nonempty_collections::NEVec;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 // A wrapper to bestow supernatural powers to "regular" non-empty. I may also
 // make my own version of this so this makes that a bit easier if I end up
 // deciding in favor.
 #[derive(Into, From, PartialEq, Clone, Debug)]
-pub struct FCSNonEmpty<T>(pub NEVec<T>);
-
-#[cfg(feature = "serde")]
-mod serialize {
-    use super::FCSNonEmpty;
-    use serde::{Serialize, ser::SerializeSeq as _};
-
-    impl<I: Serialize> Serialize for FCSNonEmpty<I> {
-        fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-        where
-            S: serde::Serializer,
-        {
-            let mut seq = serializer.serialize_seq(Some(usize::from(self.0.len())))?;
-            for e in &self.0 {
-                seq.serialize_element(e)?;
-            }
-            seq.end()
-        }
-    }
-}
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[serde(bound = "T: Serialize + Clone")]
+pub struct FcsNEVec<T>(pub NEVec<T>);
 
 #[cfg(feature = "python")]
 mod python {
     use fireflow_types::python::InvalidKeywordValueError;
 
-    use super::FCSNonEmpty;
+    use super::FcsNEVec;
 
     use nonempty_collections::NEVec;
     use pyo3::prelude::*;
     use pyo3::types::PyList;
 
     // NOTE this is only used for keywords that cannot be an empty list
-    impl<'py, T> FromPyObject<'py> for FCSNonEmpty<T>
+    impl<'py, T> FromPyObject<'py> for FcsNEVec<T>
     where
         T: FromPyObject<'py>,
     {
@@ -53,7 +39,7 @@ mod python {
         }
     }
 
-    impl<'py, T> IntoPyObject<'py> for FCSNonEmpty<T>
+    impl<'py, T> IntoPyObject<'py> for FcsNEVec<T>
     where
         T: IntoPyObject<'py>,
     {

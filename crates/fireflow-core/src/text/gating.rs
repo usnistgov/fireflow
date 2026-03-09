@@ -6,7 +6,7 @@ use crate::logging::{
     DeferredIter as _, DeferredSwitchableErrors, DeferredWarningsAndErrors, LogResult,
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
-use crate::nonempty::FCSNonEmpty;
+use crate::nonempty::FcsNEVec;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GateMeasKeyword,
@@ -136,7 +136,7 @@ pub struct UnivariateRegion<I> {
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct BivariateRegion<I> {
-    pub vertices: FCSNonEmpty<Vertex>,
+    pub vertices: FcsNEVec<Vertex>,
     pub index: IndexPair<I>,
 }
 

@@ -1407,7 +1407,7 @@ impl OtherSegment20 {
                     let seg_conf = NewSegmentConfig::from_read_config(corr, st);
                     let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
                     if !(all_are(0) || all_are(32) || all_are(48)) {
-                        let r = Self::parse_other(buf0.as_ref(), buf1.as_ref(), &seg_conf);
+                        let r = Self::parse_other(&buf0, &buf1, &seg_conf);
                         results.push(r);
                     }
                 }
@@ -1423,13 +1423,13 @@ impl OtherSegment20 {
     }
 
     fn parse_other(
-        bs0: &[u8],
-        bs1: &[u8],
+        bs0: &NESlice<'_, u8>,
+        bs1: &NESlice<'_, u8>,
         conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
     ) -> ErrorsResult<(Self, UncorrectedSegment), (), HeaderSegmentError> {
-        let parse_one = |bs: &[u8], is_begin| {
-            UintSpacePad20::from_bytes(bs).map_err(|error| {
-                let src = StringOrBytes::from(bs.to_vec());
+        let parse_one = |bs: &NESlice<'_, u8>, is_begin| {
+            UintSpacePad20::from_bytes(bs.as_ref()).map_err(|error| {
+                let src = StringOrBytes::from(bs.as_ref().to_vec());
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, src).into()
             })
         };

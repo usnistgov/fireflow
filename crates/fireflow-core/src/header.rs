@@ -25,7 +25,8 @@ use crate::validated::header_segments::{HEADER_LEN, ParsedHeaderSegments, Segmen
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
-use fireflow_types::keywords::{ALL_VERSIONS, Version as KwVersion, VersionFormatError};
+use fireflow_types::config::EnumStrIter as _;
+use fireflow_types::keywords::{Version, VersionFormatError};
 use fireflow_types::nonempty_string::NEStr;
 
 use derive_more::{Display, From};
@@ -77,11 +78,7 @@ pub(crate) struct WriteHeaderSegments<T> {
 }
 
 impl<T> WriteHeaderSegments<T> {
-    pub(crate) fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        version: KwVersion,
-    ) -> io::Result<()>
+    pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
     where
         T: HeaderString + Zero,
     {
@@ -116,7 +113,7 @@ impl<T> WriteHeaderSegments<T> {
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Header {
-    pub version: KwVersion,
+    pub version: Version,
     pub segments: ParsedHeaderSegments,
     pub uncorrected_segments: UncorrectedHeaderSegments,
 }
@@ -169,7 +166,7 @@ impl Header {
 
 #[derive(new)]
 struct ReqHeader {
-    version: KwVersion,
+    version: Version,
     text: (PrimaryTextSegment, UncorrectedSegment),
     data: (HeaderDataSegment, UncorrectedSegment),
     analysis: (HeaderAnalysisSegment, UncorrectedSegment),
@@ -243,7 +240,7 @@ impl ReqHeader {
 fn h_read_version<R, C>(
     h: &mut BufReader<R>,
     st: &ReadState<C>,
-) -> IOGroupResult<KwVersion, VersionError, ()>
+) -> IOGroupResult<Version, VersionError, ()>
 where
     R: Read + Seek,
 {
@@ -267,17 +264,17 @@ where
 }
 
 pub(crate) fn autodetect_version(
-    version: KwVersion,
+    version: Version,
     kws: &StdKeywords,
     ver_override: Option<&VersionOverride>,
-) -> Result<(KwVersion, Option<KeywordVersionScores>), GuessVersionError> {
+) -> Result<(Version, Option<KeywordVersionScores>), GuessVersionError> {
     match ver_override {
         None => Ok((version, None)),
         Some(VersionOverride::Force(v)) => Ok((*v, None)),
         Some(VersionOverride::AutoDetect(strat)) => {
             let rank =
-                |(v0, s0): &(KwVersion, KeywordVersionScore),
-                 (v1, s1): &(KwVersion, KeywordVersionScore)| match strat {
+                |(v0, s0): &(Version, KeywordVersionScore),
+                 (v1, s1): &(Version, KeywordVersionScore)| match strat {
                     SelectVersionStrategy::Earliest => v1.cmp(v0),
                     SelectVersionStrategy::Latest => v0.cmp(v1),
                     SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
@@ -288,7 +285,7 @@ pub(crate) fn autodetect_version(
                 for (k, v) in kws {
                     opt.classify_keyword(k, v.as_ne_str());
                 }
-                let scores = ALL_VERSIONS.map(|v| (v, opt.get_score(v, par)));
+                let scores = Version::ITEMS.map(|v| (v, opt.get_score(v, par)));
                 let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
                 if let Some(xs) = scores
                     .iter()
@@ -591,7 +588,7 @@ impl<T> HeaderKeywordsToWrite<T> {
     pub(crate) fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        version: KwVersion,
+        version: Version,
         other_segs: &[Other],
     ) -> io::Result<()>
     where

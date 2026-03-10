@@ -7,18 +7,22 @@ use derive_more::Display;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
-pub trait EnumStrIter: Sized {
+pub trait EnumStrIter<const LEN: usize>: Sized {
+    const ITEMS: [Self; LEN];
+
     fn as_ne_str(&self) -> &'static NEStr;
 
     fn as_str(&self) -> &'static str {
         self.as_ne_str().as_ref()
     }
 
-    fn iter() -> impl Iterator<Item = Self>;
+    fn iter() -> impl Iterator<Item = Self> {
+        Self::ITEMS.into_iter()
+    }
 
     #[must_use]
     fn iter_str() -> impl Iterator<Item = &'static str> {
-        Self::iter().map(|x| EnumStrIter::as_str(&x))
+        Self::iter().map(|x| Self::as_str(&x))
     }
 }
 
@@ -31,6 +35,12 @@ pub trait EnumStrIter: Sized {
 /// 4. an array that contains all string literals in the order given
 #[macro_export]
 macro_rules! impl_str_enum {
+    (@count) => { 0_usize };
+
+    (@count $head:expr $(, $tail:expr)*) => {
+        1_usize + impl_str_enum!(@count $($tail),*)
+    };
+
     ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
      $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
      $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
@@ -57,15 +67,13 @@ macro_rules! impl_str_enum {
             }
         }
 
-        impl $crate::config::EnumStrIter for $flag_name {
+        impl $crate::config::EnumStrIter<{ impl_str_enum!(@count $($var),*) }> for $flag_name {
+            const ITEMS: [Self; { impl_str_enum!(@count $($var),*) }] = [$(Self::$var),*];
+
             fn as_ne_str(&self) -> &'static $crate::nonempty_string::NEStr {
                 match self {
                     $(Self::$var => $strlit,)*
                 }
-            }
-
-            fn iter() -> impl Iterator<Item = Self> {
-                [$(Self::$var),*].into_iter()
             }
         }
 
@@ -77,7 +85,7 @@ macro_rules! impl_str_enum {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
                 // TODO what is this string is really really long?
                 let original = &self.0;
-                let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter>::iter_str().collect();
+                let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter<_>>::iter_str().collect();
                 let ne = nonempty_collections::NESlice::try_from_slice(&all[..])
                     .expect("macro should require at least one flag so this should never fail");
                 let (last, rest) = $crate::nonempty_string::NESliceExt::split_last(&ne);

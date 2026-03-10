@@ -36,7 +36,7 @@ use fireflow_types::config::{
     VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
-use fireflow_types::keywords::Version as KwVersion;
+use fireflow_types::keywords::Version;
 use fireflow_types::nonempty_string::NEString;
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
@@ -988,7 +988,7 @@ pub struct ReadSharedConfig {
 #[cfg_attr(feature = "python", derive(FromPyString))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub enum VersionOverride {
-    Force(KwVersion),
+    Force(Version),
     AutoDetect(SelectVersionStrategy),
 }
 
@@ -996,7 +996,7 @@ impl FromStr for VersionOverride {
     type Err = VersionOverrideError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Ok(ret) = s.parse::<KwVersion>() {
+        if let Ok(ret) = s.parse::<Version>() {
             Ok(Self::Force(ret))
         } else if let Ok(ret) = s.parse::<SelectVersionStrategy>() {
             Ok(Self::AutoDetect(ret))

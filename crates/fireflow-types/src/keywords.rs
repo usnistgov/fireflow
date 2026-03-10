@@ -52,14 +52,6 @@ impl_str_enum!(
     FCS3_2 => ne_str!("FCS3.2")
 );
 
-// TODO this could be put in the macro above
-pub const ALL_VERSIONS: [Version; 4] = [
-    Version::FCS2_0,
-    Version::FCS3_0,
-    Version::FCS3_1,
-    Version::FCS3_2,
-];
-
 // marker traits that denote a single version
 macro_rules! impl_version {
     ($name:ident, $var:ident) => {
@@ -190,7 +182,7 @@ impl VersionMembership {
             Self::One(x) => NEVec::new(x),
             Self::Two([x, y]) => nev![x, y],
             Self::Three([x, y, z]) => nev![x, y, z],
-            Self::All => ALL_VERSIONS.into_nonempty_vec(),
+            Self::All => Version::ITEMS.into_nonempty_vec(),
         }
     }
 

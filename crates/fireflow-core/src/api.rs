@@ -44,9 +44,7 @@ use crate::validated::keys::{
 };
 
 use fireflow_types::config::DelimEscapeMode;
-use fireflow_types::keywords::{
-    Version as KwVersion, Version2_0, Version3_0, Version3_1, Version3_2,
-};
+use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
@@ -555,7 +553,7 @@ struct SplitTEXTOutputInner {
 #[allow(clippy::too_many_arguments)]
 pub struct DatasetSummary {
     /// FCS version
-    pub version: KwVersion,
+    pub version: Version,
 
     /// Length of TEXT (in bytes)
     pub text_len: u64,
@@ -1051,7 +1049,7 @@ impl FlatDatasetFromKwsOutput {
     /// Read from handle with offsets/version from HEADER and parsed TEXT keywords.
     fn h_read_with_header_and_text<C, R>(
         h: &mut BufReader<R>,
-        new_version: KwVersion,
+        new_version: Version,
         kws: &StdKeywords,
         hns: &mut HeaderAndSuppOffsets,
         st: &ReadState<C>,
@@ -1939,7 +1937,7 @@ where
 }
 
 fn kws_to_df_analysis<C, R>(
-    new_version: KwVersion,
+    new_version: Version,
     h: &mut BufReader<R>,
     kws: &StdKeywords,
     hns: &mut HeaderAndSuppOffsets,
@@ -1955,10 +1953,10 @@ where
     C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
 {
     match new_version {
-        KwVersion::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, st),
-        KwVersion::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, st),
-        KwVersion::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, st),
-        KwVersion::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, st),
     }
 }
 
@@ -2003,19 +2001,19 @@ where
         Some(VersionOverride::AutoDetect(_)) => {
             if kws.contains_key(&Begindata::std()) || kws.contains_key(&Enddata::std()) {
                 if kws.contains_key(&Cyt::std()) {
-                    KwVersion::FCS3_2
+                    Version::FCS3_2
                 } else {
-                    KwVersion::FCS3_1
+                    Version::FCS3_1
                 }
             } else {
-                KwVersion::FCS2_0
+                Version::FCS2_0
             }
         }
     };
     let corr = hconf.supp_text_correction;
     let res = match ver {
-        KwVersion::FCS2_0 => LogResult::new_ok(None),
-        KwVersion::FCS3_0 | KwVersion::FCS3_1 => {
+        Version::FCS2_0 => LogResult::new_ok(None),
+        Version::FCS3_0 | Version::FCS3_1 => {
             let pair = SupplementalTextSegmentId::get_req_pair(kws);
             match SupplementalTextSegmentId::with_req_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(Some(seg)),
@@ -2030,7 +2028,7 @@ where
                 }
             }
         }
-        KwVersion::FCS3_2 => {
+        Version::FCS3_2 => {
             let pair = SupplementalTextSegmentId::get_opt_pair(kws);
             match SupplementalTextSegmentId::with_opt_pair(pair, corr, st) {
                 Ok(seg) => LogResult::new_ok(seg),

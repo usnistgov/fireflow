@@ -23,7 +23,7 @@ use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 /// incompatible with any other sub-second identifiers. Since chrono cannot
 /// process these natively, these identifiers will be substituted with
 /// nanosecond fraction (`"%f"`) and converted after parsing.
-#[derive(Clone, Debug, AsRef, Display, new)]
+#[derive(Clone, Debug, AsRef, Display)]
 #[display("{original}")]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct TimePattern {
@@ -146,7 +146,11 @@ impl FromStr for TimePattern {
             && frac_second < 2
             && invalid == 0
         {
-            Ok(Self::new(pat, s.into(), fraction))
+            Ok(Self {
+                pat,
+                original: s.into(),
+                fraction,
+            })
         } else {
             Err(TimePatternError(s.into()))
         }

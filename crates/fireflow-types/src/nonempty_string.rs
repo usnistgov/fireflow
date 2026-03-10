@@ -755,25 +755,25 @@ mod tests {
 
     #[test]
     fn padded_zero_nopad() {
-        let v = PaddedU64 { pad: 0, value: 0 }.to_ne_string().as_str();
-        assert_eq!(v, "0");
+        let v = PaddedU64 { pad: 0, value: 0 }.to_ne_string();
+        assert_eq!(v.as_str(), "0");
     }
 
     #[test]
     fn padded_one() {
-        let v = PaddedU64 { pad: 3, value: 1 }.to_ne_string().as_str();
-        assert_eq!(v, "001");
+        let v = PaddedU64 { pad: 3, value: 1 }.to_ne_string();
+        assert_eq!(v.as_str(), "001");
     }
 
     #[test]
     fn padded_one_nopad() {
-        let v = PaddedU64 { pad: 0, value: 1 }.to_ne_string().as_str();
-        assert_eq!(v, "1");
+        let v = PaddedU64 { pad: 0, value: 1 }.to_ne_string();
+        assert_eq!(v.as_str(), "1");
     }
 
     #[test]
     fn padded_not_enough() {
-        let v = PaddedU64 { pad: 2, value: 100 }.to_ne_string().as_str();
-        assert_eq!(v, "100");
+        let v = PaddedU64 { pad: 2, value: 100 }.to_ne_string();
+        assert_eq!(v.as_str(), "100");
     }
 }

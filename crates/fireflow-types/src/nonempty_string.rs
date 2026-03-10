@@ -731,7 +731,6 @@ impl<T: DisplayNE> DisplayNEInner for NEDelim<NEVec<T>> {
     }
 }
 
-// TODO testme
 impl DisplayNEInner for PaddedU64 {
     fn fmt_ne_inner(&self, f: &mut impl fmt::Write) -> fmt::Result {
         let n_digits = self.value.checked_ilog10().unwrap_or_default() + 1;
@@ -740,5 +739,41 @@ impl DisplayNEInner for PaddedU64 {
             f.write_char('0')?;
         }
         write!(f, "{}", self.value)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::test::*;
+
+    #[test]
+    fn padded_zero() {
+        let v = PaddedU64 { pad: 3, value: 0 }.to_ne_string().as_str();
+        assert_eq!(v, "000");
+    }
+
+    #[test]
+    fn padded_zero_nopad() {
+        let v = PaddedU64 { pad: 0, value: 0 }.to_ne_string().as_str();
+        assert_eq!(v, "0");
+    }
+
+    #[test]
+    fn padded_one() {
+        let v = PaddedU64 { pad: 3, value: 1 }.to_ne_string().as_str();
+        assert_eq!(v, "001");
+    }
+
+    #[test]
+    fn padded_one_nopad() {
+        let v = PaddedU64 { pad: 0, value: 1 }.to_ne_string().as_str();
+        assert_eq!(v, "1");
+    }
+
+    #[test]
+    fn padded_not_enough() {
+        let v = PaddedU64 { pad: 2, value: 100 }.to_ne_string().as_str();
+        assert_eq!(v, "100");
     }
 }

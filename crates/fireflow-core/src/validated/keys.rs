@@ -407,43 +407,37 @@ pub trait IndexedKey: VersionedKey {
         Self::std(i)
     }
 
+    #[cfg(feature = "serde")]
     #[must_use]
     fn std_blank() -> String {
         let (s0, s1) = Self::C.as_str();
-        // reserve enough space for '$', prefix, suffix, and 'n'
-        let n = s0.len() + 2 + s1.len();
-        let mut s = String::new();
-        s.reserve_exact(n);
-        s.push('$');
-        s.push_str(s0);
-        s.push('n');
-        s.push_str(s1);
-        s
+        format!("${s0}n{s1}")
     }
 
-    #[must_use]
-    fn self_std_blank(&self) -> String {
-        Self::std_blank()
-    }
+    // #[cfg(feature = "serde")]
+    // #[must_use]
+    // fn self_std_blank(&self) -> String {
+    //     Self::std_blank()
+    // }
 
-    /// Build regexp matching `"<PREFIX>n<SUFFIX>"`
-    #[must_use]
-    fn regexp() -> CaseInsRegex {
-        let mut s = String::new();
-        let (s0, s1) = Self::C.as_str();
-        s.push_str(s0);
-        s.push_str("[1-9][0-9]*");
-        s.push_str(s1);
-        // ASSUME this will never fail because pre/suffix should only be letters
-        CaseInsRegex::from_str(s.as_str()).unwrap()
-    }
+    // /// Build regexp matching `"<PREFIX>n<SUFFIX>"`
+    // #[must_use]
+    // fn regexp() -> CaseInsRegex {
+    //     let mut s = String::new();
+    //     let (s0, s1) = Self::C.as_str();
+    //     s.push_str(s0);
+    //     s.push_str("[1-9][0-9]*");
+    //     s.push_str(s1);
+    //     // ASSUME this will never fail because pre/suffix should only be letters
+    //     CaseInsRegex::from_str(s.as_str()).unwrap()
+    // }
 
-    fn matches(other: &StdKey) -> bool {
-        static RE: OnceLock<CaseInsRegex> = OnceLock::new();
-        RE.get_or_init(|| Self::regexp())
-            .as_ref()
-            .is_match(other.as_ref())
-    }
+    // fn matches(other: &StdKey) -> bool {
+    //     static RE: OnceLock<CaseInsRegex> = OnceLock::new();
+    //     RE.get_or_init(|| Self::regexp())
+    //         .as_ref()
+    //         .is_match(other.as_ref())
+    // }
 }
 
 /// A [`StdKey`] with two indices

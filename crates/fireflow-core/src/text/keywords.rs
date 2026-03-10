@@ -328,6 +328,7 @@ pub enum OptRootKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
+#[delegate(AsHeader)]
 pub enum ReqMeasKeyword<'a> {
     Shortname(RefKeyword1<'a, Shortname>),
     Scale(SplitKeyword1<Scale>),
@@ -350,6 +351,7 @@ pub enum OptMeasKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
+#[delegate(AsHeader)]
 pub enum OptOpticalKeyword<'a> {
     Longname(NEStringKeyword1<'a, Longname>),
     Filter(NEStringKeyword1<'a, Filter>),
@@ -389,6 +391,7 @@ pub enum OptTemporalKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
+#[delegate(AsHeader)]
 pub enum OptPeakKeyword {
     PeakBin(SplitKeyword1<PeakBin>),
     PeakIndex(SplitKeyword1<PeakIndex>),
@@ -609,6 +612,11 @@ pub(crate) trait HasMembership {
 }
 
 #[delegatable_trait]
+pub(crate) trait AsHeader {
+    fn std_blank(&self) -> String;
+}
+
+#[delegatable_trait]
 pub(crate) trait AsStdKeywordPair {
     fn as_std_key_pair(&self) -> (StdKey, NEString);
 }
@@ -649,6 +657,12 @@ impl AsKeywordPair for NonStdKeyword<'_> {
 impl<I, V: VersionedKey, X> HasMembership for SplitKeyword<DollarKey<V, I>, X> {
     fn membership(&self) -> VersionMembership {
         V::VERS
+    }
+}
+
+impl<I, V: IndexedKey, X> AsHeader for SplitKeyword<DollarKey<V, I>, X> {
+    fn std_blank(&self) -> String {
+        V::std_blank()
     }
 }
 

@@ -74,8 +74,8 @@ use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBoun
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, Keyword0FromValue as _, Keyword1FromValue as _,
-    NumType, OptMeasKeyword, Par, Range, RangeToIntError, RangeToIntErrorKind, ReqMeasKeyword,
-    ReqRootKeyword, Scale, SplitKeyword0, Tot, Width,
+    NumType, Par, Range, RangeToIntError, RangeToIntErrorKind, ReqMeasKeyword, ReqRootKeyword,
+    Scale, SplitKeyword0, SplitKeyword1, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
@@ -711,7 +711,7 @@ pub trait LayoutOps<'a, T>: Sized {
 
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
-    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>>;
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
 
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
@@ -2613,7 +2613,7 @@ where
 }
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
-    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         self.ranges.iter().map(|_| None).collect()
     }
 
@@ -2982,7 +2982,7 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     InsertRangeError: From<<C as FromRange>::Error>,
 {
-    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         self.columns.iter().map(|_| None).collect()
     }
 
@@ -4096,7 +4096,7 @@ impl CheckedScaleTransform for ScaleTransform {
 }
 
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
-    fn opt_meas_keywords(&self) -> Vec<Option<OptMeasKeyword<'_>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
         match self {
             Self::NonMixed(x) => iter::repeat_n(None, x.ncols()).collect(),
@@ -4108,7 +4108,7 @@ impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
                     NumType::try_from(c.datatype())
                         .ok()
                         .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y))
-                        .map(|v| OptMeasKeyword::from_value(v, i))
+                        .map(|v| SplitKeyword1::from_value1(v, i))
                 })
                 .collect(),
         }

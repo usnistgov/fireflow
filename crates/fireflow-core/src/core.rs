@@ -45,23 +45,24 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
-    Abrt, AlphaNumType, Analyte, AnyKeyword, AnyMeasScaleFix, AsKeywordPair as _, CSMode, CSTot,
-    CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype,
-    Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage,
-    Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate,
-    GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange,
-    GateScale, GateShortname, HasMembership as _, HyperGateError, HyperParError, Inst,
-    Keyword0FromValue as _, Keyword1FromValue as _, KeywordOtherVersionError, LastModified,
-    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, Op, OptKeyword,
-    OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptRootKeyword, OptTemporalKeyword,
-    OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex,
-    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
-    ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1,
-    Src, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
-    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    Abrt, AlphaNumType, Analyte, AnyKeyword, AnyMeasScaleFix, AsHeader as _, AsKeywordPair as _,
+    CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError,
+    Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DetectorName,
+    DetectorType, DetectorVoltage, Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter,
+    Flowrate, Gain, Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname,
+    GatePercentEmitted, GateRange, GateScale, GateShortname, HasMembership as _, HyperGateError,
+    HyperParError, Inst, Keyword0FromValue as _, Keyword1FromValue as _, KeywordOtherVersionError,
+    LastModified, LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost,
+    MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, NumType,
+    Op, OptKeyword, OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptRootKeyword,
+    OptTemporalKeyword, OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin,
+    PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
+    PseudostandardError, Range, RefKeyword1, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale,
+    ScaleFix, Smno, SplitKeyword, SplitKeyword1, Src, StdOrNonStdOptMeasKeyword,
+    StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix,
+    TemporalType, Timestep, TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode,
+    UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
+    Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -127,9 +128,6 @@ use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use {serde::Serialize, std::string::ToString as _};
-
-#[cfg(feature = "serde")]
-use fireflow_types::nonempty_string::{DisplayNE as _, ToNE};
 
 #[cfg(feature = "python")]
 use {
@@ -3930,6 +3928,7 @@ where
             .opt_meas_keywords()
             .into_iter()
             .flatten()
+            .map(OptMeasKeyword::from)
             .map(StdOrNonStdOptMeasKeyword::from);
         self.measurements
             .iter_with(
@@ -3976,44 +3975,103 @@ where
         self.metaroot.opt_and_nonstd_keywords()
     }
 
-    // TODO fixme
     #[cfg(feature = "serde")]
+    #[allow(clippy::too_many_lines)]
     fn meas_table<'a>(&'a self, delim: &str) -> Vec<String>
     where
         M::Temporal: Clone,
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
     {
-        #[derive(From)]
-        pub(crate) enum MeasKeyword<'a> {
+        const INDEX: &str = "index";
+
+        #[derive(From, Clone)]
+        enum MeasKeyword<'a> {
             Index(MeasIndex),
             Req(ReqMeasKeyword<'a>),
-            Opt(OptMeasKeyword<'a>),
+            Optical(OptOpticalKeyword<'a>),
+            NumType(SplitKeyword1<NumType>),
         }
 
-        // TODO fixme
         impl<'a> MeasKeyword<'a> {
-            fn header(&'a self) -> String {
+            fn key(&'a self) -> String {
                 match self {
-                    MeasKeyword::Index(_) => "index".into(),
-                    // MeasKeyword::Req(x) => x.keyword.meas_header(),
-                    // MeasKeyword::Opt(x) => x.keyword.meas_header(),
-                    MeasKeyword::Req(_) => "XXX".into(),
-                    MeasKeyword::Opt(_) => "YYY".into(),
+                    MeasKeyword::Index(_) => INDEX.into(),
+                    MeasKeyword::Req(x) => x.std_blank(),
+                    MeasKeyword::Optical(x) => x.std_blank(),
+                    MeasKeyword::NumType(x) => x.std_blank(),
                 }
             }
 
-            fn value(&'a self) -> NEString {
-                // let na = || String::from("NA");
+            fn value(&'a self) -> String {
                 match self {
-                    MeasKeyword::Index(x) => ToNE(x).to_ne_string(),
-                    MeasKeyword::Req(x) => x.as_str_pair().1,
-                    MeasKeyword::Opt(x) => x.as_str_pair().1,
+                    MeasKeyword::Index(x) => x.to_string(),
+                    MeasKeyword::Req(x) => x.as_str_pair().1.into(),
+                    MeasKeyword::Optical(x) => x.as_str_pair().1.into(),
+                    MeasKeyword::NumType(x) => x.as_str_pair().1.into(),
                 }
+            }
+
+            fn assign(self, header: &[String], row: &mut [Option<String>]) {
+                let key = self.key();
+                if let Some(i) = header.iter().position(|x| x == &key) {
+                    row[i] = Some(self.value());
+                }
+            }
+        }
+
+        let mut header = vec![];
+
+        let version = M::Ver::fcs_version();
+
+        let common = [
+            INDEX.into(),
+            Shortname::std_blank(),
+            Width::std_blank(),
+            Range::std_blank(),
+            Scale::std_blank(),
+            Filter::std_blank(),
+            // NOTE same for Wavelengths
+            Wavelength::std_blank(),
+            Power::std_blank(),
+            DetectorType::std_blank(),
+            PercentEmitted::std_blank(),
+            DetectorVoltage::std_blank(),
+        ];
+
+        let peak = [PeakBin::std_blank(), PeakIndex::std_blank()];
+
+        header.extend(common);
+
+        match version {
+            Version::FCS2_0 => {
+                header.extend(peak);
+            }
+            Version::FCS3_0 => {
+                header.push(Gain::std_blank());
+                header.extend(peak);
+            }
+            Version::FCS3_1 => {
+                header.push(Gain::std_blank());
+                header.push(Calibration3_1::std_blank());
+                header.push(Display::std_blank());
+                header.extend(peak);
+            }
+            Version::FCS3_2 => {
+                header.push(Gain::std_blank());
+                header.push(Calibration3_2::std_blank());
+                header.push(Display::std_blank());
+                header.push(DetectorName::std_blank());
+                header.push(Tag::std_blank());
+                header.push(OpticalType::std_blank());
+                header.push(Feature::std_blank());
+                header.push(Analyte::std_blank());
+                header.push(NumType::std_blank());
             }
         }
 
         let shortname = |n: Option<&'a Shortname>, index: MeasIndex| {
-            n.map(|v| OptMeasKeyword::from_ref(v, index))
+            n.map(|v| RefKeyword1::from_ref1(v, index))
+                .map(ReqMeasKeyword::from)
                 .map(MeasKeyword::from)
         };
 
@@ -4050,27 +4108,28 @@ where
 
         let ls = req_layout.into_iter().zip(opt_layout);
 
-        let mut rows = vec![];
-
-        for (i, ((n, m), (req_l, opt_l))) in ms.iter().zip(ls).enumerate() {
-            let mut cols = vec![];
-            let j = MeasIndex::from(i);
-            // Order is: Index, Shortname, Required Keyword, Optional Keywords
-            cols.push(MeasKeyword::from(j));
-            cols.extend(shortname(*n, j));
-            cols.extend(req_l.map(MeasKeyword::from));
-            cols.extend(m.req_indexed_keywords(j).map(MeasKeyword::from));
-            cols.extend(m.opt_indexed_keywords(j).map(MeasKeyword::from));
-            cols.extend(opt_l.fmap(MeasKeyword::from));
-            rows.push(cols);
-        }
-
-        if let Some(row0) = rows.first() {
-            let header = row0.iter().map(MeasKeyword::header).join(delim);
-            let rs = rows
-                .iter()
-                .map(|row| row.iter().map(MeasKeyword::value).join(delim));
-            once(header).chain(rs).collect()
+        if let Some(ne) = ms.iter().zip(ls).enumerate().try_into_nonempty_iter() {
+            let mut rows = vec![];
+            rows.push(header.iter().join(delim));
+            for (i, ((n, m), (req_l, opt_l))) in ne {
+                let mut row = vec![None; header.len()];
+                let j = MeasIndex::from(i);
+                let xs = once(MeasKeyword::from(j))
+                    .chain(shortname(*n, j))
+                    .chain(req_l.map(MeasKeyword::from))
+                    .chain(opt_l.fmap(MeasKeyword::from))
+                    .chain(m.req_indexed_keywords(j).map(MeasKeyword::from))
+                    .chain(m.opt_keywords(j).map(MeasKeyword::from));
+                for x in xs {
+                    x.assign(&header[..], &mut row);
+                }
+                let joined = row
+                    .into_iter()
+                    .map(|x| x.unwrap_or_else(|| "NA".into()))
+                    .join(delim);
+                rows.push(joined);
+            }
+            rows
         } else {
             vec![]
         }

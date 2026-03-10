@@ -745,12 +745,11 @@ impl DisplayNEInner for PaddedU64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test::*;
 
     #[test]
     fn padded_zero() {
-        let v = PaddedU64 { pad: 3, value: 0 }.to_ne_string().as_str();
-        assert_eq!(v, "000");
+        let v = PaddedU64 { pad: 3, value: 0 }.to_ne_string();
+        assert_eq!(v.as_str(), "000");
     }
 
     #[test]

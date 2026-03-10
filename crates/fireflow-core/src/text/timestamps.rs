@@ -7,7 +7,7 @@ use crate::text::lookup::{
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use fireflow_types::config::DEFAULT_DATE_FORMAT;
+use fireflow_types::config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0};
 use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
@@ -328,8 +328,7 @@ pub struct FCSTime(pub NaiveTime);
 impl<'a> ToDisplayNE<'a> for FCSTime {
     type NE = NEString;
     fn to_ne(&'a self) -> Self::NE {
-        // TODO sketchy (see StrftimeItems for a possible alternative that can be checked and is faster)
-        NEString::try_from(self.0.format(FCS_TIME_FORMAT).to_string())
+        NEString::try_from(self.0.format(DEFAULT_TIME_FORMAT_2_0).to_string())
             .expect("time format should never be empty")
     }
 }
@@ -344,13 +343,11 @@ impl PartialEq for FCSTime {
     }
 }
 
-const FCS_TIME_FORMAT: &str = "%H:%M:%S";
-
 impl FromStr for FCSTime {
     type Err = FCSTimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, FCS_TIME_FORMAT)
+        NaiveTime::parse_from_str(s, DEFAULT_TIME_FORMAT_2_0)
             .map(FCSTime)
             .or(Err(FCSTimeError))
     }
@@ -396,7 +393,7 @@ impl FromStr for FCSTime60 {
     type Err = FCSTime60Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
+        NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
             .or_else(|_| {
                 let xs = s.split(':').collect::<Vec<_>>();
                 match &xs[..] {
@@ -429,8 +426,7 @@ impl FromStr for FCSTime60 {
 impl<'a> ToDisplayNE<'a> for FCSTime60 {
     type NE = NEString;
     fn to_ne(&'a self) -> Self::NE {
-        // TODO clean this up
-        let mut s = NEString::try_from(self.0.format(FCS_TIME_FORMAT).to_string())
+        let mut s = NEString::try_from(self.0.format(BASE_TIME_FORMAT).to_string())
             .expect("time format should never be empty");
         let cc = format!("{:02}", u64::from(self.0.nanosecond()) * 60 / 1_000_000_000);
         s.push(':');
@@ -473,7 +469,7 @@ impl FromStr for FCSTime100 {
     type Err = FCSTime100Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
+        NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
             .or_else(|_| {
                 static RE: LazyLock<Regex> = LazyLock::new(|| {
                     Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
@@ -494,8 +490,7 @@ impl FromStr for FCSTime100 {
 impl<'a> ToDisplayNE<'a> for FCSTime100 {
     type NE = NEString;
     fn to_ne(&'a self) -> Self::NE {
-        // TODO clean this up
-        let mut s = NEString::try_from(self.0.format(FCS_TIME_FORMAT).to_string())
+        let mut s = NEString::try_from(self.0.format(BASE_TIME_FORMAT).to_string())
             .expect("time format should never be empty");
         let cc = format!("{:02}", self.0.nanosecond() / 10_000_000);
         s.push('.');

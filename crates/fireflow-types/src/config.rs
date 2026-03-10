@@ -589,13 +589,13 @@ pub const DEFAULT_DATE_FORMAT: &str = "%d-%b-%Y";
 
 pub const DEFAULT_LAST_MODIFIED_FORMAT: &str = "%d-%b-%Y %H:%M:%S";
 
-pub const DEFAULT_TIME_FORMAT_2_0: &str = "%H:%M:%S";
+pub const BASE_TIME_FORMAT: &str = "%H:%M:%S";
 
-pub const DEFAULT_TIME_FORMAT_3_0: &str =
-    formatcp!("{DEFAULT_TIME_FORMAT_2_0}:{BASE60_SECOND_SPEC}");
+pub const DEFAULT_TIME_FORMAT_2_0: &str = BASE_TIME_FORMAT;
 
-pub const DEFAULT_TIME_FORMAT_3_1: &str =
-    formatcp!("{DEFAULT_TIME_FORMAT_2_0}.{BASE100_SECOND_SPEC}");
+pub const DEFAULT_TIME_FORMAT_3_0: &str = formatcp!("{BASE_TIME_FORMAT}:{BASE60_SECOND_SPEC}");
+
+pub const DEFAULT_TIME_FORMAT_3_1: &str = formatcp!("{BASE_TIME_FORMAT}.{BASE100_SECOND_SPEC}");
 
 pub const BASE60_SECOND_SPEC: &str = "%!";
 

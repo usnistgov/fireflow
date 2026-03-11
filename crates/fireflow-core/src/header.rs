@@ -36,6 +36,7 @@ use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator a
 use num_traits::identities::Zero;
 use thiserror::Error;
 
+use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
 
@@ -80,25 +81,16 @@ pub(crate) struct WriteHeaderSegments<T> {
 impl<T> WriteHeaderSegments<T> {
     pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
     where
-        T: HeaderString + Zero,
+        T: Zero + fmt::Display + Copy,
     {
-        // TODO use write! for this
-        let towrite = [
-            version.to_string(),           // 6 bytes
-            "    ".into(),                 // 4 bytes
-            self.text.header_string(),     // 16 bytes
-            self.data.header_string(),     // 16 bytes
-            self.analysis.header_string(), // 16 bytes
-        ];
-        debug_assert!(
-            towrite.iter().join("").len() == 58,
-            "HEADER (without OTHER) should be 58 bytes"
-        );
-        for s in towrite
-            .into_iter()
-            .chain(self.other.iter().map(Segment::header_string))
-        {
-            h.write_all(s.as_bytes())?;
+        // 6+4+16+16+16 bytes
+        write!(
+            h,
+            "{version}    {}{}{}",
+            self.text, self.data, self.analysis
+        )?;
+        for o in &self.other {
+            write!(h, "{o}")?;
         }
         Ok(())
     }
@@ -413,7 +405,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Self, WriteTEXTHeaderError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + HeaderString + Into<u64>,
     {
         let delim = conf.delim;
         let data_len = conf.data_len;
@@ -465,7 +457,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Self, WriteTEXTHeaderError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + HeaderString + Into<u64>,
     {
         let delim = conf.delim;
         let data_len = conf.data_len;
@@ -592,7 +584,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         other_segs: &[Other],
     ) -> io::Result<()>
     where
-        T: Zero + HeaderString,
+        T: Copy + Zero + fmt::Display,
     {
         // write HEADER
         self.header.h_write(h, version)?;

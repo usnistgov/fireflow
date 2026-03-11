@@ -135,9 +135,10 @@ pub type NEConcat5<A, B, C, D, E> = NEConcat<NEConcat4<A, B, C, D>, E>;
 ///
 /// This only works for [`u64`] (for now) because there is no generic trait
 /// for log10.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, new)]
 pub struct PaddedU64 {
     pub pad: u32,
+    pub pad_char: char,
     pub value: u64,
 }
 
@@ -748,31 +749,31 @@ mod tests {
 
     #[test]
     fn padded_zero() {
-        let v = PaddedU64 { pad: 3, value: 0 }.to_ne_string();
+        let v = PaddedU64::new(3, '0', 0).to_ne_string();
         assert_eq!(v.as_str(), "000");
     }
 
     #[test]
     fn padded_zero_nopad() {
-        let v = PaddedU64 { pad: 0, value: 0 }.to_ne_string();
+        let v = PaddedU64::new(0, '0', 0).to_ne_string();
         assert_eq!(v.as_str(), "0");
     }
 
     #[test]
     fn padded_one() {
-        let v = PaddedU64 { pad: 3, value: 1 }.to_ne_string();
+        let v = PaddedU64::new(3, '0', 1).to_ne_string();
         assert_eq!(v.as_str(), "001");
     }
 
     #[test]
     fn padded_one_nopad() {
-        let v = PaddedU64 { pad: 0, value: 1 }.to_ne_string();
+        let v = PaddedU64::new(0, '0', 1).to_ne_string();
         assert_eq!(v.as_str(), "1");
     }
 
     #[test]
     fn padded_not_enough() {
-        let v = PaddedU64 { pad: 2, value: 100 }.to_ne_string();
+        let v = PaddedU64::new(2, '0', 100).to_ne_string();
         assert_eq!(v.as_str(), "100");
     }
 }

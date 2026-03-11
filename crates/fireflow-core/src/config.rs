@@ -1301,8 +1301,6 @@ impl AppendFlag {
     }
 }
 
-// TODO this could match an empty string which will never make sense; it may
-// make sense to forbid such patterns
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".

@@ -45,24 +45,23 @@ use crate::text::gating::{
 };
 use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords::{
-    Abrt, AlphaNumType, Analyte, AnyKeyword, AnyMeasScaleFix, AsHeader as _, AsKeywordPair as _,
-    CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError,
-    Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DetectorName,
-    DetectorType, DetectorVoltage, Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter,
-    Flowrate, Gain, Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname,
-    GatePercentEmitted, GateRange, GateScale, GateShortname, HasMembership as _, HyperGateError,
-    HyperParError, Inst, Keyword0FromValue as _, Keyword1FromValue as _, KeywordOtherVersionError,
-    LastModified, LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost,
-    MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, NumType,
-    Op, OptKeyword, OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptRootKeyword,
-    OptTemporalKeyword, OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin,
-    PeakIndex, PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj,
-    PseudostandardError, Range, RefKeyword1, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale,
-    ScaleFix, Smno, SplitKeyword, SplitKeyword1, Src, StdOrNonStdOptMeasKeyword,
-    StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix,
-    TemporalType, Timestep, TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode,
-    UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths, WavelengthsLossError, Wellid,
-    Width,
+    Abrt, AlphaNumType, Analyte, AnyKeyword, AnyMeasScaleFix, AsKeywordPair as _, CSMode, CSTot,
+    CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype,
+    Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage,
+    Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate,
+    GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange,
+    GateScale, GateShortname, HasMembership as _, HyperGateError, HyperParError, Inst,
+    Keyword0FromValue as _, Keyword1FromValue as _, KeywordOtherVersionError, LastModified,
+    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, Op, OptKeyword,
+    OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptRootKeyword, OptTemporalKeyword,
+    OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex,
+    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
+    ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1,
+    Src, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
+    TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
+    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
+    WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -127,7 +126,11 @@ use std::mem;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
-use {serde::Serialize, std::string::ToString as _};
+use {
+    crate::text::keywords::{AsHeader as _, NumType, RefKeyword1, Width},
+    serde::Serialize,
+    std::string::ToString as _,
+};
 
 #[cfg(feature = "python")]
 use {
@@ -2476,7 +2479,12 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
-        T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError>
+            + Copy
+            + Zero
+            + fmt::Display
+            + HeaderString
+            + Into<u64>,
     {
         let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
         self.h_write_text_inner::<_, T>(h, &conf)
@@ -2489,7 +2497,12 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
-        T: Zero + TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError>
+            + Copy
+            + Zero
+            + fmt::Display
+            + HeaderString
+            + Into<u64>,
     {
         let hdr_kws: HeaderKeywordsToWrite<T> = self
             .header_and_flat_keywords(conf)
@@ -3887,7 +3900,7 @@ where
     ) -> Result<HeaderKeywordsToWrite<T>, WriteTEXTHeaderError>
     where
         Version: From<M::Ver>,
-        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + Zero + HeaderString + Into<u64>,
     {
         let req = self
             .req_root_keywords()

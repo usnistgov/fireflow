@@ -20,7 +20,7 @@ use crate::text::lookup::{
 };
 use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 use crate::validated::ascii_uint::{
-    HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
+    ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
 use crate::validated::keys::{
@@ -1189,18 +1189,17 @@ impl<I> TEXTSegment<I> {
     }
 }
 
-impl<I, T> Segment<I, SegmentFromHeader, T> {
-    pub(crate) fn header_string(&self) -> String
-    where
-        T: Zero + HeaderString,
-    {
+// ASSUME the display trait for the inner type will render with the
+// proper number of characters
+impl<I, T> fmt::Display for Segment<I, SegmentFromHeader, T>
+where
+    T: Zero + fmt::Display + Copy,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (b, e) = self
             .try_coords()
             .map_or((T::zero(), T::zero()), |(b, e, _)| (b, e));
-        let mut s = String::new();
-        s.push_str(&b.header_string());
-        s.push_str(&e.header_string());
-        s
+        write!(f, "{b}{e}")
     }
 }
 

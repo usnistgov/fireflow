@@ -328,7 +328,7 @@ pub enum OptRootKeyword<'a> {
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
-#[delegate(AsHeader)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum ReqMeasKeyword<'a> {
     Shortname(RefKeyword1<'a, Shortname>),
     Scale(SplitKeyword1<Scale>),
@@ -351,7 +351,7 @@ pub enum OptMeasKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
-#[delegate(AsHeader)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptOpticalKeyword<'a> {
     Longname(NEStringKeyword1<'a, Longname>),
     Filter(NEStringKeyword1<'a, Filter>),
@@ -391,7 +391,7 @@ pub enum OptTemporalKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
-#[delegate(AsHeader)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptPeakKeyword {
     PeakBin(SplitKeyword1<PeakBin>),
     PeakIndex(SplitKeyword1<PeakIndex>),
@@ -611,6 +611,7 @@ pub(crate) trait HasMembership {
     }
 }
 
+#[cfg(feature = "serde")]
 #[delegatable_trait]
 pub(crate) trait AsHeader {
     fn std_blank(&self) -> String;
@@ -660,6 +661,7 @@ impl<I, V: VersionedKey, X> HasMembership for SplitKeyword<DollarKey<V, I>, X> {
     }
 }
 
+#[cfg(feature = "serde")]
 impl<I, V: IndexedKey, X> AsHeader for SplitKeyword<DollarKey<V, I>, X> {
     fn std_blank(&self) -> String {
         V::std_blank()

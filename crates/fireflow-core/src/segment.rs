@@ -1393,26 +1393,24 @@ impl OtherSegment20 {
         width_res
             .map_errors(HeaderSegmentError::from)
             .and_then_commutative(|width| {
-                let buf_pairs = valid_buf.nonempty_chunks(width.into()).into_iter().tuples();
                 let corrs = hconf
                     .other_corrections
                     .iter()
                     .copied()
                     .chain(repeat(OffsetCorrection::default()));
                 let limit = hconf.max_other.unwrap_or(usize::MAX);
-                let mut results = vec![];
-
-                for ((buf0, buf1), corr) in buf_pairs.zip(corrs).take(limit) {
-                    let seg_conf = NewSegmentConfig::from_read_config(corr, st);
-                    let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
-                    if !(all_are(0) || all_are(32) || all_are(48)) {
-                        let r = Self::parse_other(&buf0, &buf1, &seg_conf);
-                        results.push(r);
-                    }
-                }
-
-                results
+                valid_buf
+                    .nonempty_chunks(width.into())
                     .into_iter()
+                    .tuples()
+                    .zip(corrs)
+                    .take(limit)
+                    .filter_map(|((buf0, buf1), corr)| {
+                        let seg_conf = NewSegmentConfig::from_read_config(corr, st);
+                        let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
+                        (!(all_are(0) || all_are(32) || all_are(48)))
+                            .then(|| Self::parse_other(&buf0, &buf1, &seg_conf))
+                    })
                     .sequence_commutative()
                     .nowarn_into_warn()
                     .map_ok_value(|xs| NEVec::try_from_vec(xs).map(|ys| (ys, width)))
@@ -1522,11 +1520,6 @@ impl OtherSegment20 {
             }
             let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
             debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
-            let digit_intervals: Vec<_> = digit_starts
-                .iter()
-                .copied()
-                .zip(digit_ends.iter().copied())
-                .collect();
 
             // Compute number of segments that fit into digits. Use the last
             // found digit as the end of the bytes to be considered. If segment
@@ -1547,22 +1540,23 @@ impl OtherSegment20 {
             // - all offset boundaries should be in a digit stream
             let mut seg_ends = (0..n_segs).map(|x| (x + 1) * ww);
             let mut cur_end = seg_ends.by_ref().next();
-            for (a, b) in &digit_intervals {
+            let digit_intervals = digit_starts.iter().copied().zip(digit_ends.iter().copied());
+            for (a, b) in digit_intervals {
                 if let Some(s) = cur_end {
-                    if &s == b {
+                    if s == b {
                         // offset end and digit end are equal, this digit stream
                         // is satisfied
                         cur_end = seg_ends.by_ref().next();
                         continue;
-                    } else if a < &s && &s < b {
+                    } else if a < s && s < b {
                         // offset end is in digit stream, which is allowed but
                         // we still need to match the current digit stream's
                         // ending offset. Advance until we either find a match
                         // (pass) or we overshoot (fail)
-                        while cur_end.is_some_and(|s0| &s0 < b) {
+                        while cur_end.is_some_and(|s0| s0 < b) {
                             cur_end = seg_ends.by_ref().next();
                         }
-                        if cur_end.is_some_and(|s0| &s0 == b) {
+                        if cur_end.is_some_and(|s0| s0 == b) {
                             cur_end = seg_ends.by_ref().next();
                             continue;
                         }

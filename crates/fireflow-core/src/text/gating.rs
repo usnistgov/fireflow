@@ -53,28 +53,30 @@ use {
 };
 
 /// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0)
-#[derive(Clone, PartialEq, Default, AsRef)]
+pub type AppliedGates2_0 = AppliedGatesPre3_2<GateIndex>;
+
+/// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
+pub type AppliedGates3_0 = AppliedGatesPre3_2<MeasOrGateIndex>;
+
+/// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (2.0-3.1)
+#[derive(Clone, PartialEq, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct AppliedGates2_0 {
+pub struct AppliedGatesPre3_2<I> {
     #[as_ref(GatedMeasurements)]
     #[as_ref([GatedMeasurement])]
     gated_measurements: GatedMeasurements,
     #[as_ref(Option<Gating>)]
-    #[as_ref(HashMap<RegionIndex, Region2_0>)]
-    scheme: GatingScheme<GateIndex>,
+    #[as_ref(HashMap<RegionIndex, Region<I>>)]
+    scheme: GatingScheme<I>,
 }
 
-// TODO combine this with above since they are almost the same (check methods first)
-/// The $GATING/$RnI/$RnW/$Gn* keywords in a unified bundle (3.0-3.1)
-#[derive(Clone, PartialEq, Default, AsRef)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct AppliedGates3_0 {
-    #[as_ref(GatedMeasurements)]
-    #[as_ref([GatedMeasurement])]
-    gated_measurements: GatedMeasurements,
-    #[as_ref(Option<Gating>)]
-    #[as_ref(HashMap<RegionIndex, Region3_0>)]
-    scheme: GatingScheme<MeasOrGateIndex>,
+impl<I> Default for AppliedGatesPre3_2<I> {
+    fn default() -> Self {
+        Self {
+            gated_measurements: GatedMeasurements::default(),
+            scheme: GatingScheme::default(),
+        }
+    }
 }
 
 /// The $GATING/$RnI/$RnW keywords in a unified bundle (3.2)
@@ -97,8 +99,6 @@ pub struct GatingScheme<I> {
     #[as_ref(HashMap<RegionIndex, Region<I>>)]
     regions: HashMap<RegionIndex, Region<I>>,
 }
-
-impl_kind1!(pub GatingSchemeFamily, GatingScheme);
 
 /// A list of $Gn* keywords for indices 1-n.
 ///
@@ -262,17 +262,22 @@ impl<I> BivariateRegion<I> {
     }
 }
 
-impl AppliedGates2_0 {
+impl<I> AppliedGatesPre3_2<I> {
     pub fn try_new(
         gated_measurements: Vec<GatedMeasurement>,
-        scheme: GatingScheme<GateIndex>,
-    ) -> Result<Self, GateMeasurementLinkError> {
+        scheme: GatingScheme<I>,
+    ) -> Result<Self, GateMeasurementLinkError>
+    where
+        I: Copy,
+        GateIndex: TryFrom<I>,
+    {
         let n = gated_measurements.len();
         if let Some(xs) = scheme
             .regions
             .iter()
             .flat_map(|(_, r)| r.indices())
             .copied()
+            .flat_map(GateIndex::try_from)
             .filter(|&i| usize::from(i) >= n)
             .try_into_nonempty_iter()
         {
@@ -287,9 +292,13 @@ impl AppliedGates2_0 {
 
     pub fn try_new1(
         gated_measurements: Vec<GatedMeasurement>,
-        regions: HashMap<RegionIndex, Region2_0>,
+        regions: HashMap<RegionIndex, Region<I>>,
         gating: Option<Gating>,
-    ) -> Result<Self, NewAppliedGatesWithSchemeError> {
+    ) -> Result<Self, NewAppliedGatesWithSchemeError>
+    where
+        I: Copy,
+        GateIndex: TryFrom<I>,
+    {
         let scheme = GatingScheme::try_new(gating, regions)?;
         Ok(Self::try_new(gated_measurements, scheme)?)
     }
@@ -299,7 +308,7 @@ impl AppliedGates2_0 {
         self,
     ) -> (
         Vec<GatedMeasurement>,
-        HashMap<RegionIndex, Region2_0>,
+        HashMap<RegionIndex, Region<I>>,
         Option<Gating>,
     ) {
         (
@@ -309,6 +318,7 @@ impl AppliedGates2_0 {
         )
     }
 
+    #[allow(clippy::type_complexity)]
     pub(crate) fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -316,11 +326,15 @@ impl AppliedGates2_0 {
     ) -> WarningsAndErrorsResult<
         (Self, TrimmedKeywords, Vec<ScaleFix>),
         (),
-        LookupAppliedGates2_0Error,
-        LookupAppliedGates2_0Error,
+        LookupAppliedGatesPre3_2Error<I>,
+        LookupAppliedGatesPre3_2Error<I>,
     >
     where
+        GateIndex: TryFrom<I>,
+        I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
         let ag = GatingScheme::lookup(std, nonstd, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
@@ -346,7 +360,11 @@ impl AppliedGates2_0 {
             })
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
+    pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
+    where
+        I: Copy,
+        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+    {
         let gate = self
             .gated_measurements
             .gate()
@@ -363,53 +381,6 @@ impl AppliedGates2_0 {
 }
 
 impl AppliedGates3_0 {
-    pub fn try_new(
-        gated_measurements: Vec<GatedMeasurement>,
-        scheme: GatingScheme<MeasOrGateIndex>,
-    ) -> Result<Self, GateMeasurementLinkError> {
-        let n = gated_measurements.len();
-        if let Some(xs) = scheme
-            .regions
-            .iter()
-            .flat_map(|(_, r)| r.indices())
-            .copied()
-            .flat_map(GateIndex::try_from)
-            .filter(|&i| usize::from(i) >= n)
-            .try_into_nonempty_iter()
-        {
-            Err(GateMeasurementLinkError(xs.collect()))
-        } else {
-            Ok(Self {
-                gated_measurements: gated_measurements.into(),
-                scheme,
-            })
-        }
-    }
-
-    pub fn try_new1(
-        gated_measurements: Vec<GatedMeasurement>,
-        regions: HashMap<RegionIndex, Region3_0>,
-        gating: Option<Gating>,
-    ) -> Result<Self, NewAppliedGatesWithSchemeError> {
-        let scheme = GatingScheme::try_new(gating, regions)?;
-        Ok(Self::try_new(gated_measurements, scheme)?)
-    }
-
-    #[must_use]
-    pub fn split(
-        self,
-    ) -> (
-        Vec<GatedMeasurement>,
-        HashMap<RegionIndex, Region3_0>,
-        Option<Gating>,
-    ) {
-        (
-            self.gated_measurements.0,
-            self.scheme.regions,
-            self.scheme.gating,
-        )
-    }
-
     /// Shift indices when a new measurement is inserted.
     ///
     /// New measurement is assumed to be inserted at `i`. All regions with
@@ -435,60 +406,6 @@ impl AppliedGates3_0 {
         par: &Par,
     ) -> impl Iterator<Item = BrokenRegionLinkError<MeasOrGateIndex>> {
         self.scheme.invalid_link_errors(par)
-    }
-
-    pub(crate) fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        conf: &C,
-    ) -> WarningsAndErrorsResult<
-        (Self, TrimmedKeywords, Vec<ScaleFix>),
-        (),
-        LookupAppliedGates3_0Error,
-        LookupAppliedGates3_0Error,
-    >
-    where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
-    {
-        let s = GatingScheme::lookup(std, nonstd, conf)
-            .map_errors(LookupAppliedGatesError::Scheme)
-            .map_commutative_warnings(LookupAppliedGatesError::Scheme);
-        let ms = GatedMeasurements::lookup(std, nonstd, conf)
-            .map_errors(LookupAppliedGatesError::GatedMeas)
-            .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        s.zip_f2_once(ms)
-            .and_then_deferred(|(scheme_out, gated_ms_out)| {
-                let (scheme, scheme_diag) = scheme_out;
-                let (gated_ms, gated_ms_diag) = gated_ms_out;
-                let succ = Self::try_new(gated_ms.0, scheme)
-                    .map_err(LookupAppliedGatesError::Link)
-                    .map(|x| (x, scheme_diag, gated_ms_diag))
-                    .into_succ();
-                LogResult::Succ(succ)
-            })
-            .map_err_value(|(ret, _, _)| {
-                if rconf.process_optional_failure.is_demote() {
-                    ret.scheme.demote_keywords(nonstd);
-                    ret.gated_measurements.demote_keywords(nonstd);
-                }
-            })
-    }
-
-    // TODO not DRY (see 2.0 version)
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
-        let gate = self
-            .gated_measurements
-            .gate()
-            .map(OptRootKeyword::from_value);
-        self.gated_measurements
-            .0
-            .iter()
-            .enumerate()
-            .flat_map(|(i, m)| m.opt_keywords(i.into()))
-            .map(OptRootKeyword::from)
-            .chain(gate)
-            .chain(self.scheme.opt_keywords())
     }
 
     pub(crate) fn try_into_2_0(
@@ -650,6 +567,8 @@ impl<I> Default for GatingScheme<I> {
         Self::new(None, HashMap::new())
     }
 }
+
+impl_kind1!(pub GatingSchemeFamily, GatingScheme);
 
 impl_functor!(
     GatingScheme,
@@ -1284,23 +1203,18 @@ impl<J1> BiIndexForRegionError<J1> {
     }
 }
 
+/// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 2.0-3.2
+pub type LookupAppliedGatesPre3_2Error<I> = LookupAppliedGatesError<LookupRegionIndexError<I>>;
+
 /// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 2.0
-pub type LookupAppliedGates2_0Error = LookupAppliedGatesError<LookupRegionIndex2_0Error>;
+pub type LookupAppliedGates2_0Error = LookupAppliedGatesPre3_2Error<GateIndex>;
 
 /// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords for 3.0 and 3.1
-pub type LookupAppliedGates3_0Error = LookupAppliedGatesError<LookupRegionIndex3_0Error>;
+pub type LookupAppliedGates3_0Error = LookupAppliedGatesPre3_2Error<MeasOrGateIndex>;
 
 /// Error when parsing $GATING/$RnI/$RnW keywords for 3.2
-pub type LookupAppliedGates3_2Error = LookupGatingSchemeError<LookupRegionIndex3_2Error>;
-
-/// Error when parsing $RnI keyword for 2.0
-pub type LookupRegionIndex2_0Error = LookupRegionIndexError<GateIndex>;
-
-/// Error when parsing $RnI keyword for 3.0/3.1
-pub type LookupRegionIndex3_0Error = LookupRegionIndexError<MeasOrGateIndex>;
-
-/// Error when parsing $RnI keyword for 3.2
-pub type LookupRegionIndex3_2Error = LookupRegionIndexError<PrefixedMeasIndex>;
+pub type LookupAppliedGates3_2Error =
+    LookupGatingSchemeError<LookupRegionIndexError<PrefixedMeasIndex>>;
 
 /// Error when parsing $RnI keyword (generic)
 pub type LookupRegionIndexError<I> = OptIndexedKeyStError<RegionGateIndex<I>>;

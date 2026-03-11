@@ -525,8 +525,13 @@ impl<T> HeaderKeywordsToWrite<T> {
             } else {
                 let (prim_text_seg, other_begin) = make_text_seg(req_text_len)?;
                 let (other_segs, supp_text_begin) = Self::other_segments(other_begin, other_lens)?;
-                // TODO what happens if supp_text_len is 1 because there are no
-                // optional keyword?
+                // NOTE this will happen because if we made it to this point,
+                // req + opt is too big, and req is small enough, which means
+                // opt must have something in it
+                debug_assert!(
+                    supp_text_len > 1,
+                    "supp TEXT should have at least one key/val pair"
+                );
                 let supp_text_seg =
                     SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                 let data_begin = supp_text_seg

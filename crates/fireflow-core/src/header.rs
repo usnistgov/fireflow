@@ -32,7 +32,9 @@ use fireflow_types::nonempty_string::NEStr;
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
+use nonempty_collections::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, iter::NonEmptyIterator as _,
+};
 use num_traits::identities::Zero;
 use thiserror::Error;
 
@@ -135,10 +137,9 @@ impl Header {
         other_res
             .map_pure_errors(HeaderError::from)
             .and_then_commutative(|other| {
-                // TODO this can be cleaner with ne iter
                 let (os, os_raw) = if let Some((os, w)) = other {
-                    let (parsed, raw) = os.into_iter().unzip();
-                    (Some((NEVec::try_from_vec(parsed).unwrap(), w)), raw)
+                    let (parsed, raw): (NEVec<_>, NEVec<_>) = os.into_nonempty_iter().unzip();
+                    (Some((parsed, w)), Vec::from(raw))
                 } else {
                     (None, vec![])
                 };

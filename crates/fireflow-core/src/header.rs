@@ -401,8 +401,8 @@ pub(crate) struct HeaderKeywordsToWrite<T> {
 
 impl<T> HeaderKeywordsToWrite<T> {
     /// Create HEADER+TEXT+OTHER offsets for FCS 2.0
-    pub(crate) fn new_2_0(
-        kws: &[AnyKeyword<'_>],
+    pub(crate) fn new_2_0<'a>(
+        kws: impl IntoIterator<Item = AnyKeyword<'a>>,
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Self, WriteTEXTHeaderError>
     where
@@ -414,17 +414,13 @@ impl<T> HeaderKeywordsToWrite<T> {
         let other_lens = &conf.other_lens()[..];
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
-        // Check all keywords for illegally placed delimiters
-        for x in kws {
-            x.has_delim(delim).map_or(Ok(()), Err)?;
-        }
-
         // Make new buffer for TEXT with first delimiter
         let mut text = String::from(char::from(delim));
 
-        // write non-offset keywords to buffer
+        // Check for invalid delimiters and write non-offset keywords to buffers
         for x in kws {
-            Escaped::new(delim, x).write_str(&mut text);
+            x.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &x).write_str(&mut text);
         }
 
         let text_len: u64 = u64::try_from(text.len()).expect("overflow") + NEXTDATA_LEN;
@@ -453,8 +449,8 @@ impl<T> HeaderKeywordsToWrite<T> {
     /// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
     /// STEXT, DATA, ANALYSIS.
     pub(crate) fn new_3_0<'a>(
-        req: &[ReqKeyword<'a>],
-        opt: &[OptKeyword<'a>],
+        req: impl IntoIterator<Item = ReqKeyword<'a>>,
+        opt: impl IntoIterator<Item = OptKeyword<'a>>,
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Self, WriteTEXTHeaderError>
     where
@@ -466,15 +462,6 @@ impl<T> HeaderKeywordsToWrite<T> {
         let other_lens = &conf.other_lens()[..];
         let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
-        // check all keywords to ensure we have no illegally placed delimiters
-        for x in req {
-            x.has_delim(delim).map_or(Ok(()), Err)?;
-        }
-
-        for x in opt {
-            x.has_delim(delim).map_or(Ok(()), Err)?;
-        }
-
         // TODO this might be optimized by pre-allocating (which would require
         // estimating the size of TEXT a priori) or by dumping characters into a
         // null buffer and counting them, then writing the file later. This
@@ -485,13 +472,15 @@ impl<T> HeaderKeywordsToWrite<T> {
         let mut req_text = String::from(char::from(delim));
         let mut opt_text = String::from(char::from(delim));
 
-        // Write non-offset keywords to buffers.
+        // Check for invalid delimiters and write non-offset keywords to buffers
         for x in req {
-            Escaped::new(delim, x).write_str(&mut req_text);
+            x.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &x).write_str(&mut req_text);
         }
 
         for x in opt {
-            Escaped::new(delim, x).write_str(&mut opt_text);
+            x.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &x).write_str(&mut opt_text);
         }
 
         // Compute lengths of primary and supplemental TEXT given the length of

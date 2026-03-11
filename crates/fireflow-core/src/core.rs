@@ -3912,15 +3912,10 @@ where
             .map(OptKeyword::from)
             .chain(self.opt_meas_keywords().map(OptKeyword::from));
         if M::Ver::fcs_version() == Version::FCS2_0 {
-            let ks: Vec<_> = req
-                .map(AnyKeyword::from)
-                .chain(opt.map(AnyKeyword::from))
-                .collect();
-            HeaderKeywordsToWrite::new_2_0(&ks[..], conf)
+            let ks = req.map(AnyKeyword::from).chain(opt.map(AnyKeyword::from));
+            HeaderKeywordsToWrite::new_2_0(ks, conf)
         } else {
-            let rs: Vec<_> = req.collect();
-            let os: Vec<_> = opt.collect();
-            HeaderKeywordsToWrite::new_3_0(&rs[..], &os[..], conf)
+            HeaderKeywordsToWrite::new_3_0(req, opt, conf)
         }
     }
 

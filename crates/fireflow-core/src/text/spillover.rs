@@ -44,8 +44,6 @@ pub struct GenericSpillover<T> {
     ///
     /// Assumed to be a subset of the values in the $PnN keys and unique.
     #[as_ref([T])]
-    // TODO just use shortname for this because shortname will also match with numbers
-    // TODO use NEVec
     measurements: Vec<T>,
 
     /// Numeric values in the spillover matrix in row-major order.

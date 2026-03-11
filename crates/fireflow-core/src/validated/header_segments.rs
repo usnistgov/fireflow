@@ -183,8 +183,8 @@ impl ParsedHeaderSegments {
     where
         I: HasRegion,
     {
-        // ASSUME incoming iterator is sorted.
-        // TODO check this assumption (without consuming iterator)
+        // ASSUME incoming iterator is sorted (no debug assert since this would
+        // consume iterator)
         if let Some(txt_seg) = s.try_as_generic() {
             let mut errors = vec![];
             let mut it = xs.into_iter();

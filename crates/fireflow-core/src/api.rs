@@ -45,6 +45,7 @@ use crate::validated::keys::{
 
 use fireflow_types::config::DelimEscapeMode;
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
+use fireflow_types::nonempty_string::NESliceExt as _;
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
@@ -1528,11 +1529,18 @@ impl SplitTEXTOutputInner {
         tk: TEXTKind,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
+        // TODO there are likely some optimizations that could make this run
+        // faster by using previous knowledge of the delimiter number and if any
+        // are consecutive. If we know that the number of delims is even and
+        // that there are no escapes, we can make a dirt simple loop that
+        // blindly processes each pair and inserts them without doing extra
+        // checks, vector allocations, etc.
+
         let mut insert_results = vec![];
         let mut tokens_with_boundary_delims = vec![];
 
-        let mut push_pair = |kb: &NESlice<u8>, vb: &NESlice<u8>| {
-            let e = kws
+        let mut push_pair = |ks: &mut ParsedKeywords, kb: &NESlice<u8>, vb: &NESlice<u8>| {
+            let e = ks
                 .insert(kb, vb, conf)
                 .non_commutative_into_commutative()
                 .map_commutative_warnings(ParseKeywordsIssue::from)
@@ -1540,57 +1548,104 @@ impl SplitTEXTOutputInner {
             insert_results.push(e);
         };
 
-        let push_delim = |kb: &mut Vec<_>, vb: &mut Vec<_>, k: usize| {
+        let push_delim = |kb: &mut NEVec<u8>, vb: &mut Vec<u8>, k: usize| {
             let n = k.div_ceil(2);
-            let buf = if vb.is_empty() { kb } else { vb };
-            for _ in 0..n {
-                buf.push(delim);
+            if vb.is_empty() {
+                for _ in 0..n {
+                    kb.push(delim);
+                }
+            } else {
+                for _ in 0..n {
+                    vb.push(delim);
+                }
             }
         };
 
         let mut consec_blanks = 0;
-        let mut lastbuf: &[u8] = &[];
-        let mut keybuf: Vec<u8> = vec![];
-        let mut valuebuf: Vec<u8> = vec![];
 
-        for segment in bytes.split(|x| *x == delim) {
+        // The last segment from the byte stream after splitting by delimiter.
+        // In many cases this will be an entire token, but will only be a
+        // partial token if it came from a token with an escaped delimiter.
+        let mut last_segment: &[u8] = &[];
+
+        // Dynamic buffers to hold tokens with escaped delimiters. This is
+        // necessary because we cannot just copy escaped text as-is; we need to
+        // remove every other delimiter to make it literal, which implies we
+        // need to allocate a new string. This is expensive, so only do this
+        // when needed.
+        let mut keybuf: NEVec<u8>;
+        let mut valbuf: Vec<u8> = vec![];
+
+        let mut it = bytes.split(|x| *x == delim);
+
+        // Prime the loop with the first segment which belongs to a key. This
+        // will fail if TEXT is entirely delimiters, in which case there is
+        // nothing more to do.
+        keybuf = if let Some(segment0) = it.by_ref().find_map(|segment| {
+            let ret = NESlice::try_from_slice(segment);
+            if ret.is_none() {
+                consec_blanks += 1;
+            }
+            ret
+        }) {
+            if consec_blanks > 0 {
+                let seg = NEStringOrBytes::from(segment0.to_ne_vec());
+                tokens_with_boundary_delims.push(seg);
+            }
+            segment0.to_ne_vec()
+        } else {
+            // TODO what to return here, none of the current errors fit this
+            let ret = Self {
+                keys_with_blank_values: vec![],
+                values_with_blank_keys: vec![],
+                skipped_pairs: 0,
+                tokens_with_boundary_delims,
+                last_odd_token: StringOrBytes::default(),
+                missing_final_delim: false,
+            };
+            return LogResult::new_ok(ret);
+        };
+
+        consec_blanks = 0;
+
+        for segment in it {
             if let Some(ne_segment) = NESlice::try_from_slice(segment) {
                 if consec_blanks & 1 == 0 {
+                    // Previous consecutive delimiter sequence was odd (which
+                    // means the number of blanks is even). This is a token
+                    // boundary, and the last sequence of segments can be
+                    // processed as needed.
                     if consec_blanks > 0 {
-                        let seg = NEStringOrBytes::from(ne_segment);
+                        // If we have more than one delimiter (more than zero
+                        // blanks) then there are multiple delimiters on the end
+                        // which is not allowed. Scream at user, they will be
+                        // happy and enlightened.
+                        let seg = NEStringOrBytes::from(ne_segment.to_ne_vec());
                         tokens_with_boundary_delims.push(seg);
                     }
-                    // Previous number of delimiters is odd, treat this as a token
-                    // boundary
-                    if let Some(ne_key) = NESlice::try_from_slice(&keybuf[..]) {
-                        if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
-                            push_pair(&ne_key, &ne_val);
-                            keybuf.clear();
-                            valuebuf.clear();
-                            keybuf.extend_from_slice(segment);
-                        } else {
-                            valuebuf.extend_from_slice(segment);
-                        }
+                    if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
+                        push_pair(kws, &keybuf.as_nonempty_slice(), &ne_val);
+                        valbuf.clear();
+                        keybuf = ne_segment.to_ne_vec();
                     } else {
-                        // this should only be reached on first iteration
-                        keybuf.extend_from_slice(segment);
+                        valbuf.extend_from_slice(ne_segment.as_ref());
                     }
                 } else {
-                    // Previous consecutive delimiter sequence was even. Push n / 2
-                    // delimiters to whatever the current token is. Then push to
-                    // key or value
-                    push_delim(&mut keybuf, &mut valuebuf, consec_blanks);
-                    if valuebuf.is_empty() {
-                        keybuf.extend_from_slice(segment);
+                    // Previous consecutive delimiter sequence was even. Switch
+                    // to dynamic buffer and push n / 2 delimiters. Then push
+                    // the token fragment.
+                    push_delim(&mut keybuf, &mut valbuf, consec_blanks);
+                    if valbuf.is_empty() {
+                        keybuf.extend(ne_segment.iter().copied());
                     } else {
-                        valuebuf.extend_from_slice(segment);
+                        valbuf.extend_from_slice(ne_segment.as_ref());
                     }
                 }
                 consec_blanks = 0;
             } else {
                 consec_blanks += 1;
             }
-            lastbuf = segment;
+            last_segment = segment;
         }
 
         // If all went perfectly, we should have one consecutive blank at this point
@@ -1616,29 +1671,24 @@ impl SplitTEXTOutputInner {
         if consec_blanks > 1 {
             if consec_blanks & 1 == 0 {
                 even_delim_err = Some(EvenFinalDelimError.into());
-            } else if let Some(seg) =
-                NEVec::try_from_slice(&valuebuf[..]).or(NEVec::try_from_slice(&keybuf[..]))
-            {
+            } else {
+                let seg =
+                    NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_nonempty_slice());
                 tokens_with_boundary_delims.push(NEStringOrBytes::from(seg));
             }
         }
 
         let (uneven_err, last_odd_token) =
-            if let Some(ne_key) = NESlice::try_from_slice(&keybuf[..]) {
-                if let Some(ne_val) = NESlice::try_from_slice(&valuebuf[..]) {
-                    // both key and value are present, this is the last pair in
-                    // TEXT so push to the end of keywords
-                    push_pair(&ne_key, &ne_val);
-                    (None, StringOrBytes::default())
-                } else {
-                    // Only key is present which means we have an odd number of
-                    // tokens. Scream at user so they will be enlightened.
-                    let last = StringOrBytes::from(ne_key.as_ref().to_vec());
-                    (Some(UnevenTokensError(tk).into()), last)
-                }
-            } else {
-                debug_assert!(false, "both buffers should not be empty");
+            if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
+                // both key and value are present, this is the last pair in
+                // TEXT so push to the end of keywords
+                push_pair(kws, &keybuf.as_nonempty_slice(), &ne_val);
                 (None, StringOrBytes::default())
+            } else {
+                // Only key is present which means we have an odd number of
+                // tokens. Scream at user so they will be enlightened.
+                let last = StringOrBytes::from(keybuf.as_nonempty_slice().as_ref().to_vec());
+                (Some(UnevenTokensError(tk).into()), last)
             };
 
         let uneven_res = LogResult::new_switchable_maybe3((), (), uneven_err, conf.allow_odd)
@@ -1650,7 +1700,7 @@ impl SplitTEXTOutputInner {
         let delim_flag = conf.allow_missing_final_delim;
         let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
             .switchable_into_commutative();
-        let final_delim_err = NEVec::try_from_slice(lastbuf)
+        let final_delim_err = NEVec::try_from_slice(last_segment)
             .map(|bs| MissingFinalDelimError::new(tk, NEStringOrBytes::from(bs)))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();

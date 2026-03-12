@@ -584,8 +584,9 @@ pub const TIME_MEAS_NAME_PATTERN_NONE: &str = "NoTime";
 
 pub const TIME_MEAS_NAME_PATTERN_DEFAULT: &str = "^(TIME|Time)$";
 
-// must be valid regexp
-pub const NON_STD_MEAS_PAT_DEFAULT: &str = formatcp!("^P{NON_STD_MEAS_INDEX_PAT}");
+// a literal string prefix; this could also be a regexp in which case it would
+// be like /regexp/ (but that would be slow, so don't use that by default)
+pub const NON_STD_MEAS_PAT_DEFAULT: &str = formatcp!("P{NON_STD_MEAS_INDEX_PAT}");
 
 pub const NON_STD_MEAS_INDEX_PAT: &str = "%n";
 

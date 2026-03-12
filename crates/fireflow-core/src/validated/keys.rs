@@ -110,29 +110,37 @@ impl<T> Default for KeyStringsOrPatterns<T> {
 }
 
 /// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
+pub type KeyStringOrPattern = LiteralOrPattern<KeyString>;
+
+/// Either a literal string or regexp.
 ///
 /// This exists for performance and ergononic reasons; if the goal is simply to
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
 #[derive(Clone, PartialEq, Eq, Hash, Display)]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum KeyStringOrPattern {
-    Literal(KeyString),
+pub enum LiteralOrPattern<L> {
+    #[display("{_0}")]
+    Literal(L),
+    #[display("{PATTERN_DELIMITER}{_0}{PATTERN_DELIMITER}")]
     Pattern(CaseInsRegex),
 }
 
-impl FromStr for KeyStringOrPattern {
-    type Err = KeyStringsOrPatternsError;
+impl<L: FromStr> FromStr for LiteralOrPattern<L> {
+    type Err = LiteralOrPatternError<<L as FromStr>::Err>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(inner) = s
             .strip_prefix(PATTERN_DELIMITER)
             .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
         {
-            let ret = inner.parse::<CaseInsRegex>().map_err(KeyRegexError)?;
+            let ret = inner
+                .parse::<CaseInsRegex>()
+                .map_err(KeyRegexError)
+                .map_err(LiteralOrPatternError::Regexp)?;
             Ok(Self::Pattern(ret))
         } else {
-            Ok(Self::Literal(s.parse::<KeyString>()?))
+            let ret = s.parse::<L>().map_err(LiteralOrPatternError::Literal)?;
+            Ok(Self::Literal(ret))
         }
     }
 }
@@ -1301,11 +1309,15 @@ pub enum AsciiStringError {
 }
 
 /// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
-#[derive(Debug, Display, From, PartialEq, Error)]
+pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
+
+/// Error when parsing literal or pattern string.
+#[derive(Debug, Display, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum KeyStringsOrPatternsError {
+#[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
+pub enum LiteralOrPatternError<E> {
     Regexp(KeyRegexError),
-    Ascii(AsciiStringError),
+    Literal(E),
 }
 
 /// Error when parsing [`CaseInsRegex`] from string when building [`KeyStringsOrPatterns`]
@@ -1594,5 +1606,40 @@ mod tests {
         let s = "";
         let k = s.parse::<NonStdKey>();
         assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{LiteralOrPattern, LiteralOrPatternError};
+
+    use pyo3::{prelude::*, types::PyString};
+
+    use std::convert::Infallible;
+    use std::fmt;
+    use std::str::FromStr;
+
+    // TODO make FromStr and ToStr derive work for these, which will
+    // in turn require than the bounds attributes get cleaned up
+
+    impl<'py, L> FromPyObject<'py> for LiteralOrPattern<L>
+    where
+        PyErr: From<LiteralOrPatternError<L::Err>>,
+        L: FromStr,
+        Self: FromStr<Err = LiteralOrPatternError<L::Err>>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(ob.extract::<String>()?.parse()?)
+        }
+    }
+
+    impl<'py, L: fmt::Display> IntoPyObject<'py> for LiteralOrPattern<L> {
+        type Target = PyString;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.to_string().into_pyobject(py)
+        }
     }
 }

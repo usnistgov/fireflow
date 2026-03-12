@@ -11,7 +11,7 @@ use fireflow_types::config::{
     KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
     MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
     NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, ProcessKeywordFailure,
+    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER, ProcessKeywordFailure,
     ProcessTemporalOpticalKeys, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
     SPILLOVER_NAMED_LEVEL, SpilloverMeasurementMode, TIME_MEAS_NAME_PATTERN_DEFAULT,
     TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
@@ -8529,10 +8529,13 @@ impl DocArgParam {
             .default_from_inner()
             .rstype(path);
         let d = format!(
-            "Pattern to use when matching nonstandard measurement keys. Must \
-             be a regular expression pattern with {pat} which will represent \
-             the measurement index and should not start with {DOLLAR_STR}. Otherwise \
-             should be a normal regular expression as defined in {REGEXP_REF}."
+            "Pattern to use when matching nonstandard measurement keys. \
+             Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions, otherwise as literal strings \
+             to be used as an exact prefix match. If a regular expression, it \
+             must include {pat} which will represent the measurement index. \
+             Otherwise should be a normal regular expression as defined in \
+             {REGEXP_REF}."
         );
         Self::new_param("nonstandard_measurement_pattern", pytype, d)
             .def(DocDefault::Str(NON_STD_MEAS_PAT_DEFAULT.into()))
@@ -8898,22 +8901,21 @@ impl DocArgParam {
     }
 
     fn new_promote_to_standard() -> Self {
-        let d = format!("Promote nonstandard keys to standard keys in {TEXT}");
+        let d = format!("Promote nonstandard keys to standard keys in {TEXT}.");
         Self::new_key_patterns_param("promote_to_standard", d)
     }
 
     fn new_demote_from_standard() -> Self {
-        let d = format!("Demote nonstandard keys from standard keys in {TEXT}");
+        let d = format!("Demote nonstandard keys from standard keys in {TEXT}.");
         Self::new_key_patterns_param("demote_from_standard", d)
     }
 
     fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
         let common = format!(
-            "The first member of the tuples is a list of strings which \
-             match literally. The second member is a list of regular \
-             expressions corresponding to {REGEXP_REF}."
+            "Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions."
         );
-        let d = format!("{desc}. {common}");
+        let d = format!("{desc} {common}");
         Self::new_param(argname, PyList::new_key_patterns(), d).def_auto()
     }
 

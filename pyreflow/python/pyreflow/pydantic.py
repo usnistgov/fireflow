@@ -100,7 +100,7 @@ class _ReadStdKeywordsConfig(BaseModel):
     process_other_version: pft.ProcessKeywordFailure = "error"
     process_extra_timestep: pft.ProcessKeywordFailure = "error"
     fix_log_scale_offsets: bool = False
-    nonstandard_measurement_pattern: str | None = "^P%n"
+    nonstandard_measurement_pattern: str | None = "P%n"
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named"
     disallow_localtime: bool = False
 

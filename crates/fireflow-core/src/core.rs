@@ -4172,10 +4172,9 @@ where
                 (0..par.0)
                     .rev()
                     .map(|n| {
-                        ns_pat.apply_index(n).map(|p| {
-                            let r: &Regex = p.as_ref();
-                            nonstd.extract_if(|k, _| r.is_match(k.as_ref())).collect()
-                        })
+                        ns_pat
+                            .apply_index(n)
+                            .map(|p| nonstd.extract_if(|k, _| p.is_match(k.as_ref())).collect())
                     })
                     .collect::<Result<Vec<_>, _>>()
                     .map(|mut ns| {

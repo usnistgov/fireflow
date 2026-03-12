@@ -4390,8 +4390,9 @@ class TestConfig:
                 core.measurements[0].nonstandard_keywords,
             )
 
-        assert go("^P%n") == (extra, {})
-        assert go("^#P%n") == ({}, extra)
+        assert go("P%n") == (extra, {})
+        assert go("#P%n") == ({}, extra)
+        assert go("/^#P%n/") == ({}, extra)
 
     @all_versions
     def test_text_data_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:

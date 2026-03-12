@@ -34,7 +34,7 @@ use fireflow_types::config::{
     KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL,
     MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL,
     NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL,
-    OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL,
+    OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER,
     READ_STRATEGY_SCALPAL_LEVEL, READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL,
     ReadStrategy, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
     TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
@@ -443,11 +443,16 @@ fn run() -> AppResult<()> {
     );
 
     let make_key_str_args = |name, help| {
+        let more = format!(
+            "Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions."
+        );
+        let more_help = format!("{help} {more}");
         Arg::new(name)
             .long(name)
             .action(ArgAction::Append)
             .value_name("KEY_OR_PAT")
-            .help(help)
+            .help(more_help)
             .value_parser(value_parser!(KeyStringOrPattern))
     };
 
@@ -698,12 +703,14 @@ fn run() -> AppResult<()> {
 
     let ns_meas_pattern = opt_arg::<NonStdMeasPattern>(
         NS_MEAS_PATTERN,
-        "REGEXP",
+        "LIT_OR_PAT",
         format!(
             "Pattern to use when matching non-standard measurement keywords. \
-             It must include '{NON_STD_MEAS_INDEX_PAT}' which will be \
-             replaced with measurement index. Defaults to \
-             '{NON_STD_MEAS_PAT_DEFAULT}'.",
+             Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions, otherwise as a literal string \
+             to be used as a prefix matcher. It must include \
+             '{NON_STD_MEAS_INDEX_PAT}' which will be replaced with measurement \
+             index. Defaults to '{NON_STD_MEAS_PAT_DEFAULT}'.",
         ),
     );
 

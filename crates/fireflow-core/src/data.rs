@@ -3101,6 +3101,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 }
             }
         }
+        // TODO this is 10% of the reader's execution time so we should bypass
+        // some of these checks based on which flags are set.
         let rs: Vec<_> = col_readers
             .iter_mut()
             .enumerate()

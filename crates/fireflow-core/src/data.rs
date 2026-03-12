@@ -1466,7 +1466,7 @@ impl ToNativeReader for AsciiRange {}
 impl<T, const LEN: usize> NativeReadable<Endian> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN> + Into<Range>,
+    T: IntFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1481,7 +1481,7 @@ where
 impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN> + Into<Range>,
+    T: IntFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1496,8 +1496,7 @@ where
 impl<T, const LEN: usize> NativeReadable<Endian> for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN>,
-    FloatDecimal<T>: Into<T> + Into<Range>,
+    T: FloatFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1512,8 +1511,7 @@ where
 impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN>,
-    FloatDecimal<T>: Into<T> + Into<Range>,
+    T: FloatFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,

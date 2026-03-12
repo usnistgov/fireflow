@@ -7,7 +7,7 @@ use derive_new::new;
 use std::{convert::Infallible, str::FromStr};
 use thiserror::Error;
 
-use super::keys::{LiteralOrPattern, LiteralOrPatternError};
+use super::keys::{LiteralOrPattern, LiteralOrPatternError, NonStdKey};
 
 #[cfg(feature = "python")]
 use {
@@ -41,10 +41,20 @@ impl Default for NonStdMeasPattern {
 pub(crate) struct NonStdMeasRegex(LiteralOrPattern<String>);
 
 impl NonStdMeasRegex {
-    pub(crate) fn is_match(&self, s: &str) -> bool {
+    #[inline]
+    pub(crate) fn is_match(&self, k: &NonStdKey) -> bool {
         match &self.0 {
-            LiteralOrPattern::Literal(prefix) => s.starts_with(prefix.as_str()),
-            LiteralOrPattern::Pattern(pat) => pat.as_ref().is_match(s),
+            // ASSUME key is only ASCII and case-insensitive.
+            LiteralOrPattern::Literal(prefix) => {
+                let s: &str = k.as_ref();
+                let bs = s.as_bytes();
+                let kn = bs.len();
+                if prefix.len() > kn {
+                    return false;
+                }
+                bs[..kn].eq_ignore_ascii_case(prefix.as_bytes())
+            }
+            LiteralOrPattern::Pattern(pat) => pat.as_ref().is_match(k.as_ref()),
         }
     }
 }

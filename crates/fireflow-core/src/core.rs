@@ -4174,7 +4174,7 @@ where
                     .map(|n| {
                         ns_pat
                             .apply_index(n)
-                            .map(|p| nonstd.extract_if(|k, _| p.is_match(k.as_ref())).collect())
+                            .map(|p| nonstd.extract_if(|k, _| p.is_match(k)).collect())
                     })
                     .collect::<Result<Vec<_>, _>>()
                     .map(|mut ns| {

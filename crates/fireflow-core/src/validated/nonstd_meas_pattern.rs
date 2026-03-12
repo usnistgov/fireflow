@@ -51,6 +51,15 @@ pub(crate) struct LiteralNonStdMeasPattern {
 
 pub(crate) struct RegexNonStdMeasPattern(CaseInsRegex);
 
+impl CompiledNonStdMeasPattern {
+    pub(crate) fn get_index(&self, k: &NonStdKey) -> Option<IndexFromOne> {
+        match self {
+            Self::Literal(p) => p.get_index(k),
+            Self::Regex(p) => p.get_index(k),
+        }
+    }
+}
+
 impl LiteralNonStdMeasPattern {
     pub(crate) fn get_index(&self, k: &NonStdKey) -> Option<IndexFromOne> {
         let s: &str = k.as_ref();

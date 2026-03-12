@@ -97,7 +97,7 @@ use crate::validated::keys::{
     DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key1, NonStdKey, NonStdKeywords,
     NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
-use crate::validated::nonstd_meas_pattern::{CompiledNonStdMeasPattern, NonStdMeasRegexError};
+use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
@@ -4159,9 +4159,6 @@ where
         nonstd: &mut NonStdKeywords,
         conf: &ReadStdKeywordsConfig,
     ) -> Success<Vec<NonStdKeywords>, (), Option<NonStdMeasRegexError>> {
-        // This is fairly optimized to accommodate large files (ie FACSDiscover)
-        // which have 2000+ nonstandard keywords to sort.
-
         let mut meas_targets = vec![HashMap::new(); par.0];
         let compiled = if let Some(ns_pat) = conf.nonstandard_measurement_pattern.0.as_ref() {
             match ns_pat.compile() {
@@ -4175,32 +4172,21 @@ where
             return Success::new_non_switchable(meas_targets);
         };
 
-        // Sort pairs by key which will keep cache and branch predictor happy
-        let sorted = mem::take(nonstd)
-            .into_iter()
-            .sorted_by(|x, y| x.0.cmp(&y.0));
-        match compiled {
-            CompiledNonStdMeasPattern::Literal(p) => {
-                for (k, v) in sorted {
-                    if let Some(i) = p.get_index(&k).map(usize::from)
-                        && i < par.0
-                    {
-                        meas_targets[i].insert(k, v);
-                    } else {
-                        nonstd.insert(k, v);
-                    }
-                }
-            }
-            CompiledNonStdMeasPattern::Regex(p) => {
-                for (k, v) in sorted {
-                    if let Some(i) = p.get_index(&k).map(usize::from)
-                        && i < par.0
-                    {
-                        meas_targets[i].insert(k, v);
-                    } else {
-                        nonstd.insert(k, v);
-                    }
-                }
+        let sorted = nonstd
+            .drain()
+            .map(|(k, v)| {
+                let i = compiled
+                    .get_index(&k)
+                    .map(usize::from)
+                    .and_then(|i| (i < par.0).then_some(i));
+                (k, v, i)
+            })
+            .sorted_by_key(|x| x.2);
+        for (k, v, i) in sorted {
+            if let Some(j) = i {
+                meas_targets[j].insert(k, v);
+            } else {
+                nonstd.insert(k, v);
             }
         }
         Success::new_non_switchable(meas_targets)

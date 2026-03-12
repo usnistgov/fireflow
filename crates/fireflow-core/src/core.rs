@@ -97,7 +97,7 @@ use crate::validated::keys::{
     DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key1, NonStdKey, NonStdKeywords,
     NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
-use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
+use crate::validated::nonstd_meas_pattern::{CompiledNonStdMeasPattern, NonStdMeasRegexError};
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
@@ -4159,31 +4159,51 @@ where
         nonstd: &mut NonStdKeywords,
         conf: &ReadStdKeywordsConfig,
     ) -> Success<Vec<NonStdKeywords>, (), Option<NonStdMeasRegexError>> {
-        // Use nonstandard measurement pattern to assign keyvals to their
-        // measurement if they match. Only capture one warning because if the
-        // pattern is wrong for one measurement it is probably wrong for all of
-        // them.
-        let blank_meas_nonstd = || vec![HashMap::new(); par.0];
-        let ns_pat_opt = conf.nonstandard_measurement_pattern.0.as_ref();
-        ns_pat_opt
-            .map_or(Ok(blank_meas_nonstd()), |ns_pat| {
-                // match largest indices first to avoid matching incomplete
-                // prefix (ie "P1" will match "P11")
-                (0..par.0)
-                    .rev()
-                    .map(|n| {
-                        ns_pat
-                            .apply_index(n)
-                            .map(|p| nonstd.extract_if(|k, _| p.is_match(k)).collect())
-                    })
-                    .collect::<Result<Vec<_>, _>>()
-                    .map(|mut ns| {
-                        // reverse again to put in order
-                        ns.reverse();
-                        ns
-                    })
-            })
-            .into_succ_or(blank_meas_nonstd())
+        // This is fairly optimized to accommodate large files (ie FACSDiscover)
+        // which have 2000+ nonstandard keywords to sort.
+
+        let mut meas_targets = vec![HashMap::new(); par.0];
+        let compiled = if let Some(ns_pat) = conf.nonstandard_measurement_pattern.0.as_ref() {
+            match ns_pat.compile() {
+                Ok(x) => x,
+                Err(e) => {
+                    let ret = Success::new_non_switchable(meas_targets);
+                    return ret.set_warnings(Some(e));
+                }
+            }
+        } else {
+            return Success::new_non_switchable(meas_targets);
+        };
+
+        // Sort pairs by key which will keep cache and branch predictor happy
+        let sorted = mem::take(nonstd)
+            .into_iter()
+            .sorted_by(|x, y| x.0.cmp(&y.0));
+        match compiled {
+            CompiledNonStdMeasPattern::Literal(p) => {
+                for (k, v) in sorted {
+                    if let Some(i) = p.get_index(&k).map(usize::from)
+                        && i < par.0
+                    {
+                        meas_targets[i].insert(k, v);
+                    } else {
+                        nonstd.insert(k, v);
+                    }
+                }
+            }
+            CompiledNonStdMeasPattern::Regex(p) => {
+                for (k, v) in sorted {
+                    if let Some(i) = p.get_index(&k).map(usize::from)
+                        && i < par.0
+                    {
+                        meas_targets[i].insert(k, v);
+                    } else {
+                        nonstd.insert(k, v);
+                    }
+                }
+            }
+        }
+        Success::new_non_switchable(meas_targets)
     }
 
     #[allow(clippy::type_complexity)]

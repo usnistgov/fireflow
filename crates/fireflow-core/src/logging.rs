@@ -697,19 +697,19 @@ pub(crate) trait ResultExt: Sized {
         )
     }
 
-    fn into_succ_opt<LWC>(self) -> Success<Option<Self::Ok>, (), LWC>
-    where
-        LWC: Default + Pointed<Self::Error>,
-    {
-        self.into_result().map(Some).into_succ()
-    }
+    // fn into_succ_opt<LWC>(self) -> Success<Option<Self::Ok>, (), LWC>
+    // where
+    //     LWC: Default + Pointed<Self::Error>,
+    // {
+    //     self.into_result().map(Some).into_succ()
+    // }
 
-    fn into_succ_or<LWC>(self, default: Self::Ok) -> Success<Self::Ok, (), LWC>
-    where
-        LWC: Pointed<Self::Error> + Default,
-    {
-        self.into_succ_opt().fmap_once(|x| x.unwrap_or(default))
-    }
+    // fn into_succ_or<LWC>(self, default: Self::Ok) -> Success<Self::Ok, (), LWC>
+    // where
+    //     LWC: Pointed<Self::Error> + Default,
+    // {
+    //     self.into_succ_opt().fmap_once(|x| x.unwrap_or(default))
+    // }
 
     // fn infallible_err_into<E>(self) -> Option<E>
     // where

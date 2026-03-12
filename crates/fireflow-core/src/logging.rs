@@ -36,7 +36,7 @@ use type_families::{
 };
 
 use derive_new::new;
-use nonempty::NonEmpty;
+use nonempty_collections::NEVec;
 use std::convert::Infallible;
 use std::fmt;
 use std::io::Error as IOError;
@@ -697,26 +697,26 @@ pub(crate) trait ResultExt: Sized {
         )
     }
 
-    fn into_succ_opt<LWC>(self) -> Success<Option<Self::Ok>, (), LWC>
-    where
-        LWC: Default + Pointed<Self::Error>,
-    {
-        self.into_result().map(Some).into_succ()
-    }
+    // fn into_succ_opt<LWC>(self) -> Success<Option<Self::Ok>, (), LWC>
+    // where
+    //     LWC: Default + Pointed<Self::Error>,
+    // {
+    //     self.into_result().map(Some).into_succ()
+    // }
 
-    fn into_succ_or<LWC>(self, default: Self::Ok) -> Success<Self::Ok, (), LWC>
-    where
-        LWC: Pointed<Self::Error> + Default,
-    {
-        self.into_succ_opt().fmap_once(|x| x.unwrap_or(default))
-    }
+    // fn into_succ_or<LWC>(self, default: Self::Ok) -> Success<Self::Ok, (), LWC>
+    // where
+    //     LWC: Pointed<Self::Error> + Default,
+    // {
+    //     self.into_succ_opt().fmap_once(|x| x.unwrap_or(default))
+    // }
 
-    fn infallible_err_into<E>(self) -> Option<E>
-    where
-        Self: ResultExt<Ok = (), Error = Infallible>,
-    {
-        None
-    }
+    // fn infallible_err_into<E>(self) -> Option<E>
+    // where
+    //     Self: ResultExt<Ok = (), Error = Infallible>,
+    // {
+    //     None
+    // }
 
     fn unwrap_infallible(self) -> Self::Ok
     where
@@ -1109,7 +1109,7 @@ impl<E, C> From<(E, C)> for GenNonEmpty<E, C> {
     }
 }
 
-impl<E> From<GenNonEmpty<E, Vec<E>>> for NonEmpty<E> {
+impl<E> From<GenNonEmpty<E, Vec<E>>> for NEVec<E> {
     fn from(value: GenNonEmpty<E, Vec<E>>) -> Self {
         Self::from((value.head, value.tail))
     }
@@ -2250,35 +2250,35 @@ impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
         }
     }
 
-    pub(crate) fn nowarn_extend_warning_or_error3<Fe, Fp, X, M>(
-        self,
-        msg: M,
-        fp: Fp,
-        fe: Fe,
-        flag: X,
-    ) -> WarningAndErrorsResult<V, P, M, E>
-    where
-        X: TriErrorFlag,
-        Fp: FnOnce(V) -> P,
-        Fe: FnOnce(M) -> E,
-        EC: Extend<E> + IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
-    {
-        match flag.is_error() {
-            None => self.nowarn_into_warn().repack_errors(),
-            Some(true) => match self {
-                Succ(s) => Fail(Failure::new_from_one(fe(msg), fp(s.value))),
-                Fail(e) => {
-                    let mut es = e.errors.repack();
-                    es.extend(iter::once(fe(msg)));
-                    Fail(Failure::new_from_many(es, e.value))
-                }
-            },
-            Some(false) => match self {
-                Succ(s) => Succ(s.set_warnings(Some(msg))),
-                Fail(e) => Fail(Failure::new(Some(msg), e.errors.repack(), e.value)),
-            },
-        }
-    }
+    // pub(crate) fn nowarn_extend_warning_or_error3<Fe, Fp, X, M>(
+    //     self,
+    //     msg: M,
+    //     fp: Fp,
+    //     fe: Fe,
+    //     flag: X,
+    // ) -> WarningAndErrorsResult<V, P, M, E>
+    // where
+    //     X: TriErrorFlag,
+    //     Fp: FnOnce(V) -> P,
+    //     Fe: FnOnce(M) -> E,
+    //     EC: Extend<E> + IntoNewCardinality<Vec<E>> + IntoIterator<Item = E>,
+    // {
+    //     match flag.is_error() {
+    //         None => self.nowarn_into_warn().repack_errors(),
+    //         Some(true) => match self {
+    //             Succ(s) => Fail(Failure::new_from_one(fe(msg), fp(s.value))),
+    //             Fail(e) => {
+    //                 let mut es = e.errors.repack();
+    //                 es.extend(iter::once(fe(msg)));
+    //                 Fail(Failure::new_from_many(es, e.value))
+    //             }
+    //         },
+    //         Some(false) => match self {
+    //             Succ(s) => Succ(s.set_warnings(Some(msg))),
+    //             Fail(e) => Fail(Failure::new(Some(msg), e.errors.repack(), e.value)),
+    //         },
+    //     }
+    // }
 }
 
 //
@@ -2652,17 +2652,17 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
     //     }
     // }
 
-    pub(crate) fn new_deferred_switchable_maybe3(value: T, error: Option<E>, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: TriErrorFlag,
-    {
-        match error {
-            Some(e) => Self::new_deferred_switchable3(value, e, flag),
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_deferred_switchable_maybe3(value: T, error: Option<E>, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: TriErrorFlag,
+    // {
+    //     match error {
+    //         Some(e) => Self::new_deferred_switchable3(value, e, flag),
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_deferred_switchable_iter<I>(value: T, errors: I, flag: X) -> Self
     where

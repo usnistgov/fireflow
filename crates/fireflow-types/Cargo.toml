@@ -9,12 +9,16 @@ Simple types and constants used throughout other fireflow crates.
 [dependencies]
 derive_more = { workspace = true, features = ["from", "into", "display"] }
 thiserror = { workspace = true }
-itertools = { workspace = true }
 const_format = { workspace = true }
 pyo3 = { workspace = true, optional = true }
-fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 phf = { workspace = true, features = ["macros", "unicase"] }
 unicase = { workspace = true }
+bigdecimal = { workspace = true }
+nonempty-collections = { workspace = true }
+ambassador = { workspace = true }
+derive-new = { workspace = true }
+fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
+serde = { workspace = true, features = ["derive"], optional = true }
 
 [build-dependencies]
 phf = { version = "0.13.1", default-features = false, features = ["unicase"] }
@@ -23,6 +27,7 @@ unicase = { workspace = true }
 
 [features]
 python = ["dep:pyo3", "dep:fireflow-core-proc"]
+serde = ["dep:serde"]
 
 [lints]
 workspace = true

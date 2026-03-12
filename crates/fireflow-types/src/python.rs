@@ -90,13 +90,6 @@ create_exception!(
 
 create_exception!(
     _pyreflow,
-    FCSDeprecatedError,
-    PyreflowError,
-    "Raised when a deprecated FCS feature is encountered."
-);
-
-create_exception!(
-    _pyreflow,
     ConversionError,
     PyreflowError,
     "Raised upon failure when converting between FCS versions.\n\
@@ -158,6 +151,13 @@ create_exception!(
      \n\
      This is used for values whose failure mode cannot be captured using a\n\
      built-in Python exception or another exception in ``pyreflow``."
+);
+
+create_exception!(
+    _pyreflow,
+    WriteFCSError,
+    PyreflowError,
+    "Raised when an FCS file cannot be written."
 );
 
 create_exception!(

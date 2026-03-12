@@ -1,10 +1,10 @@
 //! Reading and writing the HEADER segment
 
 use crate::config::{
-    AppendableFlag, ConfigFlag as _, DatasetOffset, ReadHeaderInnerConfig, ReadOffsetConfig,
-    ReadState, SelectVersionStrategy, VersionOverride,
+    AppendableFlag, ConfigFlag as _, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
+    SelectVersionStrategy, VersionOverride,
 };
-use crate::core::Other;
+use crate::core::{Other, WriteHeaderAndTextConfig};
 use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
     WarningsAndIOGroupResult, io_to_log, split_io,
@@ -15,70 +15,41 @@ use crate::segment::{
     SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
-    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
-    KeywordVersionScore, Nextdata, Par,
+    AnyKeyword, Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Escaped,
+    Keyword0FromValue as _, KeywordOptimizer, KeywordVersionScore, Nextdata, OffsetKeyword,
+    OptKeyword, Par, ReqKeyword,
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
 use crate::validated::header_segments::{HEADER_LEN, ParsedHeaderSegments, SegmentValidationError};
 use crate::validated::keys::{Key as _, StdKeywords};
-use crate::validated::textdelim::TEXTDelim;
+use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
+
+use fireflow_types::config::EnumStrIter as _;
+use fireflow_types::keywords::{Version, VersionFormatError};
+use fireflow_types::nonempty_string::NEStr;
 
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, iter::NonEmptyIterator as _,
+};
 use num_traits::identities::Zero;
 use thiserror::Error;
 
+use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
-use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
 };
-
-/// All FCS versions this library supports.
-///
-/// This appears as the first 6 bytes of any valid FCS file.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, Hash)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
-pub enum Version {
-    #[display("FCS2.0")]
-    FCS2_0,
-    #[display("FCS3.0")]
-    FCS3_0,
-    #[display("FCS3.1")]
-    FCS3_1,
-    #[display("FCS3.2")]
-    FCS3_2,
-}
-
-macro_rules! impl_version {
-    ($name:ident, $var:ident) => {
-        #[derive(Clone, Copy, Eq, PartialEq)]
-        #[cfg_attr(feature = "serde", derive(Serialize))]
-        pub struct $name;
-
-        impl From<$name> for Version {
-            fn from(_: $name) -> Self {
-                Self::$var
-            }
-        }
-    };
-}
-
-impl_version!(Version2_0, FCS2_0);
-impl_version!(Version3_0, FCS3_0);
-impl_version!(Version3_1, FCS3_1);
-impl_version!(Version3_2, FCS3_2);
 
 /// The uncorrected segments from the HEADER
 #[derive(Clone, PartialEq, new)]
@@ -112,24 +83,16 @@ pub(crate) struct WriteHeaderSegments<T> {
 impl<T> WriteHeaderSegments<T> {
     pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
     where
-        T: HeaderString + Zero,
+        T: Zero + fmt::Display + Copy,
     {
-        let towrite = [
-            version.to_string(),           // 6 bytes
-            "    ".into(),                 // 4 bytes
-            self.text.header_string(),     // 16 bytes
-            self.data.header_string(),     // 16 bytes
-            self.analysis.header_string(), // 16 bytes
-        ];
-        debug_assert!(
-            towrite.iter().join("").len() == 58,
-            "HEADER (without OTHER) should be 58 bytes"
-        );
-        for s in towrite
-            .into_iter()
-            .chain(self.other.iter().map(Segment::header_string))
-        {
-            h.write_all(s.as_bytes())?;
+        // 6+4+16+16+16 bytes
+        write!(
+            h,
+            "{version}    {}{}{}",
+            self.text, self.data, self.analysis
+        )?;
+        for o in &self.other {
+            write!(h, "{o}")?;
         }
         Ok(())
     }
@@ -175,8 +138,8 @@ impl Header {
             .map_pure_errors(HeaderError::from)
             .and_then_commutative(|other| {
                 let (os, os_raw) = if let Some((os, w)) = other {
-                    let (parsed, raw) = os.into_iter().unzip();
-                    (Some((NonEmpty::from_vec(parsed).unwrap(), w)), raw)
+                    let (parsed, raw): (NEVec<_>, NEVec<_>) = os.into_nonempty_iter().unzip();
+                    (Some((parsed, w)), Vec::from(raw))
                 } else {
                     (None, vec![])
                 };
@@ -213,7 +176,7 @@ impl ReqHeader {
         let data_cor = conf.data_correction;
         let anal_cor = conf.analysis_correction;
 
-        let vers_res = split_io!(Version::h_read(h, st))
+        let vers_res = split_io!(h_read_version(h, st))
             .ungroup()
             .map_errors(HeaderError::from);
         let space_res = split_io!(Self::h_read_spaces(h, st))
@@ -267,101 +230,88 @@ impl ReqHeader {
     }
 }
 
-impl Version {
-    fn h_read<R, C>(
-        h: &mut BufReader<R>,
-        st: &ReadState<C>,
-    ) -> IOGroupResult<Self, VersionError, ()>
-    where
-        R: Read + Seek,
-    {
-        let remaining = st.remaining_bytes(h)?;
-        if remaining < 6 {
-            let e = VersionNoBytesError(remaining).into();
-            return Err(IOAnonErrorGroup::new_pure_one(e));
-        }
-        let mut buf = [0; 6];
-        h.read_exact(&mut buf)?;
-        if buf.is_ascii() {
-            // SAFETY: we just checked that all bytes are ASCII
-            let s = unsafe { str::from_utf8_unchecked(&buf) };
-            s.parse()
-                .map_err(VersionError::from)
-                .map_err(IOErrorGroup::new_pure_one)
-        } else {
-            let e = VersionNonUtf8Error(buf.to_vec());
-            Err(IOErrorGroup::new_pure_one(e.into()))
-        }
+fn h_read_version<R, C>(
+    h: &mut BufReader<R>,
+    st: &ReadState<C>,
+) -> IOGroupResult<Version, VersionError, ()>
+where
+    R: Read + Seek,
+{
+    let remaining = st.remaining_bytes(h)?;
+    if remaining < 6 {
+        let e = VersionNoBytesError(remaining).into();
+        return Err(IOAnonErrorGroup::new_pure_one(e));
     }
-
-    pub(crate) fn autodetect(
-        self,
-        kws: &StdKeywords,
-        ver_override: Option<&VersionOverride>,
-    ) -> Result<(Self, Option<KeywordVersionScores>), GuessVersionError> {
-        let vs = [Self::FCS2_0, Self::FCS3_0, Self::FCS3_1, Self::FCS3_2];
-        match ver_override {
-            None => Ok((self, None)),
-            Some(VersionOverride::Force(v)) => Ok((*v, None)),
-            Some(VersionOverride::AutoDetect(strat)) => {
-                let rank =
-                    |(v0, s0): &(Self, KeywordVersionScore),
-                     (v1, s1): &(Self, KeywordVersionScore)| match strat {
-                        SelectVersionStrategy::Earliest => v1.cmp(v0),
-                        SelectVersionStrategy::Latest => v0.cmp(v1),
-                        SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
-                        SelectVersionStrategy::Strict => s0.good_opt.cmp(&s1.good_opt),
-                    };
-                if let Ok(par) = Par::get_metaroot_req(kws) {
-                    let mut opt = KeywordOptimizer::default();
-                    for (k, v) in kws {
-                        opt.classify_keyword(k, v);
-                    }
-                    let scores = vs.map(|v| (v, opt.get_score(v, par)));
-                    let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
-                    if let Some(xs) =
-                        NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(false)))
-                    {
-                        // Found at least one version that doesn't require dropping,
-                        // rank by strategy to select
-                        Ok((xs.maximum_by(|&x, &y| rank(x, y)).0, ret_scores()))
-                    } else if let Some(xs) =
-                        NonEmpty::collect(scores.iter().filter(|(_, s)| s.is_passing(true)))
-                    {
-                        // No versions found that can be satisfied without dropping
-                        // keywords, find versions with dropping and rank using
-                        // strategy.
-                        let ret = xs.maximum_by(|&x, &y| {
-                            if x.1.drop == y.1.drop {
-                                rank(x, y)
-                            } else {
-                                y.1.drop.cmp(&x.1.drop)
-                            }
-                        });
-                        Ok((ret.0, ret_scores()))
-                    } else {
-                        // No versions found that have valid keywords available,
-                        // return error
-                        Err(GuessVersionError::AllInvalid)
-                    }
-                } else {
-                    Err(GuessVersionError::NoPar)
-                }
-            }
-        }
+    let mut buf = [0; 6];
+    h.read_exact(&mut buf)?;
+    if buf.is_ascii() {
+        // SAFETY: we just checked that all bytes are ASCII
+        let s = unsafe { str::from_utf8_unchecked(&buf) };
+        s.parse()
+            .map_err(VersionError::from)
+            .map_err(IOErrorGroup::new_pure_one)
+    } else {
+        let e = VersionNonUtf8Error(buf.to_vec());
+        Err(IOErrorGroup::new_pure_one(e.into()))
     }
 }
 
-impl FromStr for Version {
-    type Err = VersionFormatError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "FCS2.0" => Ok(Self::FCS2_0),
-            "FCS3.0" => Ok(Self::FCS3_0),
-            "FCS3.1" => Ok(Self::FCS3_1),
-            "FCS3.2" => Ok(Self::FCS3_2),
-            _ => Err(VersionFormatError(s.to_owned())),
+pub(crate) fn autodetect_version(
+    version: Version,
+    kws: &StdKeywords,
+    ver_override: Option<&VersionOverride>,
+) -> Result<(Version, Option<KeywordVersionScores>), GuessVersionError> {
+    match ver_override {
+        None => Ok((version, None)),
+        Some(VersionOverride::Force(v)) => Ok((*v, None)),
+        Some(VersionOverride::AutoDetect(strat)) => {
+            let rank =
+                |(v0, s0): &(Version, KeywordVersionScore),
+                 (v1, s1): &(Version, KeywordVersionScore)| match strat {
+                    SelectVersionStrategy::Earliest => v1.cmp(v0),
+                    SelectVersionStrategy::Latest => v0.cmp(v1),
+                    SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
+                    SelectVersionStrategy::Strict => s0.good_opt.cmp(&s1.good_opt),
+                };
+            if let Ok(par) = Par::get_metaroot_req(kws) {
+                let mut opt = KeywordOptimizer::default();
+                for (k, v) in kws {
+                    opt.classify_keyword(k, v.as_ne_str());
+                }
+                let scores = Version::ITEMS.map(|v| (v, opt.get_score(v, par)));
+                let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
+                if let Some(xs) = scores
+                    .iter()
+                    .filter(|(_, s)| s.is_passing(false))
+                    .try_into_nonempty_iter()
+                {
+                    // Found at least one version that doesn't require dropping,
+                    // rank by strategy to select
+                    Ok((xs.max_by(|&x, &y| rank(x, y)).0, ret_scores()))
+                } else if let Some(xs) = scores
+                    .iter()
+                    .filter(|(_, s)| s.is_passing(true))
+                    .try_into_nonempty_iter()
+                {
+                    // No versions found that can be satisfied without dropping
+                    // keywords, find versions with dropping and rank using
+                    // strategy.
+                    let ret = xs.max_by(|&x, &y| {
+                        if x.1.drop == y.1.drop {
+                            rank(x, y)
+                        } else {
+                            y.1.drop.cmp(&x.1.drop)
+                        }
+                    });
+                    Ok((ret.0, ret_scores()))
+                } else {
+                    // No versions found that have valid keywords available,
+                    // return error
+                    Err(GuessVersionError::AllInvalid)
+                }
+            } else {
+                Err(GuessVersionError::NoPar)
+            }
         }
     }
 }
@@ -409,13 +359,6 @@ pub enum VersionError {
 
 /// Error when parsing FCS version
 #[derive(Debug, Error)]
-#[error("'{0}' is not a valid or supported FCS version")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct VersionFormatError(String);
-
-/// Error when parsing FCS version
-#[derive(Debug, Error)]
 #[error("invalid bytes found when parsing version: {}", self.0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -440,180 +383,209 @@ pub enum GuessVersionError {
     NoPar,
 }
 
+/// Error when writing HEADER or TEXT.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum WriteTEXTHeaderError {
+    Overflow(Uint8DigitOverflowError),
+    DelimError(DelimCollisionError),
+}
+
 #[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {
     pub(crate) header: WriteHeaderSegments<T>,
-    pub(crate) primary: KeywordsWriter,
-    pub(crate) supplemental: KeywordsWriter,
+    pub(crate) primary: String,
+    pub(crate) supplemental: String,
     pub(crate) nextdata: Nextdata,
 }
 
 impl<T> HeaderKeywordsToWrite<T> {
     /// Create HEADER+TEXT+OTHER offsets for FCS 2.0
-    pub(crate) fn new_2_0(
-        req: Vec<(String, String)>,
-        opt: Vec<(String, String)>,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: &[u64],
-        has_nextdata: AppendableFlag,
-    ) -> Result<Self, Uint8DigitOverflowError>
+    pub(crate) fn new_2_0<'a>(
+        kws: impl IntoIterator<Item = AnyKeyword<'a>>,
+        conf: &WriteHeaderAndTextConfig<'_>,
+    ) -> Result<Self, WriteTEXTHeaderError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + HeaderString + Into<u64>,
     {
+        let delim = conf.delim;
+        let data_len = conf.data_len;
+        let anal_len = conf.analysis_len;
+        let other_lens = &conf.other_lens()[..];
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
-        let dso = DatasetOffset(0);
 
-        // +1 at end accounts for first delimiter
-        let text_len: u64 =
-            flat_keywords_length(&req[..]) + flat_keywords_length(&opt[..]) + nextdata_len() + 1;
-        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len, dso)?;
+        // Make new buffer for TEXT with first delimiter
+        let mut text = String::from(char::from(delim));
+
+        // Check for invalid delimiters and write non-offset keywords to buffers
+        for x in kws {
+            x.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &x).write_str(&mut text);
+        }
+
+        let text_len: u64 = u64::try_from(text.len()).expect("overflow") + NEXTDATA_LEN;
+        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
-        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens, dso)?;
+        let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens)?;
 
-        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len, dso)?;
+        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
 
-        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let analysis_seg =
-            HeaderAnalysisSegment::try_new_with_len(analysis_begin, analysis_len, dso)?;
+        let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
+        let anal_seg = HeaderAnalysisSegment::try_new_with_len(anal_begin, anal_len)?;
 
-        let nextdata = Nextdata(if has_nextdata.is_set() {
-            let n = analysis_seg
-                .try_next_byte()
-                .map_or(analysis_begin, u64::from);
-            UintZeroPad20(n)
-        } else {
-            UintZeroPad20(0)
-        });
+        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
-        let header = WriteHeaderSegments::new(text_seg, data_seg, analysis_seg, other_segs);
+        Escaped::new(delim, &nextdata_kw).write_str(&mut text);
 
-        let primary = KeywordsWriter(once(nextdata.pair()).chain(req).chain(opt).collect());
+        let header = WriteHeaderSegments::new(text_seg, data_seg, anal_seg, other_segs);
 
-        Ok(Self::new(
-            header,
-            primary,
-            KeywordsWriter::default(),
-            nextdata,
-        ))
+        Ok(Self::new(header, text, String::default(), nextdata))
     }
 
     /// Create HEADER+TEXT+OTHER offsets for FCS 3.0
     ///
     /// Order in which this is expected to be written is HEADER, OTHER(s), TEXT,
     /// STEXT, DATA, ANALYSIS.
-    pub(crate) fn new_3_0(
-        req: Vec<(String, String)>,
-        opt: Vec<(String, String)>,
-        data_len: u64,
-        analysis_len: u64,
-        other_lens: &[u64],
-        has_nextdata: AppendableFlag,
-    ) -> Result<Self, Uint8DigitOverflowError>
+    pub(crate) fn new_3_0<'a>(
+        req: impl IntoIterator<Item = ReqKeyword<'a>>,
+        opt: impl IntoIterator<Item = OptKeyword<'a>>,
+        conf: &WriteHeaderAndTextConfig<'_>,
+    ) -> Result<Self, WriteTEXTHeaderError>
     where
-        T: TryFrom<u64, Error = Uint8DigitOverflowError> + HeaderString,
+        T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + HeaderString + Into<u64>,
     {
-        let dso = DatasetOffset(0);
+        let delim = conf.delim;
+        let data_len = conf.data_len;
+        let anal_len = conf.analysis_len;
+        let other_lens = &conf.other_lens()[..];
         let prim_text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
-        let nooffset_req_text_len = flat_keywords_length(&req[..]);
-        let opt_text_len = flat_keywords_length(&opt[..]);
-        // +1 accounts for first delimiter
-        let nosupp_text_len = offsets_len() + nooffset_req_text_len + 1;
-        let supp_text_len = opt_text_len + 1;
-        let all_text_len = opt_text_len + nosupp_text_len;
+        // TODO this might be optimized by pre-allocating (which would require
+        // estimating the size of TEXT a priori) or by dumping characters into a
+        // null buffer and counting them, then writing the file later. This
+        // would save memory and possibly be as fast depending on how well we
+        // can estimate the number of chars to be written.
 
-        let make_text_seg = |len| {
-            PrimaryTextSegment::try_new_with_len(prim_text_begin, len, dso).map(|seg| {
-                let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
-                (seg, other_begin)
-            })
+        // init string buffers for primary and supp with first delim
+        let mut req_text = String::from(char::from(delim));
+        let mut opt_text = String::from(char::from(delim));
+
+        // Check for invalid delimiters and write non-offset keywords to buffers
+        for x in req {
+            x.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &x).write_str(&mut req_text);
+        }
+
+        for x in opt {
+            x.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &x).write_str(&mut opt_text);
+        }
+
+        // Compute lengths of primary and supplemental TEXT given the length of
+        // the required and optional keywords plus the offset keywords which
+        // still need to be added.
+        //
+        // All required keywords need to go in primary TEXT. Supplemental TEXT
+        // is the length of the optional keywords (plus the first delimiter)
+        // since these can all be moved out of primary TEXT if it is too long.
+        // Primary TEXT with optional and required keywords is the sum of both
+        // these buffers MINUS ONE because the optional keyword buffer includes
+        // an initial delimiter.
+        let req_text_len = u64::try_from(req_text.len()).expect("overflow") + OFFSETS_LEN_3_0;
+        let supp_text_len = u64::try_from(opt_text.len()).expect("overflow");
+        let all_text_len = req_text_len + supp_text_len - 1;
+
+        let make_text_seg = |len| -> Result<_, WriteTEXTHeaderError> {
+            let seg = PrimaryTextSegment::try_new_with_len(prim_text_begin, len)?;
+            let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
+            Ok((seg, other_begin))
         };
 
-        // include STEXT only if the optional keywords don't fit within the first
-        // 99,999,999 bytes
+        // Include STEXT only if the optional keywords don't fit within the
+        // first 99,999,999 bytes
         let prim_text_res = make_text_seg(all_text_len);
         let (prim_text_seg, other_segs, supp_text_seg, data_begin) =
             if let Ok((prim_text_seg, other_begin)) = prim_text_res {
-                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens, dso)?;
-                (
-                    prim_text_seg,
-                    other_segs,
-                    SupplementalTextSegment::default(),
-                    next_begin,
-                )
+                let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens)?;
+                let supp_text_seg = SupplementalTextSegment::default();
+                (prim_text_seg, other_segs, supp_text_seg, next_begin)
             } else {
-                let (prim_text_seg, other_begin) = make_text_seg(nosupp_text_len)?;
-                let (other_segs, supp_text_begin) =
-                    Self::other_segments(other_begin, other_lens, dso)?;
+                let (prim_text_seg, other_begin) = make_text_seg(req_text_len)?;
+                let (other_segs, supp_text_begin) = Self::other_segments(other_begin, other_lens)?;
+                // NOTE this will happen because if we made it to this point,
+                // req + opt is too big, and req is small enough, which means
+                // opt must have something in it
+                debug_assert!(
+                    supp_text_len > 1,
+                    "supp TEXT should have at least one key/val pair"
+                );
                 let supp_text_seg =
-                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len, dso);
+                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
                 let data_begin = supp_text_seg
                     .try_next_byte()
                     .map_or(supp_text_begin, u64::from);
                 (prim_text_seg, other_segs, supp_text_seg, data_begin)
             };
 
-        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len, dso);
+        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
 
-        let analysis_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let analysis_seg = TEXTAnalysisSegment::new_with_len(analysis_begin, analysis_len, dso);
+        let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
+        let anal_seg = TEXTAnalysisSegment::new_with_len(anal_begin, anal_len);
 
-        let h_analysis_seg = analysis_seg.as_header();
+        let h_anal_seg = anal_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = Nextdata(if has_nextdata.is_set() {
-            let n = analysis_seg
-                .try_next_byte()
-                .map_or(analysis_begin, u64::from);
-            UintZeroPad20(n)
-        } else {
-            UintZeroPad20(0)
-        });
+        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
+        // Add offset keywords to the end of required TEXT buffer.
+        //
         // NOTE in 3.2 *DATA and *SDATA are technically optional, but it is much
         // easier just to include them in the "required" stuff regardless.
-        let all_req = supp_text_seg
+        let offset_kws = supp_text_seg
             .keywords()
             .into_iter()
             .chain(data_seg.keywords())
-            .chain(analysis_seg.keywords())
-            .chain([nextdata.pair()])
-            .chain(req);
+            .chain(anal_seg.keywords())
+            .chain(once(nextdata_kw));
 
+        for x in offset_kws {
+            Escaped::new(delim, &x).write_str(&mut req_text);
+        }
+
+        // Combine optional and required buffers if supp text is empty. Since
+        // there is a delim at the front of the buffer, copy everything after
+        // the first byte if needed.
         let (primary, supplemental) = if supp_text_seg.is_empty() {
-            (all_req.chain(opt).collect(), vec![])
+            if let Some((_, opt_no_first_delim)) = opt_text.as_str().split_at_checked(1) {
+                req_text.push_str(opt_no_first_delim);
+            }
+            (req_text, String::default())
         } else {
-            (all_req.collect(), opt)
+            (req_text, opt_text)
         };
 
-        let header =
-            WriteHeaderSegments::new(prim_text_seg, h_data_seg, h_analysis_seg, other_segs);
+        let header = WriteHeaderSegments::new(prim_text_seg, h_data_seg, h_anal_seg, other_segs);
 
-        Ok(Self::new(
-            header,
-            KeywordsWriter(primary),
-            KeywordsWriter(supplemental),
-            nextdata,
-        ))
+        Ok(Self::new(header, primary, supplemental, nextdata))
     }
 
     pub(crate) fn h_write<W: Write>(
         &self,
         h: &mut BufWriter<W>,
         version: Version,
-        delim: TEXTDelim,
         other_segs: &[Other],
     ) -> io::Result<()>
     where
-        T: Zero + HeaderString,
+        T: Copy + Zero + fmt::Display,
     {
         // write HEADER
         self.header.h_write(h, version)?;
 
         // write primary TEXT
-        self.primary.h_write(h, delim.into())?;
+        h.write_all(self.primary.as_bytes())?;
 
         // write OTHER
         for o in other_segs {
@@ -621,9 +593,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         }
 
         // write supplemental TEXT
-        if !self.supplemental.0.is_empty() {
-            self.supplemental.h_write(h, delim.into())?;
-        }
+        h.write_all(self.supplemental.as_bytes())?;
         Ok(())
     }
 
@@ -640,7 +610,6 @@ impl<T> HeaderKeywordsToWrite<T> {
     fn other_segments(
         begin: u64,
         other_lens: &[u64],
-        offset: DatasetOffset,
     ) -> Result<(Vec<OtherSegment<T>>, u64), <T as TryFrom<u64>>::Error>
     where
         T: Copy + TryFrom<u64> + Into<u64>,
@@ -648,7 +617,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let ret = other_lens
             .iter()
             .scan(begin, |b, &length| {
-                let s = OtherSegment::try_new_with_len(*b, length, offset);
+                let s = OtherSegment::try_new_with_len(*b, length);
                 *b += length;
                 Some(s)
             })
@@ -660,25 +629,23 @@ impl<T> HeaderKeywordsToWrite<T> {
             .map_or(begin, Into::into);
         Ok((ret, next))
     }
-}
 
-#[derive(Default)]
-pub(crate) struct KeywordsWriter(pub Vec<(String, String)>);
-
-impl KeywordsWriter {
-    pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, delim: u8) -> io::Result<()> {
-        h.write_all(&[delim])?; // write first delim
-        for s in self.0.iter().flat_map(|(k, v)| [k, v]) {
-            h.write_all(s.as_bytes())?;
-            h.write_all(&[delim])?;
-        }
-        Ok(())
+    fn get_nextdata<I, S, T0>(
+        seg_begin: u64,
+        seg: &Segment<I, S, T0>,
+        flag: AppendableFlag,
+    ) -> Nextdata
+    where
+        T0: Copy + Into<u64>,
+    {
+        let ret = if flag.is_set() {
+            let n = seg.try_next_byte().map_or(seg_begin, u64::from);
+            UintZeroPad20(n)
+        } else {
+            UintZeroPad20(0)
+        };
+        Nextdata(ret)
     }
-}
-
-fn flat_keywords_length(ks: &[(String, String)]) -> u64 {
-    let n = ks.iter().map(|(k, v)| k.len() + v.len() + 2).sum::<usize>();
-    u64::try_from(n).expect("length of TEXT exceeds 2^64")
 }
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.
@@ -693,29 +660,31 @@ pub(crate) const OFFSET_VAL_LEN: u64 = 20;
 pub(crate) const MAX_HEADER_OFFSET: u32 = 99_999_999;
 
 /// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
-fn nextdata_len() -> u64 {
-    Nextdata::len() + OFFSET_VAL_LEN + 2
-}
+const NEXTDATA_LEN: u64 = std_key_len(Nextdata::C) + OFFSET_VAL_LEN + 2;
 
 /// The number of bytes each offset is expected to take.
 ///
 /// These are the length of each keyword + 2 since there should be two
 /// delimiters counting toward its byte real estate.
-fn data_len() -> u64 {
-    Begindata::len() + Enddata::len() + OFFSET_VAL_LEN * 2 + 4
-}
+const DATA_LEN: u64 = std_key_len(Begindata::C) + std_key_len(Enddata::C) + OFFSET_VAL_LEN * 2 + 4;
 
-fn analysis_len() -> u64 {
-    Beginanalysis::len() + Endanalysis::len() + OFFSET_VAL_LEN * 2 + 4
-}
+const ANALYSIS_LEN: u64 =
+    std_key_len(Beginanalysis::C) + std_key_len(Endanalysis::C) + OFFSET_VAL_LEN * 2 + 4;
 
-fn supp_text_len() -> u64 {
-    Beginstext::len() + Endstext::len() + OFFSET_VAL_LEN * 2 + 4
-}
+const STEXT_LEN: u64 =
+    std_key_len(Beginstext::C) + std_key_len(Endstext::C) + OFFSET_VAL_LEN * 2 + 4;
 
 /// The total number of bytes offset keywords are expected to take.
 ///
 /// This only applies to 3.0+ since 2.0 only has NEXTDATA.
-fn offsets_len() -> u64 {
-    data_len() + analysis_len() + supp_text_len() + nextdata_len()
+// NOTE we cheat a bit and include supp text here, even though it is optional in
+// 3.2. It probably will never make a difference.
+const OFFSETS_LEN_3_0: u64 = DATA_LEN + ANALYSIS_LEN + STEXT_LEN + NEXTDATA_LEN;
+
+/// Compute the length of a standard key.
+///
+/// Assume key does not have '$' on the front, so add 1.
+#[allow(clippy::as_conversions)]
+const fn std_key_len(s: &NEStr) -> u64 {
+    (s.len().get() + 1) as u64
 }

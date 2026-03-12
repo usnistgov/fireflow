@@ -32,7 +32,6 @@ impl Hash for CaseInsRegex {
 impl FromStr for CaseInsRegex {
     type Err = regex::Error;
 
-    // TODO forbid blanks since these will match anything
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         regex::RegexBuilder::new(s)
             .case_insensitive(true)

@@ -2,14 +2,15 @@ use crate::config::{
     ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
     ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
-use crate::core::UnitaryKeyLossError;
-use crate::header::Version;
+use crate::core::{
+    AnyMetarootKeyLossError, AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError,
+    AnyTemporalKeyLossError, AnyTemporalToOpticalKeyLossError, GatingLossError, KeyLossError,
+    NonLinearScaleError, NonUnitGainError, PeakLossError, RegionLossError, TimestepLossError,
+};
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
-    WarningAndErrorsResult,
 };
 use crate::macros::impl_newtype_try_from;
-use crate::nonempty::FCSNonEmpty;
 use crate::segment::{HasRegion, TEXTSegment};
 use crate::text::byteord::{
     BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,
@@ -23,9 +24,7 @@ use crate::text::lookup::{
     ParseKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey, Required, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
-use crate::text::optional::{
-    CheckMaybe, DisplayMaybe, KeywordPairMaybe, OptionalInt, OptionalString, OptionalZST,
-};
+use crate::text::optional::{CheckMaybe, OptionalZST};
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::relational::{
     ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, LinkName,
@@ -39,26 +38,40 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
-    AnyStdKey as _, BiIndex, BiIndexedKey, IndexedKey, Key, Key0, Key1, Key2, NonStdKeywords,
-    SpecificKey, StdKeywords, TruncatedString,
+    AnyKey, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key1, Key2,
+    NonStdKey, NonStdKeywords, PrefixSuffix, SpecificKey, StdKeywords, TruncatedNEString,
+    VersionedKey,
 };
-use crate::validated::keys::{NonStdKeywordsExt as _, StdKey};
-use crate::validated::nonempty_string::NonEmptyString;
+use crate::validated::keys::{AsStdKey, NonStdKeywordsExt as _, StdKey};
 use crate::validated::shortname::Shortname;
+use crate::validated::textdelim::{
+    DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
+};
 
+use nonempty_collections::{NEMap, NESlice};
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
 use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
-use fireflow_types::keywords::{self as tk, MeasKeywordClass, RootKeywordClass};
+use fireflow_types::keywords::{
+    self as tk, MeasKeywordClass, RootKeywordClass, Version, VersionMembership,
+};
+use fireflow_types::nonempty_string::{
+    DisplayNE as _, DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim,
+    NESliceExt as _, NEStr, NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+};
+use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
 
+use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use derive_new::new;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
-use nonempty::NonEmpty;
-use num_derive::Zero;
+use nonempty_collections::{
+    IntoIteratorExt as _, NEVec,
+    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _, once},
+};
 use num_traits::PrimInt;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::{One as _, Zero as _};
@@ -66,14 +79,15 @@ use thiserror::Error;
 use unicase::Ascii;
 
 use std::collections::HashMap;
-use std::fmt;
+use std::fmt::{self, Write as _};
 use std::mem::take;
-use std::num::{NonZeroU8, ParseFloatError, ParseIntError};
+use std::num::{NonZeroU8, NonZeroU32, NonZeroUsize, ParseFloatError, ParseIntError};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use super::index::IndexFromOne;
 use super::lookup::{
     DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed, TrimmedKeyword,
 };
@@ -81,474 +95,937 @@ use super::lookup::{
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{
-        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
+        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyNEString,
     },
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
 
-#[allow(clippy::struct_excessive_bools)]
-#[derive(Default)]
-pub(crate) struct KeywordOptimizer {
-    /// Number of keywords not counted elsewhere here
-    n_any: usize,
-    /// Number of optional keywords found that will be dropped if less then 3.0
-    n_opt_min3_0: usize,
-    /// Number of optional keywords found that will be dropped if less then 3.1
-    n_opt_min3_1: usize,
-    /// Number of optional keywords found that will be dropped if less then 3.2
-    n_opt_min3_2: usize,
-    /// Number of optional keywords found that will be dropped if greater than 3.1
-    n_opt_max3_1: usize,
-    /// Number of optional keywords found that will be dropped if not 2.0
-    n_opt_eq2_0: usize,
-    /// Number of optional keywords found that will be dropped if not 3.0
-    n_opt_eq3_0: usize,
-    /// Number of optional keywords found that will be dropped if not 3.2
-    n_opt_eq3_2: usize,
-    /// Number of optional keywords found that will be dropped if not 3.0/3.1
-    n_opt_eq3_0or3_1: usize,
-    /// Number of $PnN found
-    n_pnn: usize,
-    /// Number of $PnE found
-    n_pne: usize,
-    /// If $CYT was found
-    found_cyt: bool,
-    /// If $TOT was found
-    found_tot: bool,
-    /// If $BEGINDATA found
-    found_begindata: bool,
-    /// If $BEGINANALYSIS found
-    found_beginanalysis: bool,
-    /// If $BEGINSTEXT found
-    found_beginstext: bool,
-    /// If $ENDDATA found
-    found_enddata: bool,
-    /// If $ENDANALYSIS found
-    found_endanalysis: bool,
-    /// If $ENDSTEXT found
-    found_endstext: bool,
-    /// If $BYTEORD is not either '1,2,3,4' or '4,3,2,1'
-    non_endian_byteord: bool,
-    /// Value (or not) of $MODE
-    mode_value: ModeValue,
+#[derive(new)]
+pub(crate) struct Escaped<T> {
+    delim: TEXTDelim,
+    inner: T,
 }
 
-#[derive(Clone, Copy, Default)]
-enum ModeValue {
-    #[default]
-    Missing,
-    List,
-    Other,
-}
-
-/// Score generated when guessing version from keywords.
-#[derive(Default, PartialEq, Clone, new)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct KeywordVersionScore {
-    /// Number of required keywords expected to be in this version and found.
-    ///
-    /// This is for documentation only.
-    pub good_req: usize,
-    /// Number of optional keywords expected to be in this version and found.
-    ///
-    /// This is for documentation only.
-    pub good_opt: usize,
-    /// Number of keywords (opt or req) that must be dropped for this version.
-    ///
-    /// Smaller is better when comparing versions.
-    pub drop: usize,
-    /// Number of optional keywords that are missing in this version.
-    ///
-    /// This is for documentation only.
-    pub missing_opt: usize,
-    /// Number of required keywords that are missing in this version.
-    ///
-    /// If this number is non-zero, the version will be considered impossible
-    /// for the given set of keywords.
-    pub missing_req: usize,
-    /// Number of keywords that are expected to be missing for this version.
-    ///
-    /// This is for documentation only.
-    pub missing_absent: usize,
-}
-
-impl KeywordVersionScore {
-    pub(crate) fn is_passing(&self, allow_drop: bool) -> bool {
-        (self.missing_req == 0) && (self.drop == 0 || (self.drop > 0 && allow_drop))
+impl<T> Escaped<T> {
+    pub(crate) fn write_str(&self, buf: &mut String)
+    where
+        Self: fmt::Display,
+    {
+        write!(buf, "{self}").expect("str write should be infallible");
     }
 }
 
-impl KeywordOptimizer {
-    #[allow(clippy::too_many_lines)]
-    pub(crate) fn get_score(&self, version: Version, par: Par) -> KeywordVersionScore {
-        let mut score = KeywordVersionScore::default();
+impl<T: DisplayEscaped + ?Sized> fmt::Display for Escaped<&T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt_escaped(self.delim, f)
+    }
+}
 
-        // these can be any version, so automatically count them as good
-        score.good_opt += self.n_any;
+#[delegatable_trait]
+trait DisplayEscaped {
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+}
 
-        // count keywords as dropped if the version is not in range
-        macro_rules! comp_drop_maybe {
-            ($comp:expr, $field:ident) => {
-                if $comp {
-                    score.good_opt += self.$field;
+struct EscapedFormatter<'a, 'b> {
+    delim: TEXTDelim,
+    inner: &'a mut fmt::Formatter<'b>,
+}
+
+impl EscapedFormatter<'_, '_> {
+    fn write_with_delim<V>(&mut self, v: &V, escape: bool) -> fmt::Result
+    where
+        V: ?Sized + for<'a> ToDisplayNE<'a>,
+    {
+        let delim = self.delim;
+        let w = v.as_displayable();
+        if escape {
+            write!(self, "{w}")?;
+            write!(self.inner, "{delim}")
+        } else {
+            write!(self.inner, "{w}{delim}")
+        }
+    }
+}
+
+impl fmt::Write for EscapedFormatter<'_, '_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let d = self.delim;
+        // Check if delim is in str before trying to escape it. This is
+        // a massive optimization since encoding and decoding to chars
+        // on the fly is extremely expensive as opposed to checking if
+        // any single byte in the string is equal to some value.
+        if s.contains(char::from(d)) {
+            for c in s.bytes() {
+                if c == u8::from(d) {
+                    // if delimiter found, write it twice
+                    write!(self.inner, "{x}{x}", x = self.delim)?;
                 } else {
-                    score.drop += self.$field;
+                    // otherwise write non-delim once
+                    self.inner.write_char(char::from(c))?;
                 }
+            }
+        } else {
+            self.inner.write_str(s)?;
+        }
+        Ok(())
+    }
+}
+
+impl<K, I, V> DisplayEscaped for SplitKeyword<DollarKey<K, I>, V>
+where
+    for<'a> DollarKey<K, I>: ToDisplayNE<'a>,
+    for<'a> V: ToDisplayNE<'a>,
+{
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut xf = EscapedFormatter { delim, inner: f };
+        // ASSUME standard keys don't need to be escaped because the delim
+        // character is 0-31 which never appears in the standard keys
+        xf.write_with_delim(&self.key, false)?;
+        xf.write_with_delim(&self.value, true)?;
+        Ok(())
+    }
+}
+
+impl DisplayEscaped for NonStdKeyword<'_> {
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut xf = EscapedFormatter { delim, inner: f };
+        xf.write_with_delim(self.key, true)?;
+        xf.write_with_delim(&self.value, true)?;
+        Ok(())
+    }
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum OffsetKeyword {
+    Nextdata(SplitKeyword0<Nextdata>),
+    Begindata(SplitKeyword0<Begindata>),
+    Enddata(SplitKeyword0<Enddata>),
+    Beginanalysis(SplitKeyword0<Beginanalysis>),
+    Endanalysis(SplitKeyword0<Endanalysis>),
+    Beginstext(SplitKeyword0<Beginstext>),
+    Endstext(SplitKeyword0<Endstext>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum AnyKeyword<'a> {
+    Req(ReqKeyword<'a>),
+    Opt(OptKeyword<'a>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum ReqKeyword<'a> {
+    Root(ReqRootKeyword<'a>),
+    Meas(ReqMeasKeyword<'a>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
+#[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum OptKeyword<'a> {
+    Root(StdOrNonStdOptRootKeyword<'a>),
+    Meas(StdOrNonStdOptMeasKeyword<'a>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
+#[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
+    Std(OptRootKeyword<'a>),
+    NonStd(NonStdKeyword<'a>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(HasDelim)]
+#[delegate(AsKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
+    Std(OptMeasKeyword<'a>),
+    NonStd(NonStdKeyword<'a>),
+}
+
+// TODO this shouldn't need to be pub
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub enum ReqRootKeyword<'a> {
+    ByteOrd2_0(SplitKeyword0<ByteOrd2_0>),
+    ByteOrd3_1(SplitKeyword0<ByteOrd3_1>),
+    Par(SplitKeyword0<Par>),
+    Tot(SplitKeyword0<Tot>),
+    Datatype(SplitKeyword0<AlphaNumType>),
+    Mode(SplitKeyword0<Mode>),
+    Cyt(RefKeyword0<'a, Cyt3_2>),
+}
+
+pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+pub enum OptRootKeyword<'a> {
+    GateMeas(GateMeasKeyword<'a>),
+    GateRegion(RegionKeyword<'a>),
+    Dfc(SplitKeyword2<Dfc>),
+    UnstainedCenters(SplitKeyword<DKey0<UnstainedCenters>, NEUnstainedCenters>),
+    CSMode(SplitKeyword0<CSMode>),
+    CSVFlag(SplitKeyword1<CSVFlag>),
+    CSVBits(NonZeroU32Keyword0<CSVBits>),
+    CSTot(NonZeroU32Keyword0<CSTot>),
+    Btim2_0(SplitKeyword0<Btim2_0>),
+    Btim3_0(SplitKeyword0<Btim3_0>),
+    Btim3_1(SplitKeyword0<Btim3_1>),
+    Etim2_0(SplitKeyword0<Etim2_0>),
+    Etim3_0(SplitKeyword0<Etim3_0>),
+    Etim3_1(SplitKeyword0<Etim3_1>),
+    Date(SplitKeyword0<FCSDate>),
+    Begindatetime(SplitKeyword0<BeginDateTime>),
+    Enddatetime(SplitKeyword0<EndDateTime>),
+    Gate(SplitKeyword0<Gate>),
+    Gating(RefKeyword0<'a, Gating>),
+    Comp(RefKeyword0<'a, Compensation3_0>),
+    Unicode(RefKeyword0<'a, Unicode>),
+    Abrt(SplitKeyword0<Abrt>),
+    Lost(SplitKeyword0<Lost>),
+    Tr(RefKeyword0<'a, Trigger>),
+    Vol(SplitKeyword0<Vol>),
+    LastModified(SplitKeyword0<LastModified>),
+    Originality(SplitKeyword0<Originality>),
+    Mode3_2(SplitKeyword0<Mode3_2>),
+    Spillover(RefKeyword0<'a, Spillover>),
+    Cyt(NEStringKeyword0<'a, Cyt>),
+    Cytsn(NEStringKeyword0<'a, Cytsn>),
+    Com(NEStringKeyword0<'a, Com>),
+    Cells(NEStringKeyword0<'a, Cells>),
+    Exp(NEStringKeyword0<'a, Exp>),
+    Fil(NEStringKeyword0<'a, Fil>),
+    Inst(NEStringKeyword0<'a, Inst>),
+    Op(NEStringKeyword0<'a, Op>),
+    Proj(NEStringKeyword0<'a, Proj>),
+    Smno(NEStringKeyword0<'a, Smno>),
+    Src(NEStringKeyword0<'a, Src>),
+    Sys(NEStringKeyword0<'a, Sys>),
+    Flowrate(NEStringKeyword0<'a, Flowrate>),
+    LastModifier(NEStringKeyword0<'a, LastModifier>),
+    UnstainedInfo(NEStringKeyword0<'a, UnstainedInfo>),
+    Carrierid(NEStringKeyword0<'a, Carrierid>),
+    Carriertype(NEStringKeyword0<'a, Carriertype>),
+    Locationid(NEStringKeyword0<'a, Locationid>),
+    Plateid(NEStringKeyword0<'a, Plateid>),
+    Platename(NEStringKeyword0<'a, Platename>),
+    Wellid(NEStringKeyword0<'a, Wellid>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum ReqMeasKeyword<'a> {
+    Shortname(RefKeyword1<'a, Shortname>),
+    Scale(SplitKeyword1<Scale>),
+    TemporalScale3_0(SplitKeyword1<TemporalScale3_0>),
+    Width(SplitKeyword1<Width>),
+    Range(SplitKeyword1<Range>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+pub enum OptMeasKeyword<'a> {
+    Shortname(RefKeyword1<'a, Shortname>),
+    NumType(SplitKeyword1<NumType>),
+    Optical(OptOpticalKeyword<'a>),
+    Temporal(OptTemporalKeyword<'a>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum OptOpticalKeyword<'a> {
+    Longname(NEStringKeyword1<'a, Longname>),
+    Filter(NEStringKeyword1<'a, Filter>),
+    DetectorType(NEStringKeyword1<'a, DetectorType>),
+    DetectorName(NEStringKeyword1<'a, DetectorName>),
+    Tag(NEStringKeyword1<'a, Tag>),
+    Analyte(NEStringKeyword1<'a, Analyte>),
+    OpticalType(NEStringKeyword1<'a, OpticalType>),
+    Wavelengths(SplitKeyword<DKey1<Wavelengths>, NEWavelengths<'a>>),
+    Scale(SplitKeyword1<Scale>),
+    Power(SplitKeyword1<Power>),
+    PercentEmitted(SplitKeyword1<PercentEmitted>),
+    DetectorVoltage(SplitKeyword1<DetectorVoltage>),
+    Gain(SplitKeyword1<Gain>),
+    Wavelength(SplitKeyword1<Wavelength>),
+    Display(SplitKeyword1<Display>),
+    Feature(RefKeyword1<'a, Feature>),
+    Calibration3_1(RefKeyword1<'a, Calibration3_1>),
+    Calibration3_2(RefKeyword1<'a, Calibration3_2>),
+    Peak(OptPeakKeyword),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+pub enum OptTemporalKeyword<'a> {
+    Longname(NEStringKeyword1<'a, Longname>),
+    TemporalType(OptZSTKeyword1<TemporalType, TemporalTypeInner>),
+    TemporalScale2_0(OptZSTKeyword1<TemporalScale2_0, TemporalScaleInner>),
+    Display(SplitKeyword1<Display>),
+    Timestep(SplitKeyword0<Timestep>),
+    Peak(OptPeakKeyword),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum OptPeakKeyword {
+    PeakBin(SplitKeyword1<PeakBin>),
+    PeakIndex(SplitKeyword1<PeakIndex>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+pub enum GateMeasKeyword<'a> {
+    Scale(SplitKeyword1<GateScale>),
+    Shortname(RefKeyword1<'a, GateShortname>),
+    PercentEmitted(SplitKeyword1<GatePercentEmitted>),
+    Range(RefKeyword1<'a, GateRange>),
+    DetectorVoltage(SplitKeyword1<GateDetectorVoltage>),
+    Filter(NEStringKeyword1<'a, GateFilter>),
+    Longname(NEStringKeyword1<'a, GateLongname>),
+    DetectorType(NEStringKeyword1<'a, GateDetectorType>),
+}
+
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+pub enum RegionKeyword<'a> {
+    GateIndex2_0(SplitKeyword1<RegionGateIndex2_0>),
+    GateIndex3_0(SplitKeyword1<RegionGateIndex3_0>),
+    GateIndex3_2(SplitKeyword1<RegionGateIndex3_2>),
+    Window(RegionWindowSplitKeyword<'a>),
+}
+
+#[derive(Clone, new)]
+pub struct SplitKeyword<K, V> {
+    pub(crate) key: K,
+    pub(crate) value: V,
+}
+
+pub type SplitKeyword0<T> = SplitKeyword<DKey0<T>, T>;
+pub type SplitKeyword1<T> = SplitKeyword<DKey1<T>, T>;
+pub type SplitKeyword2<T> = SplitKeyword<DKey2<T>, T>;
+
+pub type RefKeyword0<'a, T> = SplitKeyword<DKey0<T>, &'a T>;
+pub type RefKeyword1<'a, T> = SplitKeyword<DKey1<T>, &'a T>;
+
+pub type OptZSTKeyword1<K, T> = SplitKeyword<DKey1<K>, T>;
+
+pub type NEStringKeyword0<'a, T> = NEStringKeyword<'a, DKey0<T>>;
+pub type NEStringKeyword1<'a, T> = NEStringKeyword<'a, DKey1<T>>;
+
+pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<DKey0<T>>;
+
+pub type NEStringKeyword<'a, K> = SplitKeyword<K, &'a NEStr>;
+pub type NonZeroU32Keyword<K> = SplitKeyword<K, NonZeroU32>;
+
+pub type RegionWindowSplitKeyword<'a> = SplitKeyword<DKey1<RegionWindow>, RegionWindowRef<'a>>;
+
+impl<T> SplitKeyword0<T> {
+    pub(crate) fn from_value0(value: T) -> Self {
+        Self::new(DKey0::<T>::default(), value)
+    }
+}
+
+impl<T> SplitKeyword1<T> {
+    pub(crate) fn from_value1(value: T, i: impl Into<IndexFromOne>) -> Self {
+        Self::new(DKey1::<T>::new_i1(i.into()), value)
+    }
+}
+
+impl<'a, T> RefKeyword0<'a, T> {
+    pub(crate) fn from_ref0(value: &'a T) -> Self {
+        Self::new(DKey0::<T>::default(), value)
+    }
+}
+
+impl<'a, T> RefKeyword1<'a, T> {
+    pub(crate) fn from_ref1(value: &'a T, i: impl Into<IndexFromOne>) -> Self {
+        Self::new(DKey1::<T>::new_i1(i.into()), value)
+    }
+}
+
+impl<'a, T> NEStringKeyword0<'a, T> {
+    pub(crate) fn try_new_ne_str0(kw: &'a T) -> Option<Self>
+    where
+        T: AsRef<str>,
+    {
+        let value = NEStr::try_new(kw.as_ref())?;
+        Some(Self::new(DKey0::<T>::default(), value))
+    }
+}
+
+impl<'a, T> NEStringKeyword1<'a, T> {
+    pub(crate) fn try_new_ne_str1(kw: &'a T, i: impl Into<IndexFromOne>) -> Option<Self>
+    where
+        T: AsRef<str>,
+    {
+        let value = NEStr::try_new(kw.as_ref())?;
+        Some(Self::new(DKey1::<T>::new_i1(i.into()), value))
+    }
+}
+
+impl<T> NonZeroU32Keyword0<T> {
+    pub(crate) fn try_new_nz_u32(kw: &T) -> Option<Self>
+    where
+        T: AsRef<u32>,
+    {
+        let value = NonZeroU32::new(*kw.as_ref())?;
+        Some(Self::new(DKey0::<T>::default(), value))
+    }
+}
+
+impl<'a> OptRootKeyword<'a> {
+    pub(crate) fn from_u32<T>(x: &T) -> Option<Self>
+    where
+        T: AsRef<u32>,
+        Self: From<NonZeroU32Keyword0<T>>,
+    {
+        NonZeroU32Keyword0::try_new_nz_u32(x).map(Self::from)
+    }
+
+    pub(crate) fn from_unstainedcenters(x: &'a UnstainedCenters) -> Option<Self> {
+        Some(Self::from(SplitKeyword::new(DKey0::default(), x.try_ne()?)))
+    }
+}
+
+impl<'a> OptOpticalKeyword<'a> {
+    pub(crate) fn from_wavelengths(x: &'a Wavelengths, i: MeasIndex) -> Option<Self> {
+        let ret = SplitKeyword::new(DKey1::new_i1(i), x.try_ne()?);
+        Some(Self::from(ret))
+    }
+}
+
+impl OptTemporalKeyword<'_> {
+    pub(crate) fn from_timestep(x: Timestep) -> Self {
+        let ret = SplitKeyword::new(DKey0::default(), x);
+        Self::from(ret)
+    }
+}
+
+pub(crate) trait Keyword0FromValue<'a> {
+    fn from_value<T>(x: T) -> Self
+    where
+        Self: From<SplitKeyword0<T>>,
+    {
+        Self::from(SplitKeyword0::from_value0(x))
+    }
+
+    fn from_ref<T>(x: &'a T) -> Self
+    where
+        Self: From<RefKeyword0<'a, T>>,
+    {
+        Self::from(RefKeyword0::from_ref0(x))
+    }
+
+    fn from_str<T>(x: &'a T) -> Option<Self>
+    where
+        T: AsRef<str>,
+        Self: From<NEStringKeyword0<'a, T>>,
+    {
+        NEStringKeyword0::try_new_ne_str0(x).map(Self::from)
+    }
+}
+
+pub(crate) trait Keyword1FromValue<'a> {
+    fn from_value<T>(x: T, i: impl Into<IndexFromOne>) -> Self
+    where
+        Self: From<SplitKeyword1<T>>,
+    {
+        Self::from(SplitKeyword1::from_value1(x, i))
+    }
+
+    fn from_ref<T>(x: &'a T, i: impl Into<IndexFromOne>) -> Self
+    where
+        Self: From<RefKeyword1<'a, T>>,
+    {
+        Self::from(RefKeyword1::from_ref1(x, i))
+    }
+
+    fn from_str<T>(x: &'a T, i: impl Into<IndexFromOne>) -> Option<Self>
+    where
+        T: AsRef<str>,
+        Self: From<NEStringKeyword1<'a, T>>,
+    {
+        NEStringKeyword1::try_new_ne_str1(x, i).map(Self::from)
+    }
+
+    fn from_opt_zst<T, Z>(x: T, i: MeasIndex) -> Option<Self>
+    where
+        Z: Copy,
+        T: AsRef<Option<Z>>,
+        Self: From<OptZSTKeyword1<T, Z>>,
+    {
+        let y: &Option<Z> = x.as_ref();
+        let z = y.as_ref().copied()?;
+        let ret = SplitKeyword::new(DKey1::<T>::new_i1(i), z);
+        Some(Self::from(ret))
+    }
+}
+
+impl Keyword0FromValue<'_> for OffsetKeyword {}
+impl<'a> Keyword0FromValue<'a> for ReqRootKeyword<'a> {}
+impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
+
+impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptOpticalKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptTemporalKeyword<'a> {}
+impl Keyword1FromValue<'_> for OptPeakKeyword {}
+impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
+impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
+
+#[delegatable_trait]
+pub(crate) trait HasMembership {
+    fn membership(&self) -> VersionMembership;
+
+    fn contains_version(&self, version: Version) -> bool {
+        self.membership().contains_version(version)
+    }
+}
+
+#[cfg(feature = "serde")]
+#[delegatable_trait]
+pub(crate) trait AsHeader {
+    fn std_blank(&self) -> String;
+}
+
+#[delegatable_trait]
+pub(crate) trait AsStdKeywordPair {
+    fn as_std_key_pair(&self) -> (StdKey, NEString);
+}
+
+#[delegatable_trait]
+pub(crate) trait AsKeywordPair {
+    fn as_key_pair(&self) -> (AnyKey, NEString);
+
+    fn as_str_pair(&self) -> (NEString, NEString) {
+        let (k, v) = self.as_key_pair();
+        (ToNE(k).to_ne_string(), v)
+    }
+}
+
+impl<K, V> AsStdKeywordPair for SplitKeyword<K, V>
+where
+    K: AsStdKey,
+    for<'a> V: ToDisplayNE<'a>,
+{
+    fn as_std_key_pair(&self) -> (StdKey, NEString) {
+        (self.key.as_std_key(), ToNE(&self.value).to_ne_string())
+    }
+}
+
+impl<T: AsStdKeywordPair> AsKeywordPair for T {
+    fn as_key_pair(&self) -> (AnyKey, NEString) {
+        let (k, v) = self.as_std_key_pair();
+        (k.into(), v)
+    }
+}
+
+impl AsKeywordPair for NonStdKeyword<'_> {
+    fn as_key_pair(&self) -> (AnyKey, NEString) {
+        (self.key.clone().into(), ToNE(&self.value).to_ne_string())
+    }
+}
+
+impl<I, V: VersionedKey, X> HasMembership for SplitKeyword<DollarKey<V, I>, X> {
+    fn membership(&self) -> VersionMembership {
+        V::VERS
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<I, V: IndexedKey, X> AsHeader for SplitKeyword<DollarKey<V, I>, X> {
+    fn std_blank(&self) -> String {
+        V::std_blank()
+    }
+}
+
+impl<I, V: HasDelim> HasDelim for SplitKeyword<DollarKey<V, I>, V> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.value.has_delim(d)
+    }
+}
+
+impl<I, V: HasDelim> HasDelim for SplitKeyword<DollarKey<V, I>, &V> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.value.has_delim(d)
+    }
+}
+
+impl HasDelim for ReqRootKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Cyt(x) = self {
+            x.has_delim(d)
+        } else {
+            None
+        }
+    }
+}
+
+impl HasDelim for ReqMeasKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Shortname(x) = self {
+            x.has_delim(d)
+        } else {
+            None
+        }
+    }
+}
+
+impl HasDelim for NonStdKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.key.has_delim(d).or(self.value.has_delim(d))
+    }
+}
+
+impl HasDelim for OptRootKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
+            Self::GateMeas(x) => x.has_delim(d),
+            Self::Unicode(x) => x.has_delim(d),
+            Self::Tr(x) => x.has_delim(d),
+            Self::Spillover(x) => x.has_delim(d),
+            Self::Cyt(x) => x.value.has_delim(d),
+            Self::Cytsn(x) => x.value.has_delim(d),
+            Self::Com(x) => x.value.has_delim(d),
+            Self::Cells(x) => x.value.has_delim(d),
+            Self::Exp(x) => x.value.has_delim(d),
+            Self::Fil(x) => x.value.has_delim(d),
+            Self::Inst(x) => x.value.has_delim(d),
+            Self::Op(x) => x.value.has_delim(d),
+            Self::Proj(x) => x.value.has_delim(d),
+            Self::Smno(x) => x.value.has_delim(d),
+            Self::Src(x) => x.value.has_delim(d),
+            Self::Sys(x) => x.value.has_delim(d),
+            Self::Flowrate(x) => x.value.has_delim(d),
+            Self::LastModifier(x) => x.value.has_delim(d),
+            Self::UnstainedInfo(x) => x.value.has_delim(d),
+            Self::Carrierid(x) => x.value.has_delim(d),
+            Self::Carriertype(x) => x.value.has_delim(d),
+            Self::Locationid(x) => x.value.has_delim(d),
+            Self::Plateid(x) => x.value.has_delim(d),
+            Self::Platename(x) => x.value.has_delim(d),
+            Self::Wellid(x) => x.value.has_delim(d),
+            _ => None,
+        }
+    }
+}
+
+impl HasDelim for OptMeasKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
+            Self::Shortname(x) => x.value.has_delim(d),
+            Self::Optical(x) => x.has_delim(d),
+            Self::Temporal(x) => x.has_delim(d),
+            Self::NumType(_) => None,
+        }
+    }
+}
+
+impl HasDelim for OptOpticalKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
+            Self::Feature(x) => x.has_delim(d),
+            Self::Calibration3_1(x) => x.has_delim(d),
+            Self::Calibration3_2(x) => x.has_delim(d),
+            Self::Longname(x) => x.value.has_delim(d),
+            Self::Filter(x) => x.value.has_delim(d),
+            Self::DetectorType(x) => x.value.has_delim(d),
+            Self::DetectorName(x) => x.value.has_delim(d),
+            Self::Tag(x) => x.value.has_delim(d),
+            Self::Analyte(x) => x.value.has_delim(d),
+            Self::OpticalType(x) => x.value.has_delim(d),
+            _ => None,
+        }
+    }
+}
+
+impl HasDelim for OptTemporalKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Longname(x) = self {
+            x.value.has_delim(d)
+        } else {
+            None
+        }
+    }
+}
+
+impl HasDelim for GateMeasKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
+            Self::Filter(x) => x.value.has_delim(d),
+            Self::Longname(x) => x.value.has_delim(d),
+            Self::DetectorType(x) => x.value.has_delim(d),
+            Self::Shortname(x) => x.value.has_delim(d),
+            _ => None,
+        }
+    }
+}
+
+impl OptRootKeyword<'_> {
+    pub(crate) fn as_loss_error(
+        &self,
+        current_version: Version,
+        target_version: Version,
+    ) -> Option<AnyMetarootKeyLossError> {
+        let go_region = |kw: &RegionKeyword<'_>| {
+            let (i, is_index) = match kw {
+                // If $RnI in refers to $Gn* and $Pn* in 2.0 and 3.2
+                // respectively, which means they are totally incompatible and
+                // can be dropped outright
+                RegionKeyword::GateIndex2_0(k) => (k.key.index(), true),
+                RegionKeyword::GateIndex3_2(k) => (k.key.index(), true),
+                // $RnI in 3.0/3.1 is different since they can refer to either
+                // $Gn* or $Pn*; It is easier to simply deal with these when
+                // trying to transform the version of the entire gating object
+                // since the regions need to be rewritten anyways to keep
+                // regions which still have valid links.
+                RegionKeyword::GateIndex3_0(_) => return None,
+                // $RnW follows the same pattern as above since it is always
+                // paired with an $RnI, and pairs with matching 'n' must be
+                // dropped together.
+                RegionKeyword::Window(k) => match current_version {
+                    Version::FCS2_0 | Version::FCS3_2 => (k.key.index(), false),
+                    _ => return None,
+                },
             };
-        }
-        comp_drop_maybe!(version >= Version::FCS3_0, n_opt_min3_0);
-        comp_drop_maybe!(version >= Version::FCS3_1, n_opt_min3_1);
-        comp_drop_maybe!(version >= Version::FCS3_2, n_opt_min3_2);
-        comp_drop_maybe!(version <= Version::FCS3_1, n_opt_max3_1);
-        comp_drop_maybe!(version == Version::FCS2_0, n_opt_eq2_0);
-        comp_drop_maybe!(version == Version::FCS3_0, n_opt_eq3_0);
-        comp_drop_maybe!(version == Version::FCS3_2, n_opt_eq3_2);
-        comp_drop_maybe!(
-            version == Version::FCS3_0 || version == Version::FCS3_1,
-            n_opt_eq3_0or3_1
-        );
-
-        // $PnN became required in version 3.1, so count any missing $PnN as
-        // impossible in these later versions
-        // ASSUME n_pnn will always be less than $PAR
-        let missing_names = par.0.saturating_sub(self.n_pnn);
-        if version >= Version::FCS3_1 {
-            score.missing_req += missing_names;
-            score.good_req += self.n_pnn;
-        } else {
-            score.missing_opt += missing_names;
-            score.good_opt += self.n_pnn;
-        }
-
-        // $PnE are the same as $PnN except for version 3.0
-        let missing_scales = par.0.saturating_sub(self.n_pne);
-        if version >= Version::FCS3_0 {
-            score.missing_req += missing_scales;
-            score.good_req += self.n_pnn;
-        } else {
-            score.missing_opt += missing_scales;
-            score.good_opt += self.n_pnn;
-        }
-
-        // $CYT became required in version 3.2, so mark as impossible for this
-        // version if not found
-        match (version == Version::FCS3_2, self.found_cyt) {
-            (true, true) => score.good_req += 1,
-            (true, false) => score.missing_req += 1,
-            (false, true) => score.good_opt += 1,
-            (false, false) => score.missing_opt += 1,
-        }
-
-        // $TOT became required in version 3.0
-        match (version >= Version::FCS3_0, self.found_tot) {
-            (true, true) => score.good_req += 1,
-            (true, false) => score.missing_req += 1,
-            (false, true) => score.good_opt += 1,
-            (false, false) => score.missing_opt += 1,
-        }
-
-        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0 and required in 3.0+
-        let go_req_offsets = |s: &mut KeywordVersionScore, found: bool| {
-            if version == Version::FCS2_0 {
-                if found {
-                    s.drop += 1;
-                } else {
-                    s.missing_absent += 1;
-                }
-            } else if found {
-                s.good_req += 1;
+            let is_2_0 = current_version == Version::FCS2_0;
+            let match_target = if is_2_0 {
+                Version::FCS3_2
             } else {
-                s.missing_req += 1;
-            }
+                Version::FCS2_0
+            };
+            (target_version == match_target)
+                .then_some(RegionLossError::new(is_2_0, is_index, i.into()).into())
         };
-
-        go_req_offsets(&mut score, self.found_begindata);
-        go_req_offsets(&mut score, self.found_enddata);
-
-        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0, required in 3.0/3.1, and
-        // optional in 3.2
-        let go_opt_offsets = |s: &mut KeywordVersionScore, found: bool| match version {
-            Version::FCS2_0 => {
-                if found {
-                    s.drop += 1;
-                } else {
-                    s.missing_absent += 1;
-                }
-            }
-            Version::FCS3_0 | Version::FCS3_1 => {
-                if found {
-                    s.good_req += 1;
-                } else {
-                    s.missing_req += 1;
-                }
-            }
-            Version::FCS3_2 => {
-                if found {
-                    s.good_opt += 1;
-                } else {
-                    s.missing_opt += 1;
-                }
-            }
-        };
-
-        go_opt_offsets(&mut score, self.found_beginanalysis);
-        go_opt_offsets(&mut score, self.found_beginstext);
-        go_opt_offsets(&mut score, self.found_endanalysis);
-        go_opt_offsets(&mut score, self.found_endstext);
-
-        // $BYTEORD must only be big or little endian in 3.1+
-        if version >= Version::FCS3_1 && self.non_endian_byteord {
-            score.missing_req += 1;
-        } else {
-            score.good_req += 1;
-        }
-
-        // $MODE can only be U or C in 3.1 or less, and can only be missing
-        // in 3.2
-        match (version == Version::FCS3_2, self.mode_value) {
-            (true, ModeValue::List) => score.good_opt += 1,
-            (true, ModeValue::Other) => score.drop += 1,
-            (true, ModeValue::Missing) => score.missing_opt += 1,
-            (false, ModeValue::Missing) => score.missing_req += 1,
-            (false, ModeValue::Other | ModeValue::List) => score.good_req += 1,
-        }
-
-        score
-    }
-
-    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &str) {
-        match AnyKeywordClass::classify_keyword(key) {
-            AnyKeywordClass::Root(r) => match r {
-                RootKeywordClass::Beginanalysis => self.found_beginanalysis = true,
-                RootKeywordClass::Beginstext => self.found_beginstext = true,
-                RootKeywordClass::Begindata => self.found_begindata = true,
-                RootKeywordClass::Endanalysis => self.found_endanalysis = true,
-                RootKeywordClass::Endstext => self.found_endstext = true,
-                RootKeywordClass::Enddata => self.found_enddata = true,
-                RootKeywordClass::Cyt => self.found_cyt = true,
-                RootKeywordClass::Tot => self.found_tot = true,
-                RootKeywordClass::Mode => {
-                    let m = value
-                        .parse::<Mode>()
-                        .map(|m| match m {
-                            Mode::List => ModeValue::List,
-                            _ => ModeValue::Other,
-                        })
-                        .unwrap_or(ModeValue::Missing);
-                    self.mode_value = m;
-                }
-                RootKeywordClass::Byteord => {
-                    if let Ok(res) = value.parse::<ByteOrd2_0>() {
-                        self.non_endian_byteord = !res.is_endian();
-                    }
-                }
-                RootKeywordClass::Timestep => {
-                    self.n_opt_min3_0 += 1;
-                }
-                RootKeywordClass::OptGE3_1 => {
-                    self.n_opt_min3_1 += 1;
-                }
-                RootKeywordClass::OptGE3_2 => {
-                    self.n_opt_min3_2 += 1;
-                }
-                RootKeywordClass::OptEQ3_0or3_1 => {
-                    self.n_opt_eq3_0or3_1 += 1;
-                }
-                RootKeywordClass::OptLE3_1 => {
-                    self.n_opt_max3_1 += 1;
-                }
-                RootKeywordClass::OptEQ3_0 => self.n_opt_eq3_0 += 1,
-                RootKeywordClass::OptAny => self.n_any += 1,
+        let ret = match self {
+            Self::GateMeas(kw) => match kw {
+                GateMeasKeyword::Scale(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Shortname(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::PercentEmitted(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Range(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::DetectorVoltage(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Filter(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Longname(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::DetectorType(x) => KeyLossError(x.key).into(),
             },
-            AnyKeywordClass::MeasOptGE3_0(_) => {
-                self.n_opt_min3_0 += 1;
-            }
-            AnyKeywordClass::MeasOptGE3_1(_) => {
-                self.n_opt_min3_1 += 1;
-            }
-            AnyKeywordClass::MeasOptGE3_2(_) => {
-                self.n_opt_min3_2 += 1;
-            }
-            AnyKeywordClass::MeasOptEq3_0or3_1(_) => {
-                self.n_opt_eq3_0or3_1 += 1;
-            }
-            AnyKeywordClass::MeasOptLE3_1(_) => {
-                self.n_opt_max3_1 += 1;
-            }
-            AnyKeywordClass::Scale(_) => self.n_pne += 1,
-            AnyKeywordClass::Shortname(_) => self.n_pnn += 1,
-            AnyKeywordClass::Wavelength(_) => {
-                // TODO what to do on failure?
-                if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
-                    if w.native.0.len() > 1 {
-                        self.n_opt_min3_1 += 1;
-                    } else {
-                        self.n_any += 1;
-                    }
+            Self::Gate(kw) => KeyLossError(kw.key).into(),
+            Self::Dfc(kw) => KeyLossError(kw.key).into(),
+            Self::UnstainedCenters(kw) => KeyLossError(kw.key).into(),
+            Self::UnstainedInfo(kw) => KeyLossError(kw.key).into(),
+            Self::CSMode(kw) => KeyLossError(kw.key).into(),
+            Self::CSVFlag(kw) => KeyLossError(kw.key).into(),
+            Self::CSVBits(kw) => KeyLossError(kw.key).into(),
+            Self::CSTot(kw) => KeyLossError(kw.key).into(),
+            Self::Begindatetime(kw) => KeyLossError(kw.key).into(),
+            Self::Enddatetime(kw) => KeyLossError(kw.key).into(),
+            Self::Comp(kw) => KeyLossError(kw.key).into(),
+            Self::Unicode(kw) => KeyLossError(kw.key).into(),
+            Self::Vol(kw) => KeyLossError(kw.key).into(),
+            Self::LastModified(kw) => KeyLossError(kw.key).into(),
+            Self::Originality(kw) => KeyLossError(kw.key).into(),
+            Self::LastModifier(kw) => KeyLossError(kw.key).into(),
+            Self::Spillover(kw) => KeyLossError(kw.key).into(),
+            Self::Flowrate(kw) => KeyLossError(kw.key).into(),
+            Self::Carrierid(kw) => KeyLossError(kw.key).into(),
+            Self::Carriertype(kw) => KeyLossError(kw.key).into(),
+            Self::Locationid(kw) => KeyLossError(kw.key).into(),
+            Self::Plateid(kw) => KeyLossError(kw.key).into(),
+            Self::Platename(kw) => KeyLossError(kw.key).into(),
+            Self::Wellid(kw) => KeyLossError(kw.key).into(),
+            Self::Cytsn(kw) => KeyLossError(kw.key).into(),
+            Self::GateRegion(kw) => return go_region(kw),
+            // $GATING follows the same pattern as $RnI/$RnW above
+            Self::Gating(_) => match (current_version, target_version) {
+                (Version::FCS2_0, Version::FCS3_2) | (Version::FCS3_2, Version::FCS2_0) => {
+                    let is_2_0 = current_version == Version::FCS2_0;
+                    GatingLossError::new(is_2_0).into()
                 }
-            }
-            AnyKeywordClass::Dfc(_, _) => self.n_opt_eq2_0 += 1,
-            AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
-            AnyKeywordClass::MeasAny(_) | AnyKeywordClass::RegionWindow => self.n_any += 1,
-            AnyKeywordClass::RegionIndex => {
-                if RegionGateIndex::<GateIndex>::from_str_delim(value, true.into()).is_ok() {
-                    self.n_opt_eq2_0 += 1;
-                } else if RegionGateIndex::<MeasOrGateIndex>::from_str_delim(value, true.into())
-                    .is_ok()
-                {
-                    self.n_opt_eq3_0or3_1 += 1;
-                } else if RegionGateIndex::<PrefixedMeasIndex>::from_str_delim(value, true.into())
-                    .is_ok()
-                {
-                    self.n_opt_eq3_2 += 1;
-                }
-            }
-            AnyKeywordClass::NonStandard => (),
-        }
+                _ => return None,
+            },
+            // All of these are shared b/t versions and therefore cannot cause
+            // loss when converting. Note $MODE is valid in all versions but its
+            // value is constrained in 3.2; this is dealt with elsewhere
+            Self::Mode3_2(_)
+            | Self::Btim2_0(_)
+            | Self::Btim3_0(_)
+            | Self::Btim3_1(_)
+            | Self::Etim2_0(_)
+            | Self::Etim3_0(_)
+            | Self::Etim3_1(_)
+            | Self::Date(_)
+            | Self::Abrt(_)
+            | Self::Lost(_)
+            | Self::Tr(_)
+            | Self::Cyt(_)
+            | Self::Com(_)
+            | Self::Cells(_)
+            | Self::Exp(_)
+            | Self::Fil(_)
+            | Self::Inst(_)
+            | Self::Op(_)
+            | Self::Proj(_)
+            | Self::Smno(_)
+            | Self::Src(_)
+            | Self::Sys(_) => return None,
+        };
+        Some(ret)
     }
 }
 
-enum AnyKeywordClass {
-    Root(RootKeywordClass),
-    MeasAny(MeasIndex),
-    MeasOptGE3_0(MeasIndex),
-    MeasOptGE3_1(MeasIndex),
-    MeasOptGE3_2(MeasIndex),
-    MeasOptLE3_1(MeasIndex),
-    MeasOptEq3_0or3_1(MeasIndex),
-    Shortname(MeasIndex),
-    Scale(MeasIndex),
-    Wavelength(MeasIndex),
-    Dfc(MeasIndex, MeasIndex),
-    GateOptLE3_1(GateIndex),
-    RegionIndex,
-    RegionWindow,
-    NonStandard,
-}
-
-impl AnyKeywordClass {
-    fn classify_keyword(key: &StdKey) -> Self {
-        fn split_index_and_suffix(xs: &str) -> Option<(usize, &str)> {
-            let mut index = 0_usize;
-            let mut it = xs.as_bytes().iter();
-            // read first character, only continue if a digit 1-9 (no leading
-            // zeros)
-            if let Some(x) = it.by_ref().next()
-                && (49..58).contains(x)
-            {
-                index += usize::from(*x) - 48;
-                let mut k = 1;
-                for y in it.take_while(|&&z| (48..58).contains(&z)) {
-                    index = 10 * index + (usize::from(*y) - 48);
-                    k += 1;
-                }
-                debug_assert!(index > 0, "index should be greater than 0 here");
-                Some((index - 1, xs.split_at(k).1))
-            } else {
-                None
+impl OptOpticalKeyword<'_> {
+    pub(crate) fn as_loss_error(&self) -> Option<AnyOpticalKeyLossError> {
+        let ret = match self {
+            Self::DetectorName(kw) => KeyLossError(kw.key).into(),
+            Self::Tag(kw) => KeyLossError(kw.key).into(),
+            Self::Analyte(kw) => KeyLossError(kw.key).into(),
+            Self::OpticalType(kw) => KeyLossError(kw.key).into(),
+            Self::Display(kw) => KeyLossError(kw.key).into(),
+            Self::Feature(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_1(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_2(kw) => KeyLossError(kw.key).into(),
+            Self::Peak(kw) => {
+                let ret = match kw {
+                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError(k.key)),
+                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError(k.key)),
+                };
+                ret.into()
             }
-        }
+            // These are shared b/t all versions so cannot result in loss when
+            // converting, or they are dealt with elsewhere as follows:
+            // * Wavelengths: error emitted when converting from vector
+            //   (3.1/3.2) to scaler (2.0/3.0), done when converting
+            //   Wavelengths -> Wavelength
+            // * Gain: error emitted when going to 2.0 and the value is not 1.0,
+            //   done when mapping ScaleTransform -> Scale.
+            Self::Wavelength(_)
+            | Self::Wavelengths(_)
+            | Self::Filter(_)
+            | Self::DetectorType(_)
+            | Self::Power(_)
+            | Self::PercentEmitted(_)
+            | Self::DetectorVoltage(_)
+            | Self::Longname(_)
+            | Self::Gain(_)
+            | Self::Scale(_) => return None,
+        };
+        Some(ret)
+    }
 
-        fn starts_with_icase<'a>(haystack: &'a str, prefix: &str) -> Option<&'a str> {
-            let n = prefix.len();
-            if n > haystack.len() {
-                None
-            } else {
-                let (x, y) = haystack.split_at(n);
-                x.eq_ignore_ascii_case(prefix).then_some(y)
+    pub(crate) fn as_temporal_loss_error(&self) -> Option<AnyOpticalToTemporalKeyLossError> {
+        let ret = match self {
+            Self::DetectorName(kw) => KeyLossError(kw.key).into(),
+            Self::Tag(kw) => KeyLossError(kw.key).into(),
+            Self::Analyte(kw) => KeyLossError(kw.key).into(),
+            Self::OpticalType(kw) => KeyLossError(kw.key).into(),
+            Self::Feature(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_1(kw) => KeyLossError(kw.key).into(),
+            Self::Calibration3_2(kw) => KeyLossError(kw.key).into(),
+            Self::Wavelength(kw) => KeyLossError(kw.key).into(),
+            Self::Wavelengths(kw) => KeyLossError(kw.key).into(),
+            Self::Filter(kw) => KeyLossError(kw.key).into(),
+            Self::DetectorType(kw) => KeyLossError(kw.key).into(),
+            Self::Power(kw) => KeyLossError(kw.key).into(),
+            Self::PercentEmitted(kw) => KeyLossError(kw.key).into(),
+            Self::DetectorVoltage(kw) => KeyLossError(kw.key).into(),
+            // $PnE and $PnG are dealt with here because the temporal structs
+            // don't actually hold anything for scale and gain since these values
+            // are always the same.
+            //
+            // $PnE must always be linear for temporal measurement
+            Self::Scale(kw) => {
+                let i = kw.key.index().into();
+                return (!matches!(kw.value, Scale::Linear))
+                    .then_some(NonLinearScaleError(i).into());
             }
-        }
-
-        let s = key.as_ascii_str();
-        let ss: &str = key.as_ref();
-
-        debug_assert!(s.is_ascii(), "key is not ASCII");
-
-        if let Some(rc) = tk::KW_MAP.get(&s) {
-            Self::Root(*rc)
-        } else if let Some(rest) = starts_with_icase(ss, "P") {
-            // $Pn* keywords or $PKn or $PKNn
-            if let Some((index, suffix)) =
-                starts_with_icase(rest, "KN").and_then(|r| split_index_and_suffix(r))
-                && suffix.is_empty()
-            {
-                // $PKNn
-                Self::MeasOptLE3_1(index.into())
-            } else if let Some((index, suffix)) =
-                starts_with_icase(rest, "K").and_then(|r| split_index_and_suffix(r))
-                && suffix.is_empty()
-            {
-                // $PKn
-                Self::MeasOptLE3_1(index.into())
-            } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
-                // $Pn*
-                let j = index.into();
-                if let Some(vc) = tk::MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
-                    match vc {
-                        MeasKeywordClass::OptAny => Self::MeasAny(j),
-                        MeasKeywordClass::OptGE3_0 => Self::MeasOptGE3_0(j),
-                        MeasKeywordClass::OptGE3_1 => Self::MeasOptGE3_1(j),
-                        MeasKeywordClass::OptGE3_2 => Self::MeasOptGE3_2(j),
-                        MeasKeywordClass::Shortname => Self::Shortname(j),
-                        MeasKeywordClass::Scale => Self::Scale(j),
-                        MeasKeywordClass::Wavelength => Self::Wavelength(j),
-                    }
-                } else {
-                    Self::NonStandard
-                }
-            } else {
-                Self::NonStandard
+            // $PnG must be 1.0 is it exists since temporal measurement does not
+            // have gain
+            Self::Gain(kw) => {
+                let i = kw.key.index().into();
+                return (!kw.value.0.is_one()).then_some(NonUnitGainError(i).into());
             }
-        } else if let Some((index, suffix)) =
-            starts_with_icase(ss, "G").and_then(|r| split_index_and_suffix(r))
-            && tk::GATE_SUFFIX_SET.contains(&Ascii::new(suffix))
-        {
-            // $Gn* keywords
-            Self::GateOptLE3_1(index.into())
-        } else if let Some((_, suffix)) =
-            starts_with_icase(ss, "R").and_then(|r| split_index_and_suffix(r))
-        {
-            // $Rn* keywords
-            if RegionGateIndex::<()>::SUFFIX.eq_ignore_ascii_case(suffix) {
-                Self::RegionIndex
-            } else if RegionWindow::SUFFIX.eq_ignore_ascii_case(suffix) {
-                Self::RegionWindow
-            } else {
-                Self::NonStandard
-            }
-        } else if let Some((index, suffix)) =
-            starts_with_icase(ss, "CSV").and_then(|r| split_index_and_suffix(r))
-            && suffix.eq_ignore_ascii_case("FLAG")
-        {
-            // $CSVnFLAG
-            Self::MeasOptEq3_0or3_1(index.into())
-        } else if let Some((i0, i1, suffix)) = starts_with_icase(ss, "DFC")
-            .and_then(|r| split_index_and_suffix(r))
-            .and_then(|(index, suffix)| starts_with_icase(suffix, "TO").map(|r| (index, r)))
-            .and_then(|(i0, r)| split_index_and_suffix(r).map(|(i1, rr)| (i0, i1, rr)))
-            && suffix.is_empty()
-        {
-            // $DFCmTOn
-            Self::Dfc(i0.into(), i1.into())
-        } else {
-            Self::NonStandard
-        }
+            // These are shared b/t temporal and optical so cannot result in
+            // loss.
+            Self::Peak(_) | Self::Display(_) | Self::Longname(_) => return None,
+        };
+        Some(ret)
     }
 }
 
-pub(crate) const MEAS_KW_PREFIX: &str = "P";
-pub(crate) const GATE_KW_PREFIX: &str = "G";
-pub(crate) const REGION_KW_PREFIX: &str = "R";
+impl OptTemporalKeyword<'_> {
+    pub(crate) fn as_loss_error(&self) -> Option<AnyTemporalKeyLossError> {
+        let ret = match self {
+            Self::TemporalType(kw) => KeyLossError(kw.key).into(),
+            Self::Display(kw) => KeyLossError(kw.key).into(),
+            Self::Peak(kw) => {
+                let ret = match kw {
+                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError(k.key)),
+                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError(k.key)),
+                };
+                ret.into()
+            }
+            // $TIMESTEP is only lossy if not one since it is implied to be
+            // one if not in target version
+            Self::Timestep(kw) => {
+                return (!kw.value.0.is_one()).then_some(TimestepLossError.into());
+            }
+            // These are shared b/t all versions so cannot result in loss when
+            // converting.
+            Self::TemporalScale2_0(_) | Self::Longname(_) => return None,
+        };
+        Some(ret)
+    }
 
-pub(crate) const REGION_INDEX_KW_SUFFIX: &str = "I";
-pub(crate) const REGION_WINDOW_KW_SUFFIX: &str = "W";
+    pub(crate) fn as_optical_loss_error(&self) -> Option<AnyTemporalToOpticalKeyLossError> {
+        let ret = match self {
+            Self::TemporalType(kw) => KeyLossError(kw.key).into(),
+            // These are shared with optical so cannot result in loss. $TIMESTEP
+            // is dealt with separately since it is usually either moved to a
+            // new measurement or returned and thus is not lossy.
+            Self::Display(_)
+            | Self::Peak(_)
+            | Self::Timestep(_)
+            | Self::TemporalScale2_0(_)
+            | Self::Longname(_) => return None,
+        };
+        Some(ret)
+    }
+}
 
 /// Value for $NEXTDATA (all versions)
-#[derive(From, Into, FromStr, Display, Debug, Clone, Copy, Zero, Add, PartialEq)]
+#[derive(From, Into, FromStr, Debug, Clone, Copy, PartialEq, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(u64, UintZeroPad20)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Nextdata(pub UintZeroPad20);
 
 impl Nextdata {
@@ -569,8 +1046,8 @@ impl Nextdata {
             }
         } else {
             let ret = kws
-                .get(&k.as_std())
-                .and_then(|v| Self::from_str_with(v, (), conf).ok())
+                .get(&k.as_std_key())
+                .and_then(|v| Self::from_str_with(v.as_ne_str(), (), conf).ok())
                 .map(|x| x.native);
             LogResult::new_ok(ret)
         }
@@ -604,7 +1081,7 @@ impl FromStrWith for Nextdata {
     type Diagnostic = ();
     type Config = ReadHeaderAndTEXTConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let corr = i128::from(conf.nextdata_correction);
         let x = s.parse::<i128>()?;
         let y = x.saturating_add(corr);
@@ -637,17 +1114,25 @@ pub struct NegativeNextdataError(i128);
 /// The value for the $PnE key (all versions).
 ///
 /// Format is assumed to be 'f1,f2'
-#[derive(Clone, Copy, PartialEq, Debug, Display, Default)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
     #[default]
-    #[display("0,0")]
     Linear,
 
     /// Log scale, where both numbers are positive
-    #[display("{_0}")]
     Log(LogScale),
+}
+
+impl ToDisplayNE<'_> for Scale {
+    type NE = NEAlt<&'static NEStr, ToNE<LogScale>>;
+    fn to_ne(&self) -> Self::NE {
+        match self {
+            Self::Linear => NEAlt::Left(ne_str!("0,0")),
+            Self::Log(x) => NEAlt::Right(ToNE(*x)),
+        }
+    }
 }
 
 /// Diagnostic data from parsing $PnE
@@ -655,7 +1140,7 @@ pub enum Scale {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalScaleFix {
     /// Was forced to be linear (which overrides everything else)
-    Forced(String),
+    Forced(NEString),
     /// Fixes shared with $Gn* keywords
     Inner(ScaleFix),
 }
@@ -674,19 +1159,25 @@ pub enum ScaleFix {
     #[default]
     None,
     /// Whitespace was trimmed
-    Trimmed(String),
+    Trimmed(NEString),
     /// Zero log offset was corrected
-    LogFixed(String),
+    LogFixed(NEString),
     /// Trimmed and zero log offset was corrected
-    TrimmedLogFixed(String),
+    TrimmedLogFixed(NEString),
 }
 
-#[derive(Clone, Copy, PartialEq, Debug, Display, new)]
+#[derive(Clone, Copy, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{decades},{offset}")]
 pub struct LogScale {
     pub decades: PositiveFloat,
     pub offset: PositiveFloat,
+}
+
+impl<'a> ToDisplayNE<'a> for LogScale {
+    type NE = NEDelim<[ToNE<PositiveFloat>; 2]>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEDelim::new(',', [ToNE(self.decades), ToNE(self.offset)])
+    }
 }
 
 impl Scale {
@@ -695,7 +1186,7 @@ impl Scale {
     }
 
     fn parse_fix_maybe(
-        s: &str,
+        s: &NEStr,
         conf: &ReadStdKeywordsConfig,
     ) -> Result<DiagnosedKeyword<Self, ScaleFix>, ScaleError> {
         let go = |x: TrimmedKeyword<_>| {
@@ -749,7 +1240,7 @@ impl FromStrWith for Scale {
     type Diagnostic = OpticalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
         if (matches!(conf.force_linear_scale, ForceLinearScale::AllNonInt)
             && !matches!(dt, AlphaNumType::Integer))
             || matches!(conf.force_linear_scale, ForceLinearScale::All)
@@ -824,8 +1315,9 @@ impl LogRangeError {
 }
 
 /// The value of the $PnG keyword
-#[derive(Clone, Copy, PartialEq, From, Display, FromStr, Debug)]
+#[derive(Clone, Copy, PartialEq, From, FromStr, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Gain(pub PositiveFloat);
 
 impl Gain {
@@ -872,10 +1364,11 @@ pub enum LookupTemporalGainError {
 pub struct TemporalGainError(MeasIndex);
 
 /// The value of the $TIMESTEP keyword
-#[derive(Clone, Copy, PartialEq, From, FromStr, Display, Into, Debug)]
+#[derive(Clone, Copy, PartialEq, From, FromStr, Into, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Timestep(pub PositiveFloat);
 
 impl_newtype_try_from!(Timestep, PositiveFloat, f32, RangedFloatError);
@@ -887,9 +1380,9 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    pub(crate) fn loss_error(self) -> Option<UnitaryKeyLossError<Self>> {
-        (!self.0.is_one()).then_some(UnitaryKeyLossError::default())
-    }
+    // pub(crate) fn loss_error(self) -> Option<Key0LossError<Self>> {
+    //     (!self.0.is_one()).then_some(Key0LossError::default())
+    // }
 
     pub(crate) fn lookup(
         std: &mut StdKeywords,
@@ -906,27 +1399,30 @@ impl Timestep {
 
 pub(crate) type TimestepAdded = bool;
 
-/// The value of the $VOL keyword
-#[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[into(NonNegFloat, f32)]
-pub struct Vol(pub NonNegFloat);
-
-impl_newtype_try_from!(Vol, NonNegFloat, f32, RangedFloatError);
-
 /// The value of the $TR field (all versions)
 ///
 /// This is formatted as 'string,f' where 'string' is a measurement name.
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{measurement},{threshold}")]
 pub struct Trigger {
     /// The measurement name (assumed to match a '$PnN' value).
     pub measurement: Shortname,
 
     /// The threshold of the trigger.
     pub threshold: u32,
+}
+
+impl<'a> ToDisplayNE<'a> for Trigger {
+    type NE = NEConcat3<ToNE<&'a Shortname>, char, u32>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(ToNE(&self.measurement), ',').append(self.threshold)
+    }
+}
+
+impl HasDelim for Trigger {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.measurement.has_delim(d)
+    }
 }
 
 impl Trigger {
@@ -942,7 +1438,7 @@ impl Trigger {
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
         let m = &self.measurement;
         (names.as_ref().contains(m))
-            .then(|| ExistingNamedLinkError::new(Key0::default(), NonEmpty::new(m.clone())))
+            .then(|| ExistingNamedLinkError::new(DKey0::default(), NEVec::new(m.clone())))
     }
 
     pub(crate) fn invalid_link_error(
@@ -952,7 +1448,7 @@ impl Trigger {
         let m = &self.measurement;
         match names.membership(m) {
             NamedSetMembership::None => {
-                Some(OpticalNamedLinkError::new_i0(NonEmpty::new(m.clone())).into())
+                Some(OpticalNamedLinkError::new_i0(NEVec::new(m.clone())).into())
             }
             NamedSetMembership::Center => Some(TemporalNamedLinkError::new_i0(m.clone()).into()),
             NamedSetMembership::NonCenter => None,
@@ -966,7 +1462,7 @@ impl Trigger {
         let go = |tr: &Self| {
             let m = &tr.measurement;
             match names.membership(m) {
-                NamedSetMembership::None => Some(LinkName::Both(NonEmpty::new(m.clone()), None)),
+                NamedSetMembership::None => Some(LinkName::Both(NEVec::new(m.clone()), None)),
                 NamedSetMembership::Center => Some(LinkName::Temporal(m.clone())),
                 NamedSetMembership::NonCenter => None,
             }
@@ -1008,57 +1504,34 @@ pub enum TriggerError {
     IntFormat(ParseIntError),
 }
 
-/// The values used for the $MODE key (up to 3.1)
-#[derive(Clone, PartialEq, Eq, Default, Display, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum Mode {
+impl_str_enum_kw!(
+    /// The values used for the $MODE key (up to 3.1)
+    #[derive(PartialEq, Eq, Default, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
+    pub Mode,
+    /// Error when parsing [`Mode`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    pub ModeError,
     #[default]
-    #[display("L")]
-    List,
-    #[display("U")]
-    Uncorrelated,
-    #[display("C")]
-    Correlated,
-}
-
-/// Error when [`Mode`] has a deprecated value (FCS 3.1)
-#[derive(Debug, Error)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
-pub enum DeprecatedModeWarning {
-    #[error("$MODE=C is deprecated")]
-    ModeCorrelated,
-    #[error("$MODE=U is deprecated")]
-    ModeUncorrelated,
-}
-
-/// Error when parsing [`Mode`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'C', 'L', or 'U'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct ModeError;
-
-impl FromStr for Mode {
-    type Err = ModeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "C" => Ok(Self::Correlated),
-            "L" => Ok(Self::List),
-            "U" => Ok(Self::Uncorrelated),
-            _ => Err(ModeError),
-        }
-    }
-}
+    List         => ne_str!("L"),
+    Uncorrelated => ne_str!("U"),
+    Correlated   => ne_str!("C")
+);
 
 /// The value for the $MODE key, which can only contain 'L' (3.2)
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-#[display("L")]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub struct Mode3_2;
+
+impl ToDisplayNE<'_> for Mode3_2 {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> Self::NE {
+        ne_str!("L")
+    }
+}
 
 impl FromStr for Mode3_2 {
     type Err = Mode3_2Error;
@@ -1097,19 +1570,32 @@ pub struct Mode3_2Error;
 pub struct ModeUpgradeError;
 
 /// The value for the $PnD key (3.1+)
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Display {
     /// Linear display (value like `"Linear,<lower>,<upper>"`)
-    #[display("Linear,{lower},{upper}")]
     Lin { lower: f32, upper: f32 },
 
-    /// Logarithmic display (value like `"Logarithmic,<offset>,<decades>"`)
-    #[display("Logarithmic,{decades},{offset}")]
+    /// Logarithmic display (value like `"Logarithmic,<decades>,<offset>"`)
     Log {
-        offset: PositiveFloat,
         decades: PositiveFloat,
+        offset: PositiveFloat,
     },
+}
+
+impl ToDisplayNE<'_> for Display {
+    type NE = NEConcat5<&'static NEStr, char, f32, char, f32>;
+    fn to_ne(&self) -> Self::NE {
+        let (m, x, y) = match self {
+            Self::Lin { lower, upper } => (ne_str!("Linear"), *lower, *upper),
+            Self::Log { offset, decades } => (
+                ne_str!("Logarithmic"),
+                f32::from(*decades),
+                f32::from(*offset),
+            ),
+        };
+        NEConcat::new(m, ',').append(x).append(',').append(y)
+    }
 }
 
 impl FromStrDelim for Display {
@@ -1165,46 +1651,29 @@ pub enum DisplayError {
     Log(f32, f32),
 }
 
-/// The three values for the $PnDATATYPE keyword (3.2+)
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Display, Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum NumType {
-    #[display("I")]
-    Integer,
-    #[display("F")]
-    Float,
-    #[display("D")]
-    Double,
-}
-
-impl FromStr for NumType {
-    type Err = NumTypeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "I" => Ok(Self::Integer),
-            "F" => Ok(Self::Float),
-            "D" => Ok(Self::Double),
-            _ => Err(NumTypeError),
-        }
-    }
-}
-
-/// Error when parsing [`NumType`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'F', 'D', or 'A'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct NumTypeError;
+impl_str_enum_kw!(
+    /// The three values for the $PnDATATYPE keyword (3.2+)
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
+    pub NumType,
+    /// Error when parsing [`NumType`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    pub NumTypeError,
+    Integer => ne_str!("I"),
+    Float   => ne_str!("F"),
+    Double  => ne_str!("D")
+);
 
 /// The $BYTEORD field in FCS 2.0 and 3.0
 ///
 /// This must be a list of integers belonging to the unordered set {1..N} where
 /// N is the total number of bytes. The numbers will be stored as one less the
 /// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, From, Display, Debug)]
+#[derive(Clone, Copy, From, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum ByteOrd2_0 {
     O1(SizedByteOrd<1>),
     O2(SizedByteOrd<2>),
@@ -1300,8 +1769,9 @@ impl ByteOrd2_0 {
 }
 
 /// The $BYTEORD field in FCS 3.1 and 3.2
-#[derive(Clone, Copy, From, Display, FromStr, Default, Debug)]
+#[derive(Clone, Copy, From, FromStr, Default, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct ByteOrd3_1(pub Endian);
 
 impl From<NoByteOrd<false>> for ByteOrd3_1 {
@@ -1310,43 +1780,21 @@ impl From<NoByteOrd<false>> for ByteOrd3_1 {
     }
 }
 
-/// The four allowed values for the $DATATYPE keyword.
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Hash, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum AlphaNumType {
-    #[display("A")]
-    Ascii,
-    #[display("I")]
-    Integer,
-    #[display("F")]
-    Float,
-    #[display("D")]
-    Double,
-}
-
-macro_rules! check_ascii {
-    ($res:expr, $conf:expr) => {
-        if let Ok(dt) = $res
-            && dt == Self::Ascii
-        {
-            let flag = $conf.disallow_deprecated;
-            $res.map_err(LookupDatatypeError::from)
-                .into_nowarn()
-                .nowarn_extend_warning_or_error3(
-                    DeprecatedDatatypeWarning,
-                    |_| (),
-                    LookupDatatypeError::from,
-                    flag,
-                )
-        } else {
-            $res.map_err(LookupDatatypeError::from).into_log()
-        }
-    };
-}
-
-pub(crate) type LookupDatatypeResult =
-    WarningAndErrorsResult<AlphaNumType, (), DeprecatedDatatypeWarning, LookupDatatypeError>;
+impl_str_enum_kw!(
+    /// The four allowed values for the $DATATYPE keyword.
+    #[derive(Eq, PartialEq, PartialOrd, Ord, Hash, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
+    pub AlphaNumType,
+    /// Error when parsing [`AlphaNumType`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    pub AlphaNumTypeError,
+    Ascii   => ne_str!("A"),
+    Integer => ne_str!("I"),
+    Float   => ne_str!("F"),
+    Double  => ne_str!("D")
+);
 
 impl AlphaNumType {
     pub(crate) fn matches_truncation(self, trunc: TruncateEventValues) -> bool {
@@ -1355,59 +1803,7 @@ impl AlphaNumType {
             (TruncateEventValues::IntOnly, Self::Integer) | (TruncateEventValues::All, _)
         )
     }
-
-    pub(crate) fn get_req_check_ascii(
-        kws: &StdKeywords,
-        conf: &ReadDataKeywordsConfig,
-    ) -> LookupDatatypeResult {
-        let res = Self::get_metaroot_req(kws);
-        check_ascii!(res, conf)
-    }
-
-    pub(crate) fn remove_req_check_ascii(
-        kws: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
-    ) -> LookupDatatypeResult {
-        let res = Self::remove_metaroot_req(kws);
-        check_ascii!(res, conf)
-    }
 }
-
-impl FromStr for AlphaNumType {
-    type Err = AlphaNumTypeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "I" => Ok(Self::Integer),
-            "F" => Ok(Self::Float),
-            "D" => Ok(Self::Double),
-            "A" => Ok(Self::Ascii),
-            _ => Err(AlphaNumTypeError),
-        }
-    }
-}
-
-/// Error when looking up [`AlphaNumType`] from keywords.
-#[derive(Debug, Error, Display, From)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum LookupDatatypeError {
-    Parse(ReqKeyError<AlphaNumType>),
-    Deprecated(DeprecatedDatatypeWarning),
-}
-
-/// Error when [`AlphaNumType`] is ASCII which is deprecated in 3.1 and 3.2
-#[derive(Debug, Error)]
-#[error("$DATATYPE=A is deprecated")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FCSDeprecatedError))]
-pub struct DeprecatedDatatypeWarning;
-
-/// Error when parsing [`AlphaNumType`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'I', 'F', 'D', or 'A'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct AlphaNumTypeError;
 
 impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {
@@ -1434,17 +1830,23 @@ impl TryFrom<AlphaNumType> for NumType {
 /// The value of the $PnE key for temporal measurements (all versions)
 ///
 /// This can only be linear (0,0)
-#[derive(Clone, PartialEq, Display, Debug, Default)]
-#[display("0,0")]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TemporalScaleInner;
+
+impl ToDisplayNE<'_> for TemporalScaleInner {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> Self::NE {
+        ne_str!("0,0")
+    }
+}
 
 #[derive(Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TemporalScaleFix {
     #[default]
     None,
-    Forced(String),
-    Trimmed(String),
+    Forced(NEString),
+    Trimmed(NEString),
 }
 
 #[derive(From, Clone, PartialEq)]
@@ -1475,7 +1877,8 @@ impl FromStrDelim for TemporalScaleInner {
 impl_from_str_with_delim!(TemporalScaleInner, TemporalScaleError);
 
 /// The value of the $PnE key for temporal measurements (3.0+)
-#[derive(Clone, PartialEq, Display, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default, Delegate)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct TemporalScale3_0(pub TemporalScaleInner);
 
 impl FromStrWith for TemporalScale3_0 {
@@ -1484,7 +1887,7 @@ impl FromStrWith for TemporalScale3_0 {
     type Diagnostic = TemporalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if conf.force_linear_scale.time_selected() {
             let d = TemporalScaleFix::Forced(s.to_owned());
             Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
@@ -1514,15 +1917,9 @@ impl FromStrWith for TemporalScale3_0 {
 //     }
 // }
 
-impl DisplayMaybe for TemporalScale3_0 {
-    fn display_maybe(&self) -> Option<String> {
-        Some(self.0.to_string())
-    }
-}
-
-impl KeywordPairMaybe for TemporalScale3_0 {
-    type Inner = Self;
-}
+// impl KeywordPairMaybe for TemporalScale3_0 {
+//     type Inner = Self;
+// }
 
 /// Error when parsing [`TemporalScaleInner`] from string
 #[derive(Debug, Error)]
@@ -1532,12 +1929,24 @@ pub struct TemporalScaleError;
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
 /// This should be formatted like "`<value>,<unit>`"
-#[derive(Clone, PartialEq, Debug, Display, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{slope},{unit}")]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
-    pub unit: String,
+    pub unit: NEString,
+}
+
+impl<'a> ToDisplayNE<'a> for Calibration3_1 {
+    type NE = NEConcat3<ToNE<PositiveFloat>, char, &'a NEString>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(ToNE(self.slope), ',').append(&self.unit)
+    }
+}
+
+impl HasDelim for Calibration3_1 {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.unit.has_delim(d)
+    }
 }
 
 impl FromStrDelim for Calibration3_1 {
@@ -1551,7 +1960,11 @@ impl FromStrDelim for Calibration3_1 {
         match (x0, x1, x2) {
             (Some(value), Some(unit), None) => {
                 let slope = value.parse().map_err(CalibrationError::Range)?;
-                Ok(Self::new(slope, String::from(unit)))
+                if let Ok(u) = unit.parse() {
+                    Ok(Self::new(slope, u))
+                } else {
+                    Err(CalibrationError::EmptyUnit(EmptyCalibrationUnitError))
+                }
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_1)),
         }
@@ -1562,13 +1975,19 @@ impl_from_str_with_delim!(Calibration3_1, CalibrationError<CalibrationFormat3_1>
 
 /// Error when parsing [`Calibration3_1`] from string
 #[derive(Debug, Error)]
-#[error("must be like 'f,string'")]
+#[error("must be like 'slope,unit'")]
 pub struct CalibrationFormat3_1;
+
+/// Error when calibration type has an empty unit string.
+#[derive(Debug, Error)]
+#[error("unit cannot be an empty string")]
+pub struct EmptyCalibrationUnitError;
 
 #[derive(Debug, Display, Error)]
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
     Range(RangedFloatError),
+    EmptyUnit(EmptyCalibrationUnitError),
     Format(C),
 }
 
@@ -1582,13 +2001,29 @@ impl From<Calibration3_1> for Calibration3_2 {
 ///
 /// This should be formatted like `"<value>,[<offset>,]<unit>"` and differs from
 /// 3.1 with the optional inclusion of `offset` (assumed 0 if not included).
-#[derive(Clone, PartialEq, Debug, Display, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{slope},{offset},{unit}")]
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
-    pub unit: String,
+    pub unit: NEString,
+}
+
+impl<'a> ToDisplayNE<'a> for Calibration3_2 {
+    type NE = NEConcat5<ToNE<PositiveFloat>, char, f32, char, &'a NEString>;
+    fn to_ne(&'a self) -> Self::NE {
+        // NOTE offset will always be written even if it is zero
+        NEConcat::new(ToNE(self.slope), ',')
+            .append(self.offset)
+            .append(',')
+            .append(&self.unit)
+    }
+}
+
+impl HasDelim for Calibration3_2 {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.unit.has_delim(d)
+    }
 }
 
 impl FromStrDelim for Calibration3_2 {
@@ -1600,7 +2035,7 @@ impl FromStrDelim for Calibration3_2 {
         let x1 = iter.next();
         let x2 = iter.next();
         let x3 = iter.next();
-        let (slope, offset, unit) = match (x0, x1, x2, x3) {
+        let (slope_str, offset, unit_str) = match (x0, x1, x2, x3) {
             (Some(slope), Some(unit), None, None) => Ok((slope, 0.0, unit)),
             (Some(slope), Some(soffset), Some(unit), None) => {
                 let f2 = soffset.parse().map_err(CalibrationError::Float)?;
@@ -1608,11 +2043,12 @@ impl FromStrDelim for Calibration3_2 {
             }
             _ => Err(CalibrationError::Format(CalibrationFormat3_2)),
         }?;
-        Ok(Self::new(
-            slope.parse().map_err(CalibrationError::Range)?,
-            offset,
-            unit.into(),
-        ))
+        let slope = slope_str.parse().map_err(CalibrationError::Range)?;
+        if let Ok(u) = unit_str.parse() {
+            Ok(Self::new(slope, offset, u))
+        } else {
+            Err(CalibrationError::EmptyUnit(EmptyCalibrationUnitError))
+        }
     }
 }
 
@@ -1620,7 +2056,7 @@ impl_from_str_with_delim!(Calibration3_2, CalibrationError<CalibrationFormat3_2>
 
 /// Error when parsing [`Calibration3_2`] from string
 #[derive(Debug, Error)]
-#[error("must be like 'f1,[f2],string'")]
+#[error("must be like 'slope,[offset],unit'")]
 pub struct CalibrationFormat3_2;
 
 impl Calibration3_2 {
@@ -1649,10 +2085,11 @@ impl Calibration3_2 {
 pub struct CalibrationLossError(MeasIndex, f32);
 
 /// The value for the $PnL key (2.0/3.0).
-#[derive(Clone, Copy, From, FromStr, Display, Into, PartialEq, Debug)]
+#[derive(Clone, Copy, From, FromStr, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(f32, PositiveFloat)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Wavelength(pub PositiveFloat);
 
 impl_newtype_try_from!(Wavelength, PositiveFloat, f32, RangedFloatError);
@@ -1671,18 +2108,15 @@ impl From<Wavelength> for Wavelengths {
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
-impl DisplayMaybe for Wavelengths {
-    fn display_maybe(&self) -> Option<String> {
-        if self.0.is_empty() {
-            None
-        } else {
-            Some(self.0.iter().join(","))
-        }
-    }
-}
+#[derive(Clone)]
+pub struct NEWavelengths<'a>(pub(crate) NESlice<'a, PositiveFloat>);
 
-impl KeywordPairMaybe for Wavelengths {
-    type Inner = Self;
+impl<'a> ToDisplayNE<'a> for NEWavelengths<'_> {
+    type NE = NEDelim<NESlice<'a, ToNE<PositiveFloat>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let xs = ToNE::on_inner_slice(self.0.by_ref());
+        NEDelim::new(',', xs)
+    }
 }
 
 impl CheckMaybe for Wavelengths {
@@ -1700,24 +2134,34 @@ impl FromStrDelim for Wavelengths {
     const DELIM: char = ',';
 
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        let xs = NonEmpty::collect(iter).ok_or(WavelengthsError::Empty)?;
-        let ys = xs.try_map(|x| x.parse().map_err(WavelengthsError::Num))?;
-        Ok(Self(ys.into()))
+        let xs = iter
+            .try_into_nonempty_iter()
+            .ok_or(WavelengthsError::Empty)?;
+        let ys = xs
+            .into_iter()
+            .map(|x| x.parse().map_err(WavelengthsError::Num))
+            .collect::<Result<_, _>>()?;
+        Ok(Self(ys))
     }
 }
 
 impl_from_str_with_delim!(Wavelengths, WavelengthsError);
 
 impl Wavelengths {
+    pub(crate) fn try_ne(&self) -> Option<NEWavelengths<'_>> {
+        NESlice::try_from_slice(&self.0[..]).map(NEWavelengths)
+    }
+
     pub(crate) fn into_wavelength(
         self,
         i: MeasIndex,
     ) -> DeferredError<Option<Wavelength>, WavelengthsLossError> {
-        NonEmpty::from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
+        NEVec::try_from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
             let n = ws.len();
-            let k = Key1::new_i1(i.into());
+            let k = Key1::new_i1(i);
             let e = WavelengthsLossError(k, n);
-            LogResult::new_deferred_if(n == 1, Some(Wavelength(ws.head)), e)
+            let wl = Some(Wavelength(ws.into_nonempty_iter().next().0));
+            LogResult::new_deferred_if(usize::from(n) == 1, wl, e)
         })
     }
 }
@@ -1733,7 +2177,7 @@ impl Wavelengths {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-pub struct WavelengthsLossError(Key1<Wavelengths>, usize);
+pub struct WavelengthsLossError(Key1<Wavelengths>, NonZeroUsize);
 
 /// Error when parsing [`Wavelengths`] from string
 #[derive(Debug, Error)]
@@ -1748,13 +2192,22 @@ pub enum WavelengthsError {
 ///
 /// Inner value is private to ensure it always gets parsed/printed using the
 /// correct format
-#[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[display("{}.{:02}", _0.format(DATETIME_FMT), _0.nanosecond() / 10_000_000)]
 pub struct LastModified(pub NaiveDateTime);
 
-const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
+impl<'a> ToDisplayNE<'a> for LastModified {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        let mut s = NEString::try_from(self.0.format(DATETIME_FMT).to_string())
+            .expect("format should be non-empty");
+        let cc = format!("{:02}", self.0.nanosecond() / 10_000_000);
+        s.push('.');
+        s.push_str(cc.as_str());
+        s
+    }
+}
 
 impl FromStrWith for LastModified {
     type Err = LastModifiedError;
@@ -1762,14 +2215,14 @@ impl FromStrWith for LastModified {
     type Diagnostic = ();
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if let Some(pat) = conf.last_modified_pattern.as_ref() {
-            return NaiveDateTime::parse_from_str(s, pat.as_str())
+            return NaiveDateTime::parse_from_str(s.as_ref(), pat.as_str())
                 .map(Self)
                 .map(DiagnosedKeyword::new1)
                 .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
         }
-        let mut it = s.split('.');
+        let mut it = s.as_ref().split('.');
         let (t, cc) = match (it.by_ref().next(), it.by_ref().next(), it.next()) {
             (Some(t), None, None) => (t, ""),
             (Some(t), Some(cc), None) => (t, cc),
@@ -1804,47 +2257,28 @@ pub enum LastModifiedError {
     Format,
 }
 
-/// The value for the $ORIGINALITY key (3.1+)
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum Originality {
-    #[display("Original")]
-    Original,
-    #[display("NonDataModified")]
-    NonDataModified,
-    #[display("Appended")]
-    Appended,
-    #[display("DataModified")]
-    DataModified,
-}
-
-impl FromStr for Originality {
-    type Err = OriginalityError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "Original" => Ok(Self::Original),
-            "NonDataModified" => Ok(Self::NonDataModified),
-            "Appended" => Ok(Self::Appended),
-            "DataModified" => Ok(Self::DataModified),
-            _ => Err(OriginalityError),
-        }
-    }
-}
-
-/// Error when parsing [`Originality`] from string
-#[derive(Debug, Error)]
-#[error("must be one of 'Original', 'NonDataModified', 'Appended', or 'DataModified'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct OriginalityError;
+impl_str_enum_kw!(
+    /// The value for the $ORIGINALITY key (3.1+)
+    #[derive(PartialEq, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
+    pub Originality,
+    /// Error when parsing [`Originality`] from string
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    pub OriginalityError,
+    Original        => ne_str!("Original"),
+    NonDataModified => ne_str!("NonDataModified"),
+    Appended        => ne_str!("Appended"),
+    DataModified    => ne_str!("DataModified")
+);
 
 /// The value of the $COMP keyword (3.0 only)
-#[derive(Clone, From, Into, Display, AsRef, PartialEq, Debug)]
+#[derive(Clone, From, Into, AsRef, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[as_ref(DMatrix<f32>, Compensation)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Compensation3_0(pub Compensation);
 
 impl FromStrWith for Compensation3_0 {
@@ -1853,7 +2287,7 @@ impl FromStrWith for Compensation3_0 {
     type Diagnostic = Trimmed;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
@@ -1892,8 +2326,10 @@ impl FromStrDelim for Compensation3_0 {
 impl Compensation3_0 {
     pub(crate) fn invalid_link_errors(&self, par: Par) -> Option<KeyToIndexLinkError<Self>> {
         let m: &DMatrix<_> = self.as_ref();
-        let js = (par.0..m.nrows()).map(MeasIndex::from);
-        NonEmpty::collect(js).map(KeyToIndexLinkError::new_i0)
+        (par.0..m.nrows())
+            .map(MeasIndex::from)
+            .try_into_nonempty_iter()
+            .map(|js| KeyToIndexLinkError::new_i0(js.collect()))
     }
 
     pub(crate) fn remove_invalid_link(
@@ -1927,12 +2363,28 @@ pub enum ParseCompError {
 /// anything in this library and is present to be complete. The original purpose
 /// was to indicate keywords which supported UTF-8, but these days it is hard to
 /// write a library that does NOT support UTF-8 ;)
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{page},{}", kws.iter().join(","))]
 pub struct Unicode {
     pub page: u32,
-    pub kws: Vec<String>,
+    pub kws: Vec<NEString>,
+}
+
+impl<'a> ToDisplayNE<'a> for Unicode {
+    type NE = NEAlt<u32, NEConcat3<u32, char, NEDelim<NESlice<'a, NEString>>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        if let Some(kws) = NESlice::try_from_slice(&self.kws[..]) {
+            NEAlt::Right(NEConcat::new(self.page, ',').append(NEDelim::new(',', kws)))
+        } else {
+            NEAlt::Left(self.page)
+        }
+    }
+}
+
+impl HasDelim for Unicode {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        self.kws.iter().find_map(|x| x.has_delim(d))
+    }
 }
 
 impl FromStrDelim for Unicode {
@@ -1941,7 +2393,10 @@ impl FromStrDelim for Unicode {
 
     fn from_iter<'a>(mut iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
         if let Some(page) = iter.next().and_then(|x| x.parse().ok()) {
-            let kws: Vec<String> = iter.map(String::from).collect();
+            let kws = iter
+                .map(str::parse)
+                .collect::<Result<Vec<NEString>, _>>()
+                .map_err(|_| UnicodeError::EmptyKws)?;
             if kws.is_empty() {
                 Err(UnicodeError::Empty)
             } else {
@@ -1962,13 +2417,16 @@ pub enum UnicodeError {
     Empty,
     #[error("Must be like 'n,string,[[string],...]'")]
     BadFormat,
+    #[error("At least one keyword is an empty string")]
+    EmptyKws,
 }
 
 /// The value of the $PnTYPE key in optical channels (3.2+)
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Debug, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
-pub struct OpticalType(OptionalString);
+#[as_ref(str)]
+pub struct OpticalType(String);
 
 /// Error when parsing [`OpticalType`] from string
 #[derive(Debug, Error)]
@@ -1977,31 +2435,38 @@ pub struct OpticalType(OptionalString);
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub struct OpticalTypeError;
 
-const TIME: &str = "Time";
-
 impl FromStr for OpticalType {
     type Err = OpticalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            TIME => Err(OpticalTypeError),
-            _ => Ok(Self(s.to_owned().into())),
+        if s == TIME.as_ref() {
+            Err(OpticalTypeError)
+        } else {
+            Ok(Self(s.to_owned()))
         }
     }
 }
 
 /// The value of the $PnTYPE key in temporal channels (3.2+)
-#[derive(Clone, PartialEq, Debug, Display, Default)]
-#[display("{}", TIME)]
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TemporalTypeInner;
+
+// TODO combine with the other ZST in macro
+impl ToDisplayNE<'_> for TemporalTypeInner {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> Self::NE {
+        TIME
+    }
+}
 
 impl FromStr for TemporalTypeInner {
     type Err = TemporalTypeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            TIME => Ok(Self),
-            _ => Err(TemporalTypeError),
+        if s == TIME.as_ref() {
+            Ok(Self)
+        } else {
+            Err(TemporalTypeError)
         }
     }
 }
@@ -2012,14 +2477,32 @@ impl FromStr for TemporalTypeInner {
 pub struct TemporalTypeError;
 
 /// The value of the $PnFEATURE key (3.2+)
-#[derive(Clone, PartialEq, Debug, Display)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub enum Feature {
-    #[display("{_0}")]
     Optical(OpticalFeature),
-    #[display("{_0}")]
-    Other(NonEmptyString),
+    Other(NEString),
+}
+
+impl<'a> ToDisplayNE<'a> for Feature {
+    type NE = NEAlt<ToNE<OpticalFeature>, &'a NEString>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Optical(x) => NEAlt::Left(ToNE(*x)),
+            Self::Other(x) => NEAlt::Right(x),
+        }
+    }
+}
+
+impl HasDelim for Feature {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Other(x) = self {
+            x.has_delim(d)
+        } else {
+            None
+        }
+    }
 }
 
 #[cfg(feature = "python")]
@@ -2033,7 +2516,11 @@ impl FromStr for Feature {
         };
         // throw away diagnostic flag here since this is only for python
         // conversion
-        Self::from_str_with(s, (), &conf).map(|x| x.native)
+        if let Some(ne) = NEStr::try_new(s) {
+            Self::from_str_with(ne, (), &conf).map(|x| x.native)
+        } else {
+            Err(FeatureError::Other)
+        }
     }
 }
 
@@ -2043,7 +2530,7 @@ impl FromStrWith for Feature {
     type Diagnostic = bool;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         match s.parse::<OpticalFeature>() {
             Ok(f) => Ok(DiagnosedKeyword::new(Self::Optical(f), false)),
             Err(e) => {
@@ -2058,48 +2545,29 @@ impl FromStrWith for Feature {
     }
 }
 
-/// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
-#[derive(Clone, Copy, PartialEq, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum OpticalFeature {
-    #[display("{}", AREA)]
-    Area,
-    #[display("{}", WIDTH)]
-    Width,
-    #[display("{}", HEIGHT)]
-    Height,
-}
-
-impl FromStr for OpticalFeature {
-    type Err = OpticalFeatureError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            AREA => Ok(Self::Area),
-            WIDTH => Ok(Self::Width),
-            HEIGHT => Ok(Self::Height),
-            _ => Err(OpticalFeatureError),
-        }
-    }
-}
-
-const AREA: &str = "Area";
-const WIDTH: &str = "Width";
-const HEIGHT: &str = "Height";
-
-/// Error when parsing [`Feature`] (optical only)
-#[derive(Debug, Error)]
-#[error("must be one of 'Area', 'Width', or 'Height'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-pub struct OpticalFeatureError;
+// TODO this does too much, we only need this inside another enum, and the
+// error struct is useless
+impl_str_enum_kw!(
+    /// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
+    #[derive(PartialEq, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
+    pub OpticalFeature,
+    /// Error when parsing [`Feature`] (optical only)
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    pub OpticalFeatureError,
+    Area   => ne_str!("Area"),
+    Width  => ne_str!("Width"),
+    Height => ne_str!("Height")
+);
 
 /// Error when parsing [`Feature`]
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum FeatureError {
+    // TODO this is misleading
     #[error("{0}")]
     Optical(OpticalFeatureError),
     #[error("non-area/width/height feature must not be empty")]
@@ -2107,20 +2575,46 @@ pub enum FeatureError {
 }
 
 /// The value of the $RnI key (all versions)
-#[derive(Clone, Copy, Display, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum RegionGateIndex<I> {
     Univariate(I),
     Bivariate(IndexPair<I>),
 }
 
+pub type RegionGateIndex2_0 = RegionGateIndex<GateIndex>;
+pub type RegionGateIndex3_0 = RegionGateIndex<MeasOrGateIndex>;
+pub type RegionGateIndex3_2 = RegionGateIndex<PrefixedMeasIndex>;
+
+impl<'a, I> ToDisplayNE<'a> for RegionGateIndex<I>
+where
+    for<'b> I: ToDisplayNE<'b> + Copy,
+{
+    type NE = NEAlt<ToNE<I>, ToNE<IndexPair<I>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Univariate(x) => NEAlt::Left(ToNE(*x)),
+            Self::Bivariate(x) => NEAlt::Right(ToNE(*x)),
+        }
+    }
+}
+
 /// The two indices of a bivariate gate
-#[derive(Clone, Copy, PartialEq, Display, Debug, new)]
+#[derive(Clone, Copy, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{x},{y}")]
 pub struct IndexPair<I> {
     pub x: I,
     pub y: I,
+}
+
+impl<'a, I> ToDisplayNE<'a> for IndexPair<I>
+where
+    for<'b> I: ToDisplayNE<'b> + Copy,
+{
+    type NE = NEDelim<[ToNE<I>; 2]>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEDelim::new(',', [self.x, self.y].map(ToNE))
+    }
 }
 
 impl_kind1!(pub IndexPairFamily, IndexPair);
@@ -2142,7 +2636,7 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Diagnostic = Trimmed;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
     }
 }
@@ -2179,14 +2673,23 @@ pub enum RegionGateIndexError<E> {
 }
 
 /// Index which can either refer to a gate ($Gn*) or a measurement ($Pn*)
-#[derive(Clone, Copy, From, PartialEq, Display, Debug)]
+#[derive(Clone, Copy, From, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub enum MeasOrGateIndex {
-    #[display("P{_0}")]
     Meas(MeasIndex),
-    #[display("G{_0}")]
     Gate(GateIndex),
+}
+
+impl<'a> ToDisplayNE<'a> for MeasOrGateIndex {
+    type NE = NEConcat<char, ToNE<IndexFromOne>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let (p, n) = match self {
+            Self::Meas(x) => ('P', x.0),
+            Self::Gate(x) => ('G', x.0),
+        };
+        NEConcat::new(p, ToNE(n))
+    }
 }
 
 impl FromStr for MeasOrGateIndex {
@@ -2225,13 +2728,19 @@ pub enum MeasOrGateIndexError {
 /// Index for $RnI (3.2)
 ///
 /// This is just a measurement index with 'P' in front of it
-#[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug, Display)]
+#[derive(Clone, Copy, From, PartialEq, Into, AsMut, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(MeasIndex, usize)]
 #[into(MeasIndex, usize)]
-#[display("P{_0}")]
 pub struct PrefixedMeasIndex(pub MeasIndex);
+
+impl<'a> ToDisplayNE<'a> for PrefixedMeasIndex {
+    type NE = NEConcat<char, ToNE<MeasIndex>>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new('P', ToNE(self.0))
+    }
+}
 
 impl FromStr for PrefixedMeasIndex {
     type Err = PrefixedMeasIndexError;
@@ -2261,42 +2770,92 @@ pub enum PrefixedMeasIndexError {
 ///
 /// This is meant to be used internally to construct a higher-level abstraction
 /// over the gating keywords.
-#[derive(Display, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum RegionWindow {
-    #[display("{_0}")]
     Univariate(UniGate),
-    #[display("{}", _0.iter().join(";"))]
-    Bivariate(NonEmpty<Vertex>),
+    Bivariate(NEVec<Vertex>),
+}
+
+impl<'a> ToDisplayNE<'a> for RegionWindow {
+    type NE = NEAlt<ToNE<&'a UniGate>, NEDelim<NESlice<'a, ToNE<Vertex>>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Univariate(x) => NEAlt::Left(ToNE(x)),
+            Self::Bivariate(x) => {
+                let xs = ToNE::on_inner_slice(x.as_nonempty_slice());
+                NEAlt::Right(NEDelim::new(';', xs))
+            }
+        }
+    }
+}
+
+/// A reference to the contents of [`RegionWindow`].
+///
+/// This is necessary since internally these values are separate and cannot
+/// be borrowed using [`RegionWindow`].
+#[derive(Clone)]
+pub enum RegionWindowRef<'a> {
+    Univariate(&'a UniGate),
+    Bivariate(NESlice<'a, Vertex>),
+}
+
+impl<'a> ToDisplayNE<'a> for RegionWindowRef<'_> {
+    type NE = NEAlt<ToNE<&'a UniGate>, NESlice<'a, ToNE<Vertex>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Univariate(x) => NEAlt::Left(ToNE(x)),
+            Self::Bivariate(x) => {
+                let xs = ToNE::on_inner_slice(x.by_ref());
+                NEAlt::Right(xs)
+            }
+        }
+    }
 }
 
 /// A vertex on a polygon gate
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{x},{y}")]
 pub struct Vertex {
     pub x: BigDecimal,
     pub y: BigDecimal,
 }
 
+impl<'a> ToDisplayNE<'a> for Vertex {
+    type NE = NEConcat3<&'a BigDecimal, char, &'a BigDecimal>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(&self.x, ',').append(&self.y)
+    }
+}
+
 /// A gate on one dimension with lower and upper bound
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[display("{lower},{upper}")]
 pub struct UniGate {
     pub lower: BigDecimal,
     pub upper: BigDecimal,
 }
 
-impl FromStrDelim for RegionWindow {
-    type Err = RegionWindowError;
-    const DELIM: char = ';';
+impl<'a> ToDisplayNE<'a> for UniGate {
+    type NE = NEConcat3<&'a BigDecimal, char, &'a BigDecimal>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new(&self.lower, ',').append(&self.upper)
+    }
+}
 
-    fn from_str_delim(
-        s: &str,
-        trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<TrimmedKeyword<Self>, Self::Err> {
-        let it = s.split(Self::DELIM);
-        if trim_whitespace.is_set() {
+impl FromStrWith for RegionWindow {
+    type Err = RegionWindowError;
+    type Payload<'a> = ();
+    type Diagnostic = Trimmed;
+    type Config = ReadStdKeywordsConfig;
+
+    fn from_str_with(
+        s: &NEStr,
+        (): Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> FromStrWithResult<Self> {
+        let it = s.as_ref().split(';');
+        let flag = conf.trim_intra_value_whitespace;
+        if flag.is_set() {
             let mut was_trimmed = false;
             Self::from_iter_inner(
                 s,
@@ -2305,47 +2864,44 @@ impl FromStrDelim for RegionWindow {
                     was_trimmed = was_trimmed || y.len() < x.len();
                     y
                 }),
-                trim_whitespace,
+                flag,
             )
             .map(|x| {
-                let d = (x.trimmed.is_some() || was_trimmed).then(|| s.to_owned());
-                TrimmedKeyword::new(x.native, d)
+                let d = (x.diagnostic.is_some() || was_trimmed).then(|| s.to_owned());
+                DiagnosedKeyword::new(x.native, d)
             })
         } else {
             Self::from_iter_inner(s, it, false.into())
         }
     }
-
-    // TODO this function should never be used, it normally is supposed to be
-    // called by Self::from_str_delim but it is overridden above to get the
-    // nested behavior to work
-    #[allow(clippy::unimplemented)]
-    fn from_iter<'a>(_: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err> {
-        unimplemented!()
-    }
 }
-
-impl_from_str_with_delim!(RegionWindow, RegionWindowError);
 
 impl RegionWindow {
     fn from_iter_inner<'a>(
-        original: &str,
+        original: &NEStr,
         ss: impl Iterator<Item = &'a str>,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<TrimmedKeyword<Self>, RegionWindowError> {
-        if let Some(xs) = NonEmpty::collect(ss) {
-            if xs.tail.is_empty() {
-                UniGate::from_str_delim(xs.head, trim_whitespace)
+    ) -> Result<DiagnosedKeyword<Self, Trimmed>, RegionWindowError> {
+        let mut it = ss.peekable();
+        if let Some(head) = it.next() {
+            let ne_head = NEStr::try_new(head).ok_or(RegionWindowError::Format)?;
+            if it.by_ref().peek().is_none() {
+                UniGate::from_str_delim(ne_head, trim_whitespace)
                     .map(|x| x.fmap_once(RegionWindow::Univariate))
+                    .map(|x| DiagnosedKeyword::new(x.native, x.trimmed))
             } else {
                 let mut was_trimmed = false;
-                let ys = xs.try_map(|x| Vertex::from_str_delim(x, trim_whitespace))?;
-                let zs = ys.map(|x| {
-                    was_trimmed = was_trimmed || x.trimmed.is_some();
-                    x.native
-                });
+                let ys = once(head)
+                    .chain(it)
+                    .map(|x| {
+                        let ne = NEStr::try_new(x).ok_or(RegionWindowError::Format)?;
+                        let y = Vertex::from_str_delim(ne, trim_whitespace)?;
+                        was_trimmed = was_trimmed || y.trimmed.is_some();
+                        Ok(y.native)
+                    })
+                    .collect::<Result<_, _>>()?;
                 let d = was_trimmed.then(|| original.to_owned());
-                Ok(TrimmedKeyword::new(Self::Bivariate(zs), d))
+                Ok(DiagnosedKeyword::new(Self::Bivariate(ys), d))
             }
         } else {
             // this will happen if the input string is empty
@@ -2397,24 +2953,45 @@ pub enum RegionWindowError {
 }
 
 /// The value of the $GATING key (3.0-3.2)
-#[derive(Clone, PartialEq, Display, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub enum Gating {
-    #[display("R{_0}")]
     Region(RegionIndex),
-    #[display("(NOT {_0})")]
     Not(Box<Self>),
-    #[display("({_0} AND {_1})")]
     And(Box<Self>, Box<Self>),
-    #[display("({_0} OR {_1})")]
     Or(Box<Self>, Box<Self>),
 }
 
+impl<'a> ToDisplayNE<'a> for Gating {
+    type NE = NEAlt<
+        NEAlt<NEConcat<char, ToNE<RegionIndex>>, NEConcat3<&'static NEStr, &'a Box<Self>, char>>,
+        NEConcat5<char, &'a Box<Self>, &'static NEStr, &'a Box<Self>, char>,
+    >;
+    fn to_ne(&'a self) -> Self::NE {
+        let conj = |x, middle, y| {
+            let ret = NEConcat::new('(', x).append(middle).append(y).append(')');
+            NEAlt::Right(ret)
+        };
+        match self {
+            Self::Region(x) => {
+                let ret = NEConcat::new('R', ToNE(*x));
+                NEAlt::Left(NEAlt::Left(ret))
+            }
+            Self::Not(x) => {
+                let ret = NEConcat::new(ne_str!("(NOT "), x).append(')');
+                NEAlt::Left(NEAlt::Right(ret))
+            }
+            Self::And(x, y) => conj(x, ne_str!(" AND "), y),
+            Self::Or(x, y) => conj(x, ne_str!(" OR "), y),
+        }
+    }
+}
+
 impl Gating {
-    pub(crate) fn region_indices(&self) -> NonEmpty<RegionIndex> {
-        let xs = match self {
-            Self::Region(x) => NonEmpty::new(*x),
+    pub(crate) fn region_indices(&self) -> NEVec<RegionIndex> {
+        let mut xs = match self {
+            Self::Region(x) => NEVec::new(*x),
             Self::Not(x) => Self::region_indices(x),
             Self::And(x, y) | Self::Or(x, y) => {
                 let mut acc = Self::region_indices(x);
@@ -2422,7 +2999,8 @@ impl Gating {
                 acc
             }
         };
-        FCSNonEmpty::from(xs).unique().0
+        xs.dedup();
+        xs
     }
 }
 
@@ -2594,21 +3172,30 @@ pub enum GatingError {
 ///
 /// This may also be '*' which means "delimited ASCII" which is only valid when
 /// $DATATYPE=A.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 pub enum Width {
-    #[display("{_0}")]
     Fixed(BitsOrChars),
-    #[display("*")]
     Variable,
 }
 
+impl ToDisplayNE<'_> for Width {
+    type NE = NEAlt<ToNE<BitsOrChars>, &'static NEStr>;
+    fn to_ne(&self) -> Self::NE {
+        match self {
+            Self::Fixed(x) => NEAlt::Left(ToNE(*x)),
+            Self::Variable => NEAlt::Right(ne_str!("*")),
+        }
+    }
+}
+
 /// The value of the $PnR key.
-#[derive(Clone, From, Display, FromStr, Add, Sub, PartialEq, Debug)]
+#[derive(Clone, From, FromStr, Add, Sub, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Range(pub BigDecimal);
 
 impl Range {
@@ -2762,29 +3349,38 @@ impl TryFrom<f64> for Range {
 }
 
 /// The value of the $GmN key
-#[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
+#[derive(Clone, From, FromStr, PartialEq, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[as_ref(str)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct GateShortname(pub Shortname);
 
 /// The value of the $GmR key
-#[derive(Clone, From, Display, FromStr, PartialEq, Debug)]
+#[derive(Clone, From, FromStr, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u64)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct GateRange(pub Range);
 
 macro_rules! impl_non_neg_float {
     ($(#[$meta:meta])* $t:ident) => {
         $(#[$meta])*
-        #[derive(Clone, Copy, From, Display, FromStr, Into, PartialEq, Debug)]
+        #[derive(Clone, Copy, From, FromStr, Into, PartialEq, Debug, Delegate)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[into(NonNegFloat, f32)]
+        #[delegate(ToDisplayNE<'a>, generics = "'a")]
         pub struct $t(pub NonNegFloat);
 
         impl_newtype_try_from!($t, NonNegFloat, f32, RangedFloatError);
     };
+}
+
+impl_non_neg_float! {
+    /// The value of the $VOL key.
+    Vol
 }
 
 impl_non_neg_float! {
@@ -2813,9 +3409,10 @@ impl_non_neg_float! {
 }
 
 /// The value of the $GmE key
-#[derive(Clone, Copy, Display, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct GateScale(pub Scale);
 
 impl FromStrWith for GateScale {
@@ -2824,7 +3421,7 @@ impl FromStrWith for GateScale {
     type Diagnostic = ScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         // use the same fix we use for PnE here
         Scale::parse_fix_maybe(s, conf).map(|x| x.first_once(Self))
     }
@@ -2834,14 +3431,16 @@ impl FromStrWith for GateScale {
 ///
 /// This is not a normal string because it is required in 3.2 and thus cannot
 /// be empty.
-#[derive(Clone, Display, FromStr, PartialEq, Into, Debug)]
+#[derive(Clone, FromStr, PartialEq, Into, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-pub struct Cyt3_2(pub NonEmptyString);
+#[as_ref(str)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
+pub struct Cyt3_2(pub NEString);
 
 impl From<Cyt3_2> for Cyt {
     fn from(value: Cyt3_2) -> Self {
-        Self(OptionalString(value.0.into()))
+        Self(value.0.into())
     }
 }
 
@@ -2849,7 +3448,7 @@ impl TryFrom<Cyt> for Cyt3_2 {
     type Error = NoCytError;
 
     fn try_from(value: Cyt) -> Result<Self, Self::Error> {
-        (value.0).0.parse().map_err(|_| NoCytError)
+        (value.0).parse().map_err(|_| NoCytError)
     }
 }
 
@@ -2866,6 +3465,25 @@ pub struct NoCytError;
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct UnstainedCenters(pub HashMap<Shortname, f32>);
 
+#[derive(Clone)]
+pub struct NEUnstainedCenters(pub(crate) NEMap<Shortname, f32>);
+
+impl<'a> ToDisplayNE<'a> for NEUnstainedCenters {
+    type NE = NEConcat5<
+        NonZeroUsize,
+        char,
+        NEDelim<NEVec<ToNE<&'a Shortname>>>,
+        char,
+        NEDelim<NEVec<f32>>,
+    >;
+    fn to_ne(&'a self) -> Self::NE {
+        let n = self.0.len();
+        let ks = NEDelim::new(',', self.0.keys().map(ToNE).collect());
+        let vs = NEDelim::new(',', self.0.values().copied().collect());
+        NEConcat::new(n, ',').append(ks).append(',').append(vs)
+    }
+}
+
 /// Error when parsing [`UnstainedCenters`] from string
 #[derive(Debug, Error)]
 pub enum ParseUnstainedCenterError {
@@ -2880,6 +3498,10 @@ pub enum ParseUnstainedCenterError {
 }
 
 impl UnstainedCenters {
+    pub(crate) fn try_ne(&self) -> Option<NEUnstainedCenters> {
+        NEMap::try_from_map(self.0.clone()).map(NEUnstainedCenters)
+    }
+
     pub(crate) fn reassign(&mut self, mapping: &NameMapping) {
         // keys can't be mutated in place so need to rebuild the hashmap with
         // new keys from the mapping
@@ -2901,12 +3523,12 @@ impl UnstainedCenters {
         &self,
         names: &OpticalNamesToRemove<'_>,
     ) -> Option<ExistingNamedLinkError<Self, ()>> {
-        let ns = self
-            .0
+        self.0
             .keys()
             .filter(|n| names.as_ref().contains(n))
-            .cloned();
-        NonEmpty::collect(ns).map(|js| ExistingNamedLinkError::new(Key0::default(), js))
+            .cloned()
+            .try_into_nonempty_iter()
+            .map(|js| ExistingNamedLinkError::new(DKey0::default(), js.collect()))
     }
 
     /// Return error if any names in matrix are not in measurement vector
@@ -2968,23 +3590,6 @@ impl FromStrDelim for UnstainedCenters {
 
 impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
 
-impl DisplayMaybe for UnstainedCenters {
-    fn display_maybe(&self) -> Option<String> {
-        if self.0.is_empty() {
-            None
-        } else {
-            let n = self.0.len();
-            let k = self.0.keys().join(",");
-            let v = self.0.values().join(",");
-            Some(format!("{n},{k},{v}"))
-        }
-    }
-}
-
-impl KeywordPairMaybe for UnstainedCenters {
-    type Inner = Self;
-}
-
 impl CheckMaybe for UnstainedCenters {
     type Inner = Self;
 }
@@ -2997,14 +3602,11 @@ pub struct ExtraStdKeywords {
     pub hyper_par: StdKeywords,
     pub hyper_gate: StdKeywords,
     pub other_version: StdKeywords,
-    pub timestep: Option<String>,
+    pub timestep: Option<NEString>,
 }
 
 pub(crate) enum ExtraKeywordClass {
-    VersionEQ(Version),
-    VersionLE(Version),
-    VersionGE(Version),
-    Version3_0or3_1,
+    Version(NEVec<Version>),
     HyperPar,
     HyperGate,
     Pseudostandard,
@@ -3032,78 +3634,39 @@ impl ExtraStdKeywords {
         par: Par,
         gate: Gate,
     ) -> Option<ExtraKeywordClass> {
-        let minimal_version = |v| (current_version < v).then_some(ExtraKeywordClass::VersionGE(v));
-        let maximal_version = |v| (v < current_version).then_some(ExtraKeywordClass::VersionLE(v));
-        let eq_version = |v| (current_version != v).then_some(ExtraKeywordClass::VersionEQ(v));
-
-        let minimal_indexed_version = |v, i: MeasIndex| {
-            if usize::from(i) >= par.0 {
+        let if_invalid_version = |vs: VersionMembership| {
+            (!vs.contains_version(current_version))
+                .then(|| ExtraKeywordClass::Version(vs.versions()))
+        };
+        let if_hyperpar = |i: usize, vs: VersionMembership| {
+            if i >= par.0 {
                 Some(ExtraKeywordClass::HyperPar)
             } else {
-                minimal_version(v)
+                if_invalid_version(vs)
             }
         };
-
-        let maximal_indexed_version = |v, i: MeasIndex| {
-            if usize::from(i) >= par.0 {
-                Some(ExtraKeywordClass::HyperPar)
-            } else {
-                maximal_version(v)
-            }
-        };
-
         match AnyKeywordClass::classify_keyword(key) {
-            AnyKeywordClass::Root(r) => match r {
-                RootKeywordClass::Beginanalysis
-                | RootKeywordClass::Beginstext
-                | RootKeywordClass::Begindata
-                | RootKeywordClass::Endanalysis
-                | RootKeywordClass::Endstext
-                | RootKeywordClass::Enddata => minimal_version(Version::FCS3_0),
-                RootKeywordClass::Timestep => {
-                    if current_version < Version::FCS3_0 {
-                        Some(ExtraKeywordClass::VersionGE(Version::FCS3_0))
-                    } else {
-                        Some(ExtraKeywordClass::UnusedTimestep)
-                    }
-                }
-                RootKeywordClass::OptGE3_1 => minimal_version(Version::FCS3_1),
-                RootKeywordClass::OptGE3_2 => minimal_version(Version::FCS3_2),
-                RootKeywordClass::OptEQ3_0or3_1 => (current_version == Version::FCS3_0
-                    || current_version == Version::FCS3_1)
-                    .then_some(ExtraKeywordClass::Version3_0or3_1),
-                RootKeywordClass::OptEQ3_0 => eq_version(Version::FCS3_0),
-                RootKeywordClass::OptLE3_1 => maximal_version(Version::FCS3_1),
-                _ => None,
-            },
-            AnyKeywordClass::MeasOptGE3_0(i) => minimal_indexed_version(Version::FCS3_0, i),
-            AnyKeywordClass::MeasOptGE3_1(i) => minimal_indexed_version(Version::FCS3_1, i),
-            AnyKeywordClass::MeasOptGE3_2(i) => minimal_indexed_version(Version::FCS3_2, i),
-            AnyKeywordClass::MeasOptLE3_1(i) => maximal_indexed_version(Version::FCS3_1, i),
-            AnyKeywordClass::MeasOptEq3_0or3_1(i) => {
-                if usize::from(i) >= par.0 {
-                    Some(ExtraKeywordClass::HyperPar)
-                } else if current_version == Version::FCS3_0 || current_version == Version::FCS3_1 {
-                    Some(ExtraKeywordClass::Version3_0or3_1)
+            AnyKeywordClass::Root(c) => {
+                let m = c.membership();
+                if m.contains_version(current_version) {
+                    matches!(c, RootKeywordClass::Timestep)
+                        .then_some(ExtraKeywordClass::UnusedTimestep)
                 } else {
-                    None
+                    Some(ExtraKeywordClass::Version(m.versions()))
                 }
             }
-            AnyKeywordClass::GateOptLE3_1(i) => {
-                (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
-            }
+            AnyKeywordClass::Meas(i, c) => if_hyperpar(i.into(), c.membership()),
+            AnyKeywordClass::Peak(i) => if_hyperpar(i.into(), PKN_VERS),
+            AnyKeywordClass::CSVFlag(i) => if_hyperpar(i.into(), CSV_VERS),
             AnyKeywordClass::Dfc(x, y) => {
                 if usize::from(x) >= par.0 || usize::from(y) >= par.0 {
                     Some(ExtraKeywordClass::HyperPar)
                 } else {
-                    eq_version(Version::FCS2_0)
+                    if_invalid_version(Dfc::VERS)
                 }
             }
-            AnyKeywordClass::Scale(i)
-            | AnyKeywordClass::Shortname(i)
-            | AnyKeywordClass::Wavelength(i)
-            | AnyKeywordClass::MeasAny(i) => {
-                (usize::from(i) >= par.0).then_some(ExtraKeywordClass::HyperPar)
+            AnyKeywordClass::GateOptLE3_1(i) => {
+                (usize::from(i) >= gate.0).then_some(ExtraKeywordClass::HyperGate)
             }
             AnyKeywordClass::RegionIndex | AnyKeywordClass::RegionWindow => None,
             AnyKeywordClass::NonStandard => Some(ExtraKeywordClass::Pseudostandard),
@@ -3116,12 +3679,6 @@ impl ExtraStdKeywords {
         par: Par,
         gate: Gate,
     ) -> (Self, ExtraKeywordOutput) {
-        let all_versions = [
-            Version::FCS2_0,
-            Version::FCS3_0,
-            Version::FCS3_1,
-            Version::FCS3_2,
-        ];
         let mut pseudo = HashMap::new();
         let mut hyper_par = HashMap::new();
         let mut hyper_gate = HashMap::new();
@@ -3132,13 +3689,6 @@ impl ExtraStdKeywords {
         let mut other_version_es = vec![];
         let mut timestep = None;
         for (k, v) in kws {
-            macro_rules! go_version {
-                ($vs:expr) => {
-                    let e = KeywordOtherVersionError::new(k.clone(), current_version, $vs);
-                    other_version_es.push(e);
-                    other_version.insert(k, v);
-                };
-            }
             if let Some(m) = Self::classify_kws(&k, current_version, par, gate) {
                 match m {
                     ExtraKeywordClass::HyperPar => {
@@ -3149,23 +3699,10 @@ impl ExtraStdKeywords {
                         hyper_gate_es.push(HyperGateError::new(gate, k.clone()));
                         hyper_gate.insert(k, v);
                     }
-                    ExtraKeywordClass::VersionEQ(ver) => {
-                        let vs = NonEmpty::new(ver);
-                        go_version!(vs);
-                    }
-                    ExtraKeywordClass::VersionLE(ver) => {
-                        let mut vs = NonEmpty::new(ver);
-                        vs.extend(all_versions.iter().filter(|&&x| x < ver).copied());
-                        go_version!(vs);
-                    }
-                    ExtraKeywordClass::VersionGE(ver) => {
-                        let mut vs = NonEmpty::new(ver);
-                        vs.extend(all_versions.iter().filter(|&&x| x > ver).copied());
-                        go_version!(vs);
-                    }
-                    ExtraKeywordClass::Version3_0or3_1 => {
-                        let vs = NonEmpty::from((Version::FCS3_0, vec![Version::FCS3_1]));
-                        go_version!(vs);
+                    ExtraKeywordClass::Version(vs) => {
+                        let e = KeywordOtherVersionError::new(k.clone(), current_version, vs);
+                        other_version_es.push(e);
+                        other_version.insert(k, v);
                     }
                     ExtraKeywordClass::Pseudostandard => {
                         pseudo_es.push(PseudostandardError(k.clone()));
@@ -3221,7 +3758,7 @@ pub struct HyperGateError {
 pub struct KeywordOtherVersionError {
     pub key: StdKey,
     pub current: Version,
-    pub others: NonEmpty<Version>,
+    pub others: NEVec<Version>,
 }
 
 /// Error denoting that $TIMESTEP was unused and possibly should have been
@@ -3237,17 +3774,7 @@ macro_rules! newtype_string {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         #[as_ref(str)]
-        pub struct $t(pub OptionalString);
-
-        impl DisplayMaybe for $t {
-            fn display_maybe(&self) -> Option<String> {
-                self.0.display_maybe()
-            }
-        }
-
-        impl KeywordPairMaybe for $t {
-            type Inner = Self;
-        }
+        pub struct $t(pub String);
 
         impl CheckMaybe for $t {
             type Inner = Self;
@@ -3258,38 +3785,42 @@ macro_rules! newtype_string {
 macro_rules! newtype_int {
     ($t:ident, $type:ty) => {
         #[derive(
-            Clone, Copy, Display, FromStr, From, Into, PartialEq, PartialOrd, Eq, Ord, Debug,
+            Clone,
+            Copy,
+            Display,
+            FromStr,
+            From,
+            Into,
+            PartialEq,
+            PartialOrd,
+            Eq,
+            Ord,
+            Debug,
+            Delegate,
         )]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        #[delegate(ToDisplayNE<'a>, generics = "'a")]
         pub struct $t(pub $type);
     };
 }
 
+// TODO refactor
 macro_rules! impl_display_maybe_self {
     ($t:ident) => {
-        impl DisplayMaybe for $t {
-            fn display_maybe(&self) -> Option<String> {
-                self.0.display_maybe()
-            }
-        }
-
         impl CheckMaybe for $t {
-            type Inner = Self;
-        }
-
-        impl KeywordPairMaybe for $t {
             type Inner = Self;
         }
     };
 }
 
-macro_rules! newtype_opt_int {
-    ($t:ident, $inner:ident) => {
-        #[derive(Clone, Default, PartialEq, Eq, FromStr, Debug)]
+macro_rules! newtype_opt_u32 {
+    ($t:ident) => {
+        #[derive(Clone, Copy, Default, PartialEq, Eq, FromStr, Debug, AsRef)]
+        #[as_ref(u32)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-        pub struct $t(pub OptionalInt<$inner>);
+        pub struct $t(pub u32);
 
         impl_display_maybe_self!($t);
     };
@@ -3297,58 +3828,62 @@ macro_rules! newtype_opt_int {
 
 macro_rules! newtype_opt_bool {
     ($t:ident, $inner:ident) => {
-        #[derive(Clone, PartialEq, Debug, Default, From, Into)]
+        #[derive(Clone, Copy, PartialEq, Debug, Default, From, Into, AsRef)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[from(bool)]
         #[into(bool)]
+        #[as_ref(Option<$inner>)]
         pub struct $t(pub OptionalZST<$inner>);
 
         impl_display_maybe_self!($t);
     };
 }
 
+macro_rules! impl_versioned_key {
+    ($t:path, $m:expr) => {
+        impl crate::validated::keys::VersionedKey for $t {
+            const VERS: fireflow_types::keywords::VersionMembership = $m;
+        }
+    };
+}
+
 macro_rules! kw_meta {
-    ($t:ident, $k:expr) => {
-        impl Key for $t {
-            const C: &'static str = $k;
+    ($t:ident, $k:expr, $m:expr) => {
+        impl_versioned_key!($t, $m);
+        impl crate::validated::keys::Key for $t {
+            const C: &'static NEStr = ne_str!($k);
         }
     };
 }
 
 macro_rules! kw_meas {
-    ($t:ident, $sfx:expr) => {
-        impl IndexedKey for $t {
-            const PREFIX: &'static str = MEAS_KW_PREFIX;
-            const SUFFIX: &'static str = $sfx;
+    ($t:ident, $sfx:expr, $m:expr) => {
+        impl_versioned_key!($t, $m);
+        impl crate::validated::keys::IndexedKey for $t {
+            const C: PrefixSuffix = PrefixSuffix::Both(MEAS_KW_PREFIX, ne_str!($sfx));
         }
     };
 }
 
 macro_rules! kw_meta_string {
-    ($t:ident, $kw:expr) => {
+    ($t:ident, $k:expr, $m:expr) => {
+        kw_meta!($t, $k, $m);
         newtype_string!($t);
-
-        impl Key for $t {
-            const C: &'static str = $kw;
-        }
     };
 }
 
 macro_rules! kw_meta_int {
-    ($t:ident, $type:ident, $kw:expr) => {
+    ($t:ident, $type:ident, $k:expr, $m:expr) => {
+        kw_meta!($t, $k, $m);
         newtype_int!($t, $type);
-
-        impl Key for $t {
-            const C: &'static str = $kw;
-        }
     };
 }
 
 macro_rules! kw_meas_string {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:expr, $m:expr) => {
         newtype_string!($t);
-        kw_meas!($t, $sfx);
+        kw_meas!($t, $sfx, $m);
     };
 }
 
@@ -3385,66 +3920,66 @@ macro_rules! opt_meas {
 }
 
 macro_rules! kw_req_meta {
-    ($t:ident, $sfx:expr) => {
-        kw_meta!($t, $sfx);
+    ($t:ident, $k:expr, $m:expr) => {
+        kw_meta!($t, $k, $m);
         req_meta!($t);
     };
 }
 
 macro_rules! kw_opt_meta {
-    ($t:ident, $sfx:expr, $outer:path) => {
-        kw_meta!($t, $sfx);
+    ($t:ident, $k:expr, $m:expr, $outer:path) => {
+        kw_meta!($t, $k, $m);
         opt_meta!($t, $outer);
     };
 }
 
 macro_rules! kw_req_meas {
-    ($t:ident, $sfx:expr) => {
-        kw_meas!($t, $sfx);
+    ($t:ident, $sfx:expr, $m:expr) => {
+        kw_meas!($t, $sfx, $m);
         req_meas!($t);
     };
 }
 
 macro_rules! kw_opt_meas {
-    ($t:ident, $sfx:expr, $outer:path) => {
-        kw_meas!($t, $sfx);
+    ($t:ident, $sfx:expr, $m:expr, $outer:path) => {
+        kw_meas!($t, $sfx, $m);
         opt_meas!($t, $outer);
     };
 }
 
-macro_rules! kw_opt_meta_string {
-    ($t:ident, $sfx:expr) => {
-        kw_meta_string!($t, $sfx);
+macro_rules! kw_opt_root_string {
+    ($t:ident, $k:expr, $m:expr) => {
+        kw_meta_string!($t, $k, $m);
         opt_meta!($t, Self);
     };
 }
 
 macro_rules! kw_opt_meas_string {
-    ($t:ident, $sfx:expr) => {
-        kw_meas_string!($t, $sfx);
+    ($t:ident, $sfx:expr, $m:expr) => {
+        kw_meas_string!($t, $sfx, $m);
         opt_meas!($t, Self);
     };
 }
 
-macro_rules! kw_req_meta_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meta_int!($t, $type, $sfx);
+macro_rules! kw_req_root_int {
+    ($t:ident, $type:ident, $k:expr, $m:expr) => {
+        kw_meta_int!($t, $type, $k, $m);
         req_meta!($t);
     };
 }
 
-macro_rules! kw_opt_meta_int {
-    ($t:ident, $type:ident, $sfx:expr) => {
-        kw_meta_int!($t, $type, $sfx);
+macro_rules! kw_opt_root_int {
+    ($t:ident, $type:ident, $k:expr, $m:expr) => {
+        kw_meta_int!($t, $type, $k, $m);
         opt_meta!($t, Option<Self>);
     };
 }
 
 macro_rules! kw_time {
-    ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
+    ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr, $ver:expr) => {
         type $outer = $wrap<$inner>;
 
-        kw_opt_meta!($outer, $key, Option<Self>);
+        kw_opt_meta!($outer, $key, $ver, Option<Self>);
 
         impl From<NaiveTime> for $outer {
             fn from(value: NaiveTime) -> Self {
@@ -3456,9 +3991,9 @@ macro_rules! kw_time {
 
 macro_rules! kw_opt_gate {
     ($t:ident, $sfx:expr, $outer:path) => {
+        impl_versioned_key!($t, fireflow_types::keywords::VersionMembership::All);
         impl IndexedKey for $t {
-            const PREFIX: &'static str = GATE_KW_PREFIX;
-            const SUFFIX: &'static str = $sfx;
+            const C: PrefixSuffix = PrefixSuffix::Both(GATE_KW_PREFIX, ne_str!($sfx));
         }
         opt_meas!($t, $outer);
     };
@@ -3477,126 +4012,208 @@ macro_rules! kw_opt_gate_string {
     };
 }
 
-macro_rules! kw_opt_region {
-    ($t:ident, $sfx:expr) => {
-        impl IndexedKey for $t {
-            const PREFIX: &'static str = REGION_KW_PREFIX;
-            const SUFFIX: &'static str = $sfx;
-        }
-        opt_meas!($t, Option<Self>);
-    };
-}
-
 macro_rules! meas_opt_zst {
-    ($t:ident, $sym:expr, $inner:ident) => {
+    ($t:ident, $sym:expr, $m:expr, $inner:ident) => {
         newtype_opt_bool!($t, $inner);
-        kw_opt_meas!($t, $sym, Self);
+        kw_opt_meas!($t, $sym, $m, Self);
     };
 }
 
-macro_rules! kw_opt_meta_opt_int {
-    ($t:ident, $inner:ident, $sym:expr) => {
-        newtype_opt_int!($t, $inner);
-        kw_opt_meta!($t, $sym, Self);
+macro_rules! kw_opt_meta_opt_u32 {
+    ($t:ident, $k:expr, $m:expr) => {
+        newtype_opt_u32!($t);
+        kw_opt_meta!($t, $k, $m, Self);
     };
 }
 
 // all versions
-kw_req_meta!(AlphaNumType, tk::DATATYPE_KW);
-kw_opt_meta_int!(Abrt, u32, tk::ABRT_KW);
-kw_opt_meta_string!(Cytsn, tk::CYTSN_KW);
-kw_opt_meta_string!(Com, tk::COM_KW);
-kw_opt_meta_string!(Cells, tk::CELLS_KW);
-kw_opt_meta!(FCSDate, tk::DATE_KW, Option<Self>);
-kw_opt_meta_string!(Exp, tk::EXP_KW);
-kw_opt_meta_string!(Fil, tk::FIL_KW);
-kw_opt_meta_string!(Inst, tk::INST_KW);
-kw_opt_meta_int!(Lost, u32, tk::LOST_KW);
-kw_opt_meta_string!(Op, tk::OP_KW);
-kw_req_meta_int!(Par, usize, tk::PAR_KW);
-kw_opt_meta_string!(Proj, tk::PROJ_KW);
-kw_opt_meta_string!(Smno, tk::SMNO_KW);
-kw_opt_meta_string!(Src, tk::SRC_KW);
-kw_opt_meta_string!(Sys, tk::SYS_KW);
-kw_opt_meta!(Trigger, tk::TR_KW, Option<Self>);
+kw_req_meta!(AlphaNumType, tk::DATATYPE_KW, tk::DATATYPE_VERS);
+kw_opt_root_int!(Abrt, u32, tk::ABRT_KW, tk::ABRT_VERS);
+kw_opt_root_string!(Cytsn, tk::CYTSN_KW, tk::CYTSN_VERS);
+kw_opt_root_string!(Com, tk::COM_KW, tk::COM_VERS);
+kw_opt_root_string!(Cells, tk::CELLS_KW, tk::CELLS_VERS);
+kw_opt_meta!(FCSDate, tk::DATE_KW, tk::DATE_VERS, Option<Self>);
+kw_opt_root_string!(Exp, tk::EXP_KW, tk::EXP_VERS);
+kw_opt_root_string!(Fil, tk::FIL_KW, tk::FIL_VERS);
+kw_opt_root_string!(Inst, tk::INST_KW, tk::INST_VERS);
+kw_opt_root_int!(Lost, u32, tk::LOST_KW, tk::LOST_VERS);
+kw_opt_root_string!(Op, tk::OP_KW, tk::OP_VERS);
+kw_req_root_int!(Par, usize, tk::PAR_KW, tk::PAR_VERS);
+kw_opt_root_string!(Proj, tk::PROJ_KW, tk::PROJ_VERS);
+kw_opt_root_string!(Smno, tk::SMNO_KW, tk::SMNO_VERS);
+kw_opt_root_string!(Src, tk::SRC_KW, tk::SRC_VERS);
+kw_opt_root_string!(Sys, tk::SYS_KW, tk::SYS_VERS);
+kw_opt_meta!(Trigger, tk::TR_KW, tk::TR_VERS, Option<Self>);
 
 // time for 2.0
-kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, tk::BTIM_KW);
-kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, tk::ETIM_KW);
+kw_time!(
+    Btim2_0,
+    Btim,
+    FCSTime,
+    FCSTimeError,
+    tk::BTIM_KW,
+    tk::BTIM_VERS
+);
+kw_time!(
+    Etim2_0,
+    Etim,
+    FCSTime,
+    FCSTimeError,
+    tk::ETIM_KW,
+    tk::ETIM_VERS
+);
 
 // time for 3.0
-kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, tk::BTIM_KW);
-kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, tk::ETIM_KW);
+kw_time!(
+    Btim3_0,
+    Btim,
+    FCSTime60,
+    FCSTime60Error,
+    tk::BTIM_KW,
+    tk::BTIM_VERS
+);
+kw_time!(
+    Etim3_0,
+    Etim,
+    FCSTime60,
+    FCSTime60Error,
+    tk::ETIM_KW,
+    tk::ETIM_VERS
+);
 
 // time for 3.1-3.2
-kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, tk::BTIM_KW);
-kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, tk::ETIM_KW);
+kw_time!(
+    Btim3_1,
+    Btim,
+    FCSTime100,
+    FCSTime100Error,
+    tk::BTIM_KW,
+    tk::BTIM_VERS
+);
+kw_time!(
+    Etim3_1,
+    Etim,
+    FCSTime100,
+    FCSTime100Error,
+    tk::ETIM_KW,
+    tk::ETIM_VERS
+);
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, tk::COMP_KW, Option<Self>);
-kw_opt_meta!(Unicode, tk::UNICODE_KW, Option<Self>);
+kw_opt_meta!(Compensation3_0, tk::COMP_KW, tk::COMP_VERS, Option<Self>);
+kw_opt_meta!(Unicode, tk::UNICODE_KW, tk::UNICODE_VERS, Option<Self>);
 
 // for 3.0+
-kw_req_meta!(Timestep, tk::TIMESTEP_KW);
+kw_req_meta!(Timestep, tk::TIMESTEP_KW, tk::TIMESTEP_VERS);
 
 // for 3.1+
-kw_opt_meta_string!(LastModifier, tk::LAST_MODIFIER_KW);
-kw_opt_meta!(Originality, tk::ORIGINALITY_KW, Option<Self>);
-kw_opt_meta!(LastModified, tk::LAST_MODIFIED_KW, Option<Self>);
+kw_opt_root_string!(LastModifier, tk::LAST_MODIFIER_KW, tk::LAST_MODIFIER_VERS);
+kw_opt_meta!(
+    Originality,
+    tk::ORIGINALITY_KW,
+    tk::ORIGINALITY_VERS,
+    Option<Self>
+);
+kw_opt_meta!(
+    LastModified,
+    tk::LAST_MODIFIED_KW,
+    tk::LAST_MODIFIED_VERS,
+    Option<Self>
+);
 
-kw_opt_meta_string!(Plateid, tk::PLATEID_KW);
-kw_opt_meta_string!(Platename, tk::PLATENAME_KW);
-kw_opt_meta_string!(Wellid, tk::WELLID_KW);
+kw_opt_root_string!(Plateid, tk::PLATEID_KW, tk::PLATEID_VERS);
+kw_opt_root_string!(Platename, tk::PLATENAME_KW, tk::PLATENAME_VERS);
+kw_opt_root_string!(Wellid, tk::WELLID_KW, tk::WELLID_VERS);
 
-kw_opt_meta!(Spillover, tk::SPILLOVER_KW, Option<Self>);
+kw_opt_meta!(
+    Spillover,
+    tk::SPILLOVER_KW,
+    tk::SPILLOVER_VERS,
+    Option<Self>
+);
 
-kw_opt_meta!(Vol, tk::VOL_KW, Option<Self>);
+kw_opt_meta!(Vol, tk::VOL_KW, tk::VOL_VERS, Option<Self>);
 
 // for 3.2+
-kw_opt_meta_string!(Carrierid, tk::CARRIERID_KW);
-kw_opt_meta_string!(Carriertype, tk::CARRIERTYPE_KW);
-kw_opt_meta_string!(Locationid, tk::LOCATIONID_KW);
+kw_opt_root_string!(Carrierid, tk::CARRIERID_KW, tk::CARRIERID_VERS);
+kw_opt_root_string!(Carriertype, tk::CARRIERTYPE_KW, tk::CARRIERTYPE_VERS);
+kw_opt_root_string!(Locationid, tk::LOCATIONID_KW, tk::LOCATIONID_VERS);
 
-kw_opt_meta!(BeginDateTime, tk::BEGINDATETIME_KW, Option<Self>);
-kw_opt_meta!(EndDateTime, tk::ENDDATETIME_KW, Option<Self>);
-kw_opt_meta!(UnstainedCenters, tk::UNSTAINEDCENTERS_KW, Self);
+kw_opt_meta!(
+    BeginDateTime,
+    tk::BEGINDATETIME_KW,
+    tk::BEGINDATETIME_VERS,
+    Option<Self>
+);
+kw_opt_meta!(
+    EndDateTime,
+    tk::ENDDATETIME_KW,
+    tk::ENDDATETIME_VERS,
+    Option<Self>
+);
+kw_opt_meta!(
+    UnstainedCenters,
+    tk::UNSTAINEDCENTERS_KW,
+    tk::UNSTAINEDCENTERS_VERS,
+    Self
+);
 
-kw_opt_meta_string!(UnstainedInfo, tk::UNSTAINEDINFO_KW);
+kw_opt_root_string!(UnstainedInfo, tk::UNSTAINEDINFO_KW, tk::UNSTAINEDINFO_VERS);
 
-kw_opt_meta_string!(Flowrate, tk::FLOWRATE_KW);
+kw_opt_root_string!(Flowrate, tk::FLOWRATE_KW, tk::FLOWRATE_VERS);
 
 // version-specific
-kw_opt_meta_int!(Tot, usize, tk::TOT_KW); // optional in 2.0
+kw_opt_root_int!(Tot, usize, tk::TOT_KW, tk::TOT_VERS); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
-kw_req_meta!(Mode, tk::MODE_KW); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, tk::MODE_KW, Option<Self>); // for 3.2+
+kw_req_meta!(Mode, tk::MODE_KW, tk::MODE_VERS); // for 2.0-3.1
+kw_opt_meta!(Mode3_2, tk::MODE_KW, tk::MODE_VERS, Option<Self>); // for 3.2+
 
-kw_opt_meta_string!(Cyt, tk::CYT_KW); // optional for 2.0-3.1
-kw_req_meta!(Cyt3_2, tk::CYT_KW); // required for 3.2+
+kw_opt_root_string!(Cyt, tk::CYT_KW, tk::CYT_VERS); // optional for 2.0-3.1
+kw_req_meta!(Cyt3_2, tk::CYT_KW, tk::CYT_VERS); // required for 3.2+
 
-kw_req_meta!(ByteOrd2_0, tk::BYTEORD_KW); // 2.0/3.0
-kw_req_meta!(ByteOrd3_1, tk::BYTEORD_KW); // 3.1+
+kw_req_meta!(ByteOrd2_0, tk::BYTEORD_KW, tk::BYTEORD_VERS); // 2.0/3.0
+kw_req_meta!(ByteOrd3_1, tk::BYTEORD_KW, tk::BYTEORD_VERS); // 3.1+
 
 // all versions
-kw_req_meas!(Width, tk::WIDTH_KW_SUFFIX);
-kw_opt_meas_string!(Filter, tk::FILTER_KW_SUFFIX);
-kw_opt_meas!(Power, tk::POWER_KW_SUFFIX, Option<Self>);
-kw_opt_meas!(PercentEmitted, tk::PERCENT_EMITTED_KW_SUFFIX, Option<Self>);
-kw_req_meas!(Range, tk::RANGE_KW_SUFFIX);
-kw_opt_meas_string!(Longname, tk::LONGNAME_KW_SUFFIX);
-kw_opt_meas_string!(DetectorType, tk::DET_TYPE_KW_SUFFIX);
-kw_opt_meas!(DetectorVoltage, tk::DET_VOLTAGE_KW_SUFFIX, Option<Self>);
+kw_req_meas!(Width, tk::WIDTH_KW_SUFFIX, tk::PNB_VERS);
+kw_opt_meas_string!(Filter, tk::FILTER_KW_SUFFIX, tk::PNF_VERS);
+kw_opt_meas!(Power, tk::POWER_KW_SUFFIX, tk::PNO_VERS, Option<Self>);
+kw_opt_meas!(
+    PercentEmitted,
+    tk::PERCENT_EMITTED_KW_SUFFIX,
+    tk::PNP_VERS,
+    Option<Self>
+);
+kw_req_meas!(Range, tk::RANGE_KW_SUFFIX, tk::PNR_VERS);
+kw_opt_meas_string!(Longname, tk::LONGNAME_KW_SUFFIX, tk::PNL_VERS);
+kw_opt_meas_string!(DetectorType, tk::DET_TYPE_KW_SUFFIX, tk::PNT_VERS);
+kw_opt_meas!(
+    DetectorVoltage,
+    tk::DET_VOLTAGE_KW_SUFFIX,
+    tk::PNV_VERS,
+    Option<Self>
+);
 
 // 3.0+
-kw_opt_meas!(Gain, tk::GAIN_KW_SUFFIX, Option<Self>);
+kw_opt_meas!(Gain, tk::GAIN_KW_SUFFIX, tk::PNG_VERS, Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, tk::DISPLAY_KW_SUFFIX, Option<Self>);
+kw_opt_meas!(Display, tk::DISPLAY_KW_SUFFIX, tk::PND_VERS, Option<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, tk::FEATURE_KW_SUFFIX, Option<Self>);
-meas_opt_zst!(TemporalType, tk::TYPE_KW_SUFFIX, TemporalTypeInner);
+kw_opt_meas!(
+    Feature,
+    tk::FEATURE_KW_SUFFIX,
+    tk::PNFEATURE_VERS,
+    Option<Self>
+);
+meas_opt_zst!(
+    TemporalType,
+    tk::TYPE_KW_SUFFIX,
+    tk::PNTYPE_VERS,
+    TemporalTypeInner
+);
 
 impl FromStr for TemporalType {
     type Err = TemporalTypeError;
@@ -3608,22 +4225,37 @@ impl FromStr for TemporalType {
     }
 }
 
-kw_opt_meas!(NumType, tk::DATATYPE_KW_SUFFIX, Option<Self>);
-kw_opt_meas_string!(Analyte, tk::ANALYTE_KW_SUFFIX);
-kw_opt_meas_string!(Tag, tk::TAG_KW_SUFFIX);
-kw_opt_meas_string!(DetectorName, tk::DET_NAME_KW_SUFFIX);
+kw_opt_meas!(
+    NumType,
+    tk::DATATYPE_KW_SUFFIX,
+    tk::PNDATATYPE_VERS,
+    Option<Self>
+);
+kw_opt_meas_string!(Analyte, tk::ANALYTE_KW_SUFFIX, tk::PNANALYTE_VERS);
+kw_opt_meas_string!(Tag, tk::TAG_KW_SUFFIX, tk::PNTAG_VERS);
+kw_opt_meas_string!(DetectorName, tk::DET_NAME_KW_SUFFIX, tk::PNDET_VERS);
 
 impl_display_maybe_self!(OpticalType);
-kw_opt_meas!(OpticalType, tk::TYPE_KW_SUFFIX, Self);
+kw_opt_meas!(OpticalType, tk::TYPE_KW_SUFFIX, tk::PNTYPE_VERS, Self);
 
 // version specific
-kw_opt_meas!(Shortname, tk::SHORTNAME_KW_SUFFIX, Option<Self>); // optional for 2.0/3.0
+kw_opt_meas!(
+    Shortname,
+    tk::SHORTNAME_KW_SUFFIX,
+    tk::PNN_VERS,
+    Option<Self>
+); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, tk::SCALE_KW_SUFFIX, Option<Self>); // optional for 2.0
+kw_opt_meas!(Scale, tk::SCALE_KW_SUFFIX, tk::PNS_VERS, Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-meas_opt_zst!(TemporalScale2_0, tk::SCALE_KW_SUFFIX, TemporalScaleInner); // optional for 2.0
+meas_opt_zst!(
+    TemporalScale2_0,
+    tk::SCALE_KW_SUFFIX,
+    tk::PNS_VERS,
+    TemporalScaleInner
+); // optional for 2.0
 
 impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
@@ -3631,7 +4263,7 @@ impl FromStrWith for TemporalScale2_0 {
     type Diagnostic = TemporalScaleFix;
     type Config = ReadStdKeywordsConfig;
 
-    fn from_str_with(s: &str, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
+    fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let go = |x| Self(OptionalZST(Some(x)));
         if conf.force_linear_scale.time_selected() {
             let d = TemporalScaleFix::Forced(s.to_owned());
@@ -3646,32 +4278,56 @@ impl FromStrWith for TemporalScale2_0 {
     }
 }
 
-kw_req_meas!(TemporalScale3_0, tk::SCALE_KW_SUFFIX); // required for 3.0+
+// required for 3.0+
+kw_req_meas!(TemporalScale3_0, tk::SCALE_KW_SUFFIX, tk::PNS_VERS);
 
-kw_opt_meas!(Wavelength, tk::WAVELENGTH_KW_SUFFIX, Option<Self>); // scaler in 2.0/3.0
-kw_opt_meas!(Wavelengths, tk::WAVELENGTH_KW_SUFFIX, Self); // vector in 3.1+
+// scaler in 2.0/3.0
+kw_opt_meas!(
+    Wavelength,
+    tk::WAVELENGTH_KW_SUFFIX,
+    tk::PNL_VERS,
+    Option<Self>
+);
 
-kw_opt_meas!(Calibration3_1, tk::CALIBRATION_KW_SUFFIX, Option<Self>); // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_2, tk::CALIBRATION_KW_SUFFIX, Option<Self>); // 3.2+ includes offset
+// vector in 3.1+
+kw_opt_meas!(Wavelengths, tk::WAVELENGTH_KW_SUFFIX, tk::PNL_VERS, Self);
+
+// 3.1 doesn't have offset
+kw_opt_meas!(
+    Calibration3_1,
+    tk::CALIBRATION_KW_SUFFIX,
+    tk::PNCALIBRATION_VERS,
+    Option<Self>
+);
+
+// 3.2+ includes offset
+kw_opt_meas!(
+    Calibration3_2,
+    tk::CALIBRATION_KW_SUFFIX,
+    tk::PNCALIBRATION_VERS,
+    Option<Self>
+);
 
 // 2.0 compensation matrix
-#[derive(Debug)]
-pub struct Dfc;
+#[derive(Clone, Copy, Debug, FromStr, Default, Into, Delegate)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
+pub struct Dfc(pub f32);
+
+impl_versioned_key!(Dfc, VersionMembership::One(Version::FCS2_0));
 
 impl BiIndexedKey for Dfc {
-    const PREFIX: &'static str = "DFC";
-    const MIDDLE: &'static str = "TO";
-    const SUFFIX: &'static str = "";
+    const PREFIX: &'static NEStr = ne_str!("DFC");
+    const MIDDLE: &'static NEStr = ne_str!("TO");
 }
 
 impl Dfc {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         k: Key2<Self>,
-    ) -> Result<Option<f32>, LookupDfcError> {
-        kws.remove(&k.as_std()).map_or(Ok(None), |v| {
-            v.parse::<f32>()
-                .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.clone())))
+    ) -> Result<Option<Self>, LookupDfcError> {
+        kws.remove(&k.as_std_key()).map_or(Ok(None), |v| {
+            v.parse::<Self>()
+                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.clone())))
                 .map(Some)
         })
     }
@@ -3680,40 +4336,56 @@ impl Dfc {
 pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc, BiIndex>;
 
 // 3.0/3.1 subsets
-kw_opt_meta_int!(CSMode, usize, tk::CSMODE_KW);
+kw_opt_root_int!(CSMode, usize, tk::CSMODE_KW, tk::CSMODE_VERS);
 
-kw_opt_meta_opt_int!(CSTot, u32, tk::CSTOT_KW);
-kw_opt_meta_opt_int!(CSVBits, u32, tk::CSVBITS_KW);
+kw_opt_meta_opt_u32!(CSTot, tk::CSTOT_KW, tk::CSTOT_VERS);
+kw_opt_meta_opt_u32!(CSVBits, tk::CSVBITS_KW, tk::CSVBITS_VERS);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
 opt_meas!(CSVFlag, Option<Self>);
 
+const CSV_VERS: VersionMembership = VersionMembership::Two([Version::FCS3_0, Version::FCS3_1]);
+
+impl VersionedKey for CSVFlag {
+    const VERS: VersionMembership = CSV_VERS;
+}
+
+// TODO use macro for this
 impl IndexedKey for CSVFlag {
-    const PREFIX: &'static str = "CSV";
-    const SUFFIX: &'static str = "FLAG";
+    const C: PrefixSuffix = PrefixSuffix::Both(ne_str!("CSV"), ne_str!("FLAG"));
 }
 
 // $PKn (2.0-3.1)
+const PKN_VERS: VersionMembership =
+    VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1]);
+
 newtype_int!(PeakBin, u32);
 opt_meas!(PeakBin, Option<Self>);
 
+impl VersionedKey for PeakBin {
+    const VERS: VersionMembership = PKN_VERS;
+}
+
 impl IndexedKey for PeakBin {
-    const PREFIX: &'static str = "PK";
-    const SUFFIX: &'static str = "";
+    const C: PrefixSuffix = PrefixSuffix::Prefix(ne_str!("PK"));
 }
 
 // $PKNn (2.0-3.1)
 newtype_int!(PeakIndex, MeasIndex);
 opt_meas!(PeakIndex, Option<Self>);
 
+// TODO make macro for both of these
+impl VersionedKey for PeakIndex {
+    const VERS: VersionMembership = PKN_VERS;
+}
+
 impl IndexedKey for PeakIndex {
-    const PREFIX: &'static str = "PKN";
-    const SUFFIX: &'static str = "";
+    const C: PrefixSuffix = PrefixSuffix::Prefix(ne_str!("PKN"));
 }
 
 // 2.0-3.1 gating parameters
-kw_opt_meta_int!(Gate, usize, tk::GATE_KW);
+kw_opt_root_int!(Gate, usize, tk::GATE_KW, tk::GATE_VERS);
 
 kw_opt_gate_other!(GateScale, tk::SCALE_KW_SUFFIX);
 kw_opt_gate_string!(GateFilter, tk::FILTER_KW_SUFFIX);
@@ -3723,64 +4395,98 @@ kw_opt_gate_other!(GateShortname, tk::SHORTNAME_KW_SUFFIX);
 kw_opt_gate_string!(GateLongname, tk::LONGNAME_KW_SUFFIX);
 kw_opt_gate_string!(GateDetectorType, tk::DET_TYPE_KW_SUFFIX);
 kw_opt_gate_other!(GateDetectorVoltage, tk::DET_VOLTAGE_KW_SUFFIX);
-kw_opt_meta!(Gating, tk::GATING_KW, Option<Self>);
+kw_opt_meta!(Gating, tk::GATING_KW, tk::GATING_VERS, Option<Self>);
 
-kw_opt_region!(RegionWindow, REGION_WINDOW_KW_SUFFIX);
-
-impl<I> IndexedKey for RegionGateIndex<I> {
-    const PREFIX: &'static str = REGION_KW_PREFIX;
-    const SUFFIX: &'static str = REGION_INDEX_KW_SUFFIX;
+impl VersionedKey for RegionWindow {
+    const VERS: VersionMembership = VersionMembership::All;
 }
 
-impl<I> Optional for RegionGateIndex<I> {
-    type Outer = Option<Self>;
+impl IndexedKey for RegionWindow {
+    const C: PrefixSuffix = PrefixSuffix::Both(REGION_KW_PREFIX, REGION_WINDOW_KW_SUFFIX);
 }
-impl<I> OptIndexedKey for RegionGateIndex<I> where I: fmt::Display + FromStr {}
+
+opt_meas!(RegionWindow, Option<Self>);
+
+const REGION_INDEX_PRE_SUF: PrefixSuffix =
+    PrefixSuffix::Both(REGION_KW_PREFIX, REGION_INDEX_KW_SUFFIX);
+
+macro_rules! impl_region_index {
+    ($t:path, $m:expr) => {
+        impl_versioned_key!($t, $m);
+        impl crate::validated::keys::IndexedKey for $t {
+            const C: PrefixSuffix = REGION_INDEX_PRE_SUF;
+        }
+        impl Optional for $t {
+            type Outer = Option<Self>;
+        }
+        impl OptIndexedKey for $t {}
+    };
+}
+
+impl_region_index!(RegionGateIndex2_0, VersionMembership::One(Version::FCS2_0));
+impl_region_index!(
+    RegionGateIndex3_0,
+    VersionMembership::Two([Version::FCS3_0, Version::FCS3_1])
+);
+impl_region_index!(RegionGateIndex3_2, VersionMembership::One(Version::FCS3_2));
+
+// dummy to help print stuff
+impl_versioned_key!(RegionGateIndex<()>, VersionMembership::All);
+impl IndexedKey for RegionGateIndex<()> {
+    const C: PrefixSuffix = REGION_INDEX_PRE_SUF;
+}
 
 // offsets for all versions
-kw_req_meta!(Nextdata, tk::NEXTDATA_KW);
+kw_req_meta!(Nextdata, tk::NEXTDATA_KW, tk::NEXTDATA_VERS);
 opt_meta!(Nextdata, Option<Self>);
 
 macro_rules! kw_offset {
-    ($(#[$attr:meta])* $t:ident, $key:expr) => {
+    ($(#[$attr:meta])* $t:ident, $key:expr, $m:expr) => {
         $(#[$attr])*
-        #[derive(Display, From, Into, FromStr, Debug, Clone, Copy)]
+        #[derive(From, Into, FromStr, Debug, Clone, Copy, Delegate)]
+        #[delegate(ToDisplayNE<'a>, generics = "'a")]
         #[into(u64, i128, UintZeroPad20)]
         pub struct $t(pub UintZeroPad20);
 
-        kw_req_meta!($t, $key);
+        kw_req_meta!($t, $key, $m);
     };
 }
 
 kw_offset!(
     /// Value for $BEGINANALYSIS key (3.0-3.2)
     Beginanalysis,
-    tk::BEGINANALYSIS_KW
+    tk::BEGINANALYSIS_KW,
+    tk::BEGINANALYSIS_VERS
 );
 kw_offset!(
     /// Value for $BEGINDATA key (3.0-3.2)
     Begindata,
-    tk::BEGINDATA_KW
+    tk::BEGINDATA_KW,
+    tk::BEGINDATA_VERS
 );
 kw_offset!(
     /// Value for $BEGINSTEXT key (3.0-3.2)
     Beginstext,
-    tk::BEGINSTEXT_KW
+    tk::BEGINSTEXT_KW,
+    tk::BEGINSTEXT_VERS
 );
 kw_offset!(
     /// Value for $ENDANALYSIS key (3.0-3.2)
     Endanalysis,
-    tk::ENDANALYSIS_KW
+    tk::ENDANALYSIS_KW,
+    tk::ENDANALYSIS_VERS
 );
 kw_offset!(
     /// Value for $ENDDATA key (3.0-3.2)
     Enddata,
-    tk::ENDDATA_KW
+    tk::ENDDATA_KW,
+    tk::ENDDATA_VERS
 );
 kw_offset!(
     /// Value for $ENDSTEXT (3.0-3.2)
     Endstext,
-    tk::ENDSTEXT_KW
+    tk::ENDSTEXT_KW,
+    tk::ENDSTEXT_VERS
 );
 
 opt_meta!(Beginanalysis, Option<Self>);
@@ -3788,24 +4494,474 @@ opt_meta!(Endanalysis, Option<Self>);
 opt_meta!(Beginstext, Option<Self>);
 opt_meta!(Endstext, Option<Self>);
 
+/// Score generated when guessing version from keywords.
+#[derive(Default, PartialEq, Clone, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct KeywordVersionScore {
+    /// Number of required keywords expected to be in this version and found.
+    ///
+    /// This is for documentation only.
+    pub good_req: usize,
+    /// Number of optional keywords expected to be in this version and found.
+    ///
+    /// This is for documentation only.
+    pub good_opt: usize,
+    /// Number of keywords (opt or req) that must be dropped for this version.
+    ///
+    /// Smaller is better when comparing versions.
+    pub drop: usize,
+    /// Number of optional keywords that are missing in this version.
+    ///
+    /// This is for documentation only.
+    pub missing_opt: usize,
+    /// Number of required keywords that are missing in this version.
+    ///
+    /// If this number is non-zero, the version will be considered impossible
+    /// for the given set of keywords.
+    pub missing_req: usize,
+    /// Number of keywords that are expected to be missing for this version.
+    ///
+    /// This is for documentation only.
+    pub missing_absent: usize,
+}
+
+impl KeywordVersionScore {
+    pub(crate) fn is_passing(&self, allow_drop: bool) -> bool {
+        (self.missing_req == 0) && (self.drop == 0 || (self.drop > 0 && allow_drop))
+    }
+}
+
+#[allow(clippy::struct_excessive_bools)]
+#[derive(Default)]
+pub(crate) struct KeywordOptimizer {
+    /// Number of keywords not counted elsewhere here
+    n_any: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.0
+    n_opt_min3_0: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.1
+    n_opt_min3_1: usize,
+    /// Number of optional keywords found that will be dropped if less then 3.2
+    n_opt_min3_2: usize,
+    /// Number of optional keywords found that will be dropped if greater than 3.1
+    n_opt_max3_1: usize,
+    /// Number of optional keywords found that will be dropped if not 2.0
+    n_opt_eq2_0: usize,
+    /// Number of optional keywords found that will be dropped if not 3.0
+    n_opt_eq3_0: usize,
+    /// Number of optional keywords found that will be dropped if not 3.2
+    n_opt_eq3_2: usize,
+    /// Number of optional keywords found that will be dropped if not 3.0/3.1
+    n_opt_eq3_0or3_1: usize,
+    /// Number of $PnN found
+    n_pnn: usize,
+    /// Number of $PnE found
+    n_pne: usize,
+    /// If $CYT was found
+    found_cyt: bool,
+    /// If $TOT was found
+    found_tot: bool,
+    /// If $BEGINDATA found
+    found_begindata: bool,
+    /// If $BEGINANALYSIS found
+    found_beginanalysis: bool,
+    /// If $BEGINSTEXT found
+    found_beginstext: bool,
+    /// If $ENDDATA found
+    found_enddata: bool,
+    /// If $ENDANALYSIS found
+    found_endanalysis: bool,
+    /// If $ENDSTEXT found
+    found_endstext: bool,
+    /// If $BYTEORD is not either '1,2,3,4' or '4,3,2,1'
+    non_endian_byteord: bool,
+    /// Value (or not) of $MODE
+    mode_value: ModeValue,
+}
+
+impl KeywordOptimizer {
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn get_score(&self, version: Version, par: Par) -> KeywordVersionScore {
+        let mut score = KeywordVersionScore::default();
+
+        // these can be any version, so automatically count them as good
+        score.good_opt += self.n_any;
+
+        // count keywords as dropped if the version is not in range
+        macro_rules! comp_drop_maybe {
+            ($comp:expr, $field:ident) => {
+                if $comp {
+                    score.good_opt += self.$field;
+                } else {
+                    score.drop += self.$field;
+                }
+            };
+        }
+        comp_drop_maybe!(version >= Version::FCS3_0, n_opt_min3_0);
+        comp_drop_maybe!(version >= Version::FCS3_1, n_opt_min3_1);
+        comp_drop_maybe!(version >= Version::FCS3_2, n_opt_min3_2);
+        comp_drop_maybe!(version <= Version::FCS3_1, n_opt_max3_1);
+        comp_drop_maybe!(version == Version::FCS2_0, n_opt_eq2_0);
+        comp_drop_maybe!(version == Version::FCS3_0, n_opt_eq3_0);
+        comp_drop_maybe!(version == Version::FCS3_2, n_opt_eq3_2);
+        comp_drop_maybe!(
+            version == Version::FCS3_0 || version == Version::FCS3_1,
+            n_opt_eq3_0or3_1
+        );
+
+        // $PnN became required in version 3.1, so count any missing $PnN as
+        // impossible in these later versions
+        // ASSUME n_pnn will always be less than $PAR
+        let missing_names = par.0.saturating_sub(self.n_pnn);
+        if version >= Version::FCS3_1 {
+            score.missing_req += missing_names;
+            score.good_req += self.n_pnn;
+        } else {
+            score.missing_opt += missing_names;
+            score.good_opt += self.n_pnn;
+        }
+
+        // $PnE are the same as $PnN except for version 3.0
+        let missing_scales = par.0.saturating_sub(self.n_pne);
+        if version >= Version::FCS3_0 {
+            score.missing_req += missing_scales;
+            score.good_req += self.n_pnn;
+        } else {
+            score.missing_opt += missing_scales;
+            score.good_opt += self.n_pnn;
+        }
+
+        // $CYT became required in version 3.2, so mark as impossible for this
+        // version if not found
+        match (version == Version::FCS3_2, self.found_cyt) {
+            (true, true) => score.good_req += 1,
+            (true, false) => score.missing_req += 1,
+            (false, true) => score.good_opt += 1,
+            (false, false) => score.missing_opt += 1,
+        }
+
+        // $TOT became required in version 3.0
+        match (version >= Version::FCS3_0, self.found_tot) {
+            (true, true) => score.good_req += 1,
+            (true, false) => score.missing_req += 1,
+            (false, true) => score.good_opt += 1,
+            (false, false) => score.missing_opt += 1,
+        }
+
+        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0 and required in 3.0+
+        let go_req_offsets = |s: &mut KeywordVersionScore, found: bool| {
+            if version == Version::FCS2_0 {
+                if found {
+                    s.drop += 1;
+                } else {
+                    s.missing_absent += 1;
+                }
+            } else if found {
+                s.good_req += 1;
+            } else {
+                s.missing_req += 1;
+            }
+        };
+
+        go_req_offsets(&mut score, self.found_begindata);
+        go_req_offsets(&mut score, self.found_enddata);
+
+        // $(BEGIN/END)(STEXT/ANALYSIS) were not in 2.0, required in 3.0/3.1, and
+        // optional in 3.2
+        let go_opt_offsets = |s: &mut KeywordVersionScore, found: bool| match version {
+            Version::FCS2_0 => {
+                if found {
+                    s.drop += 1;
+                } else {
+                    s.missing_absent += 1;
+                }
+            }
+            Version::FCS3_0 | Version::FCS3_1 => {
+                if found {
+                    s.good_req += 1;
+                } else {
+                    s.missing_req += 1;
+                }
+            }
+            Version::FCS3_2 => {
+                if found {
+                    s.good_opt += 1;
+                } else {
+                    s.missing_opt += 1;
+                }
+            }
+        };
+
+        go_opt_offsets(&mut score, self.found_beginanalysis);
+        go_opt_offsets(&mut score, self.found_beginstext);
+        go_opt_offsets(&mut score, self.found_endanalysis);
+        go_opt_offsets(&mut score, self.found_endstext);
+
+        // $BYTEORD must only be big or little endian in 3.1+
+        if version >= Version::FCS3_1 && self.non_endian_byteord {
+            score.missing_req += 1;
+        } else {
+            score.good_req += 1;
+        }
+
+        // $MODE can only be U or C in 3.1 or less, and can only be missing
+        // in 3.2
+        match (version == Version::FCS3_2, self.mode_value) {
+            (true, ModeValue::List) => score.good_opt += 1,
+            (true, ModeValue::Other) => score.drop += 1,
+            (true, ModeValue::Missing) => score.missing_opt += 1,
+            (false, ModeValue::Missing) => score.missing_req += 1,
+            (false, ModeValue::Other | ModeValue::List) => score.good_req += 1,
+        }
+
+        score
+    }
+
+    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &NEStr) {
+        match AnyKeywordClass::classify_keyword(key) {
+            AnyKeywordClass::Root(r) => match r {
+                RootKeywordClass::Beginanalysis => self.found_beginanalysis = true,
+                RootKeywordClass::Beginstext => self.found_beginstext = true,
+                RootKeywordClass::Begindata => self.found_begindata = true,
+                RootKeywordClass::Endanalysis => self.found_endanalysis = true,
+                RootKeywordClass::Endstext => self.found_endstext = true,
+                RootKeywordClass::Enddata => self.found_enddata = true,
+                RootKeywordClass::Cyt => self.found_cyt = true,
+                RootKeywordClass::Tot => self.found_tot = true,
+                RootKeywordClass::Mode => {
+                    let m = value
+                        .parse::<Mode>()
+                        .map(|m| match m {
+                            Mode::List => ModeValue::List,
+                            _ => ModeValue::Other,
+                        })
+                        .unwrap_or(ModeValue::Missing);
+                    self.mode_value = m;
+                }
+                RootKeywordClass::Byteord => {
+                    if let Ok(res) = value.parse::<ByteOrd2_0>() {
+                        self.non_endian_byteord = !res.is_endian();
+                    }
+                }
+                RootKeywordClass::Timestep => {
+                    self.n_opt_min3_0 += 1;
+                }
+                RootKeywordClass::OptGE3_1 => {
+                    self.n_opt_min3_1 += 1;
+                }
+                RootKeywordClass::OptGE3_2 => {
+                    self.n_opt_min3_2 += 1;
+                }
+                RootKeywordClass::OptEQ3_0or3_1 => {
+                    self.n_opt_eq3_0or3_1 += 1;
+                }
+                RootKeywordClass::OptLE3_1 => {
+                    self.n_opt_max3_1 += 1;
+                }
+                RootKeywordClass::OptEQ3_0 => self.n_opt_eq3_0 += 1,
+                RootKeywordClass::OptAny => self.n_any += 1,
+            },
+            AnyKeywordClass::Meas(_, r) => match r {
+                MeasKeywordClass::OptGE3_0 => {
+                    self.n_opt_min3_0 += 1;
+                }
+                MeasKeywordClass::OptGE3_1 => {
+                    self.n_opt_min3_1 += 1;
+                }
+                MeasKeywordClass::OptGE3_2 => {
+                    self.n_opt_min3_2 += 1;
+                }
+                MeasKeywordClass::Scale => self.n_pne += 1,
+                MeasKeywordClass::Shortname => self.n_pnn += 1,
+                MeasKeywordClass::Wavelength => {
+                    // TODO what to do on failure?
+                    if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
+                        if w.native.0.len() > 1 {
+                            self.n_opt_min3_1 += 1;
+                        } else {
+                            self.n_any += 1;
+                        }
+                    }
+                }
+                MeasKeywordClass::OptAny => self.n_any += 1,
+            },
+            AnyKeywordClass::Peak(_) => {
+                self.n_opt_max3_1 += 1;
+            }
+            AnyKeywordClass::CSVFlag(_) => {
+                self.n_opt_eq3_0or3_1 += 1;
+            }
+            AnyKeywordClass::Dfc(_, _) => self.n_opt_eq2_0 += 1,
+            AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
+            AnyKeywordClass::RegionWindow => self.n_any += 1,
+            AnyKeywordClass::RegionIndex => {
+                if RegionGateIndex2_0::from_str_delim(value, true.into()).is_ok() {
+                    self.n_opt_eq2_0 += 1;
+                } else if RegionGateIndex3_0::from_str_delim(value, true.into()).is_ok() {
+                    self.n_opt_eq3_0or3_1 += 1;
+                } else if RegionGateIndex3_2::from_str_delim(value, true.into()).is_ok() {
+                    self.n_opt_eq3_2 += 1;
+                }
+            }
+            AnyKeywordClass::NonStandard => (),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+enum ModeValue {
+    #[default]
+    Missing,
+    List,
+    Other,
+}
+
+enum AnyKeywordClass {
+    Root(RootKeywordClass),
+    Meas(MeasIndex, MeasKeywordClass),
+    CSVFlag(MeasIndex),
+    Peak(MeasIndex),
+    Dfc(MeasIndex, MeasIndex),
+    GateOptLE3_1(GateIndex),
+    RegionIndex,
+    RegionWindow,
+    NonStandard,
+}
+
+impl AnyKeywordClass {
+    fn classify_keyword(key: &StdKey) -> Self {
+        fn split_index_and_suffix(xs: &str) -> Option<(usize, &str)> {
+            let mut index = 0_usize;
+            let mut it = xs.as_bytes().iter();
+            // read first character, only continue if a digit 1-9 (no leading
+            // zeros)
+            if let Some(x) = it.by_ref().next()
+                && (49..58).contains(x)
+            {
+                index += usize::from(*x) - 48;
+                let mut k = 1;
+                for y in it.take_while(|&&z| (48..58).contains(&z)) {
+                    index = 10 * index + (usize::from(*y) - 48);
+                    k += 1;
+                }
+                debug_assert!(index > 0, "index should be greater than 0 here");
+                Some((index - 1, xs.split_at(k).1))
+            } else {
+                None
+            }
+        }
+
+        fn starts_with_icase<'a>(haystack: &'a str, prefix: &str) -> Option<&'a str> {
+            let n = prefix.len();
+            if n > haystack.len() {
+                None
+            } else {
+                let (x, y) = haystack.split_at(n);
+                x.eq_ignore_ascii_case(prefix).then_some(y)
+            }
+        }
+
+        let s = key.as_ascii_str();
+        let ss: &str = key.as_ref();
+
+        debug_assert!(s.is_ascii(), "key is not ASCII");
+
+        if let Some(rc) = tk::KW_MAP.get(&s) {
+            Self::Root(*rc)
+        } else if let Some(rest) = starts_with_icase(ss, "P") {
+            // $Pn* keywords or $PKn or $PKNn
+            if let Some((index, suffix)) =
+                starts_with_icase(rest, "KN").and_then(|r| split_index_and_suffix(r))
+                && suffix.is_empty()
+            {
+                // $PKNn
+                Self::Peak(index.into())
+            } else if let Some((index, suffix)) =
+                starts_with_icase(rest, "K").and_then(|r| split_index_and_suffix(r))
+                && suffix.is_empty()
+            {
+                // $PKn
+                Self::Peak(index.into())
+            } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
+                // $Pn*
+                let j = index.into();
+                if let Some(vc) = tk::MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
+                    Self::Meas(j, *vc)
+                } else {
+                    Self::NonStandard
+                }
+            } else {
+                Self::NonStandard
+            }
+        } else if let Some((index, suffix)) =
+            starts_with_icase(ss, "G").and_then(|r| split_index_and_suffix(r))
+            && tk::GATE_SUFFIX_SET.contains(&Ascii::new(suffix))
+        {
+            // $Gn* keywords
+            Self::GateOptLE3_1(index.into())
+        } else if let Some((_, suffix)) =
+            starts_with_icase(ss, "R").and_then(|r| split_index_and_suffix(r))
+        {
+            // $Rn* keywords
+            if REGION_INDEX_KW_SUFFIX.as_ref().eq_ignore_ascii_case(suffix) {
+                Self::RegionIndex
+            } else if REGION_WINDOW_KW_SUFFIX
+                .as_ref()
+                .eq_ignore_ascii_case(suffix)
+            {
+                Self::RegionWindow
+            } else {
+                Self::NonStandard
+            }
+        } else if let Some((index, suffix)) =
+            starts_with_icase(ss, "CSV").and_then(|r| split_index_and_suffix(r))
+            && suffix.eq_ignore_ascii_case("FLAG")
+        {
+            // $CSVnFLAG
+            Self::CSVFlag(index.into())
+        } else if let Some((i0, i1, suffix)) = starts_with_icase(ss, "DFC")
+            .and_then(|r| split_index_and_suffix(r))
+            .and_then(|(index, suffix)| starts_with_icase(suffix, "TO").map(|r| (index, r)))
+            .and_then(|(i0, r)| split_index_and_suffix(r).map(|(i1, rr)| (i0, i1, rr)))
+            && suffix.is_empty()
+        {
+            // $DFCmTOn
+            Self::Dfc(i0.into(), i1.into())
+        } else {
+            Self::NonStandard
+        }
+    }
+}
+
+pub(crate) const MEAS_KW_PREFIX: &NEStr = ne_str!("P");
+pub(crate) const GATE_KW_PREFIX: &NEStr = ne_str!("G");
+pub(crate) const REGION_KW_PREFIX: &NEStr = ne_str!("R");
+
+pub(crate) const REGION_INDEX_KW_SUFFIX: &NEStr = ne_str!("I");
+pub(crate) const REGION_WINDOW_KW_SUFFIX: &NEStr = ne_str!("W");
+
+const TIME: &NEStr = ne_str!("Time");
+const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
+
 #[cfg(test)]
 mod tests {
+    use fireflow_types::nonempty_string::DisplayNE as _;
+
     use super::*;
     use crate::test::*;
 
     #[test]
     fn tr() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Trigger>("Wooden Leg Pt 3,456", (), &conf);
-        assert!(Trigger::from_str_with("x,x", (), &conf).is_err());
-        assert!(Trigger::from_str_with("x,0.0", (), &conf).is_err());
-        assert!(Trigger::from_str_with("x", (), &conf).is_err());
-        assert!(Trigger::from_str_with("x,x,x", (), &conf).is_err());
+        assert_from_to_str_with::<Trigger>(ne_str!("Wooden Leg Pt 3,456"), (), &conf);
+        assert!(Trigger::from_str_with(ne_str!("x,x"), (), &conf).is_err());
+        assert!(Trigger::from_str_with(ne_str!("x,0.0"), (), &conf).is_err());
+        assert!(Trigger::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(Trigger::from_str_with(ne_str!("x,x,x"), (), &conf).is_err());
     }
 
     #[test]
     fn tr_commas() {
-        let v = "Wookie Leg Pt 3, 666";
+        let v = ne_str!("Wookie Leg Pt 3, 666");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Trigger::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -3830,17 +4986,17 @@ mod tests {
     #[test]
     fn pnd() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Display>("Linear,0,1", (), &conf);
-        assert_from_to_str_with::<Display>("Logarithmic,1,1", (), &conf);
-        assert_from_to_str_with::<Display>("Logarithmic,1,0.1", (), &conf);
-        assert!(Display::from_str_with("LIN,0,1", (), &conf).is_err());
-        assert!(Display::from_str_with("LOG,1,1", (), &conf).is_err());
-        assert!(Display::from_str_with("Logicle,0,1,2,3", (), &conf).is_err());
+        assert_from_to_str_with::<Display>(ne_str!("Linear,0,1"), (), &conf);
+        assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,1"), (), &conf);
+        assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,0.1"), (), &conf);
+        assert!(Display::from_str_with(ne_str!("LIN,0,1"), (), &conf).is_err());
+        assert!(Display::from_str_with(ne_str!("LOG,1,1"), (), &conf).is_err());
+        assert!(Display::from_str_with(ne_str!("Logicle,0,1,2,3"), (), &conf).is_err());
     }
 
     #[test]
     fn pnd_commas() {
-        let v = "Linear, 0 , 1";
+        let v = ne_str!("Linear, 0 , 1");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Display::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -3867,16 +5023,16 @@ mod tests {
     #[test]
     fn pncalibration_3_1() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Calibration3_1>("0.1,cubic imperial lightyears", (), &conf);
-        assert!(Calibration3_1::from_str_with("x", (), &conf).is_err());
-        assert!(Calibration3_1::from_str_with("x,x", (), &conf).is_err());
-        assert!(Calibration3_1::from_str_with("x,0.1", (), &conf).is_err());
+        assert_from_to_str_with::<Calibration3_1>(ne_str!("0.1,imperial lightyears"), (), &conf);
+        assert!(Calibration3_1::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(Calibration3_1::from_str_with(ne_str!("x,x"), (), &conf).is_err());
+        assert!(Calibration3_1::from_str_with(ne_str!("x,0.1"), (), &conf).is_err());
     }
 
     #[test]
     fn pncalibration_3_1_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
-        let v = "1000 , yodabytes";
+        let v = ne_str!("1000 , yodabytes");
         assert!(Calibration3_1::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Calibration3_1>(v, "1000,yodabytes", (), &conf);
@@ -3885,18 +5041,18 @@ mod tests {
     #[test]
     fn pncalibration_3_2() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Calibration3_2>("1.1,3.5813,progressive metal albums", (), &conf);
-        assert_from_to_str_with::<Calibration3_2>("1.61,0,quartic slugs", (), &conf);
-        assert!(Calibration3_2::from_str_with("x", (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with("x,x", (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with("x,0.1", (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with("0.1,x,x", (), &conf).is_err());
+        assert_from_to_str_with::<Calibration3_2>(ne_str!("1.1,3.5813,prog albums"), (), &conf);
+        assert_from_to_str_with::<Calibration3_2>(ne_str!("1.61,0,quartic slugs"), (), &conf);
+        assert!(Calibration3_2::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with(ne_str!("x,x"), (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with(ne_str!("x,0.1"), (), &conf).is_err());
+        assert!(Calibration3_2::from_str_with(ne_str!("0.1,x,x"), (), &conf).is_err());
     }
 
     #[test]
     fn pncalibration_3_2_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
-        let v = "1, 0.2, nanobytes";
+        let v = ne_str!("1, 0.2, nanobytes");
         assert!(Calibration3_2::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Calibration3_2>(v, "1,0.2,nanobytes", (), &conf);
@@ -3905,37 +5061,38 @@ mod tests {
     #[test]
     fn pnl_3_1() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_maybe_with::<Wavelengths>("0.5", (), &conf);
-        assert_from_to_str_maybe_with::<Wavelengths>("0.5,2", (), &conf);
-        assert!(Wavelengths::from_str_with("x", (), &conf).is_err());
+        let go = |v: &NEStr| {
+            let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
+            let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
+            assert_eq!(w_str.as_ne_str(), v);
+        };
+        go(ne_str!("0.5"));
+        go(ne_str!("0.5,2"));
+        assert!(Wavelengths::from_str_with(ne_str!("x"), (), &conf).is_err());
     }
 
     #[test]
     fn pnl_3_1_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
-        let v = "1, 2";
+        let v = ne_str!("1, 2");
         assert!(Wavelengths::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_eq!(
-            Wavelengths::from_str_with(v, (), &conf)
-                .unwrap()
-                .native
-                .display_maybe(),
-            Some("1,2".into())
-        );
+        let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
+        let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
+        assert_eq!(w_str.as_ne_str(), ne_str!("1,2"));
     }
 
     #[test]
     fn last_modified() {
         let mut conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<LastModified>("01-Jan-2112 00:00:00.01", (), &conf);
+        assert_from_to_str_with::<LastModified>(ne_str!("01-Jan-2112 00:00:00.01"), (), &conf);
         assert_from_to_str_almost_with::<LastModified>(
-            "01-Jan-2112 00:00:00",
+            ne_str!("01-Jan-2112 00:00:00"),
             "01-Jan-2112 00:00:00.00",
             (),
             &conf,
         );
-        let v = "01-Jan-2112 00:00";
+        let v = ne_str!("01-Jan-2112 00:00");
         assert!(LastModified::from_str_with(v, (), &conf).is_err());
         conf.last_modified_pattern = Some("%d-%b-%Y %H:%M".into());
         assert_from_to_str_almost_with::<LastModified>(v, "01-Jan-2112 00:00:00.00", (), &conf);
@@ -3953,16 +5110,16 @@ mod tests {
     #[test]
     fn unicode() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Unicode>("42,$BYTEORD", (), &conf);
+        assert_from_to_str_with::<Unicode>(ne_str!("42,$BYTEORD"), (), &conf);
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
-        assert_from_to_str_with::<Unicode>("42,$40DOLLARBILL", (), &conf);
-        assert!(Unicode::from_str_with("42", (), &conf).is_err());
+        assert_from_to_str_with::<Unicode>(ne_str!("42,$40DOLLARBILL"), (), &conf);
+        assert!(Unicode::from_str_with(ne_str!("42"), (), &conf).is_err());
     }
 
     #[test]
     fn unicode_commas() {
-        let v = "50 ,something tour";
+        let v = ne_str!("50 ,something tour");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Unicode::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -3972,106 +5129,111 @@ mod tests {
     #[test]
     fn pntype_optical() {
         // this can basically be everything, even though only a few values make sense
-        assert_from_to_str_maybe::<OpticalType>("Forward Scatter");
-        assert_from_to_str_maybe::<OpticalType>("Side Scatter");
-        assert_from_to_str_maybe::<OpticalType>("Raw Fluorescence");
-        assert_from_to_str_maybe::<OpticalType>("Unmixed Fluorescence");
-        assert_from_to_str_maybe::<OpticalType>("Mass");
-        assert_from_to_str_maybe::<OpticalType>("Electronic Volume");
-        assert_from_to_str_maybe::<OpticalType>("Index");
-        assert_from_to_str_maybe::<OpticalType>("Classification");
-        assert_from_to_str_maybe::<OpticalType>("Spongebob");
+        let go = |v| {
+            let t = OpticalType::from_str(v).unwrap();
+            let k = OptOpticalKeyword::from_str(&t, MeasIndex::from(0)).unwrap();
+            assert!(k.as_std_key_pair().1.as_str() == v);
+        };
+        go("Forward Scatter");
+        go("Side Scatter");
+        go("Raw Fluorescence");
+        go("Unmixed Fluorescence");
+        go("Mass");
+        go("Electronic Volume");
+        go("Index");
+        go("Classification");
+        go("Spongebob");
     }
 
     #[test]
     fn pntype_time() {
-        assert_from_to_str_maybe::<TemporalType>("Time");
+        let t = TemporalType::from_str("Time").unwrap();
+        let k = OptTemporalKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
+        assert!(k.as_std_key_pair().1.as_str() == "Time");
         assert!(TemporalType::from_str("Space").is_err());
     }
 
     #[test]
     fn pnfeature() {
         let mut conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Feature>("Area", (), &conf);
-        assert_from_to_str_with::<Feature>("Width", (), &conf);
-        assert_from_to_str_with::<Feature>("Height", (), &conf);
-        assert!(Feature::from_str_with("Volume", (), &conf).is_err());
+        assert_from_to_str_with::<Feature>(ne_str!("Area"), (), &conf);
+        assert_from_to_str_with::<Feature>(ne_str!("Width"), (), &conf);
+        assert_from_to_str_with::<Feature>(ne_str!("Height"), (), &conf);
+        assert!(Feature::from_str_with(ne_str!("Volume"), (), &conf).is_err());
         conf.allow_other_feature = true.into();
-        assert_from_to_str_with::<Feature>("Volume", (), &conf);
+        assert_from_to_str_with::<Feature>(ne_str!("Volume"), (), &conf);
     }
 
     #[test]
     fn rni_2_0() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<GateIndex>>("1,2", (), &conf);
-        assert!(RegionGateIndex::<GateIndex>::from_str_with("x", (), &conf).is_err());
-        assert!(RegionGateIndex::<GateIndex>::from_str_with("1,2,3", (), &conf).is_err());
+        assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1,2"), (), &conf);
+        assert!(RegionGateIndex2_0::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(RegionGateIndex2_0::from_str_with(ne_str!("1,2,3"), (), &conf).is_err());
     }
 
     #[test]
     fn rni_2_0_commas() {
-        let v = "1, 2";
+        let v = ne_str!("1, 2");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex::<GateIndex>::from_str_with(v, (), &conf).is_err());
+        assert!(RegionGateIndex2_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<RegionGateIndex<GateIndex>>(v, "1,2", (), &conf);
+        assert_from_to_str_almost_with::<RegionGateIndex2_0>(v, "1,2", (), &conf);
     }
 
     #[test]
     fn rni_3_0() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("P1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("P1,P2", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<MeasOrGateIndex>>("G1,G2", (), &conf);
-        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with("x", (), &conf).is_err());
-        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with("P1,G2,P3", (), &conf).is_err());
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("P1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("P1,P2"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("G1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("G1,G2"), (), &conf);
+        assert!(RegionGateIndex3_0::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(RegionGateIndex3_0::from_str_with(ne_str!("P1,G2,P3"), (), &conf).is_err());
     }
 
     #[test]
     fn rni_3_0_commas() {
-        let v = "P1, G2";
+        let v = ne_str!("P1, G2");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex::<MeasOrGateIndex>::from_str_with(v, (), &conf).is_err());
+        assert!(RegionGateIndex3_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<RegionGateIndex<MeasOrGateIndex>>(v, "P1,G2", (), &conf);
+        assert_from_to_str_almost_with::<RegionGateIndex3_0>(v, "P1,G2", (), &conf);
     }
 
     #[test]
     fn rni_3_2() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1", (), &conf);
-        assert_from_to_str_with::<RegionGateIndex<PrefixedMeasIndex>>("P1,P2", (), &conf);
-        assert!(RegionGateIndex::<PrefixedMeasIndex>::from_str_with("x", (), &conf).is_err());
-        assert!(
-            RegionGateIndex::<PrefixedMeasIndex>::from_str_with("P1,P2,P3", (), &conf).is_err()
-        );
+        assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1"), (), &conf);
+        assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1,P2"), (), &conf);
+        assert!(RegionGateIndex3_2::from_str_with(ne_str!("x"), (), &conf).is_err());
+        assert!(RegionGateIndex3_2::from_str_with(ne_str!("P1,P2,P3"), (), &conf).is_err());
     }
 
     #[test]
     fn rni_3_2_commas() {
-        let v = "P1, P2";
+        let v = ne_str!("P1, P2");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex::<PrefixedMeasIndex>::from_str_with(v, (), &conf).is_err());
+        assert!(RegionGateIndex3_2::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_from_to_str_almost_with::<RegionGateIndex<PrefixedMeasIndex>>(v, "P1,P2", (), &conf);
+        assert_from_to_str_almost_with::<RegionGateIndex3_2>(v, "P1,P2", (), &conf);
     }
 
     #[test]
     fn rnw() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<RegionWindow>("1,1", (), &conf);
-        assert_from_to_str_with::<RegionWindow>("1,1;2,3;5,8;13,21", (), &conf);
-        assert!(RegionWindow::from_str_with("1", (), &conf).is_err());
-        assert!(RegionWindow::from_str_with("1,1,1", (), &conf).is_err());
-        assert!(RegionWindow::from_str_with("1;1", (), &conf).is_err());
-        assert!(RegionWindow::from_str_with("1,1,1;1,1,1", (), &conf).is_err());
+        assert_from_to_str_with::<RegionWindow>(ne_str!("1,1"), (), &conf);
+        assert_from_to_str_with::<RegionWindow>(ne_str!("1,1;2,3;5,8;13,21"), (), &conf);
+        assert!(RegionWindow::from_str_with(ne_str!("1"), (), &conf).is_err());
+        assert!(RegionWindow::from_str_with(ne_str!("1,1,1"), (), &conf).is_err());
+        assert!(RegionWindow::from_str_with(ne_str!("1;1"), (), &conf).is_err());
+        assert!(RegionWindow::from_str_with(ne_str!("1,1,1;1,1,1"), (), &conf).is_err());
     }
 
     #[test]
     fn rnw_commas() {
-        let v = "1, 1 ; 2, 2";
+        let v = ne_str!("1, 1 ; 2, 2");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(RegionWindow::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -4089,65 +5251,64 @@ mod tests {
     #[test]
     fn unstained_centers() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_maybe_with::<UnstainedCenters>("1,X,0", (), &conf);
+        let v = ne_str!("1,X,0");
+        let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
+        let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
+        assert_eq!(s.as_ne_str(), v);
     }
 
     #[test]
     fn unstained_centers_commas() {
-        let v = "1, X , 0";
+        let v = ne_str!("1, X , 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(UnstainedCenters::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
-        assert_eq!(
-            UnstainedCenters::from_str_with(v, (), &conf)
-                .unwrap()
-                .native
-                .display_maybe(),
-            Some("1,X,0".into())
-        );
+        let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
+        let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
+        assert_eq!(s.as_str(), "1,X,0");
     }
 
     #[test]
     fn unstained_centers_wrong_len() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(UnstainedCenters::from_str_with("2,X,0", (), &conf).is_err());
+        assert!(UnstainedCenters::from_str_with(ne_str!("2,X,0"), (), &conf).is_err());
     }
 
     #[test]
     fn unstained_centers_nonunique() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(UnstainedCenters::from_str_with("3,Y,Y,Z,0,0,0", (), &conf).is_err());
+        assert!(UnstainedCenters::from_str_with(ne_str!("3,Y,Y,Z,0,0,0"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<Compensation3_0>("2,0,0,0,0", (), &conf);
-        assert_from_to_str_with::<Compensation3_0>("3,0,0,0,0,0,0,0,0,0", (), &conf);
-        assert_from_to_str_with::<Compensation3_0>("2,1.1,1,0,-1.5", (), &conf);
+        assert_from_to_str_with::<Compensation3_0>(ne_str!("2,0,0,0,0"), (), &conf);
+        assert_from_to_str_with::<Compensation3_0>(ne_str!("3,0,0,0,0,0,0,0,0,0"), (), &conf);
+        assert_from_to_str_with::<Compensation3_0>(ne_str!("2,1.1,1,0,-1.5"), (), &conf);
     }
 
     #[test]
     fn str_compensation_too_small() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with("1,0", (), &conf).is_err());
+        assert!(Compensation3_0::from_str_with(ne_str!("1,0"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_mismatch() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with("2,0,0,0", (), &conf).is_err());
+        assert!(Compensation3_0::from_str_with(ne_str!("2,0,0,0"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_badfloats() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with("2,zero,0,coconut", (), &conf).is_err());
+        assert!(Compensation3_0::from_str_with(ne_str!("2,zero,0,coconut"), (), &conf).is_err());
     }
 
     #[test]
     fn str_compensation_commas() {
-        let v = "2, 0, 0, 0, 0";
+        let v = ne_str!("2, 0, 0, 0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(Compensation3_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -4157,7 +5318,7 @@ mod tests {
     #[test]
     fn str_to_byteord_valid() {
         assert_from_to_str::<ByteOrd2_0>("1");
-        assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
+        assert_from_to_str::<ByteOrd2_0>("1,2,3");
         assert_from_to_str::<ByteOrd2_0>("1,2,3,4");
         assert_from_to_str::<ByteOrd2_0>("4,3,2,1");
         assert_from_to_str::<ByteOrd2_0>("3,4,2,1");
@@ -4204,13 +5365,13 @@ mod tests {
     fn scale() {
         let conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
-        assert_from_to_str_with::<Scale>("0,0", dt, &conf);
-        assert_from_to_str_with::<Scale>("4.5,0.01", dt, &conf);
+        assert_from_to_str_with::<Scale>(ne_str!("0,0"), dt, &conf);
+        assert_from_to_str_with::<Scale>(ne_str!("4.5,0.01"), dt, &conf);
     }
 
     #[test]
     fn scale_zero_log() {
-        let v = "4.5,0";
+        let v = ne_str!("4.5,0");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert!(Scale::from_str_with(v, dt, &conf).is_err());
@@ -4220,7 +5381,7 @@ mod tests {
 
     #[test]
     fn scale_force_linear() {
-        let v = "1,1";
+        let v = ne_str!("1,1");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Float;
         assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
@@ -4230,7 +5391,7 @@ mod tests {
 
     #[test]
     fn scale_force_linear_int() {
-        let v = "1,1";
+        let v = ne_str!("1,1");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
@@ -4242,7 +5403,7 @@ mod tests {
 
     #[test]
     fn scale_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert!(Scale::from_str_with(v, dt, &conf).is_err());
@@ -4254,13 +5415,13 @@ mod tests {
     fn tmp_scale2() {
         let conf = ReadStdKeywordsConfig::default();
         // no display, so just check parse
-        assert!(TemporalScale2_0::from_str_with("0,0", (), &conf).is_ok());
-        assert!(TemporalScale2_0::from_str_with("1,1", (), &conf).is_err());
+        assert!(TemporalScale2_0::from_str_with(ne_str!("0,0"), (), &conf).is_ok());
+        assert!(TemporalScale2_0::from_str_with(ne_str!("1,1"), (), &conf).is_err());
     }
 
     #[test]
     fn tmp_scale2_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(TemporalScale2_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -4270,13 +5431,13 @@ mod tests {
     #[test]
     fn tmp_scale3() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<TemporalScale3_0>("0,0", (), &conf);
-        assert!(TemporalScale3_0::from_str_with("1,1", (), &conf).is_err());
+        assert_from_to_str_with::<TemporalScale3_0>(ne_str!("0,0"), (), &conf);
+        assert!(TemporalScale3_0::from_str_with(ne_str!("1,1"), (), &conf).is_err());
     }
 
     #[test]
     fn tmp_scale3_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(TemporalScale3_0::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -4286,13 +5447,13 @@ mod tests {
     #[test]
     fn gate_scale() {
         let conf = ReadStdKeywordsConfig::default();
-        assert_from_to_str_with::<GateScale>("0,0", (), &conf);
-        assert_from_to_str_with::<GateScale>("4.5,0.01", (), &conf);
+        assert_from_to_str_with::<GateScale>(ne_str!("0,0"), (), &conf);
+        assert_from_to_str_with::<GateScale>(ne_str!("4.5,0.01"), (), &conf);
     }
 
     #[test]
     fn gate_scale_zero_log() {
-        let v = "4.5,0";
+        let v = ne_str!("4.5,0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(GateScale::from_str_with(v, (), &conf).is_err());
         conf.fix_log_scale_offsets = true.into();
@@ -4301,7 +5462,7 @@ mod tests {
 
     #[test]
     fn gate_scale_commas() {
-        let v = "0, 0";
+        let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         assert!(GateScale::from_str_with(v, (), &conf).is_err());
         conf.trim_intra_value_whitespace = true.into();
@@ -4325,6 +5486,7 @@ mod python {
         SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
         TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
     };
+    use fireflow_types::nonempty_string::NEString;
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -4391,14 +5553,14 @@ mod python {
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_1 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (slope, unit): (PositiveFloat, String) = ob.extract()?;
+            let (slope, unit): (PositiveFloat, NEString) = ob.extract()?;
             Ok(Self { slope, unit })
         }
     }
 
     impl<'py> IntoPyObject<'py> for Calibration3_1 {
         type Target = PyTuple;
-        type Output = Bound<'py, <(PositiveFloat, String) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(PositiveFloat, NEString) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
@@ -4409,7 +5571,7 @@ mod python {
     // $PnCALIBRATION (3.2) as (f32, f32, String) tuple in python
     impl<'py> FromPyObject<'py> for Calibration3_2 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (slope, offset, unit): (PositiveFloat, f32, String) = ob.extract()?;
+            let (slope, offset, unit): (PositiveFloat, f32, NEString) = ob.extract()?;
             Ok(Self {
                 slope,
                 offset,
@@ -4420,7 +5582,7 @@ mod python {
 
     impl<'py> IntoPyObject<'py> for Calibration3_2 {
         type Target = PyTuple;
-        type Output = Bound<'py, <(PositiveFloat, f32, String) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(PositiveFloat, f32, NEString) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
@@ -4431,14 +5593,14 @@ mod python {
     // $UNICODE (3.0) as a tuple like (f32, [String]) in python
     impl<'py> FromPyObject<'py> for Unicode {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (page, kws): (u32, Vec<String>) = ob.extract()?;
+            let (page, kws): (u32, Vec<NEString>) = ob.extract()?;
             Ok(Self { page, kws })
         }
     }
 
     impl<'py> IntoPyObject<'py> for Unicode {
         type Target = PyTuple;
-        type Output = Bound<'py, <(u32, Vec<String>) as IntoPyObject<'py>>::Target>;
+        type Output = Bound<'py, <(u32, Vec<NEString>) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
@@ -4563,8 +5725,8 @@ mod python {
 
     impl<'py> FromPyObject<'py> for ScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
-                match y.as_str() {
+            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+                match y.as_ref() {
                     SCALE_DIAGNOSTIC_LOG => Ok(Self::LogFixed(x)),
                     SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
                     SCALE_DIAGNOSTIC_TRIMMED_LOG => Ok(Self::TrimmedLogFixed(x)),
@@ -4582,8 +5744,8 @@ mod python {
 
     impl<'py> FromPyObject<'py> for OpticalScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
-                match y.as_str() {
+            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+                match y.as_ref() {
                     SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
                     SCALE_DIAGNOSTIC_LOG => Ok(ScaleFix::LogFixed(x).into()),
                     SCALE_DIAGNOSTIC_TRIMMED => Ok(ScaleFix::Trimmed(x).into()),
@@ -4602,8 +5764,8 @@ mod python {
 
     impl<'py> FromPyObject<'py> for TemporalScaleFix {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(String, String)>>()? {
-                match y.as_str() {
+            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+                match y.as_ref() {
                     TEMPORAL_SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
                     TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
                     _ => Err(PyValueError::new_err(format!(

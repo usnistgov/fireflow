@@ -1,23 +1,26 @@
 use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::text::deprecated::DeprecatedTimestampsRef;
-use crate::text::lookup::{FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError};
-use crate::text::optional::KeywordPairMaybe;
-use crate::validated::keys::{Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
+use crate::text::keywords::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword0};
+use crate::text::lookup::{
+    DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
+};
+use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 use crate::validated::timepattern::ParseWithTimePatternError;
 
-use fireflow_types::config::DEFAULT_DATE_FORMAT;
+use fireflow_types::config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0};
+use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 
+use ambassador::Delegate;
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
 use derive_more::{AsRef, Display, From, FromStr, Into};
 use derive_new::new;
 use num_traits::cast::ToPrimitive as _;
 use regex::Regex;
-use std::fmt;
+use thiserror::Error;
+
 use std::mem;
 use std::str::FromStr;
 use std::sync::LazyLock;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -27,8 +30,6 @@ use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
 };
-
-use super::lookup::DiagnosedKeyword;
 
 /// The $DATE/$BTIM/$ETIM keywords
 ///
@@ -67,8 +68,9 @@ pub type Btim<T> = Xtim<false, T>;
 pub type Etim<T> = Xtim<true, T>;
 
 /// A wrapper for timestamps which encodes if it is the start or end
-#[derive(Clone, Copy, Display, FromStr, From, PartialEq, Debug)]
+#[derive(Clone, Copy, FromStr, From, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Xtim<const IS_ETIM: bool, T>(pub T);
 
 impl<const IS_ETIM: bool, T> FromStrWith for Xtim<IS_ETIM, T>
@@ -81,12 +83,12 @@ where
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with<'a>(
-        s: &str,
+        s: &NEStr,
         (): (),
         conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pat) = conf.time_pattern.as_ref() {
-            pat.parse_str(s)?.into()
+            pat.parse_str(s.as_str())?.into()
         } else {
             s.parse::<T>().map_err(FCSFixedTimeError::Native)?
         };
@@ -95,11 +97,18 @@ where
 }
 
 /// The value of the $DATE key
-#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Display, Debug)]
+#[derive(Clone, Copy, From, Into, AsRef, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format(DEFAULT_DATE_FORMAT))]
 pub struct FCSDate(pub NaiveDate);
+
+impl<'a> ToDisplayNE<'a> for FCSDate {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        NEString::try_from(self.0.format(DEFAULT_DATE_FORMAT).to_string())
+            .expect("format should be non-empty")
+    }
+}
 
 type OldInputs<X> = (Option<Btim<X>>, Option<Etim<X>>, Option<FCSDate>);
 
@@ -192,8 +201,9 @@ impl<X> Timestamps<X> {
     where
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
-        X: PartialOrd + FromStr + From<NaiveTime> + fmt::Display,
+        X: PartialOrd + FromStr + From<NaiveTime>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        for<'a> OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -216,9 +226,12 @@ impl<X> Timestamps<X> {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
                         if rconf.process_optional_failure.is_demote() {
-                            nonstd.insert_demoted_metaroot_opt(old_btim.as_ref());
-                            nonstd.insert_demoted_metaroot_opt(old_etim.as_ref());
-                            nonstd.insert_demoted_metaroot_opt(old_date.as_ref());
+                            let bk = old_btim.map(OptRootKeyword::from_value);
+                            let ek = old_etim.map(OptRootKeyword::from_value);
+                            let dk = old_date.map(OptRootKeyword::from_value);
+                            for k in [bk, ek, dk].into_iter().flatten() {
+                                nonstd.insert_demoted_keyword(k.into());
+                            }
                         }
                     })
                     .into_semigroup()
@@ -226,27 +239,15 @@ impl<X> Timestamps<X> {
             })
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)>
+    pub(crate) fn opt_keywords<'a>(&self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
-        Btim<X>: Key,
-        Etim<X>: Key,
-        Option<Btim<X>>: KeywordPairMaybe<Inner = Btim<X>>,
-        Option<Etim<X>>: KeywordPairMaybe<Inner = Etim<X>>,
-        X: Copy + fmt::Display,
+        X: Copy,
+        OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
     {
-        let a = self.btim.metaroot_opt_pair();
-        let b = self.etim.metaroot_opt_pair();
-        let c = self.date.metaroot_opt_pair();
-        [a, b, c].into_iter().filter_map(|(k, v)| v.map(|x| (k, x)))
-    }
-}
-
-impl Timestamps<FCSTime100> {
-    pub(crate) fn deprecated(&mut self) -> impl Iterator<Item = DeprecatedTimestampsRef<'_>> {
-        let a = DeprecatedTimestampsRef::from(&mut self.btim);
-        let b = DeprecatedTimestampsRef::from(&mut self.etim);
-        let c = DeprecatedTimestampsRef::from(&mut self.date);
-        [a, b, c].into_iter()
+        let a = self.btim.map(OptRootKeyword::from_value);
+        let b = self.etim.map(OptRootKeyword::from_value);
+        let c = self.date.map(OptRootKeyword::from_value);
+        [a, b, c].into_iter().flatten()
     }
 }
 
@@ -269,12 +270,12 @@ impl FromStrWith for FCSDate {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
-        s: &str,
+        s: &NEStr,
         (): (),
         conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         let ret = if let Some(pattern) = &conf.date_pattern {
-            Self::parse_with_pattern(s, pattern.as_ref())
+            Self::parse_with_pattern(s.as_str(), pattern.as_ref())
         } else {
             s.parse::<Self>()
         };
@@ -319,11 +320,18 @@ pub struct ConfigFCSDateError(String);
 pub struct StdFCSDateError;
 
 /// A time as used in the $BTIM/ETIM keys without seconds (2.0 only)
-#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Display, Debug)]
+#[derive(Clone, Copy, Eq, PartialOrd, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format(FCS_TIME_FORMAT))]
 pub struct FCSTime(pub NaiveTime);
+
+impl<'a> ToDisplayNE<'a> for FCSTime {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        NEString::try_from(self.0.format(DEFAULT_TIME_FORMAT_2_0).to_string())
+            .expect("time format should never be empty")
+    }
+}
 
 impl PartialEq for FCSTime {
     fn eq(&self, other: &Self) -> bool {
@@ -335,13 +343,11 @@ impl PartialEq for FCSTime {
     }
 }
 
-const FCS_TIME_FORMAT: &str = "%H:%M:%S";
-
 impl FromStr for FCSTime {
     type Err = FCSTimeError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, FCS_TIME_FORMAT)
+        NaiveTime::parse_from_str(s, DEFAULT_TIME_FORMAT_2_0)
             .map(FCSTime)
             .or(Err(FCSTimeError))
     }
@@ -387,7 +393,7 @@ impl FromStr for FCSTime60 {
     type Err = FCSTime60Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
+        NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
             .or_else(|_| {
                 let xs = s.split(':').collect::<Vec<_>>();
                 match &xs[..] {
@@ -417,11 +423,15 @@ impl FromStr for FCSTime60 {
     }
 }
 
-impl fmt::Display for FCSTime60 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let base = self.0.format("%H:%M:%S");
-        let cc = u64::from(self.0.nanosecond()) * 60 / 1_000_000_000;
-        write!(f, "{base}:{cc:02}")
+impl<'a> ToDisplayNE<'a> for FCSTime60 {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        let mut s = NEString::try_from(self.0.format(BASE_TIME_FORMAT).to_string())
+            .expect("time format should never be empty");
+        let cc = format!("{:02}", u64::from(self.0.nanosecond()) * 60 / 1_000_000_000);
+        s.push(':');
+        s.push_str(cc.as_str());
+        s
     }
 }
 
@@ -459,7 +469,7 @@ impl FromStr for FCSTime100 {
     type Err = FCSTime100Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        NaiveTime::parse_from_str(s, "%H:%M:%S")
+        NaiveTime::parse_from_str(s, BASE_TIME_FORMAT)
             .or_else(|_| {
                 static RE: LazyLock<Regex> = LazyLock::new(|| {
                     Regex::new(r"^([0-9]{2}):([0-9]{2}):([0-9]{2})\.([0-9]{2})$").unwrap()
@@ -477,11 +487,15 @@ impl FromStr for FCSTime100 {
     }
 }
 
-impl fmt::Display for FCSTime100 {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let base = self.0.format("%H:%M:%S");
-        let cc = self.0.nanosecond() / 10_000_000;
-        write!(f, "{base}.{cc:02}")
+impl<'a> ToDisplayNE<'a> for FCSTime100 {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        let mut s = NEString::try_from(self.0.format(BASE_TIME_FORMAT).to_string())
+            .expect("time format should never be empty");
+        let cc = format!("{:02}", self.0.nanosecond() / 10_000_000);
+        s.push('.');
+        s.push_str(cc.as_str());
+        s
     }
 }
 

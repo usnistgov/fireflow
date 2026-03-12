@@ -7,15 +7,32 @@ use crate::logging::{
     DeferredWarningsAndErrors, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
     WarningOrErrorResult,
 };
+use crate::nonempty::FcsNEVec;
 use crate::text::index::{IndexFromOne, MeasIndex};
-use crate::text::keywords as kws;
-use crate::text::optional::DisplayMaybe;
+use crate::text::keywords::{
+    self as kws, AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
+};
 use crate::validated::case_ins_regex::CaseInsRegex;
+use crate::validated::sub_pattern::SubPattern;
 
+use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
+use fireflow_types::keywords::{Version, VersionMembership};
+use fireflow_types::ne_str;
+use fireflow_types::nonempty_string::{
+    DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr, NEString,
+    ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+};
+
+use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
 use itertools::Itertools as _;
+use nonempty_collections::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
+};
+use thiserror::Error;
+use unicase::Ascii;
+
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::hash_map::Entry;
@@ -25,8 +42,6 @@ use std::marker::PhantomData;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::OnceLock;
-use thiserror::Error;
-use unicase::Ascii;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -51,13 +66,21 @@ use {
 #[display("${_0}")]
 pub struct StdKey(KeyString);
 
+impl<'a> ToDisplayNE<'a> for StdKey {
+    type NE = NEConcat<char, ToNE<&'a KeyString>>;
+    fn to_ne(&'a self) -> Self::NE {
+        NEConcat::new('$', ToNE(&self.0))
+    }
+}
+
 /// A key from TEXT which is not codified by the FCS standard.
 ///
 /// This cannot start with `"$"` and may only contain ASCII characters.
-#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(KeyString, str)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct NonStdKey(KeyString);
 
 /// The internal string for a key (standard or nonstandard).
@@ -67,7 +90,14 @@ pub struct NonStdKey(KeyString);
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(str)]
-pub struct KeyString(Ascii<String>);
+pub struct KeyString(Ascii<NEString>);
+
+impl<'a> ToDisplayNE<'a> for KeyString {
+    type NE = &'a NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        &self.0
+    }
+}
 
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 #[derive(Clone)]
@@ -80,29 +110,37 @@ impl<T> Default for KeyStringsOrPatterns<T> {
 }
 
 /// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
+pub type KeyStringOrPattern = LiteralOrPattern<KeyString>;
+
+/// Either a literal string or regexp.
 ///
 /// This exists for performance and ergononic reasons; if the goal is simply to
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
 #[derive(Clone, PartialEq, Eq, Hash, Display)]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub enum KeyStringOrPattern {
-    Literal(KeyString),
+pub enum LiteralOrPattern<L> {
+    #[display("{_0}")]
+    Literal(L),
+    #[display("{PATTERN_DELIMITER}{_0}{PATTERN_DELIMITER}")]
     Pattern(CaseInsRegex),
 }
 
-impl FromStr for KeyStringOrPattern {
-    type Err = KeyStringsOrPatternsError;
+impl<L: FromStr> FromStr for LiteralOrPattern<L> {
+    type Err = LiteralOrPatternError<<L as FromStr>::Err>;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Some(inner) = s
             .strip_prefix(PATTERN_DELIMITER)
             .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
         {
-            let ret = inner.parse::<CaseInsRegex>().map_err(KeyRegexError)?;
+            let ret = inner
+                .parse::<CaseInsRegex>()
+                .map_err(KeyRegexError)
+                .map_err(LiteralOrPatternError::Regexp)?;
             Ok(Self::Pattern(ret))
         } else {
-            Ok(Self::Literal(s.parse::<KeyString>()?))
+            let ret = s.parse::<L>().map_err(LiteralOrPatternError::Literal)?;
+            Ok(Self::Literal(ret))
         }
     }
 }
@@ -124,22 +162,22 @@ pub struct ParsedKeywords {
 #[derive(Default)]
 pub struct ParsedKeywordsDiagnostic {
     /// Valid keys with non-UTF8 values.
-    pub keys_with_non_utf8_values: Vec<(AnyKey, TruncatedBytes)>,
+    pub keys_with_non_utf8_values: Vec<(AnyKey, TruncatedNEBytes)>,
 
     /// Valid values with non-ASCII keys.
-    pub values_with_non_ascii_keys: Vec<(TruncatedBytes, TruncatedString)>,
+    pub values_with_non_ascii_keys: Vec<(TruncatedNEBytes, TruncatedNEString)>,
 
     /// Keywords that have invalid bytes in either key or value
-    pub byte_pairs: Vec<(TruncatedBytes, TruncatedBytes)>,
+    pub byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
 
     /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, TruncatedString)>,
+    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
 
     /// Non-standard keys which appear more than once with their values.
-    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedString)>,
+    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
 
     /// Standard keys which were ignored
-    pub ignored_std_keywords: Vec<(StdKey, StringOrBytes)>,
+    pub ignored_std_keywords: Vec<(StdKey, NEStringOrBytes)>,
 
     /// Keys with empty values.
     ///
@@ -150,11 +188,11 @@ pub struct ParsedKeywordsDiagnostic {
     /// Keys with values that were trimmed
     ///
     /// The value included here is the original value.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, StringOrBytes)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, NEStringOrBytes)>,
 }
 
 /// Either a standard or non-standard key.
-#[derive(Clone, Display, PartialEq, Debug)]
+#[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyKey {
@@ -162,7 +200,17 @@ pub enum AnyKey {
     NonStd(NonStdKey),
 }
 
-pub type StdKeywords = HashMap<StdKey, String>;
+impl<'a> ToDisplayNE<'a> for AnyKey {
+    type NE = NEAlt<ToNE<&'a StdKey>, ToNE<&'a NonStdKey>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Std(x) => NEAlt::Left(ToNE(x)),
+            Self::NonStd(x) => NEAlt::Right(ToNE(x)),
+        }
+    }
+}
+
+pub type StdKeywords = HashMap<StdKey, NEString>;
 
 /// [`ParsedKeywords`] without the bad stuff
 #[derive(Clone, Default, PartialEq, new)]
@@ -195,7 +243,7 @@ pub(crate) struct KeyMatcher<'a, T> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum KeyOrBytes {
     Ascii(AnyKey),
-    Bytes(TruncatedBytes),
+    Bytes(TruncatedNEBytes),
 }
 
 /// A either a UTF-8 string or a non-UTF-8 byte sequence.
@@ -222,153 +270,220 @@ impl From<Vec<u8>> for StringOrBytes {
     }
 }
 
+/// A either a UTF-8 string or a non-UTF-8 byte sequence (both non-empty).
+#[derive(Clone, Display, PartialEq, Debug, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum NEStringOrBytes {
+    Utf8(TruncatedNEString),
+    Bytes(TruncatedNEBytes),
+}
+
+impl<'a> From<NESlice<'a, u8>> for NEStringOrBytes {
+    fn from(value: NESlice<'a, u8>) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl<'a> From<&NESlice<'a, u8>> for NEStringOrBytes {
+    fn from(value: &NESlice<'a, u8>) -> Self {
+        Self::from(value.to_ne_vec())
+    }
+}
+
+impl From<NEVec<u8>> for NEStringOrBytes {
+    fn from(value: NEVec<u8>) -> Self {
+        match NEString::from_utf8(value) {
+            Ok(s) => Self::Utf8(TruncatedNEString(s)),
+            Err(e) => Self::Bytes(TruncatedNEBytes::from(e.into_bytes())),
+        }
+    }
+}
+
+/// A [`Vec<u8>`] optimized for displaying in errors.
+#[derive(Clone, From, PartialEq, Debug, Display)]
+#[display("{}", trunc_bytes(self.0.as_ref()))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedBytes(pub Vec<u8>);
+
+/// A [`NEVec<u8>`] optimized for displaying in errors.
+#[derive(Clone, From, PartialEq, Debug, Display)]
+#[display("{}", trunc_bytes(self.0.0.as_ref()))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[from(NEVec<u8>, FcsNEVec<u8>)]
+pub struct TruncatedNEBytes(pub FcsNEVec<u8>);
+
+impl<'a> From<NESlice<'a, u8>> for TruncatedNEBytes {
+    fn from(value: NESlice<'a, u8>) -> Self {
+        Self::from(&value)
+    }
+}
+
+impl<'a> From<&NESlice<'a, u8>> for TruncatedNEBytes {
+    fn from(value: &NESlice<'a, u8>) -> Self {
+        Self::from(value.to_ne_vec())
+    }
+}
+
+/// A normal [`String`] that will be shortened when displaying if too long.
+#[derive(Clone, From, PartialEq, Debug, Display, Default)]
+#[display("{}", trunc_str(self.0.as_ref()))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedString(pub String);
+
+/// A normal [`NEString`] that will be shortened when displaying if too long.
+#[derive(Clone, From, PartialEq, Debug, Display)]
+#[display("{}", trunc_str(self.0.as_ref()))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct TruncatedNEString(pub NEString);
+
+/// An FCS key with a specific version;
+// TODO const_trait_impl will be able to clean this up once stable
+pub trait VersionedKey: Sized {
+    const VERS: VersionMembership;
+
+    fn is_version(&self, version: Version) -> bool {
+        version.is_member(Self::VERS)
+    }
+}
+
 /// A [`StdKey`] without an index
 ///
 /// The constant traits is validated to only contain ASCII characters.
-// TODO const_trait_impl will be able to clean this up once stable
-pub trait Key {
-    const C: &'static str;
+pub trait Key: VersionedKey {
+    const C: &'static NEStr;
 
     const _CHECK: () = {
-        assert!(is_alpha_underscore_str(Self::C), "C must only be letters");
+        assert!(
+            is_alpha_underscore_str(Self::C.as_str()),
+            "C must only be letters"
+        );
     };
 
     #[must_use]
     #[allow(path_statements)]
     fn std() -> StdKey {
         Self::_CHECK;
-        StdKey::new(Self::C.into())
+        let key = Key0::<Self>::default();
+        StdKey::new(key.as_ne_string())
     }
 
-    #[must_use]
-    fn len() -> u64 {
-        u64::try_from(Self::C.len() + 1).unwrap()
+    fn self_std(&self) -> StdKey {
+        Self::std()
+    }
+}
+
+pub enum PrefixSuffix {
+    Prefix(&'static NEStr),
+    Both(&'static NEStr, &'static NEStr),
+}
+
+impl PrefixSuffix {
+    const fn as_str(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Prefix(x) => (x.as_str(), ""),
+            Self::Both(x, y) => (x.as_str(), y.as_str()),
+        }
     }
 }
 
 /// A [`StdKey`] with one index
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait IndexedKey {
-    const PREFIX: &'static str;
-    const SUFFIX: &'static str;
+pub trait IndexedKey: VersionedKey {
+    const C: PrefixSuffix;
 
-    const _CHECK_PREFIX: () = {
-        assert!(
-            is_alpha_underscore_str(Self::PREFIX),
-            "PREFIX must only be letters"
-        );
-    };
-
-    const _CHECK_SUFFIX: () = {
-        assert!(
-            is_alpha_underscore_str(Self::SUFFIX),
-            "SUFFIX must only be letters"
-        );
+    const _CHECK: () = {
+        let (s0, s1) = Self::C.as_str();
+        assert!(is_alpha_underscore_str(s0), "prefix must only be letters");
+        assert!(is_alpha_underscore_str(s1), "suffix must only be letters");
     };
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
-        // reserve enough space for prefix, suffix, and a number with 3 digits
-        let n = Self::PREFIX.len() + 3 + Self::SUFFIX.len();
-        let mut s = String::with_capacity(n);
-        s.push_str(Self::PREFIX);
-        s.push_str(i.into().to_string().as_str());
-        s.push_str(Self::SUFFIX);
         // trigger compile time error if pre/suffix are anything but letters/underscore
-        Self::_CHECK_PREFIX;
-        Self::_CHECK_SUFFIX;
-        StdKey::new(s)
+        Self::_CHECK;
+        let key = Key1::<Self>::new_i1(i.into());
+        StdKey::new(key.as_ne_string())
     }
 
+    fn self_std(&self, i: impl Into<IndexFromOne>) -> StdKey {
+        Self::std(i)
+    }
+
+    #[cfg(feature = "serde")]
     #[must_use]
-    fn std_blank() -> MeasHeader {
-        // reserve enough space for '$', prefix, suffix, and 'n'
-        let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
-        let mut s = String::new();
-        s.reserve_exact(n);
-        s.push('$');
-        s.push_str(Self::PREFIX);
-        s.push('n');
-        s.push_str(Self::SUFFIX);
-        MeasHeader(s)
+    fn std_blank() -> String {
+        let (s0, s1) = Self::C.as_str();
+        format!("${s0}n{s1}")
     }
 
-    /// Build regexp matching `"<PREFIX>n<SUFFIX>"`
-    #[must_use]
-    fn regexp() -> CaseInsRegex {
-        let mut s = String::new();
-        s.push_str(Self::PREFIX);
-        s.push_str("[1-9][0-9]*");
-        s.push_str(Self::SUFFIX);
-        // ASSUME this will never fail because pre/suffix should only be letters
-        CaseInsRegex::from_str(s.as_str()).unwrap()
-    }
+    // #[cfg(feature = "serde")]
+    // #[must_use]
+    // fn self_std_blank(&self) -> String {
+    //     Self::std_blank()
+    // }
 
-    fn matches(other: &StdKey) -> bool {
-        static RE: OnceLock<CaseInsRegex> = OnceLock::new();
-        RE.get_or_init(|| Self::regexp())
-            .as_ref()
-            .is_match(other.as_ref())
-    }
+    // /// Build regexp matching `"<PREFIX>n<SUFFIX>"`
+    // #[must_use]
+    // fn regexp() -> CaseInsRegex {
+    //     let mut s = String::new();
+    //     let (s0, s1) = Self::C.as_str();
+    //     s.push_str(s0);
+    //     s.push_str("[1-9][0-9]*");
+    //     s.push_str(s1);
+    //     // ASSUME this will never fail because pre/suffix should only be letters
+    //     CaseInsRegex::from_str(s.as_str()).unwrap()
+    // }
+
+    // fn matches(other: &StdKey) -> bool {
+    //     static RE: OnceLock<CaseInsRegex> = OnceLock::new();
+    //     RE.get_or_init(|| Self::regexp())
+    //         .as_ref()
+    //         .is_match(other.as_ref())
+    // }
 }
 
 /// A [`StdKey`] with two indices
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait BiIndexedKey {
-    const PREFIX: &'static str;
-    const MIDDLE: &'static str;
-    const SUFFIX: &'static str;
+pub trait BiIndexedKey: VersionedKey {
+    const PREFIX: &'static NEStr;
+    const MIDDLE: &'static NEStr;
+    // we could add a suffix for completion's sake, but so far the only keyword
+    // that requires this trait is DFCmTOn which doesn't have a suffix
 
-    const _CHECK_PREFIX: () = {
+    const _CHECK: () = {
         assert!(
-            is_alpha_underscore_str(Self::PREFIX),
+            is_alpha_underscore_str(Self::PREFIX.as_str()),
             "PREFIX must only be letters"
         );
-    };
-
-    const _CHECK_MIDDLE: () = {
         assert!(
-            is_alpha_underscore_str(Self::MIDDLE),
+            is_alpha_underscore_str(Self::MIDDLE.as_str()),
             "MIDDLE must only be letters"
-        );
-    };
-
-    const _CHECK_SUFFIX: () = {
-        assert!(
-            is_alpha_underscore_str(Self::SUFFIX),
-            "SUFFIX must only be letters"
         );
     };
 
     #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
-        // reserve enough space for prefix, middle, suffix, and two numbers with
-        // 2 digits
-        let n = Self::PREFIX.len() + Self::MIDDLE.len() + Self::SUFFIX.len() + 4;
-        let mut s = String::with_capacity(n);
-        s.push_str(Self::PREFIX);
-        s.push_str(i.into().to_string().as_str());
-        s.push_str(Self::MIDDLE);
-        s.push_str(j.into().to_string().as_str());
-        s.push_str(Self::SUFFIX);
         // trigger compile time error if pre/mid/suffix are anything but letters/underscore
-        Self::_CHECK_PREFIX;
-        Self::_CHECK_MIDDLE;
-        Self::_CHECK_SUFFIX;
-        StdKey::new(s)
+        Self::_CHECK;
+        let key = Key2::<Self>::new_i2(i.into(), j.into());
+        StdKey::new(key.as_ne_string())
     }
 
     /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
     #[must_use]
     fn regexp() -> CaseInsRegex {
         let mut s = String::new();
-        s.push_str(Self::PREFIX);
+        s.push_str(Self::PREFIX.as_str());
         s.push_str("([1-9][0-9]*)");
-        s.push_str(Self::MIDDLE);
+        s.push_str(Self::MIDDLE.as_str());
         s.push_str("([1-9][0-9]*)");
-        s.push_str(Self::SUFFIX);
         // ASSUME this will never fail because pre/suffix should only be letters
         CaseInsRegex::from_str(s.as_str()).unwrap()
     }
@@ -399,36 +514,13 @@ pub trait BiIndexedKey {
     // }
 }
 
-pub(crate) trait AnyStdKey {
-    fn as_std(&self) -> StdKey;
-}
-
-impl<T: Key> AnyStdKey for Key0<T> {
-    fn as_std(&self) -> StdKey {
-        T::std()
-    }
-}
-
-impl<T: IndexedKey> AnyStdKey for Key1<T> {
-    fn as_std(&self) -> StdKey {
-        T::std(self.index)
-    }
-}
-
-impl<T: BiIndexedKey> AnyStdKey for Key2<T> {
-    fn as_std(&self) -> StdKey {
-        let i = &self.index;
-        T::std(i.i0, i.i1)
-    }
-}
-
 /// A type representing a [`StdKey`].
 ///
 /// This is useful because the value of the key is not actually stored, so this
 /// is very fast and memory-efficient. If we stored the value itself, it would
 /// be a [`String`] internally and allocated on the heap. We can get away with
 /// this because the value of each [`StdKey`] is entirely encoded by the
-/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with in index in the
+/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with an index in the
 /// latter two cases).
 #[derive(Debug, new)]
 pub struct SpecificKey<T, I> {
@@ -436,17 +528,34 @@ pub struct SpecificKey<T, I> {
     _key: PhantomData<T>,
 }
 
+/// A [`SpecificKey`] which is prefixed with '$' when displayed.
+#[derive(Display, From, Delegate, Debug)]
+#[display("${_0}")]
+#[delegate(AsStdKey)]
+pub struct DollarKey<T, I>(pub SpecificKey<T, I>);
+
 impl<T, I: Clone> Clone for SpecificKey<T, I> {
     fn clone(&self) -> Self {
         Self::new(self.index.clone())
     }
 }
 
+impl<T, I: Clone> Clone for DollarKey<T, I> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
 impl<T, I: Copy> Copy for SpecificKey<T, I> {}
+impl<T, I: Copy> Copy for DollarKey<T, I> {}
 
 pub type Key0<T> = SpecificKey<T, ()>;
 pub type Key1<T> = SpecificKey<T, IndexFromOne>;
 pub type Key2<T> = SpecificKey<T, BiIndex>;
+
+pub type DKey0<T> = DollarKey<T, ()>;
+pub type DKey1<T> = DollarKey<T, IndexFromOne>;
+pub type DKey2<T> = DollarKey<T, BiIndex>;
 
 impl<T> Default for Key0<T> {
     fn default() -> Self {
@@ -455,85 +564,152 @@ impl<T> Default for Key0<T> {
 }
 
 impl<T> Key1<T> {
-    pub(crate) fn new_i1(i: IndexFromOne) -> Self {
-        Self::new(i)
+    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
+        Self::new(i.into())
     }
 }
 
 impl<T> Key2<T> {
-    pub(crate) fn new_i2(i: IndexFromOne, j: IndexFromOne) -> Self {
-        Self::new(BiIndex::new(i, j))
+    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
+        Self::new(BiIndex::new(i.into(), j.into()))
+    }
+}
+
+impl<T> Default for DKey0<T> {
+    fn default() -> Self {
+        Self(Key0::default())
+    }
+}
+
+impl<T> DKey1<T> {
+    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
+        Self(Key1::new_i1(i))
+    }
+
+    pub(crate) fn index(self) -> IndexFromOne {
+        self.0.index
+    }
+}
+
+impl<T> DKey2<T> {
+    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
+        Self(Key2::new_i2(i, j))
+    }
+
+    pub(crate) fn index(&self) -> BiIndex {
+        self.0.index
     }
 }
 
 /// Composite index for [`StdKey`] with two index values
-#[derive(Debug, new)]
+#[derive(Debug, Clone, Copy, new)]
 pub struct BiIndex {
     pub i0: IndexFromOne,
     pub i1: IndexFromOne,
 }
 
-impl<T: Key> fmt::Display for SpecificKey<T, ()> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", T::std())
+#[delegatable_trait]
+pub(crate) trait AsStdKey {
+    fn as_std_key(&self) -> StdKey;
+}
+
+impl<T: Key> AsStdKey for SpecificKey<T, ()> {
+    fn as_std_key(&self) -> StdKey {
+        T::std()
     }
 }
 
-impl<T: IndexedKey> fmt::Display for SpecificKey<T, IndexFromOne> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", T::std(self.index))
+impl<T: IndexedKey> AsStdKey for SpecificKey<T, IndexFromOne> {
+    fn as_std_key(&self) -> StdKey {
+        T::std(self.index)
     }
 }
 
-impl<T: BiIndexedKey> fmt::Display for SpecificKey<T, BiIndex> {
+impl<T: BiIndexedKey> AsStdKey for SpecificKey<T, BiIndex> {
+    fn as_std_key(&self) -> StdKey {
+        let i = &self.index;
+        T::std(i.i0, i.i1)
+    }
+}
+
+impl<T: Key> ToDisplayNE<'_> for Key0<T> {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> &'static NEStr {
+        T::C
+    }
+}
+
+impl<T: IndexedKey> ToDisplayNE<'_> for Key1<T> {
+    type NE = NEConcatR<NEConcat<&'static NEStr, ToNE<IndexFromOne>>, &'static NEStr>;
+    fn to_ne(&self) -> Self::NE {
+        let (pre, suf) = match T::C {
+            PrefixSuffix::Both(pre, suf) => (pre, Some(suf)),
+            PrefixSuffix::Prefix(pre) => (pre, None),
+        };
+        NEConcat::new(pre, ToNE(self.index)).append(suf)
+    }
+}
+
+impl<T: BiIndexedKey> ToDisplayNE<'_> for Key2<T> {
+    type NE = NEConcat4<&'static NEStr, ToNE<IndexFromOne>, &'static NEStr, ToNE<IndexFromOne>>;
+    fn to_ne(&self) -> Self::NE {
+        let i = &self.index;
+        NEConcat::new(T::PREFIX, ToNE(i.i0))
+            .append(T::MIDDLE)
+            .append(ToNE(i.i1))
+    }
+}
+
+impl<K, I> ToDisplayNE<'_> for DollarKey<K, I>
+where
+    SpecificKey<K, I>: for<'b> ToDisplayNE<'b> + Copy,
+{
+    type NE = NEConcat<&'static NEStr, ToNE<SpecificKey<K, I>>>;
+    fn to_ne(&self) -> Self::NE {
+        NEConcat::new(ne_str!("$"), ToNE(self.0))
+    }
+}
+
+impl<T: Key> fmt::Display for Key0<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", T::C)
+    }
+}
+
+impl<T: IndexedKey> fmt::Display for Key1<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let (s0, s1) = T::C.as_str();
+        write!(f, "{s0}{}{s1}", self.index)
+    }
+}
+
+impl<T: BiIndexedKey> fmt::Display for Key2<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = &self.index;
-        write!(f, "{}", T::std(i.i0, i.i1))
+        write!(f, "{}{}{}{}", T::PREFIX, i.i0, T::MIDDLE, i.i1)
     }
 }
 
-pub type NonStdKeywords = HashMap<NonStdKey, String>;
+pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
+
+#[derive(From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+pub(crate) enum StdOptKeyword<'a> {
+    Root(OptRootKeyword<'a>),
+    Meas(OptMeasKeyword<'a>),
+}
 
 pub(crate) trait NonStdKeywordsExt {
-    fn insert_demoted(&mut self, key: StdKey, value: String);
+    fn insert_demoted(&mut self, key: StdKey, value: NEString);
 
-    fn insert_demoted_metaroot<T: Key + fmt::Display>(&mut self, value: &T) {
-        self.insert_demoted(T::std(), value.to_string());
+    fn insert_demoted_keyword(&mut self, keyword: StdOptKeyword<'_>) {
+        let (k, v) = keyword.as_std_key_pair();
+        self.insert_demoted(k, v);
     }
 
-    fn insert_demoted_metaroot_opt<T: Key + fmt::Display>(&mut self, value: Option<&T>) {
-        if let Some(v) = value {
-            self.insert_demoted(T::std(), v.to_string());
-        }
-    }
-
-    fn insert_demoted_metaroot_maybe<T: Key + DisplayMaybe>(&mut self, value: &T) {
-        if let Some(v) = value.display_maybe() {
-            self.insert_demoted(T::std(), v);
-        }
-    }
-
-    fn insert_demoted_meas<T: IndexedKey + fmt::Display>(&mut self, i: IndexFromOne, value: &T) {
-        self.insert_demoted(T::std(i), value.to_string());
-    }
-
-    fn insert_demoted_meas_opt<T: IndexedKey + fmt::Display>(
-        &mut self,
-        i: IndexFromOne,
-        value: Option<&T>,
-    ) {
-        if let Some(v) = value {
-            self.insert_demoted_meas(i, v);
-        }
-    }
-
-    fn insert_demoted_meas_maybe<T: IndexedKey + DisplayMaybe>(
-        &mut self,
-        i: IndexFromOne,
-        value: &T,
-    ) {
-        if let Some(v) = value.display_maybe() {
-            self.insert_demoted(T::std(i), v);
+    fn insert_demoted_keyword_opt(&mut self, keyword: Option<StdOptKeyword<'_>>) {
+        if let Some(k) = keyword {
+            self.insert_demoted_keyword(k);
         }
     }
 
@@ -544,18 +720,19 @@ pub(crate) trait NonStdKeywordsExt {
     }
 }
 
-impl NonStdKeywordsExt for HashMap<NonStdKey, String> {
-    fn insert_demoted(&mut self, key: StdKey, value: String) {
+impl NonStdKeywordsExt for NonStdKeywords {
+    fn insert_demoted(&mut self, key: StdKey, value: NEString) {
         let mut k = NonStdKey(key.0);
         while self.contains_key(&k) {
             k.0.disambiguate();
         }
-        let _ = self.insert(k, value);
+        let ret = self.insert(k, value);
+        debug_assert!(ret.is_none(), "key not disambiguated");
     }
 }
 
 impl KeyString {
-    fn new(s: String) -> Self {
+    fn new(s: NEString) -> Self {
         Self(Ascii::new(s))
     }
 
@@ -563,10 +740,11 @@ impl KeyString {
         self.0.push('_');
     }
 
-    fn from_bytes_maybe(xs: &[u8], latin1: UseLatin1) -> Option<Self> {
+    fn from_bytes_maybe(xs: &NESlice<u8>, latin1: UseLatin1) -> Option<Self> {
         if latin1.is_set() {
-            Some(Self::new(xs.iter().copied().map(char::from).collect()))
-        } else if is_printable_ascii(xs) {
+            let ne = xs.into_nonempty_iter().copied().map(char::from).collect();
+            Some(Self::new(ne))
+        } else if is_printable_ascii(xs.as_ref()) {
             // SAFETY: we just checked that the bytes are only ASCII chars
             Some(unsafe { Self::from_bytes(xs) })
         } else {
@@ -574,10 +752,10 @@ impl KeyString {
         }
     }
 
-    unsafe fn from_bytes(xs: &[u8]) -> Self {
-        debug_assert!(!xs.is_empty(), "cannot make KeyString with empty slice");
+    unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
+        let ne = xs.nonempty_iter().copied().collect();
         // SAFETY: this function is marked unsafe since the caller must check
-        Self::new(unsafe { String::from_utf8_unchecked(xs.to_vec()) })
+        Self::new(unsafe { NEString::from_utf8_unchecked(ne) })
     }
 }
 
@@ -587,7 +765,7 @@ impl Serialize for KeyString {
     where
         S: serde::Serializer,
     {
-        self.as_ref().serialize(serializer)
+        AsRef::<str>::as_ref(self).serialize(serializer)
     }
 }
 
@@ -596,7 +774,7 @@ impl StdKey {
         Ascii::new(self.0.0.as_ref())
     }
 
-    fn new(s: String) -> Self {
+    fn new(s: NEString) -> Self {
         Self(KeyString::new(s))
     }
 
@@ -620,22 +798,18 @@ impl StdKey {
     }
 }
 
-impl NonStdKey {
-    fn new(s: String) -> Self {
-        Self(KeyString::new(s))
-    }
-}
-
 impl FromStr for KeyString {
     type Err = AsciiStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s.is_empty() {
-            Err(AsciiStringError::Empty)
-        } else if !is_printable_ascii(s.as_ref()) {
-            Err(AsciiStringError::Ascii(s.into()))
+        if let Ok(ne) = s.parse::<NEString>() {
+            if is_printable_ascii(s.as_ref()) {
+                Ok(Self(Ascii::new(ne)))
+            } else {
+                Err(AsciiStringError::Ascii(s.into()))
+            }
         } else {
-            Ok(Self(Ascii::new(s.into())))
+            Err(AsciiStringError::Empty)
         }
     }
 }
@@ -645,17 +819,16 @@ impl FromStr for StdKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ks = s.parse::<KeyString>().map_err(StdKeyError::Ascii)?;
-        // ASSUME this will not fail because we know the string is
-        // non-empty
-        let (y, ys) = ks.as_ref().as_bytes().split_first().unwrap();
-        if ys.is_empty() {
-            Err(StdKeyError::Empty)
-        } else if *y != STD_PREFIX {
+        let ne = ks.0.as_ne_str().as_bytes();
+        let (y, ys) = ne.split_first();
+        if *y != STD_PREFIX {
             Err(StdKeyError::Prefix(ks))
-        } else {
+        } else if let Some(zs) = NESlice::try_from_slice(ys) {
             // SAFETY: this will not fail because we know the string has only
-            // ASCII bytes and we checked that the slice is non-empty
-            Ok(Self(unsafe { KeyString::from_bytes(ys) }))
+            // ASCII bytes
+            Ok(Self(unsafe { KeyString::from_bytes(&zs) }))
+        } else {
+            Err(StdKeyError::Empty)
         }
     }
 }
@@ -666,7 +839,7 @@ impl FromStr for NonStdKey {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
         if has_no_std_prefix(ks.as_ref().as_bytes()) {
-            Ok(Self::new(ks.to_string()))
+            Ok(Self(ks))
         } else {
             Err(NonStdKeyError::Prefix(ks))
         }
@@ -737,26 +910,23 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
 impl ParsedKeywords {
     pub(crate) fn insert(
         &mut self,
-        key: &[u8],
-        val: &[u8],
+        key: &NESlice<u8>,
+        val: &NESlice<u8>,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
-        enum TrimResult {
-            Trimmed(bool),
+        enum TrimResult<'a> {
+            Trimmed(Cow<'a, NEStr>, bool),
             Empty(DummyTriFlag),
         }
 
         enum KeyValueResult<'a> {
-            Ignore(StdKey, StringOrBytes),
+            Ignore(StdKey, NEStringOrBytes),
             Empty(KeyOrBytes, DummyTriFlag),
-            NonEmpty(AnyKey, Cow<'a, str>, bool),
-            NonUtf8Value(AnyKey, TruncatedBytes),
-            NonAsciiKey(TruncatedBytes, TruncatedString, bool),
-            BothInvalid(TruncatedBytes, TruncatedBytes),
+            NonEmpty(AnyKey, Cow<'a, NEStr>, bool),
+            NonUtf8Value(AnyKey, TruncatedNEBytes),
+            NonAsciiKey(TruncatedNEBytes, TruncatedNEString, bool),
+            BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
         }
-
-        debug_assert!(!key.is_empty(), "key should not be empty string");
-        debug_assert!(!val.is_empty(), "value should not be empty string");
 
         let to_std = conf.promote_to_standard.as_matcher();
         let to_nonstd = conf.demote_from_standard.as_matcher();
@@ -764,23 +934,13 @@ impl ParsedKeywords {
         let subs = &conf.substitute_standard_key_values.as_matcher();
         let renames = &conf.rename_standard_keys.as_ref();
 
-        let parse_key = |s: &[u8]| {
-            let (is_std, ss) = if let Some((&STD_PREFIX, sn)) = s.split_first()
-                && !sn.is_empty()
+        let parse_key = |s: &NESlice<u8>| {
+            if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first()
+                && let Some(sn) = NESlice::try_from_slice(rest)
             {
-                (true, sn)
+                Some((true, KeyString::from_bytes_maybe(&sn, conf.use_latin1)?))
             } else {
-                (false, s)
-            };
-            let ks = KeyString::from_bytes_maybe(ss, conf.use_latin1)?;
-            Some((is_std, ks))
-        };
-
-        let check_trim = |trimmed: &str, flag| {
-            if trimmed.is_empty() {
-                TrimResult::Empty(flag)
-            } else {
-                TrimResult::Trimmed(val.len() < trimmed.len())
+                Some((false, KeyString::from_bytes_maybe(s, conf.use_latin1)?))
             }
         };
 
@@ -788,24 +948,32 @@ impl ParsedKeywords {
             let flag = conf.trim_value_whitespace;
             let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
             if conf.use_latin1.is_set() {
-                let it = val.iter().copied().map(char::from);
+                let it = val.into_nonempty_iter().copied().map(char::from);
                 if let Some(tf) = triflag {
-                    let trimmed: String = it
+                    if let Some(ne) = it
                         .skip_while(char::is_ascii_whitespace)
                         .take_while(|x| !x.is_ascii_whitespace())
-                        .collect();
-                    let tres = check_trim(trimmed.as_str(), tf);
-                    Some((Cow::Owned(trimmed), tres))
+                        .try_into_nonempty_iter()
+                    {
+                        let s: NEString = ne.collect();
+                        let was_trimmed = val.len() < s.len();
+                        Some(TrimResult::Trimmed(Cow::Owned(s), was_trimmed))
+                    } else {
+                        Some(TrimResult::Empty(tf))
+                    }
                 } else {
-                    Some((Cow::Owned(it.collect()), TrimResult::Trimmed(false)))
+                    Some(TrimResult::Trimmed(Cow::Owned(it.collect()), false))
                 }
-            } else if let Ok(vv) = str::from_utf8(val) {
+            } else if let Ok(vv) = NEStr::from_utf8(val) {
                 if let Some(tf) = triflag {
-                    let trimmed = vv.trim();
-                    let tres = check_trim(trimmed, tf);
-                    Some((Cow::Borrowed(trimmed), tres))
+                    if let Some(trimmed) = NEStr::try_new(vv.as_ref().trim()) {
+                        let was_trimmed = vv.len() < trimmed.len();
+                        Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
+                    } else {
+                        Some(TrimResult::Empty(tf))
+                    }
                 } else {
-                    Some((Cow::Borrowed(vv), TrimResult::Trimmed(false)))
+                    Some(TrimResult::Trimmed(Cow::Borrowed(vv), false))
                 }
             } else {
                 None
@@ -816,56 +984,56 @@ impl ParsedKeywords {
             if is_std {
                 // Standard key: starts with '$' and is ASCII
                 if ignore.is_match(&kstr) {
-                    KeyValueResult::Ignore(StdKey(kstr), StringOrBytes::from(val.to_vec()))
+                    KeyValueResult::Ignore(StdKey(kstr), NEStringOrBytes::from(val))
                 } else {
                     let ak = AnyKey::Std(StdKey(kstr));
-                    if let Some((value, trim_res)) = parse_value() {
+                    if let Some(trim_res) = parse_value() {
                         match trim_res {
                             TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
-                            TrimResult::Trimmed(was_trimmed) => {
+                            TrimResult::Trimmed(value, was_trimmed) => {
                                 KeyValueResult::NonEmpty(ak, value, was_trimmed)
                             }
                         }
                     } else {
-                        KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.to_vec()))
+                        KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                     }
                 }
             } else {
                 // Non-standard key: does not start with '$' and is ASCII
                 let ak = AnyKey::NonStd(NonStdKey(kstr));
-                if let Some((value, trim_res)) = parse_value() {
+                if let Some(trim_res) = parse_value() {
                     match trim_res {
                         TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
-                        TrimResult::Trimmed(was_trimmed) => {
+                        TrimResult::Trimmed(value, was_trimmed) => {
                             KeyValueResult::NonEmpty(ak, value, was_trimmed)
                         }
                     }
                 } else {
-                    KeyValueResult::NonUtf8Value(ak, TruncatedBytes(val.to_vec()))
+                    KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                 }
             }
         } else {
             // Non-ascii key with possibly non-Utf-8 value
-            let kbytes = TruncatedBytes(key.to_vec());
-            if let Some((value, trim_res)) = parse_value() {
+            let kbytes = TruncatedNEBytes::from(key);
+            if let Some(trim_res) = parse_value() {
                 match trim_res {
                     TrimResult::Empty(flag) => {
                         KeyValueResult::Empty(KeyOrBytes::from(kbytes), flag)
                     }
-                    TrimResult::Trimmed(was_trimmed) => {
+                    TrimResult::Trimmed(value, was_trimmed) => {
                         let tv = value.into_owned().into();
                         KeyValueResult::NonAsciiKey(kbytes, tv, was_trimmed)
                     }
                 }
             } else {
-                KeyValueResult::BothInvalid(kbytes, val.to_vec().into())
+                KeyValueResult::BothInvalid(kbytes, val.into())
             }
         };
 
         match kv_res {
             KeyValueResult::NonEmpty(k, v, was_trimmed) => {
                 if was_trimmed {
-                    let vo = StringOrBytes::from(TruncatedString(v.as_ref().to_owned()));
+                    let vo = NEStringOrBytes::from(TruncatedNEString(v.clone().into_owned()));
                     let pair = (k.clone().into(), vo);
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
@@ -876,12 +1044,19 @@ impl ParsedKeywords {
                             self.insert_nonunique_nonstd(kstr, vo, conf)
                         } else {
                             let rk = renames.get(&kstr).cloned().unwrap_or(kstr);
-                            let rv = if let Some(s) = subs.get(&rk) {
-                                s.sub(v.as_ref())
+                            if let Some(&s) = subs.get(&rk) {
+                                let sub_res = s.sub(v.as_ref().as_ref());
+                                if let Ok(ne) = NEString::try_from(sub_res) {
+                                    self.insert_nonunique_std(rk, ne, conf)
+                                } else {
+                                    let sk = StdKey(rk);
+                                    let e =
+                                        SubPatternEmptyError::new(sk, v.into_owned(), s.clone());
+                                    LogResult::new_err(e.into())
+                                }
                             } else {
-                                v.into_owned()
-                            };
-                            self.insert_nonunique_std(rk, rv, conf)
+                                self.insert_nonunique_std(rk, v.into_owned(), conf)
+                            }
                         }
                     }
                     AnyKey::NonStd(NonStdKey(kstr)) => {
@@ -902,7 +1077,7 @@ impl ParsedKeywords {
             }
             KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
                 if was_trimmed {
-                    let vo = StringOrBytes::from(v.clone());
+                    let vo = NEStringOrBytes::from(v.clone());
                     let pair = (k.clone().into(), vo);
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
@@ -927,7 +1102,7 @@ impl ParsedKeywords {
     fn insert_nonunique_std(
         &mut self,
         k: KeyString,
-        value: String,
+        value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         Self::insert_nonunique(
@@ -942,7 +1117,7 @@ impl ParsedKeywords {
     fn insert_nonunique_nonstd(
         &mut self,
         k: KeyString,
-        value: String,
+        value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
         Self::insert_nonunique(
@@ -955,10 +1130,10 @@ impl ParsedKeywords {
     }
 
     fn insert_nonunique<K>(
-        kws: &mut HashMap<K, String>,
-        nonunique: &mut Vec<(K, TruncatedString)>,
+        kws: &mut HashMap<K, NEString>,
+        nonunique: &mut Vec<(K, TruncatedNEString)>,
         k: K,
-        value: String,
+        value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError>
     where
@@ -973,7 +1148,7 @@ impl ParsedKeywords {
                     key: key.clone(),
                     value: value.clone(),
                 };
-                nonunique.push((key, TruncatedString(value)));
+                nonunique.push((key, TruncatedNEString(value)));
                 LogResult::new_deferred_switchable3((), err.into(), flag)
                     .switchable_into_non_commutative()
             }
@@ -981,7 +1156,7 @@ impl ParsedKeywords {
                 let v = conf
                     .replace_standard_key_values
                     .get(ent.key().as_ref())
-                    .map(ToString::to_string)
+                    .cloned()
                     .unwrap_or(value);
                 ent.insert(v);
                 LogResult::new_ok(())
@@ -991,7 +1166,7 @@ impl ParsedKeywords {
 
     pub(crate) fn append_std(
         &mut self,
-        new: &HashMap<KeyString, String>,
+        new: &HashMap<KeyString, NEString>,
         flag: AllowNonunique,
     ) -> SwitchableErrorsResult<(), (), AllowNonunique, StdPresent> {
         let es = new
@@ -1000,7 +1175,7 @@ impl ParsedKeywords {
                 Entry::Occupied(e) => {
                     self.diag
                         .non_unique_std_keywords
-                        .push((StdKey(k.clone()), TruncatedString(v.clone())));
+                        .push((StdKey(k.clone()), TruncatedNEString(v.clone())));
                     Some(KeyPresent::new(e.key().clone(), v.clone()))
                 }
                 Entry::Vacant(e) => {
@@ -1071,7 +1246,7 @@ impl ParsedKeywordsDiagnostic {
             ($field:ident) => {
                 self.$field
                     .into_iter()
-                    .map(|(k, v)| (KeyOrBytes::from(k), StringOrBytes::from(v)))
+                    .map(|(k, v)| (KeyOrBytes::from(k), NEStringOrBytes::from(v)))
             };
         }
 
@@ -1134,11 +1309,15 @@ pub enum AsciiStringError {
 }
 
 /// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
-#[derive(Debug, Display, From, PartialEq, Error)]
+pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
+
+/// Error when parsing literal or pattern string.
+#[derive(Debug, Display, PartialEq, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum KeyStringsOrPatternsError {
+#[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
+pub enum LiteralOrPatternError<E> {
     Regexp(KeyRegexError),
-    Ascii(AsciiStringError),
+    Literal(E),
 }
 
 /// Error when parsing [`CaseInsRegex`] from string when building [`KeyStringsOrPatterns`]
@@ -1154,6 +1333,21 @@ pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
     Blank(BlankValueError),
+    Sub(SubPatternEmptyError),
+}
+
+/// Error when applying a [`SubPattern`] resulted in an empty string.
+#[derive(Debug, PartialEq, Error, new)]
+#[error(
+    "applying substitution pattern '{pat}' to value '{value}' for key \
+     '{key}' resulted in empty string"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct SubPatternEmptyError {
+    key: StdKey,
+    value: NEString,
+    pat: SubPattern,
 }
 
 /// Error when key has blank value
@@ -1171,7 +1365,7 @@ pub struct BlankValueError(pub KeyOrBytes);
 #[cfg_attr(feature = "python", bound(T: fmt::Display))]
 pub struct KeyPresent<T> {
     pub key: T,
-    pub value: String,
+    pub value: NEString,
 }
 
 /// Error when keyword has any invalid chars.
@@ -1189,8 +1383,8 @@ pub enum InvalidKeywordCharsError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonAsciiOrUtf8KeywordError {
-    key: TruncatedBytes,
-    value: TruncatedBytes,
+    key: TruncatedNEBytes,
+    value: TruncatedNEBytes,
 }
 
 /// Error when key is not ASCII
@@ -1199,8 +1393,8 @@ pub struct NonAsciiOrUtf8KeywordError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonAsciiKeyError {
-    key: TruncatedBytes,
-    value: TruncatedString,
+    key: TruncatedNEBytes,
+    value: TruncatedNEString,
 }
 
 /// Error when value is not Utf8
@@ -1210,70 +1404,54 @@ pub struct NonAsciiKeyError {
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NonUtf8ValueError {
     key: AnyKey,
-    value: TruncatedBytes,
+    value: TruncatedNEBytes,
 }
 
-/// A [`Vec<u8>`] optimized for displaying in errors.
-#[derive(Clone, From, PartialEq, Debug)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TruncatedBytes(pub Vec<u8>);
-
-impl fmt::Display for TruncatedBytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let mut s = String::new();
-        for (i, &x) in self.0.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
-            // Display all 'easy' control characters with escaped
-            // representation, display all printable chars as quoted characters,
-            // and display the rest as plain numbers
-            match x {
-                0 => s.push_str("\\0"),
-                7 => s.push_str("\\a"),
-                8 => s.push_str("\\b"),
-                9 => s.push_str("\\t"),
-                10 => s.push_str("\\n"),
-                11 => s.push_str("\\v"),
-                12 => s.push_str("\\f"),
-                13 => s.push_str("\\r"),
-                27 => s.push_str("\\e"),
-                c => {
-                    if (32..=127).contains(&c) {
-                        s.push('\'');
-                        s.push(char::from(c));
-                        s.push('\'');
-                    } else {
-                        let n = c.to_string();
-                        s.push_str(n.as_str());
-                    }
+fn trunc_bytes(xs: &[u8]) -> String {
+    let mut s = String::new();
+    for (i, &x) in xs.iter().take(TRUNCATED_BYTES_LIMIT).enumerate() {
+        // Display all 'easy' control characters with escaped
+        // representation, display all printable chars as quoted characters,
+        // and display the rest as plain numbers
+        match x {
+            0 => s.push_str("\\0"),
+            7 => s.push_str("\\a"),
+            8 => s.push_str("\\b"),
+            9 => s.push_str("\\t"),
+            10 => s.push_str("\\n"),
+            11 => s.push_str("\\v"),
+            12 => s.push_str("\\f"),
+            13 => s.push_str("\\r"),
+            27 => s.push_str("\\e"),
+            c => {
+                if (32..=127).contains(&c) {
+                    s.push('\'');
+                    s.push(char::from(c));
+                    s.push('\'');
+                } else {
+                    let n = c.to_string();
+                    s.push_str(n.as_str());
                 }
             }
-            if i + 1 < TRUNCATED_BYTES_LIMIT {
-                s.push(',');
-            }
         }
-        if self.0.len() > TRUNCATED_BYTES_LIMIT {
-            write!(f, "[{s},...]")
-        } else {
-            write!(f, "[{s}]")
+        if i + 1 < TRUNCATED_BYTES_LIMIT {
+            s.push(',');
         }
+    }
+    if xs.len() > TRUNCATED_BYTES_LIMIT {
+        format!("[{s},...]")
+    } else {
+        format!("[{s}]")
     }
 }
 
-/// A normal [`String`] that will be shortened when displaying if too long.
-#[derive(Clone, From, PartialEq, Debug, Default)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct TruncatedString(pub String);
-
-impl fmt::Display for TruncatedString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.0.chars().count();
-        if n > TRUNCATED_STR_LIMIT {
-            let s: String = self.0.chars().take(n).collect();
-            write!(f, "{s}…(more)")
-        } else {
-            write!(f, "{}", self.0)
-        }
+fn trunc_str(s: &str) -> Cow<'_, str> {
+    let n = s.chars().count();
+    if n > TRUNCATED_STR_LIMIT {
+        let t: String = s.chars().take(n).collect();
+        Cow::Owned(format!("{t}…(more)"))
+    } else {
+        Cow::Borrowed(s)
     }
 }
 
@@ -1311,11 +1489,12 @@ const STD_PREFIX: u8 = 36; // '$'
 
 #[cfg(feature = "serde")]
 mod serialize {
+    use fireflow_types::nonempty_string::NEString;
     use serde::Serialize;
     use std::collections::{BTreeMap, HashMap};
 
     pub fn ordered_map<K: Serialize + Clone + Ord, S>(
-        value: &HashMap<K, String>,
+        value: &HashMap<K, NEString>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
@@ -1329,20 +1508,21 @@ mod serialize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use nonempty_collections::NESlice;
 
     #[test]
     fn fromstr_std_key() {
         let s = "$MAJESTY";
         let k = s.parse::<StdKey>().unwrap();
-        assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".into()))), k);
+        assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".parse().unwrap()))), k);
         // reverse process should give back original string
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
         let mut p = ParsedKeywords::default();
         let res = p.insert(
-            s.as_bytes(),
-            b"of_the_night_sky",
+            &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+            &NESlice::try_from_slice(b"of_the_night_sky").unwrap(),
             &ReadHeaderAndTEXTConfig::default(),
         );
         assert_eq!(LogResult::new_ok(()), res);
@@ -1356,17 +1536,16 @@ mod tests {
     fn fromstr_std_key_nonascii() {
         let s = "$花冷え。"; // sugarsugarsugarsugarsugarsugarrrrrrrrr...
         let k = s.parse::<StdKey>();
-        assert_eq!(
-            Err(StdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
-            k
-        );
+        let e = StdKeyError::Ascii(AsciiStringError::Ascii(s.parse().unwrap()));
+        assert_eq!(Err(e), k);
     }
 
     #[test]
     fn fromstr_std_key_noprefix() {
         let s = "IMBROKE";
         let k = s.parse::<StdKey>();
-        assert_eq!(Err(StdKeyError::Prefix(KeyString(Ascii::new(s.into())))), k);
+        let e = StdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
+        assert_eq!(Err(e), k);
     }
 
     #[test]
@@ -1387,15 +1566,16 @@ mod tests {
     fn fromstr_nonstd_key() {
         let s = "YTSEJAM";
         let k = s.parse::<NonStdKey>().unwrap();
-        assert_eq!(NonStdKey(KeyString(Ascii::new("YTSEJAM".into()))), k);
+        let ns = NonStdKey(KeyString(Ascii::new("YTSEJAM".parse().unwrap())));
+        assert_eq!(ns, k);
         // reverse process should give back original string
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
         let mut p = ParsedKeywords::default();
         let res = p.insert(
-            s.as_bytes(),
-            b"the cake is a lie",
+            &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+            &NESlice::try_from_slice(b"the cake is a lie").unwrap(),
             &ReadHeaderAndTEXTConfig::default(),
         );
         assert_eq!(LogResult::new_ok(()), res);
@@ -1409,20 +1589,16 @@ mod tests {
     fn fromstr_nonstd_key_nonascii() {
         let s = "サイ";
         let k = s.parse::<NonStdKey>();
-        assert_eq!(
-            Err(NonStdKeyError::Ascii(AsciiStringError::Ascii(s.into()))),
-            k
-        );
+        let e = NonStdKeyError::Ascii(AsciiStringError::Ascii(s.parse().unwrap()));
+        assert_eq!(Err(e), k);
     }
 
     #[test]
     fn fromstr_nonstd_key_hasprefix() {
         let s = "$IMRICH";
         let k = s.parse::<NonStdKey>();
-        assert_eq!(
-            Err(NonStdKeyError::Prefix(KeyString(Ascii::new(s.into())))),
-            k
-        );
+        let e = NonStdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
+        assert_eq!(Err(e), k);
     }
 
     #[test]
@@ -1430,5 +1606,40 @@ mod tests {
         let s = "";
         let k = s.parse::<NonStdKey>();
         assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{LiteralOrPattern, LiteralOrPatternError};
+
+    use pyo3::{prelude::*, types::PyString};
+
+    use std::convert::Infallible;
+    use std::fmt;
+    use std::str::FromStr;
+
+    // TODO make FromStr and ToStr derive work for these, which will
+    // in turn require than the bounds attributes get cleaned up
+
+    impl<'py, L> FromPyObject<'py> for LiteralOrPattern<L>
+    where
+        PyErr: From<LiteralOrPatternError<L::Err>>,
+        L: FromStr,
+        Self: FromStr<Err = LiteralOrPatternError<L::Err>>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(ob.extract::<String>()?.parse()?)
+        }
+    }
+
+    impl<'py, L: fmt::Display> IntoPyObject<'py> for LiteralOrPattern<L> {
+        type Target = PyString;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.to_string().into_pyobject(py)
+        }
     }
 }

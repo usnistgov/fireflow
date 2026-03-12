@@ -65,7 +65,6 @@ use crate::logging::{
     WarningsAndIOGroupResult, WarningsAndIOResult, WarningsResult,
 };
 use crate::macros::{def_summary, match_many_to_one};
-use crate::nonempty::FCSNonEmpty;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
     BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1,
@@ -74,16 +73,16 @@ use crate::text::byteord::{
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, DeprecatedDatatypeWarning, Gain, LookupDatatypeError,
-    LookupDatatypeResult, NumType, Par, Range, RangeToIntError, RangeToIntErrorKind, Scale, Tot,
-    Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, Keyword0FromValue as _, Keyword1FromValue as _,
+    NumType, Par, Range, RangeToIntError, RangeToIntErrorKind, ReqMeasKeyword, ReqRootKeyword,
+    Scale, SplitKeyword0, SplitKeyword1, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
     ReqMetarootKey as _,
 };
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
-use crate::text::optional::{Identity, KeywordPairMaybe as _, MightHave, Nothing};
+use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
     AsciiRange, AsciiRangeFromKeywordsError, AsciiRangeValue, Chars,
 };
@@ -95,9 +94,10 @@ use crate::validated::dataframe::{
     AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, IsFCSDataType,
     LossError,
 };
-use crate::validated::keys::{IndexedKey as _, MeasHeader, NonStdKeywords, StdKeywords};
+use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 
 use fireflow_types::config::TruncateEventValues;
+use fireflow_types::nonempty_string::DisplayableNE as _;
 use type_families::{Functor as _, FunctorOnce, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
@@ -105,13 +105,17 @@ use bigdecimal::BigDecimal;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    IntoIteratorExt as _, NEVec,
+    iter::{NonEmptyIterator as _, once},
+};
 use num_traits::PrimInt;
 use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::iter;
 use std::marker::PhantomData;
 use std::mem;
 use std::num::{NonZeroU8, ParseIntError};
@@ -621,13 +625,14 @@ pub trait LayoutOps<'a, T>: Sized {
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
 
-    fn byteord_keyword(&self) -> (String, String);
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_>;
 
-    fn req_keywords(&self) -> [(String, String); 2] {
-        [self.datatype().pair(), self.byteord_keyword()]
+    fn req_keywords(&self) -> [ReqRootKeyword<'_>; 2] {
+        let d = ReqRootKeyword::from_value(self.datatype());
+        [d, self.byteord_keyword()]
     }
 
-    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]>;
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
 
@@ -706,9 +711,7 @@ pub trait LayoutOps<'a, T>: Sized {
 
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader>;
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>>;
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
 
     // no need to check since this will be done after validating that the index
     // is within the measurement vector, which has its own check and should
@@ -1463,7 +1466,7 @@ impl ToNativeReader for AsciiRange {}
 impl<T, const LEN: usize> NativeReadable<Endian> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN> + Into<Range>,
+    T: IntFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1478,7 +1481,7 @@ where
 impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN> + Into<Range>,
+    T: IntFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1493,8 +1496,7 @@ where
 impl<T, const LEN: usize> NativeReadable<Endian> for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN>,
-    FloatDecimal<T>: Into<T> + Into<Range>,
+    T: FloatFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -1509,8 +1511,7 @@ where
 impl<T, const LEN: usize> NativeReadable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
 where
     Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN>,
-    FloatDecimal<T>: Into<T> + Into<Range>,
+    T: FloatFromBytes<LEN>,
 {
     fn h_read_native<R: Read>(
         &self,
@@ -2024,9 +2025,9 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
     pub(crate) fn uint_try_into_ordered<T>(
         self,
     ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), UintEndianToOrderedLayoutError> {
-        if let Some(cs) = NonEmpty::from_vec(self.columns) {
-            cs.head
-                .try_into_one_size(cs.tail, self.byte_layout, 1)
+        let mut it = self.columns.into_iter().peekable();
+        if let Some(head) = it.next() {
+            head.try_into_one_size(it, self.byte_layout, 1)
                 .map_errors(|(index, error)| IndexedError::new(index, error).into())
         } else {
             let b: SizedByteOrd<4> = self.byte_layout.into();
@@ -2041,8 +2042,7 @@ impl<D> EndianLayout<NullMixedType, D> {
     ) -> ErrorsResult<AnyOrderedLayout<T>, (), MixedToOrderedLayoutError> {
         macro_rules! from_columns {
             ($i:expr) => {
-                $i.into_iter()
-                    .enumerate()
+                $i.enumerate()
                     .map(|(i, c)| {
                         c.try_into()
                             .map_err(|e| IndexedError::new(i + 1, e))
@@ -2054,23 +2054,22 @@ impl<D> EndianLayout<NullMixedType, D> {
             };
         }
 
-        if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
-            let c0 = ne_cols.head;
-            let cs = ne_cols.tail;
+        let mut it = self.columns.into_iter().peekable();
+        if let Some(head) = it.next() {
             let endian = self.byte_layout;
-            match c0 {
+            match head {
                 MixedType::Uint(x) => x
-                    .try_into_one_size(cs, endian, 1)
+                    .try_into_one_size(it, endian, 1)
                     .map_ok_value(AnyOrderedLayout::from)
                     .map_errors(|(index, error)| error.into_col_error(index)),
-                MixedType::Ascii(x) => from_columns!(cs)
+                MixedType::Ascii(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(AnyAsciiLayout::from)
                     .map_ok_value(AnyOrderedLayout::from),
-                MixedType::F32(x) => from_columns!(cs)
+                MixedType::F32(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
                     .map_ok_value(AnyOrderedLayout::from),
-                MixedType::F64(x) => from_columns!(cs)
+                MixedType::F64(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
                     .map_ok_value(AnyOrderedLayout::from),
             }
@@ -2083,7 +2082,8 @@ impl<D> EndianLayout<NullMixedType, D> {
     pub(crate) fn try_into_non_mixed(
         self,
     ) -> ErrorsResult<NonMixedEndianLayout<Nothing<NumType>>, (), MixedToNonMixedLayoutError> {
-        if let Some(ne_cols) = NonEmpty::from_vec(self.columns) {
+        let mut it = self.columns.into_iter().peekable().enumerate();
+        if let Some((_, c0)) = it.next() {
             macro_rules! from_iter {
                 ($iter:expr, $head:expr, $byte_layout:expr) => {
                     $iter
@@ -2094,8 +2094,6 @@ impl<D> EndianLayout<NullMixedType, D> {
                 };
             }
 
-            let c0 = ne_cols.head;
-            let it = ne_cols.tail.into_iter().enumerate();
             let byte_layout = self.byte_layout;
             match c0 {
                 MixedType::Ascii(x) => it
@@ -2343,7 +2341,7 @@ impl AnyNullBitmask {
 
     pub(crate) fn try_into_one_size<X, E, T>(
         self,
-        tail: Vec<X>,
+        tail: impl IntoIterator<Item = X>,
         endian: Endian,
         starting_index: usize,
     ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), (MeasIndex, E)>
@@ -2384,7 +2382,7 @@ impl<T, D, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, D, ORD>
 where
     T: IsTot,
     NoByteOrd<ORD>: HasByteOrd,
-    <NoByteOrd<ORD> as HasByteOrd>::ByteOrd: fmt::Display,
+    for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
 {
     fn ncols(&self) -> usize {
         self.ranges.len()
@@ -2406,18 +2404,19 @@ where
         self.ranges.iter().map(|_| self.datatype()).collect()
     }
 
-    fn byteord_keyword(&self) -> (String, String) {
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
         // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd).pair()
+        let b = <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd);
+        ReqRootKeyword::from_value(b)
     }
 
-    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]> {
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
         self.ranges
             .iter()
             .enumerate()
             .map(|(i, r)| {
-                let x = Width::Variable.meas_pair(i);
-                let y = Range(r.0.into()).meas_pair(i);
+                let x = ReqMeasKeyword::from_value(Width::Variable, i);
+                let y = ReqMeasKeyword::from_value(Range(r.0.into()), i);
                 [x, y]
             })
             .collect()
@@ -2612,12 +2611,8 @@ where
 }
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
-        self.ranges.iter().map(|_| vec![]).collect()
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
+        self.ranges.iter().map(|_| None).collect()
     }
 
     fn insert_nocheck(
@@ -2786,7 +2781,7 @@ where
     T: IsTot,
     C: Clone + IsFixed + HasDatatype + IntoReader<S> + IntoWriter<'a, S> + FromRange,
     S: Copy + HasByteOrd,
-    S::ByteOrd: fmt::Display,
+    for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
     for<'c> Range: From<&'c C>,
     <C as IntoReader<S>>::Target: Readable<S>,
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
@@ -2813,19 +2808,18 @@ where
         self.columns.iter().map(HasDatatype::datatype).collect()
     }
 
-    fn byteord_keyword(&self) -> (String, String) {
-        S::ByteOrd::from(self.byte_layout).pair()
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
+        ReqRootKeyword::from_value(S::ByteOrd::from(self.byte_layout))
     }
 
-    fn req_meas_keywords(&self) -> Vec<[(String, String); 2]> {
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
         self.columns
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                [
-                    Width::Fixed(c.fixed_width()).meas_pair(i),
-                    Range::from(c).meas_pair(i),
-                ]
+                let w = ReqMeasKeyword::from_value(Width::Fixed(c.fixed_width()), i);
+                let r = ReqMeasKeyword::from_value(Range::from(c), i);
+                [w, r]
             })
             .collect()
     }
@@ -2986,12 +2980,8 @@ where
     <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     InsertRangeError: From<<C as FromRange>::Error>,
 {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![]
-    }
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
-        self.columns.iter().map(|_| vec![]).collect()
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
+        self.columns.iter().map(|_| None).collect()
     }
 
     fn insert_nocheck(
@@ -3048,8 +3038,10 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         self.columns.iter().map(IsFixed::fixed_width).collect()
     }
 
-    fn new1(head: C, tail: Vec<C>, byte_layout: S) -> Self {
-        Self::new(NonEmpty::from((head, tail)).into(), byte_layout)
+    fn new1(head: C, tail: impl IntoIterator<Item = C>, byte_layout: S) -> Self {
+        let mut cs = vec![head];
+        cs.extend(tail);
+        Self::new(cs, byte_layout)
     }
 
     fn try_new<F, P, W, E>(
@@ -3109,6 +3101,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 }
             }
         }
+        // TODO this is 10% of the reader's execution time so we should bypass
+        // some of these checks based on which flags are set.
         let rs: Vec<_> = col_readers
             .iter_mut()
             .enumerate()
@@ -3342,14 +3336,21 @@ impl HasDatatype for NullMixedType {
         // If any numeric types are none, then that means at least one column is
         // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
         // cannot be "A". Otherwise, find majority type.
-        if let Some(xs) = NonEmpty::collect(cs.iter()) {
-            xs.as_ref()
-                .try_map(|c| NumType::try_from(c.datatype()))
-                .ok()
-                .map_or(AlphaNumType::Ascii, |mut ds| {
-                    ds.sort();
-                    (*FCSNonEmpty::from(ds).mode().0).into()
-                })
+        if let Some(xs) = cs.try_into_nonempty_iter() {
+            if let Ok(mut ds) = xs
+                .map(|c| NumType::try_from(c.datatype()))
+                .collect::<Result<NEVec<_>, _>>()
+            {
+                ds.sort();
+                let (dt, _) = ds
+                    .nonempty_iter()
+                    .group_by(|x| *x)
+                    .map(|x| (*x.first(), x.len()))
+                    .max_by_key(|(_, n)| *n);
+                (*dt).into()
+            } else {
+                AlphaNumType::Ascii
+            }
         } else {
             // NOTE this is a totally arbitrary default
             AlphaNumType::Integer
@@ -3680,8 +3681,8 @@ impl<T> AnyOrderedUintLayout<T> {
                 .sequence_commutative()
                 .and_then_commutative(|widths| {
                     let ws = widths.into_iter().filter(|&w| w != n).unique();
-                    if let Some(mismatches) = NonEmpty::collect(ws) {
-                        let e = WidthMismatchError::new(real_bo, mismatches);
+                    if let Some(mismatches) = ws.try_into_nonempty_iter() {
+                        let e = WidthMismatchError::new(real_bo, mismatches.collect());
                         LogResult::new_err(SingleFixedWidthError::from(e))
                     } else {
                         LogResult::new_ok(())
@@ -3765,8 +3766,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         }
     }
 
-    fn new_fixed(columns: Vec<AsciiRange>) -> Self {
-        Self::Fixed(FixedLayout::new(columns, NoByteOrd))
+    fn new_fixed(columns: impl IntoIterator<Item = AsciiRange>) -> Self {
+        Self::Fixed(FixedLayout::new(columns.into_iter().collect(), NoByteOrd))
     }
 
     fn new_delim(ranges: Vec<AsciiRangeValue>) -> Self {
@@ -3925,7 +3926,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::remove_req_check_ascii(std, conf);
+        let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
         let columns = Option::lookup_all(std, meas_nonstd, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
@@ -3936,7 +3937,7 @@ impl VersionedDataLayout for DataLayout3_2 {
         par: Par,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::get_req_check_ascii(kws, conf);
+        let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Option::<NumType>::lookup_ro_all(kws, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
@@ -4095,25 +4096,19 @@ impl CheckedScaleTransform for ScaleTransform {
 }
 
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
-    fn opt_meas_headers(&self) -> Vec<MeasHeader> {
-        vec![NumType::std_blank()]
-    }
-
-    fn opt_meas_keywords(&self) -> Vec<Vec<(String, Option<String>)>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
         match self {
-            Self::NonMixed(x) => (0..x.ncols())
-                .map(|i| vec![(NumType::std(i).to_string(), None)])
-                .collect(),
+            Self::NonMixed(x) => iter::repeat_n(None, x.ncols()).collect(),
             Self::Mixed(x) => x
                 .columns
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
-                    let y: Option<NumType> = NumType::try_from(c.datatype())
+                    NumType::try_from(c.datatype())
                         .ok()
-                        .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y));
-                    vec![y.meas_opt_pair(i)]
+                        .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y))
+                        .map(|v| SplitKeyword1::from_value1(v, i))
                 })
                 .collect(),
         }
@@ -4195,25 +4190,28 @@ impl DataLayout3_2 {
     }
 
     #[must_use]
-    pub fn new_mixed(ranges: Vec<NullMixedType>, endian: Endian) -> Self {
+    pub fn new_mixed(rs: Vec<NullMixedType>, endian: Endian) -> Self {
         // Check if the mixed types are all the same, in which case we can use a
         // simpler layout. This clone thing is not ideal but it will only be
         // cloning big-decimals for floats and will use Copy for everything else
         // (not a huge deal).
-        if let Some(xs) = NonEmpty::from_vec(ranges) {
-            if let Ok(rs) = xs.as_ref().try_map(|x| AsciiRange::try_from(x.clone())) {
-                NonMixedEndianLayout::new_ascii_fixed(rs.into()).into()
-            } else if let Ok(rs) = xs.as_ref().try_map(|x| AnyNullBitmask::try_from(x.clone())) {
-                NonMixedEndianLayout::new_uint(rs.into(), endian).into()
-            } else if let Ok(rs) = xs.as_ref().try_map(|x| F32Range::try_from(x.clone())) {
-                NonMixedEndianLayout::new_f32(rs.into(), endian).into()
-            } else if let Ok(rs) = xs.as_ref().try_map(|x| F64Range::try_from(x.clone())) {
-                NonMixedEndianLayout::new_f64(rs.into(), endian).into()
-            } else {
-                FixedLayout::new(xs.into(), endian).into()
-            }
+        macro_rules! go {
+            ($t:ident) => {
+                rs.iter()
+                    .map(|x| $t::try_from(x.clone()))
+                    .collect::<Result<Vec<_>, _>>()
+            };
+        }
+        if let Ok(xs) = go!(AsciiRange) {
+            NonMixedEndianLayout::new_ascii_fixed(xs).into()
+        } else if let Ok(xs) = go!(AnyNullBitmask) {
+            NonMixedEndianLayout::new_uint(xs, endian).into()
+        } else if let Ok(xs) = go!(F32Range) {
+            NonMixedEndianLayout::new_f32(xs, endian).into()
+        } else if let Ok(xs) = go!(F64Range) {
+            NonMixedEndianLayout::new_f64(xs, endian).into()
         } else {
-            FixedLayout::new(vec![], endian).into()
+            FixedLayout::new(rs, endian).into()
         }
     }
 
@@ -4223,7 +4221,7 @@ impl DataLayout3_2 {
     }
 
     fn lookup_inner(
-        datatype: LookupDatatypeResult,
+        datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Option<NumType>>,
         conf: &ReadDataKeywordsConfig,
@@ -4233,9 +4231,8 @@ impl DataLayout3_2 {
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::Meas);
         datatype
-            .map_commutative_warnings(LookupLayoutWarning::from)
-            .map_errors(LookupLayoutError::from)
-            .into_semigroup()
+            .map_err(LookupLayoutError::from)
+            .into_log()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
                 Self::try_new(d, e, cs, conf)
@@ -4285,7 +4282,6 @@ impl<T> AnyOrderedLayout<T> {
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::Meas);
         datatype
-            .map_err(LookupDatatypeError::from)
             .map_err(LookupLayoutError::from)
             .into_log()
             .zip3_commutative(byteord_, columns_)
@@ -4416,7 +4412,7 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::remove_req_check_ascii(std, conf);
+        let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
         let columns = Nothing::<NumType>::lookup_all(std, meas_nonstd, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
@@ -4427,14 +4423,14 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
         par: Par,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewLayout<Self>> {
-        let datatype = AlphaNumType::get_req_check_ascii(kws, conf);
+        let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
     fn lookup_inner(
-        datatype: LookupDatatypeResult,
+        datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
         conf: &ReadDataKeywordsConfig,
@@ -4444,9 +4440,8 @@ impl NonMixedEndianLayout<Nothing<NumType>> {
             .map_commutative_warnings(LookupLayoutWarning::from)
             .map_errors(LookupLayoutError::Meas);
         datatype
-            .map_commutative_warnings(LookupLayoutWarning::from)
-            .map_errors(LookupLayoutError::from)
-            .into_semigroup()
+            .map_err(LookupLayoutError::from)
+            .into_log()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
                 Self::try_new(d, e.0, cs, conf)
@@ -4505,7 +4500,7 @@ impl<D> NonMixedEndianLayout<D> {
     }
 
     #[must_use]
-    pub fn new_ascii_fixed(ranges: Vec<AsciiRange>) -> Self {
+    pub fn new_ascii_fixed(ranges: impl IntoIterator<Item = AsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
@@ -4589,23 +4584,25 @@ pub enum SingleFixedWidthError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct WidthMismatchError {
     byteord: ByteOrd2_0,
-    found: NonEmpty<PrivBytes>,
+    found: NEVec<PrivBytes>,
 }
 
 impl fmt::Display for WidthMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        if self.found.tail.is_empty() {
+        let (head, tail) = self.found.nonempty_iter().next();
+        let mut t = tail.peekable();
+        if t.peek().is_none() {
             write!(
                 f,
-                "measurement width ({}) does not match byte order ({})",
-                self.found.head, self.byteord,
+                "measurement width ({head}) does not match byte order ({})",
+                self.byteord.as_displayable(),
             )
         } else {
             write!(
                 f,
                 "multiple measurement widths given ({}) for byte order [{}]",
-                self.found.iter().join(", "),
-                self.byteord,
+                once(head).chain(t).into_iter().join(", "),
+                self.byteord.as_displayable(),
             )
         }
     }
@@ -4853,7 +4850,7 @@ type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning,
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutError {
     New(NewDataLayoutError),
-    AlphaNumType(LookupDatatypeError),
+    AlphaNumType(ReqKeyError<AlphaNumType>),
     ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
     ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
     Meas(LookupMeasLayoutError),
@@ -4864,7 +4861,7 @@ pub enum LookupLayoutError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutWarning {
     New(NewMixedTypeWarning),
-    Datatype(DeprecatedDatatypeWarning),
+    Datatype(ReqKeyError<AlphaNumType>),
     Meas(OptIndexedKeyError<NumType>),
 }
 
@@ -4912,7 +4909,10 @@ pub enum ReadDataframeWarning {
 
 /// Error when event value is above its $PnR
 #[derive(Debug, Display, new)]
-#[display("event value in column {column} and row {row}, exceeds $PnR ({range})")]
+#[display(
+    "event value in column {column} and row {row}, exceeds $PnR ({})",
+    range.as_displayable()
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub struct EventOverRangeError {
@@ -5085,8 +5085,8 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 #[derive(From, Debug, Error)]
 #[error(
     "{b} and {r} when {p}='{from}' are incompatible in layout with $DATATYPE='{to}'",
-    from = _0.error.src.as_alpha_num_type(),
-    to = _0.error.dest_type,
+    from = _0.error.src.as_alpha_num_type().as_displayable(),
+    to = _0.error.dest_type.as_displayable(),
     p = NumType::std(_0.index),
     b = Width::std(_0.index),
     r = Range::std(_0.index),
@@ -5246,8 +5246,8 @@ impl fmt::Display for ScaleMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = self.index;
         let ekey = Scale::std(i);
-        let dt = self.datatype;
-        let eval = self.scale;
+        let dt = self.datatype.as_displayable();
+        let eval = self.scale.as_displayable();
         write!(
             f,
             "only integer columns may have non-linear scale, \
@@ -5271,20 +5271,16 @@ impl fmt::Display for ScaleTransformMismatchError {
         let i = self.index;
         let ekey = Scale::std(i);
         let gkey = Gain::std(i);
-        let dt = self.datatype;
+        let dt = self.datatype.as_displayable();
         let (eval, g): (Scale, Option<Gain>) = self.scale.into();
-        let gval = g.map_or("not set".into(), |s| format!("'{s}'"));
+        let gval = g.map_or("not set".into(), |s| format!("'{}'", s.as_displayable()));
         write!(
             f,
             "only integer columns may have non-unitary scale transforms, \
-             column is '{dt}' where {ekey} is '{eval}' and {gkey} is {gval}"
+             column is '{dt}' where {ekey} is '{}' and {gkey} is {gval}",
+            eval.as_displayable(),
         )
     }
-}
-
-#[cfg(feature = "serde")]
-pub(crate) fn req_meas_headers() -> [MeasHeader; 2] {
-    [Width::std_blank(), Range::std_blank()]
 }
 
 /// Inner helper type to add index data to an error message.

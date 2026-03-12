@@ -988,12 +988,11 @@ class CoreTEXT2_0(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1078,7 +1077,7 @@ class CoreTEXT3_0(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
         text_data_correction: OffsetCorrection = (0, 0),
         text_analysis_correction: OffsetCorrection = (0, 0),
@@ -1090,7 +1089,6 @@ class CoreTEXT3_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1182,7 +1180,7 @@ class CoreTEXT3_1(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         text_data_correction: OffsetCorrection = (0, 0),
@@ -1193,7 +1191,6 @@ class CoreTEXT3_1(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1288,7 +1285,7 @@ class CoreTEXT3_2(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
@@ -1300,7 +1297,6 @@ class CoreTEXT3_2(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1382,12 +1378,11 @@ class CoreDataset2_0(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         process_optional_failure: ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1490,7 +1485,7 @@ class CoreDataset3_0(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
         # layout args
         text_data_correction: OffsetCorrection = (0, 0),
@@ -1503,7 +1498,6 @@ class CoreDataset3_0(
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1614,7 +1608,7 @@ class CoreDataset3_1(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         # layout args
@@ -1626,7 +1620,6 @@ class CoreDataset3_1(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1740,7 +1733,7 @@ class CoreDataset3_2(
         process_other_version: ProcessKeywordFailure = "error",
         process_extra_timestep: ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "^P%n",
+        nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
@@ -1753,7 +1746,6 @@ class CoreDataset3_2(
         allow_missing_required_offsets: TriFlag = "false",
         process_optional_failure: ProcessKeywordFailure = "error",
         disallow_range_truncation: TriFlag = "false",
-        disallow_deprecated: TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
         allow_uneven_event_width: TriFlag = "false",
@@ -1772,12 +1764,12 @@ class ParseKeyError(PyreflowError): ...
 class ParseKeywordValueError(PyreflowError): ...
 class InvalidKeywordValueError(PyreflowError): ...
 class ExtraKeywordError(PyreflowError): ...
-class FCSDeprecatedError(PyreflowError): ...
 class ConversionError(PyreflowError): ...
 class RelationalError(PyreflowError): ...
 class EventDataError(PyreflowError): ...
 class DataLossError(PyreflowError): ...
 class ConfigError(PyreflowError): ...
+class WriteFCSError(PyreflowError): ...
 class PyreflowWarning(Warning): ...
 
 @final
@@ -1910,11 +1902,12 @@ class SplitTEXTDiagnostics:
         escaped: bool,
         keys_with_blank_values: list[bytes | str],
         values_with_blank_keys: list[bytes | str],
+        skipped_pairs: int,
         tokens_with_boundary_delims: list[bytes | str],
         last_odd_token: bytes | str,
         missing_final_delim: bool,
         has_extra_delim: bool,
-        trailing_bytes: bytes,
+        trailing_bytes: bytes | str,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1926,6 +1919,8 @@ class SplitTEXTDiagnostics:
     @property
     def values_with_blank_keys(self) -> list[bytes | str]: ...
     @property
+    def skipped_pairs(self) -> int: ...
+    @property
     def tokens_with_boundary_delims(self) -> list[bytes | str]: ...
     @property
     def last_odd_token(self) -> bytes | str: ...
@@ -1934,7 +1929,7 @@ class SplitTEXTDiagnostics:
     @property
     def has_extra_delim(self) -> bool: ...
     @property
-    def trailing_bytes(self) -> bytes: ...
+    def trailing_bytes(self) -> bytes | str: ...
 
 @final
 class HeaderAndSuppOffsets:
@@ -2365,7 +2360,7 @@ def fcs_read_std_text(
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "^P%n",
+    nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -2380,7 +2375,6 @@ def fcs_read_std_text(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2442,7 +2436,6 @@ def fcs_read_flat_dataset(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2517,7 +2510,7 @@ def fcs_read_std_dataset(
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "^P%n",
+    nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -2532,7 +2525,6 @@ def fcs_read_std_dataset(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2660,7 +2652,7 @@ def fcs_read_std_texts(
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "^P%n",
+    nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -2675,7 +2667,6 @@ def fcs_read_std_texts(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2738,7 +2729,6 @@ def fcs_read_flat_datasets(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2814,7 +2804,7 @@ def fcs_read_std_datasets(
     process_other_version: ProcessKeywordFailure = "error",
     process_extra_timestep: ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "^P%n",
+    nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -2829,7 +2819,6 @@ def fcs_read_std_datasets(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2861,7 +2850,6 @@ def fcs_read_flat_dataset_with_keywords(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2931,7 +2919,6 @@ def fcs_summarize(
     integer_widths_from_byteord: bool = False,
     integer_byteord_override: ByteOrd | None = None,
     disallow_range_truncation: TriFlag = "false",
-    disallow_deprecated: TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
     allow_uneven_event_width: TriFlag = "false",
@@ -2953,12 +2940,12 @@ __all__ = [
     "ParseKeywordValueError",
     "InvalidKeywordValueError",
     "ExtraKeywordError",
-    "FCSDeprecatedError",
     "ConversionError",
     "RelationalError",
     "EventDataError",
     "DataLossError",
     "ConfigError",
+    "WriteFCSError",
     "PyreflowWarning",
     "CoreTEXT2_0",
     "CoreTEXT3_0",

@@ -6,10 +6,10 @@ use fireflow_core::config::{
     AllowMissingNextdata, AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime,
     AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd,
     AllowSuppTEXTOwnDelim, AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit,
-    DatasetOffset, DisallowDeprecated, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _,
-    NonStdMeasPatternOpt, OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar,
-    ProcessOptionalFailure, ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern,
-    TriErrorFlag, TruncateOffsetLimit, VersionOverride,
+    DatasetOffset, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
+    OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
+    ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern, TriErrorFlag,
+    TruncateOffsetLimit, VersionOverride,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
@@ -34,7 +34,7 @@ use fireflow_types::config::{
     KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL,
     MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL,
     NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL,
-    OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL,
+    OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER,
     READ_STRATEGY_SCALPAL_LEVEL, READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL,
     ReadStrategy, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
     TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
@@ -45,6 +45,7 @@ use fireflow_types::config::{
     VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
+use fireflow_types::nonempty_string::NEString;
 
 use ansi_term::{ANSIString, Style};
 use clap::{
@@ -442,11 +443,16 @@ fn run() -> AppResult<()> {
     );
 
     let make_key_str_args = |name, help| {
+        let more = format!(
+            "Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions."
+        );
+        let more_help = format!("{help} {more}");
         Arg::new(name)
             .long(name)
             .action(ArgAction::Append)
             .value_name("KEY_OR_PAT")
-            .help(help)
+            .help(more_help)
             .value_parser(value_parser!(KeyStringOrPattern))
     };
 
@@ -643,11 +649,6 @@ fn run() -> AppResult<()> {
     )
     .value_parser(value_parser!(ProcessExtraTimestep));
 
-    let disallow_deprecated = tri_flag_arg::<DisallowDeprecated>(
-        DISALLOW_DEPRECATED,
-        "Disallow any deprecated keywords are present.",
-    );
-
     let fix_log_scale_offset = override_flag_arg(
         FIX_LOG_SCALE_OFFSETS,
         format!(
@@ -702,12 +703,14 @@ fn run() -> AppResult<()> {
 
     let ns_meas_pattern = opt_arg::<NonStdMeasPattern>(
         NS_MEAS_PATTERN,
-        "REGEXP",
+        "LIT_OR_PAT",
         format!(
             "Pattern to use when matching non-standard measurement keywords. \
-             It must include '{NON_STD_MEAS_INDEX_PAT}' which will be \
-             replaced with measurement index. Defaults to \
-             '{NON_STD_MEAS_PAT_DEFAULT}'.",
+             Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions, otherwise as a literal string \
+             to be used as a prefix matcher. It must include \
+             '{NON_STD_MEAS_INDEX_PAT}' which will be replaced with measurement \
+             index. Defaults to '{NON_STD_MEAS_PAT_DEFAULT}'.",
         ),
     );
 
@@ -729,7 +732,6 @@ fn run() -> AppResult<()> {
         process_hyper_par,
         process_other_version,
         process_extra_timestep,
-        disallow_deprecated,
         fix_log_scale_offset,
         disallow_localtime,
         ns_meas_pattern,
@@ -1357,7 +1359,6 @@ fn get_data_kws_config(s: &ArgMatches) -> config::ReadDataKeywordsConfig {
     get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;
     });
-    get_opt(s, DISALLOW_DEPRECATED, |x| c.disallow_deprecated = x);
 
     c
 }
@@ -1527,7 +1528,8 @@ fn parse_two_keystring_pair(s: &str) -> StrResult<BiKeystringPair> {
 fn parse_keystring_string_pair(s: &str) -> StrResult<KeystringStringPair> {
     let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
     let kf = k.parse::<KeyString>().map_err(|e| e.to_string())?;
-    Ok((kf, v.to_owned()))
+    let vf = v.parse::<NEString>().map_err(|e| e.to_string())?;
+    Ok((kf, vf))
 }
 
 fn parse_sub_pattern_pair(s: &str) -> StrResult<SubPatternPair> {
@@ -1610,7 +1612,7 @@ type StrResult<T> = Result<T, String>;
 
 type BiKeystringPair = (KeyString, KeyString);
 
-type KeystringStringPair = (KeyString, String);
+type KeystringStringPair = (KeyString, NEString);
 
 type SubPatternPair = (KeyStringOrPattern, SubPattern);
 
@@ -1745,8 +1747,6 @@ const PROCESS_OTHER_VERSION: &str = "process-other-version";
 const PROCESS_EXTRA_TIMESTEP: &str = "process-extra-timestep";
 
 const PROCESS_OPTIONAL_FAILURE: &str = "process-optional-failure";
-
-const DISALLOW_DEPRECATED: &str = "disallow-deprecated";
 
 const FIX_LOG_SCALE_OFFSETS: &str = "fix-log-scale-offsets";
 

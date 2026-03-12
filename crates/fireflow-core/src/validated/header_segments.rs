@@ -13,7 +13,7 @@ use crate::validated::ascii_range::OtherWidth;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::NEVec;
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -42,7 +42,7 @@ pub struct ParsedHeaderSegments {
     other: ParsedOtherSegments,
 }
 
-pub(crate) type ParsedOtherSegments = Option<(NonEmpty<OtherSegment20>, OtherWidth)>;
+pub(crate) type ParsedOtherSegments = Option<(NEVec<OtherSegment20>, OtherWidth)>;
 
 impl ParsedHeaderSegments {
     /// Make new collection of HEADER segments.
@@ -183,8 +183,8 @@ impl ParsedHeaderSegments {
     where
         I: HasRegion,
     {
-        // ASSUME incoming iterator is sorted.
-        // TODO check this assumption (without consuming iterator)
+        // ASSUME incoming iterator is sorted (no debug assert since this would
+        // consume iterator)
         if let Some(txt_seg) = s.try_as_generic() {
             let mut errors = vec![];
             let mut it = xs.into_iter();
@@ -341,7 +341,7 @@ impl ParsedHeaderSegments {
 
     fn other_offset_nbytes(&self) -> u64 {
         self.other.as_ref().map_or(0, |(os, width)| {
-            let n = u64::try_from(os.len()).expect("usize overflow");
+            let n = u64::try_from(usize::from(os.len())).expect("usize overflow");
             n * u64::from(u8::from(*width))
         })
     }

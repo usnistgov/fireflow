@@ -7,32 +7,39 @@ use crate::config::{
     ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
 use crate::fixed_vec::OneOrTwo;
-use crate::header::Version;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
+use crate::text::keywords::{
+    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Keyword0FromValue as _,
+    OffsetKeyword, SplitKeyword0,
+};
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
-use crate::validated::ascii_range::{MAX_CHARS, OtherWidth};
+use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 use crate::validated::ascii_uint::{
-    HeaderString, ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
+    ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
 use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
 use crate::validated::keys::{
-    AnyStdKey as _, Key, SpecificKey, StdKeywords, StringOrBytes, TruncatedString,
+    AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
 };
 
 use fireflow_types::config::ProcessKeywordFailure;
+use fireflow_types::keywords::Version;
+use fireflow_types::nonempty_string::NESliceExt as _;
 
 use type_families::Functor as _;
 
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    IntoIteratorExt as _, NESlice, NEVec, NonEmptyArrayExt as _,
+    iter::{NonEmptyIterator as _, once},
+};
 use num_traits::identities::Zero;
 use thiserror::Error;
 
@@ -40,7 +47,7 @@ use std::fmt::{self, Debug};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::iter::repeat;
 use std::marker::PhantomData;
-use std::num::{NonZeroU64, ParseIntError};
+use std::num::{NonZeroU64, NonZeroUsize, ParseIntError};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -369,12 +376,12 @@ pub(crate) trait KeyedSegmentInner: KeyedSegment + HasRegion {
 macro_rules! lookup_req {
     ($kws:ident, $fun:ident) => {{
         let k = SpecificKey::default();
-        match $kws.$fun(&k.as_std()) {
+        match $kws.$fun(&k.as_std_key()) {
             Some(v) => v
                 .parse::<i128>()
-                .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
                 .map_err(ReqKeyErrorInner::from),
-            None => Err(ReqKeyErrorInner::from(MissingKeyError(k))),
+            None => Err(ReqKeyErrorInner::from(MissingKeyError(k.into()))),
         }
     }};
 }
@@ -611,10 +618,10 @@ where
 macro_rules! lookup_opt {
     ($kws:ident, $fun:ident) => {{
         let k = SpecificKey::default();
-        $kws.$fun(&k.as_std())
+        $kws.$fun(&k.as_std_key())
             .map(|v| {
                 v.parse::<i128>()
-                    .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
             })
             .transpose()
     }};
@@ -1096,6 +1103,16 @@ impl<I, S, T> Segment<I, S, T> {
     pub(crate) fn try_new_with_len(
         begin: u64,
         length: u64,
+    ) -> Result<Self, <T as TryFrom<u64>>::Error>
+    where
+        T: TryFrom<u64> + Copy,
+    {
+        Self::try_new_abs_with_len(begin, length, DatasetOffset(0))
+    }
+
+    pub(crate) fn try_new_abs_with_len(
+        begin: u64,
+        length: u64,
         offset: DatasetOffset,
     ) -> Result<Self, <T as TryFrom<u64>>::Error>
     where
@@ -1110,7 +1127,14 @@ impl<I, S, T> Segment<I, S, T> {
         Ok(Self::new(s))
     }
 
-    pub(crate) fn new_with_len(begin: u64, length: u64, offset: DatasetOffset) -> Self
+    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
+    where
+        T: From<u64> + Copy,
+    {
+        Self::new_abs_with_len(begin, length, DatasetOffset(0))
+    }
+
+    pub(crate) fn new_abs_with_len(begin: u64, length: u64, offset: DatasetOffset) -> Self
     where
         T: From<u64> + Copy,
     {
@@ -1165,18 +1189,17 @@ impl<I> TEXTSegment<I> {
     }
 }
 
-impl<I, T> Segment<I, SegmentFromHeader, T> {
-    pub(crate) fn header_string(&self) -> String
-    where
-        T: Zero + HeaderString,
-    {
+// ASSUME the display trait for the inner type will render with the
+// proper number of characters
+impl<I, T> fmt::Display for Segment<I, SegmentFromHeader, T>
+where
+    T: Zero + fmt::Display + Copy,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let (b, e) = self
             .try_coords()
             .map_or((T::zero(), T::zero()), |(b, e, _)| (b, e));
-        let mut s = String::new();
-        s.push_str(&b.header_string());
-        s.push_str(&e.header_string());
-        s
+        write!(f, "{b}{e}")
     }
 }
 
@@ -1214,7 +1237,7 @@ impl<I: Copy> HeaderSegment<I> {
             // TEXT segment should never be blank
             let allow_blank = !is_text;
             UintSpacePad8::from_bytes(bs, allow_blank).map_err(|error| {
-                let src = StringOrBytes::from(bs.to_vec());
+                let src = NEStringOrBytes::from(bs.into_nonempty_vec());
                 ParseOffsetError::new(error, is_begin, I::REGION, src).into()
             })
         };
@@ -1267,7 +1290,7 @@ impl OtherSegment20 {
         first_seg_begin: UintSpacePad8,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        Option<(NonEmpty<(Self, UncorrectedSegment)>, OtherWidth)>,
+        Option<(NEVec<(Self, UncorrectedSegment)>, OtherWidth)>,
         GuessOtherWidthError,
         HeaderSegmentError,
         (),
@@ -1343,17 +1366,20 @@ impl OtherSegment20 {
             }
             n_valid_bytes += 1;
         }
-        let valid_buf = &buf[0..n_valid_bytes];
 
-        // Exit early if there are only spaces or nulls
-        if valid_buf.iter().all(|&x| x == 0) | valid_buf.iter().all(|&x| x == 32) {
+        // Exit early if there are no valid chars or all bytes are null or space
+        let valid_buf = if let Some(ne) = NESlice::try_from_slice(&buf[0..n_valid_bytes])
+            && !ne.iter().all(|&x| x == 0) | ne.iter().all(|&x| x == 32)
+        {
+            ne
+        } else {
             return LogResult::new_ok(None);
-        }
+        };
 
         // Guess offset width if desired.
         let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
         let width_res = if let Some(guess) = guess_maybe {
-            match Self::guess_other_width(valid_buf, max_other) {
+            match Self::guess_other_width(&valid_buf, max_other) {
                 Ok(w) => WarningsAndErrorsResult::new_ok(w),
                 Err(e) => {
                     let w = hconf.other_width;
@@ -1367,54 +1393,40 @@ impl OtherSegment20 {
         width_res
             .map_errors(HeaderSegmentError::from)
             .and_then_commutative(|width| {
-                let n_valid = valid_buf.len();
-                let w = u8::from(width);
-                let n_segs = n_valid / (usize::from(w) * 2);
-
-                let mut results = vec![];
-
                 let corrs = hconf
                     .other_corrections
                     .iter()
                     .copied()
-                    .chain(repeat(OffsetCorrection::default()))
-                    .take(hconf.max_other.map_or(n_segs, |x| x.min(n_segs)));
-
-                for (i, corr) in corrs.enumerate() {
-                    let seg_conf = NewSegmentConfig::from_read_config(corr, st);
-                    let uw = usize::from(w);
-                    let i0 = 2 * i * uw;
-                    let i1 = ((2 * i) + 1) * uw;
-                    let i2 = ((2 * i) + 2) * uw;
-                    let buf0 = &buf[i0..i1];
-                    let buf1 = &buf[i1..i2];
-
-                    // If any regions are entirely blank/zero/null, just ignore them
-                    let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
-                    if !(all_are(0) || all_are(32) || all_are(48)) {
-                        let r = Self::parse_other(buf0, buf1, &seg_conf);
-                        results.push(r);
-                    }
-                }
-
-                results
+                    .chain(repeat(OffsetCorrection::default()));
+                let limit = hconf.max_other.unwrap_or(usize::MAX);
+                valid_buf
+                    .nonempty_chunks(width.into())
                     .into_iter()
+                    .tuples()
+                    .zip(corrs)
+                    .take(limit)
+                    .filter_map(|((buf0, buf1), corr)| {
+                        let seg_conf = NewSegmentConfig::from_read_config(corr, st);
+                        let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
+                        (!(all_are(0) || all_are(32) || all_are(48)))
+                            .then(|| Self::parse_other(&buf0, &buf1, &seg_conf))
+                    })
                     .sequence_commutative()
                     .nowarn_into_warn()
-                    .map_ok_value(|xs| NonEmpty::from_vec(xs).map(|ys| (ys, width)))
+                    .map_ok_value(|xs| NEVec::try_from_vec(xs).map(|ys| (ys, width)))
             })
             .group()
             .map_error(IOErrorGroup::Pure)
     }
 
     fn parse_other(
-        bs0: &[u8],
-        bs1: &[u8],
+        bs0: &NESlice<'_, u8>,
+        bs1: &NESlice<'_, u8>,
         conf: &NewSegmentConfig<OtherSegmentId, SegmentFromHeader>,
     ) -> ErrorsResult<(Self, UncorrectedSegment), (), HeaderSegmentError> {
-        let parse_one = |bs: &[u8], is_begin| {
-            UintSpacePad20::from_bytes(bs).map_err(|error| {
-                let src = StringOrBytes::from(bs.to_vec());
+        let parse_one = |bs: &NESlice<'_, u8>, is_begin| {
+            UintSpacePad20::from_bytes(bs.as_ref()).map_err(|error| {
+                let src = NEStringOrBytes::from(bs.to_ne_vec());
                 ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, src).into()
             })
         };
@@ -1432,16 +1444,14 @@ impl OtherSegment20 {
             })
     }
 
+    #[allow(clippy::too_many_lines)]
     fn guess_other_width(
-        xs: &[u8],
+        xs: &NESlice<'_, u8>,
         max_other: Option<NonZeroU64>,
     ) -> Result<OtherWidth, GuessOtherWidthError> {
-        const MIN_WIDTH: u8 = 8;
-
         #[cfg(debug_assertions)]
         {
-            let cs: Vec<_> = xs.iter().copied().map(CharType::from).collect();
-            assert!(!xs.is_empty(), "stream must be non-empty");
+            let cs: NEVec<_> = xs.nonempty_iter().copied().map(CharType::from).collect();
             assert!(
                 cs.iter().all(|&x| x != CharType::Other),
                 "stream must be all one of null, space, minus sign, or a digit"
@@ -1452,10 +1462,7 @@ impl OtherSegment20 {
                     .any(|(&prev, &this)| prev == CharType::Minus && this != CharType::Digit),
                 "stream has minus sign which is not followed by digit"
             );
-            assert!(
-                cs.last().is_some_and(|&x| x != CharType::Minus),
-                "stream ends with minus sign"
-            );
+            assert!(cs.last() != &CharType::Minus, "stream ends with minus sign");
         }
 
         // Indices where chars changed (false = null->digit, true = digit->null)
@@ -1464,16 +1471,21 @@ impl OtherSegment20 {
 
         // Iterate through all possible widths and test if the width is
         // compatible with the bytestring.
-        let go = |w| {
+        let mut go = |w: OtherWidth| {
             digit_starts.clear();
             digit_ends.clear();
 
             // Limit bytes if limit for maximum segment number is given.
-            let these_bytes = if let Some(n) = max_other {
-                let i = usize::try_from(u64::from(n)).expect("u64 overflow") * usize::from(w) * 2;
-                &xs[0..i]
+            let total_bytes = if let Some(n) = max_other {
+                const N: NonZeroUsize = NonZeroUsize::new(2).unwrap();
+                NonZeroUsize::try_from(n)
+                    .expect("overflow")
+                    .checked_mul(NonZeroUsize::from(w))
+                    .expect("overflow")
+                    .checked_mul(N)
+                    .expect("overflow")
             } else {
-                xs
+                xs.len()
             };
 
             // Get boundaries of "digit streams" which are contiguous streams of
@@ -1481,17 +1493,17 @@ impl OtherSegment20 {
             // which may or may not have a minus sign in front. The boundaries
             // will be constructed as intervals like (start, end) where start
             // and end are the indices of the start and end of the stream.
-            let mut it = these_bytes.iter();
-            let mut prev_char_type = CharType::from(*it.by_ref().next().unwrap());
+            let (x0, rest) = xs.nonempty_iter().take(total_bytes).next();
+            let mut prev_char_type = CharType::from(*x0);
             // If first char is digit or minus, push start boundary to balance the ends
             if prev_char_type.is_digit_or_minus() {
                 digit_starts.push(0);
             }
-            for (&x, i) in it.zip(1..) {
+            for (i, &x) in rest.enumerate() {
                 let this_char_type = CharType::from(x);
                 if prev_char_type != this_char_type {
                     if this_char_type == CharType::Null {
-                        digit_ends.push(i);
+                        digit_ends.push(i + 1);
                     } else if prev_char_type == CharType::Null {
                         digit_starts.push(i);
                     }
@@ -1500,28 +1512,23 @@ impl OtherSegment20 {
             }
             if prev_char_type == CharType::Digit {
                 // If previous was a digit, add a boundary to the end
-                digit_ends.push(these_bytes.len());
+                digit_ends.push(usize::from(total_bytes));
             } else if prev_char_type == CharType::Minus {
                 // If previous was a minus, the last char in the last digit is
                 // a minus for this width, which is invalid.
-                return None;
+                return false;
             }
             let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
             debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
-            let digit_intervals: Vec<_> = digit_starts
-                .iter()
-                .copied()
-                .zip(digit_ends.iter().copied())
-                .collect();
 
             // Compute number of segments that fit into digits. Use the last
             // found digit as the end of the bytes to be considered. If segment
             // number is odd, this width is not valid since offsets come in
             // pairs.
-            let ww = usize::from(w);
+            let ww = usize::from(NonZeroUsize::from(w));
             let n_segs = final_digit_position / ww;
             if n_segs & 1 == 1 {
-                return None;
+                return false;
             }
 
             // Match intervals of digits computed by positions of digit bytes
@@ -1533,37 +1540,41 @@ impl OtherSegment20 {
             // - all offset boundaries should be in a digit stream
             let mut seg_ends = (0..n_segs).map(|x| (x + 1) * ww);
             let mut cur_end = seg_ends.by_ref().next();
-            for (a, b) in &digit_intervals {
+            let digit_intervals = digit_starts.iter().copied().zip(digit_ends.iter().copied());
+            for (a, b) in digit_intervals {
                 if let Some(s) = cur_end {
-                    if &s == b {
+                    if s == b {
                         // offset end and digit end are equal, this digit stream
                         // is satisfied
                         cur_end = seg_ends.by_ref().next();
                         continue;
-                    } else if a < &s && &s < b {
+                    } else if a < s && s < b {
                         // offset end is in digit stream, which is allowed but
                         // we still need to match the current digit stream's
                         // ending offset. Advance until we either find a match
                         // (pass) or we overshoot (fail)
-                        while cur_end.is_some_and(|s0| &s0 < b) {
+                        while cur_end.is_some_and(|s0| s0 < b) {
                             cur_end = seg_ends.by_ref().next();
                         }
-                        if cur_end.is_some_and(|s0| &s0 == b) {
+                        if cur_end.is_some_and(|s0| s0 == b) {
                             cur_end = seg_ends.by_ref().next();
                             continue;
                         }
-                        return None;
+                        return false;
                     }
                     // offset end is before the start of digit stream, invalid
-                    return None;
+                    return false;
                 }
                 // we ran out of segment ends, this digit stream is not
                 // matched which is a fail
-                return None;
+                return false;
             }
-            Some(w)
+            true
         };
-        let candidates = (MIN_WIDTH..=MAX_CHARS).filter_map(go);
+        // TODO use NZU8 directly
+        let candidates = (MIN_OTHER_WIDTH.get()..=MAX_CHARS.get())
+            .filter_map(|w| OtherWidth::try_from(w).ok())
+            .filter(|&w| go(w));
 
         // TODO for now we are assuming that checking digit boundaries is good
         // enough to figure out what the offset width should be. We could also
@@ -1576,11 +1587,13 @@ impl OtherSegment20 {
         //
         // Example of a tie: '   11111   22222' could either be 1,1111 and
         // 2,2222 or 11111,22222 (width is 4 or 8 respectively)
-        if let Some(ws) = NonEmpty::collect(candidates) {
-            if ws.tail.is_empty() {
-                Ok(OtherWidth::try_from(ws.head).unwrap())
+        if let Some(ne) = candidates.try_into_nonempty_iter() {
+            let (w0, mut ws) = ne.next();
+            if ws.by_ref().peek().is_none() {
+                Ok(w0)
             } else {
-                Err(GuessOtherWidthError::MultiWidth(ws))
+                let mw = once(w0).chain(ws).collect();
+                Err(GuessOtherWidthError::MultiWidth(mw))
             }
         } else {
             Err(GuessOtherWidthError::NoWidth)
@@ -1589,19 +1602,12 @@ impl OtherSegment20 {
 }
 
 impl<I> TEXTSegment<I> {
-    pub(crate) fn keywords(&self) -> [(String, String); 2]
+    pub(crate) fn keywords(&self) -> [OffsetKeyword; 2]
     where
-        I: KeyedReqSegment,
-        I::B: Into<UintZeroPad20>
-            + From<UintZeroPad20>
-            + ReqMetarootKey
-            + FromStr<Err = ParseIntError>
-            + fmt::Display,
-        I::E: Into<UintZeroPad20>
-            + From<UintZeroPad20>
-            + ReqMetarootKey
-            + FromStr<Err = ParseIntError>
-            + fmt::Display,
+        I: KeyedSegment,
+        I::B: From<UintZeroPad20>,
+        I::E: From<UintZeroPad20>,
+        OffsetKeyword: From<SplitKeyword0<I::B>> + From<SplitKeyword0<I::E>>,
     {
         let i = self.inner;
         let (b, e) = match i {
@@ -1609,8 +1615,8 @@ impl<I> TEXTSegment<I> {
             InnerSegment::NonEmpty(x) => (x.begin, x.end),
         };
         [
-            ReqMetarootKey::pair(&I::B::from(b)),
-            ReqMetarootKey::pair(&I::E::from(e)),
+            OffsetKeyword::from_value(I::B::from(b)),
+            OffsetKeyword::from_value(I::E::from(e)),
         ]
     }
 }
@@ -1920,7 +1926,7 @@ pub struct ParseOffsetError {
     error: ParseFixedUintError,
     is_begin: bool,
     location: AnyRegion,
-    src: StringOrBytes,
+    src: NEStringOrBytes,
 }
 
 /// Error when TEXT offsets are overridden using corresponding offsets from HEADER
@@ -1998,7 +2004,7 @@ pub enum GuessOtherWidthError {
     #[error("No width for OTHER offsets could be found.")]
     NoWidth,
     #[error("Multiple possible widths for OTHER offsets: {}", _0.iter().join(","))]
-    MultiWidth(NonEmpty<u8>),
+    MultiWidth(NEVec<OtherWidth>),
 }
 
 #[cfg(test)]
@@ -2007,63 +2013,63 @@ mod tests {
 
     #[test]
     fn other_width_2x8() {
-        let s = b"       0       0";
+        let s = NESlice::try_from_slice(b"       0       0").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
 
     #[test]
     fn other_width_2x8_minus() {
-        let s = b"       0      -1";
+        let s = NESlice::try_from_slice(b"       0      -1").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
 
     #[test]
     fn other_width_2x8_big_minus() {
-        let s = b"       0-1000000";
+        let s = NESlice::try_from_slice(b"       0-1000000").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
 
     #[test]
     fn other_width_2x8_first_minus() {
-        let s = b"-1000000       0";
+        let s = NESlice::try_from_slice(b"-1000000       0").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
 
     #[test]
     fn other_width_4x8() {
-        let s = b"       0       0    2112   90125";
+        let s = NESlice::try_from_slice(b"       0       0    2112   90125").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
 
     #[test]
     fn other_width_4x8_minus() {
-        let s = b"       0       0    2112  -90125";
+        let s = NESlice::try_from_slice(b"       0       0    2112  -90125").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
 
     #[test]
     fn other_width_4x8_hidden() {
-        let s = b"       010000000       1       2";
+        let s = NESlice::try_from_slice(b"       010000000       1       2").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2071,9 +2077,9 @@ mod tests {
     #[test]
     fn other_width_4x8_spaceballs() {
         // random space after than should be ignored
-        let s = b"       0       0       0   12345              ";
+        let s = NESlice::try_from_slice(b"       0       0       0   12345              ").unwrap();
         assert_eq!(
-            OtherSegment20::guess_other_width(s, None).map(u8::from),
+            OtherSegment20::guess_other_width(&s, None).map(u8::from),
             Ok(8)
         );
     }
@@ -2081,15 +2087,15 @@ mod tests {
     #[test]
     fn other_width_uneven() {
         // 8 then 9
-        let s = b"       0        0";
-        assert!(OtherSegment20::guess_other_width(s, None).is_err());
+        let s = NESlice::try_from_slice(b"       0        0").unwrap();
+        assert!(OtherSegment20::guess_other_width(&s, None).is_err());
     }
 
     #[test]
     fn other_width_nobound() {
         // this can either be 8 or 16
-        let s = b"00000000000000000000000000000000";
-        assert!(OtherSegment20::guess_other_width(s, None).is_err());
+        let s = NESlice::try_from_slice(b"00000000000000000000000000000000").unwrap();
+        assert!(OtherSegment20::guess_other_width(&s, None).is_err());
     }
 }
 

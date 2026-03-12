@@ -1,18 +1,23 @@
 use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
-use crate::core::UnitaryKeyLossError;
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
+use crate::text::keywords::{Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};
-use crate::text::optional::KeywordPairMaybe as _;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
+use fireflow_types::keywords::{
+    ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
+};
+use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
 use type_families::BifunctorOnce as _;
 
+use ambassador::Delegate;
 use chrono::{
     DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, ParseError, TimeZone as _,
 };
 use derive_more::{AsRef, Display, From, Into};
-use std::mem;
 use thiserror::Error;
+
+use std::mem;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -34,27 +39,36 @@ pub struct Datetimes {
 }
 
 /// The $BEGINDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct BeginDateTime(pub FCSDateTime);
 
 /// The $ENDDATETIME key.
-#[derive(Clone, Copy, From, Into, Display, PartialEq, Debug)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[from(DateTime<FixedOffset>, FCSDateTime)]
 #[into(DateTime<FixedOffset>, FCSDateTime)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct EndDateTime(pub FCSDateTime);
 
 /// A datetime as used in the $(BEGIN|END)DATETIME keys (3.2+ only)
-#[derive(Clone, Copy, From, Into, PartialEq, Debug, Display)]
+#[derive(Clone, Copy, From, Into, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[display("{}", _0.format("%Y-%m-%dT%H:%M:%S%.f%:z"))]
 pub struct FCSDateTime(pub DateTime<FixedOffset>);
+
+impl<'a> ToDisplayNE<'a> for FCSDateTime {
+    type NE = NEString;
+    fn to_ne(&'a self) -> Self::NE {
+        NEString::try_from(self.0.format(ISO_DATETIME_TZ_HH_MM).to_string())
+            .expect("format should be non-empty")
+    }
+}
 
 impl Datetimes {
     #[must_use]
@@ -126,8 +140,11 @@ impl Datetimes {
                         // If creating the new datetime object failed,
                         // optionally transfer component keys to nonstandard
                         if rconf.process_optional_failure.is_demote() {
-                            nonstd.insert_demoted_metaroot_opt(old_begin.as_ref());
-                            nonstd.insert_demoted_metaroot_opt(old_end.as_ref());
+                            let bk = old_begin.map(OptRootKeyword::from_value);
+                            let ek = old_end.map(OptRootKeyword::from_value);
+                            for k in [bk, ek].into_iter().flatten() {
+                                nonstd.insert_demoted_keyword(k.into());
+                            }
                         }
                     })
                     .into_semigroup()
@@ -135,19 +152,19 @@ impl Datetimes {
             })
     }
 
-    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        [self.begin.metaroot_opt_pair(), self.end.metaroot_opt_pair()]
-            .into_iter()
-            .filter_map(|(k, v)| v.map(|x| (k, x)))
+    pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
+        let x = self.begin.map(OptRootKeyword::from_value);
+        let y = self.end.map(OptRootKeyword::from_value);
+        [x, y].into_iter().flatten()
     }
 
-    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {
-        let x0 = UnitaryKeyLossError::<BeginDateTime>::default();
-        let y0 = self.begin.is_some().then_some(x0.into());
-        let x1 = UnitaryKeyLossError::<EndDateTime>::default();
-        let y1 = self.end.is_some().then_some(x1.into());
-        [y0, y1].into_iter().flatten()
-    }
+    // pub(crate) fn loss_errors(&self) -> impl Iterator<Item = DatetimeLossError> {
+    //     let x0 = Key0LossError::<BeginDateTime>::default();
+    //     let y0 = self.begin.is_some().then_some(x0.into());
+    //     let x1 = Key0LossError::<EndDateTime>::default();
+    //     let y1 = self.end.is_some().then_some(x1.into());
+    //     [y0, y1].into_iter().flatten()
+    // }
 }
 
 macro_rules! impl_from_str_with {
@@ -159,7 +176,7 @@ macro_rules! impl_from_str_with {
             type Config = ReadStdKeywordsConfig;
 
             fn from_str_with(
-                s: &str,
+                s: &fireflow_types::nonempty_string::NEStr,
                 (): (),
                 conf: &Self::Config,
             ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
@@ -179,17 +196,17 @@ impl FromStrWith for FCSDateTime {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
-        s: &str,
+        s: &NEStr,
         (): (),
         conf: &Self::Config,
     ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
         if let Some(pat) = conf.datetime_pattern.as_ref() {
             // first, try the given alternative format if it exists
-            DateTime::parse_from_str(s, pat.as_str())
+            DateTime::parse_from_str(s.as_str(), pat.as_str())
                 .map(Self)
                 .map(DiagnosedKeyword::new1)
                 .map_err(|e| FCSDateTimeError::AltFormat(e, pat.to_owned()))
-        } else if let Ok(naive) = NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S%.f") {
+        } else if let Ok(naive) = NaiveDateTime::parse_from_str(s.as_str(), ISO_DATETIME_NO_TZ) {
             // next, try to parse without a timezone, defaulting to localtime and
             // converting to a fixed offset
             if conf.disallow_localtime.is_set() {
@@ -207,13 +224,13 @@ impl FromStrWith for FCSDateTime {
             // If zone information is present, try any number of formats which
             // are valid and mostly equivalent which contain the timezone
             let formats = [
-                "%Y-%m-%dT%H:%M:%S%.f",
-                "%Y-%m-%dT%H:%M:%S%.f%#z",
-                "%Y-%m-%dT%H:%M:%S%.f%:z",
-                "%Y-%m-%dT%H:%M:%S%.f%:::z",
+                ISO_DATETIME_NO_TZ,
+                ISO_DATETIME_TZ_HH_MAYBE_MM,
+                ISO_DATETIME_TZ_HH_MM,
+                ISO_DATETIME_TZ_HH,
             ];
             for f in formats {
-                if let Ok(t) = DateTime::parse_from_str(s, f) {
+                if let Ok(t) = DateTime::parse_from_str(s.as_ref(), f) {
                     return Ok(DiagnosedKeyword::new1(Self(t)));
                 }
             }
@@ -259,14 +276,6 @@ pub enum LookupDatetimesError {
     Datetime(ReversedDatetimesError),
 }
 
-/// Error when $BEGINDATETIME or $ENDDATETIME are dropped due to version change
-#[derive(From, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DatetimeLossError {
-    Begin(UnitaryKeyLossError<BeginDateTime>),
-    End(UnitaryKeyLossError<EndDateTime>),
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -278,7 +287,7 @@ mod tests {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let conf = ReadStdKeywordsConfig::default();
-            Self::from_str_with(s, (), &conf).map(|x| x.native)
+            Self::from_str_with(NEStr::try_new(s).unwrap(), (), &conf).map(|x| x.native)
         }
     }
 

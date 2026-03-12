@@ -1,9 +1,13 @@
-use derive_more::{Add, Display, Into, Mul};
+use fireflow_types::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
+
+use ambassador::Delegate;
+use derive_more::{Add, Into, Mul};
 use num_derive::{One, Zero};
+use thiserror::Error;
+
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -15,17 +19,19 @@ use pyo3::prelude::*;
 use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 
 /// A non-negative [`f32`]
-#[derive(Clone, Copy, PartialEq, Display, Into, Add, Mul, One, Zero, Debug)]
+#[derive(Clone, Copy, PartialEq, Into, Add, Mul, One, Zero, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct NonNegFloat(f32);
 
 /// A positive [`f32`]
-#[derive(Clone, Copy, PartialEq, Display, Into, Mul, One, Debug)]
+#[derive(Clone, Copy, PartialEq, Into, Mul, One, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
 #[mul(forward)]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct PositiveFloat(f32);
 
 macro_rules! impl_ranged_float {

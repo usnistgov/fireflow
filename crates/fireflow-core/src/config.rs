@@ -10,7 +10,6 @@
 //! is an error. This will work in most cases with a few exceptions where the
 //! standard is unclear.
 
-use crate::header::Version;
 use crate::logging::{IOResult, ImpureError, LogResult, WarningsAndErrorsResult};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
@@ -37,6 +36,8 @@ use fireflow_types::config::{
     VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
+use fireflow_types::keywords::Version;
+use fireflow_types::nonempty_string::NEString;
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
@@ -565,6 +566,8 @@ pub struct ReadHeaderAndTEXTConfig {
     /// erroneously exists.
     pub trim_text_end: TrimTEXTEnd,
 
+    // TODO this could be combined with replace_std_keys where empty string
+    // means "ignore"
     /// Remove standard keys from TEXT.
     ///
     /// Comparisons will be case-insensitive. Members of this list should not
@@ -916,11 +919,6 @@ pub struct ReadDataKeywordsConfig {
     /// Note: this flag has nothing to do with the bitmask being applied to the
     /// actual data being read. This will happen regardless.
     pub disallow_range_truncation: DisallowRangeTrunc,
-
-    /// If `true`, throw an error if TEXT includes any deprecated features.
-    ///
-    /// If `false`, merely throw a warning.
-    pub disallow_deprecated: DisallowDeprecated,
 }
 
 /// Specific instructions for reading events from DATA segment
@@ -1241,7 +1239,6 @@ impl_tri_error_flag!(false_is_error AllowTotMismatch);
 impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_tri_error_flag!(false_is_error AllowMissingTime);
 
-impl_tri_error_flag!(true_is_error DisallowDeprecated);
 impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 
@@ -1304,8 +1301,6 @@ impl AppendFlag {
     }
 }
 
-// TODO this could match an empty string which will never make sense; it may
-// make sense to forbid such patterns
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
@@ -1362,7 +1357,7 @@ pub struct TemporalHasOpticalKeyError {
 /// A map of [`KeyString`]/[`String`] pairs.
 ///
 /// The main use case for this is to replace or add key values.
-pub type KeyStringValues = HashMap<KeyString, String>;
+pub type KeyStringValues = HashMap<KeyString, NEString>;
 
 /// A list of patterns that match [`crate::validated::keys::StdKey`]s or
 /// [`crate::validated::keys::NonStdKey`]s.
@@ -1443,7 +1438,7 @@ impl<C> ReadState<C> {
 pub struct DatasetOffsetError(DatasetOffset, FileLen);
 
 type TemporalOpticalResult = WarningsAndErrorsResult<
-    Vec<(StdKey, String)>,
+    Vec<(StdKey, NEString)>,
     (),
     TemporalHasOpticalKeyError,
     TemporalHasOpticalKeyError,

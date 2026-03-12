@@ -1,19 +1,23 @@
 use crate::config::{ProcessOptionalFailure, ReadDataKeywordsConfig};
-use crate::core::BiIndexedKeyLossError;
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{Dfc, Par};
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
-use crate::validated::keys::{BiIndex, BiIndexedKey as _, Key2, SpecificKey, StdKeywords};
+use crate::validated::keys::{BiIndex, DKey2, DollarKey, SpecificKey, StdKeywords};
+
+use fireflow_types::nonempty_string::{NEConcat, NEConcat3, NEDelim, ToDisplayNE};
 
 use derive_more::{AsRef, Display, From, Into};
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
-use nonempty::NonEmpty;
-use std::fmt;
+use nonempty_collections::{
+    IntoIteratorExt as _, NEVec, NonEmptyArrayExt as _, iter::NonEmptyIterator as _,
+};
 use thiserror::Error;
+
+use std::num::NonZeroUsize;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -21,7 +25,7 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
 
-use super::keywords::LookupDfcError;
+use super::keywords::{LookupDfcError, SplitKeyword};
 use super::relational::BiIndexedKeyToIndexLinkError;
 
 /// The aggregated values of the $DFCiTOj keywords (2.0 only)
@@ -42,6 +46,26 @@ pub struct Compensation {
     matrix: DMatrix<f32>,
 }
 
+impl<'a> ToDisplayNE<'a> for Compensation {
+    type NE = NEConcat3<NonZeroUsize, char, NEDelim<NEVec<f32>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let n = NonZeroUsize::new(self.matrix.ncols()).expect("matrix should be at least 2x2");
+        // DMatrix slices are column major, so transpose first to output
+        // row-major
+        let xs = NEVec::try_from_slice(self.matrix.transpose().as_slice())
+            .expect("matrix should be at least 2x2");
+        NEConcat::new(n, ',').append(NEDelim::new(',', xs))
+    }
+}
+
+/// The value of one $DFCmTOn keyword.
+#[derive(Clone)]
+pub struct DfcKeyword {
+    pub(crate) row: MeasIndex,
+    pub(crate) col: MeasIndex,
+    pub(crate) value: Dfc,
+}
+
 impl Compensation2_0 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
@@ -56,7 +80,7 @@ impl Compensation2_0 {
         let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
             .cartesian_product(0..n)
             .map(|(r, c)| {
-                let k = SpecificKey::new_i2(c.into(), r.into());
+                let k = SpecificKey::new_i2(c, r);
                 match Dfc::lookup(kws, k) {
                     Ok(x) => (x, None),
                     Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
@@ -66,7 +90,7 @@ impl Compensation2_0 {
         let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
             LogResult::new_switchable_ok(None, flag)
         } else {
-            let ys = xs.into_iter().map(|x| x.unwrap_or(0.0));
+            let ys = xs.into_iter().map(Option::unwrap_or_default).map(f32::from);
             let matrix = DMatrix::from_row_iterator(n, n, ys);
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
@@ -76,23 +100,22 @@ impl Compensation2_0 {
         res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
     }
 
-    pub fn non_zero_indices(&self) -> impl Iterator<Item = (MeasIndex, MeasIndex, f32)> {
+    pub fn non_zero_indices(&self) -> impl Iterator<Item = DfcKeyword> {
         let m = &self.0.matrix;
-        m.iter().enumerate().filter_map(|(i, &x)| {
+        m.iter().enumerate().filter_map(|(i, &value)| {
             let n = m.ncols();
-            if x == 0.0 {
+            if value == 0.0 {
                 None
             } else {
                 let row = i / n;
                 let col = i % n;
-                Some((col.into(), row.into(), x))
+                Some(DfcKeyword {
+                    col: col.into(),
+                    row: row.into(),
+                    value: Dfc(value),
+                })
             }
         })
-    }
-
-    pub fn opt_keywords(&self) -> impl Iterator<Item = (String, String)> {
-        self.non_zero_indices()
-            .map(|(col, row, value)| (Dfc::std(row, col).to_string(), value.to_string()))
     }
 
     pub(crate) fn invalid_link_errors(
@@ -101,16 +124,19 @@ impl Compensation2_0 {
     ) -> impl Iterator<Item = BiIndexedKeyToIndexLinkError<Dfc>> {
         // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
         // since the entire matrix must be removed.
-        self.non_zero_indices().filter_map(|(col, row, _)| {
+        self.non_zero_indices().filter_map(|kw| {
             // TODO throw error if temporal measurement is anything other than ID
             let n = self.0.matrix.nrows();
             let bad_matrix = n < par.0 || par.0 < 2;
             let cutoff = if bad_matrix { 0 } else { par.0 };
-            let k = Key2::new_i2(col.into(), row.into());
-            let r = (usize::from(row) >= cutoff).then_some(row);
-            let c = (usize::from(col) >= cutoff).then_some(col);
-            NonEmpty::collect([r, c].into_iter().flatten())
-                .map(|js| BiIndexedKeyToIndexLinkError::new(js, k))
+            let k = DKey2::new_i2(kw.col, kw.row);
+            let r = (usize::from(kw.row) >= cutoff).then_some(kw.row);
+            let c = (usize::from(kw.col) >= cutoff).then_some(kw.col);
+            [r, c]
+                .into_iter()
+                .flatten()
+                .try_into_nonempty_iter()
+                .map(|js| BiIndexedKeyToIndexLinkError::new(js.collect(), k))
         })
     }
 
@@ -129,16 +155,19 @@ impl Compensation2_0 {
         // Scan through matrix and pull out all cells in rows/columns greater
         // or equal to cutoff and whose value is not zero. These are the keywords
         // to return.
-        let es = c.non_zero_indices().filter_map(|(col, row, value)| {
-            let which = match (usize::from(row) >= cutoff, usize::from(col) >= cutoff) {
+        let es = c.non_zero_indices().filter_map(|kw| {
+            let which = match (usize::from(kw.row) >= cutoff, usize::from(kw.col) >= cutoff) {
                 (true, true) => Some(Comp2_0Missing::Both),
                 (true, false) => Some(Comp2_0Missing::Row),
                 (false, true) => Some(Comp2_0Missing::Col),
                 (false, false) => None,
             };
-            which.map(|b| RemovedComp2_0Cell::new(row, col, value, b))
+            let k = DollarKey::new_i2(kw.row, kw.col);
+            which.map(|b| RemovedComp2_0Cell::new(SplitKeyword::new(k, kw.value), b))
         });
-        let ret = NonEmpty::collect(es).map(RemovedLink::Comp2_0);
+        let ret = es
+            .try_into_nonempty_iter()
+            .map(|js| RemovedLink::Comp2_0(js.collect()));
         // If resulting matrix is less than 2x2, replace with None. Otherwise
         // truncate the matrix down to $PAR by $PAR
         if bad_matrix {
@@ -152,16 +181,16 @@ impl Compensation2_0 {
     pub(crate) fn existing_links(
         &self,
     ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
-        self.non_zero_indices().map(|(col, row, _)| {
-            let xs = NonEmpty::from((col.into(), vec![row.into()]));
-            ExistingIndexedLinkError::new(Key2::new_i2(col.into(), row.into()), xs)
+        self.non_zero_indices().map(|kw| {
+            let xs = [kw.col.into(), kw.row.into()].into_nonempty_vec();
+            ExistingIndexedLinkError::new(DKey2::new_i2(kw.col, kw.row), xs)
         })
     }
 
-    pub(crate) fn loss_errors(&self) -> impl Iterator<Item = BiIndexedKeyLossError<Dfc>> {
-        self.non_zero_indices()
-            .map(|(col, row, _)| BiIndexedKeyLossError(Key2::new_i2(col.into(), row.into())))
-    }
+    // pub(crate) fn loss_errors(&self) -> impl Iterator<Item = Key2LossError<Dfc>> {
+    //     self.non_zero_indices()
+    //         .map(|kw| KeyLossError(DKey2::new_i2(kw.col, kw.row)))
+    // }
 }
 
 impl TryFrom<DMatrix<f32>> for Compensation {
@@ -214,16 +243,6 @@ pub enum NewCompError {
     TooSmall,
     #[error("compensation matrix may not have Nan, +Inf, or -Inf")]
     NotFinite,
-}
-
-impl fmt::Display for Compensation {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let n = self.matrix.ncols();
-        // DMatrix slices are column major, so transpose first to output
-        // row-major
-        let xs = self.matrix.transpose().as_slice().iter().join(",");
-        write!(f, "{n},{xs}")
-    }
 }
 
 /// Error when parsing $DFCiTOj keywords for compensation matrix (2.0)

@@ -30,24 +30,29 @@ use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
 use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::keywords::{
+    Compensation3_0, Dfc, Gating, Keyword0FromValue as _, MeasOrGateIndex, OptRootKeyword,
+    PrefixedMeasIndex, RefKeyword0, RegionGateIndex, RegionKeyword, RegionWindow, SplitKeyword1,
+    Trigger, UnstainedCenters,
+};
 use crate::validated::keys::{
-    BiIndex, BiIndexedKey as _, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _,
-    SpecificKey, StdKey,
+    BiIndex, DollarKey, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
 };
 use crate::validated::shortname::Shortname;
 
 use super::gating::Region;
 use super::index::RegionIndex;
-use super::keywords::{
-    Compensation3_0, Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex,
-    RegionWindow, Trigger, UnstainedCenters,
-};
+use super::keywords::{AsStdKeywordPair as _, SplitKeyword2};
 use super::spillover::Spillover;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use fireflow_types::nonempty_string::NEString;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    IntoIteratorExt as _, NEVec,
+    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
+};
 use thiserror::Error;
 
 use std::collections::HashSet;
@@ -114,10 +119,10 @@ pub enum AnyExistingIndexLinkError {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct ExistingNamedLinkError<T, I> {
-    pub key: SpecificKey<T, I>,
-    pub names: NonEmpty<Shortname>,
+    pub key: DollarKey<T, I>,
+    pub names: NEVec<Shortname>,
 }
 
 /// Error when a keyword has indexed references to it which would be broken if dropped
@@ -128,10 +133,10 @@ pub struct ExistingNamedLinkError<T, I> {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct ExistingIndexedLinkError<T, I> {
-    pub key: SpecificKey<T, I>,
-    pub names: NonEmpty<IndexFromOne>,
+    pub key: DollarKey<T, I>,
+    pub names: NEVec<IndexFromOne>,
 }
 
 //
@@ -144,7 +149,7 @@ pub enum RemovedLink {
     GatingRegion3_0(RemovedGateLink<MeasOrGateIndex>),
     GatingRegion3_2(RemovedGateLink<PrefixedMeasIndex>),
     Gating(RemovedGating),
-    Comp2_0(NonEmpty<RemovedComp2_0Cell>),
+    Comp2_0(NEVec<RemovedComp2_0Cell>),
     Comp3_0(RemovedIndexLink<Compensation3_0>),
     Spillover(RemovedNamedLink<Spillover>),
     UnstainedCenters(RemovedNamedLink<UnstainedCenters>),
@@ -154,9 +159,7 @@ pub enum RemovedLink {
 /// An invalid $DFCmTOn keyword that was removed
 #[derive(new)]
 pub struct RemovedComp2_0Cell {
-    row: MeasIndex,
-    col: MeasIndex,
-    value: f32,
+    kw: SplitKeyword2<Dfc>,
     missing: Comp2_0Missing,
 }
 
@@ -175,7 +178,7 @@ pub struct RemovedNamedLink<T> {
 }
 
 pub(crate) enum LinkName {
-    Both(NonEmpty<Shortname>, Option<Shortname>),
+    Both(NEVec<Shortname>, Option<Shortname>),
     Temporal(Shortname),
 }
 
@@ -183,7 +186,7 @@ pub(crate) enum LinkName {
 #[derive(new)]
 pub struct RemovedIndexLink<T> {
     key: T,
-    indices: NonEmpty<MeasIndex>,
+    indices: NEVec<MeasIndex>,
 }
 
 /// A $RnI/$RnW pair which refers to a non-existent measurement index which was removed.
@@ -197,7 +200,7 @@ pub struct RemovedGateLink<I> {
 /// A $GATING keyword which references non-existent $RnI/$RnW keywords and was removed.
 #[derive(new)]
 pub struct RemovedGating {
-    pub(crate) region_indices: NonEmpty<RegionIndex>,
+    pub(crate) region_indices: NEVec<RegionIndex>,
     pub(crate) gating: Gating,
 }
 
@@ -233,7 +236,7 @@ pub(crate) type BrokenRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGate
 /// Error when key which references a non-existent optical $PnN or the temporal $PnN
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub enum NamedLinkError<T, I> {
     Optical(OpticalNamedLinkError<T, I>),
     Temporal(TemporalNamedLinkError<T, I>),
@@ -249,11 +252,11 @@ pub enum NamedLinkError<T, I> {
     feature = "python",
     derive(DisplayAsPyErr),
     pyerr(py::RelationalError),
-    bound(SpecificKey<T, I>: Display)
+    bound(DollarKey<T, I>: Display)
 )]
 pub struct OpticalNamedLinkError<T, I> {
-    key: SpecificKey<T, I>,
-    names: NonEmpty<Shortname>,
+    key: DollarKey<T, I>,
+    names: NEVec<Shortname>,
 }
 
 #[derive(Debug, Display, Error, new)]
@@ -262,10 +265,10 @@ pub struct OpticalNamedLinkError<T, I> {
     feature = "python",
     derive(DisplayAsPyErr),
     pyerr(py::RelationalError),
-    bound(SpecificKey<T, I>: Display)
+    bound(DollarKey<T, I>: Display)
 )]
 pub struct TemporalNamedLinkError<T, I> {
-    key: SpecificKey<T, I>,
+    key: DollarKey<T, I>,
     name: Shortname,
 }
 
@@ -277,10 +280,10 @@ pub struct TemporalNamedLinkError<T, I> {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct IndexLinkError<T, I> {
-    indices: NonEmpty<MeasIndex>,
-    key: SpecificKey<T, I>,
+    indices: NEVec<MeasIndex>,
+    key: DollarKey<T, I>,
 }
 
 /// Error when key which depends on another key which is invalid.
@@ -291,10 +294,10 @@ pub struct IndexLinkError<T, I> {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-#[cfg_attr(feature = "python", bound(SpecificKey<T, I>: Display))]
+#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct DependentKeyErrorInner<T, I> {
-    deps: NonEmpty<StdKey>,
-    key: SpecificKey<T, I>,
+    deps: NEVec<StdKey>,
+    key: DollarKey<T, I>,
 }
 
 pub type KeyToNameLinkError<T> = NamedLinkError<T, ()>;
@@ -307,60 +310,71 @@ pub type DependentKeyError<T> = DependentKeyErrorInner<T, ()>;
 pub type DependentIndexedKeyError<T> = DependentKeyErrorInner<T, IndexFromOne>;
 
 impl<T> OpticalNamedLinkError<T, ()> {
-    pub(crate) fn new_i0(js: NonEmpty<Shortname>) -> Self {
-        Self::new(SpecificKey::default(), js)
+    pub(crate) fn new_i0(js: NEVec<Shortname>) -> Self {
+        Self::new(DollarKey::default(), js)
     }
 }
 
 impl<T> TemporalNamedLinkError<T, ()> {
     pub(crate) fn new_i0(name: Shortname) -> Self {
-        Self::new(SpecificKey::default(), name)
+        Self::new(DollarKey::default(), name)
     }
 }
 
 impl<T> IndexLinkError<T, ()> {
-    pub(crate) fn new_i0(js: NonEmpty<MeasIndex>) -> Self {
-        Self::new(js, SpecificKey::default())
+    pub(crate) fn new_i0(js: NEVec<MeasIndex>) -> Self {
+        Self::new(js, DollarKey::default())
     }
 }
 
 impl<T> DependentKeyError<T> {
-    pub(crate) fn new1(deps: NonEmpty<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::default())
+    pub(crate) fn new1(deps: NEVec<StdKey>) -> Self {
+        Self::new(deps, DollarKey::default())
     }
 }
 
 impl<T> DependentIndexedKeyError<T> {
-    pub(crate) fn new2(i: IndexFromOne, deps: NonEmpty<StdKey>) -> Self {
-        Self::new(deps, SpecificKey::new_i1(i))
+    pub(crate) fn new2(i: IndexFromOne, deps: NEVec<StdKey>) -> Self {
+        Self::new(deps, DollarKey::new_i1(i))
     }
 }
 
 impl RemovedLink {
     pub(crate) fn insert_keyvals(&self, kws: &mut NonStdKeywords) {
-        macro_rules! go_gate {
-            ($x:expr) => {{
-                for (k, v) in $x.region.opt_keywords_std($x.region_index) {
-                    kws.insert_demoted(k, v);
-                }
-            }};
+        fn go_ref<'a, T>(x: &'a T, kws: &mut NonStdKeywords)
+        where
+            OptRootKeyword<'a>: From<RefKeyword0<'a, T>>,
+        {
+            let kw = OptRootKeyword::from_ref(x);
+            kws.insert_demoted_keyword(kw.into());
         }
+
+        fn go_gate<'a, I>(r: &'a RemovedGateLink<I>, kws: &mut NonStdKeywords)
+        where
+            I: Copy,
+            RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        {
+            r.region.demote_keywords(r.region_index, kws);
+        }
+
         match self {
-            Self::GatingRegion3_0(x) => go_gate!(x),
-            Self::GatingRegion3_2(x) => go_gate!(x),
-            Self::Gating(x) => kws.insert_demoted_metaroot(&x.gating),
+            Self::GatingRegion3_0(x) => go_gate(x, kws),
+            Self::GatingRegion3_2(x) => go_gate(x, kws),
+            Self::Gating(x) => go_ref(&x.gating, kws),
             Self::Comp2_0(xs) => {
                 for x in xs {
                     let (k, v) = x.as_keyval();
                     kws.insert_demoted(k, v);
                 }
             }
-            Self::Comp3_0(x) => kws.insert_demoted_metaroot(&x.key),
-            Self::Spillover(x) => kws.insert_demoted_metaroot(&x.key),
+            Self::Comp3_0(x) => go_ref(&x.key, kws),
+            Self::Spillover(x) => go_ref(&x.key, kws),
             Self::UnstainedCenters(x) => {
-                kws.insert_demoted_metaroot_maybe(&x.key);
+                if let Some(kw) = OptRootKeyword::from_unstainedcenters(&x.key) {
+                    kws.insert_demoted_keyword(kw.into());
+                }
             }
-            Self::Trigger(x) => kws.insert_demoted_metaroot(&x.key),
+            Self::Trigger(x) => go_ref(&x.key, kws),
         }
     }
 
@@ -385,15 +399,12 @@ impl RemovedLink {
             Self::GatingRegion3_0(x) => go_gate!(es, x),
             Self::GatingRegion3_2(x) => go_gate!(es, x),
             Self::Gating(x) => {
-                let ks = x
-                    .region_indices
-                    .map(|ri| {
-                        let k0 = RegionGateIndex::<()>::std(ri);
-                        let k1 = RegionWindow::std(ri);
-                        (k0, vec![k1])
-                    })
-                    .map(NonEmpty::from);
-                let e = DependentKeyError::<Gating>::new1(NonEmpty::flatten(ks));
+                let ks = x.region_indices.into_nonempty_iter().flat_map(|ri| {
+                    let k0 = RegionGateIndex::<()>::std(ri);
+                    let k1 = RegionWindow::std(ri);
+                    [k0, k1]
+                });
+                let e = DependentKeyError::<Gating>::new1(ks.collect());
                 es.push(e.into());
             }
             Self::Comp2_0(xs) => {
@@ -410,24 +421,22 @@ impl RemovedLink {
 }
 
 impl RemovedComp2_0Cell {
-    fn as_keyval(&self) -> (StdKey, String) {
-        // NOTE col is first
-        let k = Dfc::std(self.col, self.row);
-        (k, self.value.to_string())
+    fn as_keyval(&self) -> (StdKey, NEString) {
+        self.kw.as_std_key_pair()
     }
 
     fn as_error(&self) -> BiIndexedKeyToIndexLinkError<Dfc> {
+        let i = self.kw.key.index();
         let xs = match self.missing {
-            Comp2_0Missing::Row => NonEmpty::new(self.row),
-            Comp2_0Missing::Col => NonEmpty::new(self.col),
+            Comp2_0Missing::Row => NEVec::new(i.i1.into()),
+            Comp2_0Missing::Col => NEVec::new(i.i0.into()),
             Comp2_0Missing::Both => {
-                let mut xs = NonEmpty::new(self.col);
-                xs.push(self.row);
+                let mut xs = NEVec::new(i.i0.into());
+                xs.push(i.i1.into());
                 xs
             }
         };
-        let k = SpecificKey::new_i2(self.col.into(), self.row.into());
-        BiIndexedKeyToIndexLinkError::new(xs, k)
+        BiIndexedKeyToIndexLinkError::new(xs, self.kw.key)
     }
 }
 
@@ -473,8 +482,8 @@ impl<T: Key> RemovedIndexLink<T> {
     {
         let mut removed = None;
         *src = take(src).and_then(|s| {
-            if let Some(js) = NonEmpty::collect(f(&s)) {
-                removed = Some(Self::new(s, js));
+            if let Some(js) = f(&s).try_into_nonempty_iter() {
+                removed = Some(Self::new(s, js.collect()));
                 None
             } else {
                 Some(s)
@@ -491,9 +500,9 @@ impl<I> RemovedGateLink<I> {
     {
         let ri = self.region_index;
         let region_key = RegionGateIndex::<()>::std(ri);
-        let k = SpecificKey::new_i1(ri.into());
+        let k = DollarKey::new_i1(ri);
         let e0 = IndexedKeyToIndexLinkError::new(self.meas_indices.into(), k);
-        let e1 = DependentIndexedKeyError::new2(ri.into(), NonEmpty::new(region_key));
+        let e1 = DependentIndexedKeyError::new2(ri.into(), NEVec::new(region_key));
         [BrokenIndexedLinkError::from(e0).into(), e1.into()].into_iter()
     }
 }

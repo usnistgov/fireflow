@@ -1,5 +1,7 @@
+use ambassador::Delegate;
 use derive_more::{Display, From, FromStr, Into};
 use derive_new::new;
+use fireflow_types::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
 use std::num::NonZeroUsize;
 use thiserror::Error;
 
@@ -13,8 +15,9 @@ use {
 };
 
 /// An index starting at 1, used as the basis for keyword indices
-#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, FromStr, Hash)]
+#[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, FromStr, Hash, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct IndexFromOne(NonZeroUsize);
 
 impl From<usize> for IndexFromOne {
@@ -35,9 +38,10 @@ macro_rules! newtype_index {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug,
-                 FromStr, Display, From, Into, Hash)]
+                 FromStr, Display, From, Into, Hash, Delegate)]
         #[from(IndexFromOne, usize)]
         #[into(IndexFromOne, usize)]
+        #[delegate(ToDisplayNE<'a>, generics = "'a")]
         pub struct $t(pub IndexFromOne);
     };
 }

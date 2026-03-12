@@ -23,14 +23,14 @@ fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
 nalgebra = { workspace = true, features = ["std"] }
 polars-arrow = { workspace = true }
-nonempty = { workspace = true, features = ["serialize"] }
+nonempty-collections = { workspace = true, features = ["serde"] }
 type_families = { path = "../type_families" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, features = ["nalgebra"], optional = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 
 [features]
-serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde"]
+serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde", "fireflow-types/serde"]
 python = ["dep:pyo3", "dep:numpy", "dep:fireflow-core-proc", "fireflow-types/python"]
 
 [lints]

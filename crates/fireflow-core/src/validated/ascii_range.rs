@@ -11,7 +11,7 @@ use crate::validated::keys::IndexedKey as _;
 use derive_more::{Display, From, Into};
 use derive_new::new;
 use std::fmt;
-use std::num::{NonZero, NonZeroU8};
+use std::num::{NonZero, NonZeroU8, NonZeroUsize};
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -51,10 +51,11 @@ pub struct AsciiRangeValue(pub u64);
 /// Width to use when parsing OTHER segments.
 ///
 /// Must be an integer between 8 and 20.
-#[derive(Clone, Copy, Into, PartialEq)]
+#[derive(Clone, Copy, Into, PartialEq, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct OtherWidth(u8);
+#[into(NonZeroU8, u8, NonZeroUsize)]
+pub struct OtherWidth(NonZeroU8);
 
 /// The number of chars for an ASCII measurement
 ///
@@ -64,9 +65,9 @@ pub struct OtherWidth(u8);
 #[into(NonZeroU8, u8)]
 pub(crate) struct Chars(NonZeroU8);
 
-pub(crate) const MAX_CHARS: u8 = 20;
+pub(crate) const MAX_CHARS: NonZeroU8 = NonZeroU8::new(20).unwrap();
 
-pub(crate) const MIN_OTHER_WIDTH: u8 = 8;
+pub(crate) const MIN_OTHER_WIDTH: NonZeroU8 = NonZeroU8::new(8).unwrap();
 
 impl TryFrom<Range> for Chars {
     type Error = RangeToIntError<u64>;
@@ -204,7 +205,7 @@ impl TryFrom<NonZeroU8> for Chars {
     /// 20 is the maximum number of digits representable by an unsigned integer,
     /// which is the numeric type used to back ASCII data.
     fn try_from(value: NonZeroU8) -> Result<Self, Self::Error> {
-        if u8::from(value) <= MAX_CHARS {
+        if value <= MAX_CHARS {
             Ok(Self(value))
         } else {
             Err(CharsError(u8::from(value)))
@@ -214,7 +215,8 @@ impl TryFrom<NonZeroU8> for Chars {
 
 impl Default for OtherWidth {
     fn default() -> Self {
-        Self(8)
+        const N: NonZeroU8 = NonZeroU8::new(8).unwrap();
+        Self(N)
     }
 }
 
@@ -222,8 +224,10 @@ impl TryFrom<u8> for OtherWidth {
     type Error = OtherWidthError;
 
     fn try_from(x: u8) -> Result<Self, Self::Error> {
-        if (MIN_OTHER_WIDTH..=MAX_CHARS).contains(&x) {
-            Ok(Self(x))
+        if let Some(n) = NonZeroU8::new(x)
+            && (MIN_OTHER_WIDTH..=MAX_CHARS).contains(&n)
+        {
+            Ok(Self(n))
         } else {
             Err(OtherWidthError(x))
         }

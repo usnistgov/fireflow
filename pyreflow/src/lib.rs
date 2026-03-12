@@ -18,12 +18,12 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     exc!("ParseKeywordValueError", ParseKeywordValueError);
     exc!("InvalidKeywordValueError", InvalidKeywordValueError);
     exc!("ExtraKeywordError", ExtraKeywordError);
-    exc!("FCSDeprecatedError", FCSDeprecatedError);
     exc!("ConversionError", ConversionError);
     exc!("RelationalError", RelationalError);
     exc!("EventDataError", EventDataError);
     exc!("DataLossError", DataLossError);
     exc!("ConfigError", ConfigError);
+    exc!("WriteFCSError", WriteFCSError);
     exc!("PyreflowWarning", PyreflowWarning);
 
     m.add_class::<ff::PyCoreTEXT2_0>()?;

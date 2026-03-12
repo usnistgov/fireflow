@@ -1,12 +1,11 @@
 //! Types used for constructing offsets in HEADER and TEXT
 
 use crate::header::MAX_HEADER_OFFSET;
-use crate::validated::ascii_range::Chars;
 
 use derive_more::{Add, Display, From, FromStr, Into, Mul, Sub};
+use fireflow_types::nonempty_string::{PaddedU64, ToDisplayNE};
 use num_derive::{One, Zero};
 use num_traits::ops::checked::CheckedSub;
-use std::fmt;
 use std::num::{NonZeroU64, ParseIntError, TryFromIntError};
 use std::str;
 use thiserror::Error;
@@ -43,15 +42,20 @@ use {
     Zero,
     One,
     Debug,
-    Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(u64, NonZeroU64)]
-#[display("{_0:0>20}")]
 pub struct UintZeroPad20(pub u64);
+
+impl ToDisplayNE<'_> for UintZeroPad20 {
+    type NE = PaddedU64;
+    fn to_ne(&'_ self) -> Self::NE {
+        PaddedU64::new(20, '0', self.0)
+    }
+}
 
 impl TryFrom<i128> for UintZeroPad20 {
     type Error = TryFromIntError;
@@ -89,14 +93,15 @@ impl CheckedSub for UintZeroPad20 {
     Mul,
     Zero,
     One,
-    Display,
     Debug,
+    Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u64, i128)]
 #[mul(forward)]
 #[from(NonZeroU64, UintSpacePad8)]
+#[display("{_0:>20}")]
 pub struct UintSpacePad20(pub u64);
 
 impl TryFrom<i128> for UintSpacePad20 {
@@ -147,7 +152,6 @@ impl HeaderString for UintSpacePad20 {
     Eq,
     PartialOrd,
     Ord,
-    Display,
     Into,
     From,
     Add,
@@ -156,12 +160,14 @@ impl HeaderString for UintSpacePad20 {
     Zero,
     One,
     Debug,
+    Display,
 )]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 #[into(u32, u64, i128)]
 #[from(u8, u16)] // ASSUME these will never fail
 #[mul(forward)]
+#[display("{_0:>8}")]
 pub struct UintSpacePad8(u32);
 
 impl CheckedSub for UintSpacePad8 {
@@ -184,16 +190,8 @@ impl HeaderString for UintSpacePad8 {
     const WIDTH: u8 = 8;
 }
 
-pub(crate) trait HeaderString: fmt::Display + Into<u64> + Copy {
+pub(crate) trait HeaderString {
     const WIDTH: u8;
-
-    fn header_string(&self) -> String {
-        let n = Chars::from_u64((*self).into());
-        let mut s = " ".repeat(usize::from(Self::WIDTH - u8::from(n)));
-        let d = self.to_string();
-        s.push_str(&d);
-        s
-    }
 }
 
 impl TryFrom<i128> for UintSpacePad8 {

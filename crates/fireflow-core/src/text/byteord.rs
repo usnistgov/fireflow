@@ -2,15 +2,19 @@ use crate::macros::match_many_to_one;
 use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::validated::ascii_range::{Chars, CharsError};
 
+use fireflow_types::ne_str;
+use fireflow_types::nonempty_string::{NEDelim, NEStr, ToDisplayNE};
+
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use itertools::Itertools as _;
+use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
 use num_enum::{IntoPrimitive, TryFromPrimitive};
+use thiserror::Error;
+
 use std::fmt;
 use std::num::NonZeroU8;
 use std::num::ParseIntError;
 use std::str::FromStr;
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -32,14 +36,22 @@ pub enum SizedByteOrd<const LEN: usize> {
 }
 
 /// Endianness (big or little)
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Endian {
-    #[display("4,3,2,1")]
     Big,
     #[default]
-    #[display("1,2,3,4")]
     Little,
+}
+
+impl ToDisplayNE<'_> for Endian {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> Self::NE {
+        match self {
+            Self::Big => ne_str!("4,3,2,1"),
+            Self::Little => ne_str!("1,2,3,4"),
+        }
+    }
 }
 
 /// Marker type representing lack of byte order.
@@ -59,9 +71,10 @@ pub type NoByteOrd3_1 = NoByteOrd<false>;
 pub struct Bytes(pub(crate) PrivBytes);
 
 /// Private version of `Bytes`
-#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[repr(u8)]
+#[display("{}", u8::from(*self))]
 pub(crate) enum PrivBytes {
     B1 = 1,
     B2,
@@ -77,13 +90,20 @@ pub(crate) enum PrivBytes {
 ///
 /// Subsequent operations can be used to use it as "bytes" or "characters"
 /// depending on what is needed by the column.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
 pub struct BitsOrChars(pub(crate) PrivBitsOrChars);
 
+impl<'a> ToDisplayNE<'a> for BitsOrChars {
+    type NE = NonZeroU8;
+    fn to_ne(&'a self) -> Self::NE {
+        self.0.0
+    }
+}
+
 /// Internal version of `BitsOrChars`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
@@ -166,7 +186,7 @@ macro_rules! byteord_from_sized {
         }
 
         impl From<SizedByteOrd<$len>> for [NonZeroU8; $len] {
-            fn from(value: SizedByteOrd<$len>) -> [NonZeroU8; $len] {
+            fn from(value: SizedByteOrd<$len>) -> Self {
                 debug_assert!($len <= 8_usize, "this should not be called for len > 8");
                 let arr = match value {
                     SizedByteOrd::Endian(e) => {
@@ -190,6 +210,16 @@ macro_rules! byteord_from_sized {
 
         impl HasByteOrd for SizedByteOrd<$len> {
             type ByteOrd = ByteOrd2_0;
+        }
+
+        // TODO could return an array here instead of vec but this would require
+        // enumerating each size in ByteOrd2_0
+        impl<'a> ToDisplayNE<'a> for SizedByteOrd<$len> {
+            type NE = NEDelim<NEVec<NonZeroU8>>;
+            fn to_ne(&'a self) -> Self::NE {
+                let xs = <[NonZeroU8; $len]>::from(*self);
+                NEDelim::new(',', xs.into_nonempty_iter().collect())
+            }
         }
     };
 }
@@ -381,15 +411,6 @@ impl FromStr for Endian {
     }
 }
 
-impl<const LEN: usize> fmt::Display for SizedByteOrd<LEN>
-where
-    [NonZeroU8; LEN]: From<Self>,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", <[NonZeroU8; LEN]>::from(*self).iter().join(","))
-    }
-}
-
 impl FromStr for Width {
     type Err = ParseIntError;
 
@@ -400,12 +421,6 @@ impl FromStr for Width {
                 .parse::<NonZeroU8>()
                 .map(|x| Self::Fixed(BitsOrChars(PrivBitsOrChars(x)))),
         }
-    }
-}
-
-impl fmt::Display for PrivBytes {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        u8::from(*self).fmt(f)
     }
 }
 

@@ -11,7 +11,7 @@ use fireflow_types::config::{
     KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
     MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
     NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, ProcessKeywordFailure,
+    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER, ProcessKeywordFailure,
     ProcessTemporalOpticalKeys, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
     SPILLOVER_NAMED_LEVEL, SpilloverMeasurementMode, TIME_MEAS_NAME_PATTERN_DEFAULT,
     TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
@@ -27,7 +27,10 @@ use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty::NonEmpty;
+use nonempty_collections::{
+    NEVec,
+    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
+};
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote};
@@ -262,12 +265,11 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER} or {TEXT} are unparsable"));
     let exc1 = PyException::new_extra();
-    let exc2 = PyException::new_deprecated();
-    let exc3 = PyException::new_parse_keyval();
-    let exc4 = PyException::new_pyreflow(PyreflowError::Relational)
+    let exc2 = PyException::new_parse_keyval();
+    let exc3 = PyException::new_pyreflow(PyreflowError::Relational)
         .desc("If keywords that are referenced by other keywords are missing");
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let pt_ret =
         PyTuple::new1(PyUnion::new_anycoretext()).add(PyClass::new_py(["api"], "StdTEXTOutput"));
@@ -363,15 +365,13 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
-    let exc1 = PyException::new_deprecated()
-        .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
-    let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc1 = PyException::new_parse_keyval();
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA}"
     ));
-    let exc4 = PyException::new_event_data();
+    let exc3 = PyException::new_event_data();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let pt_data_ret = PyClass::new_py(["api"], "FlatDatasetOutput");
     let pt_smry_ret = PyClass::new_py(["api"], "DatasetSummary");
@@ -479,16 +479,15 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
-    let exc1 = PyException::new_deprecated();
-    let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc1 = PyException::new_parse_keyval();
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA} or \
          if keywords that are referenced by other keywords do not exist"
     ));
-    let exc4 = PyException::new_event_data();
-    let exc5 = PyException::new_extra();
+    let exc3 = PyException::new_event_data();
+    let exc4 = PyException::new_extra();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4, exc5];
+    let xs = [exc0, exc1, exc2, exc3, exc4];
 
     let pt_ret = PyTuple::new1(PyUnion::new_anycoredataset())
         .add(PyClass::new_py(["api"], "StdDatasetOutput"));
@@ -564,15 +563,13 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         .desc(format!("If {DATA} is unparsable"));
     // the only deprecated keyval that should be read here is $DATATYPE when its
     // value is A for 3.1+
-    let exc1 = PyException::new_deprecated()
-        .desc("If an ASCII layout is used and FCS version is 3.1 or 3.2");
-    let exc2 = PyException::new_parse_keyval();
-    let exc3 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc1 = PyException::new_parse_keyval();
+    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA}"
     ));
-    let exc4 = PyException::new_event_data();
+    let exc3 = PyException::new_event_data();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let doc = DocString::new_fun("Read dataset from FCS file from keywords in flat mode.")
         .arg(path_arg)
@@ -1121,7 +1118,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let timestep = DocArgROIvar::new_ivar_ro(
         "timestep",
-        PyOpt::new1(PyStr::default()),
+        PyOpt::new1(PyStr::new_ne_str()),
         format!("Unused {TIMESTEP} keyword"),
         |_, _| quote!(self.0.timestep.clone()),
     );
@@ -1149,14 +1146,14 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "trimmed",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::default())),
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_str())),
         "Keywords which had whitespace between commas trimmed.",
         |_, _| quote!(self.0.trimmed.clone()),
     );
 
     let tmp_opt_pairs = DocArgROIvar::new_ivar_ro(
         "temporal_optical_pairs",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::default())),
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_str())),
         "Optical keys that were found in the temporal measurement.",
         |_, _| quote!(self.0.temporal_optical_pairs.clone()),
     );
@@ -1419,7 +1416,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
         PyList::new1(
-            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_string_or_bytes()),
+            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_ne_string_or_bytes()),
         ),
         "Keywords with keys that are not ASCII or values that are not UTF-8.",
         |_, _| quote!(self.0.byte_pairs.clone()),
@@ -1429,7 +1426,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "non_unique_std_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_std_keyword()),
-            PyStr::new_truncated_str().into(),
+            PyStr::new_ne_truncated_str().into(),
         ])),
         format!("Standard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_std_keywords.clone()),
@@ -1439,7 +1436,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "non_unique_nonstd_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_nonstd_keyword()),
-            PyStr::new_truncated_str().into(),
+            PyStr::new_ne_truncated_str().into(),
         ])),
         format!("Nonstandard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_nonstd_keywords.clone()),
@@ -1449,7 +1446,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         "ignored_standard_keywords",
         PyList::new1(PyTuple::new2([
             PyType::from(PyStr::new_std_keyword()),
-            PyUnion::new_string_or_bytes().into(),
+            PyUnion::new_ne_string_or_bytes().into(),
         ])),
         "Standard keys which were ignored by the user.",
         |_, _| quote!(self.0.ignored_standard_keywords.clone()),
@@ -1465,7 +1462,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     let trimmed = DocArgROIvar::new_ivar_ro(
         "keys_with_trimmed_values",
         PyList::new1(
-            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_string_or_bytes()),
+            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_ne_string_or_bytes()),
         ),
         "Keys with values that are not empty after whitespace was trimmed off.",
         |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
@@ -1531,21 +1528,28 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let keys_with_blank_values = DocArgROIvar::new_ivar_ro(
         "keys_with_blank_values",
-        PyList::new1(PyUnion::new_string_or_bytes()),
+        PyList::new1(PyUnion::new_ne_string_or_bytes()),
         "Keys which have blank values (relatively common).",
         |_, _| quote!(self.0.keys_with_blank_values.clone()),
     );
 
     let values_with_blank_keys = DocArgROIvar::new_ivar_ro(
         "values_with_blank_keys",
-        PyList::new1(PyUnion::new_string_or_bytes()),
+        PyList::new1(PyUnion::new_ne_string_or_bytes()),
         "Values which have blank keys (relatively rare).",
         |_, _| quote!(self.0.values_with_blank_keys.clone()),
     );
 
+    let skipped_pairs = DocArgROIvar::new_ivar_ro(
+        "skipped_pairs",
+        RsInt::Usize,
+        "Number of key/value pairs that were skipped because both were blank.",
+        |_, _| quote!(self.0.skipped_pairs),
+    );
+
     let tokens_with_boundary_delims = DocArgROIvar::new_ivar_ro(
         "tokens_with_boundary_delims",
-        PyList::new1(PyUnion::new_string_or_bytes()),
+        PyList::new1(PyUnion::new_ne_string_or_bytes()),
         "Tokens (keys or values) which have delimiters at their boundary.",
         |_, _| quote!(self.0.tokens_with_boundary_delims.clone()),
     );
@@ -1573,7 +1577,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let trailing_bytes = DocArgROIvar::new_ivar_ro(
         "trailing_bytes",
-        PyBytes::default(),
+        PyUnion::new_string_or_bytes(),
         format!("Trailing bytes after {TEXT}"),
         |_, _| quote!(self.0.trailing_bytes.clone()),
     );
@@ -1583,6 +1587,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         escaped,
         keys_with_blank_values,
         values_with_blank_keys,
+        skipped_pairs,
         tokens_with_boundary_delims,
         last_odd_token,
         missing_final_delim,
@@ -3091,16 +3096,15 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     );
     let dataset_offset_param = DocArg::new_dataset_offset_param();
 
-    let exc0 = PyException::new_deprecated();
-    let exc1 = PyException::new_parse_keyval();
-    let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
+    let exc0 = PyException::new_parse_keyval();
+    let exc1 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
         "If keywords are incompatible with indicated layout of {DATA} or \
          if keywords that are referenced by other keywords do not exist",
     ));
-    let exc3 = PyException::new_event_data();
-    let exc4 = PyException::new_extra();
+    let exc2 = PyException::new_event_data();
+    let exc3 = PyException::new_extra();
 
-    let xs = [exc0, exc1, exc2, exc3, exc4];
+    let xs = [exc0, exc1, exc2, exc3];
 
     let doc = DocString::new_fun("Make new instance from keywords.")
         .arg(path_param)
@@ -4886,8 +4890,6 @@ enum PyreflowError {
     InvalidKeywordValue,
     #[display("ExtraKeywordError")]
     ExtraKeyword,
-    #[display("FCSDeprecatedError")]
-    FCSDeprecated,
     #[display("ConversionError")]
     Conversion,
     #[display("RelationalError")]
@@ -4923,7 +4925,7 @@ enum ExcNameMod {
     #[default]
     NoMod,
     /// For tuples, adds "field 1 in {}"
-    Field(NonEmpty<usize>, Box<Self>),
+    Field(NEVec<usize>, Box<Self>),
     /// For lists, adds "any in {}"
     List(Box<Self>),
     /// For dict keys, adds "dict key in {}"
@@ -4935,7 +4937,7 @@ enum ExcNameMod {
 /// A Python exception attached to at least one argmenent
 #[derive(new)]
 struct NamedPyException {
-    names: NonEmpty<String>,
+    names: NEVec<String>,
     inner: ArgPyException,
 }
 
@@ -5813,7 +5815,7 @@ impl From<PyException> for () {
 
 impl ExcNameMod {
     fn add_field(self, f: usize) -> Self {
-        Self::Field(NonEmpty::new(f), self.into())
+        Self::Field(NEVec::new(f), self.into())
     }
 
     fn add_list(self) -> Self {
@@ -5851,7 +5853,7 @@ impl ExcNameMod {
         let mut dict_val_trees = vec![];
         for x in xs {
             match x {
-                Self::Field(f, t) => field_trees.push((f.head, *t)),
+                Self::Field(f, t) => field_trees.push((f.into_nonempty_iter().next().0, *t)),
                 Self::List(t) => list_trees.push(*t),
                 Self::DictKey(t) => dict_key_trees.push(*t),
                 Self::DictVal(t) => dict_val_trees.push(*t),
@@ -5881,7 +5883,8 @@ impl ExcNameMod {
             .into_group_map()
             .into_iter()
             .map(|(tree, fs)| {
-                let fs_ = NonEmpty::collect(fs.into_iter().sorted()).unwrap();
+                // TODO this could probably be cleaned up
+                let fs_ = NEVec::try_from_vec(fs.into_iter().sorted().collect()).unwrap();
                 Self::Field(fs_, tree.into())
             });
 
@@ -5923,7 +5926,7 @@ impl ArgPyException {
     fn into_named(self, name: impl Into<String>) -> NamedPyException {
         NamedPyException {
             inner: self,
-            names: NonEmpty::new(name.into()),
+            names: NEVec::new(name.into()),
         }
     }
 }
@@ -5998,14 +6001,6 @@ impl PyException {
             .desc("If any standard keys are unused and not dropped by some other option")
     }
 
-    fn new_deprecated() -> Self {
-        Self::new_pyreflow(PyreflowError::FCSDeprecated).desc(format!(
-            "If any keywords or their values are deprecated and \
-             {disallow_deprecated} is {TRUE}",
-            disallow_deprecated = arg(DISALLOW_DEPRECATED),
-        ))
-    }
-
     fn new_parse_keyval() -> Self {
         Self::new_pyreflow(PyreflowError::ParseKeywordValue)
             .desc("If any keyword values could not be read from their string encoding")
@@ -6035,7 +6030,12 @@ impl NamedPyException {
     // TODO keep arg order when sorting names
     fn merge(xs: impl IntoIterator<Item = Self>) -> Vec<Self> {
         xs.into_iter()
-            .map(|x| ((x.names.head, x.inner.inner), x.inner.argmod))
+            .map(|x| {
+                (
+                    (x.names.into_nonempty_iter().next().0, x.inner.inner),
+                    x.inner.argmod,
+                )
+            })
             .into_group_map()
             .into_iter()
             .flat_map(|((name, exc), argmod)| {
@@ -6050,7 +6050,8 @@ impl NamedPyException {
             .sorted()
             .map(|((argmod, exc), names)| {
                 Self::new(
-                    NonEmpty::collect(names.into_iter().sorted()).unwrap(),
+                    // TODO this could probably be cleaned up
+                    NEVec::try_from_vec(names.into_iter().sorted().collect()).unwrap(),
                     ArgPyException::new(exc, argmod),
                 )
             })
@@ -6060,16 +6061,15 @@ impl NamedPyException {
 
 impl<R: Clone + PartialEq + Eq + Hash> PyAtom<R> {
     fn flatten_unions(self) -> Self {
-        fn go<Q: Clone + PartialEq + Eq + Hash>(x: PyAtom<Q>) -> NonEmpty<PyAtom<Q>> {
+        fn go<Q: Clone + PartialEq + Eq + Hash>(x: PyAtom<Q>) -> NEVec<PyAtom<Q>> {
             match x {
                 PyAtom::Union(x0, x1, xs) => {
-                    let ys = go(*x0)
-                        .into_iter()
-                        .chain(go(*x1))
-                        .chain(xs.into_iter().flat_map(go));
-                    NonEmpty::collect(ys).unwrap()
+                    let mut ys = go(*x0);
+                    ys.extend(go(*x1));
+                    ys.extend(xs.into_iter().flat_map(go));
+                    ys
                 }
-                y => NonEmpty::new(y.flatten_unions()),
+                y => NEVec::new(y.flatten_unions()),
             }
         }
         match self {
@@ -6382,8 +6382,8 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
-    fn new_truncated_str() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::TruncatedString);
+    fn new_ne_truncated_str() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
         Self::default().rstype(path)
     }
 
@@ -6426,7 +6426,12 @@ impl<E: From<PyException>> PyStr<E> {
         Self::default().rstype(path).exc(e)
     }
 
-    fn new_non_empty_str(path: Path) -> Self {
+    fn new_ne_str() -> Self {
+        let path: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
+        Self::new_ne_str_inner(path)
+    }
+
+    fn new_ne_str_inner(path: Path) -> Self {
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
         Self::default().rstype(path).exc(e)
@@ -6507,15 +6512,15 @@ impl<E: From<PyException>> PyDict<E> {
     }
 
     fn new_std_keywords() -> Self {
-        Self::new1(PyStr::new_std_keyword(), PyStr::default())
+        Self::new1(PyStr::new_std_keyword(), PyStr::new_ne_str())
     }
 
     fn new_nonstd_keywords() -> Self {
-        Self::new1(PyStr::new_nonstd_keyword(), PyStr::default())
+        Self::new1(PyStr::new_nonstd_keyword(), PyStr::new_ne_str())
     }
 
     fn new_keywords() -> Self {
-        Self::new1(PyStr::default(), PyStr::default())
+        Self::new1(PyStr::new_ne_str(), PyStr::new_ne_str())
     }
 
     fn new_sub_patterns() -> Self {
@@ -6548,7 +6553,7 @@ impl<E> PyList<E> {
 
 impl<E: From<PyException>> PyList<E> {
     fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: &Path) -> Self {
-        let nonempty = quote!(fireflow_core::nonempty::FCSNonEmpty);
+        let nonempty = quote!(fireflow_core::nonempty::FcsNEVec);
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
         Self::new(
@@ -6589,7 +6594,7 @@ impl PyLiteral {
     }
 
     fn new_version() -> Self {
-        let path = parse_quote!(fireflow_core::header::Version);
+        let path = parse_quote!(fireflow_types::keywords::Version);
         Self::new2(ALL_VERSION_STRINGS, path)
     }
 
@@ -6678,13 +6683,13 @@ impl<E> PyOpt<E> {
 impl<E: From<PyException>> PyOpt<E> {
     fn new_scale_fix() -> Self {
         let path = keyword_path("AnyMeasScaleFix");
-        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_scale_fix());
+        let inner = PyTuple::new1(PyStr::new_ne_str()).add(PyLiteral::new_scale_fix());
         Self::new1(inner).rstype(path)
     }
 
     fn new_gate_scale_fix() -> Self {
         let path = keyword_path("ScaleFix");
-        let inner = PyTuple::new1(PyStr::default()).add(PyLiteral::new_gate_scale_fix());
+        let inner = PyTuple::new1(PyStr::new_ne_str()).add(PyLiteral::new_gate_scale_fix());
         Self::new1(inner).rstype(path)
     }
 }
@@ -6906,6 +6911,11 @@ impl<E: From<PyException>> PyUnion<E> {
             ALL_VERSIONS.into_iter().map(PyClass::new_coredataset),
             parse_quote!(PyAnyCoreDataset),
         )
+    }
+
+    fn new_ne_string_or_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::NEStringOrBytes);
+        Self::new2(PyStr::default(), PyBytes::default(), path)
     }
 
     fn new_string_or_bytes() -> Self {
@@ -8184,22 +8194,18 @@ impl DocArgParam {
         let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
-        let disallow_deprecated = Self::new_disallow_deprecated_param();
 
         let layout_ps: Vec<_> = match version {
-            Some(Version::FCS3_1 | Version::FCS3_2) => [
-                process_optional_failure,
-                disallow_range_truncation,
-                disallow_deprecated,
-            ]
-            .into_iter()
-            .collect(),
+            Some(Version::FCS3_1 | Version::FCS3_2) => {
+                [process_optional_failure, disallow_range_truncation]
+                    .into_iter()
+                    .collect()
+            }
             _ => [
                 process_optional_failure,
                 integer_widths_from_byteord,
                 integer_byteord_override,
                 disallow_range_truncation,
-                disallow_deprecated,
             ]
             .into_iter()
             .collect(),
@@ -8492,12 +8498,6 @@ impl DocArgParam {
         Self::new_proc_kw_fail("process_optional_failure", "ProcessOptionalFailure", d)
     }
 
-    fn new_disallow_deprecated_param() -> Self {
-        let d = "Choose how to handle deprecated key if encountered.";
-        let e = PyreflowError::FCSDeprecated;
-        Self::new_tri_flag_param(DISALLOW_DEPRECATED, false, "DisallowDeprecated", d, e)
-    }
-
     fn new_fix_log_scale_offsets_param() -> Self {
         let d = format!(
             "If {TRUE} fix log-scale {PNE} and keywords which have zero offset \
@@ -8529,10 +8529,13 @@ impl DocArgParam {
             .default_from_inner()
             .rstype(path);
         let d = format!(
-            "Pattern to use when matching nonstandard measurement keys. Must \
-             be a regular expression pattern with {pat} which will represent \
-             the measurement index and should not start with {DOLLAR_STR}. Otherwise \
-             should be a normal regular expression as defined in {REGEXP_REF}."
+            "Pattern to use when matching nonstandard measurement keys. \
+             Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions, otherwise as literal strings \
+             to be used as an exact prefix match. If a regular expression, it \
+             must include {pat} which will represent the measurement index. \
+             Otherwise should be a normal regular expression as defined in \
+             {REGEXP_REF}."
         );
         Self::new_param("nonstandard_measurement_pattern", pytype, d)
             .def(DocDefault::Str(NON_STD_MEAS_PAT_DEFAULT.into()))
@@ -8898,22 +8901,21 @@ impl DocArgParam {
     }
 
     fn new_promote_to_standard() -> Self {
-        let d = format!("Promote nonstandard keys to standard keys in {TEXT}");
+        let d = format!("Promote nonstandard keys to standard keys in {TEXT}.");
         Self::new_key_patterns_param("promote_to_standard", d)
     }
 
     fn new_demote_from_standard() -> Self {
-        let d = format!("Demote nonstandard keys from standard keys in {TEXT}");
+        let d = format!("Demote nonstandard keys from standard keys in {TEXT}.");
         Self::new_key_patterns_param("demote_from_standard", d)
     }
 
     fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
         let common = format!(
-            "The first member of the tuples is a list of strings which \
-             match literally. The second member is a list of regular \
-             expressions corresponding to {REGEXP_REF}."
+            "Values that start and end with {PATTERN_DELIMITER} will be \
+             interpreted as regular expressions."
         );
-        let d = format!("{desc}. {common}");
+        let d = format!("{desc} {common}");
         Self::new_param(argname, PyList::new_key_patterns(), d).def_auto()
     }
 
@@ -8929,7 +8931,7 @@ impl DocArgParam {
     fn new_replace_standard_key_values() -> Self {
         Self::new_param(
             "replace_standard_key_values",
-            PyDict::new1(PyStr::new_keystring(), PyStr::default()),
+            PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str()),
             format!(
                 "Replace values for standard keys in {TEXT} Comparisons are case \
                  insensitive. The leading {DOLLAR_STR} is implied so do not include it."
@@ -8962,7 +8964,7 @@ impl DocArgParam {
     fn new_append_standard_keywords() -> Self {
         Self::new_param(
             "append_standard_keywords",
-            PyDict::new1(PyStr::new_keystring(), PyStr::default()),
+            PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str()),
             format!(
                 "Append standard key/value pairs to {TEXT}. All keys and values \
                  will be included as they appear here. The leading {DOLLAR_STR} \
@@ -10054,7 +10056,7 @@ impl Kw {
             | Self::Carriertype
             | Self::Locationid
             | Self::UnstainedInfo => PyStr::default().rstype(path).into(),
-            Self::Cyt3_2 => PyStr::new_non_empty_str(path).into(),
+            Self::Cyt3_2 => PyStr::new_ne_str_inner(path).into(),
             Self::Abrt | Self::Lost => PyOpt::new1(PyInt::new_u32().rstype(path)).into(),
             Self::CSVBits | Self::CSTot => PyInt::new_u32().rstype(path).into(),
             Self::Unicode => {
@@ -10276,7 +10278,6 @@ const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 
 const BIG_OTHER: &str = "big_other";
 const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
-const DISALLOW_DEPRECATED: &str = "disallow_deprecated";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
 const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";

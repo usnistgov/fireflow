@@ -1,14 +1,12 @@
-use crate::core::{IndexedKeyLossError, UnitaryKeyLossError};
+use crate::core::{Key1LossError, KeyLossError};
 use crate::text::index::IndexFromOne;
-use crate::validated::keys::{IndexedKey, Key, Key1, MeasHeader, StdKey};
+use crate::validated::keys::DKey1;
 
 use type_families::{Monoid, Pointed, Semigroup, Sibling1, impl_functor_once, impl_kind1};
 
-use derive_more::{AsMut, AsRef, From, FromStr};
-use std::fmt;
+use derive_more::{AsMut, AsRef, From};
 use std::iter;
 use std::marker::PhantomData;
-use std::string::ToString;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -77,19 +75,6 @@ impl<A> Pointed<A> for Nothing<A> {
     }
 }
 
-/// A [`String`] that is stored as-is but will not be displayed/written if blank.
-#[derive(Debug, Clone, PartialEq, Eq, AsRef, AsMut, From, Default, FromStr)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-#[as_ref(str)]
-pub struct OptionalString(pub String);
-
-/// A [`String`] that is stored as-is but will not be displayed/written if zero.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, From, Default, FromStr)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
-pub struct OptionalInt<T>(pub T);
-
 /// A value that can either have one value or be empty.
 ///
 /// This is like a bool but the `true` value is meant to have a displayed value
@@ -122,103 +107,26 @@ impl<T: Default + PartialEq> IsDefault for T {
     }
 }
 
-pub(crate) trait DisplayMaybe: IsDefault {
-    fn display_maybe(&self) -> Option<String>;
-}
-
-pub(crate) trait KeywordPairMaybe: IsDefault + DisplayMaybe {
-    type Inner;
-
-    fn metaroot_opt_pair(&self) -> (String, Option<String>)
-    where
-        Self::Inner: Key,
-    {
-        (Self::Inner::std().to_string(), self.display_maybe())
-    }
-
-    fn meas_opt_pair_std(&self, i: impl Into<IndexFromOne>) -> (StdKey, Option<String>)
-    where
-        Self::Inner: IndexedKey,
-    {
-        (Self::Inner::std(i), self.display_maybe())
-    }
-
-    fn meas_opt_pair(&self, i: impl Into<IndexFromOne>) -> (String, Option<String>)
-    where
-        Self::Inner: IndexedKey,
-    {
-        let (k, v) = self.meas_opt_pair_std(i);
-        (k.to_string(), v)
-    }
-
-    fn meas_opt_triple(&self, i: impl Into<IndexFromOne>) -> (MeasHeader, String, Option<String>)
-    where
-        Self::Inner: IndexedKey,
-    {
-        (
-            Self::Inner::std_blank(),
-            Self::Inner::std(i).to_string(),
-            self.display_maybe(),
-        )
-    }
-}
-
 pub(crate) trait CheckMaybe: Sized + IsDefault {
     type Inner;
 
-    fn root_key_loss_error<E>(&self) -> Option<E>
-    where
-        E: From<UnitaryKeyLossError<Self::Inner>>,
-    {
-        (!self.is_default()).then_some(UnitaryKeyLossError::<Self::Inner>::default().into())
-    }
+    // fn root_key_loss_error<E>(&self) -> Option<E>
+    // where
+    //     E: From<Key0LossError<Self::Inner>>,
+    // {
+    //     (!self.is_default()).then_some(Key0LossError::<Self::Inner>::default().into())
+    // }
 
     fn indexed_key_loss_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
     where
-        E: From<IndexedKeyLossError<Self::Inner>>,
+        E: From<Key1LossError<Self::Inner>>,
     {
-        let k = Key1::new_i1(i.into());
-        (!self.is_default()).then_some(IndexedKeyLossError::<Self::Inner>(k).into())
+        let k = DKey1::new_i1(i.into());
+        (!self.is_default()).then_some(KeyLossError(k).into())
     }
 }
 
-impl DisplayMaybe for OptionalString {
-    fn display_maybe(&self) -> Option<String> {
-        if self.0.is_empty() {
-            None
-        } else {
-            Some(self.0.clone())
-        }
-    }
-}
-
-impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalInt<T> {
-    fn display_maybe(&self) -> Option<String> {
-        if self.0 == T::default() {
-            None
-        } else {
-            Some(self.0.to_string())
-        }
-    }
-}
-
-impl<T: fmt::Display + PartialEq + Default> DisplayMaybe for OptionalZST<T> {
-    fn display_maybe(&self) -> Option<String> {
-        self.0.as_ref().map(ToString::to_string)
-    }
-}
-
-impl<T: fmt::Display + PartialEq> DisplayMaybe for Option<T> {
-    fn display_maybe(&self) -> Option<String> {
-        self.as_ref().map(ToString::to_string)
-    }
-}
-
-impl<T: fmt::Display + PartialEq> KeywordPairMaybe for Option<T> {
-    type Inner = T;
-}
-
-impl<T: fmt::Display + PartialEq> CheckMaybe for Option<T> {
+impl<T: PartialEq> CheckMaybe for Option<T> {
     type Inner = T;
 }
 

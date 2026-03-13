@@ -22,9 +22,6 @@ These are unique exeption classes raised within `pyreflow`.
 .. autoexception:: pyreflow.ExtraKeywordError
    :members:
 
-.. autoexception:: pyreflow.FCSDeprecatedError
-   :members:
-
 .. autoexception:: pyreflow.ConversionError
    :members:
 

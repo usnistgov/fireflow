@@ -1561,25 +1561,11 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.last_odd_token.clone()),
     );
 
-    let missing_final_delim = DocArgROIvar::new_ivar_ro(
-        "missing_final_delim",
+    let has_even_delims = DocArgROIvar::new_ivar_ro(
+        "has_even_delims",
         PyBool::default(),
-        format!("{TRUE} if {TEXT} does not end with a delimiter."),
-        |_, _| quote!(self.0.missing_final_delim),
-    );
-
-    let has_extra_delim = DocArgROIvar::new_ivar_ro(
-        "has_extra_delim",
-        PyBool::default(),
-        format!("{TRUE} if {TEXT} does has an extra delimiter which was ignored."),
-        |_, _| quote!(self.0.has_extra_delim),
-    );
-
-    let trailing_bytes = DocArgROIvar::new_ivar_ro(
-        "trailing_bytes",
-        PyUnion::new_string_or_bytes(),
-        format!("Trailing bytes after {TEXT}"),
-        |_, _| quote!(self.0.trailing_bytes.clone()),
+        format!("{TRUE} if {TEXT} has an even number of delimiters (which is wrong)."),
+        |_, _| quote!(self.0.has_even_delims),
     );
 
     let args = [
@@ -1590,9 +1576,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         skipped_pairs,
         tokens_with_boundary_delims,
         last_odd_token,
-        missing_final_delim,
-        has_extra_delim,
-        trailing_bytes,
+        has_even_delims,
     ];
 
     let doc = DocString::new_class(format!(

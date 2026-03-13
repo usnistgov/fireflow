@@ -66,6 +66,7 @@ use bigdecimal::{BigDecimal, ParseBigDecimalError};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use derive_new::new;
+use hashbrown::HashMap;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty_collections::{
@@ -78,7 +79,6 @@ use num_traits::identities::{One as _, Zero as _};
 use thiserror::Error;
 use unicase::Ascii;
 
-use std::collections::HashMap;
 use std::fmt::{self, Write as _};
 use std::mem::take;
 use std::num::{NonZeroU8, NonZeroU32, NonZeroUsize, ParseFloatError, ParseIntError};
@@ -3499,7 +3499,9 @@ pub enum ParseUnstainedCenterError {
 
 impl UnstainedCenters {
     pub(crate) fn try_ne(&self) -> Option<NEUnstainedCenters> {
-        NEMap::try_from_map(self.0.clone()).map(NEUnstainedCenters)
+        // NOTE NEMap use std::HashMap internally, so this is actually
+        // converting to a different hashmap type
+        NEMap::try_from_map(self.0.clone().into_iter().collect()).map(NEUnstainedCenters)
     }
 
     pub(crate) fn reassign(&mut self, mapping: &NameMapping) {

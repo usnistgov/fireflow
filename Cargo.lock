@@ -763,6 +763,7 @@ dependencies = [
  "derive_more",
  "fireflow-core-proc",
  "fireflow-types",
+ "hashbrown 0.15.5",
  "itertools 0.14.0",
  "nalgebra",
  "nonempty-collections",
@@ -796,6 +797,7 @@ dependencies = [
  "fireflow-core",
  "fireflow-python-proc",
  "fireflow-types",
+ "hashbrown 0.15.5",
  "polars",
  "polars-arrow",
  "pyo3",
@@ -1044,6 +1046,7 @@ dependencies = [
  "allocator-api2",
  "equivalent",
  "foldhash 0.1.5",
+ "serde",
 ]
 
 [[package]]

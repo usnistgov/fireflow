@@ -10,6 +10,7 @@ Python-specific code for fireflow.
 fireflow-core = { path = "../fireflow-core", features = ["python"] }
 fireflow-types = { path = "../fireflow-types", features = ["python"] }
 fireflow-python-proc = { path = "../fireflow-python-proc" }
+hashbrown = { workspace = true }
 chrono = { workspace = true }
 derive_more = { workspace = true, features = ["from", "into"] }
 polars-arrow = { workspace = true }

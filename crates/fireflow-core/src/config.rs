@@ -41,11 +41,11 @@ use fireflow_types::nonempty_string::NEString;
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
+use hashbrown::HashMap;
 use num_traits::identities::One as _;
 use regex::{self, Regex};
 use thiserror::Error;
 
-use std::collections::HashMap;
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::{File, OpenOptions};
@@ -1738,11 +1738,11 @@ mod python {
 
     use fireflow_types::python::ConfigError;
 
+    use hashbrown::HashMap;
     use pyo3::prelude::*;
     use pyo3::types::PyDict;
     use regex::Regex;
 
-    use std::collections::HashMap;
     use std::convert::Infallible;
 
     macro_rules! impl_into_flat_dict {

@@ -109,6 +109,7 @@ use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnc
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
+use hashbrown::HashMap;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty_collections::{IntoIteratorExt as _, iter::NonEmptyIterator as _};
@@ -117,7 +118,7 @@ use regex::Regex;
 use thiserror::Error;
 
 use std::borrow::Cow;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::convert::{AsRef, Infallible};
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};

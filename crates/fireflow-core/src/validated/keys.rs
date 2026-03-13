@@ -26,6 +26,8 @@ use fireflow_types::nonempty_string::{
 use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use hashbrown::HashMap;
+use hashbrown::hash_map::Entry;
 use itertools::Itertools as _;
 use nonempty_collections::{
     IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
@@ -34,8 +36,6 @@ use thiserror::Error;
 use unicase::Ascii;
 
 use std::borrow::Cow;
-use std::collections::HashMap;
-use std::collections::hash_map::Entry;
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
@@ -1490,8 +1490,11 @@ const STD_PREFIX: u8 = 36; // '$'
 #[cfg(feature = "serde")]
 mod serialize {
     use fireflow_types::nonempty_string::NEString;
+
+    use hashbrown::HashMap;
     use serde::Serialize;
-    use std::collections::{BTreeMap, HashMap};
+
+    use std::collections::BTreeMap;
 
     pub fn ordered_map<K: Serialize + Clone + Ord, S>(
         value: &HashMap<K, NEString>,

@@ -11,4 +11,11 @@ crate-type = ["cdylib"]
 fireflow-core = { path = "../crates/fireflow-core", features = ["python"] }
 fireflow-types = { path = "../crates/fireflow-types", features = ["python"] }
 fireflow-python = { path = "../crates/fireflow-python" }
-pyo3 = { workspace = true, features = ["multiple-pymethods", "chrono", "bigdecimal", "hashbrown"] }
+
+pyo3.workspace = true
+pyo3.features = [
+    "multiple-pymethods",
+    "chrono",
+    "bigdecimal",
+    "hashbrown"
+]

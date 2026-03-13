@@ -7,10 +7,21 @@ Core library code for fireflow.
 """
 
 [dependencies]
+derive_more.workspace = true
+derive_more.features = [
+    "from",
+    "into",
+    "display",
+    "from_str",
+    "as_ref",
+    "add",
+    "mul",
+    "into_iterator"
+]
+
 chrono = { workspace = true, features = ["clock"] }
 thiserror = { workspace = true }
 regex = { workspace = true }
-derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "as_ref", "add", "mul", "into_iterator"] }
 derive-new = { workspace = true }
 itertools = { workspace = true }
 num_enum = { workspace = true }
@@ -19,19 +30,33 @@ num-derive = { workspace = true }
 bigdecimal = { workspace = true }
 ambassador = { workspace = true }
 unicase = { workspace = true }
+hashbrown = { workspace = true }
 fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
 nalgebra = { workspace = true, features = ["std"] }
 polars-arrow = { workspace = true }
-nonempty-collections = { workspace = true, features = ["serde"] }
+nonempty-collections = { workspace = true }
 type_families = { path = "../type_families" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, features = ["nalgebra"], optional = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 
 [features]
-serde = ["dep:serde", "nalgebra/serde-serialize", "bigdecimal/serde", "chrono/serde", "fireflow-types/serde"]
-python = ["dep:pyo3", "dep:numpy", "dep:fireflow-core-proc", "fireflow-types/python"]
+serde = [
+    "dep:serde",
+    "nalgebra/serde-serialize",
+    "bigdecimal/serde",
+    "chrono/serde",
+    "fireflow-types/serde",
+    "nonempty-collections/serde",
+    "hashbrown/serde"
+]
+python = [
+    "dep:pyo3",
+    "dep:numpy",
+    "dep:fireflow-core-proc",
+    "fireflow-types/python",
+]
 
 [lints]
 workspace = true

@@ -29,6 +29,7 @@ unicase = "2.8.1"
 thiserror = "2.0.17"
 phf = "0.13.1"
 const_format = "0.2.35"
+hashbrown = "0.15.5"
 
 # serde
 serde = "1.0.228"

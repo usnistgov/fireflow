@@ -5411,7 +5411,7 @@ impl<E> HasRustPath for PyDict<E> {
         } else {
             let k = &self.key.as_rust_type();
             let v = &self.value.as_rust_type();
-            parse_quote!(std::collections::HashMap<#k, #v>)
+            parse_quote!(hashbrown::HashMap<#k, #v>)
         }
     }
 }
@@ -6492,7 +6492,7 @@ impl<E> PyDict<E> {
         Self::new(self.key, self.value, Some(rstype), self.exc)
     }
 
-    impl_py_prim_doc_default!("{}".into(), std::collections::HashMap);
+    impl_py_prim_doc_default!("{}".into(), hashbrown::HashMap);
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyDict<E1> {
         PyDict::new(

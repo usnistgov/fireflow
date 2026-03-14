@@ -1471,7 +1471,7 @@ impl SplitTEXTDiagnostics {
         // the parse/insert loop is very simple.
         if segs.iter().all(|s| !s.is_empty()) {
             let mut is_error = false;
-            let es: Vec<_> = segs
+            let mut es: Vec<_> = segs
                 .iter()
                 .tuples()
                 .map(|(key, value)| {
@@ -1487,7 +1487,6 @@ impl SplitTEXTDiagnostics {
                     }
                 })
                 .map(ParseKeywordsIssue::from)
-                .chain(text_end_error.map(Into::into))
                 .collect();
             let ret = Self {
                 delimiter: delim,
@@ -1502,6 +1501,7 @@ impl SplitTEXTDiagnostics {
                 escaped: false,
             };
             return if is_error {
+                es.extend(text_end_error.map(Into::into));
                 LogResult::new_from_err_iter(es, ret, ())
             } else {
                 LogResult::new_ok(ret)

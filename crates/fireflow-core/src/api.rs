@@ -1462,24 +1462,20 @@ impl SplitTEXTOutputInner {
         segs: &[&[u8]],
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
-        let mut insert_results = vec![];
-
         debug_assert!(segs.len() & 1 == 0, "number of segments must be even");
         debug_assert!(
             segs.iter().all(|s| !s.is_empty()),
             "no segments can be empty"
         );
 
-        for (key, value) in segs.iter().tuples() {
+        let insert_results = segs.iter().tuples().map(|(key, value)| {
             let k = NESlice::try_from_slice(key).unwrap();
             let v = NESlice::try_from_slice(value).unwrap();
-            let r = kws
-                .insert(&k, &v, conf)
+            kws.insert(&k, &v, conf)
                 .non_commutative_into_commutative()
                 .map_commutative_warnings(ParseKeywordsIssue::from)
-                .map_errors(ParseKeywordsIssue::from);
-            insert_results.push(r);
-        }
+                .map_errors(ParseKeywordsIssue::from)
+        });
 
         // TODO this is one instance where it could be inefficient to chain together
         // lots of options, which are stack allocated but need to be converted to

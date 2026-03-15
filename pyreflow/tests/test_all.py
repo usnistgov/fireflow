@@ -3399,7 +3399,7 @@ class TestConfig:
 
         def go(f: TriFlag) -> bool:
             out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
-            return out.flat_diagnostics.primary_split.missing_final_delim
+            return out.flat_diagnostics.primary_split.has_even_delims
 
         self._test_tri_flag(go, True, [pf.FileLayoutError])
 
@@ -3639,8 +3639,8 @@ class TestConfig:
 
         def go(f: bool) -> None:
             out = pf.api.fcs_read_flat_text(p, trim_text_end=f)
-            x = out.flat_diagnostics.primary_split.has_extra_delim
-            bs = out.flat_diagnostics.primary_split.trailing_bytes
+            x = out.flat_diagnostics.primary_split.has_even_delims
+            bs = out.flat_diagnostics.primary_split.last_odd_token
             assert (x, bs) == (delim, extra)
 
         with pytest.RaisesGroup(*errors):

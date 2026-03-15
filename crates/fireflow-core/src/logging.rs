@@ -2412,7 +2412,6 @@ impl<V, LWC, E> NonCommutativeResult<V, (), LWC, E, Nothing<E>> {
     ///
     /// Warnings will be given on the Succ side since non-commutative Result's
     /// by definition cannot have warnings in the Fail branch.
-    #[cfg(feature = "python")]
     pub(crate) fn resolve_non_commutative<Fwarn, Ferr, WarnRes, FailRes>(
         self,
         f_warnings: Fwarn,
@@ -2510,17 +2509,17 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
     //     }
     // }
 
-    pub(crate) fn new_switchable_maybe3(value: V, default: P, error: Option<E>, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: TriErrorFlag,
-    {
-        match error {
-            Some(e) => Self::new_switchable3(value, default, e, flag),
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_switchable_maybe3(value: V, default: P, error: Option<E>, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: TriErrorFlag,
+    // {
+    //     match error {
+    //         Some(e) => Self::new_switchable3(value, default, e, flag),
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
     where

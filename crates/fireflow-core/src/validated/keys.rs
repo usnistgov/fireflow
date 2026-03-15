@@ -24,7 +24,7 @@ use fireflow_types::nonempty_string::{
 };
 
 use ambassador::{Delegate, delegatable_trait};
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
@@ -279,6 +279,15 @@ pub enum NEStringOrBytes {
     Bytes(TruncatedNEBytes),
 }
 
+impl From<NEStringOrBytes> for StringOrBytes {
+    fn from(value: NEStringOrBytes) -> Self {
+        match value {
+            NEStringOrBytes::Bytes(x) => Self::Bytes(x.into()),
+            NEStringOrBytes::Utf8(x) => Self::Utf8(x.into()),
+        }
+    }
+}
+
 impl<'a> From<NESlice<'a, u8>> for NEStringOrBytes {
     fn from(value: NESlice<'a, u8>) -> Self {
         Self::from(&value)
@@ -308,12 +317,19 @@ impl From<NEVec<u8>> for NEStringOrBytes {
 pub struct TruncatedBytes(pub Vec<u8>);
 
 /// A [`NEVec<u8>`] optimized for displaying in errors.
-#[derive(Clone, From, PartialEq, Debug, Display)]
+#[derive(Clone, From, PartialEq, Debug, Display, Into)]
 #[display("{}", trunc_bytes(self.0.0.as_ref()))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(NEVec<u8>, FcsNEVec<u8>)]
+#[into(Vec<u8>, NEVec<u8>, FcsNEVec<u8>)]
 pub struct TruncatedNEBytes(pub FcsNEVec<u8>);
+
+impl From<TruncatedNEBytes> for TruncatedBytes {
+    fn from(value: TruncatedNEBytes) -> Self {
+        Self::from(Vec::from(value))
+    }
+}
 
 impl<'a> From<NESlice<'a, u8>> for TruncatedNEBytes {
     fn from(value: NESlice<'a, u8>) -> Self {
@@ -335,11 +351,18 @@ impl<'a> From<&NESlice<'a, u8>> for TruncatedNEBytes {
 pub struct TruncatedString(pub String);
 
 /// A normal [`NEString`] that will be shortened when displaying if too long.
-#[derive(Clone, From, PartialEq, Debug, Display)]
+#[derive(Clone, From, PartialEq, Debug, Display, Into)]
 #[display("{}", trunc_str(self.0.as_ref()))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[into(String, NEString)]
 pub struct TruncatedNEString(pub NEString);
+
+impl From<TruncatedNEString> for TruncatedString {
+    fn from(value: TruncatedNEString) -> Self {
+        Self::from(String::from(value))
+    }
+}
 
 /// An FCS key with a specific version;
 // TODO const_trait_impl will be able to clean this up once stable

@@ -1610,14 +1610,19 @@ impl SplitTEXTOutputInner {
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
         let mut insert_results = vec![];
         let mut tokens_with_boundary_delims = vec![];
+        let mut any_insert_err = false;
 
         let mut push_pair = |ks: &mut ParsedKeywords, kb: &NESlice<u8>, vb: &NESlice<u8>| {
-            let e = ks
-                .insert(kb, vb, conf)
-                .non_commutative_into_commutative()
-                .map_commutative_warnings(ParseKeywordsIssue::from)
-                .map_errors(ParseKeywordsIssue::from);
-            insert_results.push(e);
+            let e = ks.insert(kb, vb, conf);
+            if let Some(ee) = match e.resolve_non_commutative(|x| x, Some) {
+                Ok(((), x)) => x,
+                Err(x) => {
+                    any_insert_err = true;
+                    x
+                }
+            } {
+                insert_results.push(ParseKeywordsIssue::from(ee));
+            }
         };
 
         let push_delim = |kb: &mut NEVec<u8>, vb: &mut Vec<u8>, k: usize| {
@@ -1765,44 +1770,71 @@ impl SplitTEXTOutputInner {
                 (Some(UnevenTokensError(tk).into()), last)
             };
 
-        let uneven_res = LogResult::new_switchable_maybe3((), (), uneven_err, conf.allow_odd)
-            .switchable_into_commutative();
+        // let uneven_res = LogResult::new_switchable_maybe3((), (), uneven_err, conf.allow_odd)
+        //     .switchable_into_commutative();
 
         // NOTE this is the same flag used for when the delimiter is missing
         // entirely since this is the net result of escaping an even number of
         // delimiters
-        let delim_flag = conf.allow_missing_final_delim;
-        let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
-            .switchable_into_commutative();
+        // let delim_flag = conf.allow_missing_final_delim;
+        // let even_delim_res = LogResult::new_switchable_maybe3((), (), even_delim_err, delim_flag)
+        //     .switchable_into_commutative();
         let final_delim_err = NEVec::try_from_slice(last_segment)
             .map(|bs| MissingFinalDelimError::new(tk, NEStringOrBytes::from(bs)))
             .map(ParseKeywordsIssue::from);
         let missing_final_delim = final_delim_err.is_some();
-        let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
-            .switchable_into_commutative();
+        // let final_delim_res = LogResult::new_switchable_maybe3((), (), final_delim_err, delim_flag)
+        //     .switchable_into_commutative();
 
         let bound_iter = tokens_with_boundary_delims
             .iter()
             .map(|token| DelimBoundError::new(tk, token.clone()).into());
-        let boundary_res =
-            LogResult::new_switchable_iter3((), (), bound_iter, conf.allow_delim_at_boundary)
-                .switchable_into_commutative();
+        // let boundary_res =
+        //     LogResult::new_switchable_iter3((), (), bound_iter, conf.allow_delim_at_boundary)
+        //         .switchable_into_commutative();
 
-        let ret = Self {
+        let res = if any_insert_err {
+            LogResult::new_from_err_iter(insert_results, (), ())
+        } else {
+            LogResult::new_ok(()).set_commutative_warnings(insert_results)
+        };
+
+        res.extend_warnings_or_errors3(
+            bound_iter,
+            |()| (),
+            |x| x,
+            |x| x,
+            conf.allow_delim_at_boundary,
+        )
+        .extend_warnings_or_errors3(
+            even_delim_err,
+            |()| (),
+            |x| x,
+            |x| x,
+            conf.allow_missing_final_delim,
+        )
+        .extend_warnings_or_errors3(
+            final_delim_err,
+            |()| (),
+            |x| x,
+            |x| x,
+            conf.allow_missing_final_delim,
+        )
+        .extend_warnings_or_errors3(uneven_err, |()| (), |x| x, |x| x, conf.allow_odd)
+        .set_ok_value(Self {
             keys_with_blank_values: vec![],
             values_with_blank_keys: vec![],
             skipped_pairs: 0,
             tokens_with_boundary_delims,
             last_odd_token,
             has_even_delims: missing_final_delim,
-        };
-
-        insert_results
-            .into_iter()
-            .map(LogResult::into_semigroup)
-            .chain([uneven_res, even_delim_res, boundary_res, final_delim_res])
-            .sequence_def_void()
-            .set_ok_value(ret)
+        })
+        // insert_results
+        //     .into_iter()
+        //     .map(LogResult::into_semigroup)
+        //     .chain([uneven_res, even_delim_res, boundary_res, final_delim_res])
+        //     .sequence_def_void()
+        //     .set_ok_value(ret)
     }
 }
 

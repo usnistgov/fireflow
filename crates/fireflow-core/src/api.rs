@@ -1483,8 +1483,8 @@ impl SplitTEXTDiagnostics {
             blank_key_errors.chain(blank_pair_error),
             conf.allow_empty_keys,
         )
-        .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_missing_final_delim)
-        .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd)
+        .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
+        .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
         .set_ok_value(Self {
             delimiter: delim,
             keys_with_blank_values,
@@ -1645,8 +1645,8 @@ impl SplitTEXTDiagnostics {
         };
 
         res.extend_deferred_warnings_or_errors3(bound_iter, conf.allow_delim_at_boundary)
-            .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_missing_final_delim)
-            .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd)
+            .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
+            .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
             .set_ok_value(Self {
                 delimiter: delim,
                 keys_with_blank_values: vec![],

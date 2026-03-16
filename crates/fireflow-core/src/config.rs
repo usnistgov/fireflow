@@ -456,31 +456,34 @@ pub struct ReadHeaderAndTEXTConfig {
     /// have escaped delimiters in them. Keys should almost never be blank in
     /// unescaped mode since `""` is almost never a sensible key value.
     ///
-    /// The guessing algorithm is independent of [`Self::allow_odd`] and
-    /// [`Self::allow_missing_final_delim`] which will trigger as normal if
-    /// their respective violations are found.
+    /// The guessing algorithm is independent of [`Self::allow_odd_tokens`] and
+    /// [`Self::allow_even_delims`] which will trigger as normal if their
+    /// respective violations are found.
     pub delim_escape_mode: DelimEscapeMode,
 
-    /// If `true`, allow delimiter to be character outside 1-126.
+    /// Allow delimiter to be character outside 1-126.
     pub allow_non_ascii_delim: AllowNonAsciiDelim,
 
-    /// If `true`, allow TEXT to not end with a delimiter.
-    pub allow_missing_final_delim: AllowMissingFinalDelim,
+    /// Allow TEXT to contain an even number of delimiters.
+    ///
+    /// TEXT should only contain an odd number of delimiters. This is
+    /// independent of escape mode.
+    pub allow_even_delims: AllowEvenDelims,
 
-    /// If `true`, allow non-unique keys to be present in TEXT.
+    /// Allow TEXT to contain an odd number of tokens.
+    ///
+    /// The final "dangling" token in the odd case will be dropped as it has no
+    /// obvious interpretation.
+    pub allow_odd_tokens: AllowOddTokens,
+
+    /// Allow non-unique keys to be present in TEXT.
     ///
     /// In any case, only the first value for a given key will be used. Setting
     /// this to `true` merely changes a duplicate key to emit a warning and not
     /// an error.
     pub allow_nonunique: AllowNonunique,
 
-    /// If `true`, allow TEXT to contain an odd number of tokens.
-    ///
-    /// Regardless, the final "dangling" token in the case of an odd number
-    /// will be dropped as it has no obvious interpretation.
-    pub allow_odd: AllowOdd,
-
-    /// If `true`, allow blank keys.
+    /// Allow blank keys.
     ///
     /// Only relevant if delimiters are unescaped since blank keys cannot exist
     /// when delimiters are escaped. Blank values will be dropped regardless of
@@ -492,7 +495,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// a value is somehow being parsed as a key.
     pub allow_empty_keys: AllowEmptyKeys,
 
-    /// If `true`, allow delimiters at token boundaries.
+    /// Allow delimiters at token boundaries.
     ///
     /// Only relevant if `literal_delims` is `false`. While delimiters
     /// may be escaped and included in keys or values, it is impossible to tell
@@ -1209,9 +1212,9 @@ macro_rules! impl_tri_error_flag {
 
 impl_tri_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_tri_error_flag!(false_is_error AllowNonAsciiDelim);
-impl_tri_error_flag!(false_is_error AllowMissingFinalDelim);
+impl_tri_error_flag!(false_is_error AllowEvenDelims);
 impl_tri_error_flag!(false_is_error AllowNonunique);
-impl_tri_error_flag!(false_is_error AllowOdd);
+impl_tri_error_flag!(false_is_error AllowOddTokens);
 impl_tri_error_flag!(false_is_error AllowEmptyKeys);
 impl_tri_error_flag!(false_is_error AllowDelimAtBoundary);
 impl_tri_error_flag!(false_is_error AllowNonUtf8);
@@ -1639,9 +1642,9 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
         self.delim_escape_mode = DelimEscapeMode::GuessEscaped;
         self.allow_duplicated_supp_text = TriFlag::True.into();
         self.allow_non_ascii_delim = TriFlag::True.into();
-        self.allow_missing_final_delim = TriFlag::True.into();
+        self.allow_even_delims = TriFlag::True.into();
         self.allow_nonunique = TriFlag::True.into();
-        self.allow_odd = TriFlag::True.into();
+        self.allow_odd_tokens = TriFlag::True.into();
         self.allow_empty_keys = TriFlag::True.into();
         self.allow_delim_at_boundary = TriFlag::True.into();
         self.allow_non_utf8_values = TriFlag::True.into();

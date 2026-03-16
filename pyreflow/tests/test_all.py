@@ -3395,20 +3395,6 @@ class TestConfig:
     # TODO repeat this for supp
 
     @all_versions
-    def test_allow_missing_final_delim(
-        self, version: pt.FCSVersion, tmp_path: Path
-    ) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0"
-        p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
-
-        def go(f: TriFlag) -> bool:
-            out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
-            return out.flat_diagnostics.primary_split.has_even_delims
-
-        self._test_tri_flag(go, True, [pf.FileLayoutError])
-
-    @all_versions
     def test_allow_non_unique(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$NEXTDATA/666/"
         p = tmp_path / "thing.fcs"
@@ -3473,8 +3459,8 @@ class TestConfig:
         def go(f: TriFlag) -> tuple[str | bytes, bool]:
             out = pf.api.fcs_read_flat_text(
                 p,
-                allow_odd=f if allow_odd_token else "false",
-                allow_missing_final_delim=f if allow_even_delim else "false",
+                allow_odd_tokens=f if allow_odd_token else "false",
+                allow_even_delims=f if allow_even_delim else "false",
                 delim_escape_mode=mode,
             )
             token = out.flat_diagnostics.primary_split.last_odd_token

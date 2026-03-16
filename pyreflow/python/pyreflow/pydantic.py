@@ -59,9 +59,9 @@ class _ReadFlatTEXTConfig(BaseModel):
     ignore_supp_text: bool = False
     delim_escape_mode: pft.DelimEscapeMode = "escaped"
     allow_non_ascii_delim: pft.TriFlag = _DEFAULT_TRIFLAG
-    allow_missing_final_delim: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_nonunique: pft.TriFlag = _DEFAULT_TRIFLAG
-    allow_odd: pft.TriFlag = _DEFAULT_TRIFLAG
+    allow_even_delims: pft.TriFlag = _DEFAULT_TRIFLAG
+    allow_odd_tokens: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_empty_keys: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_delim_at_boundary: pft.TriFlag = _DEFAULT_TRIFLAG
     use_latin1: bool = False

@@ -8084,9 +8084,9 @@ impl DocArgParam {
             Self::new_ignore_supp_text(),
             Self::new_delim_escape_mode(),
             Self::new_allow_non_ascii_delim(),
-            Self::new_allow_missing_final_delim(),
+            Self::new_allow_even_delims(),
             Self::new_allow_nonunique(),
-            Self::new_allow_odd(),
+            Self::new_allow_odd_tokens(),
             Self::new_allow_empty_keys(),
             Self::new_allow_delim_at_boundary(),
             Self::new_use_latin1(),
@@ -8743,11 +8743,11 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, true, "AllowNonAsciiDelim", d, e)
     }
 
-    fn new_allow_missing_final_delim() -> Self {
-        let n = "allow_missing_final_delim";
-        let d = format!("Choose what happens if {TEXT} does not end with a delimiter.");
+    fn new_allow_even_delims() -> Self {
+        let n = "allow_even_delims";
+        let d = format!("Choose what happens if {TEXT} has an even number of delimiters.");
         let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param(n, true, "AllowMissingFinalDelim", d, e)
+        Self::new_tri_flag_param(n, true, "AllowEvenDelims", d, e)
     }
 
     fn new_allow_nonunique() -> Self {
@@ -8759,13 +8759,13 @@ impl DocArgParam {
         Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d, e)
     }
 
-    fn new_allow_odd() -> Self {
+    fn new_allow_odd_tokens() -> Self {
         let d = format!(
             "Choose what happens if {TEXT} contains an odd number of tokens. \
              The last 'dangling' token will be dropped regardless."
         );
         let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param("allow_odd", true, "AllowOdd", d, e)
+        Self::new_tri_flag_param("allow_odd_tokens", true, "AllowOddTokens", d, e)
     }
 
     fn new_allow_empty_keys() -> Self {

@@ -2,9 +2,9 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys, AllowMissingFinalDelim,
+    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys, AllowEvenDelims,
     AllowMissingNextdata, AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime,
-    AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd,
+    AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOddTokens,
     AllowSuppTEXTOwnDelim, AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit,
     DatasetOffset, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
     OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
@@ -367,7 +367,7 @@ fn run() -> AppResult<()> {
         format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
-    let missing_final_delim = tri_flag_arg::<AllowMissingFinalDelim>(
+    let missing_final_delim = tri_flag_arg::<AllowEvenDelims>(
         ALLOW_MISSING_FINAL_DELIM,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
@@ -377,7 +377,7 @@ fn run() -> AppResult<()> {
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
-    let allow_odd = tri_flag_arg::<AllowOdd>(ALLOW_ODD, "Allow odd number of tokens.");
+    let allow_odd = tri_flag_arg::<AllowOddTokens>(ALLOW_ODD, "Allow odd number of tokens.");
 
     let allow_empty_keys = tri_flag_arg::<AllowEmptyKeys>(
         ALLOW_EMPTY_KEYS,
@@ -1229,10 +1229,10 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     get_opt(s, DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
     get_opt(s, ALLOW_NON_ASCII_DELIM, |x| c.allow_non_ascii_delim = x);
     get_opt(s, ALLOW_MISSING_FINAL_DELIM, |x| {
-        c.allow_missing_final_delim = x;
+        c.allow_even_delims = x;
     });
     get_opt(s, ALLOW_NON_UNIQUE, |x| c.allow_nonunique = x);
-    get_opt(s, ALLOW_ODD, |x| c.allow_odd = x);
+    get_opt(s, ALLOW_ODD, |x| c.allow_odd_tokens = x);
     get_opt(s, ALLOW_EMPTY_KEYS, |x| c.allow_empty_keys = x);
     get_opt(s, ALLOW_DELIM_AT_BOUNDARY, |x| {
         c.allow_delim_at_boundary = x;

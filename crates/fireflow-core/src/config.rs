@@ -419,7 +419,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// duplicated.
     pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
 
-    /// If `true`, totally ignore STEXT and its offsets.
+    /// Totally ignore STEXT and its offsets.
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
@@ -497,14 +497,10 @@ pub struct ReadHeaderAndTEXTConfig {
 
     /// Allow delimiters at token boundaries.
     ///
-    /// Only relevant if `literal_delims` is `false`. While delimiters
-    /// may be escaped and included in keys or values, it is impossible to tell
-    /// within which token they are belong when the are next to a real delimiter,
-    /// which is why they are "not allowed."
+    /// This is only relevant for escaped mode.
     ///
     /// Regardless of this value, delimiters at token boundaries will not be
-    /// included due to their ambiguity. Setting this to `true` will emit an
-    /// error rather than a warning if this is encountered.
+    /// included due to their ambiguity.
     pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
     /// Interpret all bytes in TEXT as Latin-1 instead of UTF-8
@@ -514,8 +510,7 @@ pub struct ReadHeaderAndTEXTConfig {
     ///
     /// This only applies to non-standard keywords, as all standardized keywords
     /// may only contain letters, numbers, and start with '$'. Regardless, all
-    /// compliant keys must only have ASCII. Setting this to `true` will emit
-    /// an error when encountering such a key.
+    /// compliant keys must only have ASCII.
     pub allow_non_ascii_keys: AllowNonAsciiKeywords,
 
     /// Allow values with non-UTF8 characters.

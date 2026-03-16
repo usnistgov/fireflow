@@ -1906,6 +1906,7 @@ class SplitTEXTDiagnostics:
         tokens_with_boundary_delims: list[bytes | str],
         last_odd_token: bytes | str,
         has_even_delims: bool,
+        extra_leading_delims: int,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -1924,6 +1925,8 @@ class SplitTEXTDiagnostics:
     def last_odd_token(self) -> bytes | str: ...
     @property
     def has_even_delims(self) -> bool: ...
+    @property
+    def extra_leading_delims(self) -> int: ...
 
 @final
 class HeaderAndSuppOffsets:

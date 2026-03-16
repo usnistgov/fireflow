@@ -1564,8 +1564,15 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     let has_even_delims = DocArgROIvar::new_ivar_ro(
         "has_even_delims",
         PyBool::default(),
-        format!("{TRUE} if {TEXT} has an even number of delimiters (which is wrong)."),
+        format!("{TRUE} if {TEXT} has an even number of delimiters."),
         |_, _| quote!(self.0.has_even_delims),
+    );
+
+    let extra_leading_delims = DocArgROIvar::new_ivar_ro(
+        "extra_leading_delims",
+        RsInt::Usize,
+        format!("The number of delimiters at the front of {TEXT} (excluding the first)."),
+        |_, _| quote!(self.0.extra_leading_delims),
     );
 
     let args = [
@@ -1577,6 +1584,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         tokens_with_boundary_delims,
         last_odd_token,
         has_even_delims,
+        extra_leading_delims,
     ];
 
     let doc = DocString::new_class(format!(

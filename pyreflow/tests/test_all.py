@@ -3500,26 +3500,36 @@ class TestConfig:
 
     @all_versions
     @pytest.mark.parametrize(
-        "text",
+        "text, comp",
         [
-            b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0///",
-            b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA///0/",
+            (b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0///", (["0"], 0)),
+            (b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA///0/", (["0"], 0)),
+            (b"//$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/", ([], 1)),
+            (b"///$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/", ([], 2)),
         ],
     )
     def test_allow_delim_at_boundary(
-        self, version: pt.FCSVersion, tmp_path: Path, text: bytes
+        self,
+        version: pt.FCSVersion,
+        tmp_path: Path,
+        text: bytes,
+        comp: tuple[list[str | bytes], int],
     ) -> None:
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
-        def go(f: TriFlag) -> list[str | bytes]:
+        def go(f: TriFlag) -> tuple[list[str | bytes], int]:
             out = pf.api.fcs_read_flat_text(
                 p, allow_delim_at_boundary=f, delim_escape_mode="escaped"
             )
-            return out.flat_diagnostics.primary_split.tokens_with_boundary_delims
+            tokens = out.flat_diagnostics.primary_split.tokens_with_boundary_delims
+            leading = out.flat_diagnostics.primary_split.extra_leading_delims
+            return (tokens, leading)
 
-        comp: list[str | bytes] = ["0"]
-        self._test_tri_flag(go, comp, [pf.FileLayoutError])
+        comp0 = list(comp[0])
+        fixed_comp = (comp0, comp[1])
+
+        self._test_tri_flag(go, fixed_comp, [pf.FileLayoutError])
 
     @all_versions
     def test_use_latin1(self, version: pt.FCSVersion, tmp_path: Path) -> None:

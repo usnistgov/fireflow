@@ -3430,8 +3430,8 @@ class TestConfig:
         self._test_tri_flag(go, [("slayer", "420")], [pf.ParseKeyError])
 
     @all_versions
-    def test_allow_odd(self, version: pt.FCSVersion, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx/"
+    def test_extra_odd_token(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
@@ -3441,6 +3441,35 @@ class TestConfig:
 
         comp: str | bytes = "xxx"
         self._test_tri_flag(go, comp, [pf.FileLayoutError])
+
+    @all_versions
+    def test_missing_final_delim(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> bool:
+            out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
+            return out.flat_diagnostics.primary_split.has_even_delims
+
+        self._test_tri_flag(go, True, [pf.FileLayoutError])
+
+    @all_versions
+    def test_extra_odd_token_and_delim(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx/"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> tuple[str | bytes, bool]:
+            out = pf.api.fcs_read_flat_text(p, allow_odd=f, allow_missing_final_delim=f)
+            odd = out.flat_diagnostics.primary_split.last_odd_token
+            even = out.flat_diagnostics.primary_split.has_even_delims
+            return (odd, even)
+
+        comp: str | bytes = "xxx"
+        self._test_tri_flag(go, (comp, True), [pf.FileLayoutError, pf.FileLayoutError])
 
     @all_versions
     def test_allow_empty_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -3614,39 +3643,6 @@ class TestConfig:
             assert go("trim_blank_warn") == ([], ["$CYT"])
 
         assert go("trim_blank_silent") == ([], ["$CYT"])
-
-    @all_versions
-    @pytest.mark.parametrize(
-        "delim, extra, errors",
-        [
-            (False, " ", [pf.FileLayoutError, pf.FileLayoutError]),
-            (True, "", [pf.FileLayoutError]),
-            (True, " ", [pf.FileLayoutError]),
-        ],
-    )
-    def test_trim_text_end_extra_blank(
-        self,
-        version: pt.FCSVersion,
-        delim: bool,
-        extra: str,
-        errors: list[type],
-        tmp_path: Path,
-    ) -> None:
-        xs = (b"/" if delim else b"") + extra.encode()
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/" + xs
-        p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
-
-        def go(f: bool) -> None:
-            out = pf.api.fcs_read_flat_text(p, trim_text_end=f)
-            x = out.flat_diagnostics.primary_split.has_even_delims
-            bs = out.flat_diagnostics.primary_split.last_odd_token
-            assert (x, bs) == (delim, extra)
-
-        with pytest.RaisesGroup(*errors):
-            go(False)
-
-        go(True)
 
     @all_versions
     def test_ignore_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:

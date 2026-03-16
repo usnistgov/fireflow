@@ -2939,13 +2939,18 @@ class TestConfig:
 
     @staticmethod
     def _test_tri_flag(f: Callable[[TriFlag], X], comp: X, err: list[type]) -> None:
-        with pytest.RaisesGroup(*err):
-            f("false")
-
-        with pytest.warns(pf.PyreflowWarning):
+        if len(err) == 0:
+            assert f("false") == comp
             assert f("true") == comp
+            assert f("silent") == comp
+        else:
+            with pytest.RaisesGroup(*err):
+                f("false")
 
-        assert f("silent") == comp
+            with pytest.warns(pf.PyreflowWarning):
+                assert f("true") == comp
+
+            assert f("silent") == comp
 
     @staticmethod
     def _test_inverted_tri_flag(
@@ -3430,58 +3435,53 @@ class TestConfig:
         self._test_tri_flag(go, [("slayer", "420")], [pf.ParseKeyError])
 
     @all_versions
-    def test_extra_odd_token(self, version: pt.FCSVersion, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx"
-        p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
-
-        def go(f: TriFlag) -> str | bytes:
-            out = pf.api.fcs_read_flat_text(p, allow_odd=f)
-            return out.flat_diagnostics.primary_split.last_odd_token
-
-        comp: str | bytes = "xxx"
-        self._test_tri_flag(go, comp, [pf.FileLayoutError])
-
-    @all_versions
-    def test_missing_final_delim(self, version: pt.FCSVersion, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0"
-        p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
-
-        def go(f: TriFlag) -> bool:
-            out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
-            return out.flat_diagnostics.primary_split.has_even_delims
-
-        self._test_tri_flag(go, True, [pf.FileLayoutError])
-
-    @all_versions
-    def test_extra_final_delim(self, version: pt.FCSVersion, tmp_path: Path) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0//"
-        p = tmp_path / "thing.fcs"
-        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
-
-        def go(f: TriFlag) -> bool:
-            out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
-            return out.flat_diagnostics.primary_split.has_even_delims
-
-        self._test_tri_flag(go, True, [pf.FileLayoutError])
-
-    @all_versions
-    def test_extra_odd_token_and_delim(
-        self, version: pt.FCSVersion, tmp_path: Path
+    @pytest.mark.parametrize(
+        "text_end, allow_odd_token, allow_even_delim, comp, n_errors",
+        [
+            (b"", False, True, ("", True), 1),
+            (b"/", False, False, ("", False), 0),
+            (b"/xxx", True, False, ("xxx", False), 1),
+            (b"/xxx/", True, True, ("xxx", True), 2),
+        ],
+    )
+    @pytest.mark.parametrize("mode", ["escaped", "unescaped"])
+    def test_text_end_extra(
+        self,
+        version: pt.FCSVersion,
+        tmp_path: Path,
+        text_end: bytes,
+        allow_odd_token: bool,
+        allow_even_delim: bool,
+        comp: tuple[str | bytes, bool],
+        n_errors: int,
+        mode: pt.DelimEscapeMode,
     ) -> None:
-        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/xxx/"
+        """Ensure that extra stuff at the end of TEXT is handled correctly.
+
+        This will test two flags at once, allowing an odd number of tokens
+        and allowing an even number of delimiters. Both flags are independent
+        and control independent errors. Furthermore, each flag should do
+        the same thing regardless of which delimiter escape mode is used.
+        """
+        # the extra a/b/c stuff at the end will prevent the parser from choosing
+        # unescaped mode in all cases since otherwise there would be no
+        # consecutive delimiters to deal with
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/a/b/c//d/e" + text_end
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         def go(f: TriFlag) -> tuple[str | bytes, bool]:
-            out = pf.api.fcs_read_flat_text(p, allow_odd=f, allow_missing_final_delim=f)
-            odd = out.flat_diagnostics.primary_split.last_odd_token
-            even = out.flat_diagnostics.primary_split.has_even_delims
-            return (odd, even)
+            out = pf.api.fcs_read_flat_text(
+                p,
+                allow_odd=f if allow_odd_token else "false",
+                allow_missing_final_delim=f if allow_even_delim else "false",
+                delim_escape_mode=mode,
+            )
+            token = out.flat_diagnostics.primary_split.last_odd_token
+            delim = out.flat_diagnostics.primary_split.has_even_delims
+            return (token, delim)
 
-        comp: str | bytes = "xxx"
-        self._test_tri_flag(go, (comp, True), [pf.FileLayoutError, pf.FileLayoutError])
+        self._test_tri_flag(go, comp, [pf.FileLayoutError] * n_errors)
 
     @all_versions
     def test_allow_empty_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:

@@ -507,10 +507,10 @@ pub struct ReadHeaderAndTEXTConfig {
     /// error rather than a warning if this is encountered.
     pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
-    /// If `true`, interpret all bytes in TEXT as Latin-1 instead of UTF-8
+    /// Interpret all bytes in TEXT as Latin-1 instead of UTF-8
     pub use_latin1: UseLatin1,
 
-    /// If `true`, allow keys with non-ASCII characters.
+    /// Allow keys with non-ASCII characters.
     ///
     /// This only applies to non-standard keywords, as all standardized keywords
     /// may only contain letters, numbers, and start with '$'. Regardless, all
@@ -518,20 +518,20 @@ pub struct ReadHeaderAndTEXTConfig {
     /// an error when encountering such a key.
     pub allow_non_ascii_keys: AllowNonAsciiKeywords,
 
-    /// If `true`, allow values with non-UTF8 characters.
+    /// Allow values with non-UTF8 characters.
     ///
     /// Tokens with such bytes will be dropped regardless of this keyword.
     pub allow_non_utf8_values: AllowNonUtf8,
 
-    /// If `true`, allow STEXT offsets to be missing from TEXT.
+    /// Allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
     pub allow_missing_supp_text: AllowMissingSuppTEXT,
 
-    /// If `true`, allow STEXT to use a different delimiter than TEXT.
+    /// Allow STEXT to use a different delimiter than TEXT.
     pub allow_supp_text_own_delim: AllowSuppTEXTOwnDelim,
 
-    /// If `true`, allow $NEXTDATA to be missing.
+    /// Allow $NEXTDATA to be missing.
     ///
     /// This is a required keyword in all versions. However, most files only
     /// have one dataset so this keyword does nothing. If `true`, a warning will

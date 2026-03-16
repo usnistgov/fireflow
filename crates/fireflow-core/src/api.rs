@@ -39,13 +39,14 @@ use crate::validated::header_segments::{
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
-    ParsedKeywords, StdKey, StdKeywords, StdPresent, StringOrBytes, TruncatedNEString,
-    ValidKeywords,
+    ParsedKeywords, ParsedKeywordsDiagnostic, StdKey, StdKeywords, StdPresent, StringOrBytes,
+    TruncatedNEString, ValidKeywords,
 };
 
 use fireflow_types::config::DelimEscapeMode;
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::nonempty_string::NESliceExt as _;
+use hashbrown::HashMap;
 use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
@@ -937,45 +938,6 @@ enum GuessedEscapeMode {
     Ambiguous,
 }
 
-// /// Data used to fix the final offset of TEXT.
-// ///
-// /// To fix the final offset, first assume it is never too small. This means
-// /// everything in TEXT is available to be read in the byte segment, possibly
-// /// with more non-TEXT at the end. The objective is to figure out how much
-// /// to trim off the end.
-// ///
-// /// TEXT may be too long for several reasons:
-// ///
-// /// 1) Some files pad TEXT with extra non-delimiter chars at the end (spaces
-// ///    usually, but sometimes null). The real offset is likely much smaller than
-// ///    the one in HEADER. Sometimes non-delimiter chars may be from other
-// ///    segments. In these cases, the offset is likely only one greater than it
-// ///    should be and thus there will only be one non-delimiter character.
-// ///
-// /// 2) Some files add one extra delimiter to the end of TEXT (for unknown
-// ///    reasons) which results in an offset that is one greater than correct.
-// ///    These extra delimiters can be detected by counting all delimiters in TEXT
-// ///    (they should be odd for both escape modes).
-// ///
-// /// These can occur in combination (and are properly dealt with here).
-// #[derive(Default)]
-// struct TrimTEXTData {
-//     /// Number of consecutive final delimiters.
-//     ///
-//     /// If this is >1 and the number of total delimiters is even, assume that
-//     /// the last delimiter was erroneously added and remove it.
-//     final_delim: usize,
-//     /// Number of delims that are not consecutive final delimiters.
-//     ///
-//     /// These are necessary to figure out if the total number of delimiters is
-//     /// odd or even.
-//     other_delim: usize,
-//     /// Number of non-delim chars after last delim.
-//     ///
-//     /// These will be trimmed off.
-//     trailing: usize,
-// }
-
 /// Indicates what was found for supplemental TEXT.
 #[derive(Clone, Copy)]
 enum SuppTEXTResult {
@@ -1171,13 +1133,13 @@ impl FlatTEXTOutput {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(delim, bytes)| {
-                let mut kws = ParsedKeywords::default();
-                SplitTEXTDiagnostics::primary_from_bytes(&mut kws, delim, bytes, conf)
+                // let mut kws = ParsedKeywords::default();
+                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, conf)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .map_ok_value(|escaped| (kws, delim, escaped))
+                    .map_ok_value(|(kws, escaped)| (kws, delim, escaped))
             })
             .and_then_commutative(|(mut kws, delim, prim_out)| {
                 lookup_supp_text_offsets(&kws.std, &mut header, st)
@@ -1333,16 +1295,45 @@ impl SplitTEXTDiagnostics {
 
     /// Read primary TEXT from bytes and store keywords in hash table.
     fn primary_from_bytes(
-        kws: &mut ParsedKeywords,
         delim: u8,
         bytes: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParsePrimaryTEXTError> {
+    ) -> WarningsAndErrorsResult<
+        (ParsedKeywords, Self),
+        (),
+        ParseKeywordsIssue,
+        ParsePrimaryTEXTError,
+    > {
         if bytes.is_empty() {
             LogResult::new_err(NoTEXTWordsError.into())
         } else {
-            Self::from_bytes_inner(kws, delim, bytes, TEXTKind::Primary, conf)
+            let raw_segs = Self::split_bytes(delim, bytes);
+            let raw_slice = raw_segs.as_nonempty_slice();
+            // We are about to insert a massive amount of data into two hash
+            // tables, so make a guess as to how big they need to be to avoid
+            // reallocation.
+            //
+            // Assume that the number of inserts to each hash table will be
+            // roughly half the the number of segments since they come in pairs.
+            // In practice, this will almost always be true, and may be a bit
+            // less if some escapes are present.
+            //
+            // Also assume that the number of non-standard and standard keywords
+            // is roughly equal. This probably varies quite a bit but it is hard
+            // to know without scanning each token first which is also costly.
+            //
+            // Finally, assume the STEXT is almost never present and therefore
+            // not worth considering. This makes the estimation much simpler
+            // since we can't read STEXT without TEXT first.
+            let cap = raw_segs.len().get() / 2;
+            let mut kws = ParsedKeywords {
+                std: HashMap::with_capacity(cap / 2),
+                nonstd: HashMap::with_capacity(cap / 2),
+                diag: ParsedKeywordsDiagnostic::default(),
+            };
+            Self::from_bytes_inner(&mut kws, delim, &raw_slice, TEXTKind::Primary, conf)
                 .map_errors(ParsePrimaryTEXTError::from)
+                .map_ok_value(|ret| (kws, ret))
         }
     }
 
@@ -1360,7 +1351,9 @@ impl SplitTEXTDiagnostics {
     > {
         if let Some((byte0, rest)) = bytes.split_first() {
             let flag = conf.allow_supp_text_own_delim;
-            Self::from_bytes_inner(kws, *byte0, rest, TEXTKind::Supplemental, conf)
+            let raw_segs = Self::split_bytes(*byte0, rest);
+            let raw_slice = raw_segs.as_nonempty_slice();
+            Self::from_bytes_inner(kws, *byte0, &raw_slice, TEXTKind::Supplemental, conf)
                 .map_warnings_and_errors(ParseSupplementalTEXTError::from)
                 .eval_warning_or_error3(
                     flag,
@@ -1373,6 +1366,13 @@ impl SplitTEXTDiagnostics {
             // if empty do nothing, this is expected for most files
             LogResult::new_ok(None)
         }
+    }
+
+    fn split_bytes(delim: u8, xs: &[u8]) -> NEVec<&[u8]> {
+        xs.split(|&x| x == delim)
+            .try_into_nonempty_iter()
+            .expect("split should always give at least one element")
+            .collect()
     }
 
     /// Maybe trim end off slice of byte segments so that the length is even.
@@ -1432,21 +1432,15 @@ impl SplitTEXTDiagnostics {
     fn from_bytes_inner(
         kws: &mut ParsedKeywords,
         delim: u8,
-        bytes: &[u8],
+        raw_segs: &NESlice<'_, &'_ [u8]>,
         tk: TEXTKind,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
-        let raw_segs: NEVec<_> = bytes
-            .split(|&x| x == delim)
-            .try_into_nonempty_iter()
-            .expect("split should always give at least one element")
-            .collect();
-        let raw_slice = raw_segs.as_nonempty_slice();
-        let escaped = GuessedEscapeMode::is_escaped(&raw_slice, conf.delim_escape_mode);
+        let escaped = GuessedEscapeMode::is_escaped(raw_segs, conf.delim_escape_mode);
         if escaped {
-            Self::insert_escaped(kws, delim, &raw_slice, tk, conf)
+            Self::insert_escaped(kws, delim, raw_segs, tk, conf)
         } else {
-            Self::insert_unescaped(kws, delim, &raw_slice, tk, conf)
+            Self::insert_unescaped(kws, delim, raw_segs, tk, conf)
         }
     }
 

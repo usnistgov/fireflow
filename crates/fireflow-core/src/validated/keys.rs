@@ -3,10 +3,7 @@ use crate::config::{
     AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
     UseLatin1,
 };
-use crate::logging::{
-    DeferredWarningsAndErrors, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
-    WarningOrErrorResult,
-};
+use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
@@ -929,6 +926,10 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
     }
 }
 
+/// Insert a key and value from buffer into appropriate hash table.
+///
+/// Return value will be Some((X, false)) if a warning as emitted, Some((X,
+/// true)) if an error was emitted, and None if neither was emitted.
 #[allow(clippy::too_many_lines)]
 impl ParsedKeywords {
     pub(crate) fn insert(
@@ -936,7 +937,7 @@ impl ParsedKeywords {
         key: &NESlice<u8>,
         val: &NESlice<u8>,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> Option<(KeywordInsertError, bool)> {
         enum TrimResult<'a> {
             Trimmed(Cow<'a, NEStr>, bool),
             Empty(DummyTriFlag),
@@ -1075,7 +1076,7 @@ impl ParsedKeywords {
                                     let sk = StdKey(rk);
                                     let e =
                                         SubPatternEmptyError::new(sk, v.into_owned(), s.clone());
-                                    LogResult::new_err(e.into())
+                                    Some((e.into(), true))
                                 }
                             } else {
                                 self.insert_nonunique_std(rk, v.into_owned(), conf)
@@ -1095,8 +1096,7 @@ impl ParsedKeywords {
             KeyValueResult::Empty(k, flag) => {
                 self.diag.keys_with_empty_trimmed_values.push(k.clone());
                 let e = KeywordInsertError::from(BlankValueError(k));
-                SwitchableErrorResult::new_switchable3((), (), e, flag)
-                    .switchable_into_non_commutative()
+                flag.is_error().map(|is_err| (e, is_err))
             }
             KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
                 if was_trimmed {
@@ -1105,19 +1105,19 @@ impl ParsedKeywords {
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
                 self.diag.values_with_non_ascii_keys.push((k, v));
-                LogResult::new_ok(())
+                None
             }
             KeyValueResult::NonUtf8Value(k, v) => {
                 self.diag.keys_with_non_utf8_values.push((k, v));
-                LogResult::new_ok(())
+                None
             }
             KeyValueResult::BothInvalid(k, v) => {
                 self.diag.byte_pairs.push((k, v));
-                LogResult::new_ok(())
+                None
             }
             KeyValueResult::Ignore(k, v) => {
                 self.diag.ignored_std_keywords.push((k, v));
-                LogResult::new_ok(())
+                None
             }
         }
     }
@@ -1127,7 +1127,7 @@ impl ParsedKeywords {
         k: KeyString,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> Option<(KeywordInsertError, bool)> {
         Self::insert_nonunique(
             &mut self.std,
             &mut self.diag.non_unique_std_keywords,
@@ -1142,7 +1142,7 @@ impl ParsedKeywords {
         k: KeyString,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> Option<(KeywordInsertError, bool)> {
         Self::insert_nonunique(
             &mut self.nonstd,
             &mut self.diag.non_unique_nonstd_keywords,
@@ -1158,7 +1158,7 @@ impl ParsedKeywords {
         k: K,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError>
+    ) -> Option<(KeywordInsertError, bool)>
     where
         K: Hash + Eq + Clone + AsRef<KeyString>,
         KeywordInsertError: From<KeyPresent<K>>,
@@ -1172,8 +1172,7 @@ impl ParsedKeywords {
                     value: value.clone(),
                 };
                 nonunique.push((key, TruncatedNEString(value)));
-                LogResult::new_deferred_switchable3((), err.into(), flag)
-                    .switchable_into_non_commutative()
+                flag.is_error().map(|is_err| (err.into(), is_err))
             }
             Entry::Vacant(ent) => {
                 let v = conf
@@ -1182,7 +1181,7 @@ impl ParsedKeywords {
                     .cloned()
                     .unwrap_or(value);
                 ent.insert(v);
-                LogResult::new_ok(())
+                None
             }
         }
     }
@@ -1551,7 +1550,7 @@ mod tests {
             &NESlice::try_from_slice(b"of_the_night_sky").unwrap(),
             &ReadHeaderAndTEXTConfig::default(),
         );
-        assert_eq!(LogResult::new_ok(()), res);
+        assert_eq!(None, res);
         assert_eq!(
             s.to_owned(),
             p.std.into_iter().next().unwrap().0.to_string()
@@ -1604,7 +1603,7 @@ mod tests {
             &NESlice::try_from_slice(b"the cake is a lie").unwrap(),
             &ReadHeaderAndTEXTConfig::default(),
         );
-        assert_eq!(LogResult::new_ok(()), res);
+        assert_eq!(None, res);
         assert_eq!(
             s.to_owned(),
             p.nonstd.into_iter().next().unwrap().0.to_string()

@@ -2412,6 +2412,7 @@ impl<V, LWC, E> NonCommutativeResult<V, (), LWC, E, Nothing<E>> {
     ///
     /// Warnings will be given on the Succ side since non-commutative Result's
     /// by definition cannot have warnings in the Fail branch.
+    #[cfg(feature = "python")]
     pub(crate) fn resolve_non_commutative<Fwarn, Ferr, WarnRes, FailRes>(
         self,
         f_warnings: Fwarn,

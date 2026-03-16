@@ -456,10 +456,9 @@ pub struct ReadHeaderAndTEXTConfig {
     /// have escaped delimiters in them. Keys should almost never be blank in
     /// unescaped mode since `""` is almost never a sensible key value.
     ///
-    /// The guessing algorithm will be run after [`Self::trim_text_end`] since
-    /// this may remove the last delimiter if necessary. It is also independent
-    /// of [`Self::allow_odd`] and [`Self::allow_missing_final_delim`] which
-    /// will trigger as normal if their respective violations are found.
+    /// The guessing algorithm is independent of [`Self::allow_odd`] and
+    /// [`Self::allow_missing_final_delim`] which will trigger as normal if
+    /// their respective violations are found.
     pub delim_escape_mode: DelimEscapeMode,
 
     /// If `true`, allow delimiter to be character outside 1-126.
@@ -551,20 +550,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped.
     pub trim_value_whitespace: TrimValueWhitespace,
-
-    /// If `true`, trim extra characters off the end of TEXT.
-    ///
-    /// This does two things (in this order):
-    ///
-    /// First, it will move the ending offset to the last delimiter in TEXT,
-    /// thereby removing any non-delimiter characters (usually spaces if
-    /// present). These are usually added to make TEXT a predictable length.
-    ///
-    /// Second, it will decrease the offset by one if the number of delimiters
-    /// is even and the number of final consecutive delimiters is more than one.
-    /// This will effectively remove the last delimiter, which sometimes
-    /// erroneously exists.
-    pub trim_text_end: TrimTEXTEnd,
 
     // TODO this could be combined with replace_std_keys where empty string
     // means "ignore"
@@ -1665,7 +1650,6 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
         self.allow_supp_text_own_delim = TriFlag::True.into();
         self.allow_missing_nextdata = TriFlag::True.into();
         self.trim_value_whitespace = TrimValueWhitespace::TrimBlankWarn;
-        self.trim_text_end = true.into();
     }
 
     fn with_sledgehammer(&mut self) {

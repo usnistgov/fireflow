@@ -1766,7 +1766,7 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         Fe: Fn(M) -> E,
         Fw: Fn(M) -> W,
         WC: Extend<W>,
-        EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
+        EC: Extend<E> + Default,
         X: TriErrorFlag,
     {
         match flag.is_error() {
@@ -2189,6 +2189,23 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
             f(v).into_deferred_switchable(flag)
                 .switchable_into_commutative()
         })
+    }
+}
+
+//
+// Deferred/Commutative LogResult with same warning and error type
+//
+impl<V, E, EC> Deferred<V, EC, E, EC> {
+    pub(crate) fn extend_deferred_warnings_or_errors3<X>(
+        self,
+        errors: impl IntoIterator<Item = E>,
+        flag: X,
+    ) -> Self
+    where
+        EC: Extend<E> + Default,
+        X: TriErrorFlag,
+    {
+        self.extend_warnings_or_errors3(errors, |v| v, |w| w, |e| e, flag)
     }
 }
 

@@ -8096,7 +8096,6 @@ impl DocArgParam {
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
-            Self::new_trim_text_end(),
             Self::new_ignore_standard_keys(),
             Self::new_promote_to_standard(),
             Self::new_demote_from_standard(),
@@ -8860,20 +8859,6 @@ impl DocArgParam {
         let rstype = types_config_path("TrimValueWhitespace");
         let pt = PyLiteral::new2(TrimValueWhitespace::iter_str(), rstype);
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
-    }
-
-    fn new_trim_text_end() -> Self {
-        let d = format!(
-            "If {TRUE} fix the final offset of {TEXT}. This \
-             will actually do two things (in this order). First, it will \
-             move the ending offset to the last delimiter in {TEXT}, thereby \
-             removing any non-delimiter characters (usually spaces if \
-             present). Second, it will decrease the offset by \
-             one if the number of delimiters is even and the number of final \
-             consecutive delimiters is more than one. This will effectively \
-             remove the last delimiter, which sometimes erroneously exists."
-        );
-        Self::new_bool_param("trim_text_end", d)
     }
 
     fn new_ignore_standard_keys() -> Self {

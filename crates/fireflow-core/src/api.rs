@@ -1404,7 +1404,6 @@ impl SplitTEXTDiagnostics {
             .expect("split should always give at least one element")
             .collect();
         let raw_slice = raw_segs.as_nonempty_slice();
-
         let escaped = GuessedEscapeMode::is_escaped(&raw_slice, conf.delim_escape_mode);
         if escaped {
             Self::insert_escaped(kws, delim, &raw_slice, tk, conf)
@@ -1477,24 +1476,15 @@ impl SplitTEXTDiagnostics {
             LogResult::new_ok(()).set_commutative_warnings(insert_errs)
         };
 
-        res.extend_warnings_or_errors3(
-            // NOTE blank pair error shares the same flag, which technically is
-            // a bit confusing but this error is so rare it probably won't
-            // matter from ux perspective
+        // NOTE blank pair error shares the same flag, which technically is a
+        // bit confusing but this error is so rare it probably won't matter from
+        // ux perspective
+        res.extend_deferred_warnings_or_errors3(
             blank_key_errors.chain(blank_pair_error),
-            |()| (),
-            |x| x,
-            |x| x,
             conf.allow_empty_keys,
         )
-        .extend_warnings_or_errors3(
-            even_delim_err,
-            |()| (),
-            |x| x,
-            |x| x,
-            conf.allow_missing_final_delim,
-        )
-        .extend_warnings_or_errors3(last_odd_err, |()| (), |x| x, |x| x, conf.allow_odd)
+        .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_missing_final_delim)
+        .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd)
         .set_ok_value(Self {
             delimiter: delim,
             keys_with_blank_values,
@@ -1654,31 +1644,19 @@ impl SplitTEXTDiagnostics {
             LogResult::new_ok(()).set_commutative_warnings(insert_results)
         };
 
-        res.extend_warnings_or_errors3(
-            bound_iter,
-            |()| (),
-            |x| x,
-            |x| x,
-            conf.allow_delim_at_boundary,
-        )
-        .extend_warnings_or_errors3(
-            even_delim_err,
-            |()| (),
-            |x| x,
-            |x| x,
-            conf.allow_missing_final_delim,
-        )
-        .extend_warnings_or_errors3(last_odd_err, |()| (), |x| x, |x| x, conf.allow_odd)
-        .set_ok_value(Self {
-            delimiter: delim,
-            keys_with_blank_values: vec![],
-            values_with_blank_keys: vec![],
-            skipped_pairs: 0,
-            tokens_with_boundary_delims,
-            last_odd_token,
-            has_even_delims,
-            escaped: true,
-        })
+        res.extend_deferred_warnings_or_errors3(bound_iter, conf.allow_delim_at_boundary)
+            .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_missing_final_delim)
+            .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd)
+            .set_ok_value(Self {
+                delimiter: delim,
+                keys_with_blank_values: vec![],
+                values_with_blank_keys: vec![],
+                skipped_pairs: 0,
+                tokens_with_boundary_delims,
+                last_odd_token,
+                has_even_delims,
+                escaped: true,
+            })
     }
 }
 

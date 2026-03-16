@@ -3455,6 +3455,18 @@ class TestConfig:
         self._test_tri_flag(go, True, [pf.FileLayoutError])
 
     @all_versions
+    def test_extra_final_delim(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0//"
+        p = tmp_path / "thing.fcs"
+        self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
+
+        def go(f: TriFlag) -> bool:
+            out = pf.api.fcs_read_flat_text(p, allow_missing_final_delim=f)
+            return out.flat_diagnostics.primary_split.has_even_delims
+
+        self._test_tri_flag(go, True, [pf.FileLayoutError])
+
+    @all_versions
     def test_extra_odd_token_and_delim(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:

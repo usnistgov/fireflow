@@ -230,8 +230,16 @@ pub struct MeasHeader(pub String);
 
 /// A "compiled" object to match keys efficiently.
 pub(crate) struct KeyMatcher<'a, T> {
-    literal: HashMap<&'a KeyString, T>,
-    pattern: Vec<(&'a CaseInsRegex, T)>,
+    literal: HashMap<&'a KeyString, &'a T>,
+    pattern: Vec<(&'a CaseInsRegex, &'a T)>,
+}
+
+/// All compiled key matchers to prevent repeated allocations in loops
+pub(crate) struct AllKeyMatchers<'a> {
+    pub(crate) promote: KeyMatcher<'a, ()>,
+    pub(crate) demote: KeyMatcher<'a, ()>,
+    pub(crate) ignore: KeyMatcher<'a, ()>,
+    pub(crate) subs: KeyMatcher<'a, SubPattern>,
 }
 
 /// A either an ASCII key value or a non-ASCII byte sequence.
@@ -885,12 +893,12 @@ impl FromIterator<KeyStringOrPattern> for KeyStringsOrPatterns<()> {
 }
 
 impl<T> KeyStringsOrPatterns<T> {
-    pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, &T> {
+    pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, T> {
         self.0.iter().collect()
     }
 }
 
-impl KeyMatcher<'_, &()> {
+impl KeyMatcher<'_, ()> {
     fn is_match(&self, other: &KeyString) -> bool {
         self.literal.contains_key(other)
             || self
@@ -902,18 +910,18 @@ impl KeyMatcher<'_, &()> {
 
 impl<T> KeyMatcher<'_, T> {
     fn get(&self, other: &KeyString) -> Option<&T> {
-        self.literal.get(other).or(self
+        self.literal.get(other).copied().or(self
             .pattern
             .iter()
             .find(|p| p.0.as_ref().is_match(other.as_ref()))
-            .map(|x| &x.1))
+            .map(|(_, x)| *x))
     }
 }
 
-impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
+impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> {
     fn from_iter<T>(iter: T) -> Self
     where
-        T: IntoIterator<Item = (&'a KeyStringOrPattern, X)>,
+        T: IntoIterator<Item = (&'a KeyStringOrPattern, &'a X)>,
     {
         let (literal, pattern): (HashMap<_, _>, Vec<_>) = iter
             .into_iter()
@@ -936,6 +944,7 @@ impl ParsedKeywords {
         &mut self,
         key: &NESlice<u8>,
         val: &NESlice<u8>,
+        matchers: &AllKeyMatchers<'_>,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Option<(KeywordInsertError, bool)> {
         enum TrimResult<'a> {
@@ -952,10 +961,6 @@ impl ParsedKeywords {
             BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
         }
 
-        let to_std = conf.promote_to_standard.as_matcher();
-        let to_nonstd = conf.demote_from_standard.as_matcher();
-        let ignore = conf.ignore_standard_keys.as_matcher();
-        let subs = &conf.substitute_standard_key_values.as_matcher();
         let renames = &conf.rename_standard_keys.as_ref();
 
         let parse_key = |s: &NESlice<u8>| {
@@ -1007,7 +1012,7 @@ impl ParsedKeywords {
         let kv_res = if let Some((is_std, kstr)) = parse_key(key) {
             if is_std {
                 // Standard key: starts with '$' and is ASCII
-                if ignore.is_match(&kstr) {
+                if matchers.ignore.is_match(&kstr) {
                     KeyValueResult::Ignore(StdKey(kstr), NEStringOrBytes::from(val))
                 } else {
                     let ak = AnyKey::Std(StdKey(kstr));
@@ -1063,12 +1068,12 @@ impl ParsedKeywords {
                 }
                 match k {
                     AnyKey::Std(StdKey(kstr)) => {
-                        if to_nonstd.is_match(&kstr) {
+                        if matchers.demote.is_match(&kstr) {
                             let vo = v.into_owned();
                             self.insert_nonunique_nonstd(kstr, vo, conf)
                         } else {
                             let rk = renames.get(&kstr).cloned().unwrap_or(kstr);
-                            if let Some(&s) = subs.get(&rk) {
+                            if let Some(s) = matchers.subs.get(&rk) {
                                 let sub_res = s.sub(v.as_ref().as_ref());
                                 if let Ok(ne) = NEString::try_from(sub_res) {
                                     self.insert_nonunique_std(rk, ne, conf)
@@ -1085,7 +1090,7 @@ impl ParsedKeywords {
                     }
                     AnyKey::NonStd(NonStdKey(kstr)) => {
                         let vo = v.into_owned();
-                        if to_std.is_match(&kstr) {
+                        if matchers.promote.is_match(&kstr) {
                             self.insert_nonunique_std(kstr, vo, conf)
                         } else {
                             self.insert_nonunique_nonstd(kstr, vo, conf)
@@ -1544,11 +1549,14 @@ mod tests {
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
+        let conf = ReadHeaderAndTEXTConfig::default();
+        let m = conf.as_matchers();
         let mut p = ParsedKeywords::default();
         let res = p.insert(
             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
             &NESlice::try_from_slice(b"of_the_night_sky").unwrap(),
-            &ReadHeaderAndTEXTConfig::default(),
+            &m,
+            &conf,
         );
         assert_eq!(None, res);
         assert_eq!(
@@ -1597,11 +1605,14 @@ mod tests {
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
+        let conf = ReadHeaderAndTEXTConfig::default();
+        let m = conf.as_matchers();
         let mut p = ParsedKeywords::default();
         let res = p.insert(
             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
             &NESlice::try_from_slice(b"the cake is a lie").unwrap(),
-            &ReadHeaderAndTEXTConfig::default(),
+            &m,
+            &conf,
         );
         assert_eq!(None, res);
         assert_eq!(

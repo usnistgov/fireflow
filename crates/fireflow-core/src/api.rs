@@ -1463,33 +1463,30 @@ impl SplitTEXTDiagnostics {
             has_even_delims: false,
             extra_leading_delims: 0,
         };
+        let mut insert_errs = vec![];
         let mut any_insert_err = false;
 
         let (pairs, extra_seg, has_even_tokens) = Self::trim_segment_end(segs);
 
         ret.has_even_delims = !has_even_tokens;
 
-        let insert_errs: Vec<_> = pairs
-            .iter()
-            .tuples()
-            .filter_map(|(key, value)| {
-                let k = NESlice::try_from_slice(key);
-                let v = NESlice::try_from_slice(value);
-                match (k, v) {
-                    (Some(kk), Some(vv)) => {
-                        return kws.insert(&kk, &vv, conf).map(|(e, is_err)| {
-                            any_insert_err = any_insert_err || is_err;
-                            e
-                        });
+        let matchers = conf.as_matchers();
+
+        for (key, value) in pairs.iter().tuples() {
+            let k = NESlice::try_from_slice(key);
+            let v = NESlice::try_from_slice(value);
+            match (k, v) {
+                (Some(kk), Some(vv)) => {
+                    if let Some((e, is_err)) = kws.insert(&kk, &vv, &matchers, conf) {
+                        any_insert_err = any_insert_err || is_err;
+                        insert_errs.push(ParseKeywordsIssue::from(e));
                     }
-                    (Some(kk), None) => ret.keys_with_blank_values.push(kk.to_ne_vec().into()),
-                    (None, Some(vv)) => ret.values_with_blank_keys.push(vv.to_ne_vec().into()),
-                    (None, None) => ret.skipped_pairs += 1,
                 }
-                None
-            })
-            .map(ParseKeywordsIssue::from)
-            .collect();
+                (Some(kk), None) => ret.keys_with_blank_values.push(kk.to_ne_vec().into()),
+                (None, Some(vv)) => ret.values_with_blank_keys.push(vv.to_ne_vec().into()),
+                (None, None) => ret.skipped_pairs += 1,
+            }
+        }
 
         let blank_key_errors = ret
             .values_with_blank_keys
@@ -1554,8 +1551,10 @@ impl SplitTEXTDiagnostics {
         let mut insert_results = vec![];
         let mut any_insert_err = false;
 
+        let matchers = conf.as_matchers();
+
         let mut push_pair = |ks: &mut ParsedKeywords, kb: &NESlice<u8>, vb: &NESlice<u8>| {
-            let _ = ks.insert(kb, vb, conf).map(|(e, is_err)| {
+            let _ = ks.insert(kb, vb, &matchers, conf).map(|(e, is_err)| {
                 any_insert_err = any_insert_err || is_err;
                 insert_results.push(ParseKeywordsIssue::from(e));
             });

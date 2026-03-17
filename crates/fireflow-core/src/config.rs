@@ -21,7 +21,8 @@ use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
+    AllKeyMatchers, KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _,
+    StdKey, StdKeywords,
 };
 use crate::validated::keystring_pairs::KeyStringPairs;
 use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
@@ -1702,6 +1703,17 @@ impl HasStrategy for ReadEventsConfig {
         self.data_remainder_limit = 1.into();
         self.allow_uneven_event_width = TriFlag::True.into();
         self.allow_tot_mismatch = TriFlag::True.into();
+    }
+}
+
+impl ReadHeaderAndTEXTConfig {
+    pub(crate) fn as_matchers(&self) -> AllKeyMatchers<'_> {
+        AllKeyMatchers {
+            promote: self.promote_to_standard.as_matcher(),
+            demote: self.demote_from_standard.as_matcher(),
+            ignore: self.ignore_standard_keys.as_matcher(),
+            subs: self.substitute_standard_key_values.as_matcher(),
+        }
     }
 }
 

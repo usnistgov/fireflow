@@ -1478,7 +1478,7 @@ impl SplitTEXTDiagnostics {
                 match (k, v) {
                     (Some(kk), Some(vv)) => {
                         return kws.insert(&kk, &vv, conf).map(|(e, is_err)| {
-                            any_insert_err = is_err;
+                            any_insert_err = any_insert_err || is_err;
                             e
                         });
                     }
@@ -1556,7 +1556,7 @@ impl SplitTEXTDiagnostics {
 
         let mut push_pair = |ks: &mut ParsedKeywords, kb: &NESlice<u8>, vb: &NESlice<u8>| {
             let _ = ks.insert(kb, vb, conf).map(|(e, is_err)| {
-                any_insert_err = is_err;
+                any_insert_err = any_insert_err || is_err;
                 insert_results.push(ParseKeywordsIssue::from(e));
             });
         };

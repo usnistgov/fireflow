@@ -108,7 +108,7 @@ pub(crate) struct Escaped<T> {
 }
 
 impl<T> Escaped<T> {
-    pub(crate) fn write_str(&self, buf: &mut String)
+    pub(crate) fn write_str(&self, buf: &mut NEString)
     where
         Self: fmt::Display,
     {

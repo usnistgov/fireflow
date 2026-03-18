@@ -27,7 +27,7 @@ use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
 use fireflow_types::config::EnumStrIter as _;
 use fireflow_types::keywords::{Version, VersionFormatError};
-use fireflow_types::nonempty_string::NEStr;
+use fireflow_types::nonempty_string::{NEStr, NEString};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -394,9 +394,52 @@ pub enum WriteTEXTHeaderError {
 #[derive(new)]
 pub(crate) struct HeaderKeywordsToWrite<T> {
     pub(crate) header: WriteHeaderSegments<T>,
-    pub(crate) primary: String,
-    pub(crate) supplemental: String,
+    pub(crate) text: TEXTToWrite,
     pub(crate) nextdata: Nextdata,
+}
+
+/// Different configurations in which TEXT may be written.
+///
+/// `Combined` is meant for 2.0 only. The other two are meant for 3.0+ where
+/// we need to make two strings for required and optional keywords but may
+/// need to write them as one contiguous bytestream if STEXT is not required
+/// (which is basically always). The alternative is to combined these strings
+/// but this potentially costs lots of memory.
+pub(crate) enum TEXTToWrite {
+    /// Primary TEXT only (2.0)
+    Combined2_0(NEString),
+    /// Primary TEXT only but with two buffers for required and optional (3.0+).
+    ///
+    /// Both buffers are assumed to start with a delimiter.
+    Combined(NEString, NEString),
+    /// Primary and supplemental TEXT with required and optional (3.0+)
+    ///
+    /// Both buffers are assumed to start with a delimiter.
+    Split(NEString, NEString),
+}
+
+impl TEXTToWrite {
+    fn write_primary<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
+        match self {
+            Self::Combined2_0(s) => h.write_all(s.as_str().as_bytes()),
+            Self::Combined(r, o) => {
+                h.write_all(r.as_str().as_bytes())?;
+                if let Some((_, o_no_delim)) = o.as_str().split_at_checked(1) {
+                    h.write_all(o_no_delim.as_bytes())?;
+                }
+                Ok(())
+            }
+            Self::Split(p, _) => h.write_all(p.as_str().as_bytes()),
+        }
+    }
+
+    fn write_supplemental<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
+        if let Self::Split(_, s) = self {
+            h.write_all(s.as_str().as_bytes())
+        } else {
+            Ok(())
+        }
+    }
 }
 
 impl<T> HeaderKeywordsToWrite<T> {
@@ -415,7 +458,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let text_begin = Self::header_len(other_lens.len(), T::WIDTH);
 
         // Make new buffer for TEXT with first delimiter
-        let mut text = String::from(char::from(delim));
+        let mut text = NEString::from(char::from(delim));
 
         // Check for invalid delimiters and write non-offset keywords to buffers
         for x in kws {
@@ -423,7 +466,7 @@ impl<T> HeaderKeywordsToWrite<T> {
             Escaped::new(delim, &x).write_str(&mut text);
         }
 
-        let text_len: u64 = u64::try_from(text.len()).expect("overflow") + NEXTDATA_LEN;
+        let text_len: u64 = u64::try_from(text.len().get()).expect("overflow") + NEXTDATA_LEN;
         let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
@@ -441,7 +484,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         let header = WriteHeaderSegments::new(text_seg, data_seg, anal_seg, other_segs);
 
-        Ok(Self::new(header, text, String::default(), nextdata))
+        Ok(Self::new(header, TEXTToWrite::Combined2_0(text), nextdata))
     }
 
     /// Create HEADER+TEXT+OTHER offsets for FCS 3.0
@@ -469,8 +512,8 @@ impl<T> HeaderKeywordsToWrite<T> {
         // can estimate the number of chars to be written.
 
         // init string buffers for primary and supp with first delim
-        let mut req_text = String::from(char::from(delim));
-        let mut opt_text = String::from(char::from(delim));
+        let mut req_text = NEString::from(char::from(delim));
+        let mut opt_text = NEString::from(char::from(delim));
 
         // Check for invalid delimiters and write non-offset keywords to buffers
         for x in req {
@@ -493,8 +536,8 @@ impl<T> HeaderKeywordsToWrite<T> {
         // Primary TEXT with optional and required keywords is the sum of both
         // these buffers MINUS ONE because the optional keyword buffer includes
         // an initial delimiter.
-        let req_text_len = u64::try_from(req_text.len()).expect("overflow") + OFFSETS_LEN_3_0;
-        let supp_text_len = u64::try_from(opt_text.len()).expect("overflow");
+        let req_text_len = u64::try_from(req_text.len().get()).expect("overflow") + OFFSETS_LEN_3_0;
+        let supp_text_len = u64::try_from(opt_text.len().get()).expect("overflow");
         let all_text_len = req_text_len + supp_text_len - 1;
 
         let make_text_seg = |len| -> Result<_, WriteTEXTHeaderError> {
@@ -555,21 +598,15 @@ impl<T> HeaderKeywordsToWrite<T> {
             Escaped::new(delim, &x).write_str(&mut req_text);
         }
 
-        // Combine optional and required buffers if supp text is empty. Since
-        // there is a delim at the front of the buffer, copy everything after
-        // the first byte if needed.
-        let (primary, supplemental) = if supp_text_seg.is_empty() {
-            if let Some((_, opt_no_first_delim)) = opt_text.as_str().split_at_checked(1) {
-                req_text.push_str(opt_no_first_delim);
-            }
-            (req_text, String::default())
-        } else {
-            (req_text, opt_text)
-        };
-
         let header = WriteHeaderSegments::new(prim_text_seg, h_data_seg, h_anal_seg, other_segs);
 
-        Ok(Self::new(header, primary, supplemental, nextdata))
+        let text = if supp_text_seg.is_empty() {
+            TEXTToWrite::Combined(req_text, opt_text)
+        } else {
+            TEXTToWrite::Split(req_text, opt_text)
+        };
+
+        Ok(Self::new(header, text, nextdata))
     }
 
     pub(crate) fn h_write<W: Write>(
@@ -585,7 +622,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         self.header.h_write(h, version)?;
 
         // write primary TEXT
-        h.write_all(self.primary.as_bytes())?;
+        self.text.write_primary(h)?;
 
         // write OTHER
         for o in other_segs {
@@ -593,7 +630,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         }
 
         // write supplemental TEXT
-        h.write_all(self.supplemental.as_bytes())?;
+        self.text.write_supplemental(h)?;
         Ok(())
     }
 

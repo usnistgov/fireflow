@@ -322,6 +322,13 @@ impl FromNonEmptyIterator<char> for NEString {
     }
 }
 
+impl fmt::Write for NEString {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        self.0.push_str(s);
+        Ok(())
+    }
+}
+
 impl NEString {
     pub fn push(&mut self, c: char) {
         self.0.push(c);
@@ -421,6 +428,12 @@ impl FromNEUtf8Error {
 impl From<&NEStr> for NEString {
     fn from(value: &NEStr) -> Self {
         Self(value.as_str().to_owned())
+    }
+}
+
+impl From<char> for NEString {
+    fn from(value: char) -> Self {
+        Self(String::from(value))
     }
 }
 

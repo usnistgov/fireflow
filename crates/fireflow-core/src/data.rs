@@ -60,9 +60,9 @@ use crate::core::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, DeferredWarningsAndError, ErrorGroup, ErrorsResult, GroupResult,
-    IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
+    IOErrorGroup, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
     SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, WarningsAndIOResult, WarningsResult,
+    WarningsAndIOGroupResult, WarningsAndIOResult, WarningsResult, io_to_impure_log,
 };
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
@@ -973,12 +973,13 @@ trait ToNativeReader: HasNativeType {
 }
 
 trait NativeReadable<S>: HasNativeType {
-    fn h_read_native<R: Read>(
+    fn slice_native(
         &self,
-        h: &mut BufReader<R>,
+        bytes: &[u8],
+        index: usize,
         byte_layout: S,
-        buf: &mut Vec<u8>,
-    ) -> IOResult<Self::Native, ReadDataframeError>;
+        _: &mut Vec<u8>,
+    ) -> Result<Self::Native, AsciiToUintError>;
 }
 
 /// A column which may be transformed into a writer for a rust numeric type
@@ -1023,13 +1024,22 @@ trait IntoReader<S> {
 trait Readable<S> {
     fn into_dataframe_column(self) -> AnyFCSColumn;
 
-    fn h_read<R: Read>(
+    // fn h_read<R: Read>(
+    //     &mut self,
+    //     h: &mut BufReader<R>,
+    //     row: usize,
+    //     byte_layout: S,
+    //     buf: &mut Vec<u8>,
+    // ) -> IOResult<(), ReadDataframeError>;
+
+    fn slice_to_row(
         &mut self,
-        h: &mut BufReader<R>,
-        row: usize,
+        bytes: &[u8],
+        src_index: usize,
+        dst_index: usize,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> IOResult<(), ReadDataframeError>;
+    ) -> Result<(), AsciiToUintError>;
 
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult;
 }
@@ -1073,7 +1083,7 @@ trait NumProps: Sized + Copy + Default {
     const LEN: usize;
     type BUF: AsRef<[u8]> + AsMut<[u8]> + Default;
 
-    fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<Self::BUF>;
+    // fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<Self::BUF>;
 
     fn from_big(buf: Self::BUF) -> Self;
 
@@ -1100,14 +1110,23 @@ trait NumProps: Sized + Copy + Default {
 
 /// Methods for reading numbers which may be in arbitrary byte orders.
 trait OrderedFromBytes<const OLEN: usize>: NumProps {
-    fn h_read_from_ordered<R: Read>(h: &mut BufReader<R>, order: [u8; OLEN]) -> io::Result<Self> {
-        let mut tmp = [0; OLEN];
+    // fn h_read_from_ordered<R: Read>(h: &mut BufReader<R>, order: [u8; OLEN]) -> io::Result<Self> {
+    //     let mut tmp = [0; OLEN];
+    //     let mut buf = Self::BUF::default();
+    //     h.read_exact(&mut tmp)?;
+    //     for (i, j) in order.iter().enumerate() {
+    //         buf.as_mut()[i] = tmp[usize::from(*j)];
+    //     }
+    //     Ok(Self::from_little(buf))
+    // }
+
+    fn slice_from_ordered(bytes: &[u8], index: usize, order: [u8; OLEN]) -> Self {
+        let tmp = &bytes[index..index + OLEN];
         let mut buf = Self::BUF::default();
-        h.read_exact(&mut tmp)?;
         for (i, j) in order.iter().enumerate() {
             buf.as_mut()[i] = tmp[usize::from(*j)];
         }
-        Ok(Self::from_little(buf))
+        Self::from_little(buf)
     }
 
     fn h_write_from_ordered<W: Write>(
@@ -1126,33 +1145,58 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
 
 /// Methods for reading/writing integers (1-8 bytes) from FCS files.
 trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
-    fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+    fn slice_endian(bytes: &[u8], index: usize, endian: Endian) -> Self {
         // Read data that is not a power-of-two bytes long. Start by reading n
         // bytes into a vector, which can take a varying size. Then copy this
         // into the power of 2 buffer which will go to one or the other end of
         // the buffer depending on endianness.
-        let mut tmp = [0; INTLEN];
+        let tmp = &bytes[index..index + INTLEN];
         let mut buf = Self::BUF::default();
-        h.read_exact(&mut tmp)?;
-        Ok(if endian == Endian::Big {
+        // h.read_exact(&mut tmp)?;
+        if endian == Endian::Big {
             let b = Self::LEN - INTLEN;
-            buf.as_mut()[b..].copy_from_slice(&tmp);
+            buf.as_mut()[b..].copy_from_slice(tmp);
             Self::from_big(buf)
         } else {
-            buf.as_mut()[..INTLEN].copy_from_slice(&tmp);
+            buf.as_mut()[..INTLEN].copy_from_slice(tmp);
             Self::from_little(buf)
-        })
-    }
-
-    fn h_read_ordered<R: Read>(
-        h: &mut BufReader<R>,
-        byteord: SizedByteOrd<INTLEN>,
-    ) -> io::Result<Self> {
-        match byteord {
-            SizedByteOrd::Endian(e) => Self::h_read_endian(h, e),
-            SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
         }
     }
+
+    fn slice_ordered(bytes: &[u8], index: usize, byteord: SizedByteOrd<INTLEN>) -> Self {
+        match byteord {
+            SizedByteOrd::Endian(e) => Self::slice_endian(bytes, index, e),
+            SizedByteOrd::Order(order) => Self::slice_from_ordered(bytes, index, order),
+        }
+    }
+
+    // fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+    //     // Read data that is not a power-of-two bytes long. Start by reading n
+    //     // bytes into a vector, which can take a varying size. Then copy this
+    //     // into the power of 2 buffer which will go to one or the other end of
+    //     // the buffer depending on endianness.
+    //     let mut tmp = [0; INTLEN];
+    //     let mut buf = Self::BUF::default();
+    //     h.read_exact(&mut tmp)?;
+    //     Ok(if endian == Endian::Big {
+    //         let b = Self::LEN - INTLEN;
+    //         buf.as_mut()[b..].copy_from_slice(&tmp);
+    //         Self::from_big(buf)
+    //     } else {
+    //         buf.as_mut()[..INTLEN].copy_from_slice(&tmp);
+    //         Self::from_little(buf)
+    //     })
+    // }
+
+    // fn h_read_ordered<R: Read>(
+    //     h: &mut BufReader<R>,
+    //     byteord: SizedByteOrd<INTLEN>,
+    // ) -> io::Result<Self> {
+    //     match byteord {
+    //         SizedByteOrd::Endian(e) => Self::h_read_endian(h, e),
+    //         SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
+    //     }
+    // }
 
     fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
         let mut buf = [0; INTLEN];
@@ -1179,20 +1223,33 @@ trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
 
 /// Methods for reading/writing floats (32 and 64 bit) from FCS files.
 trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
-    fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-        let buf = Self::read_buf(h)?;
-        Ok(Self::from_endian(buf, endian))
+    fn slice_endian(bytes: &[u8], index: usize, endian: Endian) -> Self {
+        let mut buf = Self::BUF::default();
+        buf.as_mut().copy_from_slice(&bytes[index..index + LEN]);
+        Self::from_endian(buf, endian)
     }
 
-    fn h_read_ordered<R: Read>(
-        h: &mut BufReader<R>,
-        byteord: SizedByteOrd<LEN>,
-    ) -> io::Result<Self> {
+    fn slice_ordered(bytes: &[u8], index: usize, byteord: SizedByteOrd<LEN>) -> Self {
         match byteord {
-            SizedByteOrd::Endian(endian) => Self::h_read_endian(h, endian),
-            SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
+            SizedByteOrd::Endian(endian) => Self::slice_endian(bytes, index, endian),
+            SizedByteOrd::Order(order) => Self::slice_from_ordered(bytes, index, order),
         }
     }
+
+    // fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
+    //     let buf = Self::read_buf(h)?;
+    //     Ok(Self::from_endian(buf, endian))
+    // }
+
+    // fn h_read_ordered<R: Read>(
+    //     h: &mut BufReader<R>,
+    //     byteord: SizedByteOrd<LEN>,
+    // ) -> io::Result<Self> {
+    //     match byteord {
+    //         SizedByteOrd::Endian(endian) => Self::h_read_endian(h, endian),
+    //         SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
+    //     }
+    // }
 
     fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
         let buf = Self::to_endian(self, endian);
@@ -1468,13 +1525,14 @@ where
     Self: HasNativeType<Native = T>,
     T: IntFromBytes<LEN>,
 {
-    fn h_read_native<R: Read>(
+    fn slice_native(
         &self,
-        h: &mut BufReader<R>,
+        bytes: &[u8],
+        index: usize,
         byte_layout: Endian,
         _: &mut Vec<u8>,
-    ) -> IOResult<T, ReadDataframeError> {
-        Ok(T::h_read_endian(h, byte_layout)?)
+    ) -> Result<T, AsciiToUintError> {
+        Ok(T::slice_endian(bytes, index, byte_layout))
     }
 }
 
@@ -1483,13 +1541,14 @@ where
     Self: HasNativeType<Native = T>,
     T: IntFromBytes<LEN>,
 {
-    fn h_read_native<R: Read>(
+    fn slice_native(
         &self,
-        h: &mut BufReader<R>,
+        bytes: &[u8],
+        index: usize,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut Vec<u8>,
-    ) -> IOResult<T, ReadDataframeError> {
-        Ok(T::h_read_ordered(h, byte_layout)?)
+    ) -> Result<T, AsciiToUintError> {
+        Ok(T::slice_ordered(bytes, index, byte_layout))
     }
 }
 
@@ -1498,13 +1557,14 @@ where
     Self: HasNativeType<Native = T>,
     T: FloatFromBytes<LEN>,
 {
-    fn h_read_native<R: Read>(
+    fn slice_native(
         &self,
-        h: &mut BufReader<R>,
+        bytes: &[u8],
+        index: usize,
         byte_layout: Endian,
         _: &mut Vec<u8>,
-    ) -> IOResult<T, ReadDataframeError> {
-        Ok(T::h_read_endian(h, byte_layout)?)
+    ) -> Result<T, AsciiToUintError> {
+        Ok(T::slice_endian(bytes, index, byte_layout))
     }
 }
 
@@ -1513,30 +1573,28 @@ where
     Self: HasNativeType<Native = T>,
     T: FloatFromBytes<LEN>,
 {
-    fn h_read_native<R: Read>(
+    fn slice_native(
         &self,
-        h: &mut BufReader<R>,
+        bytes: &[u8],
+        index: usize,
         byte_layout: SizedByteOrd<LEN>,
         _: &mut Vec<u8>,
-    ) -> IOResult<T, ReadDataframeError> {
-        Ok(T::h_read_ordered(h, byte_layout)?)
+    ) -> Result<T, AsciiToUintError> {
+        Ok(T::slice_ordered(bytes, index, byte_layout))
     }
 }
 
 impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>> for AsciiRange {
-    fn h_read_native<R: Read>(
+    fn slice_native(
         &self,
-        h: &mut BufReader<R>,
+        bytes: &[u8],
+        index: usize,
         _: NoByteOrd<ORD>,
         buf: &mut Vec<u8>,
-    ) -> IOResult<Self::Native, ReadDataframeError> {
+    ) -> Result<Self::Native, AsciiToUintError> {
         buf.clear();
-        h.take(u8::from(self.chars()).into()).read_to_end(buf)?;
-        ascii_to_uint(buf)
-            .map_err(ReadFixedAsciiError::from)
-            .map_err(ReadAsciiError::from)
-            .map_err(ReadDataframeError::from)
-            .map_err(ImpureError::Pure)
+        let n = usize::from(u8::from(self.chars()));
+        ascii_to_uint(&bytes[index..index + n])
     }
 }
 
@@ -1579,15 +1637,18 @@ where
         FCSColumn::from(self.data).into()
     }
 
-    fn h_read<R: Read>(
+    fn slice_to_row(
         &mut self,
-        h: &mut BufReader<R>,
-        row: usize,
+        bytes: &[u8],
+        src_index: usize,
+        dst_index: usize,
         byte_layout: S,
         buf: &mut Vec<u8>,
-    ) -> IOResult<(), ReadDataframeError> {
-        let x = self.column_type.h_read_native(h, byte_layout, buf)?;
-        self.data[row] = x;
+    ) -> Result<(), AsciiToUintError> {
+        let x = self
+            .column_type
+            .slice_native(bytes, src_index, byte_layout, buf)?;
+        self.data[dst_index] = x;
         Ok(())
     }
 
@@ -1625,18 +1686,19 @@ impl Readable<Endian> for ReaderMixedType {
         match_any_mixed!(self, c, { c.into_dataframe_column() })
     }
 
-    fn h_read<R: Read>(
+    fn slice_to_row(
         &mut self,
-        h: &mut BufReader<R>,
-        row: usize,
+        bytes: &[u8],
+        src_index: usize,
+        dst_index: usize,
         byte_layout: Endian,
         buf: &mut Vec<u8>,
-    ) -> IOResult<(), ReadDataframeError> {
+    ) -> Result<(), AsciiToUintError> {
         match self {
-            Self::Ascii(c) => c.h_read(h, row, NoByteOrd, buf),
-            Self::Uint(c) => c.h_read(h, row, byte_layout, buf),
-            Self::F32(c) => c.h_read(h, row, byte_layout, buf),
-            Self::F64(c) => c.h_read(h, row, byte_layout, buf),
+            Self::Ascii(c) => c.slice_to_row(bytes, src_index, dst_index, NoByteOrd, buf),
+            Self::Uint(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf),
+            Self::F32(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf),
+            Self::F64(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf),
         }
     }
 
@@ -1655,14 +1717,17 @@ impl Readable<Endian> for AnyReaderBitmask {
         match_any_uint!(self, AnyBitmask, c, { c.into_dataframe_column() })
     }
 
-    fn h_read<R: Read>(
+    fn slice_to_row(
         &mut self,
-        h: &mut BufReader<R>,
-        row: usize,
+        bytes: &[u8],
+        src_index: usize,
+        dst_index: usize,
         byte_layout: Endian,
         buf: &mut Vec<u8>,
-    ) -> IOResult<(), ReadDataframeError> {
-        match_any_uint!(self, AnyBitmask, c, { c.h_read(h, row, byte_layout, buf) })
+    ) -> Result<(), AsciiToUintError> {
+        match_any_uint!(self, AnyBitmask, c, {
+            c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf)
+        })
     }
 
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
@@ -2122,11 +2187,11 @@ macro_rules! impl_num_props {
             const LEN: usize = $size;
             type BUF = [u8; $size];
 
-            fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<Self::BUF> {
-                let mut buf = Self::BUF::default();
-                h.read_exact(&mut buf)?;
-                Ok(buf)
-            }
+            // fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<Self::BUF> {
+            //     let mut buf = Self::BUF::default();
+            //     h.read_exact(&mut buf)?;
+            //     Ok(buf)
+            // }
 
             fn to_big(self) -> Self::BUF {
                 <$t>::to_be_bytes(self)
@@ -3074,8 +3139,8 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
     fn h_read_unchecked_df<R>(
         &self,
         h: &mut BufReader<R>,
-        nrows: usize,
-        buf: &mut Vec<u8>,
+        w_nrows: usize,
+        val_buf: &mut Vec<u8>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOResult<
         (FCSDataFrame, Vec<OverrangeColumn>),
@@ -3088,21 +3153,137 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         C: IsFixed + Clone + IntoReader<S>,
         <C as IntoReader<S>>::Target: Readable<S>,
     {
+        // General strategy: read DATA in small chunks to make cache happy.
+        //
+        // Since FCS data is row-major and we want to output it in column-major,
+        // we effectively need to transpose the data on-the-fly as it is being
+        // read. We can't just think about this like a matrix transposition
+        // because we have different data types, and we need to read into
+        // separate vectors anyways since this is what polars expects to see
+        // when is makes a series.
+        //
+        // Therefore, the idea is the read several rows at a time into an
+        // intermediate row buffer from which raw bytes will be copied, possibly
+        // rearranged (in the case of mixed byteord), padded (in the case of
+        // non-power-of-two integers), cast as their target datatype, and
+        // finally stored in their final column vectors. Once we have this row
+        // buffer, each column will be filled serially which means the source
+        // buffer will be strided and the destination buffer will be indexed
+        // contiguously. The row buffer will be able to store a whole number of
+        // rows from the DATA segment.
+        //
+        // The parameter that can be optimized is the number of rows (N) being
+        // processed at once, which in turn dictates the size of the row buffer.
+        // For cache coherence, we want the row buffer and the column being
+        // written to be in L1D. Note that only one column (specifically N rows
+        // of the column) need to be in L1D at any given time because we are
+        // writing each column contiguously. Maximizing N will reduce the number
+        // of reads to disk, which lowers the number of syscalls.
+        //
+        // The choice of buffer size can be maximized such that:
+        //
+        // N * W + N * C + F <= L
+        //
+        // where:
+        //
+        // N =: number of rows to be processed at once (must be an integer)
+        // W =: row width in bytes
+        // C =: max column width in bytes
+        // F =: fudge factor (other stuff that should be in L1D, counters, etc)
+        // L =: size of L1D in bytes
+        //
+        // In practice, the number to actually set at the user level is the
+        // buffer size (specifically max buffer size since N must be an
+        // integer). Assume that most (99%+) of FCS files have the same width
+        // for each column, so the required memory for the row buffer will be
+        // approximately ncol / (ncol + 1). Also assume F is relatively small.
+        // This means that for a 9 measurement FCS file, the row buffer size
+        // that maximizes performance will be ~90%. This will slowly increase as
+        // number of columns grows because the +1 will become less significant,
+        // but in effect it won't change much since 90% is quite high. In the
+        // other direction, the +1 will become more significant, which means at
+        // 90% the required cache utilization will grow beyond the size of L1D
+        // and thus lead to misses. But this assumes the FCS file has less than
+        // 9 columns which will be rare. Therefore, 90% L1D size seems like a
+        // decent rule of thumb for cache size. This might be further optimized
+        // if one knows the total width and column widths before reading since
+        // the real row buffer size in the end can only fit whole rows, so for
+        // large files that only leaves a few possible options mathematically.
+        //
+        // In absolute terms, most L1D caches are 32k, so the buffers size
+        // should be ~28k by default. Obviously this can be higher if L1D is
+        // bigger on the user's CPU.
+
+        // TODO make this configurable
+        const ROW_BUF_MAX_SIZE: u64 = 28_000;
+
+        fn u64_to_usize(x: u64) -> usize {
+            usize::try_from(x).expect("overflow")
+        }
+
+        fn usize_to_u64(x: usize) -> u64 {
+            u64::try_from(x).expect("overflow")
+        }
+
+        let nrows = usize_to_u64(w_nrows);
+        let row_width = self.event_width();
+
+        let rows_per_buf = (ROW_BUF_MAX_SIZE / row_width).max(1);
+        let row_buf_size = rows_per_buf * row_width;
+
+        let w_row_width = u64_to_usize(row_width);
+        let w_rows_per_buf = u64_to_usize(rows_per_buf);
+        let w_n_buf_whole_reads = u64_to_usize(nrows.div_ceil(rows_per_buf));
+        let w_n_tail_rows = u64_to_usize(nrows % rows_per_buf);
+
+        let mut row_buf = Vec::with_capacity(u64_to_usize(row_buf_size));
+
+        let mut read_row_buf = |buf: &mut Vec<u8>| {
+            buf.clear();
+            h.take(row_buf_size).read_to_end(buf)
+        };
+
+        let from_err = |e| {
+            let e0 = ReadFixedAsciiError::from(e);
+            let e1 = ReadAsciiError::from(e0);
+            let e2 = ReadDataframeError::from(e1);
+            ImpureError::Pure(e2)
+        };
+
         let mut col_readers: Vec<_> = self
             .columns
             .iter()
-            .map(|c| c.clone().into_reader(nrows))
+            .map(|c| c.clone().into_reader(w_nrows))
             .collect();
+        let offsets = self.row_offsets();
 
-        for row in 0..nrows {
-            for c in &mut col_readers {
-                if let Err(e) = c.h_read(h, row, self.byte_layout, buf) {
-                    return WarningsAndIOResult::new_err(e.fmap_into_once());
+        // Read groups of rows in outer loop
+        for buf_idx in 0..w_n_buf_whole_reads {
+            io_to_impure_log!(read_row_buf(&mut row_buf));
+            // Once we have a buffer, iterate through each column and write data
+            for (c, c_offset) in col_readers.iter_mut().zip(offsets.iter()) {
+                // If this is the last iteration for the row buffer and the
+                // buffer does not divide DATA perfectly, we will have one last
+                // iteration where the buffer will be partly full
+                let rows_in_buf = if buf_idx + 1 == w_n_buf_whole_reads && w_n_tail_rows > 0 {
+                    w_n_tail_rows
+                } else {
+                    w_rows_per_buf
+                };
+                // Within each column, write rows, striding the row buffer and
+                // indexing consecutively in the current column
+                for row in 0..rows_in_buf {
+                    let src_idx = c_offset + w_row_width * row;
+                    let dst_idx = buf_idx * w_rows_per_buf + row;
+                    if let Err(e) =
+                        c.slice_to_row(&row_buf[..], src_idx, dst_idx, self.byte_layout, val_buf)
+                    {
+                        return WarningsAndIOResult::new_err(from_err(e));
+                    }
                 }
             }
         }
-        // TODO this is 10% of the reader's execution time so we should bypass
-        // some of these checks based on which flags are set.
+
         let rs: Vec<_> = col_readers
             .iter_mut()
             .enumerate()
@@ -3171,6 +3352,19 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
             .iter()
             .map(|c| u64::from(u8::from(c.nbytes())))
             .sum()
+    }
+
+    fn row_offsets(&self) -> Vec<usize>
+    where
+        C: IsFixed,
+    {
+        let mut offset = 0;
+        let mut offsets = vec![0; self.columns.len()];
+        for (i, c) in self.columns.iter().enumerate() {
+            offsets[i] = offset;
+            offset += usize::from(u8::from(c.nbytes()));
+        }
+        offsets
     }
 
     #[allow(clippy::trivially_copy_pass_by_ref)]

@@ -1016,16 +1016,9 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_FLAT, sargs)) => {
-            // use std::time::Instant;
             let conf = get_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
-            // let start = Instant::now();
-            // for _ in 0..1000 {
-            //     let _ = fcs_read_flat_texts(filepath, skip, Some(1), &conf);
-            // }
-            // let duration = start.elapsed();
-            // eprintln!("Time elapsed is: {duration:?}");
             let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             print_json(&res?[0]);
@@ -1069,10 +1062,17 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_DATA, sargs)) => {
+            // use std::time::Instant;
             let conf = get_std_dataset_config(&cmd, sargs);
             let delim = get_delim(sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
+            // let start = Instant::now();
+            // for _ in 0..10 {
+            //     let _ = fcs_read_std_datasets(filepath, skip, Some(1), &conf);
+            // }
+            // let duration = start.elapsed();
+            // eprintln!("Time elapsed is: {duration:?}");
             let ((), res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             let (core, _) = &res?[0];
@@ -1566,24 +1566,24 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) {
-    let df = core.as_data();
-    let nrows = df.nrows();
-    let cols: Vec<_> = df.iter_columns().collect();
-    let ncols = cols.len();
-    if ncols == 0 {
-        return;
-    }
-    let mut ns = core.shortnames().into_iter();
-    print!("{}", ns.next().unwrap());
-    for n in ns {
-        print!("{delim}{n}");
-    }
-    for r in 0..nrows {
-        println!();
-        print!("{}", cols[0].pos_to_string(r));
-        (1..ncols).for_each(|c| print!("{delim}{}", cols[c].pos_to_string(r)));
-    }
+pub fn print_parsed_data(_core: &AnyCoreDataset, _delim: &str) {
+    // let df = core.as_data();
+    // let nrows = df.nrows();
+    // let cols: Vec<_> = df.iter_columns().collect();
+    // let ncols = cols.len();
+    // if ncols == 0 {
+    //     return;
+    // }
+    // let mut ns = core.shortnames().into_iter();
+    // print!("{}", ns.next().unwrap());
+    // for n in ns {
+    //     print!("{delim}{n}");
+    // }
+    // for r in 0..nrows {
+    //     println!();
+    //     print!("{}", cols[0].pos_to_string(r));
+    //     (1..ncols).for_each(|c| print!("{delim}{}", cols[c].pos_to_string(r)));
+    // }
 }
 
 fn print_warnings<W: Display>(ws: impl IntoIterator<Item = W>) {

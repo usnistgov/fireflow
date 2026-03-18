@@ -12,7 +12,7 @@ use fireflow_types::config::{
     MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
     NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
     OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER, ProcessKeywordFailure,
-    ProcessTemporalOpticalKeys, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
+    ProcessTemporalOpticalKeys, RowBufferSize, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
     SPILLOVER_NAMED_LEVEL, SpilloverMeasurementMode, TIME_MEAS_NAME_PATTERN_DEFAULT,
     TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
     TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL, TRI_FALSE_LEVEL, TRI_SILENT_LEVEL,
@@ -8216,6 +8216,7 @@ impl DocArgParam {
             Self::new_allow_tot_mismatch_param(),
             Self::new_truncate_event_values(),
             Self::new_disallow_over_range(),
+            Self::new_row_buffer_size(),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
@@ -9047,6 +9048,19 @@ impl DocArgParam {
         );
         let e = PyreflowError::EventData;
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
+    }
+
+    fn new_row_buffer_size() -> Self {
+        let d = format!(
+            "Set the size in bytes for the internal buffer used to read {DATA}. \
+             This is a performance parameter that balances read syscalls (too low) \
+             and cache misses (too high). It should generally be 90% of the CPU's \
+             L1D cache size."
+        );
+        let path = parse_quote!(fireflow_types::config::RowBufferSize);
+        let pt = PyInt::new_int(RsInt::U64).rstype(path);
+        let def = usize::try_from(RowBufferSize::default().0).expect("overflow");
+        Self::new_param("row_buffer_size", pt, d).def(DocDefault::Int(def))
     }
 
     fn new_warnings_are_errors_param() -> Self {

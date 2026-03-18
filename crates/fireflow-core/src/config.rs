@@ -32,9 +32,10 @@ use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
     AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
-    ProcessKeywordFailure, ProcessTemporalOpticalKeys, ReadStrategy, SpilloverMeasurementMode,
-    TemporalOpticalKey, TriFlag, TrimValueWhitespace, TruncateEventValues, VERSION_EARLIEST_LEVEL,
-    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    ProcessKeywordFailure, ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize,
+    SpilloverMeasurementMode, TemporalOpticalKey, TriFlag, TrimValueWhitespace,
+    TruncateEventValues, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
+    VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
@@ -954,6 +955,19 @@ pub struct ReadEventsConfig {
     /// This flag only has an effect if the column is not truncated according to
     /// [`Self::truncate_event_values`].
     pub disallow_over_range: DisallowOverRange,
+
+    /// Set the size in bytes for the internal buffer used to read DATA.
+    ///
+    /// This is a performance tuning parameter which controls the
+    /// cache-coherence of the data being read. Setting this too low will read
+    /// DATA in smaller chunks which will produce more syscalls (slower);
+    /// setting this too high will cause cache misses (also slower). It should
+    /// generally be 90% of your CPU's L1D cache size.
+    ///
+    /// It defaults to `28_000` with the assumption that most CPUs have 32k L1D
+    /// caches. Setting this to a higher value if your CPU has a larger cache
+    /// may increase throughput.
+    pub row_buffer_size: RowBufferSize,
 }
 
 /// Configuration options for across all reading functions

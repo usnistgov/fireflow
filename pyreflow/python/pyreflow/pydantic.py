@@ -123,6 +123,7 @@ class _ReadEventsConfig(BaseModel):
     allow_tot_mismatch: pft.TriFlag = _DEFAULT_TRIFLAG
     truncate_event_values: pft.TruncateEventValues = "int_only"
     disallow_over_range: pft.TriFlag = _DEFAULT_TRIFLAG
+    row_buffer_size: int = 28000
 
 
 class _ReadSharedConfig(BaseModel):

@@ -3214,9 +3214,6 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         // should be ~28k by default. Obviously this can be higher if L1D is
         // bigger on the user's CPU.
 
-        // TODO make this configurable
-        const ROW_BUF_MAX_SIZE: u64 = 28_000;
-
         fn u64_to_usize(x: u64) -> usize {
             usize::try_from(x).expect("overflow")
         }
@@ -3228,7 +3225,14 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         let nrows = usize_to_u64(w_nrows);
         let row_width = self.event_width();
 
-        let rows_per_buf = (ROW_BUF_MAX_SIZE / row_width).max(1);
+        // TODO there should be a way to dynamically query the CPUs L1D size
+        // and then default to the config option if we can't find it.
+
+        // Max this to 1 here so that we always have at least one row we are
+        // reading. If there are any machines that produce files with at least
+        // 32KB rows (which would be ~1000 parameters at 32 bit column widths),
+        // these will produce some lovely cache miss fireworks on most CPUs :/
+        let rows_per_buf = (conf.row_buffer_size.0 / row_width).max(1);
         let row_buf_size = rows_per_buf * row_width;
 
         let w_row_width = u64_to_usize(row_width);

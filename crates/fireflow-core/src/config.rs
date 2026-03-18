@@ -21,7 +21,8 @@ use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _, StdKey, StdKeywords,
+    AllKeyMatchers, KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _,
+    StdKey, StdKeywords,
 };
 use crate::validated::keystring_pairs::KeyStringPairs;
 use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
@@ -419,7 +420,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// duplicated.
     pub allow_duplicated_supp_text: AllowDuplicatedSuppTEXT,
 
-    /// If `true`, totally ignore STEXT and its offsets.
+    /// Totally ignore STEXT and its offsets.
     ///
     /// This may be useful if STEXT is duplicated (or partly overlaps) with
     /// primary TEXT.
@@ -456,32 +457,34 @@ pub struct ReadHeaderAndTEXTConfig {
     /// have escaped delimiters in them. Keys should almost never be blank in
     /// unescaped mode since `""` is almost never a sensible key value.
     ///
-    /// The guessing algorithm will be run after [`Self::trim_text_end`] since
-    /// this may remove the last delimiter if necessary. It is also independent
-    /// of [`Self::allow_odd`] and [`Self::allow_missing_final_delim`] which
-    /// will trigger as normal if their respective violations are found.
+    /// The guessing algorithm is independent of [`Self::allow_odd_tokens`] and
+    /// [`Self::allow_even_delims`] which will trigger as normal if their
+    /// respective violations are found.
     pub delim_escape_mode: DelimEscapeMode,
 
-    /// If `true`, allow delimiter to be character outside 1-126.
+    /// Allow delimiter to be character outside 1-126.
     pub allow_non_ascii_delim: AllowNonAsciiDelim,
 
-    /// If `true`, allow TEXT to not end with a delimiter.
-    pub allow_missing_final_delim: AllowMissingFinalDelim,
+    /// Allow TEXT to contain an even number of delimiters.
+    ///
+    /// TEXT should only contain an odd number of delimiters. This is
+    /// independent of escape mode.
+    pub allow_even_delims: AllowEvenDelims,
 
-    /// If `true`, allow non-unique keys to be present in TEXT.
+    /// Allow TEXT to contain an odd number of tokens.
+    ///
+    /// The final "dangling" token in the odd case will be dropped as it has no
+    /// obvious interpretation.
+    pub allow_odd_tokens: AllowOddTokens,
+
+    /// Allow non-unique keys to be present in TEXT.
     ///
     /// In any case, only the first value for a given key will be used. Setting
     /// this to `true` merely changes a duplicate key to emit a warning and not
     /// an error.
     pub allow_nonunique: AllowNonunique,
 
-    /// If `true`, allow TEXT to contain an odd number of tokens.
-    ///
-    /// Regardless, the final "dangling" token in the case of an odd number
-    /// will be dropped as it has no obvious interpretation.
-    pub allow_odd: AllowOdd,
-
-    /// If `true`, allow blank keys.
+    /// Allow blank keys.
     ///
     /// Only relevant if delimiters are unescaped since blank keys cannot exist
     /// when delimiters are escaped. Blank values will be dropped regardless of
@@ -493,43 +496,38 @@ pub struct ReadHeaderAndTEXTConfig {
     /// a value is somehow being parsed as a key.
     pub allow_empty_keys: AllowEmptyKeys,
 
-    /// If `true`, allow delimiters at token boundaries.
+    /// Allow delimiters at token boundaries.
     ///
-    /// Only relevant if `literal_delims` is `false`. While delimiters
-    /// may be escaped and included in keys or values, it is impossible to tell
-    /// within which token they are belong when the are next to a real delimiter,
-    /// which is why they are "not allowed."
+    /// This is only relevant for escaped mode.
     ///
     /// Regardless of this value, delimiters at token boundaries will not be
-    /// included due to their ambiguity. Setting this to `true` will emit an
-    /// error rather than a warning if this is encountered.
+    /// included due to their ambiguity.
     pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
-    /// If `true`, interpret all bytes in TEXT as Latin-1 instead of UTF-8
+    /// Interpret all bytes in TEXT as Latin-1 instead of UTF-8
     pub use_latin1: UseLatin1,
 
-    /// If `true`, allow keys with non-ASCII characters.
+    /// Allow keys with non-ASCII characters.
     ///
     /// This only applies to non-standard keywords, as all standardized keywords
     /// may only contain letters, numbers, and start with '$'. Regardless, all
-    /// compliant keys must only have ASCII. Setting this to `true` will emit
-    /// an error when encountering such a key.
+    /// compliant keys must only have ASCII.
     pub allow_non_ascii_keys: AllowNonAsciiKeywords,
 
-    /// If `true`, allow values with non-UTF8 characters.
+    /// Allow values with non-UTF8 characters.
     ///
     /// Tokens with such bytes will be dropped regardless of this keyword.
     pub allow_non_utf8_values: AllowNonUtf8,
 
-    /// If `true`, allow STEXT offsets to be missing from TEXT.
+    /// Allow STEXT offsets to be missing from TEXT.
     ///
     /// Does not affect FCS 3.2 since STEXT is optional there.
     pub allow_missing_supp_text: AllowMissingSuppTEXT,
 
-    /// If `true`, allow STEXT to use a different delimiter than TEXT.
+    /// Allow STEXT to use a different delimiter than TEXT.
     pub allow_supp_text_own_delim: AllowSuppTEXTOwnDelim,
 
-    /// If `true`, allow $NEXTDATA to be missing.
+    /// Allow $NEXTDATA to be missing.
     ///
     /// This is a required keyword in all versions. However, most files only
     /// have one dataset so this keyword does nothing. If `true`, a warning will
@@ -551,20 +549,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped.
     pub trim_value_whitespace: TrimValueWhitespace,
-
-    /// If `true`, trim extra characters off the end of TEXT.
-    ///
-    /// This does two things (in this order):
-    ///
-    /// First, it will move the ending offset to the last delimiter in TEXT,
-    /// thereby removing any non-delimiter characters (usually spaces if
-    /// present). These are usually added to make TEXT a predictable length.
-    ///
-    /// Second, it will decrease the offset by one if the number of delimiters
-    /// is even and the number of final consecutive delimiters is more than one.
-    /// This will effectively remove the last delimiter, which sometimes
-    /// erroneously exists.
-    pub trim_text_end: TrimTEXTEnd,
 
     // TODO this could be combined with replace_std_keys where empty string
     // means "ignore"
@@ -1224,9 +1208,9 @@ macro_rules! impl_tri_error_flag {
 
 impl_tri_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
 impl_tri_error_flag!(false_is_error AllowNonAsciiDelim);
-impl_tri_error_flag!(false_is_error AllowMissingFinalDelim);
+impl_tri_error_flag!(false_is_error AllowEvenDelims);
 impl_tri_error_flag!(false_is_error AllowNonunique);
-impl_tri_error_flag!(false_is_error AllowOdd);
+impl_tri_error_flag!(false_is_error AllowOddTokens);
 impl_tri_error_flag!(false_is_error AllowEmptyKeys);
 impl_tri_error_flag!(false_is_error AllowDelimAtBoundary);
 impl_tri_error_flag!(false_is_error AllowNonUtf8);
@@ -1654,9 +1638,9 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
         self.delim_escape_mode = DelimEscapeMode::GuessEscaped;
         self.allow_duplicated_supp_text = TriFlag::True.into();
         self.allow_non_ascii_delim = TriFlag::True.into();
-        self.allow_missing_final_delim = TriFlag::True.into();
+        self.allow_even_delims = TriFlag::True.into();
         self.allow_nonunique = TriFlag::True.into();
-        self.allow_odd = TriFlag::True.into();
+        self.allow_odd_tokens = TriFlag::True.into();
         self.allow_empty_keys = TriFlag::True.into();
         self.allow_delim_at_boundary = TriFlag::True.into();
         self.allow_non_utf8_values = TriFlag::True.into();
@@ -1665,7 +1649,6 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
         self.allow_supp_text_own_delim = TriFlag::True.into();
         self.allow_missing_nextdata = TriFlag::True.into();
         self.trim_value_whitespace = TrimValueWhitespace::TrimBlankWarn;
-        self.trim_text_end = true.into();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -1720,6 +1703,17 @@ impl HasStrategy for ReadEventsConfig {
         self.data_remainder_limit = 1.into();
         self.allow_uneven_event_width = TriFlag::True.into();
         self.allow_tot_mismatch = TriFlag::True.into();
+    }
+}
+
+impl ReadHeaderAndTEXTConfig {
+    pub(crate) fn as_matchers(&self) -> AllKeyMatchers<'_> {
+        AllKeyMatchers {
+            promote: self.promote_to_standard.as_matcher(),
+            demote: self.demote_from_standard.as_matcher(),
+            ignore: self.ignore_standard_keys.as_matcher(),
+            subs: self.substitute_standard_key_values.as_matcher(),
+        }
     }
 }
 

@@ -1561,25 +1561,18 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.last_odd_token.clone()),
     );
 
-    let missing_final_delim = DocArgROIvar::new_ivar_ro(
-        "missing_final_delim",
+    let has_even_delims = DocArgROIvar::new_ivar_ro(
+        "has_even_delims",
         PyBool::default(),
-        format!("{TRUE} if {TEXT} does not end with a delimiter."),
-        |_, _| quote!(self.0.missing_final_delim),
+        format!("{TRUE} if {TEXT} has an even number of delimiters."),
+        |_, _| quote!(self.0.has_even_delims),
     );
 
-    let has_extra_delim = DocArgROIvar::new_ivar_ro(
-        "has_extra_delim",
-        PyBool::default(),
-        format!("{TRUE} if {TEXT} does has an extra delimiter which was ignored."),
-        |_, _| quote!(self.0.has_extra_delim),
-    );
-
-    let trailing_bytes = DocArgROIvar::new_ivar_ro(
-        "trailing_bytes",
-        PyUnion::new_string_or_bytes(),
-        format!("Trailing bytes after {TEXT}"),
-        |_, _| quote!(self.0.trailing_bytes.clone()),
+    let extra_leading_delims = DocArgROIvar::new_ivar_ro(
+        "extra_leading_delims",
+        RsInt::Usize,
+        format!("The number of delimiters at the front of {TEXT} (excluding the first)."),
+        |_, _| quote!(self.0.extra_leading_delims),
     );
 
     let args = [
@@ -1590,9 +1583,8 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         skipped_pairs,
         tokens_with_boundary_delims,
         last_odd_token,
-        missing_final_delim,
-        has_extra_delim,
-        trailing_bytes,
+        has_even_delims,
+        extra_leading_delims,
     ];
 
     let doc = DocString::new_class(format!(
@@ -8100,9 +8092,9 @@ impl DocArgParam {
             Self::new_ignore_supp_text(),
             Self::new_delim_escape_mode(),
             Self::new_allow_non_ascii_delim(),
-            Self::new_allow_missing_final_delim(),
             Self::new_allow_nonunique(),
-            Self::new_allow_odd(),
+            Self::new_allow_even_delims(),
+            Self::new_allow_odd_tokens(),
             Self::new_allow_empty_keys(),
             Self::new_allow_delim_at_boundary(),
             Self::new_use_latin1(),
@@ -8112,7 +8104,6 @@ impl DocArgParam {
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
-            Self::new_trim_text_end(),
             Self::new_ignore_standard_keys(),
             Self::new_promote_to_standard(),
             Self::new_demote_from_standard(),
@@ -8760,11 +8751,11 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, true, "AllowNonAsciiDelim", d, e)
     }
 
-    fn new_allow_missing_final_delim() -> Self {
-        let n = "allow_missing_final_delim";
-        let d = format!("Choose what happens if {TEXT} does not end with a delimiter.");
+    fn new_allow_even_delims() -> Self {
+        let n = "allow_even_delims";
+        let d = format!("Choose what happens if {TEXT} has an even number of delimiters.");
         let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param(n, true, "AllowMissingFinalDelim", d, e)
+        Self::new_tri_flag_param(n, true, "AllowEvenDelims", d, e)
     }
 
     fn new_allow_nonunique() -> Self {
@@ -8776,13 +8767,13 @@ impl DocArgParam {
         Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d, e)
     }
 
-    fn new_allow_odd() -> Self {
+    fn new_allow_odd_tokens() -> Self {
         let d = format!(
             "Choose what happens if {TEXT} contains an odd number of tokens. \
              The last 'dangling' token will be dropped regardless."
         );
         let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param("allow_odd", true, "AllowOdd", d, e)
+        Self::new_tri_flag_param("allow_odd_tokens", true, "AllowOddTokens", d, e)
     }
 
     fn new_allow_empty_keys() -> Self {
@@ -8876,20 +8867,6 @@ impl DocArgParam {
         let rstype = types_config_path("TrimValueWhitespace");
         let pt = PyLiteral::new2(TrimValueWhitespace::iter_str(), rstype);
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
-    }
-
-    fn new_trim_text_end() -> Self {
-        let d = format!(
-            "If {TRUE} fix the final offset of {TEXT}. This \
-             will actually do two things (in this order). First, it will \
-             move the ending offset to the last delimiter in {TEXT}, thereby \
-             removing any non-delimiter characters (usually spaces if \
-             present). Second, it will decrease the offset by \
-             one if the number of delimiters is even and the number of final \
-             consecutive delimiters is more than one. This will effectively \
-             remove the last delimiter, which sometimes erroneously exists."
-        );
-        Self::new_bool_param("trim_text_end", d)
     }
 
     fn new_ignore_standard_keys() -> Self {

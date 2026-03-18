@@ -2,9 +2,9 @@ use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
 };
 use fireflow_core::config::{
-    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys, AllowMissingFinalDelim,
+    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys, AllowEvenDelims,
     AllowMissingNextdata, AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime,
-    AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOdd,
+    AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOddTokens,
     AllowSuppTEXTOwnDelim, AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit,
     DatasetOffset, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
     OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
@@ -153,11 +153,9 @@ fn run() -> AppResult<()> {
                  unescaped mode since '\"\"' is almost never a sensible key value."
             ),
             format!(
-                "The guessing algorithm is independent of {trim} since it will ignore \
-                 everything after the last delimiter. It is also independent of {odd} \
-                 and {final} which will trigger as normal if their respective violations \
+                "The guessing algorithm is independent of {odd} and {final} \
+                 which will trigger as normal if their respective violations \
                  are found.",
-                trim = fmt_arg(TRIM_TEXT_END),
                 odd = fmt_arg(ALLOW_ODD),
                 final = fmt_arg(ALLOW_MISSING_FINAL_DELIM),
             ),
@@ -369,7 +367,7 @@ fn run() -> AppResult<()> {
         format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
-    let missing_final_delim = tri_flag_arg::<AllowMissingFinalDelim>(
+    let missing_final_delim = tri_flag_arg::<AllowEvenDelims>(
         ALLOW_MISSING_FINAL_DELIM,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
@@ -379,7 +377,7 @@ fn run() -> AppResult<()> {
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
-    let allow_odd = tri_flag_arg::<AllowOdd>(ALLOW_ODD, "Allow odd number of tokens.");
+    let allow_odd = tri_flag_arg::<AllowOddTokens>(ALLOW_ODD, "Allow odd number of tokens.");
 
     let allow_empty_keys = tri_flag_arg::<AllowEmptyKeys>(
         ALLOW_EMPTY_KEYS,
@@ -433,14 +431,6 @@ fn run() -> AppResult<()> {
              '{TRIM_BLANK_SILENT_LEVEL}' to enable trimming and throw error, \
              warning, or nothing when trimming results in a blank.",
         ));
-
-    let trim_text_end = override_flag_arg(
-        TRIM_TEXT_END,
-        format!(
-            "Decrease the final offset of {text_seg} based on delimiter count \
-             and trailing non-delimiter characters after {text_seg}."
-        ),
-    );
 
     let make_key_str_args = |name, help| {
         let more = format!(
@@ -528,7 +518,6 @@ fn run() -> AppResult<()> {
         allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        trim_text_end,
         ignore_std_key,
         promote_to_std,
         demote_from_std,
@@ -1027,9 +1016,16 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_FLAT, sargs)) => {
+            // use std::time::Instant;
             let conf = get_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
+            // let start = Instant::now();
+            // for _ in 0..1000 {
+            //     let _ = fcs_read_flat_texts(filepath, skip, Some(1), &conf);
+            // }
+            // let duration = start.elapsed();
+            // eprintln!("Time elapsed is: {duration:?}");
             let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             print_json(&res?[0]);
@@ -1233,10 +1229,10 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     get_opt(s, DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
     get_opt(s, ALLOW_NON_ASCII_DELIM, |x| c.allow_non_ascii_delim = x);
     get_opt(s, ALLOW_MISSING_FINAL_DELIM, |x| {
-        c.allow_missing_final_delim = x;
+        c.allow_even_delims = x;
     });
     get_opt(s, ALLOW_NON_UNIQUE, |x| c.allow_nonunique = x);
-    get_opt(s, ALLOW_ODD, |x| c.allow_odd = x);
+    get_opt(s, ALLOW_ODD, |x| c.allow_odd_tokens = x);
     get_opt(s, ALLOW_EMPTY_KEYS, |x| c.allow_empty_keys = x);
     get_opt(s, ALLOW_DELIM_AT_BOUNDARY, |x| {
         c.allow_delim_at_boundary = x;
@@ -1258,7 +1254,6 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     get_opt(s, TRIM_VALUE_WHITESPACE, |x| {
         c.trim_value_whitespace = x;
     });
-    get_flag(s, TRIM_TEXT_END, |x| c.trim_text_end = x);
 
     get_many::<KeyStringOrPattern, _, _>(s, IGNORE_STD_KEYS, |xs| c.ignore_standard_keys = xs);
     get_many::<KeyStringOrPattern, _, _>(s, PROMOTE_TO_STD, |xs| c.promote_to_standard = xs);
@@ -1691,8 +1686,6 @@ const ALLOW_SUPP_TEXT_OWN_DELIM: &str = "allow-supp-text-own-delim";
 const ALLOW_MISSING_NEXTDATA: &str = "allow-missing-nextdata";
 
 const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
-
-const TRIM_TEXT_END: &str = "trim-text-end";
 
 const IGNORE_STD_KEYS: &str = "ignore-std-keys";
 

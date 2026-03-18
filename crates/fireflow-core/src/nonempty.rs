@@ -12,6 +12,7 @@ use serde::Serialize;
 #[derive(Into, From, PartialEq, Clone, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(bound = "T: Serialize + Clone"))]
+#[into(Vec<T>, NEVec<T>)]
 pub struct FcsNEVec<T>(pub NEVec<T>);
 
 #[cfg(feature = "python")]

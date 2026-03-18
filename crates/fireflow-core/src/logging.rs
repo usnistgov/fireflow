@@ -1766,7 +1766,7 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         Fe: Fn(M) -> E,
         Fw: Fn(M) -> W,
         WC: Extend<W>,
-        EC: Extend<E> + Default + SwitchableErrorContainer<Inner = E>,
+        EC: Extend<E> + Default,
         X: TriErrorFlag,
     {
         match flag.is_error() {
@@ -2193,6 +2193,23 @@ impl<V, WC, E, EC> Deferred<V, WC, E, EC> {
 }
 
 //
+// Deferred/Commutative LogResult with same warning and error type
+//
+impl<V, E, EC> Deferred<V, EC, E, EC> {
+    pub(crate) fn extend_deferred_warnings_or_errors3<X>(
+        self,
+        errors: impl IntoIterator<Item = E>,
+        flag: X,
+    ) -> Self
+    where
+        EC: Extend<E> + Default,
+        X: TriErrorFlag,
+    {
+        self.extend_warnings_or_errors3(errors, |v| v, |w| w, |e| e, flag)
+    }
+}
+
+//
 // Nowarn LogResult
 //
 impl<V, P, E, EC> NowarnResult<V, P, E, EC> {
@@ -2510,17 +2527,17 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
     //     }
     // }
 
-    pub(crate) fn new_switchable_maybe3(value: V, default: P, error: Option<E>, flag: X) -> Self
-    where
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
-        EC::Warn: Default,
-        X: TriErrorFlag,
-    {
-        match error {
-            Some(e) => Self::new_switchable3(value, default, e, flag),
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_switchable_maybe3(value: V, default: P, error: Option<E>, flag: X) -> Self
+    // where
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default,
+    //     EC::Warn: Default,
+    //     X: TriErrorFlag,
+    // {
+    //     match error {
+    //         Some(e) => Self::new_switchable3(value, default, e, flag),
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
     where

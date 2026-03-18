@@ -3,10 +3,7 @@ use crate::config::{
     AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
     UseLatin1,
 };
-use crate::logging::{
-    DeferredWarningsAndErrors, LogResult, SwitchableErrorResult, SwitchableErrorsResult,
-    WarningOrErrorResult,
-};
+use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
@@ -24,7 +21,7 @@ use fireflow_types::nonempty_string::{
 };
 
 use ambassador::{Delegate, delegatable_trait};
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
@@ -233,8 +230,16 @@ pub struct MeasHeader(pub String);
 
 /// A "compiled" object to match keys efficiently.
 pub(crate) struct KeyMatcher<'a, T> {
-    literal: HashMap<&'a KeyString, T>,
-    pattern: Vec<(&'a CaseInsRegex, T)>,
+    literal: HashMap<&'a KeyString, &'a T>,
+    pattern: Vec<(&'a CaseInsRegex, &'a T)>,
+}
+
+/// All compiled key matchers to prevent repeated allocations in loops
+pub(crate) struct AllKeyMatchers<'a> {
+    pub(crate) promote: KeyMatcher<'a, ()>,
+    pub(crate) demote: KeyMatcher<'a, ()>,
+    pub(crate) ignore: KeyMatcher<'a, ()>,
+    pub(crate) subs: KeyMatcher<'a, SubPattern>,
 }
 
 /// A either an ASCII key value or a non-ASCII byte sequence.
@@ -279,6 +284,15 @@ pub enum NEStringOrBytes {
     Bytes(TruncatedNEBytes),
 }
 
+impl From<NEStringOrBytes> for StringOrBytes {
+    fn from(value: NEStringOrBytes) -> Self {
+        match value {
+            NEStringOrBytes::Bytes(x) => Self::Bytes(x.into()),
+            NEStringOrBytes::Utf8(x) => Self::Utf8(x.into()),
+        }
+    }
+}
+
 impl<'a> From<NESlice<'a, u8>> for NEStringOrBytes {
     fn from(value: NESlice<'a, u8>) -> Self {
         Self::from(&value)
@@ -308,12 +322,19 @@ impl From<NEVec<u8>> for NEStringOrBytes {
 pub struct TruncatedBytes(pub Vec<u8>);
 
 /// A [`NEVec<u8>`] optimized for displaying in errors.
-#[derive(Clone, From, PartialEq, Debug, Display)]
+#[derive(Clone, From, PartialEq, Debug, Display, Into)]
 #[display("{}", trunc_bytes(self.0.0.as_ref()))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(NEVec<u8>, FcsNEVec<u8>)]
+#[into(Vec<u8>, NEVec<u8>, FcsNEVec<u8>)]
 pub struct TruncatedNEBytes(pub FcsNEVec<u8>);
+
+impl From<TruncatedNEBytes> for TruncatedBytes {
+    fn from(value: TruncatedNEBytes) -> Self {
+        Self::from(Vec::from(value))
+    }
+}
 
 impl<'a> From<NESlice<'a, u8>> for TruncatedNEBytes {
     fn from(value: NESlice<'a, u8>) -> Self {
@@ -335,11 +356,18 @@ impl<'a> From<&NESlice<'a, u8>> for TruncatedNEBytes {
 pub struct TruncatedString(pub String);
 
 /// A normal [`NEString`] that will be shortened when displaying if too long.
-#[derive(Clone, From, PartialEq, Debug, Display)]
+#[derive(Clone, From, PartialEq, Debug, Display, Into)]
 #[display("{}", trunc_str(self.0.as_ref()))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[into(String, NEString)]
 pub struct TruncatedNEString(pub NEString);
+
+impl From<TruncatedNEString> for TruncatedString {
+    fn from(value: TruncatedNEString) -> Self {
+        Self::from(String::from(value))
+    }
+}
 
 /// An FCS key with a specific version;
 // TODO const_trait_impl will be able to clean this up once stable
@@ -865,12 +893,12 @@ impl FromIterator<KeyStringOrPattern> for KeyStringsOrPatterns<()> {
 }
 
 impl<T> KeyStringsOrPatterns<T> {
-    pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, &T> {
+    pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, T> {
         self.0.iter().collect()
     }
 }
 
-impl KeyMatcher<'_, &()> {
+impl KeyMatcher<'_, ()> {
     fn is_match(&self, other: &KeyString) -> bool {
         self.literal.contains_key(other)
             || self
@@ -882,18 +910,18 @@ impl KeyMatcher<'_, &()> {
 
 impl<T> KeyMatcher<'_, T> {
     fn get(&self, other: &KeyString) -> Option<&T> {
-        self.literal.get(other).or(self
+        self.literal.get(other).copied().or(self
             .pattern
             .iter()
             .find(|p| p.0.as_ref().is_match(other.as_ref()))
-            .map(|x| &x.1))
+            .map(|(_, x)| *x))
     }
 }
 
-impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
+impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> {
     fn from_iter<T>(iter: T) -> Self
     where
-        T: IntoIterator<Item = (&'a KeyStringOrPattern, X)>,
+        T: IntoIterator<Item = (&'a KeyStringOrPattern, &'a X)>,
     {
         let (literal, pattern): (HashMap<_, _>, Vec<_>) = iter
             .into_iter()
@@ -906,14 +934,19 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, X)> for KeyMatcher<'a, X> {
     }
 }
 
+/// Insert a key and value from buffer into appropriate hash table.
+///
+/// Return value will be Some((X, false)) if a warning as emitted, Some((X,
+/// true)) if an error was emitted, and None if neither was emitted.
 #[allow(clippy::too_many_lines)]
 impl ParsedKeywords {
     pub(crate) fn insert(
         &mut self,
         key: &NESlice<u8>,
         val: &NESlice<u8>,
+        matchers: &AllKeyMatchers<'_>,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> Option<(KeywordInsertError, bool)> {
         enum TrimResult<'a> {
             Trimmed(Cow<'a, NEStr>, bool),
             Empty(DummyTriFlag),
@@ -928,10 +961,6 @@ impl ParsedKeywords {
             BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
         }
 
-        let to_std = conf.promote_to_standard.as_matcher();
-        let to_nonstd = conf.demote_from_standard.as_matcher();
-        let ignore = conf.ignore_standard_keys.as_matcher();
-        let subs = &conf.substitute_standard_key_values.as_matcher();
         let renames = &conf.rename_standard_keys.as_ref();
 
         let parse_key = |s: &NESlice<u8>| {
@@ -983,7 +1012,7 @@ impl ParsedKeywords {
         let kv_res = if let Some((is_std, kstr)) = parse_key(key) {
             if is_std {
                 // Standard key: starts with '$' and is ASCII
-                if ignore.is_match(&kstr) {
+                if matchers.ignore.is_match(&kstr) {
                     KeyValueResult::Ignore(StdKey(kstr), NEStringOrBytes::from(val))
                 } else {
                     let ak = AnyKey::Std(StdKey(kstr));
@@ -1039,12 +1068,12 @@ impl ParsedKeywords {
                 }
                 match k {
                     AnyKey::Std(StdKey(kstr)) => {
-                        if to_nonstd.is_match(&kstr) {
+                        if matchers.demote.is_match(&kstr) {
                             let vo = v.into_owned();
                             self.insert_nonunique_nonstd(kstr, vo, conf)
                         } else {
                             let rk = renames.get(&kstr).cloned().unwrap_or(kstr);
-                            if let Some(&s) = subs.get(&rk) {
+                            if let Some(s) = matchers.subs.get(&rk) {
                                 let sub_res = s.sub(v.as_ref().as_ref());
                                 if let Ok(ne) = NEString::try_from(sub_res) {
                                     self.insert_nonunique_std(rk, ne, conf)
@@ -1052,7 +1081,7 @@ impl ParsedKeywords {
                                     let sk = StdKey(rk);
                                     let e =
                                         SubPatternEmptyError::new(sk, v.into_owned(), s.clone());
-                                    LogResult::new_err(e.into())
+                                    Some((e.into(), true))
                                 }
                             } else {
                                 self.insert_nonunique_std(rk, v.into_owned(), conf)
@@ -1061,7 +1090,7 @@ impl ParsedKeywords {
                     }
                     AnyKey::NonStd(NonStdKey(kstr)) => {
                         let vo = v.into_owned();
-                        if to_std.is_match(&kstr) {
+                        if matchers.promote.is_match(&kstr) {
                             self.insert_nonunique_std(kstr, vo, conf)
                         } else {
                             self.insert_nonunique_nonstd(kstr, vo, conf)
@@ -1072,8 +1101,7 @@ impl ParsedKeywords {
             KeyValueResult::Empty(k, flag) => {
                 self.diag.keys_with_empty_trimmed_values.push(k.clone());
                 let e = KeywordInsertError::from(BlankValueError(k));
-                SwitchableErrorResult::new_switchable3((), (), e, flag)
-                    .switchable_into_non_commutative()
+                flag.is_error().map(|is_err| (e, is_err))
             }
             KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
                 if was_trimmed {
@@ -1082,19 +1110,19 @@ impl ParsedKeywords {
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
                 self.diag.values_with_non_ascii_keys.push((k, v));
-                LogResult::new_ok(())
+                None
             }
             KeyValueResult::NonUtf8Value(k, v) => {
                 self.diag.keys_with_non_utf8_values.push((k, v));
-                LogResult::new_ok(())
+                None
             }
             KeyValueResult::BothInvalid(k, v) => {
                 self.diag.byte_pairs.push((k, v));
-                LogResult::new_ok(())
+                None
             }
             KeyValueResult::Ignore(k, v) => {
                 self.diag.ignored_std_keywords.push((k, v));
-                LogResult::new_ok(())
+                None
             }
         }
     }
@@ -1104,7 +1132,7 @@ impl ParsedKeywords {
         k: KeyString,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> Option<(KeywordInsertError, bool)> {
         Self::insert_nonunique(
             &mut self.std,
             &mut self.diag.non_unique_std_keywords,
@@ -1119,7 +1147,7 @@ impl ParsedKeywords {
         k: KeyString,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError> {
+    ) -> Option<(KeywordInsertError, bool)> {
         Self::insert_nonunique(
             &mut self.nonstd,
             &mut self.diag.non_unique_nonstd_keywords,
@@ -1135,7 +1163,7 @@ impl ParsedKeywords {
         k: K,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningOrErrorResult<(), (), KeywordInsertError, KeywordInsertError>
+    ) -> Option<(KeywordInsertError, bool)>
     where
         K: Hash + Eq + Clone + AsRef<KeyString>,
         KeywordInsertError: From<KeyPresent<K>>,
@@ -1149,8 +1177,7 @@ impl ParsedKeywords {
                     value: value.clone(),
                 };
                 nonunique.push((key, TruncatedNEString(value)));
-                LogResult::new_deferred_switchable3((), err.into(), flag)
-                    .switchable_into_non_commutative()
+                flag.is_error().map(|is_err| (err.into(), is_err))
             }
             Entry::Vacant(ent) => {
                 let v = conf
@@ -1159,7 +1186,7 @@ impl ParsedKeywords {
                     .cloned()
                     .unwrap_or(value);
                 ent.insert(v);
-                LogResult::new_ok(())
+                None
             }
         }
     }
@@ -1522,13 +1549,16 @@ mod tests {
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
+        let conf = ReadHeaderAndTEXTConfig::default();
+        let m = conf.as_matchers();
         let mut p = ParsedKeywords::default();
         let res = p.insert(
             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
             &NESlice::try_from_slice(b"of_the_night_sky").unwrap(),
-            &ReadHeaderAndTEXTConfig::default(),
+            &m,
+            &conf,
         );
-        assert_eq!(LogResult::new_ok(()), res);
+        assert_eq!(None, res);
         assert_eq!(
             s.to_owned(),
             p.std.into_iter().next().unwrap().0.to_string()
@@ -1575,13 +1605,16 @@ mod tests {
         assert_eq!(k.to_string(), s.to_owned());
         // and such a valid key should behave the same when inserted into
         // the hash table
+        let conf = ReadHeaderAndTEXTConfig::default();
+        let m = conf.as_matchers();
         let mut p = ParsedKeywords::default();
         let res = p.insert(
             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
             &NESlice::try_from_slice(b"the cake is a lie").unwrap(),
-            &ReadHeaderAndTEXTConfig::default(),
+            &m,
+            &conf,
         );
-        assert_eq!(LogResult::new_ok(()), res);
+        assert_eq!(None, res);
         assert_eq!(
             s.to_owned(),
             p.nonstd.into_iter().next().unwrap().0.to_string()

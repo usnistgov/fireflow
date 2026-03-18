@@ -1349,7 +1349,7 @@ fn get_data_kws_config(s: &ArgMatches) -> config::ReadDataKeywordsConfig {
         c.integer_widths_from_byteord = x;
     });
     get_opt(s, INT_BYTEORD_OVERRIDE, |x| {
-        c.integer_byteord_override = x;
+        c.integer_byteord_override = Some(x);
     });
     get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;

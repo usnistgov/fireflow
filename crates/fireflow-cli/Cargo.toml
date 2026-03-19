@@ -20,6 +20,8 @@ serde_json = { workspace = true }
 ansi_term = { workspace = true }
 regex = { workspace = true }
 itertools = { workspace = true }
+itoa = { workspace = true }
+zmij = { workspace = true }
 
 
 [lints]

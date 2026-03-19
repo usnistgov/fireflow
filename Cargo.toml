@@ -30,6 +30,8 @@ thiserror = "2.0.17"
 phf = "0.13.1"
 const_format = "0.2.35"
 hashbrown = "0.15.5"
+itoa = "1.0.17"
+zmij = "1.0.21"
 
 # serde
 serde = "1.0.228"

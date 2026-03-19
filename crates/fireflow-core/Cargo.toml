@@ -40,10 +40,14 @@ type_families = { path = "../type_families" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, features = ["nalgebra"], optional = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
+itoa = { workspace = true, optional = true }
+zmij = { workspace = true, optional = true }
 
 [features]
 serde = [
     "dep:serde",
+    "dep:itoa",
+    "dep:zmij",
     "nalgebra/serde-serialize",
     "bigdecimal/serde",
     "chrono/serde",

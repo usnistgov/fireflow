@@ -3,11 +3,14 @@ use crate::validated::ascii_range::Chars;
 
 use derive_more::{Display, From};
 use derive_new::new;
+use itoa::Buffer as IBuf;
 use num_traits::identities::Zero as _;
 use polars_arrow::buffer::Buffer;
+use thiserror::Error;
+use zmij::Buffer as FBuf;
+
 use std::iter;
 use std::slice::Iter;
-use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
@@ -156,11 +159,16 @@ impl AnyFCSColumn {
     }
 
     /// Convert number at index to string
-    #[must_use]
-    pub fn pos_to_string(&self, i: usize) -> String {
-        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, {
-            x.0[i].to_string()
-        })
+    #[cfg(feature = "serde")]
+    pub fn as_bytes<'a>(&self, ibuf: &'a mut IBuf, fbuf: &'a mut FBuf, i: usize) -> &'a [u8] {
+        match self {
+            Self::U08(x) => ibuf.format(x.0[i]).as_bytes(),
+            Self::U16(x) => ibuf.format(x.0[i]).as_bytes(),
+            Self::U32(x) => ibuf.format(x.0[i]).as_bytes(),
+            Self::U64(x) => ibuf.format(x.0[i]).as_bytes(),
+            Self::F32(x) => fbuf.format(x.0[i]).as_bytes(),
+            Self::F64(x) => fbuf.format(x.0[i]).as_bytes(),
+        }
     }
 
     /// The number of bytes occupied by the column if written as ASCII

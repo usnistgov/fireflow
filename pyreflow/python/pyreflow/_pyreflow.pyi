@@ -1389,6 +1389,7 @@ class CoreDataset2_0(
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
         disallow_over_range: TriFlag = "false",
+        row_buffer_size: int = 28000,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1504,6 +1505,7 @@ class CoreDataset3_0(
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
         disallow_over_range: TriFlag = "false",
+        row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1626,6 +1628,7 @@ class CoreDataset3_1(
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
         disallow_over_range: TriFlag = "false",
+        row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1752,6 +1755,7 @@ class CoreDataset3_2(
         allow_tot_mismatch: TriFlag = "false",
         truncate_event_values: TruncateEventValues = "int_only",
         disallow_over_range: TriFlag = "false",
+        row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -2436,6 +2440,7 @@ def fcs_read_flat_dataset(
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
     disallow_over_range: TriFlag = "false",
+    row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2524,6 +2529,7 @@ def fcs_read_std_dataset(
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
     disallow_over_range: TriFlag = "false",
+    row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2725,6 +2731,7 @@ def fcs_read_flat_datasets(
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
     disallow_over_range: TriFlag = "false",
+    row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2814,6 +2821,7 @@ def fcs_read_std_datasets(
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
     disallow_over_range: TriFlag = "false",
+    row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2845,6 +2853,7 @@ def fcs_read_flat_dataset_with_keywords(
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
     disallow_over_range: TriFlag = "false",
+    row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2913,6 +2922,7 @@ def fcs_summarize(
     allow_tot_mismatch: TriFlag = "false",
     truncate_event_values: TruncateEventValues = "int_only",
     disallow_over_range: TriFlag = "false",
+    row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,

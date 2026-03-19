@@ -2,10 +2,13 @@ use crate::ne_str;
 use crate::nonempty_string::NEStr;
 
 use const_format::formatcp;
-use derive_more::Display;
+use derive_more::{Display, From, FromStr, Into};
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    pyo3::prelude::*,
+};
 
 pub trait EnumStrIter<const LEN: usize>: Sized {
     const ITEMS: [Self; LEN];
@@ -563,6 +566,18 @@ impl_str_enum!(
     /// Non-compliant metadata in TEXT will be skipped.
     Sledgehammer => READ_STRATEGY_SLEDGEHAMMER_LEVEL
 );
+
+/// The size of the row buffer used to read DATA.
+#[derive(Clone, Copy, From, Into, FromStr, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+pub struct RowBufferSize(pub u64);
+
+impl Default for RowBufferSize {
+    fn default() -> Self {
+        // 90% of the most common L1D cache size which is 32k
+        Self(28_000)
+    }
+}
 
 // internal constants, many are shared between enums to keep the API simpler
 

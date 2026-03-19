@@ -1452,7 +1452,7 @@ impl SplitTEXTDiagnostics {
         tk: TEXTKind,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
-        let mut ret = Self {
+        let mut out = Self {
             escaped: false,
             delimiter: delim,
             keys_with_blank_values: vec![],
@@ -1468,7 +1468,7 @@ impl SplitTEXTDiagnostics {
 
         let (pairs, extra_seg, has_even_tokens) = Self::trim_segment_end(segs);
 
-        ret.has_even_delims = !has_even_tokens;
+        out.has_even_delims = !has_even_tokens;
 
         let matchers = conf.as_matchers();
 
@@ -1482,24 +1482,24 @@ impl SplitTEXTDiagnostics {
                         insert_errs.push(ParseKeywordsIssue::from(e));
                     }
                 }
-                (Some(kk), None) => ret.keys_with_blank_values.push(kk.to_ne_vec().into()),
-                (None, Some(vv)) => ret.values_with_blank_keys.push(vv.to_ne_vec().into()),
-                (None, None) => ret.skipped_pairs += 1,
+                (Some(kk), None) => out.keys_with_blank_values.push(kk.to_ne_vec().into()),
+                (None, Some(vv)) => out.values_with_blank_keys.push(vv.to_ne_vec().into()),
+                (None, None) => out.skipped_pairs += 1,
             }
         }
 
-        let blank_key_errors = ret
+        let blank_key_errors = out
             .values_with_blank_keys
             .iter()
             .cloned()
             .map(|k| BlankKeyError::new(tk, k))
             .map(ParseKeywordsIssue::from);
 
-        let blank_pair_error = NonZeroUsize::new(ret.skipped_pairs)
+        let blank_pair_error = NonZeroUsize::new(out.skipped_pairs)
             .map(|n| BlankPairError::new(tk, n))
             .map(ParseKeywordsIssue::from);
 
-        ret.last_odd_token = extra_seg
+        out.last_odd_token = extra_seg
             .as_ref()
             .map(|s| s.as_ref().to_vec().into())
             .unwrap_or_default();
@@ -1525,7 +1525,7 @@ impl SplitTEXTDiagnostics {
         )
         .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
         .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
-        .set_ok_value(ret)
+        .set_ok_value(out)
     }
 
     /// Split bytes with delimiter escaping and store keys in hash table.
@@ -1537,7 +1537,7 @@ impl SplitTEXTDiagnostics {
         tk: TEXTKind,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
-        let mut ret = Self {
+        let mut out = Self {
             escaped: true,
             delimiter: delim,
             keys_with_blank_values: vec![],
@@ -1578,15 +1578,15 @@ impl SplitTEXTDiagnostics {
         keybuf = if let Some(segment0) = it.by_ref().find_map(|segment| {
             let ne = NESlice::try_from_slice(segment);
             if ne.is_none() {
-                ret.extra_leading_delims += 1;
+                out.extra_leading_delims += 1;
             }
             ne
         }) {
             segment0.to_ne_vec()
         } else {
             // No segments found, which means TEXT is entirely delimiters.
-            ret.extra_leading_delims = segs.len().get();
-            return LogResult::new_ok(ret);
+            out.extra_leading_delims = segs.len().get();
+            return LogResult::new_ok(out);
         };
 
         // Determine if the number of delimiters is even or odd, throw an error
@@ -1594,8 +1594,8 @@ impl SplitTEXTDiagnostics {
         // TEXT is missing one delimiter if this number is odd (which means the
         // actual number of leading delims is even since we already counted
         // the first before running this function).
-        ret.has_even_delims = (segs.len().get() - ret.extra_leading_delims) & 1 == 0;
-        let even_delim_err = ret.has_even_delims.then_some(EvenDelimiterError(tk).into());
+        out.has_even_delims = (segs.len().get() - out.extra_leading_delims) & 1 == 0;
+        let even_delim_err = out.has_even_delims.then_some(EvenDelimiterError(tk).into());
 
         for segment in it {
             if let Some(ne_segment) = NESlice::try_from_slice(segment) {
@@ -1610,7 +1610,7 @@ impl SplitTEXTDiagnostics {
                         // which is not allowed. Scream at user, they will be
                         // happy and enlightened.
                         let seg = NEStringOrBytes::from(ne_segment.to_ne_vec());
-                        ret.tokens_with_boundary_delims.push(seg);
+                        out.tokens_with_boundary_delims.push(seg);
                     }
                     if let Some(ne_val) = NESlice::try_from_slice(&valbuf[..]) {
                         push_pair(kws, &keybuf.as_nonempty_slice(), &ne_val);
@@ -1651,7 +1651,7 @@ impl SplitTEXTDiagnostics {
             // tokens. Scream at user so they will be enlightened.
             let last = NEStringOrBytes::from(keybuf.as_nonempty_slice());
             let e = UnevenTokensError::new(tk, last.clone()).into();
-            ret.last_odd_token = last.into();
+            out.last_odd_token = last.into();
             Some(e)
         };
 
@@ -1660,15 +1660,15 @@ impl SplitTEXTDiagnostics {
         // not captured at the end of the loop.
         if consec_blanks > 1 && consec_blanks & 1 == 1 {
             let seg = NESlice::try_from_slice(&valbuf[..]).unwrap_or(keybuf.as_nonempty_slice());
-            ret.tokens_with_boundary_delims
+            out.tokens_with_boundary_delims
                 .push(NEStringOrBytes::from(seg));
         }
 
-        let leading_delim_err = NonZeroUsize::try_from(ret.extra_leading_delims)
+        let leading_delim_err = NonZeroUsize::try_from(out.extra_leading_delims)
             .ok()
             .map(|n| LeadingDelimError::new(tk, n).into());
 
-        let bound_iter = ret
+        let bound_iter = out
             .tokens_with_boundary_delims
             .iter()
             .map(|token| DelimBoundError::new(tk, token.clone()).into())
@@ -1683,7 +1683,7 @@ impl SplitTEXTDiagnostics {
         res.extend_deferred_warnings_or_errors3(bound_iter, conf.allow_delim_at_boundary)
             .extend_deferred_warnings_or_errors3(even_delim_err, conf.allow_even_delims)
             .extend_deferred_warnings_or_errors3(last_odd_err, conf.allow_odd_tokens)
-            .set_ok_value(ret)
+            .set_ok_value(out)
     }
 }
 

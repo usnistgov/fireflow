@@ -36,13 +36,13 @@ use fireflow_types::config::{
     NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL,
     OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER,
     READ_STRATEGY_SCALPAL_LEVEL, READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL,
-    ReadStrategy, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
-    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
-    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
-    TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
-    TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL, TRUNCATE_INT_ONLY_LEVEL,
-    TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
-    VERSION_STRICT_LEVEL,
+    ReadStrategy, RowBufferSize, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
+    SPILLOVER_NAMED_LEVEL, TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
+    TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL,
+    TMP_OPT_DROP_WARN_LEVEL, TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL,
+    TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL,
+    TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
 use fireflow_types::nonempty_string::NEString;
@@ -837,11 +837,24 @@ fn run() -> AppResult<()> {
         ),
     );
 
+    let row_buffer_size = Arg::new(ROW_BUFFER_SIZE)
+        .long(ROW_BUFFER_SIZE)
+        .value_name("BYTES")
+        .value_parser(value_parser!(RowBufferSize))
+        .help(format!(
+            "Set the size in bytes for the internal buffer used to read {data_seg}. \
+             This is a performance parameter that balances read syscalls (too low) \
+             and cache misses (too high). It should generally be 90% of the CPU's \
+             L1D cache size. Defaults to {}.",
+            RowBufferSize::default()
+        ));
+
     let all_dataset_args = [
         allow_uneven_event_width,
         allow_tot_mismatch,
         truncate_event_values,
         disallow_over_range,
+        row_buffer_size,
     ];
 
     // shared args
@@ -1016,16 +1029,9 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_FLAT, sargs)) => {
-            // use std::time::Instant;
             let conf = get_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
-            // let start = Instant::now();
-            // for _ in 0..1000 {
-            //     let _ = fcs_read_flat_texts(filepath, skip, Some(1), &conf);
-            // }
-            // let duration = start.elapsed();
-            // eprintln!("Time elapsed is: {duration:?}");
             let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             print_json(&res?[0]);
@@ -1349,7 +1355,7 @@ fn get_data_kws_config(s: &ArgMatches) -> config::ReadDataKeywordsConfig {
         c.integer_widths_from_byteord = x;
     });
     get_opt(s, INT_BYTEORD_OVERRIDE, |x| {
-        c.integer_byteord_override = x;
+        c.integer_byteord_override = Some(x);
     });
     get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;
@@ -1369,6 +1375,7 @@ fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
     });
     get_opt(s, TRUNCATE_EVENT_VALUES, |x| c.truncate_event_values = x);
     get_opt(s, DISALLOW_OVER_RANGE, |x| c.disallow_over_range = x);
+    get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
 
     c
 }
@@ -1770,6 +1777,8 @@ const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 const TRUNCATE_EVENT_VALUES: &str = "truncate-event-values";
 
 const DISALLOW_OVER_RANGE: &str = "disallow-over-range";
+
+const ROW_BUFFER_SIZE: &str = "row-buffer-size";
 
 const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
 

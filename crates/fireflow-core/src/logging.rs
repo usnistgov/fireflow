@@ -3227,6 +3227,23 @@ macro_rules! io_to_log {
 
 pub(crate) use io_to_log;
 
+/// Lift an IO error into a LogResult with an `ImpureError`.
+///
+/// This is effectively a replacement for `?` since we can't implement `Try`
+/// on `LogResult`.
+macro_rules! io_to_impure_log {
+    ($x:expr) => {
+        match $x {
+            Ok(x) => x,
+            Err(e) => {
+                return crate::logging::LogResult::new_err(ImpureError::from(e));
+            }
+        }
+    };
+}
+
+pub(crate) use io_to_impure_log;
+
 #[cfg(feature = "python")]
 mod python {
     use super::{CommutativeResult, ErrorGroup, IOErrorGroup, NonCommutativeResult, Success};

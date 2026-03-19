@@ -1024,14 +1024,6 @@ trait IntoReader<S> {
 trait Readable<S> {
     fn into_dataframe_column(self) -> AnyFCSColumn;
 
-    // fn h_read<R: Read>(
-    //     &mut self,
-    //     h: &mut BufReader<R>,
-    //     row: usize,
-    //     byte_layout: S,
-    //     buf: &mut Vec<u8>,
-    // ) -> IOResult<(), ReadDataframeError>;
-
     fn slice_to_row(
         &mut self,
         bytes: &[u8],
@@ -1645,6 +1637,7 @@ where
         byte_layout: S,
         buf: &mut Vec<u8>,
     ) -> Result<(), AsciiToUintError> {
+        assert!(dst_index < self.data.len(), "dst index out of bounds");
         let x = self
             .column_type
             .slice_native(bytes, src_index, byte_layout, buf)?;
@@ -3279,6 +3272,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                 for row in 0..rows_in_buf {
                     let src_idx = c_offset + w_row_width * row;
                     let dst_idx = buf_idx * w_rows_per_buf + row;
+                    assert!(src_idx < row_buf.len(), "src index out of bounds");
                     if let Err(e) =
                         c.slice_to_row(&row_buf[..], src_idx, dst_idx, self.byte_layout, val_buf)
                     {

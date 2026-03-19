@@ -1,18 +1,19 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    ConfigFlag as _, DatasetOffset, DatasetOffsetError, OverlapCorrectionLimit,
-    ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
+    AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
+    OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
     ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
     ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, ReadState,
     ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, VersionOverride,
+    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, PrivVersioned as _, StdDatasetFromFlatTEXTWarning,
     StdDatasetFromFlatTextError, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
-    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning,
+    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };
-use crate::data::EventsDiagnostics;
+use crate::data::{EventsDiagnostics, IndexedLossError};
 use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
@@ -349,6 +350,33 @@ pub fn fcs_summarize(
         .map_ok_value(|x| x.fmap(FlatDatasetOutput::summarize))
 }
 
+/// Write multiple FCS datasets (of any version) to a file.
+#[must_use]
+pub fn fcs_write_datasets(
+    path: &PathBuf,
+    cores: &[AnyCoreDataset],
+    conf: &WriteDatasetInnerConfig,
+) -> WarningsAndIOGroupResult<Option<Nextdata>, IndexedLossError, StdWriterError, WriteDatasetSummary>
+{
+    let n = cores.len();
+    let mut results = vec![];
+    for (i, c) in cores.iter().enumerate() {
+        let appendable = AppendableFlag::from(i + 1 < n);
+        let append = AppendFlag(i > 0);
+        let multi = WriteMultiConfig::new(appendable, append);
+        let sconf = WriteMultiDatasetConfig::new(*conf, multi);
+        let succ = split_log!(c.write_dataset(path, &sconf));
+        results.push(succ);
+    }
+    let mut it = results.into_iter();
+    if let Some(r0) = it.by_ref().next() {
+        let ret = it.fold(r0, |acc, r| acc.lift_f2_once(r, |_, nd| nd));
+        LogResult::Succ(ret.fmap_once(Some))
+    } else {
+        LogResult::new_ok_default()
+    }
+}
+
 /// Output from parsing the TEXT segment.
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -397,6 +425,7 @@ pub struct FlatDatasetOutput {
 
 /// Output of parsing one standardized dataset (TEXT+DATA) from an FCS file.
 #[derive(Clone, new, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct StdDatasetOutput {
     /// Standardized data from one FCS dataset
     pub dataset: StdDatasetFromKwsOutput,

@@ -1,7 +1,7 @@
 Reader Functions
 ================
 
-The following are function which read various components of FCS files.
+The following are functions which read various components of FCS files.
 
 Dataset parsing
 ---------------

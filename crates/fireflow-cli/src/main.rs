@@ -1,5 +1,6 @@
 use fireflow_core::api::{
     fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
+    fcs_write_datasets,
 };
 use fireflow_core::config::{
     self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys, AllowEvenDelims,
@@ -9,7 +10,7 @@ use fireflow_core::config::{
     DatasetOffset, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
     OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
     ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern, TriErrorFlag,
-    TruncateOffsetLimit, VersionOverride,
+    TruncateOffsetLimit, VersionOverride, WriteDatasetInnerConfig,
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
@@ -19,6 +20,7 @@ use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{KeyString, KeyStringOrPattern};
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
+use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_core::validated::timepattern::TimePattern;
 use fireflow_types::config::{
     AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
@@ -273,7 +275,7 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let all_header_args = [
+    let all_read_header_args = [
         text_correction,
         data_correction,
         analysis_correction,
@@ -314,7 +316,7 @@ fn run() -> AppResult<()> {
              its length modulo event width produces a remainder."
         ));
 
-    let all_offset_args = [
+    let all_read_offset_args = [
         allow_pseudoempty,
         truncate_offset_limit,
         overlap_correction_limit,
@@ -503,7 +505,7 @@ fn run() -> AppResult<()> {
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
-    let all_flat_args = vec![
+    let all_read_flat_args = vec![
         version_override,
         supp_text_correction,
         nextdata_correction,
@@ -708,7 +710,7 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let all_std_args = [
+    let all_read_std_args = [
         dedup_meas_names,
         trim_intra_value_whitespace,
         time_meas_pattern,
@@ -799,7 +801,7 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let all_layout_args = [
+    let all_read_layout_args = [
         text_data_correction,
         text_analysis_correction,
         ignore_text_data_offsets,
@@ -854,7 +856,7 @@ fn run() -> AppResult<()> {
             RowBufferSize::default()
         ));
 
-    let all_dataset_args = [
+    let all_read_dataset_args = [
         allow_uneven_event_width,
         allow_tot_mismatch,
         truncate_event_values,
@@ -868,12 +870,30 @@ fn run() -> AppResult<()> {
 
     let hide_warnings = flag_arg(HIDE_WARNINGS, "Hide all warnings.");
 
-    let all_shared_args = [warnings_are_errors, hide_warnings];
+    let all_read_shared_args = [warnings_are_errors, hide_warnings];
+
+    // write args
+
+    let write_delim = Arg::new(WRITE_DELIM)
+        .long(WRITE_DELIM)
+        .value_name("CHAR")
+        .value_parser(value_parser!(TEXTDelim))
+        .help(format!(
+            "The delimiter to use when writing {text_seg} to file. \
+             Must be an ASCII character 1-31. Defaults to 30 (record separator)."
+        ));
+
+    let big_other = flag_arg(
+        BIG_OTHER,
+        format!("If set, use 20 for {other_seg} offset width, otherwise 8."),
+    );
+
+    let all_write_args = [write_delim, big_other];
 
     // other args
 
-    let delim_arg = Arg::new(DELIM)
-        .long(DELIM)
+    let delim_arg = Arg::new(PRINT_DELIM)
+        .long(PRINT_DELIM)
         .short('d')
         .value_name("CHAR")
         .help("Delimiter to use for tabular output.")
@@ -907,6 +927,14 @@ fn run() -> AppResult<()> {
         .help("Path to FCS file to parse.")
         .required(true);
 
+    let output_arg = Arg::new(OUTPUT_PATH)
+        .short('o')
+        .long(OUTPUT_PATH)
+        .value_name("PATH")
+        .value_parser(value_parser!(PathBuf))
+        .help("Path to FCS file to write.")
+        .required(true);
+
     let strategy_arg = Arg::new(STRATEGY)
         .short('s')
         .long(STRATEGY)
@@ -926,18 +954,18 @@ fn run() -> AppResult<()> {
         .about("Show header as JSON.")
         .arg(&input_arg)
         .arg(&strategy_arg)
-        .args(&all_header_args)
-        .args(&all_offset_args);
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args);
 
     let flat_cmd = Command::new(SUBCMD_FLAT)
         .about("Show flat keywords as JSON.")
         .arg(&input_arg)
         .arg(&strategy_arg)
         .arg(&dataset_index_arg)
-        .args(&all_header_args)
-        .args(&all_offset_args)
-        .args(&all_flat_args)
-        .args(&all_shared_args)
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args)
+        .args(&all_read_flat_args)
+        .args(&all_read_shared_args)
         .after_long_help(flat_long_help);
 
     let std_cmd = Command::new(SUBCMD_STD)
@@ -945,12 +973,12 @@ fn run() -> AppResult<()> {
         .arg(&input_arg)
         .arg(&strategy_arg)
         .arg(&dataset_index_arg)
-        .args(&all_header_args)
-        .args(&all_offset_args)
-        .args(&all_flat_args)
-        .args(&all_std_args)
-        .args(&all_layout_args)
-        .args(&all_shared_args)
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args)
+        .args(&all_read_flat_args)
+        .args(&all_read_std_args)
+        .args(&all_read_layout_args)
+        .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
     let meas_cmd = Command::new(SUBCMD_MEAS)
@@ -959,12 +987,12 @@ fn run() -> AppResult<()> {
         .arg(&strategy_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
-        .args(&all_header_args)
-        .args(&all_offset_args)
-        .args(&all_flat_args)
-        .args(&all_std_args)
-        .args(&all_layout_args)
-        .args(&all_shared_args)
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args)
+        .args(&all_read_flat_args)
+        .args(&all_read_std_args)
+        .args(&all_read_layout_args)
+        .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
     let spill_cmd = Command::new(SUBCMD_SPILL)
@@ -973,12 +1001,12 @@ fn run() -> AppResult<()> {
         .arg(&strategy_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
-        .args(&all_header_args)
-        .args(&all_offset_args)
-        .args(&all_flat_args)
-        .args(&all_std_args)
-        .args(&all_layout_args)
-        .args(&all_shared_args)
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args)
+        .args(&all_read_flat_args)
+        .args(&all_read_std_args)
+        .args(&all_read_layout_args)
+        .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
     let data_cmd = Command::new(SUBCMD_DATA)
@@ -987,25 +1015,42 @@ fn run() -> AppResult<()> {
         .arg(&strategy_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
-        .args(&all_header_args)
-        .args(&all_offset_args)
-        .args(&all_flat_args)
-        .args(&all_std_args)
-        .args(&all_layout_args)
-        .args(&all_dataset_args)
-        .args(&all_shared_args)
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args)
+        .args(&all_read_flat_args)
+        .args(&all_read_std_args)
+        .args(&all_read_layout_args)
+        .args(&all_read_dataset_args)
+        .args(&all_read_shared_args)
+        .after_long_help(&std_long_help);
+
+    let repair_cmd = Command::new(SUBCMD_REPAIR)
+        .about("Read a non-compliant FCS file and save as a compliant FCS file.")
+        .arg(&input_arg)
+        .arg(&output_arg)
+        .arg(&strategy_arg)
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args)
+        .args(&all_read_flat_args)
+        .args(&all_read_std_args)
+        .args(&all_read_layout_args)
+        .args(&all_read_dataset_args)
+        .args(&all_read_shared_args)
+        .args(&all_write_args)
+        .arg(&skip_arg)
+        .arg(&limit_arg)
         .after_long_help(&std_long_help);
 
     let summarize_cmd = Command::new(SUBCMD_SUMMARIZE)
         .about("Summarize datasets in FCS file")
         .arg(&input_arg)
         .arg(&strategy_arg)
-        .args(&all_header_args)
-        .args(&all_offset_args)
-        .args(&all_flat_args)
-        .args(&all_layout_args)
-        .args(&all_dataset_args)
-        .args(&all_shared_args)
+        .args(&all_read_header_args)
+        .args(&all_read_offset_args)
+        .args(&all_read_flat_args)
+        .args(&all_read_layout_args)
+        .args(&all_read_dataset_args)
+        .args(&all_read_shared_args)
         .arg(&skip_arg)
         .arg(&limit_arg);
 
@@ -1020,6 +1065,7 @@ fn run() -> AppResult<()> {
         .subcommand(meas_cmd)
         .subcommand(spill_cmd)
         .subcommand(data_cmd)
+        .subcommand(repair_cmd)
         .subcommand(summarize_cmd);
 
     let args = cmd.clone().get_matches();
@@ -1027,7 +1073,7 @@ fn run() -> AppResult<()> {
     match args.subcommand() {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = get_header_config(sargs);
-            let filepath = get_input_path(sargs);
+            let filepath = get_path(sargs, INPUT_PATH);
             let (ws, res) = fcs_read_header(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
@@ -1036,8 +1082,9 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_FLAT, sargs)) => {
-            let conf = get_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs);
-            let filepath = get_input_path(sargs);
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap();
+            let conf = get_read_flat_text_config(subcmd, sargs);
+            let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
             let (ws, res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
@@ -1047,9 +1094,9 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SPILL, sargs)) => {
-            let conf = get_std_config(&cmd, sargs);
+            let conf = get_read_std_text_config(&cmd, sargs);
             let delim = get_delim(sargs);
-            let filepath = get_input_path(sargs);
+            let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
             let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
@@ -1060,9 +1107,9 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_MEAS, sargs)) => {
-            let conf = get_std_config(&cmd, sargs);
+            let conf = get_read_std_text_config(&cmd, sargs);
             let delim = get_delim(sargs);
-            let filepath = get_input_path(sargs);
+            let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
             let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
@@ -1073,8 +1120,8 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_STD, sargs)) => {
-            let conf = get_std_config(&cmd, sargs);
-            let filepath = get_input_path(sargs);
+            let conf = get_read_std_text_config(&cmd, sargs);
+            let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
             let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
@@ -1086,9 +1133,9 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_DATA, sargs)) => {
-            let conf = get_std_dataset_config(&cmd, sargs);
+            let conf = get_read_std_dataset_config(&cmd, sargs);
             let delim = get_delim(sargs);
-            let filepath = get_input_path(sargs);
+            let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
             let (ws, res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
@@ -1098,9 +1145,28 @@ fn run() -> AppResult<()> {
             Ok(())
         }
 
+        Some((SUBCMD_REPAIR, sargs)) => {
+            let read_conf = get_read_std_dataset_config(&cmd, sargs);
+            let write_conf = get_write_std_dataset_config(sargs);
+            let ipath = get_path(sargs, INPUT_PATH);
+            let opath = get_path(sargs, OUTPUT_PATH);
+            let skip = get_skip(sargs);
+            let limit = get_limit(sargs);
+            let (read_ws, read_res) = fcs_read_std_datasets(ipath, skip, limit, &read_conf)
+                .resolve_commutative(|ws| ws, |s| s);
+            let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
+            let (write_ws, write_res) = fcs_write_datasets(opath, &cores[..], &write_conf)
+                .resolve_commutative(|ws| ws, |e| e);
+            print_warnings(read_ws, &mut stderr)?;
+            print_warnings(write_ws, &mut stderr)?;
+            let _ = write_res?;
+            to_writer(stdout, &outs[..])?;
+            Ok(())
+        }
+
         Some((SUBCMD_SUMMARIZE, sargs)) => {
-            let conf = get_flat_dataset_config(&cmd, sargs);
-            let filepath = get_input_path(sargs);
+            let conf = get_read_flat_dataset_config(&cmd, sargs);
+            let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_skip(sargs);
             let limit = get_limit(sargs);
             let (ws, res) =
@@ -1393,45 +1459,48 @@ fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
     c
 }
 
-fn get_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
+fn get_read_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
     config::ReadSharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
         hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }
 }
 
-fn get_flat_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTConfig {
+fn get_read_flat_text_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTConfig {
     config::ReadFlatTEXTConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
-        shared: get_shared_config(sargs),
+        shared: get_read_shared_config(sargs),
     }
 }
 
-fn get_std_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
+fn get_read_std_text_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
     config::ReadStdTEXTConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         standard: get_std_kws_config(sargs),
         layout: get_data_kws_config(sargs),
-        shared: get_shared_config(sargs),
+        shared: get_read_shared_config(sargs),
     }
 }
 
-fn get_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatDatasetConfig {
+fn get_read_flat_dataset_config(
+    cmd: &Command,
+    sargs: &ArgMatches,
+) -> config::ReadFlatDatasetConfig {
     config::ReadFlatDatasetConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
-        shared: get_shared_config(sargs),
+        shared: get_read_shared_config(sargs),
     }
 }
 
-fn get_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
+fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
     config::ReadStdDatasetConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
@@ -1439,14 +1508,26 @@ fn get_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdD
         standard: get_std_kws_config(sargs),
         layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
-        shared: get_shared_config(sargs),
+        shared: get_read_shared_config(sargs),
     }
 }
 
-fn get_input_path(sargs: &ArgMatches) -> &PathBuf {
-    sargs
-        .get_one::<PathBuf>(INPUT_PATH)
-        .expect("path is required")
+fn get_write_std_dataset_config(sargs: &ArgMatches) -> config::WriteDatasetInnerConfig {
+    let mut conf = WriteDatasetInnerConfig::default();
+
+    get_opt(sargs, PRINT_DELIM, |x| conf.text.delim = x);
+    get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
+    // ASSUME data will be read into columns that match their appropriate data
+    // type and thus checking for conversion loss is not necessary.
+    //
+    // TODO this can be totally bypasses for reasons noted above which will
+    // save cycles.
+    conf.skip_conversion_check = true.into();
+    conf
+}
+
+fn get_path<'a>(sargs: &'a ArgMatches, name: &'a str) -> &'a PathBuf {
+    sargs.get_one::<PathBuf>(name).expect("path is required")
 }
 
 fn get_strategy(sargs: &ArgMatches) -> ReadStrategy {
@@ -1466,7 +1547,7 @@ fn get_limit(sargs: &ArgMatches) -> Option<usize> {
 }
 
 fn get_delim(sargs: &ArgMatches) -> u8 {
-    sargs.get_one::<u8>(DELIM).copied().unwrap()
+    sargs.get_one::<u8>(PRINT_DELIM).copied().unwrap()
 }
 
 fn get_opt<T, F>(sargs: &ArgMatches, name: &str, f: F)
@@ -1703,6 +1784,8 @@ const SUBCMD_MEAS: &str = "measurements";
 
 const SUBCMD_SPILL: &str = "spillover";
 
+const SUBCMD_REPAIR: &str = "repair";
+
 const TEXT_COR: &str = "text-correction";
 
 const DATA_COR: &str = "data-correction";
@@ -1853,15 +1936,21 @@ const ROW_BUFFER_SIZE: &str = "row-buffer-size";
 
 const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
 
-const DELIM: &str = "delimiter";
+const PRINT_DELIM: &str = "print-delim";
 
 const DATASET_INDEX: &str = "dataset-index";
+
+const WRITE_DELIM: &str = "write-delim";
+
+const BIG_OTHER: &str = "skip-conversion-check";
 
 const SKIP: &str = "skip";
 
 const LIMIT: &str = "limit";
 
 const INPUT_PATH: &str = "input-path";
+
+const OUTPUT_PATH: &str = "output-path";
 
 const STRATEGY: &str = "strategy";
 

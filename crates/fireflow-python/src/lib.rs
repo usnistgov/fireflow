@@ -82,30 +82,31 @@ use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _};
 
 use fireflow_python_proc::{
     def_fcs_read_flat_dataset, def_fcs_read_flat_dataset_with_keywords, def_fcs_read_flat_text,
-    def_fcs_read_header, def_fcs_read_std_dataset, def_fcs_read_std_text, impl_config_defaults,
-    impl_core_all_awh_pnfeature, impl_core_all_meas_nonstandard_keywords, impl_core_all_pkn,
-    impl_core_all_pknn, impl_core_all_pnanalyte, impl_core_all_pncal3_1, impl_core_all_pncal3_2,
-    impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf, impl_core_all_pnfeature,
-    impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pno, impl_core_all_pnp,
-    impl_core_all_pns, impl_core_all_pnt, impl_core_all_pntag, impl_core_all_pntype,
-    impl_core_all_pnv, impl_core_all_shortnames_attr, impl_core_all_shortnames_maybe_attr,
-    impl_core_all_transforms_attr, impl_core_get_all_other_pnfeature, impl_core_get_measurement,
-    impl_core_get_measurements, impl_core_get_named_measurement, impl_core_get_set_timestep,
-    impl_core_get_temporal, impl_core_insert_measurement, impl_core_par,
-    impl_core_push_measurement, impl_core_remove_measurement, impl_core_rename_temporal,
-    impl_core_replace_optical, impl_core_replace_temporal, impl_core_set_measurements_and_layout,
+    def_fcs_read_header, def_fcs_read_std_dataset, def_fcs_read_std_text, def_fcs_write_datasets,
+    impl_config_defaults, impl_core_all_awh_pnfeature, impl_core_all_meas_nonstandard_keywords,
+    impl_core_all_pkn, impl_core_all_pknn, impl_core_all_pnanalyte, impl_core_all_pncal3_1,
+    impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf,
+    impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pno,
+    impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt, impl_core_all_pntag,
+    impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
+    impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr,
+    impl_core_get_all_other_pnfeature, impl_core_get_measurement, impl_core_get_measurements,
+    impl_core_get_named_measurement, impl_core_get_set_timestep, impl_core_get_temporal,
+    impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
+    impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
+    impl_core_replace_temporal, impl_core_set_measurements_and_layout,
     impl_core_set_named_measurements, impl_core_set_temporal, impl_core_set_tr_threshold,
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
     impl_coredataset_set_measurements_layout_and_data,
     impl_coredataset_set_named_measurements_and_data, impl_coredataset_truncate_data,
-    impl_coredataset_unset_data, impl_coredataset_write_multi, impl_coretext_from_kws,
-    impl_coretext_to_dataset, impl_coretext_unset_measurements, impl_coretext_write_multi,
-    impl_gated_meas, impl_layout_byte_widths, impl_meas_awh_pnfeature, impl_new_core,
-    impl_new_delim_ascii_layout, impl_new_endian_float_layout, impl_new_endian_uint_layout,
-    impl_new_fixed_ascii_layout, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
-    impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout, impl_py_dataset_segments,
-    impl_py_dataset_summary, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
+    impl_coredataset_unset_data, impl_coretext_from_kws, impl_coretext_to_dataset,
+    impl_coretext_unset_measurements, impl_coretext_write_multi, impl_gated_meas,
+    impl_layout_byte_widths, impl_meas_awh_pnfeature, impl_new_core, impl_new_delim_ascii_layout,
+    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
+    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
+    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_dataset_summary,
+    impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
     impl_py_flat_text_diagnostics, impl_py_flat_text_output, impl_py_header,
     impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
     impl_py_new_flat_dataset_with_kws_output, impl_py_new_std_dataset_with_kws_output,
@@ -135,6 +136,7 @@ def_fcs_read_flat_dataset!(
 );
 def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
 def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
+def_fcs_write_datasets!(api::fcs_write_datasets);
 
 impl_config_defaults!(cfg::ReadHeaderConfig);
 impl_config_defaults!(cfg::ReadFlatTEXTConfig);
@@ -326,12 +328,6 @@ impl_coretext_write_multi!(core::CoreTEXT2_0);
 impl_coretext_write_multi!(core::CoreTEXT3_0);
 impl_coretext_write_multi!(core::CoreTEXT3_1);
 impl_coretext_write_multi!(core::CoreTEXT3_2);
-
-// impl write_multidataset for all CoreDataset*
-impl_coredataset_write_multi!(core::CoreDataset2_0);
-impl_coredataset_write_multi!(core::CoreDataset3_0);
-impl_coredataset_write_multi!(core::CoreDataset3_1);
-impl_coredataset_write_multi!(core::CoreDataset3_2);
 
 // Common methods for all CoreTEXT* versions.
 macro_rules! impl_coretext_common {
@@ -717,7 +713,7 @@ impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
     }
 }
 
-#[derive(IntoPyObject, From)]
+#[derive(FromPyObject, IntoPyObject, From)]
 pub enum PyAnyCoreDataset {
     #[from(core::CoreDataset2_0)]
     FCS2_0(PyCoreDataset2_0),
@@ -736,6 +732,17 @@ impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
             core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
             core::AnyCoreDataset::FCS3_1(x) => (*x).into(),
             core::AnyCoreDataset::FCS3_2(x) => (*x).into(),
+        }
+    }
+}
+
+impl From<PyAnyCoreDataset> for core::AnyCoreDataset {
+    fn from(value: PyAnyCoreDataset) -> Self {
+        match value {
+            PyAnyCoreDataset::FCS2_0(x) => x.0.into(),
+            PyAnyCoreDataset::FCS3_0(x) => x.0.into(),
+            PyAnyCoreDataset::FCS3_1(x) => x.0.into(),
+            PyAnyCoreDataset::FCS3_2(x) => x.0.into(),
         }
     }
 }

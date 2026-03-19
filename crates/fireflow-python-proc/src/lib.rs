@@ -605,6 +605,62 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
 }
 
 #[proc_macro]
+pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
+    let fun_path = parse_macro_input!(input as Path);
+
+    let path_arg = DocArg::new_path_param(false);
+    let cores_arg = DocArg::new_param(
+        "datasets",
+        PyList::new1(PyUnion::new_anycoredataset()),
+        "datasets to write",
+    );
+
+    let exc0 = PyException::new_segment_overflow(None);
+    let exc1 = PyException::new_other_overflow();
+
+    let xs = [exc0, exc1];
+
+    let ret = DocReturn::new(PyOpt::new1(PyInt::new_nextdata()))
+        .desc(format!(
+            "the value of {NEXTDATA} as written in the last dataset if written"
+        ))
+        .exc(xs);
+
+    let doc = DocString::new_fun("Write multiple datasets to path.")
+        .para(format!(
+            "The resulting file will include {HEADER}, {TEXT}, {DATA}, \
+             {ANALYSIS}, and {OTHER} as present in this class."
+        ))
+        .arg(path_arg)
+        .arg(cores_arg)
+        .arg(DocArg::new_textdelim_param())
+        .arg(DocArg::new_big_other_param())
+        .arg(DocArg::new_skip_conversion_check_param())
+        .returns(ret);
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pyfunction]
+        #doc
+        pub fn fcs_write_datasets(#fun_args) -> #ret_path {
+            let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+                delim,
+                big_other.into(),
+            );
+            let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
+                tconf,
+                skip_conversion_check.into(),
+            );
+            let cs = datasets.fmap(|c| c.into());
+            #fun_path(&path, &cs[..], &dconf).py_resolve_commutative()
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
 pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
@@ -2010,7 +2066,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let exc0 = PyException::new_segment_overflow(version);
+    let exc0 = PyException::new_segment_overflow(Some(version));
     let exc1 = PyException::new_other_overflow();
 
     let nextdata = PyInt::new_nextdata();
@@ -2061,7 +2117,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_pycore(&i).1;
 
-    let exc0 = PyException::new_segment_overflow(version);
+    let exc0 = PyException::new_segment_overflow(Some(version));
     let exc1 = PyException::new_other_overflow();
 
     let nextdata = PyInt::new_nextdata();
@@ -2072,7 +2128,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
     let doc = DocString::new_method("Write data as an FCS file.")
         .para(format!(
             "The resulting file will include {HEADER}, {TEXT}, {DATA}, \
-             {ANALYSIS}, and {OTHER} as they present from this class."
+             {ANALYSIS}, and {OTHER} as present in this class."
         ))
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
@@ -3180,7 +3236,7 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
 
     let (conf, args, recs) = DocArgParam::new_write_text_config_params();
 
-    let exc0 = PyException::new_segment_overflow(version);
+    let exc0 = PyException::new_segment_overflow(Some(version));
     let exc1 = PyException::new_other_overflow();
 
     let xs = [exc0, exc1];
@@ -3212,68 +3268,6 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
                 let conf = #conf { #(#recs),* };
                 let cs = datasets.fmap(|c| c.0);
                 Ok(#path::write_texts(&path, &cs[..], &conf)?)
-            }
-        }
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn impl_coredataset_write_multi(input: TokenStream) -> TokenStream {
-    let path = parse_macro_input!(input as Path);
-    let ident = path.segments.last().unwrap().ident.clone();
-    let version = split_ident_version_checked("CoreDataset", &ident);
-    let pyname = format_ident!("Py{ident}");
-
-    let path_arg = DocArg::new_path_param(false);
-    let cores_arg = DocArg::new_param(
-        "datasets",
-        PyList::new1(PyClass::new_coredataset(version)),
-        "datasets to write",
-    );
-
-    let exc0 = PyException::new_segment_overflow(version);
-    let exc1 = PyException::new_other_overflow();
-
-    let xs = [exc0, exc1];
-
-    let ret = DocReturn::new(PyOpt::new1(PyInt::new_nextdata()))
-        .desc(format!(
-            "the value of {NEXTDATA} as written in the last dataset if written"
-        ))
-        .exc(xs);
-
-    let doc = DocString::new_fun("Write multiple datasets to path.")
-        .para(format!(
-            "The resulting file will include {HEADER}, {TEXT}, {DATA}, \
-             {ANALYSIS}, and {OTHER} as they present from this class."
-        ))
-        .arg(path_arg)
-        .arg(cores_arg)
-        .arg(DocArg::new_textdelim_param())
-        .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_skip_conversion_check_param())
-        .returns(ret);
-
-    let fun_args = doc.fun_args();
-    let ret_path = doc.ret_path();
-
-    quote! {
-        #[pymethods]
-        impl #pyname {
-            #[classmethod]
-            #doc
-            fn write_datasets(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
-                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
-                    delim,
-                    big_other.into(),
-                );
-                let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
-                    tconf,
-                    skip_conversion_check.into(),
-                );
-                let cs = datasets.fmap(|c| c.0);
-                #path::write_datasets(&path, &cs[..], &dconf).py_resolve_commutative()
             }
         }
     }
@@ -5947,14 +5941,17 @@ impl PyException {
         Self::new("OverflowError")
     }
 
-    fn new_segment_overflow(version: Version) -> Self {
-        let overflow_desc = if version == Version::FCS2_0 {
-            format!(
+    fn new_segment_overflow(version: Option<Version>) -> Self {
+        let overflow_desc = match version {
+            None => format!(
+                "If {TEXT} (all versions), {DATA} (2.0 only), or {ANALYSIS} \
+                 (2.0 only) end offset is greater than 99,999,999 bytes"
+            ),
+            Some(Version::FCS2_0) => format!(
                 "If {TEXT}, {DATA}, or {ANALYSIS} end offset \
                  is greater than 99,999,999 bytes"
-            )
-        } else {
-            format!("If {TEXT} ending offset is greater than 99,999,999 bytes")
+            ),
+            Some(_) => format!("If {TEXT} ending offset is greater than 99,999,999 bytes"),
         };
         Self::new_overflow().desc(overflow_desc)
     }

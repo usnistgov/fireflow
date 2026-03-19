@@ -410,6 +410,7 @@ impl_functor_once!(
 
 /// Diagnostic output from reading DATA segment
 #[derive(Clone, PartialEq, Default, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct EventsDiagnostics {
     /// The width of one event in bytes (if not ASCII delimited).
     pub event_width: Option<u64>,

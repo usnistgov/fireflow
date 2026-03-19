@@ -560,15 +560,6 @@ class _CoreDatasetCommon:
         appendable: bool = False,
         append: bool = False,
     ) -> None: ...
-    @classmethod
-    def write_datasets(
-        cls,
-        path: Path,
-        datasets: list[Self],
-        delim: int = 30,
-        big_other: bool = False,
-        skip_conversion_check: bool = False,
-    ) -> None: ...
 
 class _CoreShortnamesMaybe:
     all_shortnames_maybe: list[Shortname | None]
@@ -2928,6 +2919,15 @@ def fcs_summarize(
     hide_warnings: bool = False,
 ) -> list[DatasetSummary]: ...
 
+#
+def fcs_write_datasets(
+    path: Path,
+    datasets: list[AnyCoreDataset],
+    delim: int = 30,
+    big_other: bool = False,
+    skip_conversion_check: bool = False,
+) -> int | None: ...
+
 __version__: str
 
 __all__ = [
@@ -3023,4 +3023,5 @@ __all__ = [
     "fcs_read_std_datasets",
     "fcs_read_flat_dataset_with_keywords",
     "fcs_summarize",
+    "fcs_write_datasets",
 ]

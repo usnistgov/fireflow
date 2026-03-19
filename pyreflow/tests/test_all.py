@@ -4991,7 +4991,7 @@ class TestReadWrite:
         core2 = deepcopy(core0)
         core1.sys = "Windows i^2"
         core2.sys = "Windows 9"
-        type(core0).write_datasets(p, [core0, core1, core2])  # type: ignore
+        pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
         datasets = pf.api.fcs_read_std_datasets(p, time_meas_pattern=LINK_NAME2)
         assert len(datasets) == 3
         nu_core0, un_core0 = datasets[0]
@@ -5015,7 +5015,7 @@ class TestReadWrite:
         core2 = deepcopy(core0)
         core1.sys = "Windows i^2"
         core2.sys = "Windows 9"
-        type(core0).write_datasets(p, [core0, core1, core2])  # type: ignore
+        pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
         conf = pfp.PyreflowReadFlatDatasetConfig()
         smry = conf.summarize(p)
         assert len(smry) == 3

@@ -25,7 +25,7 @@ use crate::logging::{
     GroupResult, IOErrorGroup, ImpureError, LogResult, OptionExt as _, ResultExt as _, Success,
     SwitchableErrorResult, WarningAndErrorResult, WarningAndErrorsResult, WarningAndGroupResult,
     WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
-    WarningsAndIOGroupResult, WarningsResult, io_to_log, split_log,
+    WarningsAndIOGroupResult, WarningsResult, io_to_log,
 };
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::{
@@ -567,6 +567,18 @@ impl AnyCoreDataset {
     #[must_use]
     pub fn datatypes(&self) -> Vec<AlphaNumType> {
         match_anycore!(self, x, { x.layout.datatypes() })
+    }
+
+    #[must_use]
+    pub fn write_dataset(
+        &self,
+        path: &PathBuf,
+        conf: &WriteMultiDatasetConfig,
+    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
+    {
+        match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            x.write_dataset(path, conf)
+        })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1344,6 +1356,7 @@ pub struct NewStdDatasetFromKwsOutput {
 
 /// Output when making standardized TEXT+DATA
 #[derive(Clone, new, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct StdDatasetFromKwsOutput {
     /// DATA+ANALYSIS
     pub dataset_segments: DatasetSegments,
@@ -5000,38 +5013,6 @@ where
             })
     }
 
-    pub fn write_datasets(
-        path: &PathBuf,
-        cores: &[Self],
-        conf: &WriteDatasetInnerConfig,
-    ) -> WarningsAndIOGroupResult<
-        Option<Nextdata>,
-        IndexedLossError,
-        StdWriterError,
-        WriteDatasetSummary,
-    >
-    where
-        Version: From<M::Ver>,
-    {
-        let n = cores.len();
-        let mut results = vec![];
-        for (i, c) in cores.iter().enumerate() {
-            let appendable = AppendableFlag::from(i + 1 < n);
-            let append = AppendFlag(i > 0);
-            let multi = WriteMultiConfig::new(appendable, append);
-            let sconf = WriteMultiDatasetConfig::new(*conf, multi);
-            let succ = split_log!(c.write_dataset(path, &sconf));
-            results.push(succ);
-        }
-        let mut it = results.into_iter();
-        if let Some(r0) = it.by_ref().next() {
-            let ret = it.fold(r0, |acc, r| acc.lift_f2_once(r, |_, nd| nd));
-            LogResult::Succ(ret.fmap_once(Some))
-        } else {
-            LogResult::new_ok_default()
-        }
-    }
-
     /// Write this core structure (HEADER+TEXT) to a file path
     pub fn write_dataset(
         &self,
@@ -5100,6 +5081,8 @@ where
             // we want to emit warnings as we are writing if we did not run
             // through the data once at the beginning and check for
             // conversion loss.
+            //
+            // TODO this will be very slow if we know that there are no losses
             .and_commutative(|| {
                 let flag = !conf.skip_conversion_check.is_set();
                 layout.h_write_df(h, df, flag).map_error(IOErrorGroup::from)

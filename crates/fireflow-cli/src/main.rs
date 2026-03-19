@@ -57,8 +57,7 @@ use clap::{
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
 use regex::Regex;
-use serde::ser::Serialize;
-use serde_json::json;
+use serde_json::{json, to_writer};
 use zmij::Buffer as FBuf;
 
 use std::collections::{HashMap, HashSet};
@@ -83,6 +82,7 @@ fn main() -> ExitCode {
 #[allow(clippy::too_many_lines)]
 fn run() -> AppResult<()> {
     let mut stdout = io::BufWriter::new(io::stdout().lock());
+    let mut stderr = io::BufWriter::new(io::stderr().lock());
 
     let kw_style = Style::new().italic();
     let seg_style = Style::new().italic();
@@ -877,7 +877,7 @@ fn run() -> AppResult<()> {
         .short('d')
         .value_name("CHAR")
         .help("Delimiter to use for tabular output.")
-        .value_parser(value_parser!(char))
+        .value_parser(ValueParser::new(parse_delim))
         .default_value("\t");
 
     let dataset_index_arg = Arg::new(DATASET_INDEX)
@@ -1028,9 +1028,10 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = get_header_config(sargs);
             let filepath = get_input_path(sargs);
-            let ((), res) = fcs_read_header(filepath, DatasetOffset(0), &conf)
-                .resolve_commutative(print_warnings, |s| s);
-            print_json(&res?);
+            let (ws, res) = fcs_read_header(filepath, DatasetOffset(0), &conf)
+                .resolve_commutative(|ws| ws, |s| s);
+            print_warnings(ws, &mut stderr)?;
+            to_writer(stdout, &res?)?;
             Ok(())
         }
 
@@ -1038,9 +1039,10 @@ fn run() -> AppResult<()> {
             let conf = get_flat_config(cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap(), sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
-            let ((), res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
-                .resolve_commutative(print_warnings, |s| s);
-            print_json(&res?[0]);
+            let (ws, res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
+                .resolve_commutative(|ws| ws, |s| s);
+            print_warnings(ws, &mut stderr)?;
+            to_writer(stdout, &res?[0])?;
             Ok(())
         }
 
@@ -1049,8 +1051,9 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
-            let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
-                .resolve_commutative(print_warnings, |s| s);
+            let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
+                .resolve_commutative(|ws| ws, |s| s);
+            print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
             core.print_comp_or_spillover_table(&mut stdout, delim)?;
             Ok(())
@@ -1061,8 +1064,9 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
-            let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
-                .resolve_commutative(print_warnings, |s| s);
+            let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
+                .resolve_commutative(|ws| ws, |s| s);
+            print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
             core.print_meas_table(&mut stdout, delim)?;
             Ok(())
@@ -1072,11 +1076,12 @@ fn run() -> AppResult<()> {
             let conf = get_std_config(&cmd, sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
-            let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
-                .resolve_commutative(print_warnings, |s| s);
+            let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
+                .resolve_commutative(|ws| ws, |s| s);
+            print_warnings(ws, &mut stderr)?;
             let (core, uncore) = &res?[0];
             let obj = json!({"core": core, "uncore": uncore});
-            print_json(&obj);
+            to_writer(stdout, &obj)?;
             Ok(())
         }
 
@@ -1085,8 +1090,9 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_input_path(sargs);
             let skip = get_dataset_index(sargs);
-            let ((), res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
-                .resolve_commutative(print_warnings, |s| s);
+            let (ws, res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
+                .resolve_commutative(|ws| ws, |s| s);
+            print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
             print_parsed_data(&mut stdout, core, delim)?;
             Ok(())
@@ -1097,9 +1103,10 @@ fn run() -> AppResult<()> {
             let filepath = get_input_path(sargs);
             let skip = get_skip(sargs);
             let limit = get_limit(sargs);
-            let ((), res) = fcs_summarize(filepath, skip, limit, &conf)
-                .resolve_commutative(print_warnings, |s| s);
-            print_json(&res?);
+            let (ws, res) =
+                fcs_summarize(filepath, skip, limit, &conf).resolve_commutative(|ws| ws, |s| s);
+            print_warnings(ws, &mut stderr)?;
+            to_writer(stdout, &res?)?;
             Ok(())
         }
 
@@ -1458,8 +1465,8 @@ fn get_limit(sargs: &ArgMatches) -> Option<usize> {
     sargs.get_one::<usize>(LIMIT).copied()
 }
 
-fn get_delim(sargs: &ArgMatches) -> char {
-    sargs.get_one::<char>(DELIM).copied().unwrap()
+fn get_delim(sargs: &ArgMatches) -> u8 {
+    sargs.get_one::<u8>(DELIM).copied().unwrap()
 }
 
 fn get_opt<T, F>(sargs: &ArgMatches, name: &str, f: F)
@@ -1507,6 +1514,12 @@ where
         return Ok(None);
     }
     Ok(Some(s.parse::<T>().map_err(|e| e.to_string())?))
+}
+
+fn parse_delim(s: &str) -> StrResult<u8> {
+    let c = s.parse::<char>().map_err(|e| e.to_string())?;
+    c.try_into()
+        .map_err(|_| "must be a single ASCII character".into())
 }
 
 fn parse_offsets(s: &str) -> StrResult<(i32, i32)> {
@@ -1575,15 +1588,7 @@ fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
     Ok(SubPattern::try_new(r, to.to_owned(), global)?)
 }
 
-fn print_json<T: Serialize>(j: &T) {
-    println!("{}", serde_json::to_string(j).unwrap());
-}
-
-pub fn print_parsed_data<W: Write>(
-    w: &mut W,
-    core: &AnyCoreDataset,
-    delim: char,
-) -> io::Result<()> {
+pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
     // 32k / 8 bytes since we are storing everything as u64
     const BUF_SIZE: usize = 1 << 12;
 
@@ -1604,10 +1609,10 @@ pub fn print_parsed_data<W: Write>(
     let mut first = true;
     for n in core.shortnames() {
         if !first {
-            write!(w, "{delim}")?;
+            w.write_all(&[delim])?;
         }
         first = false;
-        write!(w, "{n}")?;
+        w.write_all(n.as_ref().as_bytes())?;
     }
     writeln!(w)?;
 
@@ -1644,7 +1649,7 @@ pub fn print_parsed_data<W: Write>(
                     _ => ibuf.format(v).as_bytes(),
                 };
                 if !first {
-                    write!(w, "{delim}")?;
+                    w.write_all(&[delim])?;
                 }
                 first = false;
                 w.write_all(bs)?;
@@ -1655,10 +1660,14 @@ pub fn print_parsed_data<W: Write>(
     Ok(())
 }
 
-fn print_warnings<W: Display>(ws: impl IntoIterator<Item = W>) {
-    for w in ws {
-        eprintln!("WARNING: {w}");
+fn print_warnings<W: Write, Warn: Display>(
+    ws: impl IntoIterator<Item = Warn>,
+    w: &mut W,
+) -> io::Result<()> {
+    for warn in ws {
+        writeln!(w, "WARNING: {warn}")?;
     }
+    Ok(())
 }
 
 fn post_validation_error(cmd: &Command, arg_name: &str, msg: impl Display) -> clap::Error {

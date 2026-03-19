@@ -466,7 +466,7 @@ impl<A, D, O> AnyCore<A, D, O> {
     }
 
     #[cfg(feature = "serde")]
-    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: char) -> io::Result<()> {
+    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: u8) -> io::Result<()> {
         match_anycore!(self, x, { x.print_meas_table(w, delim) })
     }
 
@@ -474,13 +474,13 @@ impl<A, D, O> AnyCore<A, D, O> {
     pub fn print_comp_or_spillover_table<W: io::Write>(
         &self,
         w: &mut W,
-        delim: char,
+        delim: u8,
     ) -> io::Result<()> {
         if let Some((names, matrix)) = self.spillover_or_comp_table() {
             let mut first = true;
             for s in once("[-]").chain(names.iter().map(AsRef::as_ref)) {
                 if !first {
-                    write!(w, "{delim}")?;
+                    w.write_all(&[delim])?;
                 }
                 first = false;
                 write!(w, "{s}")?;
@@ -490,7 +490,8 @@ impl<A, D, O> AnyCore<A, D, O> {
             for (row, n) in matrix.row_iter().zip(&names[..]) {
                 write!(w, "{n}")?;
                 for x in row {
-                    write!(w, "{delim}{x}")?;
+                    w.write_all(&[delim])?;
+                    write!(w, "{x}")?;
                 }
                 writeln!(w)?;
             }
@@ -4010,7 +4011,7 @@ where
 
     #[cfg(feature = "serde")]
     #[allow(clippy::too_many_lines)]
-    fn print_meas_table<'a, W: Write>(&'a self, w: &mut W, delim: char) -> io::Result<()>
+    fn print_meas_table<'a, W: Write>(&'a self, w: &mut W, delim: u8) -> io::Result<()>
     where
         M::Temporal: Clone,
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
@@ -4168,7 +4169,7 @@ where
                 first = true;
                 for r in &row {
                     if !first {
-                        write!(w, "{delim}")?;
+                        w.write_all(&[delim])?;
                     }
                     if let Some(x) = r {
                         write!(w, "{x}")?;

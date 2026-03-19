@@ -1,13 +1,11 @@
 use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::Chars;
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use itoa::Buffer as IBuf;
 use num_traits::identities::Zero as _;
 use polars_arrow::buffer::Buffer;
 use thiserror::Error;
-use zmij::Buffer as FBuf;
 
 use std::iter;
 use std::slice::Iter;
@@ -40,7 +38,7 @@ pub enum AnyFCSColumn {
 }
 
 /// A generic column for [`FCSDataFrame`]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, AsRef)]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
 pub type U08Column = FCSColumn<u8>;
@@ -158,16 +156,16 @@ impl AnyFCSColumn {
         self.len() == 0
     }
 
-    /// Convert number at index to string
     #[cfg(feature = "serde")]
-    pub fn as_bytes<'a>(&self, ibuf: &'a mut IBuf, fbuf: &'a mut FBuf, i: usize) -> &'a [u8] {
+    #[must_use]
+    pub fn as_u64(&self, i: usize) -> u64 {
         match self {
-            Self::U08(x) => ibuf.format(x.0[i]).as_bytes(),
-            Self::U16(x) => ibuf.format(x.0[i]).as_bytes(),
-            Self::U32(x) => ibuf.format(x.0[i]).as_bytes(),
-            Self::U64(x) => ibuf.format(x.0[i]).as_bytes(),
-            Self::F32(x) => fbuf.format(x.0[i]).as_bytes(),
-            Self::F64(x) => fbuf.format(x.0[i]).as_bytes(),
+            Self::U08(x) => x.0[i].into(),
+            Self::U16(x) => x.0[i].into(),
+            Self::U32(x) => x.0[i].into(),
+            Self::U64(x) => x.0[i],
+            Self::F32(x) => x.0[i].to_bits().into(),
+            Self::F64(x) => x.0[i].to_bits(),
         }
     }
 

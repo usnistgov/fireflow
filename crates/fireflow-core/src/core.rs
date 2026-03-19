@@ -111,7 +111,6 @@ use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
-use nalgebra::DMatrix;
 use nonempty_collections::{IntoIteratorExt as _, iter::NonEmptyIterator as _};
 use num_traits::identities::{One as _, Zero};
 use regex::Regex;
@@ -129,6 +128,7 @@ use std::path::PathBuf;
 #[cfg(feature = "serde")]
 use {
     crate::text::keywords::{AsHeader as _, NumType, RefKeyword1, Width},
+    nalgebra::DMatrix,
     serde::Serialize,
     std::string::ToString as _,
 };
@@ -466,24 +466,41 @@ impl<A, D, O> AnyCore<A, D, O> {
     }
 
     #[cfg(feature = "serde")]
-    pub fn print_meas_table(&self, delim: &str) {
-        match_anycore!(self, x, { x.print_meas_table(delim) });
+    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: char) -> io::Result<()> {
+        match_anycore!(self, x, { x.print_meas_table(w, delim) })
     }
 
-    pub fn print_comp_or_spillover_table(&self, delim: &str) {
+    #[cfg(feature = "serde")]
+    pub fn print_comp_or_spillover_table<W: io::Write>(
+        &self,
+        w: &mut W,
+        delim: char,
+    ) -> io::Result<()> {
         if let Some((names, matrix)) = self.spillover_or_comp_table() {
-            let header = once("[-]")
-                .chain(names.iter().map(AsRef::as_ref))
-                .join(delim);
-            println!("{header}");
-            for (r, n) in matrix.row_iter().zip(&names[..]) {
-                println!("{n}{delim}{}", r.iter().join(delim));
+            let mut first = true;
+            for s in once("[-]").chain(names.iter().map(AsRef::as_ref)) {
+                if !first {
+                    write!(w, "{delim}")?;
+                }
+                first = false;
+                write!(w, "{s}")?;
+            }
+            writeln!(w)?;
+
+            for (row, n) in matrix.row_iter().zip(&names[..]) {
+                write!(w, "{n}")?;
+                for x in row {
+                    write!(w, "{delim}{x}")?;
+                }
+                writeln!(w)?;
             }
         } else {
-            println!("[]");
+            writeln!(w, "[]")?;
         }
+        Ok(())
     }
 
+    #[cfg(feature = "serde")]
     fn spillover_or_comp_table(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)> {
         match self {
             Self::FCS2_0(x) => x.named_compensation(),
@@ -544,6 +561,11 @@ impl AnyCoreDataset {
     #[must_use]
     pub fn as_data(&self) -> &FCSDataFrame {
         match_anycore!(self, x, { &x.data })
+    }
+
+    #[must_use]
+    pub fn datatypes(&self) -> Vec<AlphaNumType> {
+        match_anycore!(self, x, { x.layout.datatypes() })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -3537,6 +3559,7 @@ where
             .group_with(summary)
     }
 
+    #[cfg(feature = "serde")]
     fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
     where
         M: HasCompensation,
@@ -3547,6 +3570,7 @@ where
         })
     }
 
+    #[cfg(feature = "serde")]
     fn named_spillover(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
     where
         M: AsRef<Option<Spillover>>,
@@ -3986,7 +4010,7 @@ where
 
     #[cfg(feature = "serde")]
     #[allow(clippy::too_many_lines)]
-    fn meas_table<'a>(&'a self, delim: &str) -> Vec<String>
+    fn print_meas_table<'a, W: Write>(&'a self, w: &mut W, delim: char) -> io::Result<()>
     where
         M::Temporal: Clone,
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
@@ -4118,8 +4142,17 @@ where
         let ls = req_layout.into_iter().zip(opt_layout);
 
         if let Some(ne) = ms.iter().zip(ls).enumerate().try_into_nonempty_iter() {
-            let mut rows = vec![];
-            rows.push(header.iter().join(delim));
+            let mut first = true;
+
+            for s in &header {
+                if !first {
+                    write!(w, "{delim}")?;
+                }
+                first = false;
+                write!(w, "{s}")?;
+            }
+            writeln!(w)?;
+
             for (i, ((n, m), (req_l, opt_l))) in ne {
                 let mut row = vec![None; header.len()];
                 let j = MeasIndex::from(i);
@@ -4132,27 +4165,22 @@ where
                 for x in xs {
                     x.assign(&header[..], &mut row);
                 }
-                let joined = row
-                    .into_iter()
-                    .map(|x| x.unwrap_or_else(|| "NA".into()))
-                    .join(delim);
-                rows.push(joined);
+                first = true;
+                for r in &row {
+                    if !first {
+                        write!(w, "{delim}")?;
+                    }
+                    if let Some(x) = r {
+                        write!(w, "{x}")?;
+                    } else {
+                        write!(w, "NA")?;
+                    }
+                    first = false;
+                }
+                writeln!(w)?;
             }
-            rows
-        } else {
-            vec![]
         }
-    }
-
-    #[cfg(feature = "serde")]
-    pub(crate) fn print_meas_table(&self, delim: &str)
-    where
-        M::Temporal: Clone,
-        M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
-    {
-        for e in self.meas_table(delim) {
-            println!("{e}");
-        }
+        Ok(())
     }
 
     fn split_nonstandard(

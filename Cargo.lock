@@ -767,7 +767,6 @@ dependencies = [
  "fireflow-types",
  "hashbrown 0.15.5",
  "itertools 0.14.0",
- "itoa",
  "nalgebra",
  "nonempty-collections",
  "num-derive",
@@ -781,7 +780,6 @@ dependencies = [
  "thiserror 2.0.17",
  "type_families",
  "unicase",
- "zmij",
 ]
 
 [[package]]

@@ -13,7 +13,7 @@ use fireflow_core::config::{
 };
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
-use fireflow_core::text::keywords::ByteOrd2_0;
+use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0};
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{KeyString, KeyStringOrPattern};
@@ -64,7 +64,7 @@ use zmij::Buffer as FBuf;
 use std::collections::{HashMap, HashSet};
 use std::error::Error;
 use std::fmt::Display;
-use std::io::{self, Write as _};
+use std::io::{self, Write};
 use std::iter::once;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -82,6 +82,8 @@ fn main() -> ExitCode {
 
 #[allow(clippy::too_many_lines)]
 fn run() -> AppResult<()> {
+    let mut stdout = io::BufWriter::new(io::stdout().lock());
+
     let kw_style = Style::new().italic();
     let seg_style = Style::new().italic();
     let arg_style = Style::new().bold();
@@ -875,6 +877,7 @@ fn run() -> AppResult<()> {
         .short('d')
         .value_name("CHAR")
         .help("Delimiter to use for tabular output.")
+        .value_parser(value_parser!(char))
         .default_value("\t");
 
     let dataset_index_arg = Arg::new(DATASET_INDEX)
@@ -1049,7 +1052,7 @@ fn run() -> AppResult<()> {
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             let (core, _) = &res?[0];
-            core.print_comp_or_spillover_table(delim);
+            core.print_comp_or_spillover_table(&mut stdout, delim)?;
             Ok(())
         }
 
@@ -1061,7 +1064,7 @@ fn run() -> AppResult<()> {
             let ((), res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             let (core, _) = &res?[0];
-            core.print_meas_table(delim);
+            core.print_meas_table(&mut stdout, delim)?;
             Ok(())
         }
 
@@ -1085,7 +1088,7 @@ fn run() -> AppResult<()> {
             let ((), res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(print_warnings, |s| s);
             let (core, _) = &res?[0];
-            print_parsed_data(core, delim)?;
+            print_parsed_data(&mut stdout, core, delim)?;
             Ok(())
         }
 
@@ -1455,8 +1458,8 @@ fn get_limit(sargs: &ArgMatches) -> Option<usize> {
     sargs.get_one::<usize>(LIMIT).copied()
 }
 
-fn get_delim(sargs: &ArgMatches) -> &String {
-    sargs.get_one::<String>(DELIM).unwrap()
+fn get_delim(sargs: &ArgMatches) -> char {
+    sargs.get_one::<char>(DELIM).copied().unwrap()
 }
 
 fn get_opt<T, F>(sargs: &ArgMatches, name: &str, f: F)
@@ -1576,32 +1579,77 @@ fn print_json<T: Serialize>(j: &T) {
     println!("{}", serde_json::to_string(j).unwrap());
 }
 
-// TODO this will take ~10s to print a 1GB A8 file, perf shows lots of cache
-// misses because we are doing a transposition on-the-fly with a giant dataframe
-// that totally blows the cache lines. It was ~20s before using locked buffered
-// stdout and these fancy digit->str converters.
-pub fn print_parsed_data(core: &AnyCoreDataset, delim: &str) -> io::Result<()> {
-    let mut stdout = io::BufWriter::new(io::stdout().lock());
+pub fn print_parsed_data<W: Write>(
+    w: &mut W,
+    core: &AnyCoreDataset,
+    delim: char,
+) -> io::Result<()> {
+    // 32k / 8 bytes since we are storing everything as u64
+    const BUF_SIZE: usize = 1 << 12;
+
     let mut ibuf = IBuf::new();
     let mut fbuf = FBuf::new();
+
     let df = core.as_data();
     let nrows = df.nrows();
     let cols: Vec<_> = df.iter_columns().collect();
     let ncols = cols.len();
+    let dtypes = core.datatypes();
+    debug_assert!(dtypes.len() == ncols, "datatypes are wrong length");
+
     if ncols == 0 {
         return Ok(());
     }
-    let mut ns = core.shortnames().into_iter();
-    write!(stdout, "{}", ns.next().unwrap())?;
-    for n in ns {
-        write!(stdout, "{delim}{n}")?;
+
+    let mut first = true;
+    for n in core.shortnames() {
+        if !first {
+            write!(w, "{delim}")?;
+        }
+        first = false;
+        write!(w, "{n}")?;
     }
-    for r in 0..nrows {
-        writeln!(stdout)?;
-        stdout.write_all(cols[0].as_bytes(&mut ibuf, &mut fbuf, r))?;
-        for c in &cols[1..] {
-            write!(stdout, "{delim}")?;
-            stdout.write_all(c.as_bytes(&mut ibuf, &mut fbuf, r))?;
+    writeln!(w)?;
+
+    let rows_per_buf = BUF_SIZE / ncols;
+    let real_buf_size = ncols * rows_per_buf;
+    let buf_reads = nrows.div_ceil(rows_per_buf);
+    let buf_tail_rows = nrows % rows_per_buf;
+
+    let mut buf = Vec::with_capacity(real_buf_size);
+
+    for b in 0..buf_reads {
+        buf.clear();
+        let next_rows = if b + 1 == buf_reads && buf_tail_rows > 0 {
+            buf_tail_rows
+        } else {
+            rows_per_buf
+        };
+        for col in &cols {
+            for r in 0..next_rows {
+                buf.push(col.as_u64(r + rows_per_buf * b));
+            }
+        }
+        for r in 0..next_rows {
+            first = true;
+            for (c, d) in dtypes.iter().enumerate() {
+                let i = r + c * next_rows;
+                let v = buf[i];
+                let bs = match d {
+                    AlphaNumType::Float => {
+                        let vv = u32::try_from(v).expect("f32 should be encoded as u32");
+                        fbuf.format(f32::from_bits(vv)).as_bytes()
+                    }
+                    AlphaNumType::Double => fbuf.format(f64::from_bits(v)).as_bytes(),
+                    _ => ibuf.format(v).as_bytes(),
+                };
+                if !first {
+                    write!(w, "{delim}")?;
+                }
+                first = false;
+                w.write_all(bs)?;
+            }
+            writeln!(w)?;
         }
     }
     Ok(())

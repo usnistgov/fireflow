@@ -640,7 +640,6 @@ pub trait LayoutOps<'a, T>: Sized {
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        buf: &mut Vec<u8>,
         tot: T,
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
@@ -785,13 +784,6 @@ where
         ReadDataframeError,
         (),
     > {
-        // The only purpose of this buffer is to read ASCII since we don't
-        // hardcode the buffer width into the type (unlike integers and floats).
-        // It's passed down to each layer of the read stack to avoid making the
-        // buffer argument generic, which would make this implementation much
-        // more complex. Good enough to pass the buffer and only use it when
-        // needed.
-        let mut buf = vec![];
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
@@ -800,7 +792,7 @@ where
                 .seek(SeekFrom::Start(begin))
                 .map_err(IOErrorGroup::from)
                 .into_log()
-                .nowarn_and_then(|_| self.h_read_df_inner(h, &mut buf, tot, seg, conf)),
+                .nowarn_and_then(|_| self.h_read_df_inner(h, tot, seg, conf)),
         }
     }
 
@@ -979,7 +971,6 @@ trait NativeReadable<S>: HasNativeType {
         bytes: &[u8],
         index: usize,
         byte_layout: S,
-        _: &mut Vec<u8>,
     ) -> Result<Self::Native, AsciiToUintError>;
 }
 
@@ -1031,7 +1022,6 @@ trait Readable<S> {
         src_index: usize,
         dst_index: usize,
         byte_layout: S,
-        buf: &mut Vec<u8>,
     ) -> Result<(), AsciiToUintError>;
 
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult;
@@ -1468,7 +1458,6 @@ where
         bytes: &[u8],
         index: usize,
         byte_layout: Endian,
-        _: &mut Vec<u8>,
     ) -> Result<T, AsciiToUintError> {
         Ok(T::slice_endian(bytes, index, byte_layout))
     }
@@ -1484,7 +1473,6 @@ where
         bytes: &[u8],
         index: usize,
         byte_layout: SizedByteOrd<LEN>,
-        _: &mut Vec<u8>,
     ) -> Result<T, AsciiToUintError> {
         Ok(T::slice_ordered(bytes, index, byte_layout))
     }
@@ -1500,7 +1488,6 @@ where
         bytes: &[u8],
         index: usize,
         byte_layout: Endian,
-        _: &mut Vec<u8>,
     ) -> Result<T, AsciiToUintError> {
         Ok(T::slice_endian(bytes, index, byte_layout))
     }
@@ -1516,7 +1503,6 @@ where
         bytes: &[u8],
         index: usize,
         byte_layout: SizedByteOrd<LEN>,
-        _: &mut Vec<u8>,
     ) -> Result<T, AsciiToUintError> {
         Ok(T::slice_ordered(bytes, index, byte_layout))
     }
@@ -1528,9 +1514,7 @@ impl<const ORD: bool> NativeReadable<NoByteOrd<ORD>> for AsciiRange {
         bytes: &[u8],
         index: usize,
         _: NoByteOrd<ORD>,
-        buf: &mut Vec<u8>,
     ) -> Result<Self::Native, AsciiToUintError> {
-        buf.clear();
         let n = usize::from(u8::from(self.chars()));
         ascii_to_uint(&bytes[index..index + n])
     }
@@ -1581,12 +1565,11 @@ where
         src_index: usize,
         dst_index: usize,
         byte_layout: S,
-        buf: &mut Vec<u8>,
     ) -> Result<(), AsciiToUintError> {
         assert!(dst_index < self.data.len(), "dst index out of bounds");
         let x = self
             .column_type
-            .slice_native(bytes, src_index, byte_layout, buf)?;
+            .slice_native(bytes, src_index, byte_layout)?;
         self.data[dst_index] = x;
         Ok(())
     }
@@ -1631,13 +1614,12 @@ impl Readable<Endian> for ReaderMixedType {
         src_index: usize,
         dst_index: usize,
         byte_layout: Endian,
-        buf: &mut Vec<u8>,
     ) -> Result<(), AsciiToUintError> {
         match self {
-            Self::Ascii(c) => c.slice_to_row(bytes, src_index, dst_index, NoByteOrd, buf),
-            Self::Uint(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf),
-            Self::F32(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf),
-            Self::F64(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf),
+            Self::Ascii(c) => c.slice_to_row(bytes, src_index, dst_index, NoByteOrd),
+            Self::Uint(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout),
+            Self::F32(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout),
+            Self::F64(c) => c.slice_to_row(bytes, src_index, dst_index, byte_layout),
         }
     }
 
@@ -1662,10 +1644,9 @@ impl Readable<Endian> for AnyReaderBitmask {
         src_index: usize,
         dst_index: usize,
         byte_layout: Endian,
-        buf: &mut Vec<u8>,
     ) -> Result<(), AsciiToUintError> {
         match_any_uint!(self, AnyBitmask, c, {
-            c.slice_to_row(bytes, src_index, dst_index, byte_layout, buf)
+            c.slice_to_row(bytes, src_index, dst_index, byte_layout)
         })
     }
 
@@ -2437,7 +2418,6 @@ where
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        _: &mut Vec<u8>,
         tot: T,
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
@@ -2839,7 +2819,6 @@ where
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        buf: &mut Vec<u8>,
         tot: T,
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
@@ -2871,7 +2850,7 @@ where
             })
             .and_then_commutative(|(tot_not_eq, nrow_out)| {
                 let n = usize::try_from(nrow_out.total_events).expect("nrows exceeds usize");
-                self.h_read_unchecked_df(h, n, buf, conf)
+                self.h_read_unchecked_df(h, n, conf)
                     .map_error(IOErrorGroup::from)
                     .map_commutative_warnings(ReadDataframeWarning::from)
                     .repack_warnings()
@@ -3079,7 +3058,6 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         &self,
         h: &mut BufReader<R>,
         w_nrows: usize,
-        val_buf: &mut Vec<u8>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOResult<
         (FCSDataFrame, Vec<OverrangeColumn>),
@@ -3219,8 +3197,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
                     let src_idx = c_offset + w_row_width * row;
                     let dst_idx = buf_idx * w_rows_per_buf + row;
                     assert!(src_idx < row_buf.len(), "src index out of bounds");
-                    if let Err(e) =
-                        c.slice_to_row(&row_buf[..], src_idx, dst_idx, self.byte_layout, val_buf)
+                    if let Err(e) = c.slice_to_row(&row_buf[..], src_idx, dst_idx, self.byte_layout)
                     {
                         return WarningsAndIOResult::new_err(from_err(e));
                     }

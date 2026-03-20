@@ -1076,8 +1076,6 @@ trait NumProps: Sized + Copy + Default {
     const LEN: usize;
     type BUF: AsRef<[u8]> + AsMut<[u8]> + Default;
 
-    // fn read_buf<R: Read>(h: &mut BufReader<R>) -> io::Result<Self::BUF>;
-
     fn from_big(buf: Self::BUF) -> Self;
 
     fn from_little(buf: Self::BUF) -> Self;
@@ -1103,16 +1101,6 @@ trait NumProps: Sized + Copy + Default {
 
 /// Methods for reading numbers which may be in arbitrary byte orders.
 trait OrderedFromBytes<const OLEN: usize>: NumProps {
-    // fn h_read_from_ordered<R: Read>(h: &mut BufReader<R>, order: [u8; OLEN]) -> io::Result<Self> {
-    //     let mut tmp = [0; OLEN];
-    //     let mut buf = Self::BUF::default();
-    //     h.read_exact(&mut tmp)?;
-    //     for (i, j) in order.iter().enumerate() {
-    //         buf.as_mut()[i] = tmp[usize::from(*j)];
-    //     }
-    //     Ok(Self::from_little(buf))
-    // }
-
     fn slice_from_ordered(bytes: &[u8], index: usize, order: [u8; OLEN]) -> Self {
         let tmp = &bytes[index..index + OLEN];
         let mut buf = Self::BUF::default();
@@ -1163,34 +1151,6 @@ trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
         }
     }
 
-    // fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-    //     // Read data that is not a power-of-two bytes long. Start by reading n
-    //     // bytes into a vector, which can take a varying size. Then copy this
-    //     // into the power of 2 buffer which will go to one or the other end of
-    //     // the buffer depending on endianness.
-    //     let mut tmp = [0; INTLEN];
-    //     let mut buf = Self::BUF::default();
-    //     h.read_exact(&mut tmp)?;
-    //     Ok(if endian == Endian::Big {
-    //         let b = Self::LEN - INTLEN;
-    //         buf.as_mut()[b..].copy_from_slice(&tmp);
-    //         Self::from_big(buf)
-    //     } else {
-    //         buf.as_mut()[..INTLEN].copy_from_slice(&tmp);
-    //         Self::from_little(buf)
-    //     })
-    // }
-
-    // fn h_read_ordered<R: Read>(
-    //     h: &mut BufReader<R>,
-    //     byteord: SizedByteOrd<INTLEN>,
-    // ) -> io::Result<Self> {
-    //     match byteord {
-    //         SizedByteOrd::Endian(e) => Self::h_read_endian(h, e),
-    //         SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
-    //     }
-    // }
-
     fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
         let mut buf = [0; INTLEN];
         let (start, end, tmp) = if endian == Endian::Big {
@@ -1228,21 +1188,6 @@ trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
             SizedByteOrd::Order(order) => Self::slice_from_ordered(bytes, index, order),
         }
     }
-
-    // fn h_read_endian<R: Read>(h: &mut BufReader<R>, endian: Endian) -> io::Result<Self> {
-    //     let buf = Self::read_buf(h)?;
-    //     Ok(Self::from_endian(buf, endian))
-    // }
-
-    // fn h_read_ordered<R: Read>(
-    //     h: &mut BufReader<R>,
-    //     byteord: SizedByteOrd<LEN>,
-    // ) -> io::Result<Self> {
-    //     match byteord {
-    //         SizedByteOrd::Endian(endian) => Self::h_read_endian(h, endian),
-    //         SizedByteOrd::Order(order) => Self::h_read_from_ordered(h, order),
-    //     }
-    // }
 
     fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
         let buf = Self::to_endian(self, endian);

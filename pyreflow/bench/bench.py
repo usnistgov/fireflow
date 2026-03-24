@@ -565,14 +565,14 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             (pl.col("mean_flat_ns") / pl.col("n_keywords")).alias(
                 "mean_flat_ns_per_kw"
             ),
-            (pl.col("serr_flat_ns") / pl.col("n_keywords") * 1.96).alias(
-                "ci_flat_ns_per_kw"
+            (pl.col("serr_flat_ns") / pl.col("n_keywords")).alias(
+                "serr_flat_ns_per_kw"
             ),
             (pl.col("mean_flat_ns") / pl.col("text_nbytes") * 1000).alias(
                 "mean_flat_ns_per_kB"
             ),
-            (pl.col("serr_flat_ns") / pl.col("text_nbytes") * 1000 * 1.96).alias(
-                "ci_flat_ns_per_kB"
+            (pl.col("serr_flat_ns") / pl.col("text_nbytes") * 1000).alias(
+                "serr_flat_ns_per_kB"
             ),
         )
         .join(std_df, on="name")
@@ -589,8 +589,8 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             (pl.col("mean_std_diff_ns") / pl.col("n_keywords")).alias(
                 "mean_std_diff_ns_per_kw"
             ),
-            (pl.col("serr_std_diff_ns") / pl.col("n_keywords") * 1.96).alias(
-                "ci_std_diff_ns_per_kw"
+            (pl.col("serr_std_diff_ns") / pl.col("n_keywords")).alias(
+                "serr_std_diff_ns_per_kw"
             ),
         )
         .join(data_df, on="name")
@@ -605,25 +605,20 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             .alias("serr_data_diff_ns"),
         )
         .with_columns(
-            (pl.col("serr_data_diff_ns") * 1.96).alias("ci_data_diff_ns"),
             # normalize DATA read time to number of kB read and number of
             # values read
             (pl.col("mean_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
                 "mean_data_diff_ns_per_kB"
             ),
-            (pl.col("serr_data_diff_ns") / pl.col("data_nbytes") * 1000 * 1.96).alias(
-                "ci_data_diff_ns_per_kB"
+            (pl.col("serr_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
+                "serr_data_diff_ns_per_kB"
             ),
             (
                 pl.col("mean_data_diff_ns") / pl.col("width") / pl.col("height") * 1000
             ).alias("mean_data_diff_ns_per_value"),
             (
-                pl.col("serr_data_diff_ns")
-                / pl.col("width")
-                / pl.col("height")
-                * 1.96
-                * 1000
-            ).alias("ci_data_diff_ns_per_value"),
+                pl.col("serr_data_diff_ns") / pl.col("width") / pl.col("height") * 1000
+            ).alias("serr_data_diff_ns_per_value"),
         )
     )
 
@@ -631,7 +626,8 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
         return pl.format(
             "{} (±{}%)",
             pl.col(mean).round(1),
-            (pl.col(ci) / pl.col(mean) * 100).round(1),
+            # 95% confidence interval as percentage of mean
+            (pl.col(ci) / pl.col(mean) * 100 * 1.96).round(1),
         ).alias(out)
 
     id_cols = [
@@ -651,12 +647,12 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             *id_cols,
             fmt_value(
                 "mean_flat_ns_per_kw",
-                "ci_flat_ns_per_kw",
+                "serr_flat_ns_per_kw",
                 "TEXT throughput (ns/kw)",
             ),
             fmt_value(
                 "mean_flat_ns_per_kB",
-                "ci_flat_ns_per_kB",
+                "serr_flat_ns_per_kB",
                 "TEXT throughput (ns/kB)",
             ),
         ]
@@ -667,7 +663,7 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             *id_cols,
             fmt_value(
                 "mean_std_diff_ns_per_kw",
-                "ci_std_diff_ns_per_kw",
+                "serr_std_diff_ns_per_kw",
                 "Standardization Overhead (ns/kw)",
             ),
         ]
@@ -678,12 +674,12 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             *id_cols,
             fmt_value(
                 "mean_data_diff_ns_per_kB",
-                "ci_data_diff_ns_per_kB",
+                "serr_data_diff_ns_per_kB",
                 "DATA throughput (ns/kB)",
             ),
             fmt_value(
                 "mean_data_diff_ns_per_value",
-                "ci_data_diff_ns_per_value",
+                "serr_data_diff_ns_per_value",
                 "DATA throughput (ns/kval)",
             ),
         ]

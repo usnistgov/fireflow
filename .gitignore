@@ -10,3 +10,6 @@
 
 *perf.data*
 *.svg
+
+*pyreflow/bench/inputs
+*pyreflow/bench/outputs

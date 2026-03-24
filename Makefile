@@ -50,6 +50,12 @@ all-dev: rs-lint rs-fmt rs-test rs-docs build-dev py-lint py-test
 docs: build-dev
 	$(uv_at) run sphinx-build -M html docs/source/ docs/build/ --fresh-env -W
 
+pyreflow/bench/inputs/bench_files.tsv: pyreflow/.venv
+	$(uv_at) run ./bench/bench.py make ./bench/inputs
+
+pyreflow/bench/outputs/data.tsv: pyreflow/bench/inputs/bench_files.tsv build-prod
+	$(uv_at) run ./bench/bench.py run ./bench/inputs ./bench/outputs
+
 .PHONY: clean
 clean:  
 	rm -rf `find pyreflow -name __pycache__`

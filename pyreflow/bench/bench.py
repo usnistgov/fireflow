@@ -16,6 +16,12 @@ import pyreflow.typing as pft
 
 BENCH_FILES_NAME = "bench_files.tsv"
 
+FLAT_RUNS = 50
+STD_RUNS = 50
+DATA_RUNS = 1
+
+TRIAL_NUMBER = 5
+
 DType = (
     type[pl.UInt16]
     | type[pl.UInt32]
@@ -84,13 +90,13 @@ class BenchRun(NamedTuple):
 
     def run(self, root: Path) -> BenchResult:
         if self.key == BenchKey.FLAT:
-            n = 500
+            n = FLAT_RUNS
             value = self.read_flat(root, n)
         elif self.key == BenchKey.STD:
-            n = 500
+            n = STD_RUNS
             value = self.read_std(root, n)
         elif self.key == BenchKey.DATA:
-            n = 1
+            n = DATA_RUNS
             value = self.read_flat_data(root)
         else:
             assert_never(self.key)
@@ -191,7 +197,7 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
         byteord = "1,2,3,4"
     else:
         byteord = (
-            ",".join(map(str, lt.byteord))
+            ",".join(str(x + 1) for x in lt.byteord)
             if isinstance(lt.byteord, list)
             else lt.byteord
         )
@@ -514,8 +520,6 @@ def make_bench_files(root: Path) -> None:
 
 
 def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
-    TRIAL_NUMBER = 3
-
     bench_files = pl.read_csv(iroot / BENCH_FILES_NAME, separator="\t")
     if len(names_filter) > 0:
         bench_files = bench_files.filter(pl.col("name").is_in(names_filter))
@@ -610,20 +614,24 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             (pl.col("serr_data_diff_ns") / pl.col("data_nbytes") * 1000 * 1.96).alias(
                 "ci_data_diff_ns_per_kB"
             ),
-            (pl.col("mean_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
-                "mean_data_diff_ns_per_value"
-            ),
             (
-                pl.col("serr_data_diff_ns") / pl.col("width") / pl.col("height") * 1.96
+                pl.col("mean_data_diff_ns") / pl.col("width") / pl.col("height") * 1000
+            ).alias("mean_data_diff_ns_per_value"),
+            (
+                pl.col("serr_data_diff_ns")
+                / pl.col("width")
+                / pl.col("height")
+                * 1.96
+                * 1000
             ).alias("ci_data_diff_ns_per_value"),
         )
     )
 
     def fmt_value(mean: str, ci: str, out: str) -> pl.Expr:
         return pl.format(
-            "{} (+/-{})",
+            "{} (±{}%)",
             pl.col(mean).round(1),
-            pl.col(ci).round(1),
+            (pl.col(ci) / pl.col(mean) * 100).round(1),
         ).alias(out)
 
     id_cols = [
@@ -636,7 +644,9 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
         pl.col("bit_widths").alias("$PnB"),
     ]
 
-    df_analyzed_flat = df_analyzed.select(
+    sort_cols = ["byteord", "version", "bit_widths", "datatypes", "height"]
+
+    df_analyzed_flat = df_analyzed.sort(by=sort_cols).select(
         [
             *id_cols,
             fmt_value(
@@ -652,7 +662,7 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
         ]
     )
 
-    df_analyzed_std = df_analyzed.select(
+    df_analyzed_std = df_analyzed.sort(by=sort_cols).select(
         [
             *id_cols,
             fmt_value(
@@ -663,7 +673,7 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
         ]
     )
 
-    df_analyzed_data = df_analyzed.select(
+    df_analyzed_data = df_analyzed.sort(by=sort_cols).select(
         [
             *id_cols,
             fmt_value(
@@ -674,7 +684,7 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
             fmt_value(
                 "mean_data_diff_ns_per_value",
                 "ci_data_diff_ns_per_value",
-                "DATA throughput (ns/value)",
+                "DATA throughput (ns/kval)",
             ),
         ]
     )

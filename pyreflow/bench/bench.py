@@ -16,6 +16,16 @@ import pyreflow.typing as pft
 
 BENCH_FILES_NAME = "bench_files.tsv"
 
+DType = (
+    type[pl.UInt16]
+    | type[pl.UInt32]
+    | type[pl.UInt64]
+    | type[pl.Float32]
+    | type[pl.Float64]
+)
+
+Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
+
 
 class BenchKey(Enum):
     FLAT = "flat"
@@ -34,6 +44,9 @@ class BenchFile(NamedTuple):
     version: pft.FCSVersion
     height: int
     width: int
+    byteord: str
+    datatypes: str
+    bit_widths: str
     n_keywords: int
     text_nbytes: int
     data_nbytes: int
@@ -70,22 +83,31 @@ class BenchRun(NamedTuple):
         return end - start
 
     def run(self, root: Path) -> BenchResult:
-        print(f"running {self.key.value} test for '{self.name}'")
         if self.key == BenchKey.FLAT:
-            value = self.read_flat(root, 1000)
+            n = 500
+            value = self.read_flat(root, n)
         elif self.key == BenchKey.STD:
-            value = self.read_std(root, 1000)
+            n = 500
+            value = self.read_std(root, n)
         elif self.key == BenchKey.DATA:
+            n = 1
             value = self.read_flat_data(root)
         else:
             assert_never(self.key)
+        print(
+            f"ran {self.key.value} test for '{self.name}' in {value / 1000 / 1000 * n:.1f}ms"
+        )
         return BenchResult(name=self.name, key=self.key, value=value)
 
     def check_data(self, root: Path) -> None:
         """Ensure DATA didn't get screwed up during optimization."""
         out = pf.api.fcs_read_flat_dataset(root / self.fcs_name)
-        tsv = pl.read_csv(root / self.tsv_name, separator="\t")
-        assert out.dataset.data == tsv
+        tsv = pl.read_csv(
+            root / self.tsv_name,
+            separator="\t",
+            schema=out.dataset.data.schema,
+        )
+        assert out.dataset.data.equals(tsv)
 
 
 def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
@@ -112,28 +134,67 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
 
     lt = core.layout
 
+    bit_widths: str
+
     if isinstance(lt, pf.MixedLayout) or isinstance(lt, pf.EndianUintLayout):
         data_nbytes = sum(lt.byte_widths) * height
+        bit_widths = ",".join(str(i * 8) for i in sorted(set(lt.byte_widths)))
     elif (
         isinstance(lt, pf.EndianF32Layout)
         or isinstance(lt, pf.OrderedF32Layout)
         or isinstance(lt, pf.OrderedUint32Layout)
     ):
         data_nbytes = 4 * n_values
+        bit_widths = "32"
     elif (
         isinstance(lt, pf.EndianF64Layout)
         or isinstance(lt, pf.OrderedF64Layout)
         or isinstance(lt, pf.OrderedUint64Layout)
     ):
         data_nbytes = 8 * n_values
+        bit_widths = "64"
     elif isinstance(lt, pf.OrderedUint08Layout):
         data_nbytes = n_values
+        bit_widths = "8"
     elif isinstance(lt, pf.OrderedUint16Layout):
         data_nbytes = 2 * n_values
+        bit_widths = "16"
     elif isinstance(lt, pf.OrderedUint24Layout):
         data_nbytes = 3 * n_values
+        bit_widths = "24"
     else:
         assert False, "invalid layout"
+
+    datatypes: str
+
+    if isinstance(lt, pf.MixedLayout):
+        datatypes = ",".join(sorted(set(t for (t, _) in lt.typed_ranges)))
+    elif isinstance(lt, pf.EndianF32Layout | pf.OrderedF32Layout):
+        datatypes = "F"
+    elif isinstance(lt, pf.EndianF64Layout | pf.OrderedF64Layout):
+        datatypes = "D"
+    else:
+        datatypes = "I"
+
+    byteord: str
+
+    if isinstance(
+        lt,
+        pf.EndianF32Layout
+        | pf.EndianF64Layout
+        | pf.MixedLayout
+        | pf.EndianUintLayout
+        | pf.OrderedUint16Layout,
+    ):
+        byteord = "1,2,3,4" if lt.endian == "little" else "4,3,2,1"
+    elif isinstance(lt, pf.OrderedUint08Layout):
+        byteord = "1,2,3,4"
+    else:
+        byteord = (
+            ",".join(map(str, lt.byteord))
+            if isinstance(lt.byteord, list)
+            else lt.byteord
+        )
 
     std_keywords = core.standard_keywords("both", "both")
 
@@ -156,6 +217,9 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
         version,
         height=height,
         width=width,
+        byteord=byteord,
+        bit_widths=bit_widths,
+        datatypes=datatypes,
         text_nbytes=text_nbytes,
         data_nbytes=data_nbytes,
         n_keywords=n_keywords,
@@ -174,6 +238,20 @@ def nonstd_keywords(i: int) -> dict[str, str]:
             ("FFF", "VBA"),
         ]
     }
+
+
+def meas_3_0(i: int) -> tuple[str, pf.Optical3_0 | pf.Temporal3_0]:
+    return (
+        f"C{i + 1}",
+        pf.Optical3_0(
+            1.0,
+            longname=f"Column{i + 1}",
+            wavelength=randrange(500, 700),
+            power=randrange(1, 1000),
+            detector_voltage=randrange(1, 1000),
+            nonstandard_keywords=nonstd_keywords(i),
+        ),
+    )
 
 
 def meas_3_1(i: int) -> tuple[str, pf.Optical3_1 | pf.Temporal3_1]:
@@ -208,6 +286,29 @@ def meas_3_2(i: int) -> tuple[str, pf.Optical3_2 | pf.Temporal3_2]:
     )
 
 
+def core_3_0_pdp11(
+    height: int,
+    width: int,
+) -> pf.CoreDataset3_0:
+    ms: list[tuple[str | None, pf.Optical3_0 | pf.Temporal3_0]] = [
+        meas_3_0(i) for i in range(0, width)
+    ]
+    rs = [2**32 - 1 for _ in range(0, width)]
+    # wonky byteord...
+    layout = pf.OrderedUint32Layout(rs, [3, 4, 1, 2])
+    data = pl.DataFrame(
+        [
+            pl.Series(
+                np.random.uniform(low=0, high=2**32 - 1, size=height),
+                dtype=pl.UInt32,
+            )
+            for _ in range(0, width)
+        ]
+    )
+    core = pf.CoreDataset3_0(ms, layout, data)
+    return core
+
+
 # TODO there is no way to save a file without truncating bits first, which
 # may or may not be what we want. Some files "use" these upper buts for things
 def core_3_1(
@@ -225,7 +326,7 @@ def core_3_1(
 def core_3_1_int(
     height: int, width: int, byte_width: int, big_endian: bool
 ) -> pf.CoreDataset3_1:
-    upper = 2 ** (8 * byte_width) if byte_width < 8 else 2**40
+    upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
     layout = pf.EndianUintLayout(rs, "big" if big_endian else "little")
     dtype: type[pl.UInt8] | type[pl.UInt16] | type[pl.UInt32] | type[pl.UInt64]
@@ -268,48 +369,80 @@ def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
 def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
     # per https://github.com/RGLab/flowCore/issues/46, 4x16+32+8
     layout = pf.EndianUintLayout(
-        [2**16] * 4 + [2**32] + [2**8], "big" if big_endian else "little"
+        [2**16 - 1] * 4 + [2**32 - 1] + [2**8 - 1], "big" if big_endian else "little"
     )
     data = pl.DataFrame(
         [
             pl.Series(
-                np.random.uniform(low=0, high=2**16, size=height), dtype=pl.UInt16
+                np.random.uniform(low=0, high=2**16 - 1, size=height), dtype=pl.UInt16
             )
             for _ in range(0, 4)
         ]
         + [
             pl.Series(
-                np.random.uniform(low=0, high=2**32, size=height), dtype=pl.UInt32
+                np.random.uniform(low=0, high=2**32 - 1, size=height), dtype=pl.UInt32
             ),
             pl.Series(
-                np.random.uniform(low=0, high=2**8, size=height), dtype=pl.UInt64
+                np.random.uniform(low=0, high=2**8 - 1, size=height), dtype=pl.UInt64
             ),
         ]
     )
     return core_3_1(6, layout, data)
 
 
+def to_data_parts(r: Range) -> tuple[float | int, DType]:
+    if r[0] == "F":
+        return (float(r[1]), pl.Float32)
+    elif r[0] == "D":
+        return (float(r[1]), pl.Float64)
+    elif r[0] == "I":
+        if r[1] <= 2**64:
+            return (r[1], pl.UInt64)
+        elif r[1] <= 2**32:
+            return (r[1], pl.UInt32)
+    return (r[1], pl.UInt16)
+
+
 def core_3_2_a8(height: int, big_endian: bool) -> pf.CoreDataset3_2:
-    Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
-    floats: list[Range] = [("F", Decimal(3.4e38))] * 380
-    ints: list[Range] = [("I", 2**32)] * 20
-    layout = pf.MixedLayout(floats + ints)
+    floats: list[Range] = [("F", Decimal(1e10))] * 380
+    ints: list[Range] = [("I", 2**32 - 1)] * 20
+    rs = floats + ints
+    layout = pf.MixedLayout(rs)
+    data_parts = [to_data_parts(r) for r in rs]
     data = pl.DataFrame(
-        [
-            pl.Series(
-                np.random.uniform(low=0, high=2**32, size=height), dtype=pl.UInt32
-            )
-            for _ in range(0, 20)
-        ]
-        + [
-            pl.Series(
-                np.random.uniform(low=0, high=3.4e38, size=height), dtype=pl.Float32
-            )
-            for _ in range(0, 380)
-        ]
+        pl.Series(np.random.uniform(low=0, high=u, size=height), dtype=t)
+        for (u, t) in data_parts
     )
-    ms = [meas_3_2(i) for i in range(0, 400)]
+    ms = [meas_3_2(i) for i in range(0, len(rs))]
     core = pf.CoreDataset3_2(ms, layout, data, cyt="WALL-E")
+    return core
+
+
+def core_3_2_random_mixed(height: int, big_endian: bool) -> pf.CoreDataset3_2:
+    Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
+
+    n_cols = 15
+
+    f32: list[Range] = [("F", Decimal(1e10))] * n_cols
+    f64: list[Range] = [("D", Decimal(1e10))] * n_cols
+    int8: list[Range] = [("I", 2**8 - 1)] * n_cols
+    int16: list[Range] = [("I", 2**16 - 1)] * n_cols
+    int32: list[Range] = [("I", 2**32 - 1)] * n_cols
+    int64: list[Range] = [("I", 2**64 - 1)] * n_cols
+
+    rs = f32 + f64 + int8 + int16 + int32 + int64
+
+    # torture the branch predictor
+    shuffle(rs)
+    layout = pf.MixedLayout(rs)
+
+    data_parts = [to_data_parts(r) for r in rs]
+    data = pl.DataFrame(
+        pl.Series(np.random.uniform(low=0, high=u, size=height), dtype=t)
+        for (u, t) in data_parts
+    )
+    ms = [meas_3_2(i) for i in range(0, len(rs))]
+    core = pf.CoreDataset3_2(ms, layout, data, cyt="GLaDOS")
     return core
 
 
@@ -329,31 +462,37 @@ def make_bench_files(root: Path) -> None:
     # Make three different sizes of this to demonstrate how time changes with
     # width and height. We expect that for a given datatype, normalized DATA
     # throughput should not depend on width or height. TEXT throughput should
-    # not depend on height but may have a different overall throughput per
-    # keyword since not all keywords correspond to measurements.
-    print_files("le_int32_10000x25", core_3_1_int(10000, 25, 4, False))
-    print_files("le_int32_10000x75", core_3_1_int(10000, 75, 4, False))
-    print_files("le_int32_100000x25", core_3_1_int(100000, 25, 4, False))
+    # not depend on height but should depend on width. Standardization overhead
+    # should depend on FCS version and width.
+    print_files("i32_10000x25", core_3_1_int(10000, 25, 4, False))
+    print_files("i32_10000x75", core_3_1_int(10000, 75, 4, False))
+    print_files("i32_100000x25", core_3_1_int(100000, 25, 4, False))
+
+    # Make a mixed byteord file just for fun, it should be way slower. This
+    # also helps test a 3.0 file vs other 3.1 files
+    print_files("mx_i32_10000x25", core_3_0_pdp11(10000, 25))
 
     # make a big endian file just for fun (it should be the same as le)
-    print_files("be_int32_10000x25", core_3_1_int(10000, 25, 4, True))
+    print_files("be_i32_10000x25", core_3_1_int(10000, 25, 4, True))
 
     # make some other int sizes
-    print_files("le_int16_10000x25", core_3_1_int(10000, 25, 2, False))
-    print_files("le_int24_10000x25", core_3_1_int(10000, 25, 3, False))
-    print_files("le_int64_10000x25", core_3_1_int(10000, 25, 8, False))
+    print_files("i16_10000x25", core_3_1_int(10000, 25, 2, False))
+    print_files("i24_10000x25", core_3_1_int(10000, 25, 3, False))
+    print_files("i64_10000x25", core_3_1_int(10000, 25, 8, False))
 
     # make float layouts
-    print_files("le_f32_10000x25", core_3_1_float(10000, 25, False))
-    print_files("le_f64_10000x25", core_3_1_float(10000, 25, True))
+    print_files("f32_10000x25", core_3_1_float(10000, 25, False))
+    print_files("f64_10000x25", core_3_1_float(10000, 25, True))
 
-    # add cyflow cube's infamous mixed int layout
-    print_files("le_cube_10000x6", core_3_1_cube(10000, False))
+    # add cyflow cube's infamous mixed width layout
+    print_files("cube_10000x6", core_3_1_cube(10000, False))
 
     # add BD S8/A8's mixed 32bit layout
-    print_files("le_s8_2000x400", core_3_1_cube(2000, False))
+    print_files("s8_1000x400", core_3_2_a8(1000, False))
 
-    # add fully mixed layout just for fun (not that anyone uses this yet)
+    # layout with random mixed-width/type data, nobody uses this but it is a
+    # good test since it should be the hardest to process
+    print_files("mixrand_1000x90", core_3_2_random_mixed(1000, False))
 
     with open(root / BENCH_FILES_NAME, "w") as f:
         w = csv.writer(f, delimiter="\t")
@@ -364,6 +503,9 @@ def make_bench_files(root: Path) -> None:
                 b.version,
                 str(b.height),
                 str(b.width),
+                str(b.byteord),
+                str(b.datatypes),
+                str(b.bit_widths),
                 str(b.n_keywords),
                 str(b.text_nbytes),
                 str(b.data_nbytes),
@@ -371,10 +513,10 @@ def make_bench_files(root: Path) -> None:
             w.writerow(row)
 
 
-def run_bench(root: Path, names_filter: list[str]) -> None:
+def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
     TRIAL_NUMBER = 3
 
-    bench_files = pl.read_csv(root / BENCH_FILES_NAME, separator="\t")
+    bench_files = pl.read_csv(iroot / BENCH_FILES_NAME, separator="\t")
     if len(names_filter) > 0:
         bench_files = bench_files.filter(pl.col("name").is_in(names_filter))
 
@@ -384,9 +526,14 @@ def run_bench(root: Path, names_filter: list[str]) -> None:
         for _ in range(0, TRIAL_NUMBER)
         for k in BenchKey
     ]
+
+    # loop through each name only once
+    for r in set(r for r in runs if r.key == BenchKey.DATA):
+        r.check_data(iroot)
+
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
-    results = [r.run(root) for r in runs]
+    results = [r.run(iroot) for r in runs]
 
     flat_results = [r for r in results if r.key == BenchKey.FLAT]
     std_results = [r for r in results if r.key == BenchKey.STD]
@@ -479,13 +626,23 @@ def run_bench(root: Path, names_filter: list[str]) -> None:
             pl.col(ci).round(1),
         ).alias(out)
 
+    id_cols = [
+        "name",
+        "version",
+        pl.col("width").alias("$PAR"),
+        pl.col("height").alias("$TOT"),
+        pl.col("byteord").alias("$BYTEORD"),
+        pl.col("datatypes").alias("$DATATYPE"),
+        pl.col("bit_widths").alias("$PnB"),
+    ]
+
     df_analyzed_flat = df_analyzed.select(
         [
-            "name",
+            *id_cols,
             fmt_value(
                 "mean_flat_ns_per_kw",
                 "ci_flat_ns_per_kw",
-                "TEXT throughput (ns/keyword)",
+                "TEXT throughput (ns/kw)",
             ),
             fmt_value(
                 "mean_flat_ns_per_kB",
@@ -497,18 +654,18 @@ def run_bench(root: Path, names_filter: list[str]) -> None:
 
     df_analyzed_std = df_analyzed.select(
         [
-            "name",
+            *id_cols,
             fmt_value(
                 "mean_std_diff_ns_per_kw",
                 "ci_std_diff_ns_per_kw",
-                "Standardization Overhead (ns/keyword)",
+                "Standardization Overhead (ns/kw)",
             ),
         ]
     )
 
     df_analyzed_data = df_analyzed.select(
         [
-            "name",
+            *id_cols,
             fmt_value(
                 "mean_data_diff_ns_per_kB",
                 "ci_data_diff_ns_per_kB",
@@ -522,9 +679,22 @@ def run_bench(root: Path, names_filter: list[str]) -> None:
         ]
     )
 
-    print(df_analyzed_flat)
-    print(df_analyzed_std)
-    print(df_analyzed_data)
+    if oroot == "-":
+        with pl.Config(tbl_rows=20, tbl_cols=9):
+            print(df_analyzed_flat)
+            print(df_analyzed_std)
+            print(df_analyzed_data)
+    else:
+        orootp = Path(oroot)
+        orootp.mkdir(parents=True, exist_ok=True)
+        with open(orootp / "flat.tsv", "w") as f:
+            df_analyzed_flat.write_csv(f, separator="\t")
+
+        with open(orootp / "std.tsv", "w") as f:
+            df_analyzed_std.write_csv(f, separator="\t")
+
+        with open(orootp / "data.tsv", "w") as f:
+            df_analyzed_data.write_csv(f, separator="\t")
 
 
 def main(args: list[str]) -> None:
@@ -534,8 +704,7 @@ def main(args: list[str]) -> None:
     if cmd == "make":
         make_bench_files(bench_path)
     elif cmd == "run":
-        # TODO add results output dir
-        run_bench(bench_path, args[3:])
+        run_bench(bench_path, args[3], args[4:])
     else:
         print(f"invalid command: {cmd}")
         exit(1)

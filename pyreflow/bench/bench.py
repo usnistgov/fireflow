@@ -20,7 +20,7 @@ FLAT_RUNS = 50
 STD_RUNS = 50
 DATA_RUNS = 1
 
-TRIAL_NUMBER = 5
+TRIAL_NUMBER = 10
 
 DType = (
     type[pl.UInt16]

@@ -700,15 +700,15 @@ impl TruncatedResult {
 // should be ~28k by default. Obviously this can be higher if L1D is
 // bigger on the user's CPU.
 struct RowBuffer {
-    nrows: u64,
+    nrows: usize,
     row_width: usize,
-    rows_per_buffer: u64,
+    rows_per_buffer: usize,
     buf_size: u64,
     bytes: Vec<u8>,
 }
 
 impl RowBuffer {
-    fn init(max_size: RowBufferSize, nrows: u64, row_width: u64) -> Self {
+    fn init(max_size: RowBufferSize, nrows: usize, row_width: usize) -> Self {
         // Max this to 1 here so that we always have at least one row we are
         // reading. If there are any machines that produce files with at least
         // 32KB rows (which would be ~1000 parameters at 32 bit column widths),
@@ -718,9 +718,9 @@ impl RowBuffer {
         Self {
             nrows,
             rows_per_buffer,
-            buf_size,
-            row_width: u64_to_usize(row_width),
-            bytes: Vec::with_capacity(u64_to_usize(buf_size)),
+            buf_size: usize_to_u64(buf_size),
+            row_width,
+            bytes: Vec::with_capacity(buf_size),
         }
     }
 
@@ -734,12 +734,8 @@ impl RowBuffer {
         self.read_size(h, self.buf_size)
     }
 
-    fn word_rows_per_buffer(&self) -> usize {
-        u64_to_usize(self.rows_per_buffer)
-    }
-
     fn whole_reads(&self) -> usize {
-        u64_to_usize(self.nrows / self.rows_per_buffer)
+        self.nrows / self.rows_per_buffer
     }
 
     fn read_columns<C, E, R, Fr, Fw>(
@@ -767,18 +763,18 @@ impl RowBuffer {
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
                 let src_width = fwidth(ci);
-                for row in 0..self.word_rows_per_buffer() {
+                for row in 0..self.rows_per_buffer {
                     let src_idx = src_col_offset + self.row_width * row;
                     let dst_idx = dst_row_offset + row;
                     fread(c, dst_idx, &self.bytes, src_idx).map_err(ImpureError::Pure)?;
                 }
                 src_col_offset += src_width;
             }
-            dst_row_offset += self.word_rows_per_buffer();
+            dst_row_offset += self.rows_per_buffer;
         }
 
         // Read remaining rows if they exist
-        let remainder_rows = u64_to_usize(self.nrows % self.rows_per_buffer);
+        let remainder_rows = self.nrows % self.rows_per_buffer;
         let remainder_size = usize_to_u64(remainder_rows * self.row_width);
         self.read_size(h, remainder_size)?;
         src_col_offset = 0;
@@ -805,8 +801,17 @@ impl RowBuffer {
         R: Read,
         F: Fn(&[u8; SRC_LEN]) -> T,
     {
+        // This method has several nice optimizations:
+        // 1. No errors on the inner two loops
+        // 2. All values have the same byte layout, which means we don't need
+        //    to dispatch different methods for different columns
+        // 3. Using the assertions below and some unsafe code, we can remove
+        //    all bounds checks on the inner loop.
+        //
+        // 1-3 above mean that that two inner loops have no jumps, which means
+        // the compiler can unroll the loops and possibly autovectorize.
         assert!(
-            columns.iter().all(|c| c.len() == u64_to_usize(self.nrows)),
+            columns.iter().all(|c| c.len() == self.nrows),
             "all column lengths should be equal to given row number"
         );
         assert!(
@@ -814,23 +819,27 @@ impl RowBuffer {
             "incorrect column number size"
         );
         assert!(
-            self.word_rows_per_buffer() * self.whole_reads() <= u64_to_usize(self.nrows),
+            self.rows_per_buffer * self.whole_reads() <= self.nrows,
             "invalid whole reads number"
         );
 
         // Read groups of rows in outer loop
         for buf_idx in 0..self.whole_reads() {
             self.read(h)?;
-            let start_row = buf_idx * self.word_rows_per_buffer();
+            let start_row = buf_idx * self.rows_per_buffer;
             // Once we have a buffer, iterate through each column and write data
             for (ci, c) in columns.iter_mut().enumerate() {
                 let src_col_offset = ci * SRC_LEN;
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
-                let end_row = start_row + self.word_rows_per_buffer();
+                let end_row = start_row + self.rows_per_buffer;
                 let local_c = &mut c[start_row..end_row];
                 for (row, value) in local_c.iter_mut().enumerate() {
                     let src_idx = src_col_offset + self.row_width * row;
+                    debug_assert!(
+                        src_idx + SRC_LEN < u64_to_usize(self.buf_size),
+                        "out of bounds"
+                    );
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
                     // is row index (within the buffer) and C is column index.
                     // Both R and C must be less than the number of rows per
@@ -850,17 +859,23 @@ impl RowBuffer {
         }
 
         // Read remaining rows if they exist
-        let remainder_rows = u64_to_usize(self.nrows % self.rows_per_buffer);
+        let remainder_rows = self.nrows % self.rows_per_buffer;
         let remainder_size = usize_to_u64(remainder_rows * self.row_width);
         self.read_size(h, remainder_size)?;
         for (ci, c) in columns.iter_mut().enumerate() {
             let src_col_offset = ci * SRC_LEN;
-            let dst_row_offset = self.whole_reads() * self.word_rows_per_buffer();
+            let dst_row_offset = self.whole_reads() * self.rows_per_buffer;
             let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter_mut().enumerate() {
                 let src_idx = src_col_offset + self.row_width * row;
-                let xs = &self.bytes[src_idx..src_idx + SRC_LEN];
-                let buf: [u8; SRC_LEN] = xs.try_into().unwrap();
+                debug_assert!(
+                    src_idx + SRC_LEN < u64_to_usize(self.buf_size),
+                    "out of bounds"
+                );
+                // SAFETY: see above
+                let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + SRC_LEN) };
+                // SAFETY: see above
+                let buf: [u8; SRC_LEN] = unsafe { *(xs.as_ptr().cast()) };
                 *value = from_buf(&buf);
             }
         }
@@ -961,12 +976,12 @@ impl RowBuffer {
         h: &mut BufReader<R>,
         cols: &mut [AnyUintVec],
         endian: Endian,
-    ) -> IOResult<(), Infallible> {
+    ) -> io::Result<()> {
         let src_widths: Vec<_> = cols
             .iter()
             .map(|c| usize::from(u8::from(PrivBytes::from(c))))
             .collect();
-        match endian {
+        let res = match endian {
             Endian::Big => self.read_columns(
                 h,
                 cols,
@@ -985,7 +1000,11 @@ impl RowBuffer {
                 },
                 |i| src_widths[i],
             ),
-        }
+        };
+        res.map_err(|e: ImpureError<Infallible>| {
+            let ImpureError::IO(i) = e;
+            i
+        })
     }
 
     /// Read a dataframe of any mix of column types
@@ -3419,8 +3438,7 @@ where
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        let nrows = u64::try_from(df.nrows()).expect("rows in dataframe exceed 2^64");
-        self.event_width() * nrows
+        usize_to_u64(self.event_width() * df.nrows())
     }
 
     fn datatype(&self) -> AlphaNumType {
@@ -3732,13 +3750,13 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         FixedLayout::new(self.columns, self.byte_layout)
     }
 
-    fn event_width(&self) -> u64
+    fn event_width(&self) -> usize
     where
         C: IsFixed,
     {
         self.columns
             .iter()
-            .map(|c| u64::from(u8::from(c.nbytes())))
+            .map(|c| usize::from(u8::from(c.nbytes())))
             .sum()
     }
 
@@ -3753,7 +3771,7 @@ impl<C, S, T, D> FixedLayout<C, S, T, D> {
         C: IsFixed,
     {
         let n = seg.len();
-        let w = self.event_width();
+        let w = usize_to_u64(self.event_width());
         if w == 0 {
             LogResult::new_err(EventWidthError::from(ZeroEventWidthError::new(n)))
         } else {
@@ -3781,24 +3799,44 @@ trait FixedLayoutIO {
     fn h_read_unchecked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        w_nrows: usize,
+        nrows: usize,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOResult<
         (FCSDataFrame, Vec<OverrangeColumn>),
         EventOverRangeError,
         ReadDataframeError,
-    >;
+    > {
+        let (df, rs) = match self.h_read_unchecked_df_inner(h, nrows, conf) {
+            Ok(x) => x,
+            Err(e) => return LogResult::new_err(e),
+        };
+        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
+        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
+
+        let flag = conf.disallow_over_range;
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
+            .switchable_into_commutative()
+            .group()
+            .map_error(ReadDataframeError::from)
+            .map_error(ImpureError::Pure)
+            .map_ok_value(|()| (df, overrange))
+    }
+
+    fn h_read_unchecked_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        nrows: usize,
+        conf: &ReadEventsConfig,
+    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError>;
 }
 
 trait ByteLayoutIO<T> {
-    type Err;
-
     fn read_matrix<R: Read>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut RowBuffer,
         cols: &mut Vec<Vec<T>>,
-    ) -> IOResult<(), Self::Err>;
+    ) -> io::Result<()>;
 }
 
 trait HasRange<C> {
@@ -3852,16 +3890,13 @@ where
 macro_rules! impl_endian_layout_io {
     ($t:ident) => {
         impl ByteLayoutIO<$t> for Endian {
-            type Err = Infallible;
-
             fn read_matrix<R: Read>(
                 &self,
                 h: &mut BufReader<R>,
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<$t>>,
-            ) -> IOResult<(), Self::Err> {
-                buf.read_endian_matrix(h, cols, *self)?;
-                Ok(())
+            ) -> io::Result<()> {
+                buf.read_endian_matrix(h, cols, *self)
             }
         }
     };
@@ -3870,16 +3905,13 @@ macro_rules! impl_endian_layout_io {
 macro_rules! impl_ordered_layout_io {
     ($t:ident, $len:expr) => {
         impl ByteLayoutIO<$t> for SizedByteOrd<$len> {
-            type Err = Infallible;
-
             fn read_matrix<R: Read>(
                 &self,
                 h: &mut BufReader<R>,
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<$t>>,
-            ) -> IOResult<(), Self::Err> {
-                buf.read_ordered_matrix(h, cols, *self)?;
-                Ok(())
+            ) -> io::Result<()> {
+                buf.read_ordered_matrix(h, cols, *self)
             }
         }
     };
@@ -3888,16 +3920,13 @@ macro_rules! impl_ordered_layout_io {
 macro_rules! impl_unaligned_int_layout_io {
     ($t:ident, $len:expr) => {
         impl ByteLayoutIO<$t> for SizedByteOrd<$len> {
-            type Err = Infallible;
-
             fn read_matrix<R: Read>(
                 &self,
                 h: &mut BufReader<R>,
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<$t>>,
-            ) -> IOResult<(), Self::Err> {
-                buf.read_unaligned_int_matrix(h, cols, *self)?;
-                Ok(())
+            ) -> io::Result<()> {
+                buf.read_unaligned_int_matrix(h, cols, *self)
             }
         }
     };
@@ -3919,186 +3948,12 @@ impl_endian_layout_io!(f32);
 impl_endian_layout_io!(f64);
 
 impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
-    fn h_read_unchecked_df<R: Read>(
+    fn h_read_unchecked_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        w_nrows: usize,
+        nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOResult<
-        (FCSDataFrame, Vec<OverrangeColumn>),
-        EventOverRangeError,
-        ReadDataframeError,
-    > {
-        let nrows = usize_to_u64(w_nrows);
-        let row_width = self
-            .columns
-            .iter()
-            .map(|c| u64::from(u8::from(c.chars())))
-            .sum();
-
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
-
-        let mut columns: Vec<_> = self
-            .columns
-            .iter()
-            .map(|r| RangedVec::new(*r, vec![0; w_nrows]))
-            .collect();
-
-        match row_buf.read_char_matrix(h, &mut columns) {
-            Ok(()) => (),
-            Err(e) => {
-                let ret = e
-                    .fmap_once(ReadFixedAsciiError::from)
-                    .fmap_once(ReadAsciiError::from)
-                    .fmap_once(ReadDataframeError::from);
-                return LogResult::new_err(ret);
-            }
-        }
-
-        let trunc = conf.truncate_event_values;
-        let rs: Vec<_> = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.data.check_range(&c.range, i.into(), trunc))
-            .collect();
-        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
-
-        let flag = conf.disallow_over_range;
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .group()
-            .map_error(ReadDataframeError::from)
-            .map_error(ImpureError::Pure)
-            .map_ok_value(|()| {
-                let data = columns.into_iter().map(AnyFCSColumn::from);
-                let df = FCSDataFrame::try_new(data).unwrap();
-                (df, overrange)
-            })
-    }
-}
-
-impl<C, S, Tot, D> FixedLayoutIO for FixedLayout<C, S, Tot, D>
-where
-    S: ByteLayoutIO<C::Native, Err = Infallible>,
-    C: HasBytes,
-    AnyFCSColumn: From<FCSColumn<C::Native>>,
-    Vec<C::Native>: HasRange<C>,
-    C::Native: PartialOrd,
-{
-    fn h_read_unchecked_df<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        w_nrows: usize,
-        conf: &ReadEventsConfig,
-    ) -> WarningsAndIOResult<
-        (FCSDataFrame, Vec<OverrangeColumn>),
-        EventOverRangeError,
-        ReadDataframeError,
-    > {
-        let nrows = usize_to_u64(w_nrows);
-        let w_ncols = self.columns().len();
-        let row_width = usize_to_u64(self.columns().len() * usize::from(u8::from(C::BYTES)));
-
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
-
-        let mut columns = vec![vec![C::Native::default(); w_nrows]; w_ncols];
-
-        match self.byte_layout.read_matrix(h, &mut row_buf, &mut columns) {
-            Ok(()) => (),
-            Err(ImpureError::IO(e)) => return LogResult::new_err(e.into()),
-        }
-
-        let trunc = conf.truncate_event_values;
-        let rs: Vec<_> = columns
-            .iter_mut()
-            .enumerate()
-            .zip(&self.columns[..])
-            .map(|((i, d), c)| d.check_range(c, i.into(), trunc))
-            .collect();
-        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
-
-        let flag = conf.disallow_over_range;
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .group()
-            .map_error(ReadDataframeError::from)
-            .map_error(ImpureError::Pure)
-            .map_ok_value(|()| {
-                let data = columns.into_iter().map(|c| FCSColumn::from(c).into());
-                let df = FCSDataFrame::try_new(data).unwrap();
-                (df, overrange)
-            })
-    }
-}
-
-impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
-    fn h_read_unchecked_df<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        w_nrows: usize,
-        conf: &ReadEventsConfig,
-    ) -> WarningsAndIOResult<
-        (FCSDataFrame, Vec<OverrangeColumn>),
-        EventOverRangeError,
-        ReadDataframeError,
-    > {
-        let nrows = usize_to_u64(w_nrows);
-        let row_width = self
-            .columns
-            .iter()
-            .map(|c| u64::from(u8::from(PrivBytes::from(c))))
-            .sum();
-
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
-
-        let mut columns: Vec<_> = self
-            .columns
-            .iter()
-            .map(|c| c.init_column(w_nrows))
-            .collect();
-
-        match row_buf.read_any_uint_df(h, &mut columns, self.byte_layout) {
-            Ok(()) => (),
-            Err(ImpureError::IO(e)) => return LogResult::new_err(e.into()),
-        }
-
-        let trunc = conf.truncate_event_values;
-        let rs: Vec<_> = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.check_range(i.into(), trunc))
-            .collect();
-        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
-
-        let flag = conf.disallow_over_range;
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .group()
-            .map_error(ReadDataframeError::from)
-            .map_error(ImpureError::Pure)
-            .map_ok_value(|()| {
-                let data = columns.into_iter().map(AnyFCSColumn::from);
-                let df = FCSDataFrame::try_new(data).unwrap();
-                (df, overrange)
-            })
-    }
-}
-
-impl FixedLayoutIO for MixedLayout {
-    fn h_read_unchecked_df<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        w_nrows: usize,
-        conf: &ReadEventsConfig,
-    ) -> WarningsAndIOResult<
-        (FCSDataFrame, Vec<OverrangeColumn>),
-        EventOverRangeError,
-        ReadDataframeError,
-    > {
-        let nrows = usize_to_u64(w_nrows);
+    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
         let row_width = self.event_width();
 
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
@@ -4106,19 +3961,107 @@ impl FixedLayoutIO for MixedLayout {
         let mut columns: Vec<_> = self
             .columns
             .iter()
-            .map(|c| c.init_column(w_nrows))
+            .map(|r| RangedVec::new(*r, vec![0; nrows]))
             .collect();
 
-        match row_buf.read_mixed_df(h, &mut columns, self.byte_layout) {
-            Ok(()) => (),
-            Err(e) => {
-                let ret = e
-                    .fmap_once(ReadFixedAsciiError::from)
+        row_buf.read_char_matrix(h, &mut columns).map_err(|e| {
+            e.fmap_once(ReadFixedAsciiError::from)
+                .fmap_once(ReadAsciiError::from)
+                .fmap_once(ReadDataframeError::from)
+        })?;
+
+        let trunc = conf.truncate_event_values;
+        let rs = columns
+            .iter_mut()
+            .enumerate()
+            .map(|(i, c)| c.data.check_range(&c.range, i.into(), trunc))
+            .collect();
+
+        let data = columns.into_iter().map(AnyFCSColumn::from);
+        let df = FCSDataFrame::try_new(data).unwrap();
+        Ok((df, rs))
+    }
+}
+
+impl<C, S, Tot, D> FixedLayoutIO for FixedLayout<C, S, Tot, D>
+where
+    S: ByteLayoutIO<C::Native>,
+    C: HasBytes + IsFixed,
+    AnyFCSColumn: From<FCSColumn<C::Native>>,
+    Vec<C::Native>: HasRange<C>,
+    C::Native: PartialOrd,
+{
+    fn h_read_unchecked_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        nrows: usize,
+        conf: &ReadEventsConfig,
+    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let ncols = self.columns().len();
+        let mut columns = vec![vec![C::Native::default(); nrows]; ncols];
+
+        self.byte_layout
+            .read_matrix(h, &mut row_buf, &mut columns)?;
+
+        let trunc = conf.truncate_event_values;
+        let rs = columns
+            .iter_mut()
+            .enumerate()
+            .zip(&self.columns[..])
+            .map(|((i, d), c)| d.check_range(c, i.into(), trunc))
+            .collect();
+
+        let data = columns.into_iter().map(|c| FCSColumn::from(c).into());
+        let df = FCSDataFrame::try_new(data).unwrap();
+
+        Ok((df, rs))
+    }
+}
+
+impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
+    fn h_read_unchecked_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        nrows: usize,
+        conf: &ReadEventsConfig,
+    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+
+        row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
+
+        let trunc = conf.truncate_event_values;
+        let rs = columns
+            .iter_mut()
+            .enumerate()
+            .map(|(i, c)| c.check_range(i.into(), trunc))
+            .collect();
+
+        let data = columns.into_iter().map(AnyFCSColumn::from);
+        let df = FCSDataFrame::try_new(data).unwrap();
+
+        Ok((df, rs))
+    }
+}
+
+impl FixedLayoutIO for MixedLayout {
+    fn h_read_unchecked_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        nrows: usize,
+        conf: &ReadEventsConfig,
+    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+
+        row_buf
+            .read_mixed_df(h, &mut columns, self.byte_layout)
+            .map_err(|e| {
+                e.fmap_once(ReadFixedAsciiError::from)
                     .fmap_once(ReadAsciiError::from)
-                    .fmap_once(ReadDataframeError::from);
-                return LogResult::new_err(ret);
-            }
-        }
+                    .fmap_once(ReadDataframeError::from)
+            })?;
 
         let trunc = conf.truncate_event_values;
         let rs: Vec<_> = columns
@@ -4126,20 +4069,11 @@ impl FixedLayoutIO for MixedLayout {
             .enumerate()
             .map(|(i, c)| c.check_range(i.into(), trunc))
             .collect();
-        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
 
-        let flag = conf.disallow_over_range;
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .group()
-            .map_error(ReadDataframeError::from)
-            .map_error(ImpureError::Pure)
-            .map_ok_value(|()| {
-                let data = columns.into_iter().map(AnyFCSColumn::from);
-                let df = FCSDataFrame::try_new(data).unwrap();
-                (df, overrange)
-            })
+        let data = columns.into_iter().map(AnyFCSColumn::from);
+        let df = FCSDataFrame::try_new(data).unwrap();
+
+        Ok((df, rs))
     }
 }
 

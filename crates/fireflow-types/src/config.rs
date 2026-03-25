@@ -570,7 +570,7 @@ impl_str_enum!(
 /// The size of the row buffer used to read DATA.
 #[derive(Clone, Copy, From, Into, FromStr, Display)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-pub struct RowBufferSize(pub u64);
+pub struct RowBufferSize(pub usize);
 
 impl Default for RowBufferSize {
     fn default() -> Self {

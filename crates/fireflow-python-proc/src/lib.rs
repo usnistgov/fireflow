@@ -9055,8 +9055,8 @@ impl DocArgParam {
              L1D cache size."
         );
         let path = parse_quote!(fireflow_types::config::RowBufferSize);
-        let pt = PyInt::new_int(RsInt::U64).rstype(path);
-        let def = usize::try_from(RowBufferSize::default().0).expect("overflow");
+        let pt = PyInt::new_int(RsInt::Usize).rstype(path);
+        let def = RowBufferSize::default().0;
         Self::new_param("row_buffer_size", pt, d).def(DocDefault::Int(def))
     }
 

@@ -109,7 +109,7 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{NonEmptyIterator as _, once},
 };
-use num_traits::PrimInt;
+use num_traits::{FromBytes, PrimInt};
 use thiserror::Error;
 
 use std::convert::Infallible;
@@ -795,45 +795,93 @@ impl RowBuffer {
     }
 
     /// Read stream of bytes using buffer where each value is the same type
-    fn read_matrix<E, R, T, Fr>(
+    fn read_matrix<R, T, F, const SRC_LEN: usize>(
         &mut self,
         h: &mut BufReader<R>,
         columns: &mut [Vec<T>],
-        mut fread: Fr,
-        value_bytes: usize,
-    ) -> IOResult<(), E>
+        from_buf: F,
+    ) -> io::Result<()>
     where
         R: Read,
-        Fr: FnMut(&[u8], usize, usize) -> Result<T, E>,
+        F: Fn(&[u8; SRC_LEN]) -> T,
     {
-        self.read_columns(
-            h,
-            columns,
-            |dst, dst_index, src, src_index| {
-                dst[dst_index] = fread(src, src_index, value_bytes)?;
-                Ok(())
-            },
-            |_| value_bytes,
-        )
+        assert!(
+            columns.iter().all(|c| c.len() == u64_to_usize(self.nrows)),
+            "all column lengths should be equal to given row number"
+        );
+        assert!(
+            columns.len() * SRC_LEN == self.row_width,
+            "incorrect column number size"
+        );
+        assert!(
+            self.word_rows_per_buffer() * self.whole_reads() <= u64_to_usize(self.nrows),
+            "invalid whole reads number"
+        );
+
+        // Read groups of rows in outer loop
+        for buf_idx in 0..self.whole_reads() {
+            self.read(h)?;
+            let start_row = buf_idx * self.word_rows_per_buffer();
+            // Once we have a buffer, iterate through each column and write data
+            for (ci, c) in columns.iter_mut().enumerate() {
+                let src_col_offset = ci * SRC_LEN;
+                // Within each column, write rows, striding the row buffer and
+                // indexing consecutively in the current column
+                let end_row = start_row + self.word_rows_per_buffer();
+                let local_c = &mut c[start_row..end_row];
+                for (row, value) in local_c.iter_mut().enumerate() {
+                    let src_idx = src_col_offset + self.row_width * row;
+                    // SAFETY: src_idx given as row_width * R + C * LEN where R
+                    // is row index (within the buffer) and C is column index.
+                    // Both R and C must be less than the number of rows per
+                    // buffer and the number of columns respectively since we
+                    // are getting these via enumerate(). Therefore, the maximum
+                    // that src_idx can ever be is row_width * (rows_per_buffer
+                    // - 1) + (column_number - 1) * LEN. Adding LEN to the end
+                    // of this exactly equals the size of the buffer itself in
+                    // bytes, which means what follows can never overflow.
+                    let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + SRC_LEN) };
+                    // SAFETY: this will not overflow because the slice and
+                    // array are both LEN u8 elements.
+                    let buf: [u8; SRC_LEN] = unsafe { *(xs.as_ptr().cast()) };
+                    *value = from_buf(&buf);
+                }
+            }
+        }
+
+        // Read remaining rows if they exist
+        let remainder_rows = u64_to_usize(self.nrows % self.rows_per_buffer);
+        let remainder_size = usize_to_u64(remainder_rows * self.row_width);
+        self.read_size(h, remainder_size)?;
+        for (ci, c) in columns.iter_mut().enumerate() {
+            let src_col_offset = ci * SRC_LEN;
+            let dst_row_offset = self.whole_reads() * self.word_rows_per_buffer();
+            let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
+            for (row, value) in local_c.iter_mut().enumerate() {
+                let src_idx = src_col_offset + self.row_width * row;
+                let xs = &self.bytes[src_idx..src_idx + SRC_LEN];
+                let buf: [u8; SRC_LEN] = xs.try_into().unwrap();
+                *value = from_buf(&buf);
+            }
+        }
+
+        Ok(())
     }
 
     /// Read a matrix where type is an aligned big or little endian value.
-    fn read_endian_matrix<R, T>(
+    fn read_endian_matrix<R, T, const LEN: usize>(
         &mut self,
         h: &mut BufReader<R>,
         cols: &mut [Vec<T>],
         endian: Endian,
-    ) -> IOResult<(), Infallible>
+    ) -> io::Result<()>
     where
         R: Read,
-        T: NumProps,
+        T: FromBytes<Bytes = [u8; LEN]>,
     {
-        let n = size_of::<T>();
         match endian {
-            Endian::Big => self.read_matrix(h, cols, |bs, i, _| Ok(T::slice_from_big(bs, i)), n),
-            Endian::Little => {
-                self.read_matrix(h, cols, |bs, i, _| Ok(T::slice_from_little(bs, i)), n)
-            }
+            Endian::Big => self.read_matrix::<_, _, _, LEN>(h, cols, T::from_be_bytes),
+            Endian::Little => self.read_matrix::<_, _, _, LEN>(h, cols, T::from_le_bytes),
         }
     }
 
@@ -843,48 +891,44 @@ impl RowBuffer {
         h: &mut BufReader<R>,
         cols: &mut [Vec<T>],
         s: SizedByteOrd<LEN>,
-    ) -> IOResult<(), Infallible>
+    ) -> io::Result<()>
     where
         R: Read,
-        T: NumProps + OrderedFromBytes<LEN>,
+        [u8; LEN]: Default,
+        T: OrderedFromBytes0<LEN, LEN>,
     {
         match s {
-            SizedByteOrd::Endian(e) => self.read_endian_matrix(h, cols, e),
+            SizedByteOrd::Endian(e) => self.read_endian_matrix::<_, _, LEN>(h, cols, e),
             SizedByteOrd::Order(o) => {
-                self.read_matrix(h, cols, |bs, i, _| Ok(T::slice_from_ordered(bs, i, o)), LEN)
+                self.read_matrix::<_, _, _, LEN>(h, cols, |bs| T::from_ordered_bytes(bs, o))
             }
         }
     }
 
     /// Read a matrix where type is a uint whose size is not a power of 2.
-    fn read_unaligned_int_matrix<R, T, const LEN: usize>(
+    fn read_unaligned_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
         &mut self,
         h: &mut BufReader<R>,
         cols: &mut [Vec<T>],
-        s: SizedByteOrd<LEN>,
-    ) -> IOResult<(), Infallible>
+        s: SizedByteOrd<SRC_LEN>,
+    ) -> io::Result<()>
     where
         R: Read,
-        T: IntFromBytes<LEN>,
+        [u8; DST_LEN]: Default,
+        T: UnalignedIntFromBytes<SRC_LEN, DST_LEN>,
     {
         match s {
             SizedByteOrd::Endian(e) => match e {
                 Endian::Big => {
-                    self.read_matrix(h, cols, |bs, i, _| Ok(T::slice_unaligned_big(bs, i)), LEN)
+                    self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_be_bytes)
                 }
-                Endian::Little => self.read_matrix(
-                    h,
-                    cols,
-                    |bs, i, _| Ok(T::slice_unaligned_little(bs, i)),
-                    LEN,
-                ),
+                Endian::Little => {
+                    self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_le_bytes)
+                }
             },
-            // alignment is naturally taken care of with this method since
-            // length is taken into account via the order array, so nothing
-            // special needs to be done
-            SizedByteOrd::Order(o) => {
-                self.read_matrix(h, cols, |bs, i, _| Ok(T::slice_from_ordered(bs, i, o)), LEN)
-            }
+            SizedByteOrd::Order(o) => self.read_matrix::<_, _, _, SRC_LEN>(h, cols, |bs| {
+                T::from_unaligned_ordered_bytes(bs, o)
+            }),
         }
     }
 
@@ -1580,16 +1624,30 @@ trait NumProps: Sized + Copy + Default {
     }
 }
 
+trait OrderedFromBytes0<const SRC_LEN: usize, const DST_LEN: usize>:
+    FromBytes<Bytes = [u8; DST_LEN]>
+where
+    [u8; DST_LEN]: Default,
+{
+    fn from_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; DST_LEN]) -> Self {
+        let mut buf = Self::Bytes::default();
+        for (i, j) in order.iter().enumerate() {
+            buf.as_mut()[i] = bytes[usize::from(*j)];
+        }
+        Self::from_le_bytes(&buf)
+    }
+}
+
 /// Methods for reading numbers which may be in arbitrary byte orders.
 trait OrderedFromBytes<const OLEN: usize>: NumProps {
-    fn slice_from_ordered(bytes: &[u8], index: usize, order: [u8; OLEN]) -> Self {
-        let tmp = &bytes[index..index + OLEN];
-        let mut buf = Self::BUF::default();
-        for (i, j) in order.iter().enumerate() {
-            buf.as_mut()[i] = tmp[usize::from(*j)];
-        }
-        Self::from_little(buf)
-    }
+    // fn slice_from_ordered(bytes: &[u8], index: usize, order: [u8; OLEN]) -> Self {
+    //     let tmp = &bytes[index..index + OLEN];
+    //     let mut buf = Self::BUF::default();
+    //     for (i, j) in order.iter().enumerate() {
+    //         buf.as_mut()[i] = tmp[usize::from(*j)];
+    //     }
+    //     Self::from_little(buf)
+    // }
 
     fn h_write_from_ordered<W: Write>(
         self,
@@ -1602,6 +1660,34 @@ trait OrderedFromBytes<const OLEN: usize>: NumProps {
             buf[usize::from(*j)] = tmp.as_ref()[i];
         }
         h.write_all(buf.as_ref())
+    }
+}
+
+/// Methods for reading/writing integers (1-8 bytes) from FCS files.
+trait UnalignedIntFromBytes<const SRC_LEN: usize, const DST_LEN: usize>:
+    FromBytes<Bytes = [u8; DST_LEN]>
+where
+    [u8; DST_LEN]: Default,
+{
+    fn from_unaligned_be_bytes(bytes: &[u8; SRC_LEN]) -> Self {
+        let mut buf = Self::Bytes::default();
+        let b = DST_LEN - SRC_LEN;
+        buf.as_mut()[b..].copy_from_slice(bytes);
+        Self::from_be_bytes(&buf)
+    }
+
+    fn from_unaligned_le_bytes(bytes: &[u8; SRC_LEN]) -> Self {
+        let mut buf = Self::Bytes::default();
+        buf.as_mut()[..SRC_LEN].copy_from_slice(bytes);
+        Self::from_le_bytes(&buf)
+    }
+
+    fn from_unaligned_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; SRC_LEN]) -> Self {
+        let mut buf = Self::Bytes::default();
+        for (i, j) in order.iter().enumerate() {
+            buf.as_mut()[i] = bytes[usize::from(*j)];
+        }
+        Self::from_le_bytes(&buf)
     }
 }
 
@@ -2663,6 +2749,17 @@ impl OrderedFromBytes<8> for u64 {}
 impl OrderedFromBytes<4> for f32 {}
 impl OrderedFromBytes<8> for f64 {}
 
+impl OrderedFromBytes0<1, 1> for u8 {}
+impl OrderedFromBytes0<2, 2> for u16 {}
+impl OrderedFromBytes0<3, 4> for u32 {}
+impl OrderedFromBytes0<4, 4> for u32 {}
+impl OrderedFromBytes0<5, 8> for u64 {}
+impl OrderedFromBytes0<6, 8> for u64 {}
+impl OrderedFromBytes0<7, 8> for u64 {}
+impl OrderedFromBytes0<8, 8> for u64 {}
+impl OrderedFromBytes0<4, 4> for f32 {}
+impl OrderedFromBytes0<8, 8> for f64 {}
+
 impl FloatFromBytes<4> for f32 {}
 impl FloatFromBytes<8> for f64 {}
 
@@ -2674,6 +2771,11 @@ impl IntFromBytes<5> for u64 {}
 impl IntFromBytes<6> for u64 {}
 impl IntFromBytes<7> for u64 {}
 impl IntFromBytes<8> for u64 {}
+
+impl UnalignedIntFromBytes<3, 4> for u32 {}
+impl UnalignedIntFromBytes<5, 8> for u64 {}
+impl UnalignedIntFromBytes<6, 8> for u64 {}
+impl UnalignedIntFromBytes<7, 8> for u64 {}
 
 impl<T, const LEN: usize> FloatRange<T, LEN> {
     /// Make new float range from $PnB and $PnR values.
@@ -3758,7 +3860,8 @@ macro_rules! impl_endian_layout_io {
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<$t>>,
             ) -> IOResult<(), Self::Err> {
-                buf.read_endian_matrix(h, cols, *self)
+                buf.read_endian_matrix(h, cols, *self)?;
+                Ok(())
             }
         }
     };
@@ -3775,7 +3878,8 @@ macro_rules! impl_ordered_layout_io {
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<$t>>,
             ) -> IOResult<(), Self::Err> {
-                buf.read_ordered_matrix(h, cols, *self)
+                buf.read_ordered_matrix(h, cols, *self)?;
+                Ok(())
             }
         }
     };
@@ -3792,7 +3896,8 @@ macro_rules! impl_unaligned_int_layout_io {
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<$t>>,
             ) -> IOResult<(), Self::Err> {
-                buf.read_unaligned_int_matrix(h, cols, *self)
+                buf.read_unaligned_int_matrix(h, cols, *self)?;
+                Ok(())
             }
         }
     };

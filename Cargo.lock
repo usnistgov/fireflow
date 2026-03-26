@@ -760,6 +760,7 @@ version = "0.1.0"
 dependencies = [
  "ambassador",
  "bigdecimal",
+ "bytemuck",
  "chrono",
  "derive-new",
  "derive_more",

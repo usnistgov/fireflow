@@ -102,6 +102,7 @@ use type_families::{Functor as _, FunctorOnce, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
+use bytemuck::allocation::cast_vec;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
@@ -920,8 +921,8 @@ impl RowBuffer {
         }
     }
 
-    /// Read a matrix where type is a uint whose size is not a power of 2.
-    fn read_unaligned_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
+    /// Read matrix or arbitrarily ordered uints whose size is not a power of 2.
+    fn read_unaligned_ordered_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
         &mut self,
         h: &mut BufReader<R>,
         cols: &mut [Vec<T>],
@@ -933,17 +934,32 @@ impl RowBuffer {
         T: UnalignedIntFromBytes<SRC_LEN, DST_LEN>,
     {
         match s {
-            SizedByteOrd::Endian(e) => match e {
-                Endian::Big => {
-                    self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_be_bytes)
-                }
-                Endian::Little => {
-                    self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_le_bytes)
-                }
-            },
+            SizedByteOrd::Endian(e) => self.read_unaligned_endian_int_matrix(h, cols, e),
             SizedByteOrd::Order(o) => self.read_matrix::<_, _, _, SRC_LEN>(h, cols, |bs| {
                 T::from_unaligned_ordered_bytes(bs, o)
             }),
+        }
+    }
+
+    /// Read matrix or endian uints whose size is not a power of 2.
+    fn read_unaligned_endian_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
+        &mut self,
+        h: &mut BufReader<R>,
+        cols: &mut [Vec<T>],
+        s: Endian,
+    ) -> io::Result<()>
+    where
+        R: Read,
+        [u8; DST_LEN]: Default,
+        T: UnalignedIntFromBytes<SRC_LEN, DST_LEN>,
+    {
+        match s {
+            Endian::Big => {
+                self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_be_bytes)
+            }
+            Endian::Little => {
+                self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_le_bytes)
+            }
         }
     }
 
@@ -3830,12 +3846,12 @@ trait FixedLayoutIO {
     ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError>;
 }
 
-trait ByteLayoutIO<T> {
+trait ByteLayoutIO<C: HasNativeType> {
     fn read_matrix<R: Read>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut RowBuffer,
-        cols: &mut Vec<Vec<T>>,
+        cols: &mut Vec<Vec<C::Native>>,
     ) -> io::Result<()>;
 }
 
@@ -3887,16 +3903,16 @@ where
     }
 }
 
-macro_rules! impl_endian_layout_io {
-    ($t:ident) => {
-        impl ByteLayoutIO<$t> for Endian {
+macro_rules! impl_byte_layout_io {
+    ($inner:path, $layout:path, $fun:ident$(::<$($arg:tt),*>)?) => {
+        impl ByteLayoutIO<$inner> for $layout {
             fn read_matrix<R: Read>(
                 &self,
                 h: &mut BufReader<R>,
                 buf: &mut RowBuffer,
-                cols: &mut Vec<Vec<$t>>,
+                cols: &mut Vec<Vec<<$inner as HasNativeType>::Native>>,
             ) -> io::Result<()> {
-                buf.read_endian_matrix(h, cols, *self)
+                buf.$fun$(::<$($arg),*>)*(h, cols, *self)
             }
         }
     };
@@ -3904,48 +3920,55 @@ macro_rules! impl_endian_layout_io {
 
 macro_rules! impl_ordered_layout_io {
     ($t:ident, $len:expr) => {
-        impl ByteLayoutIO<$t> for SizedByteOrd<$len> {
-            fn read_matrix<R: Read>(
-                &self,
-                h: &mut BufReader<R>,
-                buf: &mut RowBuffer,
-                cols: &mut Vec<Vec<$t>>,
-            ) -> io::Result<()> {
-                buf.read_ordered_matrix(h, cols, *self)
-            }
-        }
+        impl_byte_layout_io!($t, SizedByteOrd<$len>, read_ordered_matrix);
     };
 }
 
-macro_rules! impl_unaligned_int_layout_io {
+macro_rules! impl_unaligned_ord_int_layout_io {
     ($t:ident, $len:expr) => {
-        impl ByteLayoutIO<$t> for SizedByteOrd<$len> {
-            fn read_matrix<R: Read>(
-                &self,
-                h: &mut BufReader<R>,
-                buf: &mut RowBuffer,
-                cols: &mut Vec<Vec<$t>>,
-            ) -> io::Result<()> {
-                buf.read_unaligned_int_matrix(h, cols, *self)
-            }
-        }
+        impl_byte_layout_io!($t, SizedByteOrd<$len>, read_unaligned_ordered_int_matrix);
     };
 }
 
-impl_ordered_layout_io!(u8, 1);
-impl_ordered_layout_io!(u16, 2);
-impl_ordered_layout_io!(u32, 4);
-impl_ordered_layout_io!(u64, 8);
-impl_ordered_layout_io!(f32, 4);
-impl_ordered_layout_io!(f64, 8);
+macro_rules! impl_endian_layout_io {
+    ($t:ident) => {
+        impl_byte_layout_io!($t, Endian, read_endian_matrix);
+    };
+}
 
-impl_unaligned_int_layout_io!(u32, 3);
-impl_unaligned_int_layout_io!(u64, 5);
-impl_unaligned_int_layout_io!(u64, 6);
-impl_unaligned_int_layout_io!(u64, 7);
+macro_rules! impl_unaligned_endian_int_layout_io {
+    ($t:ident, $len:expr) => {
+        impl_byte_layout_io!(
+            $t,
+            Endian,
+            read_unaligned_endian_int_matrix::<_, _, $len, _>
+        );
+    };
+}
 
-impl_endian_layout_io!(f32);
-impl_endian_layout_io!(f64);
+impl_ordered_layout_io!(Bitmask08, 1);
+impl_ordered_layout_io!(Bitmask16, 2);
+impl_ordered_layout_io!(Bitmask32, 4);
+impl_ordered_layout_io!(Bitmask64, 8);
+impl_ordered_layout_io!(F32Range, 4);
+impl_ordered_layout_io!(F64Range, 8);
+
+impl_endian_layout_io!(Bitmask08);
+impl_endian_layout_io!(Bitmask16);
+impl_endian_layout_io!(Bitmask32);
+impl_endian_layout_io!(Bitmask64);
+impl_endian_layout_io!(F32Range);
+impl_endian_layout_io!(F64Range);
+
+impl_unaligned_ord_int_layout_io!(Bitmask24, 3);
+impl_unaligned_ord_int_layout_io!(Bitmask40, 5);
+impl_unaligned_ord_int_layout_io!(Bitmask48, 6);
+impl_unaligned_ord_int_layout_io!(Bitmask56, 7);
+
+impl_unaligned_endian_int_layout_io!(Bitmask24, 3);
+impl_unaligned_endian_int_layout_io!(Bitmask40, 5);
+impl_unaligned_endian_int_layout_io!(Bitmask48, 6);
+impl_unaligned_endian_int_layout_io!(Bitmask56, 7);
 
 impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
     fn h_read_unchecked_df_inner<R: Read>(
@@ -3983,9 +4006,9 @@ impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
     }
 }
 
-impl<C, S, Tot, D> FixedLayoutIO for FixedLayout<C, S, Tot, D>
+impl<C, S, Tot, Dt> FixedLayoutIO for FixedLayout<C, S, Tot, Dt>
 where
-    S: ByteLayoutIO<C::Native>,
+    S: ByteLayoutIO<C>,
     C: HasBytes + IsFixed,
     AnyFCSColumn: From<FCSColumn<C::Native>>,
     Vec<C::Native>: HasRange<C>,
@@ -4019,7 +4042,17 @@ where
     }
 }
 
-impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
+impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D>
+where
+    EndianLayout<Bitmask08, D>: FixedLayoutIO,
+    EndianLayout<Bitmask16, D>: FixedLayoutIO,
+    EndianLayout<Bitmask24, D>: FixedLayoutIO,
+    EndianLayout<Bitmask32, D>: FixedLayoutIO,
+    EndianLayout<Bitmask40, D>: FixedLayoutIO,
+    EndianLayout<Bitmask48, D>: FixedLayoutIO,
+    EndianLayout<Bitmask56, D>: FixedLayoutIO,
+    EndianLayout<Bitmask64, D>: FixedLayoutIO,
+{
     fn h_read_unchecked_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -4027,9 +4060,114 @@ impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
         conf: &ReadEventsConfig,
     ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
 
-        row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
+        if let Some((first, rest)) = self.columns.split_first()
+            && rest.iter().all(|x| x == first)
+        {
+            // If all columns are the same width, treat data as a matrix and use
+            // faster loop.
+            let ncols = self.columns.len();
+            macro_rules! go {
+                ($r:expr) => {{
+                    let l = FixedLayout::new(vec![*$r; ncols], self.byte_layout);
+                    l.h_read_unchecked_df_inner(h, nrows, conf)
+                }};
+            }
+            match first {
+                AnyBitmask::Uint08(r) => go!(r),
+                AnyBitmask::Uint16(r) => go!(r),
+                AnyBitmask::Uint24(r) => go!(r),
+                AnyBitmask::Uint32(r) => go!(r),
+                AnyBitmask::Uint40(r) => go!(r),
+                AnyBitmask::Uint48(r) => go!(r),
+                AnyBitmask::Uint56(r) => go!(r),
+                AnyBitmask::Uint64(r) => go!(r),
+            }
+        } else {
+            // Otherwise use static dispatch to dynamically read different
+            // widths. This will be slower since this will involve a tight loop
+            // with jump ops in it to choose the width.
+            let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+
+            row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
+
+            let trunc = conf.truncate_event_values;
+            let rs = columns
+                .iter_mut()
+                .enumerate()
+                .map(|(i, c)| c.check_range(i.into(), trunc))
+                .collect();
+
+            let data = columns.into_iter().map(AnyFCSColumn::from);
+            let df = FCSDataFrame::try_new(data).unwrap();
+
+            Ok((df, rs))
+        }
+    }
+}
+
+impl FixedLayoutIO for MixedLayout {
+    fn h_read_unchecked_df_inner<R: Read>(
+        &self,
+        h: &mut BufReader<R>,
+        nrows: usize,
+        conf: &ReadEventsConfig,
+    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+        let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let en = self.byte_layout;
+        let cs = &self.columns[..];
+
+        let mut columns = if let Some((first, rest)) = self.columns.split_first()
+            && rest.iter().all(|x| x.datatype() == first.datatype())
+        {
+            // If all columns have the same datatype, dispatch to another reader
+            // specific for that type. Note: we cannot simply test that the
+            // columns are equal to each other since this might fail for int
+            // layouts which have different widths; there already is a method
+            // for reading int layouts with multiple widths (which itself will
+            // dispatch further in the case of only one widths) that we wish
+            // to use.
+            let ncols = self.columns.len();
+            macro_rules! go {
+                ($r:expr) => {{
+                    let l: EndianLayout<_, Option<NumType>> =
+                        FixedLayout::new(vec![$r; ncols], self.byte_layout);
+                    return l.h_read_unchecked_df_inner(h, nrows, conf);
+                }};
+            }
+            match first {
+                MixedType::Ascii(r) => {
+                    let l: FixedAsciiLayout<Identity<Tot>, Option<NumType>, false> =
+                        FixedLayout::new(vec![*r; ncols], NoByteOrd3_1::default());
+                    return l.h_read_unchecked_df_inner(h, nrows, conf);
+                }
+                MixedType::Uint(r) => go!(*r),
+                MixedType::F32(r) => go!(r.clone()),
+                MixedType::F64(r) => go!(r.clone()),
+            }
+        } else if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
+            // If the types are all the same width (but not necessary the same
+            // type), we can "cheat" and read the layout all as one type and
+            // cast to other types after the fact. This will dramatically speed
+            // up reading for massive files such as S8/A8.
+            //
+            // This is for 32-bit float+int
+            ret
+        } else if let Some(ret) = try_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
+            // ditto 64-bit
+            ret
+        } else {
+            // Totally mixed layout, dispatch for each column. This will be
+            // slower but is necessary to read each type correctly.
+            let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+            buf.read_mixed_df(h, &mut columns, self.byte_layout)
+                .map_err(|e| {
+                    e.fmap_once(ReadFixedAsciiError::from)
+                        .fmap_once(ReadAsciiError::from)
+                        .fmap_once(ReadDataframeError::from)
+                })?;
+            columns
+        };
 
         let trunc = conf.truncate_event_values;
         let rs = columns
@@ -4045,35 +4183,79 @@ impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
     }
 }
 
-impl FixedLayoutIO for MixedLayout {
-    fn h_read_unchecked_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        nrows: usize,
-        conf: &ReadEventsConfig,
-    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+enum Any4ByteType {
+    F32(F32Range),
+    Uint32(Bitmask32),
+}
 
-        row_buf
-            .read_mixed_df(h, &mut columns, self.byte_layout)
-            .map_err(|e| {
-                e.fmap_once(ReadFixedAsciiError::from)
-                    .fmap_once(ReadAsciiError::from)
-                    .fmap_once(ReadDataframeError::from)
-            })?;
+enum Any8ByteType {
+    F64(F64Range),
+    Uint64(Bitmask64),
+}
 
-        let trunc = conf.truncate_event_values;
-        let rs: Vec<_> = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.check_range(i.into(), trunc))
+macro_rules! impl_single_width {
+    ($t:ident, $i:ident, $f:ident, $u:ident) => {
+        impl TryFrom<NullMixedType> for $t {
+            type Error = ();
+            fn try_from(value: NullMixedType) -> Result<Self, Self::Error> {
+                match value {
+                    MixedType::$f(r) => Ok(Self::$f(r)),
+                    MixedType::Uint(AnyBitmask::$u(r)) => Ok(Self::$u(r)),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl From<(Vec<$i>, $t)> for MixedVec {
+            fn from(value: (Vec<$i>, $t)) -> Self {
+                let (data, range) = value;
+                match range {
+                    $t::$f(r) => Self::$f(RangedVec::new(r, data)),
+                    $t::$u(r) => {
+                        let v = RangedVec::new(r, cast_vec(data));
+                        Self::Uint(AnyUintVec::$u(v))
+                    }
+                }
+            }
+        }
+    };
+}
+
+impl_single_width!(Any4ByteType, f32, F32, Uint32);
+impl_single_width!(Any8ByteType, f64, F64, Uint64);
+
+fn try_single<R, W, C>(
+    h: &mut BufReader<R>,
+    ranges: &[NullMixedType],
+    nrows: usize,
+    endian: Endian,
+    row_buf: &mut RowBuffer,
+) -> io::Result<Option<Vec<MixedVec>>>
+where
+    R: Read,
+    Endian: ByteLayoutIO<C>,
+    W: TryFrom<NullMixedType>,
+    (Vec<C::Native>, W): Into<MixedVec>,
+    C: HasNativeType,
+    C::Native: Default + Clone,
+{
+    if let Ok(cs) = ranges
+        .iter()
+        .cloned()
+        .map(W::try_from)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        let zero = <C as HasNativeType>::Native::default();
+        let mut columns = vec![vec![zero; nrows]; cs.len()];
+        ByteLayoutIO::<C>::read_matrix(&endian, h, row_buf, &mut columns)?;
+        let ret = columns
+            .into_iter()
+            .zip(cs)
+            .map(|(data, range)| (data, range).into())
             .collect();
-
-        let data = columns.into_iter().map(AnyFCSColumn::from);
-        let df = FCSDataFrame::try_new(data).unwrap();
-
-        Ok((df, rs))
+        Ok(Some(ret))
+    } else {
+        Ok(None)
     }
 }
 

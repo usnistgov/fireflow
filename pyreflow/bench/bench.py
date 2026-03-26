@@ -1,5 +1,4 @@
 import csv
-import math
 import sys
 from typing import NamedTuple, assert_never, Literal
 from pathlib import Path
@@ -14,13 +13,26 @@ import numpy as np
 import pyreflow as pf
 import pyreflow.typing as pft
 
+
+class BenchKey(Enum):
+    READ_FLAT = "read_flat"
+    READ_STD = "read_std"
+    READ_DATA = "read_data"
+    WRITE_TEXT = "write_text"
+    WRITE_DATA = "write_data"
+
+
 BENCH_FILES_NAME = "bench_files.tsv"
 
-FLAT_RUNS = 50
-STD_RUNS = 50
-DATA_RUNS = 1
 
-TRIAL_NUMBER = 10
+TRIAL_NUMBER = {
+    BenchKey.READ_FLAT: 100,
+    BenchKey.READ_STD: 100,
+    BenchKey.READ_DATA: 10,
+    BenchKey.WRITE_TEXT: 100,
+    BenchKey.WRITE_DATA: 10,
+}
+
 
 DType = (
     type[pl.UInt16]
@@ -31,12 +43,6 @@ DType = (
 )
 
 Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
-
-
-class BenchKey(Enum):
-    FLAT = "flat"
-    STD = "std"
-    DATA = "data"
 
 
 class BenchResult(NamedTuple):
@@ -70,17 +76,15 @@ class BenchRun(NamedTuple):
     def tsv_name(self) -> Path:
         return Path(f"{self.name}.tsv")
 
-    def read_flat(self, root: Path, n: int) -> float:
+    def read_flat(self, root: Path) -> float:
         start = perf_counter_ns()
-        for _ in range(0, n):
-            pf.api.fcs_read_flat_text(root / self.fcs_name)
-        return (perf_counter_ns() - start) / n
+        pf.api.fcs_read_flat_text(root / self.fcs_name)
+        return perf_counter_ns() - start
 
-    def read_std(self, root: Path, n: int) -> float:
+    def read_std(self, root: Path) -> float:
         start = perf_counter_ns()
-        for _ in range(0, n):
-            pf.api.fcs_read_std_text(root / self.fcs_name, time_meas_pattern=None)
-        return (perf_counter_ns() - start) / n
+        pf.api.fcs_read_std_text(root / self.fcs_name, time_meas_pattern=None)
+        return perf_counter_ns() - start
 
     def read_flat_data(self, root: Path) -> float:
         start = perf_counter_ns()
@@ -88,21 +92,37 @@ class BenchRun(NamedTuple):
         end = perf_counter_ns()
         return end - start
 
-    def run(self, root: Path) -> BenchResult:
-        if self.key == BenchKey.FLAT:
-            n = FLAT_RUNS
-            value = self.read_flat(root, n)
-        elif self.key == BenchKey.STD:
-            n = STD_RUNS
-            value = self.read_std(root, n)
-        elif self.key == BenchKey.DATA:
-            n = DATA_RUNS
-            value = self.read_flat_data(root)
+    def write_text(self, input_root: Path, scratch_root: Path) -> float:
+        core, _ = pf.api.fcs_read_std_text(
+            input_root / self.fcs_name, time_meas_pattern=None
+        )
+        start = perf_counter_ns()
+        core.write_text(scratch_root / self.fcs_name)
+        end = perf_counter_ns()
+        return end - start
+
+    def write_data(self, input_root: Path, scratch_root: Path) -> float:
+        core, _ = pf.api.fcs_read_std_dataset(
+            input_root / self.fcs_name, time_meas_pattern=None
+        )
+        start = perf_counter_ns()
+        core.write_dataset(scratch_root / self.fcs_name)
+        end = perf_counter_ns()
+        return end - start
+
+    def run(self, input_root: Path, scratch_root: Path) -> BenchResult:
+        if self.key == BenchKey.READ_FLAT:
+            value = self.read_flat(input_root)
+        elif self.key == BenchKey.READ_STD:
+            value = self.read_std(input_root)
+        elif self.key == BenchKey.READ_DATA:
+            value = self.read_flat_data(input_root)
+        elif self.key == BenchKey.WRITE_TEXT:
+            value = self.write_text(input_root, scratch_root)
+        elif self.key == BenchKey.WRITE_DATA:
+            value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        print(
-            f"ran {self.key.value} test for '{self.name}' in {value / 1000 / 1000 * n:.1f}ms"
-        )
         return BenchResult(name=self.name, key=self.key, value=value)
 
     def check_data(self, input_root: Path, scratch_root: Path) -> None:
@@ -566,7 +586,7 @@ def make_bench_files(root: Path) -> None:
 
 def run_bench(
     input_root: Path,
-    output_root: str,
+    output_root: Path | None,
     scratch_root: Path,
     names_filter: list[str],
 ) -> None:
@@ -579,21 +599,23 @@ def run_bench(
     runs = [
         BenchRun(name=n, key=k)
         for n in bench_files["name"]
-        for _ in range(0, TRIAL_NUMBER)
         for k in BenchKey
+        for _ in range(0, TRIAL_NUMBER[k])
     ]
 
     # loop through each name only once
-    for r in set(r for r in runs if r.key == BenchKey.DATA):
+    for r in set(r for r in runs if r.key == BenchKey.READ_DATA):
         r.check_data(input_root, scratch_root)
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
-    results = [r.run(input_root) for r in runs]
+    results = [r.run(input_root, scratch_root) for r in runs]
 
-    flat_results = [r for r in results if r.key == BenchKey.FLAT]
-    std_results = [r for r in results if r.key == BenchKey.STD]
-    data_results = [r for r in results if r.key == BenchKey.DATA]
+    read_flat_results = [r for r in results if r.key == BenchKey.READ_FLAT]
+    read_std_results = [r for r in results if r.key == BenchKey.READ_STD]
+    read_data_results = [r for r in results if r.key == BenchKey.READ_DATA]
+    write_text_results = [r for r in results if r.key == BenchKey.WRITE_TEXT]
+    write_data_results = [r for r in results if r.key == BenchKey.WRITE_DATA]
 
     def to_df(rs: list[BenchResult], name: str) -> pl.DataFrame:
         full_name = f"{name}_ns"
@@ -603,74 +625,144 @@ def run_bench(
         )
         return result_df.group_by("name").agg(
             pl.col(full_name).mean().name.prefix("mean_"),
-            (pl.col(full_name).std() / math.sqrt(TRIAL_NUMBER)).name.prefix("serr_"),
+            (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
+                "serr_"
+            ),
         )
 
-    flat_df = to_df(flat_results, "flat")
-    std_df = to_df(std_results, "std")
-    data_df = to_df(data_results, "data")
+    read_flat_df = to_df(read_flat_results, "r_flat")
+    read_std_df = to_df(read_std_results, "r_std")
+    read_data_df = to_df(read_data_results, "r_data")
+    write_text_df = to_df(write_text_results, "w_text")
+    write_data_df = to_df(write_data_results, "w_data")
 
     df_analyzed = (
-        flat_df.join(bench_files, on="name")
+        read_flat_df.join(bench_files, on="name")
         .with_columns(
             # normalize flat TEXT parse time to keyword number and TEXT length in kB
-            (pl.col("mean_flat_ns") / pl.col("n_keywords")).alias(
-                "mean_flat_ns_per_kw"
+            (pl.col("mean_r_flat_ns") / pl.col("n_keywords")).alias(
+                "mean_r_flat_ns_per_kw"
             ),
-            (pl.col("serr_flat_ns") / pl.col("n_keywords")).alias(
-                "serr_flat_ns_per_kw"
+            (pl.col("serr_r_flat_ns") / pl.col("n_keywords")).alias(
+                "serr_r_flat_ns_per_kw"
             ),
-            (pl.col("mean_flat_ns") / pl.col("text_nbytes") * 1000).alias(
-                "mean_flat_ns_per_kB"
+            (pl.col("mean_r_flat_ns") / pl.col("text_nbytes") * 1000).alias(
+                "mean_r_flat_ns_per_kB"
             ),
-            (pl.col("serr_flat_ns") / pl.col("text_nbytes") * 1000).alias(
-                "serr_flat_ns_per_kB"
+            (pl.col("serr_r_flat_ns") / pl.col("text_nbytes") * 1000).alias(
+                "serr_r_flat_ns_per_kB"
             ),
         )
-        .join(std_df, on="name")
+        .join(read_std_df, on="name")
         .with_columns(
             # compute the overhead of standardizing TEXT by taking difference of
             # total std run and flat run
-            (pl.col("mean_std_ns") - pl.col("mean_flat_ns")).alias("mean_std_diff_ns"),
             (
-                (pl.col("serr_std_ns").pow(2) + pl.col("serr_flat_ns").pow(2)).sqrt()
-            ).alias("serr_std_diff_ns"),
-        )
-        .with_columns(
-            # normalize standardization overhead to number of keywords
-            (pl.col("mean_std_diff_ns") / pl.col("n_keywords")).alias(
-                "mean_std_diff_ns_per_kw"
+                (pl.col("mean_r_std_ns") - pl.col("mean_r_flat_ns"))
+                / pl.col("n_keywords")
+            ).alias("mean_r_std_diff_ns_per_kw"),
+            (
+                (
+                    pl.col("serr_r_std_ns").pow(2) + pl.col("serr_r_flat_ns").pow(2)
+                ).sqrt()
+                / pl.col("n_keywords")
+            ).alias("serr_r_std_diff_ns_per_kw"),
+            # also compute the ratio of standard to flat (no variance since this
+            # is really complex
+            (pl.col("mean_r_std_ns") / pl.col("mean_r_flat_ns") * 100 - 100).alias(
+                "r_std_ratio"
             ),
-            (pl.col("serr_std_diff_ns") / pl.col("n_keywords")).alias(
-                "serr_std_diff_ns_per_kw"
-            ),
         )
-        .join(data_df, on="name")
+        .join(read_data_df, on="name")
         .with_columns(
             # compute time taken to read DATA by taking difference of data run
             # and flat run (note DATA was read in flat mode to reduce noise)
-            (pl.col("mean_data_ns") - pl.col("mean_flat_ns")).alias(
-                "mean_data_diff_ns"
+            (pl.col("mean_r_data_ns") - pl.col("mean_r_flat_ns")).alias(
+                "mean_r_data_diff_ns"
             ),
-            (pl.col("serr_data_ns").pow(2) + pl.col("serr_flat_ns").pow(2))
+            (pl.col("serr_r_data_ns").pow(2) + pl.col("serr_r_flat_ns").pow(2))
             .sqrt()
-            .alias("serr_data_diff_ns"),
+            .alias("serr_r_data_diff_ns"),
         )
         .with_columns(
             # normalize DATA read time to number of kB read and number of
             # values read
-            (pl.col("mean_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
-                "mean_data_diff_ns_per_kB"
+            (pl.col("mean_r_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
+                "mean_r_data_diff_ns_per_kB"
             ),
-            (pl.col("serr_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
-                "serr_data_diff_ns_per_kB"
+            (pl.col("serr_r_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
+                "serr_r_data_diff_ns_per_kB"
             ),
             (
-                pl.col("mean_data_diff_ns") / pl.col("width") / pl.col("height") * 1000
-            ).alias("mean_data_diff_ns_per_value"),
+                pl.col("mean_r_data_diff_ns")
+                / pl.col("width")
+                / pl.col("height")
+                * 1000
+            ).alias("mean_r_data_diff_ns_per_value"),
             (
-                pl.col("serr_data_diff_ns") / pl.col("width") / pl.col("height") * 1000
-            ).alias("serr_data_diff_ns_per_value"),
+                pl.col("serr_r_data_diff_ns")
+                / pl.col("width")
+                / pl.col("height")
+                * 1000
+            ).alias("serr_r_data_diff_ns_per_value"),
+        )
+        .join(write_text_df, on="name")
+        .with_columns(
+            # normalize TEXT write time to keyword number and TEXT length in kB
+            (pl.col("mean_w_text_ns") / pl.col("n_keywords")).alias(
+                "mean_w_text_ns_per_kw"
+            ),
+            (pl.col("serr_w_text_ns") / pl.col("n_keywords")).alias(
+                "serr_w_text_ns_per_kw"
+            ),
+            (pl.col("mean_w_text_ns") / pl.col("text_nbytes") * 1000).alias(
+                "mean_w_text_ns_per_kB"
+            ),
+            (pl.col("serr_w_text_ns") / pl.col("text_nbytes") * 1000).alias(
+                "serr_w_text_ns_per_kB"
+            ),
+        )
+        .join(write_data_df, on="name")
+        .with_columns(
+            # compute time taken to write DATA by taking difference of DATA run
+            # and TEXT run
+            (pl.col("mean_w_data_ns") - pl.col("mean_w_text_ns")).alias(
+                "mean_w_data_diff_ns"
+            ),
+            (pl.col("serr_w_data_ns").pow(2) + pl.col("serr_w_text_ns").pow(2))
+            .sqrt()
+            .alias("serr_w_data_diff_ns"),
+        )
+        .with_columns(
+            # normalize DATA read time to number of kB written and number of
+            # values written
+            (pl.col("mean_w_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
+                "mean_w_data_diff_ns_per_kB"
+            ),
+            (pl.col("serr_w_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
+                "serr_w_data_diff_ns_per_kB"
+            ),
+            (
+                pl.col("mean_w_data_diff_ns")
+                / pl.col("width")
+                / pl.col("height")
+                * 1000
+            ).alias("mean_w_data_diff_ns_per_value"),
+            (
+                pl.col("serr_w_data_diff_ns")
+                / pl.col("width")
+                / pl.col("height")
+                * 1000
+            ).alias("serr_w_data_diff_ns_per_value"),
+        )
+        .with_columns(
+            # ratio of write to read (no variance because this more complicated than its worth)
+            (pl.col("mean_r_flat_ns") / pl.col("mean_w_text_ns") * 100).alias(
+                "text_rw_ratio"
+            ),
+            (pl.col("mean_r_data_ns") / pl.col("mean_w_data_ns") * 100).alias(
+                "data_rw_ratio"
+            ),
         )
     )
 
@@ -682,8 +774,7 @@ def run_bench(
             (pl.col(ci) / pl.col(mean) * 100 * 1.96).round(1),
         ).alias(out)
 
-    id_cols = [
-        "name",
+    metadata_cols = [
         "version",
         pl.col("width").alias("$PAR"),
         pl.col("height").alias("$TOT"),
@@ -694,65 +785,77 @@ def run_bench(
 
     sort_cols = ["byteord", "version", "bit_widths", "datatypes", "height"]
 
-    df_analyzed_flat = df_analyzed.sort(by=sort_cols).select(
+    READ_TEXT_PER_KW = "TEXT read (ns/kw)"
+    READ_TEXT_PER_KB = "TEXT read (ns/kB)"
+    READ_STD_PER_KW = "Std Overhead (ns/kw)"
+    READ_STD_RATIO = "Std Overhead (%)"
+    READ_DATA_PER_KB = "DATA read (ns/kB)"
+    READ_DATA_PER_VAL = "DATA read (ns/val)"
+
+    WRITE_TEXT_PER_KW = "TEXT write (ns/kw)"
+    WRITE_TEXT_PER_KB = "TEXT write (ns/kB)"
+    WRITE_DATA_PER_KB = "DATA write (ns/kB)"
+    WRITE_DATA_PER_VAL = "DATA write (ns/val)"
+
+    df_analyzed_full = df_analyzed.sort(by=sort_cols).select(
         [
-            *id_cols,
+            "name",
+            *metadata_cols,
+            # read flat
             fmt_value(
-                "mean_flat_ns_per_kw",
-                "serr_flat_ns_per_kw",
-                "TEXT throughput (ns/kw)",
+                "mean_r_flat_ns_per_kw", "serr_r_flat_ns_per_kw", READ_TEXT_PER_KW
             ),
             fmt_value(
-                "mean_flat_ns_per_kB",
-                "serr_flat_ns_per_kB",
-                "TEXT throughput (ns/kB)",
+                "mean_r_flat_ns_per_kB", "serr_r_flat_ns_per_kB", READ_TEXT_PER_KB
             ),
+            # read std
+            fmt_value(
+                "mean_r_std_diff_ns_per_kw",
+                "serr_r_std_diff_ns_per_kw",
+                READ_STD_PER_KW,
+            ),
+            pl.col("r_std_ratio").round(1).alias(READ_STD_RATIO),
+            # read data
+            fmt_value(
+                "mean_r_data_diff_ns_per_value",
+                "serr_r_data_diff_ns_per_value",
+                READ_DATA_PER_VAL,
+            ),
+            fmt_value(
+                "mean_r_data_diff_ns_per_kB",
+                "serr_r_data_diff_ns_per_kB",
+                READ_DATA_PER_KB,
+            ),
+            # write text
+            fmt_value(
+                "mean_w_text_ns_per_kw", "serr_w_text_ns_per_kw", WRITE_TEXT_PER_KW
+            ),
+            fmt_value(
+                "mean_w_text_ns_per_kB", "serr_w_text_ns_per_kB", WRITE_TEXT_PER_KB
+            ),
+            # write data
+            fmt_value(
+                "mean_w_data_diff_ns_per_kB",
+                "serr_w_data_diff_ns_per_kB",
+                WRITE_DATA_PER_KB,
+            ),
+            fmt_value(
+                "mean_w_data_diff_ns_per_value",
+                "serr_w_data_diff_ns_per_value",
+                WRITE_DATA_PER_VAL,
+            ),
+            # read vs write
+            pl.col("text_rw_ratio").round(1).alias("TEXT R:W Ratio (%)"),
+            pl.col("data_rw_ratio").round(1).alias("DATA R:W Ratio (%)"),
         ]
     )
 
-    df_analyzed_std = df_analyzed.sort(by=sort_cols).select(
-        [
-            *id_cols,
-            fmt_value(
-                "mean_std_diff_ns_per_kw",
-                "serr_std_diff_ns_per_kw",
-                "Standardization Overhead (ns/kw)",
-            ),
-        ]
-    )
-
-    df_analyzed_data = df_analyzed.sort(by=sort_cols).select(
-        [
-            *id_cols,
-            fmt_value(
-                "mean_data_diff_ns_per_kB",
-                "serr_data_diff_ns_per_kB",
-                "DATA throughput (ns/kB)",
-            ),
-            fmt_value(
-                "mean_data_diff_ns_per_value",
-                "serr_data_diff_ns_per_value",
-                "DATA throughput (ns/kval)",
-            ),
-        ]
-    )
-
-    if output_root == "-":
-        with pl.Config(tbl_rows=20, tbl_cols=9):
-            print(df_analyzed_flat)
-            print(df_analyzed_std)
-            print(df_analyzed_data)
+    if output_root is None:
+        df_analyzed_full.write_csv(sys.stdout, separator="\t")
     else:
-        output_rootp = Path(output_root)
-        output_rootp.mkdir(parents=True, exist_ok=True)
-        with open(output_rootp / "flat.tsv", "w") as f:
-            df_analyzed_flat.write_csv(f, separator="\t")
-
-        with open(output_rootp / "std.tsv", "w") as f:
-            df_analyzed_std.write_csv(f, separator="\t")
-
-        with open(output_rootp / "data.tsv", "w") as f:
-            df_analyzed_data.write_csv(f, separator="\t")
+        output_root.mkdir(parents=True, exist_ok=True)
+        with open(output_root / "analysis.tsv", "w") as f:
+            df_analyzed_full.write_csv(f, separator="\t")
 
 
 def main(args: list[str]) -> None:
@@ -762,7 +865,9 @@ def main(args: list[str]) -> None:
     if cmd == "make":
         make_bench_files(bench_path)
     elif cmd == "run":
-        run_bench(bench_path, args[3], Path(args[4]), args[5:])
+        output_root = None if args[3] == "-" else Path(args[3])
+        scratch_root = Path(args[4])
+        run_bench(bench_path, output_root, scratch_root, args[5:])
     else:
         print(f"invalid command: {cmd}")
         exit(1)

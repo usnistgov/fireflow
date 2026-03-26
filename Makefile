@@ -54,7 +54,7 @@ pyreflow/bench/inputs/bench_files.tsv: pyreflow/.venv
 	$(uv_at) run ./bench/bench.py make ./bench/inputs
 
 pyreflow/bench/outputs/data.tsv: pyreflow/bench/inputs/bench_files.tsv build-prod
-	$(uv_at) run ./bench/bench.py run ./bench/inputs ./bench/outputs
+	$(uv_at) run ./bench/bench.py run ./bench/inputs ./bench/outputs ./bench/scratch
 
 .PHONY: clean
 clean:  
@@ -63,4 +63,7 @@ clean:
 	rm -rf pyreflow/.mypy_cache
 	rm -rf pyreflow/.pytest_cache
 	rm -rf pyreflow/.ruff_cache
+	rm -rf pyreflow/bench/inputs
+	rm -rf pyreflow/bench/outputs
+	rm -rf pyreflow/bench/scratch
 	cargo clean

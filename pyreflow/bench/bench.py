@@ -105,15 +105,60 @@ class BenchRun(NamedTuple):
         )
         return BenchResult(name=self.name, key=self.key, value=value)
 
-    def check_data(self, root: Path) -> None:
-        """Ensure DATA didn't get screwed up during optimization."""
-        out = pf.api.fcs_read_flat_dataset(root / self.fcs_name)
-        tsv = pl.read_csv(
-            root / self.tsv_name,
-            separator="\t",
-            schema=out.dataset.data.schema,
+    def check_data(self, input_root: Path, scratch_root: Path) -> None:
+        """Ensure DATA didn't get screwed up during optimization.
+
+        DATA will be compared against a TSV file which was generated
+        in parallel to the FCS file directly from the polars dataframe.
+
+        Read test will be successful if reading the FCS file produces the same
+        dataframe as that in the TSV file. Note that the schema for the FCS file
+        needs to be used when reading the TSV file. We are implicitly testing
+        the initial write of the FCS input file, although this will likely not
+        match the current commit to the code being used to read. Obviously the
+        write has to be correct, although this is directly tested for the
+        current commit next.
+
+        Write test will succeed if an FCS file that is written and read again
+        produces the same dataframe.
+
+        Note that these tests only check the DATA segment. Everything else
+        is assumed to be correct given the rest of the test suite. DATA is
+        easier to test here where is more appropriate to produce large layouts
+        of different varieties.
+
+        This is important because when optimizing, often this entails
+        specializing code to different situations. In this case, the read/write
+        loops are tailored to each data layout. This means that when improving
+        any one of these loops we could produce a bug for a given data layout.
+        Since there are separate loops for both reading and writing, this means
+        that either loop might also be out of sync with the other.
+
+        The only way this test could produce a false positive is if the read and
+        write logic both have bugs that perfectly cancel each other out at the
+        file level; ie they have identical data to the dataframe/TSV file but
+        when written produce the wrong file. This is extremely unlucky and
+        unlikely.
+        """
+
+        # test that reading FCS file is the same as TSV file
+        core, _ = pf.api.fcs_read_std_dataset(
+            input_root / self.fcs_name, time_meas_pattern=None
         )
-        assert out.dataset.data.equals(tsv)
+        tsv = pl.read_csv(
+            input_root / self.tsv_name,
+            separator="\t",
+            schema=core.data.schema,
+        )
+        assert core.data.equals(tsv)
+
+        # test that writing FCS file produces same data as the input FCS file
+        core.write_dataset(scratch_root / self.fcs_name)
+        nu_core, _ = pf.api.fcs_read_std_dataset(
+            input_root / self.fcs_name, time_meas_pattern=None
+        )
+
+        assert core.data.equals(nu_core.data)
 
 
 def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
@@ -519,8 +564,15 @@ def make_bench_files(root: Path) -> None:
             w.writerow(row)
 
 
-def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
-    bench_files = pl.read_csv(iroot / BENCH_FILES_NAME, separator="\t")
+def run_bench(
+    input_root: Path,
+    output_root: str,
+    scratch_root: Path,
+    names_filter: list[str],
+) -> None:
+    scratch_root.mkdir(parents=True, exist_ok=True)
+
+    bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
     if len(names_filter) > 0:
         bench_files = bench_files.filter(pl.col("name").is_in(names_filter))
 
@@ -533,11 +585,11 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
 
     # loop through each name only once
     for r in set(r for r in runs if r.key == BenchKey.DATA):
-        r.check_data(iroot)
+        r.check_data(input_root, scratch_root)
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
-    results = [r.run(iroot) for r in runs]
+    results = [r.run(input_root) for r in runs]
 
     flat_results = [r for r in results if r.key == BenchKey.FLAT]
     std_results = [r for r in results if r.key == BenchKey.STD]
@@ -685,21 +737,21 @@ def run_bench(iroot: Path, oroot: str, names_filter: list[str]) -> None:
         ]
     )
 
-    if oroot == "-":
+    if output_root == "-":
         with pl.Config(tbl_rows=20, tbl_cols=9):
             print(df_analyzed_flat)
             print(df_analyzed_std)
             print(df_analyzed_data)
     else:
-        orootp = Path(oroot)
-        orootp.mkdir(parents=True, exist_ok=True)
-        with open(orootp / "flat.tsv", "w") as f:
+        output_rootp = Path(output_root)
+        output_rootp.mkdir(parents=True, exist_ok=True)
+        with open(output_rootp / "flat.tsv", "w") as f:
             df_analyzed_flat.write_csv(f, separator="\t")
 
-        with open(orootp / "std.tsv", "w") as f:
+        with open(output_rootp / "std.tsv", "w") as f:
             df_analyzed_std.write_csv(f, separator="\t")
 
-        with open(orootp / "data.tsv", "w") as f:
+        with open(output_rootp / "data.tsv", "w") as f:
             df_analyzed_data.write_csv(f, separator="\t")
 
 
@@ -710,7 +762,7 @@ def main(args: list[str]) -> None:
     if cmd == "make":
         make_bench_files(bench_path)
     elif cmd == "run":
-        run_bench(bench_path, args[3], args[4:])
+        run_bench(bench_path, args[3], Path(args[4]), args[5:])
     else:
         print(f"invalid command: {cmd}")
         exit(1)

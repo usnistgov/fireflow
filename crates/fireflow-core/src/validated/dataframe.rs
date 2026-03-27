@@ -1,9 +1,15 @@
-use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::Chars;
+use crate::{config::FixLogScaleOffsets, macros::match_many_to_one};
 
-use derive_more::{AsRef, Display, From};
+use type_families::{FunctorOnce as _, impl_functor_once, impl_kind1};
+
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
+use num_traits::bounds::Bounded;
+use num_traits::cast::AsPrimitive;
+use num_traits::float::Float;
 use num_traits::identities::Zero as _;
+use num_traits::int::PrimInt;
 use polars_arrow::buffer::Buffer;
 use thiserror::Error;
 
@@ -31,7 +37,11 @@ pub struct FCSDataFrame {
 pub enum AnyFCSColumn {
     U08(U08Column),
     U16(U16Column),
+    U24(U24Column),
     U32(U32Column),
+    U40(U40Column),
+    U48(U48Column),
+    U56(U56Column),
     U64(U64Column),
     F32(F32Column),
     F64(F64Column),
@@ -41,12 +51,402 @@ pub enum AnyFCSColumn {
 #[derive(Clone, PartialEq, AsRef)]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
-pub type U08Column = FCSColumn<u8>;
-pub type U16Column = FCSColumn<u16>;
-pub type U32Column = FCSColumn<u32>;
-pub type U64Column = FCSColumn<u64>;
-pub type F32Column = FCSColumn<f32>;
-pub type F64Column = FCSColumn<f64>;
+/// A generic column for [`FCSDataFrame`]
+#[derive(Clone, PartialEq, AsRef)]
+#[as_ref([T])]
+pub struct FCSColumn0<T, const LEN: usize>(Buffer<T>);
+
+macro_rules! decl_struct_col {
+    ($t:ident, $inner:ident, $len:expr) => {
+        pub type $t = FCSColumn0<$inner, $len>;
+    };
+}
+
+decl_struct_col!(U08Column, u8, 1);
+decl_struct_col!(U16Column, u16, 2);
+decl_struct_col!(U24Column, u32, 3);
+decl_struct_col!(U32Column, u32, 4);
+decl_struct_col!(U40Column, u64, 5);
+decl_struct_col!(U48Column, u64, 6);
+decl_struct_col!(U56Column, u64, 7);
+decl_struct_col!(U64Column, u64, 8);
+decl_struct_col!(F32Column, f32, 4);
+decl_struct_col!(F64Column, f64, 8);
+
+#[derive(new)]
+struct CastColResult<T> {
+    inner: T,
+    loss_position: Option<usize>,
+}
+
+impl_kind1!(CastColResultFamily, CastColResult);
+
+impl_functor_once!(
+    CastColResult,
+    self,
+    mut f,
+    CastColResult::new(f(self.inner), self.loss_position,)
+);
+
+trait FromColumn<From>: Sized {
+    fn cast_column(other: From) -> CastColResult<Self>;
+}
+
+macro_rules! impl_cast_col_lossless {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                map_buffer(col.0, |x| (x.into(), false)).fmap_once(Self)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_col_noop {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                CastColResult::new(Self(col.0), None)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_col_int_to_int {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                buffer_int_to_int(col.0).fmap_once(Self)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_col_int_to_float {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                buffer_int_to_float(col.0).fmap_once(Self)
+            }
+        }
+    };
+}
+
+/// Convert int column to float column using as conversion.
+///
+/// This should only be used for integers that have been verified to fit
+/// in the range of the target float. It will never return a lossy result.
+macro_rules! impl_cast_col_float_to_int_as {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                map_buffer(col.0, |x| (x.as_(), false)).fmap_once(Self)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_col_float_to_int {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                buffer_float_to_int(col.0).fmap_once(Self)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_col_float_to_trunc_int {
+    ($from:ident, $to:ident, $n:expr) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                buffer_float_to_trunc_int(col.0, (1 << $n) - 1).fmap_once(Self)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_col_int_to_trunc_int {
+    ($from:ident, $to:ident, $n:expr) => {
+        impl FromColumn<$from> for $to {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                buffer_int_to_trunc_int(col.0, (1 << $n) - 1).fmap_once(Self)
+            }
+        }
+    };
+}
+
+macro_rules! impl_cast_col_int_to_int24 {
+    ($from:ident) => {
+        impl FromColumn<$from> for U24Column {
+            fn cast_column(col: $from) -> CastColResult<Self> {
+                buffer_int_to_int24(col.0).fmap_once(Self)
+            }
+        }
+    };
+}
+
+// U08
+
+impl_cast_col_noop!(U08Column, U08Column);
+impl_cast_col_lossless!(U08Column, U16Column);
+impl_cast_col_lossless!(U08Column, U24Column);
+impl_cast_col_lossless!(U08Column, U32Column);
+impl_cast_col_lossless!(U08Column, U40Column);
+impl_cast_col_lossless!(U08Column, U48Column);
+impl_cast_col_lossless!(U08Column, U56Column);
+impl_cast_col_lossless!(U08Column, U64Column);
+impl_cast_col_lossless!(U08Column, F32Column);
+impl_cast_col_lossless!(U08Column, F64Column);
+
+// U16
+
+impl_cast_col_int_to_int!(U16Column, U08Column);
+impl_cast_col_noop!(U16Column, U16Column);
+impl_cast_col_lossless!(U16Column, U24Column);
+impl_cast_col_lossless!(U16Column, U32Column);
+impl_cast_col_lossless!(U16Column, U40Column);
+impl_cast_col_lossless!(U16Column, U48Column);
+impl_cast_col_lossless!(U16Column, U56Column);
+impl_cast_col_lossless!(U16Column, U64Column);
+impl_cast_col_lossless!(U16Column, F32Column);
+impl_cast_col_lossless!(U16Column, F64Column);
+
+// U24
+
+impl_cast_col_int_to_int!(U24Column, U08Column);
+impl_cast_col_int_to_int!(U24Column, U16Column);
+impl_cast_col_noop!(U24Column, U24Column);
+impl_cast_col_noop!(U24Column, U32Column);
+impl_cast_col_lossless!(U24Column, U40Column);
+impl_cast_col_lossless!(U24Column, U48Column);
+impl_cast_col_lossless!(U24Column, U56Column);
+impl_cast_col_lossless!(U24Column, U64Column);
+// upper integer limit for f32 is exactly 2^24 so this is lossless
+impl_cast_col_float_to_int_as!(U24Column, F32Column);
+impl_cast_col_lossless!(U24Column, F64Column);
+
+// U32
+
+impl_cast_col_int_to_int!(U32Column, U08Column);
+impl_cast_col_int_to_int!(U32Column, U16Column);
+impl_cast_col_int_to_trunc_int!(U32Column, U24Column, 24);
+impl_cast_col_noop!(U32Column, U32Column);
+impl_cast_col_lossless!(U32Column, U40Column);
+impl_cast_col_lossless!(U32Column, U48Column);
+impl_cast_col_lossless!(U32Column, U56Column);
+impl_cast_col_lossless!(U32Column, U64Column);
+impl_cast_col_int_to_float!(U32Column, F32Column);
+impl_cast_col_lossless!(U32Column, F64Column);
+
+// U40
+
+impl_cast_col_int_to_int!(U40Column, U08Column);
+impl_cast_col_int_to_int!(U40Column, U16Column);
+impl_cast_col_int_to_int24!(U40Column);
+impl_cast_col_int_to_int!(U40Column, U32Column);
+impl_cast_col_noop!(U40Column, U40Column);
+impl_cast_col_noop!(U40Column, U48Column);
+impl_cast_col_noop!(U40Column, U56Column);
+impl_cast_col_noop!(U40Column, U64Column);
+impl_cast_col_int_to_float!(U40Column, F32Column);
+// upper integer limit for f64 is exactly 2^53 so this is lossless
+impl_cast_col_float_to_int_as!(U40Column, F64Column);
+
+// U48
+
+impl_cast_col_int_to_int!(U48Column, U08Column);
+impl_cast_col_int_to_int!(U48Column, U16Column);
+impl_cast_col_int_to_int24!(U48Column);
+impl_cast_col_int_to_int!(U48Column, U32Column);
+impl_cast_col_int_to_trunc_int!(U48Column, U40Column, 40);
+impl_cast_col_noop!(U48Column, U48Column);
+impl_cast_col_noop!(U48Column, U56Column);
+impl_cast_col_noop!(U48Column, U64Column);
+impl_cast_col_int_to_float!(U48Column, F32Column);
+// upper integer limit for f64 is exactly 2^53 so this is lossless
+impl_cast_col_float_to_int_as!(U48Column, F64Column);
+
+// U56
+
+impl_cast_col_int_to_int!(U56Column, U08Column);
+impl_cast_col_int_to_int!(U56Column, U16Column);
+impl_cast_col_int_to_int24!(U56Column);
+impl_cast_col_int_to_int!(U56Column, U32Column);
+impl_cast_col_int_to_trunc_int!(U56Column, U40Column, 40);
+impl_cast_col_int_to_trunc_int!(U56Column, U48Column, 48);
+impl_cast_col_noop!(U56Column, U56Column);
+impl_cast_col_noop!(U56Column, U64Column);
+impl_cast_col_int_to_float!(U56Column, F32Column);
+impl_cast_col_int_to_float!(U56Column, F64Column);
+
+// U64
+
+impl_cast_col_int_to_int!(U64Column, U08Column);
+impl_cast_col_int_to_int!(U64Column, U16Column);
+impl_cast_col_int_to_int24!(U64Column);
+impl_cast_col_int_to_int!(U64Column, U32Column);
+impl_cast_col_int_to_trunc_int!(U64Column, U40Column, 40);
+impl_cast_col_int_to_trunc_int!(U64Column, U48Column, 48);
+impl_cast_col_int_to_trunc_int!(U64Column, U56Column, 56);
+impl_cast_col_noop!(U64Column, U64Column);
+impl_cast_col_int_to_float!(U64Column, F32Column);
+impl_cast_col_int_to_float!(U64Column, F64Column);
+
+// F32
+
+impl_cast_col_float_to_int!(F32Column, U08Column);
+impl_cast_col_float_to_int!(F32Column, U16Column);
+impl_cast_col_float_to_trunc_int!(F32Column, U24Column, 24);
+impl_cast_col_float_to_int!(F32Column, U32Column);
+impl_cast_col_float_to_int!(F32Column, U64Column);
+impl_cast_col_float_to_trunc_int!(F32Column, U40Column, 40);
+impl_cast_col_float_to_trunc_int!(F32Column, U48Column, 48);
+impl_cast_col_float_to_trunc_int!(F32Column, U56Column, 56);
+impl_cast_col_noop!(F32Column, F32Column);
+// this will always be lossless, see
+// https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
+impl_cast_col_lossless!(F32Column, F64Column);
+
+// F64
+
+impl_cast_col_float_to_int!(F64Column, U08Column);
+impl_cast_col_float_to_int!(F64Column, U16Column);
+impl_cast_col_float_to_trunc_int!(F64Column, U24Column, 24);
+impl_cast_col_float_to_int!(F64Column, U32Column);
+impl_cast_col_float_to_trunc_int!(F64Column, U40Column, 40);
+impl_cast_col_float_to_trunc_int!(F64Column, U48Column, 48);
+impl_cast_col_float_to_trunc_int!(F64Column, U56Column, 56);
+impl_cast_col_float_to_int!(F64Column, U64Column);
+impl_cast_col_noop!(F64Column, F64Column);
+
+impl FromColumn<F64Column> for F32Column {
+    fn cast_column(col: F64Column) -> CastColResult<Self> {
+        let go = |x: f64| {
+            let new_value: f32 = x.as_();
+            let old_value = f64::from(new_value);
+            (new_value, x != old_value)
+        };
+        map_buffer(col.0, go).fmap_once(Self)
+    }
+}
+
+fn buffer_int_to_trunc_int<I: PrimInt>(buf: Buffer<I>, limit: I) -> CastColResult<Buffer<I>> {
+    map_buffer_iso(buf, |x| (x, x > limit))
+}
+
+fn buffer_int_to_float<I, F>(buf: Buffer<I>) -> CastColResult<Buffer<F>>
+where
+    I: PrimInt + AsPrimitive<F>,
+    F: Float + AsPrimitive<I>,
+    Buffer<F>: From<Vec<F>>,
+{
+    let go = |x: I| {
+        let new_value: F = x.as_();
+        let old_value: I = new_value.as_();
+        (new_value, x != old_value)
+    };
+    map_buffer(buf, go)
+}
+
+fn buffer_int_to_int<I0, I1>(buf: Buffer<I0>) -> CastColResult<Buffer<I1>>
+where
+    I1: PrimInt,
+    I0: TryInto<I1> + Clone,
+{
+    let go = |x: I0| {
+        if let Ok(y) = x.try_into() {
+            (y, false)
+        } else {
+            (I1::max_value(), true)
+        }
+    };
+    map_buffer(buf, go)
+}
+
+fn buffer_int_to_int24<I0>(buf: Buffer<I0>) -> CastColResult<Buffer<u32>>
+where
+    I0: TryInto<u32> + Clone,
+{
+    const LIMIT: u32 = (1 << 24) - 1;
+    let go = |x: I0| {
+        if let Ok(y) = x.try_into()
+            && y <= LIMIT
+        {
+            (y, false)
+        } else {
+            (LIMIT, true)
+        }
+    };
+    map_buffer(buf, go)
+}
+
+fn buffer_float_to_trunc_int<F, I>(buf: Buffer<F>, limit: I) -> CastColResult<Buffer<I>>
+where
+    I: PrimInt + AsPrimitive<F>,
+    F: Float + AsPrimitive<I>,
+    Buffer<I>: From<Vec<I>>,
+{
+    let go = |x: F| {
+        let new_value: I = x.as_();
+        (new_value, !float_is_uint::<F, I>(x) && new_value <= limit)
+    };
+    map_buffer(buf, go)
+}
+
+fn buffer_float_to_int<I, F>(buf: Buffer<F>) -> CastColResult<Buffer<I>>
+where
+    I: PrimInt + AsPrimitive<F>,
+    F: Float + AsPrimitive<I>,
+    Buffer<I>: From<Vec<I>>,
+{
+    map_buffer(buf, |x: F| (x.as_(), !float_is_uint::<F, I>(x)))
+}
+
+fn map_buffer<F, X, Y>(buf: Buffer<X>, mut f: F) -> CastColResult<Buffer<Y>>
+where
+    X: Clone,
+    Buffer<Y>: From<Vec<Y>>,
+    F: FnMut(X) -> (Y, bool),
+{
+    let mut err = None;
+    let new = buf
+        .into_iter()
+        .cloned()
+        .enumerate()
+        .map(|(i, x)| {
+            let (y, has_loss) = f(x);
+            if has_loss {
+                err = Some(i)
+            }
+            y
+        })
+        .collect();
+    CastColResult::new(Buffer::from(new), err)
+}
+
+fn map_buffer_iso<F, X>(buf: Buffer<X>, mut f: F) -> CastColResult<Buffer<X>>
+where
+    X: Copy,
+    Buffer<X>: From<Vec<X>>,
+    F: FnMut(X) -> (X, bool),
+{
+    let mut err = None;
+    let mut inner = buf.make_mut();
+    for (i, x) in inner.iter_mut().enumerate() {
+        let (y, has_loss) = f(*x);
+        if has_loss {
+            err = Some(i)
+        }
+        *x = y;
+    }
+    CastColResult::new(Buffer::from(inner), err)
+}
+
+fn float_is_uint<F: Float + 'static, I: Bounded + AsPrimitive<F>>(x: F) -> bool {
+    let upper: F = I::max_value().as_();
+    !x.is_nan() && !x.is_infinite() && !x.is_sign_negative() && x.fract().is_zero() && x <= upper
+}
 
 /// Any valid Rust numeric type which may be used in an [`FCSDataFrame`]
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
@@ -73,58 +473,146 @@ impl PartialEq for AnyFCSColumn {
     /// it can be losslessly converted between all possible types for a column
     /// (u8-64 and f32/f64).
     fn eq(&self, other: &Self) -> bool {
-        fn go<From, To>(xs: &FCSColumn<From>, ys: &FCSColumn<To>) -> bool
+        fn go_try_into<XS, YS, X, Y>(xs: &XS, ys: &YS) -> bool
         where
-            To: NumCast<From> + IsFCSDataType + PartialEq,
-            From: IsFCSDataType,
+            XS: AsRef<[X]>,
+            YS: AsRef<[Y]>,
+            X: PartialEq,
+            Y: TryInto<X> + Copy,
         {
-            From::as_col_iter::<To>(xs)
-                .zip(ys.0.iter())
-                .all(|(x, y)| x.lossy.is_none() && &x.new == y)
+            xs.as_ref()
+                .iter()
+                .zip(ys.as_ref().iter())
+                .all(|(x, y)| (*y).try_into().is_ok_and(|yx| &yx == x))
+        }
+
+        fn go_int_float<IS, FS, I, F>(xs: &IS, ys: &FS) -> bool
+        where
+            IS: AsRef<[I]>,
+            FS: AsRef<[F]>,
+            I: PrimInt + AsPrimitive<F>,
+            F: Float + 'static,
+        {
+            xs.as_ref()
+                .iter()
+                .zip(ys.as_ref().iter())
+                .all(|(x, y)| float_is_uint::<F, I>(*y) && (*x).as_() == *y)
+        }
+
+        if self.len() != other.len() {
+            return false;
         }
 
         match (self, other) {
-            (Self::U08(xs), Self::U08(ys)) => xs == ys,
-            (Self::U08(xs), Self::U16(ys)) => go(xs, ys),
-            (Self::U08(xs), Self::U32(ys)) => go(xs, ys),
-            (Self::U08(xs), Self::U64(ys)) => go(xs, ys),
-            (Self::U08(xs), Self::F32(ys)) => go(xs, ys),
-            (Self::U08(xs), Self::F64(ys)) => go(xs, ys),
+            (Self::U08(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U08(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U08(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::U16(xs), Self::U08(ys)) => go(xs, ys),
-            (Self::U16(xs), Self::U16(ys)) => xs == ys,
-            (Self::U16(xs), Self::U32(ys)) => go(xs, ys),
-            (Self::U16(xs), Self::U64(ys)) => go(xs, ys),
-            (Self::U16(xs), Self::F32(ys)) => go(xs, ys),
-            (Self::U16(xs), Self::F64(ys)) => go(xs, ys),
+            (Self::U16(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U16(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U16(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::U32(xs), Self::U08(ys)) => go(xs, ys),
-            (Self::U32(xs), Self::U16(ys)) => go(xs, ys),
-            (Self::U32(xs), Self::U32(ys)) => xs == ys,
-            (Self::U32(xs), Self::U64(ys)) => go(xs, ys),
-            (Self::U32(xs), Self::F32(ys)) => go(xs, ys),
-            (Self::U32(xs), Self::F64(ys)) => go(xs, ys),
+            (Self::U24(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U24(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U24(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::U64(xs), Self::U08(ys)) => go(xs, ys),
-            (Self::U64(xs), Self::U16(ys)) => go(xs, ys),
-            (Self::U64(xs), Self::U32(ys)) => go(xs, ys),
-            (Self::U64(xs), Self::U64(ys)) => xs == ys,
-            (Self::U64(xs), Self::F32(ys)) => go(xs, ys),
-            (Self::U64(xs), Self::F64(ys)) => go(xs, ys),
+            (Self::U32(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U32(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U32(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::F32(xs), Self::U08(ys)) => go(xs, ys),
-            (Self::F32(xs), Self::U16(ys)) => go(xs, ys),
-            (Self::F32(xs), Self::U32(ys)) => go(xs, ys),
-            (Self::F32(xs), Self::U64(ys)) => go(xs, ys),
-            (Self::F32(xs), Self::F32(ys)) => xs == ys,
-            (Self::F32(xs), Self::F64(ys)) => go(xs, ys),
+            (Self::U40(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U40(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U40(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::F64(xs), Self::U08(ys)) => go(xs, ys),
-            (Self::F64(xs), Self::U16(ys)) => go(xs, ys),
-            (Self::F64(xs), Self::U32(ys)) => go(xs, ys),
-            (Self::F64(xs), Self::U64(ys)) => go(xs, ys),
-            (Self::F64(xs), Self::F32(ys)) => go(xs, ys),
-            (Self::F64(xs), Self::F64(ys)) => xs == ys,
+            (Self::U48(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U48(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U48(xs), Self::F64(ys)) => go_int_float(xs, ys),
+
+            (Self::U56(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U56(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U56(xs), Self::F64(ys)) => go_int_float(xs, ys),
+
+            (Self::U64(xs), Self::U08(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::U16(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::U24(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::U32(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::U40(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::U48(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::U56(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::U64(ys)) => go_try_into(xs, ys),
+            (Self::U64(xs), Self::F32(ys)) => go_int_float(xs, ys),
+            (Self::U64(xs), Self::F64(ys)) => go_int_float(xs, ys),
+
+            (Self::F32(xs), Self::U08(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::U16(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::U24(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::U32(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::U40(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::U48(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::U56(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::U64(ys)) => go_int_float(ys, xs),
+            (Self::F32(xs), Self::F32(ys)) => go_try_into(xs, ys),
+            (Self::F32(xs), Self::F64(ys)) => go_try_into(ys, xs),
+
+            (Self::F64(xs), Self::U08(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::U16(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::U24(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::U32(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::U40(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::U48(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::U56(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::U64(ys)) => go_int_float(ys, xs),
+            (Self::F64(xs), Self::F32(ys)) => go_try_into(xs, ys),
+            (Self::F64(xs), Self::F64(ys)) => go_try_into(xs, ys),
         }
     }
 }
@@ -138,18 +626,24 @@ impl<T> From<Vec<T>> for FCSColumn<T> {
 impl AnyFCSColumn {
     #[must_use]
     pub fn len(&self) -> usize {
-        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, { x.0.len() })
+        match_many_to_one!(
+            self,
+            Self,
+            [U08, U16, U24, U32, U40, U48, U56, U64, F32, F64],
+            x,
+            { x.0.len() }
+        )
     }
 
-    pub(crate) fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
-    where
-        F: Fn(ToType) -> Option<E>,
-        ToType: AllFCSCast,
-    {
-        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], xs, {
-            IsFCSDataType::check_writer(xs, f)
-        })
-    }
+    // pub(crate) fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
+    // where
+    //     F: Fn(ToType) -> Option<E>,
+    //     ToType: AllFCSCast,
+    // {
+    //     match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], xs, {
+    //         IsFCSDataType::check_writer(xs, f)
+    //     })
+    // }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -169,18 +663,18 @@ impl AnyFCSColumn {
         }
     }
 
-    /// The number of bytes occupied by the column if written as ASCII
-    #[must_use]
-    pub fn ascii_nbytes(&self) -> u32 {
-        match self {
-            Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::U16(xs) => u16::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::U32(xs) => u32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::U64(xs) => u64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::F32(xs) => f32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-        }
-    }
+    // /// The number of bytes occupied by the column if written as ASCII
+    // #[must_use]
+    // pub fn ascii_nbytes(&self) -> u32 {
+    //     match self {
+    //         Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::U16(xs) => u16::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::U32(xs) => u32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::U64(xs) => u64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::F32(xs) => f32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //     }
+    // }
 }
 
 /// Error when building [`FCSDataFrame`] from individual columns

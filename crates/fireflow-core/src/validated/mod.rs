@@ -14,3 +14,4 @@ pub mod shortname;
 pub mod sub_pattern;
 pub mod textdelim;
 pub mod timepattern;
+pub mod unaligned;

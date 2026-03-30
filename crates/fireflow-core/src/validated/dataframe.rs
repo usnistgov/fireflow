@@ -1,10 +1,10 @@
 use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::Chars;
-use crate::validated::unaligned::{CastableVec, U24, U40, U48, U56};
+use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use type_families::{FunctorOnce as _, impl_functor_once, impl_kind1};
 
-use bytemuck::cast_vec;
+use bytemuck::{AnyBitPattern, NoUninit, cast_vec};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use num_traits::bounds::Bounded;
@@ -16,6 +16,7 @@ use polars_arrow::buffer::Buffer;
 use thiserror::Error;
 
 use std::iter;
+use std::marker::PhantomData;
 use std::slice::Iter;
 
 #[cfg(feature = "python")]
@@ -34,6 +35,56 @@ pub type FCSDataFrame = FCSDataFrame0<AnyFCSColumn>;
 /// This validation allows us to integrate it seamlessly with data layouts
 /// of varying byte widths, including those that aren't a power of 2.
 pub(crate) type InternalDataFrame = FCSDataFrame0<AnyInternalColumn>;
+
+// impl FCSDataFrame {
+//     fn into_internal(self) -> (InternalDataFrame, Vec<Option<usize>>) {
+//         let ncols = self.ncols();
+//         let new_columns = Vec::with_capacity(ncols);
+//         let error_positions = Vec::with_capacity(ncols);
+//         for c in self.columns {
+//             let res = c.cast_column();
+//             new_columns.push(res.inner);
+//             error_positions.push(res.loss_position);
+//         }
+//         let new = InternalDataFrame::new(new_columns, self.nrows);
+//         (new, error_positions)
+//     }
+// }
+
+// NOTE cloning a buffer is O(1) so this doesn't need to be impled for a reference
+impl From<InternalDataFrame> for FCSDataFrame {
+    fn from(value: InternalDataFrame) -> Self {
+        Self::new(
+            value.columns.into_iter().map(AnyFCSColumn::from).collect(),
+            value.nrows,
+        )
+    }
+}
+
+// impl AnyFCSColumn {
+//     fn into_internal(self) -> CastResult<AnyInternalColumn> {
+//         match self {
+//             AnyFCSColumn::U08(c) => c.cast_column(),
+//         }
+//     }
+// }
+
+impl From<AnyInternalColumn> for AnyFCSColumn {
+    fn from(value: AnyInternalColumn) -> Self {
+        match value {
+            AnyInternalColumn::U08(c) => Self::U08(FCSColumn(c.inner)),
+            AnyInternalColumn::U16(c) => Self::U16(FCSColumn(c.inner)),
+            AnyInternalColumn::U24(c) => Self::U32(FCSColumn(c.inner)),
+            AnyInternalColumn::U32(c) => Self::U32(FCSColumn(c.inner)),
+            AnyInternalColumn::U40(c) => Self::U64(FCSColumn(c.inner)),
+            AnyInternalColumn::U48(c) => Self::U64(FCSColumn(c.inner)),
+            AnyInternalColumn::U56(c) => Self::U64(FCSColumn(c.inner)),
+            AnyInternalColumn::U64(c) => Self::U64(FCSColumn(c.inner)),
+            AnyInternalColumn::F32(c) => Self::F32(FCSColumn(c.inner)),
+            AnyInternalColumn::F64(c) => Self::F64(FCSColumn(c.inner)),
+        }
+    }
+}
 
 #[derive(Clone, PartialEq, new)]
 #[new(visibility = "")]
@@ -61,20 +112,21 @@ pub enum AnyFCSColumn {
 
 #[derive(Clone, From)]
 pub(crate) enum AnyInternalColumn {
-    U08(U08Column),
-    U16(U16Column),
-    U24(U24Column),
-    U32(U32Column),
-    U40(U40Column),
-    U48(U48Column),
-    U56(U56Column),
-    U64(U64Column),
-    F32(F32Column),
-    F64(F64Column),
+    U08(InternalU08Column),
+    U16(InternalU16Column),
+    U24(InternalU24Column),
+    U32(InternalU32Column),
+    U40(InternalU40Column),
+    U48(InternalU48Column),
+    U56(InternalU56Column),
+    U64(InternalU64Column),
+    F32(InternalF32Column),
+    F64(InternalF64Column),
 }
 
 /// A generic column for [`FCSDataFrame`]
 #[derive(Clone, PartialEq, AsRef)]
+#[repr(transparent)]
 #[as_ref([T])]
 pub struct FCSColumn<T>(pub Buffer<T>);
 
@@ -85,10 +137,96 @@ pub type U64Column = FCSColumn<u64>;
 pub type F32Column = FCSColumn<f32>;
 pub type F64Column = FCSColumn<f64>;
 
-type U24Column = FCSColumn<U24>;
-type U40Column = FCSColumn<U40>;
-type U48Column = FCSColumn<U48>;
-type U56Column = FCSColumn<U56>;
+#[derive(Clone, new)]
+#[repr(transparent)]
+#[new(visibility = "")]
+pub(crate) struct InternalColumn<T, Raw> {
+    inner: Buffer<T>,
+    _outer: PhantomData<Raw>,
+}
+
+macro_rules! impl_internal_from_vec {
+    ($t:ident, $raw:ident) => {
+        impl From<Vec<$t>> for InternalColumn<$t, $raw> {
+            fn from(value: Vec<$t>) -> Self {
+                Self::new(Buffer::from(cast_vec(value)))
+            }
+        }
+    };
+}
+
+impl_internal_from_vec!(u8, u8);
+impl_internal_from_vec!(u16, u16);
+impl_internal_from_vec!(u32, U24);
+impl_internal_from_vec!(u32, u32);
+impl_internal_from_vec!(u64, U40);
+impl_internal_from_vec!(u64, U48);
+impl_internal_from_vec!(u64, U56);
+impl_internal_from_vec!(u64, u64);
+
+impl<T, Raw> InternalColumn<T, Raw> {
+    fn as_raw_slice(&self) -> &[Raw] {
+        debug_assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
+        // SAFETY: T and Raw are assumed to have the same layout and size
+        unsafe { &*self.inner.as_ref().as_ptr().cast::<&[Raw]>() }
+    }
+
+    fn truncate_from_samesize_int(buf: Buffer<T>) -> CastColResult<Self>
+    where
+        T: Copy + PartialOrd + From<Raw>,
+        Raw: Bounded,
+    {
+        let go = |x: T| {
+            let upper = T::from(Raw::max_value());
+            let has_err = x > upper;
+            let new = if has_err { upper } else { x };
+            (new, has_err)
+        };
+        map_buffer_iso(buf, go).fmap_once(Self::new)
+    }
+
+    fn truncate_from_int<I0>(buf: &Buffer<I0>) -> CastColResult<Self>
+    where
+        I0: Clone,
+        T: Copy + PartialOrd + From<Raw> + Bounded + TryFrom<I0>,
+        Raw: Bounded,
+    {
+        let res0: CastColResult<Buffer<T>> = buffer_int_to_int(buf);
+        let res1 = Self::truncate_from_samesize_int(res0.inner);
+        let err = res0
+            .loss_position
+            .zip(res1.loss_position)
+            .map(|(x, y)| x.min(y));
+        CastColResult::new(res1.inner, err)
+    }
+
+    fn truncate_from_float<F>(buf: &Buffer<F>) -> CastColResult<Self>
+    where
+        F: AsPrimitive<T> + Float,
+        T: Copy + PartialOrd + From<Raw> + Bounded + AsPrimitive<F>,
+        Raw: Bounded,
+    {
+        let res0: CastColResult<Buffer<T>> = buffer_float_to_int(buf);
+        let res1 = Self::truncate_from_samesize_int(res0.inner);
+        // TODO this is an applicative
+        let err = res0
+            .loss_position
+            .zip(res1.loss_position)
+            .map(|(x, y)| x.min(y));
+        CastColResult::new(res1.inner, err)
+    }
+}
+
+pub(crate) type InternalU08Column = InternalColumn<u8, u8>;
+pub(crate) type InternalU16Column = InternalColumn<u16, u16>;
+pub(crate) type InternalU24Column = InternalColumn<u32, U24>;
+pub(crate) type InternalU32Column = InternalColumn<u32, u32>;
+pub(crate) type InternalU40Column = InternalColumn<u64, U40>;
+pub(crate) type InternalU48Column = InternalColumn<u64, U48>;
+pub(crate) type InternalU56Column = InternalColumn<u64, U56>;
+pub(crate) type InternalU64Column = InternalColumn<u64, u64>;
+pub(crate) type InternalF32Column = InternalColumn<f32, f32>;
+pub(crate) type InternalF64Column = InternalColumn<f64, f64>;
 
 #[derive(new)]
 struct CastColResult<T> {
@@ -115,7 +253,7 @@ macro_rules! impl_cast_col_noop {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                CastColResult::new(Self(col.0), None)
+                CastColResult::new(Self::new(col.inner), None)
             }
         }
     };
@@ -125,7 +263,7 @@ macro_rules! impl_cast_col_into {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                map_buffer(&col.0, |x| (x.into(), false)).fmap_once(Self)
+                map_buffer(&col.inner, |x| (x.into(), false)).fmap_once(Self::new)
             }
         }
     };
@@ -135,7 +273,7 @@ macro_rules! impl_cast_col_int_to_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                buffer_int_to_int(&col.0).fmap_once(Self)
+                buffer_int_to_int(&col.inner).fmap_once(Self::new)
             }
         }
     };
@@ -145,7 +283,7 @@ macro_rules! impl_cast_col_int_to_float {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                buffer_int_to_float(&col.0).fmap_once(Self)
+                buffer_int_to_float(&col.inner).fmap_once(Self::new)
             }
         }
     };
@@ -155,7 +293,7 @@ macro_rules! impl_cast_col_float_to_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                buffer_float_to_int(&col.0).fmap_once(Self)
+                buffer_float_to_int(&col.inner).fmap_once(Self::new)
             }
         }
     };
@@ -166,170 +304,220 @@ macro_rules! impl_cast_col_float_to_int {
 /// This is more optimal than a general cast because we don't need to reallocate
 /// a new buffer; we only need to check the range of the current values and clip
 /// if needed.
-macro_rules! impl_int_to_trunc_int {
+macro_rules! impl_truncate_from_samesize_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                let (new, err) = CastableVec::cast_from_vec(col.0.make_mut());
-                CastColResult::new(Self(Buffer::from(new)), err)
+                Self::truncate_from_samesize_int(col.inner)
             }
         }
     };
 }
 
-macro_rules! impl_unwrap_trunc_int {
+macro_rules! impl_truncate_from_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                CastColResult::new(Self(Buffer::from(cast_vec(col.0.make_mut()))), None)
+                Self::truncate_from_int(&col.inner)
             }
         }
     };
 }
 
-// U08
+macro_rules! impl_truncate_from_float {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn from_column(col: $from) -> CastColResult<Self> {
+                Self::truncate_from_float(&col.inner)
+            }
+        }
+    };
+}
 
-impl_cast_col_noop!(U08Column, U08Column);
-impl_cast_col_into!(U08Column, U16Column);
-impl_cast_col_into!(U08Column, U24Column);
-impl_cast_col_into!(U08Column, U32Column);
-impl_cast_col_into!(U08Column, U40Column);
-impl_cast_col_into!(U08Column, U48Column);
-impl_cast_col_into!(U08Column, U56Column);
-impl_cast_col_into!(U08Column, U64Column);
-impl_cast_col_into!(U08Column, F32Column);
-impl_cast_col_into!(U08Column, F64Column);
+macro_rules! impl_int_to_float_lossless {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn from_column(col: $from) -> CastColResult<Self> {
+                map_buffer(&col.inner, |x| (x.as_(), false)).fmap_once(Self::new)
+            }
+        }
+    };
+}
 
-// U16
+// U08; all targets are larger, so all conversions are lossless and don't
+// require checks
 
-impl_cast_col_int_to_int!(U16Column, U08Column);
-impl_cast_col_noop!(U16Column, U16Column);
-impl_cast_col_into!(U16Column, U24Column);
-impl_cast_col_into!(U16Column, U32Column);
-impl_cast_col_into!(U16Column, U40Column);
-impl_cast_col_into!(U16Column, U48Column);
-impl_cast_col_into!(U16Column, U56Column);
-impl_cast_col_into!(U16Column, U64Column);
-impl_cast_col_into!(U16Column, F32Column);
-impl_cast_col_into!(U16Column, F64Column);
+impl_cast_col_noop!(InternalU08Column, InternalU08Column);
+impl_cast_col_into!(InternalU08Column, InternalU16Column);
+impl_cast_col_into!(InternalU08Column, InternalU24Column);
+impl_cast_col_into!(InternalU08Column, InternalU32Column);
+impl_cast_col_into!(InternalU08Column, InternalU40Column);
+impl_cast_col_into!(InternalU08Column, InternalU48Column);
+impl_cast_col_into!(InternalU08Column, InternalU56Column);
+impl_cast_col_into!(InternalU08Column, InternalU64Column);
+impl_cast_col_into!(InternalU08Column, InternalF32Column);
+impl_cast_col_into!(InternalU08Column, InternalF64Column);
 
-// U24
+// U16; all except u8 are larger, so no conversions require checks except for
+// u16 -> u8
 
-impl_cast_col_int_to_int!(U24Column, U08Column);
-impl_cast_col_int_to_int!(U24Column, U16Column);
-impl_cast_col_noop!(U24Column, U24Column);
-impl_cast_col_into!(U24Column, U32Column);
-impl_cast_col_into!(U24Column, U40Column);
-impl_cast_col_into!(U24Column, U48Column);
-impl_cast_col_into!(U24Column, U56Column);
-impl_cast_col_into!(U24Column, U64Column);
-impl_cast_col_into!(U24Column, F32Column);
-impl_cast_col_into!(U24Column, F64Column);
+impl_cast_col_int_to_int!(InternalU16Column, InternalU08Column);
+impl_cast_col_noop!(InternalU16Column, InternalU16Column);
+impl_cast_col_into!(InternalU16Column, InternalU24Column);
+impl_cast_col_into!(InternalU16Column, InternalU32Column);
+impl_cast_col_into!(InternalU16Column, InternalU40Column);
+impl_cast_col_into!(InternalU16Column, InternalU48Column);
+impl_cast_col_into!(InternalU16Column, InternalU56Column);
+impl_cast_col_into!(InternalU16Column, InternalU64Column);
+impl_cast_col_into!(InternalU16Column, InternalF32Column);
+impl_cast_col_into!(InternalU16Column, InternalF64Column);
 
-// U32
+// U24; all except u8 and u16 are larger, so no conversion require checks except
+// for u24 (really a u32) -> u8 or u16. u24 is actually a u32 internally and
+// also a subset of u32, so u24 -> u32 is a noop. Also, u24 can perfectly fit
+// within an f32 so this is also lossless and requires no checks.
 
-impl_cast_col_int_to_int!(U32Column, U08Column);
-impl_cast_col_int_to_int!(U32Column, U16Column);
-impl_int_to_trunc_int!(U32Column, U24Column);
-impl_cast_col_noop!(U32Column, U32Column);
-impl_cast_col_into!(U32Column, U40Column);
-impl_cast_col_into!(U32Column, U48Column);
-impl_cast_col_into!(U32Column, U56Column);
-impl_cast_col_into!(U32Column, U64Column);
-impl_cast_col_int_to_float!(U32Column, F32Column);
-impl_cast_col_into!(U32Column, F64Column);
+impl_cast_col_int_to_int!(InternalU24Column, InternalU08Column);
+impl_cast_col_int_to_int!(InternalU24Column, InternalU16Column);
+impl_cast_col_noop!(InternalU24Column, InternalU24Column);
+impl_cast_col_noop!(InternalU24Column, InternalU32Column); // target is larger
+impl_cast_col_into!(InternalU24Column, InternalU40Column);
+impl_cast_col_into!(InternalU24Column, InternalU48Column);
+impl_cast_col_into!(InternalU24Column, InternalU56Column);
+impl_cast_col_into!(InternalU24Column, InternalU64Column);
+impl_int_to_float_lossless!(InternalU24Column, InternalF32Column);
+impl_cast_col_into!(InternalU24Column, InternalF64Column);
 
-// U40
+// U32; requires the following special conversion logic:
+//
+// 1. -> u8/u16: these are smaller so check for loss
+// 2. -> u24: this is the same type with a reduced range, so check for anything
+//    over range and mutate in place without allocating new memory.
+// 3. -> f32: anything larger than 2^24 will lose precision, so need to check
+//
+// u32 can perfectly fit in an f64 so this is lossless
 
-impl_cast_col_int_to_int!(U40Column, U08Column);
-impl_cast_col_int_to_int!(U40Column, U16Column);
-impl_cast_col_int_to_int!(U40Column, U24Column);
-impl_cast_col_int_to_int!(U40Column, U32Column);
-impl_cast_col_noop!(U40Column, U40Column);
-impl_int_to_trunc_int!(U40Column, U48Column);
-impl_int_to_trunc_int!(U40Column, U56Column);
-impl_cast_col_into!(U40Column, U64Column);
-impl_cast_col_int_to_float!(U40Column, F32Column);
-impl_cast_col_into!(U40Column, F64Column);
+impl_cast_col_int_to_int!(InternalU32Column, InternalU08Column);
+impl_cast_col_int_to_int!(InternalU32Column, InternalU16Column);
+impl_truncate_from_samesize_int!(InternalU32Column, InternalU24Column);
+impl_cast_col_noop!(InternalU32Column, InternalU32Column);
+impl_cast_col_into!(InternalU32Column, InternalU40Column);
+impl_cast_col_into!(InternalU32Column, InternalU48Column);
+impl_cast_col_into!(InternalU32Column, InternalU56Column);
+impl_cast_col_into!(InternalU32Column, InternalU64Column);
+impl_cast_col_int_to_float!(InternalU32Column, InternalF32Column);
+impl_cast_col_into!(InternalU32Column, InternalF64Column);
 
-// U48
+// U40; in general this is treated as a u64 when going to smaller types. The
+// only special thing we need to add is an additional range check for u24
+// conversion since simply converting to u32 using TryFrom won't be enough.
+//
+// Anything of the larger integer types (48, 56, 64) are the same underlying type
+// and have larger ranges, so these conversions are noops.
+//
+// f32 conversion requires similar checks to u32.
+//
+// f64 conversion is lossless since the upper integer limit of an f64 is 2^53.
 
-impl_cast_col_int_to_int!(U48Column, U08Column);
-impl_cast_col_int_to_int!(U48Column, U16Column);
-impl_cast_col_int_to_int!(U48Column, U24Column);
-impl_unwrap_trunc_int!(U48Column, U32Column);
-impl_int_to_trunc_int!(U48Column, U40Column);
-impl_cast_col_noop!(U48Column, U48Column);
-impl_cast_col_into!(U48Column, U56Column);
-impl_cast_col_into!(U48Column, U64Column);
-impl_cast_col_int_to_float!(U48Column, F32Column);
-impl_cast_col_into!(U48Column, F64Column);
+impl_cast_col_int_to_int!(InternalU40Column, InternalU08Column);
+impl_cast_col_int_to_int!(InternalU40Column, InternalU16Column);
+impl_truncate_from_int!(InternalU40Column, InternalU24Column);
+impl_cast_col_int_to_int!(InternalU40Column, InternalU32Column);
+impl_cast_col_noop!(InternalU40Column, InternalU40Column);
+impl_cast_col_noop!(InternalU40Column, InternalU48Column); // target is larger
+impl_cast_col_noop!(InternalU40Column, InternalU56Column); // target is larger
+impl_cast_col_noop!(InternalU40Column, InternalU64Column); // target is larger
+impl_cast_col_int_to_float!(InternalU40Column, InternalF32Column);
+impl_int_to_float_lossless!(InternalU40Column, InternalF64Column);
 
-// U56
+// U48; This is the same as u40 except that u48 -> u40 is an in-place truncation
+// and check since u40 is the same underlying type as u48 except with a smaller
+// range.
 
-impl_cast_col_int_to_int!(U56Column, U08Column);
-impl_cast_col_int_to_int!(U56Column, U16Column);
-impl_cast_col_int_to_int!(U56Column, U24Column);
-impl_cast_col_int_to_int!(U56Column, U32Column);
-impl_int_to_trunc_int!(U56Column, U40Column);
-impl_int_to_trunc_int!(U56Column, U48Column);
-impl_cast_col_noop!(U56Column, U56Column);
-impl_cast_col_into!(U56Column, U64Column);
-impl_cast_col_int_to_float!(U56Column, F32Column);
-impl_cast_col_int_to_float!(U56Column, F64Column);
+impl_cast_col_int_to_int!(InternalU48Column, InternalU08Column);
+impl_cast_col_int_to_int!(InternalU48Column, InternalU16Column);
+impl_truncate_from_int!(InternalU48Column, InternalU24Column);
+impl_cast_col_int_to_int!(InternalU48Column, InternalU32Column);
+impl_truncate_from_samesize_int!(InternalU48Column, InternalU40Column);
+impl_cast_col_noop!(InternalU48Column, InternalU48Column);
+impl_cast_col_noop!(InternalU48Column, InternalU56Column); // target is larger
+impl_cast_col_noop!(InternalU48Column, InternalU64Column); // target is larger
+impl_cast_col_int_to_float!(InternalU48Column, InternalF32Column);
+impl_int_to_float_lossless!(InternalU48Column, InternalF64Column);
 
-// U64
+// U56; This is the same as u48 and u40, continuing the same pattern.
+//
+// The only other difference between this and u48 is that f64 conversion is no
+// longer totally lossless, so this needs a precision check.
 
-impl_cast_col_int_to_int!(U64Column, U08Column);
-impl_cast_col_int_to_int!(U64Column, U16Column);
-impl_cast_col_int_to_int!(U64Column, U24Column);
-impl_cast_col_int_to_int!(U64Column, U32Column);
-impl_cast_col_int_to_int!(U64Column, U40Column);
-impl_cast_col_int_to_int!(U64Column, U48Column);
-impl_cast_col_int_to_int!(U64Column, U56Column);
-impl_cast_col_noop!(U64Column, U64Column);
-impl_cast_col_int_to_float!(U64Column, F32Column);
-impl_cast_col_int_to_float!(U64Column, F64Column);
+impl_cast_col_int_to_int!(InternalU56Column, InternalU08Column);
+impl_cast_col_int_to_int!(InternalU56Column, InternalU16Column);
+impl_truncate_from_int!(InternalU56Column, InternalU24Column);
+impl_cast_col_int_to_int!(InternalU56Column, InternalU32Column);
+impl_truncate_from_samesize_int!(InternalU56Column, InternalU40Column);
+impl_truncate_from_samesize_int!(InternalU56Column, InternalU48Column);
+impl_cast_col_noop!(InternalU56Column, InternalU56Column); // target is larger
+impl_cast_col_noop!(InternalU56Column, InternalU64Column);
+impl_cast_col_int_to_float!(InternalU56Column, InternalF32Column);
+impl_cast_col_int_to_float!(InternalU56Column, InternalF64Column);
 
-// F32
+// U64; Generally the same as u56, continuing the same pattern
 
-impl_cast_col_float_to_int!(F32Column, U08Column);
-impl_cast_col_float_to_int!(F32Column, U16Column);
-impl_cast_col_float_to_int!(F32Column, U24Column);
-impl_cast_col_float_to_int!(F32Column, U32Column);
-impl_cast_col_float_to_int!(F32Column, U40Column);
-impl_cast_col_float_to_int!(F32Column, U48Column);
-impl_cast_col_float_to_int!(F32Column, U56Column);
-impl_cast_col_float_to_int!(F32Column, U64Column);
-impl_cast_col_noop!(F32Column, F32Column);
-// this will always be lossless, see
+impl_cast_col_int_to_int!(InternalU64Column, InternalU08Column);
+impl_cast_col_int_to_int!(InternalU64Column, InternalU16Column);
+impl_truncate_from_int!(InternalU64Column, InternalU24Column);
+impl_cast_col_int_to_int!(InternalU64Column, InternalU32Column);
+impl_truncate_from_samesize_int!(InternalU64Column, InternalU40Column);
+impl_truncate_from_samesize_int!(InternalU64Column, InternalU48Column);
+impl_truncate_from_samesize_int!(InternalU64Column, InternalU56Column);
+impl_cast_col_noop!(InternalU64Column, InternalU64Column);
+impl_cast_col_int_to_float!(InternalU64Column, InternalF32Column);
+impl_cast_col_int_to_float!(InternalU64Column, InternalF64Column);
+
+// F32; When converting to a primitive integer, this conversion requires a
+// loss of precision check. When converting to an unaligned integer (u24, etc)
+// this additionally requires a range check to ensure the integer value is not
+// out of range.
+//
+// f32 -> f64 is lossless, see
 // https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
-impl_cast_col_into!(F32Column, F64Column);
 
-// F64
+impl_cast_col_float_to_int!(InternalF32Column, InternalU08Column);
+impl_cast_col_float_to_int!(InternalF32Column, InternalU16Column);
+impl_truncate_from_float!(InternalF32Column, InternalU24Column);
+impl_cast_col_float_to_int!(InternalF32Column, InternalU32Column);
+impl_truncate_from_float!(InternalF32Column, InternalU40Column);
+impl_truncate_from_float!(InternalF32Column, InternalU48Column);
+impl_truncate_from_float!(InternalF32Column, InternalU56Column);
+impl_cast_col_float_to_int!(InternalF32Column, InternalU64Column);
+impl_cast_col_noop!(InternalF32Column, InternalF32Column);
+impl_cast_col_into!(InternalF32Column, InternalF64Column);
 
-impl_cast_col_float_to_int!(F64Column, U08Column);
-impl_cast_col_float_to_int!(F64Column, U16Column);
-impl_cast_col_float_to_int!(F64Column, U24Column);
-impl_cast_col_float_to_int!(F64Column, U32Column);
-impl_cast_col_float_to_int!(F64Column, U40Column);
-impl_cast_col_float_to_int!(F64Column, U48Column);
-impl_cast_col_float_to_int!(F64Column, U56Column);
-impl_cast_col_float_to_int!(F64Column, U64Column);
+// F64; same as f32 except going from f64 to f32 requires a loss of precision
+// check
 
-impl FromColumn<F64Column> for F32Column {
+impl_cast_col_float_to_int!(InternalF64Column, InternalU08Column);
+impl_cast_col_float_to_int!(InternalF64Column, InternalU16Column);
+impl_truncate_from_float!(InternalF64Column, InternalU24Column);
+impl_cast_col_float_to_int!(InternalF64Column, InternalU32Column);
+impl_truncate_from_float!(InternalF64Column, InternalU40Column);
+impl_truncate_from_float!(InternalF64Column, InternalU48Column);
+impl_truncate_from_float!(InternalF64Column, InternalU56Column);
+impl_cast_col_float_to_int!(InternalF64Column, InternalU64Column);
+
+impl FromColumn<InternalF64Column> for InternalF32Column {
     #[allow(clippy::float_cmp)]
-    fn from_column(col: F64Column) -> CastColResult<Self> {
+    fn from_column(col: InternalF64Column) -> CastColResult<Self> {
         let go = |x: f64| {
             let new_value: f32 = x.as_();
             let old_value = f64::from(new_value);
             (new_value, x != old_value)
         };
-        map_buffer(&col.0, go).fmap_once(Self)
+        map_buffer(&col.inner, go).fmap_once(Self::new)
     }
 }
 
-impl_cast_col_noop!(F64Column, F64Column);
+impl_cast_col_noop!(InternalF64Column, InternalF64Column);
 
 fn buffer_int_to_float<I, F>(buf: &Buffer<I>) -> CastColResult<Buffer<F>>
 where
@@ -389,6 +577,24 @@ where
         })
         .collect();
     CastColResult::new(Buffer::from(new), err)
+}
+
+fn map_buffer_iso<F, X>(buf: Buffer<X>, mut f: F) -> CastColResult<Buffer<X>>
+where
+    X: Copy,
+    Buffer<X>: From<Vec<X>>,
+    F: FnMut(X) -> (X, bool),
+{
+    let mut err = None;
+    let mut inner = buf.make_mut();
+    for (i, x) in inner.iter_mut().enumerate() {
+        let (y, has_loss) = f(*x);
+        if has_loss {
+            err = Some(i);
+        }
+        *x = y;
+    }
+    CastColResult::new(Buffer::from(inner), err)
 }
 
 fn float_is_uint<F: Float + 'static, I: Bounded + AsPrimitive<F>>(x: F) -> bool {

@@ -4285,7 +4285,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
     let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
     let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
-    let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
+    let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
 
     let full_layout_path: Path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
 
@@ -6878,13 +6878,13 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_byteord(nbytes: usize) -> Self {
-        let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::SizedByteOrd);
+        let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
         let d = format!(
             "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
              or a list of all integers from 1 to {nbytes} in any order"
         );
         let exc = PyException::new_invalid_keyword().desc(d);
-        let path = parse_quote!(#sizedbyteord_path<#nbytes>);
+        let path = parse_quote!(#sizedbyteord_path<[u8; #nbytes]>);
         Self::new2(PyLiteral::new_endian(), PyList::new1(RsInt::U32), path).exc(exc)
     }
 
@@ -7634,9 +7634,9 @@ impl DocArgROIvar {
         let xs = (1..=n).join(",");
         let ys = (1..=n).rev().join(",");
         let body = if is_ord {
-            let sizedbyteord_path = quote!(fireflow_core::text::byteord::SizedByteOrd);
+            let sizedbyteord_path = quote!(fireflow_core::text::byteord::ArrayByteOrd);
             quote! {
-                let m: #sizedbyteord_path<2> = *self.0.as_ref();
+                let m: #sizedbyteord_path<[u8; 2]> = *self.0.as_ref();
                 m.endian()
             }
         } else {

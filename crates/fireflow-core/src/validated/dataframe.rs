@@ -714,15 +714,15 @@ impl AnyFCSColumn {
         match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, { x.0.len() })
     }
 
-    pub(crate) fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
-    where
-        F: Fn(ToType) -> Option<E>,
-        ToType: AllFCSCast,
-    {
-        match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], xs, {
-            IsFCSDataType::check_writer(xs, f)
-        })
-    }
+    // pub(crate) fn check_writer<E, F, ToType>(&self, f: F) -> Result<(), LossError<E>>
+    // where
+    //     F: Fn(ToType) -> Option<E>,
+    //     ToType: AllFCSCast,
+    // {
+    //     match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], xs, {
+    //         IsFCSDataType::check_writer(xs, f)
+    //     })
+    // }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
@@ -742,18 +742,18 @@ impl AnyFCSColumn {
         }
     }
 
-    /// The number of bytes occupied by the column if written as ASCII
-    #[must_use]
-    pub fn ascii_nbytes(&self) -> u32 {
-        match self {
-            Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::U16(xs) => u16::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::U32(xs) => u32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::U64(xs) => u64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::F32(xs) => f32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-            Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
-        }
-    }
+    // /// The number of bytes occupied by the column if written as ASCII
+    // #[must_use]
+    // pub fn ascii_nbytes(&self) -> u32 {
+    //     match self {
+    //         Self::U08(xs) => u8::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::U16(xs) => u16::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::U32(xs) => u32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::U64(xs) => u64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::F32(xs) => f32::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //         Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
+    //     }
+    // }
 }
 
 /// Error when building [`FCSDataFrame`] from individual columns
@@ -882,269 +882,269 @@ impl FCSDataFrame {
         Ok(())
     }
 
-    /// Return number of bytes this will occupy if written as delimited ASCII
-    pub(crate) fn ascii_nbytes(&self) -> u64 {
-        let n = self.size();
-        if n == 0 {
-            return 0;
-        }
-        let ndelim = n - 1;
-        let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
-        u64::from(ndigits) + ndelim
-    }
+    // /// Return number of bytes this will occupy if written as delimited ASCII
+    // pub(crate) fn ascii_nbytes(&self) -> u64 {
+    //     let n = self.size();
+    //     if n == 0 {
+    //         return 0;
+    //     }
+    //     let ndelim = n - 1;
+    //     let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
+    //     u64::from(ndigits) + ndelim
+    // }
 }
 
-pub(crate) type FCSColIter<'a, FromType, ToType> =
-    iter::Map<iter::Copied<Iter<'a, FromType>>, fn(FromType) -> CastResult<ToType>>;
+// pub(crate) type FCSColIter<'a, FromType, ToType> =
+//     iter::Map<iter::Copied<Iter<'a, FromType>>, fn(FromType) -> CastResult<ToType>>;
 
-pub(crate) trait IsFCSDataType
-where
-    Self: Sized + Copy,
-    [Self]: ToOwned,
-{
-    const NATIVE: FCSDatatype;
+// pub(crate) trait IsFCSDataType
+// where
+//     Self: Sized + Copy,
+//     [Self]: ToOwned,
+// {
+//     const NATIVE: FCSDatatype;
 
-    /// Return iterator for column, converting to native type on the fly.
-    fn as_col_iter<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
-    where
-        ToType: NumCast<Self>,
-    {
-        Self::iter_native(c).map(ToType::from_truncated)
-    }
+//     /// Return iterator for column, converting to native type on the fly.
+//     fn as_col_iter<ToType>(c: &FCSColumn<Self>) -> FCSColIter<'_, Self, ToType>
+//     where
+//         ToType: NumCast<Self>,
+//     {
+//         Self::iter_native(c).map(ToType::from_truncated)
+//     }
 
-    /// Try to convert column to native type, and return error on failure.
-    ///
-    /// This is separate from returning the iterator itself because if we can't
-    /// tolerate any loss, the only way to find with only the iterator it is
-    /// while we are using it to write a file, which opens the possibility of a
-    /// partially-written file (not good). Therefore we need to check this
-    /// before returning the iterator at all, which ironically can only be found
-    /// by iterating the entire vector once.
-    ///
-    /// This only applies to the case where we want to crash if any loss will
-    /// occur. If we only wish to warn the user and use lossy conversion
-    /// anyways, this only requires one iteration since the iterator itself will
-    /// return a [`CastResult`] which carries a flag if loss occurred.
-    fn check_writer<E, F, ToType>(c: &FCSColumn<Self>, f: F) -> Result<(), LossError<E>>
-    where
-        F: Fn(ToType) -> Option<E>,
-        ToType: NumCast<Self>,
-    {
-        for x in Self::as_col_iter::<ToType>(c) {
-            x.resolve()?;
-            if let Some(err) = f(x.new) {
-                return Err(LossError::Other(err));
-            }
-        }
-        Ok(())
-    }
+//     /// Try to convert column to native type, and return error on failure.
+//     ///
+//     /// This is separate from returning the iterator itself because if we can't
+//     /// tolerate any loss, the only way to find with only the iterator it is
+//     /// while we are using it to write a file, which opens the possibility of a
+//     /// partially-written file (not good). Therefore we need to check this
+//     /// before returning the iterator at all, which ironically can only be found
+//     /// by iterating the entire vector once.
+//     ///
+//     /// This only applies to the case where we want to crash if any loss will
+//     /// occur. If we only wish to warn the user and use lossy conversion
+//     /// anyways, this only requires one iteration since the iterator itself will
+//     /// return a [`CastResult`] which carries a flag if loss occurred.
+//     fn check_writer<E, F, ToType>(c: &FCSColumn<Self>, f: F) -> Result<(), LossError<E>>
+//     where
+//         F: Fn(ToType) -> Option<E>,
+//         ToType: NumCast<Self>,
+//     {
+//         for x in Self::as_col_iter::<ToType>(c) {
+//             x.resolve()?;
+//             if let Some(err) = f(x.new) {
+//                 return Err(LossError::Other(err));
+//             }
+//         }
+//         Ok(())
+//     }
 
-    fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
-        c.0.iter().copied()
-    }
-}
+//     fn iter_native(c: &FCSColumn<Self>) -> iter::Copied<Iter<'_, Self>> {
+//         c.0.iter().copied()
+//     }
+// }
 
-/// Error when value in [`FCSDataFrame`] loses information (type conversion or something else)
-#[derive(Clone, Copy, Display, Debug, Error)]
-pub enum LossError<E> {
-    Cast(#[from] CastError),
-    Other(E),
-}
+// /// Error when value in [`FCSDataFrame`] loses information (type conversion or something else)
+// #[derive(Clone, Copy, Display, Debug, Error)]
+// pub enum LossError<E> {
+//     Cast(#[from] CastError),
+//     Other(E),
+// }
 
-/// Error when value in [`FCSDataFrame`] loses information due to type conversion
-#[derive(Clone, Copy, Debug, Error, new)]
-#[error("data loss occurred when converting from {from} to {to}")]
-pub struct CastError {
-    from: FCSDatatype,
-    to: FCSDatatype,
-}
+// /// Error when value in [`FCSDataFrame`] loses information due to type conversion
+// #[derive(Clone, Copy, Debug, Error, new)]
+// #[error("data loss occurred when converting from {from} to {to}")]
+// pub struct CastError {
+//     from: FCSDatatype,
+//     to: FCSDatatype,
+// }
 
-impl IsFCSDataType for u8 {
-    const NATIVE: FCSDatatype = FCSDatatype::U08;
-}
+// impl IsFCSDataType for u8 {
+//     const NATIVE: FCSDatatype = FCSDatatype::U08;
+// }
 
-impl IsFCSDataType for u16 {
-    const NATIVE: FCSDatatype = FCSDatatype::U16;
-}
+// impl IsFCSDataType for u16 {
+//     const NATIVE: FCSDatatype = FCSDatatype::U16;
+// }
 
-impl IsFCSDataType for u32 {
-    const NATIVE: FCSDatatype = FCSDatatype::U32;
-}
+// impl IsFCSDataType for u32 {
+//     const NATIVE: FCSDatatype = FCSDatatype::U32;
+// }
 
-impl IsFCSDataType for u64 {
-    const NATIVE: FCSDatatype = FCSDatatype::U64;
-}
+// impl IsFCSDataType for u64 {
+//     const NATIVE: FCSDatatype = FCSDatatype::U64;
+// }
 
-impl IsFCSDataType for f32 {
-    const NATIVE: FCSDatatype = FCSDatatype::F32;
-}
+// impl IsFCSDataType for f32 {
+//     const NATIVE: FCSDatatype = FCSDatatype::F32;
+// }
 
-impl IsFCSDataType for f64 {
-    const NATIVE: FCSDatatype = FCSDatatype::F64;
-}
+// impl IsFCSDataType for f64 {
+//     const NATIVE: FCSDatatype = FCSDatatype::F64;
+// }
 
-#[cfg_attr(test, derive(Debug, PartialEq))]
-pub(crate) struct CastResult<T> {
-    pub(crate) new: T,
-    pub(crate) lossy: Option<FCSDatatype>,
-}
+// #[cfg_attr(test, derive(Debug, PartialEq))]
+// pub(crate) struct CastResult<T> {
+//     pub(crate) new: T,
+//     pub(crate) lossy: Option<FCSDatatype>,
+// }
 
-impl<T> CastResult<T> {
-    fn new<FromT: IsFCSDataType>(new: T, has_loss: bool) -> Self {
-        let lossy = has_loss.then_some(FromT::NATIVE);
-        Self { new, lossy }
-    }
+// impl<T> CastResult<T> {
+//     fn new<FromT: IsFCSDataType>(new: T, has_loss: bool) -> Self {
+//         let lossy = has_loss.then_some(FromT::NATIVE);
+//         Self { new, lossy }
+//     }
 
-    pub(crate) fn as_err(&self) -> Option<CastError>
-    where
-        T: IsFCSDataType,
-    {
-        self.lossy.map(|from| CastError::new(from, T::NATIVE))
-    }
+//     pub(crate) fn as_err(&self) -> Option<CastError>
+//     where
+//         T: IsFCSDataType,
+//     {
+//         self.lossy.map(|from| CastError::new(from, T::NATIVE))
+//     }
 
-    pub(crate) fn resolve(&self) -> Result<(), CastError>
-    where
-        T: IsFCSDataType,
-    {
-        self.as_err().map_or(Ok(()), Err)
-    }
-}
+//     pub(crate) fn resolve(&self) -> Result<(), CastError>
+//     where
+//         T: IsFCSDataType,
+//     {
+//         self.as_err().map_or(Ok(()), Err)
+//     }
+// }
 
-pub(crate) trait NumCast<T>: Sized + IsFCSDataType {
-    fn from_truncated(x: T) -> CastResult<Self>;
-}
+// pub(crate) trait NumCast<T>: Sized + IsFCSDataType {
+//     fn from_truncated(x: T) -> CastResult<Self>;
+// }
 
-macro_rules! impl_cast_noloss {
-    ($from:ident, $to:ident) => {
-        impl NumCast<$from> for $to {
-            fn from_truncated(x: $from) -> CastResult<Self> {
-                CastResult {
-                    new: x.into(),
-                    lossy: None,
-                }
-            }
-        }
-    };
-}
+// macro_rules! impl_cast_noloss {
+//     ($from:ident, $to:ident) => {
+//         impl NumCast<$from> for $to {
+//             fn from_truncated(x: $from) -> CastResult<Self> {
+//                 CastResult {
+//                     new: x.into(),
+//                     lossy: None,
+//                 }
+//             }
+//         }
+//     };
+// }
 
-macro_rules! impl_cast_int_lossy {
-    ($from:ident, $to:ident) => {
-        impl NumCast<$from> for $to {
-            fn from_truncated(x: $from) -> CastResult<Self> {
-                if let Ok(new) = $to::try_from(x) {
-                    CastResult::new::<$from>(new, false)
-                } else {
-                    CastResult::new::<$from>($to::MAX, true)
-                }
-            }
-        }
-    };
-}
+// macro_rules! impl_cast_int_lossy {
+//     ($from:ident, $to:ident) => {
+//         impl NumCast<$from> for $to {
+//             fn from_truncated(x: $from) -> CastResult<Self> {
+//                 if let Ok(new) = $to::try_from(x) {
+//                     CastResult::new::<$from>(new, false)
+//                 } else {
+//                     CastResult::new::<$from>($to::MAX, true)
+//                 }
+//             }
+//         }
+//     };
+// }
 
-macro_rules! impl_cast_float_to_int_lossy {
-    ($from:ident, $to:ident) => {
-        impl NumCast<$from> for $to {
-            #[allow(clippy::cast_precision_loss)]
-            #[allow(clippy::cast_sign_loss)]
-            #[allow(clippy::cast_lossless)]
-            #[allow(clippy::cast_possible_truncation)]
-            #[allow(clippy::as_conversions)]
-            fn from_truncated(x: $from) -> CastResult<Self> {
-                let has_loss = x.is_nan()
-                    || x.is_infinite()
-                    || x.is_sign_negative()
-                    || !x.fract().is_zero()
-                    || x > $to::MAX as $from;
-                CastResult::new::<$from>(x as $to, has_loss)
-            }
-        }
-    };
-}
+// macro_rules! impl_cast_float_to_int_lossy {
+//     ($from:ident, $to:ident) => {
+//         impl NumCast<$from> for $to {
+//             #[allow(clippy::cast_precision_loss)]
+//             #[allow(clippy::cast_sign_loss)]
+//             #[allow(clippy::cast_lossless)]
+//             #[allow(clippy::cast_possible_truncation)]
+//             #[allow(clippy::as_conversions)]
+//             fn from_truncated(x: $from) -> CastResult<Self> {
+//                 let has_loss = x.is_nan()
+//                     || x.is_infinite()
+//                     || x.is_sign_negative()
+//                     || !x.fract().is_zero()
+//                     || x > $to::MAX as $from;
+//                 CastResult::new::<$from>(x as $to, has_loss)
+//             }
+//         }
+//     };
+// }
 
-macro_rules! impl_cast_int_to_float_lossy {
-    ($from:ident, $to:ident) => {
-        impl NumCast<$from> for $to {
-            #[allow(clippy::cast_precision_loss)]
-            #[allow(clippy::cast_sign_loss)]
-            #[allow(clippy::cast_possible_truncation)]
-            #[allow(clippy::as_conversions)]
-            fn from_truncated(x: $from) -> CastResult<Self> {
-                let new = x as $to;
-                let old = new as $from;
-                CastResult::new::<$from>(new, old != x)
-            }
-        }
-    };
-}
+// macro_rules! impl_cast_int_to_float_lossy {
+//     ($from:ident, $to:ident) => {
+//         impl NumCast<$from> for $to {
+//             #[allow(clippy::cast_precision_loss)]
+//             #[allow(clippy::cast_sign_loss)]
+//             #[allow(clippy::cast_possible_truncation)]
+//             #[allow(clippy::as_conversions)]
+//             fn from_truncated(x: $from) -> CastResult<Self> {
+//                 let new = x as $to;
+//                 let old = new as $from;
+//                 CastResult::new::<$from>(new, old != x)
+//             }
+//         }
+//     };
+// }
 
-impl_cast_noloss!(u8, u8);
-impl_cast_noloss!(u8, u16);
-impl_cast_noloss!(u8, u32);
-impl_cast_noloss!(u8, u64);
-impl_cast_noloss!(u8, f32);
-impl_cast_noloss!(u8, f64);
+// impl_cast_noloss!(u8, u8);
+// impl_cast_noloss!(u8, u16);
+// impl_cast_noloss!(u8, u32);
+// impl_cast_noloss!(u8, u64);
+// impl_cast_noloss!(u8, f32);
+// impl_cast_noloss!(u8, f64);
 
-impl_cast_int_lossy!(u16, u8);
-impl_cast_noloss!(u16, u16);
-impl_cast_noloss!(u16, u32);
-impl_cast_noloss!(u16, u64);
-impl_cast_noloss!(u16, f32);
-impl_cast_noloss!(u16, f64);
+// impl_cast_int_lossy!(u16, u8);
+// impl_cast_noloss!(u16, u16);
+// impl_cast_noloss!(u16, u32);
+// impl_cast_noloss!(u16, u64);
+// impl_cast_noloss!(u16, f32);
+// impl_cast_noloss!(u16, f64);
 
-impl_cast_int_lossy!(u32, u8);
-impl_cast_int_lossy!(u32, u16);
-impl_cast_noloss!(u32, u32);
-impl_cast_noloss!(u32, u64);
-impl_cast_int_to_float_lossy!(u32, f32);
-impl_cast_noloss!(u32, f64);
+// impl_cast_int_lossy!(u32, u8);
+// impl_cast_int_lossy!(u32, u16);
+// impl_cast_noloss!(u32, u32);
+// impl_cast_noloss!(u32, u64);
+// impl_cast_int_to_float_lossy!(u32, f32);
+// impl_cast_noloss!(u32, f64);
 
-impl_cast_int_lossy!(u64, u8);
-impl_cast_int_lossy!(u64, u16);
-impl_cast_int_lossy!(u64, u32);
-impl_cast_noloss!(u64, u64);
-impl_cast_int_to_float_lossy!(u64, f32);
-impl_cast_int_to_float_lossy!(u64, f64);
+// impl_cast_int_lossy!(u64, u8);
+// impl_cast_int_lossy!(u64, u16);
+// impl_cast_int_lossy!(u64, u32);
+// impl_cast_noloss!(u64, u64);
+// impl_cast_int_to_float_lossy!(u64, f32);
+// impl_cast_int_to_float_lossy!(u64, f64);
 
-impl_cast_float_to_int_lossy!(f32, u8);
-impl_cast_float_to_int_lossy!(f32, u16);
-impl_cast_float_to_int_lossy!(f32, u32);
-impl_cast_float_to_int_lossy!(f32, u64);
-impl_cast_noloss!(f32, f32);
-// this will always be lossless, see
-// https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
-impl_cast_noloss!(f32, f64);
+// impl_cast_float_to_int_lossy!(f32, u8);
+// impl_cast_float_to_int_lossy!(f32, u16);
+// impl_cast_float_to_int_lossy!(f32, u32);
+// impl_cast_float_to_int_lossy!(f32, u64);
+// impl_cast_noloss!(f32, f32);
+// // this will always be lossless, see
+// // https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
+// impl_cast_noloss!(f32, f64);
 
-impl_cast_float_to_int_lossy!(f64, u8);
-impl_cast_float_to_int_lossy!(f64, u16);
-impl_cast_float_to_int_lossy!(f64, u32);
-impl_cast_float_to_int_lossy!(f64, u64);
+// impl_cast_float_to_int_lossy!(f64, u8);
+// impl_cast_float_to_int_lossy!(f64, u16);
+// impl_cast_float_to_int_lossy!(f64, u32);
+// impl_cast_float_to_int_lossy!(f64, u64);
 
-impl NumCast<f64> for f32 {
-    #[allow(clippy::cast_possible_truncation)]
-    #[allow(clippy::float_cmp)]
-    #[allow(clippy::as_conversions)]
-    fn from_truncated(x: f64) -> CastResult<Self> {
-        let new = x as Self;
-        let old = f64::from(new);
-        CastResult::new::<f64>(new, old != x)
-    }
-}
+// impl NumCast<f64> for f32 {
+//     #[allow(clippy::cast_possible_truncation)]
+//     #[allow(clippy::float_cmp)]
+//     #[allow(clippy::as_conversions)]
+//     fn from_truncated(x: f64) -> CastResult<Self> {
+//         let new = x as Self;
+//         let old = f64::from(new);
+//         CastResult::new::<f64>(new, old != x)
+//     }
+// }
 
-impl_cast_noloss!(f64, f64);
+// impl_cast_noloss!(f64, f64);
 
-pub(crate) fn cast_nbytes(x: &CastResult<u64>) -> u32 {
-    u8::from(Chars::from_u64(x.new)).into()
-}
+// pub(crate) fn cast_nbytes(x: &CastResult<u64>) -> u32 {
+//     u8::from(Chars::from_u64(x.new)).into()
+// }
 
-pub(crate) trait AllFCSCast:
-    NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
-{
-}
+// pub(crate) trait AllFCSCast:
+//     NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
+// {
+// }
 
-impl<T> AllFCSCast for T where
-    T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
-{
-}
+// impl<T> AllFCSCast for T where
+//     T: NumCast<u8> + NumCast<u16> + NumCast<u32> + NumCast<u64> + NumCast<f32> + NumCast<f64>
+// {
+// }
 
 // TODO this seems like a good place for property testing
 // (https://github.com/proptest-rs/proptest)

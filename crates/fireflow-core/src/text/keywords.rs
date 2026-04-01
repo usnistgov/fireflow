@@ -47,6 +47,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
+use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use nonempty_collections::{NEMap, NESlice};
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
@@ -87,6 +88,7 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use super::byteord::ArrayByteOrd;
 use super::index::IndexFromOne;
 use super::lookup::{
     DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed, TrimmedKeyword,
@@ -1675,14 +1677,14 @@ impl_str_enum_kw!(
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum ByteOrd2_0 {
-    O1(SizedByteOrd<1>),
-    O2(SizedByteOrd<2>),
-    O3(SizedByteOrd<3>),
-    O4(SizedByteOrd<4>),
-    O5(SizedByteOrd<5>),
-    O6(SizedByteOrd<6>),
-    O7(SizedByteOrd<7>),
-    O8(SizedByteOrd<8>),
+    O1(ArrayByteOrd<[u8; 1]>),
+    O2(ArrayByteOrd<[u8; 2]>),
+    O3(ArrayByteOrd<[u8; 3]>),
+    O4(ArrayByteOrd<[u8; 4]>),
+    O5(ArrayByteOrd<[u8; 5]>),
+    O6(ArrayByteOrd<[u8; 6]>),
+    O7(ArrayByteOrd<[u8; 7]>),
+    O8(ArrayByteOrd<[u8; 8]>),
 }
 
 impl FromStr for ByteOrd2_0 {
@@ -1714,7 +1716,7 @@ pub struct ByteordDigitError;
 impl Default for ByteOrd2_0 {
     fn default() -> Self {
         // Default $BYTEORD for FCS 2.0 is simply 32-bit little endian
-        Self::O4(SizedByteOrd::default())
+        Self::O4(ArrayByteOrd::default())
     }
 }
 
@@ -1756,14 +1758,14 @@ impl ByteOrd2_0 {
     fn is_endian(&self) -> bool {
         matches!(
             self,
-            Self::O1(SizedByteOrd::Endian(_))
-                | Self::O2(SizedByteOrd::Endian(_))
-                | Self::O3(SizedByteOrd::Endian(_))
-                | Self::O4(SizedByteOrd::Endian(_))
-                | Self::O5(SizedByteOrd::Endian(_))
-                | Self::O6(SizedByteOrd::Endian(_))
-                | Self::O7(SizedByteOrd::Endian(_))
-                | Self::O8(SizedByteOrd::Endian(_))
+            Self::O1(ArrayByteOrd::Endian(_))
+                | Self::O2(ArrayByteOrd::Endian(_))
+                | Self::O3(ArrayByteOrd::Endian(_))
+                | Self::O4(ArrayByteOrd::Endian(_))
+                | Self::O5(ArrayByteOrd::Endian(_))
+                | Self::O6(ArrayByteOrd::Endian(_))
+                | Self::O7(ArrayByteOrd::Endian(_))
+                | Self::O8(ArrayByteOrd::Endian(_))
         )
     }
 }
@@ -3198,6 +3200,21 @@ impl ToDisplayNE<'_> for Width {
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Range(pub BigDecimal);
 
+macro_rules! impl_from_unaligned {
+    ($t:ident) => {
+        impl From<$t> for Range {
+            fn from(value: $t) -> Self {
+                u64::from(value).into()
+            }
+        }
+    };
+}
+
+impl_from_unaligned!(U24);
+impl_from_unaligned!(U40);
+impl_from_unaligned!(U48);
+impl_from_unaligned!(U56);
+
 impl Range {
     pub(crate) fn into_uint<T>(self) -> DeferredError<BitmaskValue<T>, RangeToIntError<()>>
     where
@@ -3256,18 +3273,18 @@ macro_rules! try_from_range_int {
             fn try_from(value: Range) -> Result<Self, Self::Error> {
                 let x = &value.0;
                 let err = |error_kind| RangeToIntError {
-                    dest_type: UintType::$ut,
+                    dest_type: PrivBytes::$ut,
                     src_value: x.clone(),
                     error_kind,
                 };
-                if let Some(y) = x.$to() {
-                    if x.fractional_digit_count() <= 0 {
+                if let Some(y) = x.$to().and_then(|y| y.try_into().ok()) {
+                    if x.fractional_digit_count() <= 0 && y <= $inttype::max_value() {
                         Ok(y)
                     } else {
                         Err(err(RangeToIntErrorKind::PrecisionLoss(y)))
                     }
                 } else {
-                    if BigDecimal::from($inttype::MAX) < *x {
+                    if BigDecimal::from($inttype::max_value()) < *x {
                         Err(err(RangeToIntErrorKind::Overrange))
                     } else {
                         Err(err(RangeToIntErrorKind::Underrange))
@@ -3278,10 +3295,14 @@ macro_rules! try_from_range_int {
     };
 }
 
-try_from_range_int!(u8, to_u8, U8);
-try_from_range_int!(u16, to_u16, U16);
-try_from_range_int!(u32, to_u32, U32);
-try_from_range_int!(u64, to_u64, U64);
+try_from_range_int!(u8, to_u8, B1);
+try_from_range_int!(u16, to_u16, B2);
+try_from_range_int!(U24, to_u32, B3);
+try_from_range_int!(u32, to_u32, B4);
+try_from_range_int!(U40, to_u64, B5);
+try_from_range_int!(U48, to_u64, B6);
+try_from_range_int!(U56, to_u64, B7);
+try_from_range_int!(u64, to_u64, B8);
 
 /// Error when converting [`Range`] to integer.
 ///
@@ -3289,29 +3310,21 @@ try_from_range_int!(u64, to_u64, U64);
 /// external use.
 #[derive(Debug)]
 pub struct RangeToIntError<T> {
-    pub(crate) dest_type: UintType,
+    pub(crate) dest_type: PrivBytes,
     pub(crate) src_value: BigDecimal,
     pub(crate) error_kind: RangeToIntErrorKind<T>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum UintType {
-    U8,
-    U16,
-    U32,
-    U64,
-}
-
-impl From<UintType> for PrivBytes {
-    fn from(value: UintType) -> Self {
-        match value {
-            UintType::U8 => Self::B1,
-            UintType::U16 => Self::B2,
-            UintType::U32 => Self::B4,
-            UintType::U64 => Self::B8,
-        }
-    }
-}
+// impl From<UintType> for PrivBytes {
+//     fn from(value: UintType) -> Self {
+//         match value {
+//             UintType::U8 => Self::B1,
+//             UintType::U16 => Self::B2,
+//             UintType::U32 => Self::B4,
+//             UintType::U64 => Self::B8,
+//         }
+//     }
+// }
 
 #[derive(Debug)]
 pub(crate) enum RangeToIntErrorKind<T> {

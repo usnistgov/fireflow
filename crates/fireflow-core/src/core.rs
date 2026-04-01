@@ -5038,61 +5038,62 @@ where
     where
         Version: From<M::Ver>,
     {
-        let df = &self.data;
-        let layout = &self.layout;
-        let delim = conf.text.delim;
-        let tot = Tot(df.nrows());
-        let analysis_len =
-            u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
-        let others = &self.others.0[..];
+        unimplemented!()
+        // let df = &self.data;
+        // let layout = &self.layout;
+        // let delim = conf.text.delim;
+        // let tot = Tot(df.nrows());
+        // let analysis_len =
+        //     u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
+        // let others = &self.others.0[..];
 
-        let check_res = if conf.skip_conversion_check.is_set() {
-            LogResult::new_ok(())
-        } else {
-            layout.check_writer(df)
-        };
+        // let check_res = if conf.skip_conversion_check.is_set() {
+        //     LogResult::new_ok(())
+        // } else {
+        //     layout.check_writer(df)
+        // };
 
-        check_res
-            .map_errors(StdWriterError::from)
-            .nowarn_into_warn()
-            .group()
-            .map_error(IOErrorGroup::Pure)
-            // write HEADER+TEXT+OTHER(s) first
-            .and_then_commutative(|()| {
-                let data_len = layout.nbytes(df);
-                let ht_conf = WriteHeaderAndTextConfig {
-                    delim,
-                    tot,
-                    data_len,
-                    analysis_len,
-                    other_segs: others,
-                    has_nextdata,
-                };
-                let res = if conf.text.big_other.is_set() {
-                    self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
-                } else {
-                    self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
-                };
-                res.map_err(|e| e.fmap_once(StdWriterError::from))
-                    .map_err(IOErrorGroup::from)
-                    .into_log()
-            })
-            // write DATA; conversion check flag is flipped from above since
-            // we want to emit warnings as we are writing if we did not run
-            // through the data once at the beginning and check for
-            // conversion loss.
-            //
-            // TODO this will be very slow if we know that there are no losses
-            .and_commutative(|| {
-                let flag = !conf.skip_conversion_check.is_set();
-                layout.h_write_df(h, df, flag).map_error(IOErrorGroup::from)
-            })
-            // write ANALYSIS
-            .and_commutative(|| {
-                io_to_log!(h.write_all(&self.analysis.0));
-                LogResult::new_ok(())
-            })
-            .deanonymize()
+        // check_res
+        //     .map_errors(StdWriterError::from)
+        //     .nowarn_into_warn()
+        //     .group()
+        //     .map_error(IOErrorGroup::Pure)
+        //     // write HEADER+TEXT+OTHER(s) first
+        //     .and_then_commutative(|()| {
+        //         let data_len = layout.nbytes(df);
+        //         let ht_conf = WriteHeaderAndTextConfig {
+        //             delim,
+        //             tot,
+        //             data_len,
+        //             analysis_len,
+        //             other_segs: others,
+        //             has_nextdata,
+        //         };
+        //         let res = if conf.text.big_other.is_set() {
+        //             self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
+        //         } else {
+        //             self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
+        //         };
+        //         res.map_err(|e| e.fmap_once(StdWriterError::from))
+        //             .map_err(IOErrorGroup::from)
+        //             .into_log()
+        //     })
+        //     // write DATA; conversion check flag is flipped from above since
+        //     // we want to emit warnings as we are writing if we did not run
+        //     // through the data once at the beginning and check for
+        //     // conversion loss.
+        //     //
+        //     // TODO this will be very slow if we know that there are no losses
+        //     .and_commutative(|| {
+        //         let flag = !conf.skip_conversion_check.is_set();
+        //         layout.h_write_df(h, df, flag).map_error(IOErrorGroup::from)
+        //     })
+        //     // write ANALYSIS
+        //     .and_commutative(|| {
+        //         io_to_log!(h.write_all(&self.analysis.0));
+        //         LogResult::new_ok(())
+        //     })
+        //     .deanonymize()
     }
 
     /// Return reference to DATA segment as dataframe.
@@ -5141,25 +5142,25 @@ where
         Ok(())
     }
 
-    /// Coerce all values in DATA to fit within types specified in layout.
-    ///
-    /// If `skip_conv_check` is `false`, also return warnings for truncation;
-    /// otherwise truncation is performed silently.
-    ///
-    /// This will copy the entire dataframe regardless of whether or not the
-    /// data needs to be truncated. This will hopefully be fixed in the future.
-    pub fn truncate_data(&mut self, skip_conv_check: bool) -> WarningsResult<(), IndexedLossError> {
-        // TODO this function is hilariously not-optimized; each column will be
-        // cast into a totally new vector even if they are they exact same
-        // type with no possible truncation. This also means that the new
-        // dataframe will be totally separate from the old one. Unfortunately,
-        // the best fix for this requires specialization, since we need a way
-        // to tell rust to do nothing when the input and output types match and
-        // otherwise do something else.
-        self.layout
-            .truncate_df(&self.data, skip_conv_check)
-            .fmap_once(|data| self.data = data)
-    }
+    // /// Coerce all values in DATA to fit within types specified in layout.
+    // ///
+    // /// If `skip_conv_check` is `false`, also return warnings for truncation;
+    // /// otherwise truncation is performed silently.
+    // ///
+    // /// This will copy the entire dataframe regardless of whether or not the
+    // /// data needs to be truncated. This will hopefully be fixed in the future.
+    // pub fn truncate_data(&mut self, skip_conv_check: bool) -> WarningsResult<(), IndexedLossError> {
+    //     // TODO this function is hilariously not-optimized; each column will be
+    //     // cast into a totally new vector even if they are they exact same
+    //     // type with no possible truncation. This also means that the new
+    //     // dataframe will be totally separate from the old one. Unfortunately,
+    //     // the best fix for this requires specialization, since we need a way
+    //     // to tell rust to do nothing when the input and output types match and
+    //     // otherwise do something else.
+    //     self.layout
+    //         .truncate_df(&self.data, skip_conv_check)
+    //         .fmap_once(|data| self.data = data)
+    // }
 
     /// Remove a measurement matching the given name.
     ///

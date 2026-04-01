@@ -6,6 +6,7 @@ use crate::logging::{
 use crate::text::byteord::PrivBytes;
 use crate::text::index::MeasIndex;
 use crate::text::keywords::Range;
+use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use bigdecimal::BigDecimal;
 use derive_more::Display;
@@ -17,7 +18,7 @@ use std::ops::Shr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::unaligned::FileBytes;
+use super::unaligned::FCSRepr;
 
 #[cfg(feature = "python")]
 use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
@@ -49,11 +50,11 @@ pub struct BitmaskValue<T>(pub T);
 
 pub type Bitmask08 = Bitmask<u8, 1>;
 pub type Bitmask16 = Bitmask<u16, 2>;
-pub type Bitmask24 = Bitmask<u32, 3>;
+pub type Bitmask24 = Bitmask<U24, 3>;
 pub type Bitmask32 = Bitmask<u32, 4>;
-pub type Bitmask40 = Bitmask<u64, 5>;
-pub type Bitmask48 = Bitmask<u64, 6>;
-pub type Bitmask56 = Bitmask<u64, 7>;
+pub type Bitmask40 = Bitmask<U40, 5>;
+pub type Bitmask48 = Bitmask<U48, 6>;
+pub type Bitmask56 = Bitmask<U56, 7>;
 pub type Bitmask64 = Bitmask<u64, 8>;
 
 impl<T, const LEN: usize> From<&Bitmask<T, LEN>> for Range
@@ -100,10 +101,10 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         value: BitmaskValue<T>,
     ) -> DeferredError<Self, BitmaskTruncationError>
     where
-        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + FileBytes,
+        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + FCSRepr,
     {
         let (bitmask, truncated) = Self::from_native(value);
-        let error = truncated.then(|| BitmaskTruncationError::new(T::BYTES.0, value.0.into()));
+        let error = truncated.then(|| BitmaskTruncationError::new(T::FILE_BYTES.0, value.0.into()));
         LogResult::new_deferred_maybe(bitmask, error)
     }
 
@@ -125,12 +126,12 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     pub fn from_native(value: BitmaskValue<T>) -> (Self, bool)
     where
-        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + FileBytes,
+        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + FCSRepr,
     {
         // use min_value rather than zero to avoid constraints
         debug_assert!(T::min_value().into() == 0_u64, "min must be zero");
         let value64: u64 = value.0.into();
-        let max_bits = u32::from(u8::from(T::BYTES)) * 8;
+        let max_bits = u32::from(u8::from(T::FILE_BYTES)) * 8;
         let value_bits = u64::BITS - value64.leading_zeros();
         let mask = if value_bits == 0 {
             T::min_value()
@@ -145,7 +146,7 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     pub(crate) fn from_u64(value: u64) -> (Self, bool)
     where
-        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + TryFrom<u64> + FileBytes,
+        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + TryFrom<u64> + FCSRepr,
     {
         T::try_from(value)
             .map(BitmaskValue)
@@ -258,7 +259,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use crate::validated::unaligned::FileBytes;
+    use crate::validated::unaligned::FCSRepr;
 
     use super::{Bitmask, BitmaskValue};
 
@@ -275,7 +276,7 @@ mod python {
         for<'a> T: FromPyObjectBound<'a, 'py>
             + fmt::Display
             + Into<u64>
-            + FileBytes
+            + FCSRepr
             + Bounded
             + Copy
             + Shr<usize, Output = T>,

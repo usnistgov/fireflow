@@ -35,6 +35,18 @@ pub enum SizedByteOrd<const LEN: usize> {
     Order([u8; LEN]),
 }
 
+/// Byte order with known size in bytes
+#[derive(PartialEq, Eq, Hash, Copy, Clone, From, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum ArrayByteOrd<A> {
+    /// Either big or little endian
+    #[from]
+    Endian(Endian),
+
+    /// The byte order if mixed (not monotonically increasing/decreasing)
+    Order(A),
+}
+
 /// Endianness (big or little)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -138,7 +150,28 @@ macro_rules! byteord_from_sized {
             }
         }
 
-        impl TryFrom<ByteOrd2_0> for SizedByteOrd<$len> {
+        impl TryFrom<ArrayByteOrd<[u8; $len]>> for Endian {
+            type Error = OrderedToEndianError;
+            fn try_from(value: ArrayByteOrd<[u8; $len]>) -> Result<Self, Self::Error> {
+                match value {
+                    ArrayByteOrd::Endian(x) => Ok(x),
+                    ArrayByteOrd::Order(_) => Err(OrderedToEndianError),
+                }
+            }
+        }
+
+        // impl TryFrom<ByteOrd2_0> for SizedByteOrd<$len> {
+        //     type Error = ByteOrdToSizedError;
+        //     fn try_from(value: ByteOrd2_0) -> Result<Self, Self::Error> {
+        //         if let ByteOrd2_0::$var(sized) = value {
+        //             Ok(sized)
+        //         } else {
+        //             Err(ByteOrdToSizedError::new(value.nbytes(), $len))
+        //         }
+        //     }
+        // }
+
+        impl TryFrom<ByteOrd2_0> for ArrayByteOrd<[u8; $len]> {
             type Error = ByteOrdToSizedError;
             fn try_from(value: ByteOrd2_0) -> Result<Self, Self::Error> {
                 if let ByteOrd2_0::$var(sized) = value {
@@ -154,6 +187,42 @@ macro_rules! byteord_from_sized {
         /// Correct array will be from the set of {1..$len} and each number
         /// will only appear once in any order.
         impl TryFrom<[NonZeroU8; $len]> for SizedByteOrd<$len> {
+            type Error = NewByteOrdError;
+            fn try_from(xs: [NonZeroU8; $len]) -> Result<Self, Self::Error> {
+                let mut flags = [false; $len];
+                // Try to subtract one from each number. While doing so, track
+                // which numbers were seen by setting flags in an array where
+                // each index corresponds to the number we wish to see. If all
+                // are true, then each number is present.
+                let ys = xs.map(|x| {
+                    let y = u8::from(x) - 1;
+                    if y < $len {
+                        flags[usize::from(y)] = true;
+                    }
+                    y
+                });
+                if flags.iter().all(|x| *x) {
+                    let mut it = ys.iter().copied().map(usize::from);
+                    let ret = if it.by_ref().enumerate().all(|(i, x)| i == x) {
+                        Self::Endian(Endian::Little)
+                    } else if it.rev().enumerate().all(|(i, x)| i == x) {
+                        Self::Endian(Endian::Big)
+                    } else {
+                        // something else (mixed)
+                        Self::Order(ys)
+                    };
+                    Ok(ret)
+                } else {
+                    Err(NewByteOrdError($len))
+                }
+            }
+        }
+
+        /// Convert array of length $len to byte order.
+        ///
+        /// Correct array will be from the set of {1..$len} and each number
+        /// will only appear once in any order.
+        impl TryFrom<[NonZeroU8; $len]> for ArrayByteOrd<[u8; $len]> {
             type Error = NewByteOrdError;
             fn try_from(xs: [NonZeroU8; $len]) -> Result<Self, Self::Error> {
                 let mut flags = [false; $len];
@@ -202,19 +271,54 @@ macro_rules! byteord_from_sized {
             }
         }
 
+        impl From<ArrayByteOrd<[u8; $len]>> for [NonZeroU8; $len] {
+            fn from(value: ArrayByteOrd<[u8; $len]>) -> Self {
+                debug_assert!($len <= 8_usize, "this should not be called for len > 8");
+                let arr = match value {
+                    ArrayByteOrd::Endian(e) => {
+                        let mut o = std::array::from_fn(|i| u8::try_from(i).unwrap());
+                        if e == Endian::Big {
+                            o.reverse();
+                        };
+                        o
+                    }
+                    ArrayByteOrd::Order(o) => o,
+                };
+                arr.map(|x| NonZeroU8::MIN.saturating_add(x))
+            }
+        }
+
         impl SizedByteOrd<$len> {
             pub(crate) fn nbytes() -> PrivBytes {
                 PrivBytes::$bytes
             }
         }
 
-        impl HasByteOrd for SizedByteOrd<$len> {
+        impl ArrayByteOrd<[u8; $len]> {
+            pub(crate) fn nbytes() -> PrivBytes {
+                PrivBytes::$bytes
+            }
+        }
+
+        // impl HasByteOrd for SizedByteOrd<$len> {
+        //     type ByteOrd = ByteOrd2_0;
+        // }
+
+        impl HasByteOrd for ArrayByteOrd<[u8; $len]> {
             type ByteOrd = ByteOrd2_0;
         }
 
         // TODO could return an array here instead of vec but this would require
         // enumerating each size in ByteOrd2_0
         impl<'a> ToDisplayNE<'a> for SizedByteOrd<$len> {
+            type NE = NEDelim<NEVec<NonZeroU8>>;
+            fn to_ne(&'a self) -> Self::NE {
+                let xs = <[NonZeroU8; $len]>::from(*self);
+                NEDelim::new(',', xs.into_nonempty_iter().collect())
+            }
+        }
+
+        impl<'a> ToDisplayNE<'a> for ArrayByteOrd<[u8; $len]> {
             type NE = NEDelim<NEVec<NonZeroU8>>;
             fn to_ne(&'a self) -> Self::NE {
                 let xs = <[NonZeroU8; $len]>::from(*self);
@@ -280,6 +384,12 @@ impl TryFrom<&[NonZeroU8]> for ByteOrd2_0 {
 }
 
 impl<const LEN: usize> Default for SizedByteOrd<LEN> {
+    fn default() -> Self {
+        Self::Endian(Endian::default())
+    }
+}
+
+impl<const LEN: usize> Default for ArrayByteOrd<[u8; LEN]> {
     fn default() -> Self {
         Self::Endian(Endian::default())
     }

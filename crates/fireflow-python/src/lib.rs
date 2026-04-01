@@ -349,7 +349,7 @@ macro_rules! impl_coredataset_common {
         impl_coredataset_set_measurements_layout_and_data!($pytype);
         impl_core_write_dataset!($pytype);
         impl_coredataset_unset_data!($pytype);
-        impl_coredataset_truncate_data!($pytype);
+        // impl_coredataset_truncate_data!($pytype);
     };
 }
 

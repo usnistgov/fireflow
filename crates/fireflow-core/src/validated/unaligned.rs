@@ -1,31 +1,47 @@
+use bigdecimal::BigDecimal;
 use bytemuck::NoUninit;
-use derive_more::{From, Into};
-use num_traits::Bounded;
+use derive_more::{From, Into, Shr};
+use num_traits::{Bounded, FromBytes, ToBytes};
 
 use crate::text::byteord::{Bytes, PrivBytes};
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit)]
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+)]
 #[into(u32, u64)]
 #[from(u8, u16)]
 #[repr(transparent)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) struct U24(u32);
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+)]
 #[into(u64)]
 #[from(u8, u16, u32)]
 #[repr(transparent)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) struct U40(u64);
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+)]
 #[into(u64)]
 #[from(u8, u16, u32)]
 #[repr(transparent)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) struct U48(u64);
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit)]
+#[derive(
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+)]
 #[into(u64)]
 #[from(u8, u16, u32)]
 #[repr(transparent)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub(crate) struct U56(u64);
 
 pub(crate) struct TryFromUnalignedIntError;
@@ -35,28 +51,86 @@ pub(crate) struct TryFromUnalignedIntError;
 //     fn cast_from_vec(xs: Vec<Inner>) -> (Vec<Self>, Option<usize>);
 // }
 
-pub trait FileBytes {
-    const BYTES: Bytes;
+/// A type that can be converted from an FCS value to a memory value.
+///
+/// This is used for the various data types present in an FCS file.
+// TODO this will be way less awkward once we get const traits (or simply the
+// ability to use a const value as an array size, since for now I need to
+// use fully-generic types for all arrays
+pub trait FCSRepr {
+    /// Length of type in bytes when in a file (as enum 1-8)
+    const FILE_BYTES: Bytes;
+
+    /// Length of type in bytes when in memory (as enum 1-8)
+    const MEM_BYTES: Bytes;
+
+    /// Byte buffer for type within FCS file.
+    type FileBuf;
+
+    /// Byte buffer for type in memory (may not be same size as that in file).
+    type MemBuf;
+
+    /// The order the bytes appear in the file if not little/big endian.
+    type ByteOrd;
+
+    fn file_len() -> usize {
+        usize::from(u8::from(Self::FILE_BYTES))
+    }
+
+    fn mem_len() -> usize {
+        usize::from(u8::from(Self::MEM_BYTES))
+    }
+
+    fn from_ordered_bytes(bytes: &Self::FileBuf, order: &Self::ByteOrd) -> Self
+    where
+        Self: FromBytes<Bytes = Self::FileBuf>,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+        Self::ByteOrd: AsRef<[u8]>,
+    {
+        let mut buf = Self::FileBuf::default();
+        for (i, j) in order.as_ref().iter().enumerate() {
+            buf.as_mut()[i] = bytes.as_ref()[usize::from(*j)];
+        }
+        Self::from_le_bytes(&buf)
+    }
+
+    unsafe fn array_from_slice(bytes: &[u8], i: usize) -> Self::FileBuf;
 }
 
 macro_rules! impl_file_bytes {
-    ($t:ident, $n:ident) => {
-        impl FileBytes for $t {
-            const BYTES: Bytes = Bytes(PrivBytes::$n);
+    ($t:ident, $file_bytes:ident, $mem_bytes:ident, $file_len:expr, $mem_len:expr) => {
+        impl FCSRepr for $t {
+            const FILE_BYTES: Bytes = Bytes(PrivBytes::$file_bytes);
+            const MEM_BYTES: Bytes = Bytes(PrivBytes::$mem_bytes);
+            type FileBuf = [u8; $file_len];
+            type MemBuf = [u8; $mem_len];
+            type ByteOrd = Self::FileBuf;
+
+            unsafe fn array_from_slice(bytes: &[u8], i: usize) -> Self::FileBuf {
+                // SAFETY: length of output and input should match
+                unsafe { array_from_slice(bytes, i, Self::file_len()) }
+            }
         }
     };
 }
 
-impl_file_bytes!(u8, B1);
-impl_file_bytes!(u16, B2);
-impl_file_bytes!(U24, B3);
-impl_file_bytes!(u32, B4);
-impl_file_bytes!(U40, B5);
-impl_file_bytes!(U48, B6);
-impl_file_bytes!(U56, B7);
-impl_file_bytes!(u64, B8);
-impl_file_bytes!(f32, B4);
-impl_file_bytes!(f64, B8);
+unsafe fn array_from_slice<const LEN: usize>(bytes: &[u8], i: usize, n: usize) -> [u8; LEN] {
+    // SAFETY: caller should ensure this is not out of bounds
+    let xs = unsafe { bytes.get_unchecked(i..i + n) };
+    // SAFETY: the caller should ensure that LEN is set properly
+    unsafe { *(xs.as_ptr().cast()) }
+}
+
+impl_file_bytes!(u8, B1, B1, 1, 1);
+impl_file_bytes!(u16, B2, B2, 2, 2);
+impl_file_bytes!(U24, B3, B4, 3, 4);
+impl_file_bytes!(u32, B4, B4, 4, 4);
+impl_file_bytes!(U40, B5, B8, 5, 8);
+impl_file_bytes!(U48, B6, B8, 6, 8);
+impl_file_bytes!(U56, B7, B8, 7, 8);
+impl_file_bytes!(u64, B8, B8, 8, 8);
+impl_file_bytes!(f32, B4, B4, 4, 4);
+impl_file_bytes!(f64, B8, B8, 8, 8);
 
 macro_rules! impl_unaligned {
     ($inner:ident, $outer:ident, $n:expr) => {
@@ -81,13 +155,101 @@ macro_rules! impl_unaligned {
                 Self((1 << $n) - 1)
             }
         }
+
+        impl FromBytes for $outer {
+            type Bytes = <$outer as FCSRepr>::FileBuf;
+
+            fn from_be_bytes(bytes: &Self::Bytes) -> Self {
+                Self(from_unaligned_be_bytes(bytes))
+            }
+
+            fn from_le_bytes(bytes: &Self::Bytes) -> Self {
+                Self(from_unaligned_le_bytes(bytes))
+            }
+        }
+
+        impl ToBytes for $outer {
+            type Bytes = <$outer as FCSRepr>::FileBuf;
+
+            fn to_be_bytes(&self) -> Self::Bytes {
+                to_unaligned_be_bytes(&self.0)
+            }
+
+            fn to_le_bytes(&self) -> Self::Bytes {
+                to_unaligned_le_bytes(&self.0)
+            }
+        }
+
+        impl From<$outer> for BigDecimal {
+            fn from(value: $outer) -> Self {
+                Self::from(value.0)
+            }
+        }
     };
+}
+
+impl TryFrom<u64> for U24 {
+    type Error = TryFromUnalignedIntError;
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        let inner = u32::try_from(value).map_err(|_| TryFromUnalignedIntError)?;
+        Self::try_from(inner)
+    }
 }
 
 impl_unaligned!(u32, U24, 24);
 impl_unaligned!(u64, U40, 40);
 impl_unaligned!(u64, U48, 48);
 impl_unaligned!(u64, U56, 56);
+
+fn from_unaligned_be_bytes<
+    T: FromBytes<Bytes = [u8; OUTER_LEN]>,
+    const INNER_LEN: usize,
+    const OUTER_LEN: usize,
+>(
+    bytes: &[u8; INNER_LEN],
+) -> T {
+    let mut buf = [0; OUTER_LEN];
+    let b = OUTER_LEN - INNER_LEN;
+    buf[b..].copy_from_slice(bytes);
+    T::from_be_bytes(&buf)
+}
+
+fn from_unaligned_le_bytes<
+    T: FromBytes<Bytes = [u8; OUTER_LEN]>,
+    const INNER_LEN: usize,
+    const OUTER_LEN: usize,
+>(
+    bytes: &[u8; INNER_LEN],
+) -> T {
+    let mut buf = [0; OUTER_LEN];
+    buf[..INNER_LEN].copy_from_slice(bytes);
+    T::from_le_bytes(&buf)
+}
+
+fn to_unaligned_be_bytes<
+    T: ToBytes<Bytes = [u8; INNER_LEN]>,
+    const INNER_LEN: usize,
+    const OUTER_LEN: usize,
+>(
+    x: &T,
+) -> [u8; OUTER_LEN] {
+    let mut buf = [0; OUTER_LEN];
+    let b = OUTER_LEN - INNER_LEN;
+    buf.copy_from_slice(&x.to_be_bytes()[b..]);
+    buf
+}
+
+fn to_unaligned_le_bytes<
+    T: ToBytes<Bytes = [u8; INNER_LEN]>,
+    const INNER_LEN: usize,
+    const OUTER_LEN: usize,
+>(
+    x: &T,
+) -> [u8; OUTER_LEN] {
+    let mut buf = [0; OUTER_LEN];
+    buf.copy_from_slice(&x.to_le_bytes()[..INNER_LEN]);
+    buf
+}
 
 // macro_rules! impl_castable_vec_unaligned {
 //     ($from:ident, $inner:ident, $to:ident) => {

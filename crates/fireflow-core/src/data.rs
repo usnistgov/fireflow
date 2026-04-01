@@ -67,8 +67,8 @@ use crate::logging::{
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
-    BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd, NoByteOrd3_1,
-    OrderedToEndianError, PrivBytes, SizedByteOrd, WidthToBytesError, WidthToFixedError,
+    ArrayByteOrd, BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd,
+    NoByteOrd3_1, OrderedToEndianError, PrivBytes, WidthToBytesError, WidthToFixedError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -90,12 +90,9 @@ use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
     Bitmask64, BitmaskLossError, BitmaskTruncationError, BitmaskValue,
 };
-use crate::validated::dataframe::{
-    AllFCSCast, AnyFCSColumn, CastResult, FCSColIter, FCSColumn, FCSDataFrame, IsFCSDataType,
-    LossError,
-};
+use crate::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
-use crate::validated::unaligned::FileBytes;
+use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
@@ -111,7 +108,7 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{NonEmptyIterator as _, once},
 };
-use num_traits::{Bounded, FromBytes};
+use num_traits::{Bounded, FromBytes, ToBytes};
 use thiserror::Error;
 
 use std::convert::Infallible;
@@ -329,16 +326,17 @@ impl MixedVec {
 
 impl From<MixedVec> for AnyFCSColumn {
     fn from(value: MixedVec) -> Self {
-        match_any_mixed!(value, x, { x.into() })
+        unimplemented!()
+        // match_any_mixed!(value, x, { x.into() })
     }
 }
 
-type WriterMixedType<'a> = MixedType<
-    ColumnWriter<'a, AsciiRange, u64, NoByteOrd3_1>,
-    AnyWriterBitmask<'a>,
-    ColumnWriter<'a, F32Range, f32, Endian>,
-    ColumnWriter<'a, F64Range, f64, Endian>,
->;
+// type WriterMixedType<'a> = MixedType<
+//     ColumnWriter<'a, AsciiRange, u64, NoByteOrd3_1>,
+//     AnyWriterBitmask<'a>,
+//     ColumnWriter<'a, F32Range, f32, Endian>,
+//     ColumnWriter<'a, F64Range, f64, Endian>,
+// >;
 
 /// A big or little-endian integer column of some size (1-8 bytes)
 #[derive(Debug, PartialEq, Clone, Copy)]
@@ -453,22 +451,23 @@ impl AnyUintVec {
 
 impl From<AnyUintVec> for AnyFCSColumn {
     fn from(value: AnyUintVec) -> Self {
-        match_any_uint!(value, AnyUintVec, x, { x.into() })
+        unimplemented!()
+        // match_any_uint!(value, AnyUintVec, x, { x.into() })
     }
 }
 
-type AnyWriterBitmask<'a> = AnyBitmask<
-    UintColumnWriter<'a, Bitmask08>,
-    UintColumnWriter<'a, Bitmask16>,
-    UintColumnWriter<'a, Bitmask24>,
-    UintColumnWriter<'a, Bitmask32>,
-    UintColumnWriter<'a, Bitmask40>,
-    UintColumnWriter<'a, Bitmask48>,
-    UintColumnWriter<'a, Bitmask56>,
-    UintColumnWriter<'a, Bitmask64>,
->;
+// type AnyWriterBitmask<'a> = AnyBitmask<
+//     UintColumnWriter<'a, Bitmask08>,
+//     UintColumnWriter<'a, Bitmask16>,
+//     UintColumnWriter<'a, Bitmask24>,
+//     UintColumnWriter<'a, Bitmask32>,
+//     UintColumnWriter<'a, Bitmask40>,
+//     UintColumnWriter<'a, Bitmask48>,
+//     UintColumnWriter<'a, Bitmask56>,
+//     UintColumnWriter<'a, Bitmask64>,
+// >;
 
-type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
+// type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
 
 /// The type of any floating point column in all versions
 #[derive(PartialEq, Clone, new, Debug)]
@@ -481,22 +480,22 @@ pub struct FloatRange<T, const LEN: usize> {
 pub type F32Range = FloatRange<f32, 4>;
 pub type F64Range = FloatRange<f64, 8>;
 
-/// Instructions to write one column using an iterator
-#[derive(new)]
-struct ColumnWriter<'a, C, T, S> {
-    column_type: C,
-    data: AnySource<'a, T>,
-    loss: Option<AnyLossError>,
-    byte_layout: PhantomData<S>,
-}
+// /// Instructions to write one column using an iterator
+// #[derive(new)]
+// struct ColumnWriter<'a, C, T, S> {
+//     column_type: C,
+//     data: AnySource<'a, T>,
+//     loss: Option<AnyLossError>,
+//     byte_layout: PhantomData<S>,
+// }
 
-impl<C, T, S> ColumnWriter<'_, C, T, S> {
-    fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-        self.loss
-            .map(|error| IndexedError::new(i, error))
-            .map(IndexedLossError)
-    }
-}
+// impl<C, T, S> ColumnWriter<'_, C, T, S> {
+//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
+//         self.loss
+//             .map(|error| IndexedError::new(i, error))
+//             .map(IndexedLossError)
+//     }
+// }
 
 /// A struct whose fields map 1-1 with keyword values in one data column
 #[derive(new)]
@@ -730,7 +729,7 @@ impl RowBuffer {
     }
 
     /// Read stream of bytes using buffer where each value is the same type
-    fn read_matrix<R, T, F, const SRC_LEN: usize>(
+    fn read_matrix<R, T, F>(
         &mut self,
         h: &mut BufReader<R>,
         columns: &mut [Vec<T>],
@@ -738,7 +737,8 @@ impl RowBuffer {
     ) -> io::Result<()>
     where
         R: Read,
-        F: Fn(&[u8; SRC_LEN]) -> T,
+        F: Fn(&T::FileBuf) -> T,
+        T: FCSRepr,
     {
         // This method has several nice optimizations:
         // 1. No errors on the inner two loops
@@ -749,12 +749,13 @@ impl RowBuffer {
         //
         // 1-3 above mean that that two inner loops have no jumps, which means
         // the compiler can unroll the loops and possibly autovectorize.
+        let src_len = T::file_len();
         assert!(
             columns.iter().all(|c| c.len() == self.nrows),
             "all column lengths should be equal to given row number"
         );
         assert!(
-            columns.len() * SRC_LEN == self.row_width,
+            columns.len() * src_len == self.row_width,
             "incorrect column number size"
         );
         assert!(
@@ -768,7 +769,7 @@ impl RowBuffer {
             let start_row = buf_idx * self.rows_per_buffer;
             // Once we have a buffer, iterate through each column and write data
             for (ci, c) in columns.iter_mut().enumerate() {
-                let src_col_offset = ci * SRC_LEN;
+                let src_col_offset = ci * src_len;
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
                 let end_row = start_row + self.rows_per_buffer;
@@ -776,7 +777,7 @@ impl RowBuffer {
                 for (row, value) in local_c.iter_mut().enumerate() {
                     let src_idx = src_col_offset + self.row_width * row;
                     debug_assert!(
-                        src_idx + SRC_LEN < u64_to_usize(self.buf_size),
+                        src_idx + src_len < u64_to_usize(self.buf_size),
                         "out of bounds"
                     );
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
@@ -788,10 +789,11 @@ impl RowBuffer {
                     // - 1) + (column_number - 1) * LEN. Adding LEN to the end
                     // of this exactly equals the size of the buffer itself in
                     // bytes, which means what follows can never overflow.
-                    let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + SRC_LEN) };
-                    // SAFETY: this will not overflow because the slice and
-                    // array are both LEN u8 elements.
-                    let buf: [u8; SRC_LEN] = unsafe { *(xs.as_ptr().cast()) };
+                    let buf = unsafe { T::array_from_slice(&self.bytes, src_idx) };
+                    // let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + src_len) };
+                    // // SAFETY: this will not overflow because the slice and
+                    // // array are both LEN u8 elements.
+                    // let buf: T::FileBuf = unsafe { *(xs.as_ptr().cast()) };
                     *value = from_buf(&buf);
                 }
             }
@@ -802,19 +804,20 @@ impl RowBuffer {
         let remainder_size = usize_to_u64(remainder_rows * self.row_width);
         self.read_size(h, remainder_size)?;
         for (ci, c) in columns.iter_mut().enumerate() {
-            let src_col_offset = ci * SRC_LEN;
+            let src_col_offset = ci * src_len;
             let dst_row_offset = self.whole_reads() * self.rows_per_buffer;
             let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter_mut().enumerate() {
                 let src_idx = src_col_offset + self.row_width * row;
                 debug_assert!(
-                    src_idx + SRC_LEN < u64_to_usize(self.buf_size),
+                    src_idx + src_len < u64_to_usize(self.buf_size),
                     "out of bounds"
                 );
                 // SAFETY: see above
-                let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + SRC_LEN) };
+                let buf = unsafe { T::array_from_slice(&self.bytes, src_idx) };
+                // let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + src_len) };
                 // SAFETY: see above
-                let buf: [u8; SRC_LEN] = unsafe { *(xs.as_ptr().cast()) };
+                // let buf: T::FileBuf = unsafe { *(xs.as_ptr().cast()) };
                 *value = from_buf(&buf);
             }
         }
@@ -823,7 +826,7 @@ impl RowBuffer {
     }
 
     /// Read a matrix where type is an aligned big or little endian value.
-    fn read_endian_matrix<R, T, const LEN: usize>(
+    fn read_endian_matrix<R, T>(
         &mut self,
         h: &mut BufReader<R>,
         cols: &mut [Vec<T>],
@@ -831,75 +834,74 @@ impl RowBuffer {
     ) -> io::Result<()>
     where
         R: Read,
-        T: FromBytes<Bytes = [u8; LEN]>,
+        T: FromBytes<Bytes = T::FileBuf> + FCSRepr,
     {
         match endian {
-            Endian::Big => self.read_matrix::<_, _, _, LEN>(h, cols, T::from_be_bytes),
-            Endian::Little => self.read_matrix::<_, _, _, LEN>(h, cols, T::from_le_bytes),
+            Endian::Big => self.read_matrix(h, cols, T::from_be_bytes),
+            Endian::Little => self.read_matrix(h, cols, T::from_le_bytes),
         }
     }
 
     /// Read a matrix where type is an aligned big, little, or mixed endian value.
-    fn read_ordered_matrix<R, T, const LEN: usize>(
+    fn read_ordered_matrix<R, T>(
         &mut self,
         h: &mut BufReader<R>,
         cols: &mut [Vec<T>],
-        s: SizedByteOrd<LEN>,
+        s: ArrayByteOrd<T::ByteOrd>,
     ) -> io::Result<()>
     where
         R: Read,
-        [u8; LEN]: Default,
-        T: OrderedFromBytes0<LEN, LEN>,
+        T: FromBytes<Bytes = T::FileBuf> + FCSRepr,
+        T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+        T::ByteOrd: AsRef<[u8]>,
     {
         match s {
-            SizedByteOrd::Endian(e) => self.read_endian_matrix::<_, _, LEN>(h, cols, e),
-            SizedByteOrd::Order(o) => {
-                self.read_matrix::<_, _, _, LEN>(h, cols, |bs| T::from_ordered_bytes(bs, o))
-            }
+            ArrayByteOrd::Endian(e) => self.read_endian_matrix(h, cols, e),
+            ArrayByteOrd::Order(o) => self.read_matrix(h, cols, |bs| T::from_ordered_bytes(bs, &o)),
         }
     }
 
-    /// Read matrix or arbitrarily ordered uints whose size is not a power of 2.
-    fn read_unaligned_ordered_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
-        &mut self,
-        h: &mut BufReader<R>,
-        cols: &mut [Vec<T>],
-        s: SizedByteOrd<SRC_LEN>,
-    ) -> io::Result<()>
-    where
-        R: Read,
-        [u8; DST_LEN]: Default,
-        T: UnalignedIntFromBytes<SRC_LEN, DST_LEN>,
-    {
-        match s {
-            SizedByteOrd::Endian(e) => self.read_unaligned_endian_int_matrix(h, cols, e),
-            SizedByteOrd::Order(o) => self.read_matrix::<_, _, _, SRC_LEN>(h, cols, |bs| {
-                T::from_unaligned_ordered_bytes(bs, o)
-            }),
-        }
-    }
+    // /// Read matrix or arbitrarily ordered uints whose size is not a power of 2.
+    // fn read_unaligned_ordered_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
+    //     &mut self,
+    //     h: &mut BufReader<R>,
+    //     cols: &mut [Vec<T>],
+    //     s: SizedByteOrd<SRC_LEN>,
+    // ) -> io::Result<()>
+    // where
+    //     R: Read,
+    //     [u8; DST_LEN]: Default,
+    //     T: UnalignedIntFromBytes<SRC_LEN, DST_LEN>,
+    // {
+    //     match s {
+    //         SizedByteOrd::Endian(e) => self.read_unaligned_endian_int_matrix(h, cols, e),
+    //         SizedByteOrd::Order(o) => self.read_matrix::<_, _, _, SRC_LEN>(h, cols, |bs| {
+    //             T::from_unaligned_ordered_bytes(bs, o)
+    //         }),
+    //     }
+    // }
 
-    /// Read matrix or endian uints whose size is not a power of 2.
-    fn read_unaligned_endian_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
-        &mut self,
-        h: &mut BufReader<R>,
-        cols: &mut [Vec<T>],
-        s: Endian,
-    ) -> io::Result<()>
-    where
-        R: Read,
-        [u8; DST_LEN]: Default,
-        T: UnalignedIntFromBytes<SRC_LEN, DST_LEN>,
-    {
-        match s {
-            Endian::Big => {
-                self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_be_bytes)
-            }
-            Endian::Little => {
-                self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_le_bytes)
-            }
-        }
-    }
+    // /// Read matrix or endian uints whose size is not a power of 2.
+    // fn read_unaligned_endian_int_matrix<R, T, const SRC_LEN: usize, const DST_LEN: usize>(
+    //     &mut self,
+    //     h: &mut BufReader<R>,
+    //     cols: &mut [Vec<T>],
+    //     s: Endian,
+    // ) -> io::Result<()>
+    // where
+    //     R: Read,
+    //     [u8; DST_LEN]: Default,
+    //     T: UnalignedIntFromBytes<SRC_LEN, DST_LEN>,
+    // {
+    //     match s {
+    //         Endian::Big => {
+    //             self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_be_bytes)
+    //         }
+    //         Endian::Little => {
+    //             self.read_matrix::<_, _, _, SRC_LEN>(h, cols, T::from_unaligned_le_bytes)
+    //         }
+    //     }
+    // }
 
     /// Read a matrix where input bytes characters to be read as u64
     fn read_char_matrix<R: Read>(
@@ -1148,7 +1150,7 @@ pub trait LayoutOps<'a, T>: Sized {
     where
         T: IsTot;
 
-    fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError>;
+    // fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError>;
 
     fn h_write_df_inner<W: Write>(
         &self,
@@ -1198,11 +1200,11 @@ pub trait LayoutOps<'a, T>: Sized {
         ErrorGroup::try_new(es)
     }
 
-    fn truncate_df(
-        &self,
-        df: &'a FCSDataFrame,
-        skip_conv_check: bool,
-    ) -> WarningsResult<FCSDataFrame, IndexedLossError>;
+    // fn truncate_df(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     skip_conv_check: bool,
+    // ) -> WarningsResult<FCSDataFrame, IndexedLossError>;
 }
 
 #[delegatable_trait]
@@ -1447,67 +1449,67 @@ pub trait IsFixed {
     fn fixed_width(&self) -> BitsOrChars;
 }
 
-/// A column which may be transformed into a writer for a rust numeric type
-trait ToNativeWriter
-where
-    Self: HasNativeType,
-{
-    type Error;
+// /// A column which may be transformed into a writer for a rust numeric type
+// trait ToNativeWriter
+// where
+//     Self: HasNativeType,
+// {
+//     type Error;
 
-    fn into_native_writer<'a, S>(
-        self,
-        c: &'a AnyFCSColumn,
-    ) -> ColumnWriter<'a, Self, Self::Native, S>
-    where
-        Self::Native: Default + Copy + AllFCSCast,
-        AnySource<'a, Self::Native>: From<FCSColIter<'a, u8, Self::Native>>
-            + From<FCSColIter<'a, u16, Self::Native>>
-            + From<FCSColIter<'a, u32, Self::Native>>
-            + From<FCSColIter<'a, u64, Self::Native>>
-            + From<FCSColIter<'a, f32, Self::Native>>
-            + From<FCSColIter<'a, f64, Self::Native>>,
-    {
-        ColumnWriter::new(self, AnySource::new(c), None)
-    }
+//     fn into_native_writer<'a, S>(
+//         self,
+//         c: &'a AnyFCSColumn,
+//     ) -> ColumnWriter<'a, Self, Self::Native, S>
+//     where
+//         Self::Native: Default + Copy + AllFCSCast,
+//         AnySource<'a, Self::Native>: From<FCSColIter<'a, u8, Self::Native>>
+//             + From<FCSColIter<'a, u16, Self::Native>>
+//             + From<FCSColIter<'a, u32, Self::Native>>
+//             + From<FCSColIter<'a, u64, Self::Native>>
+//             + From<FCSColIter<'a, f32, Self::Native>>
+//             + From<FCSColIter<'a, f64, Self::Native>>,
+//     {
+//         ColumnWriter::new(self, AnySource::new(c), None)
+//     }
 
-    fn check_native_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
-    where
-        Self::Native: Default + Copy + AllFCSCast,
-    {
-        col.check_writer(|x| Self::check_other_loss(self, x))
-    }
+//     fn check_native_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
+//     where
+//         Self::Native: Default + Copy + AllFCSCast,
+//     {
+//         col.check_writer(|x| Self::check_other_loss(self, x))
+//     }
 
-    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
-}
+//     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
+// }
 
-trait NativeWritable<S>: HasNativeType {
-    fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        x: CastResult<Self::Native>,
-        byte_layout: S,
-    ) -> io::Result<Option<AnyLossError>>;
-}
+// trait NativeWritable<S>: HasNativeType {
+//     fn h_write<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         x: CastResult<Self::Native>,
+//         byte_layout: S,
+//     ) -> io::Result<Option<AnyLossError>>;
+// }
 
-trait IntoWriter<'a, S> {
-    type Target: Writable<'a, S>;
+// trait IntoWriter<'a, S> {
+//     type Target: Writable<'a, S>;
 
-    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target;
+//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target;
 
-    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
-}
+//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
+// }
 
-trait Writable<'a, S> {
-    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
+// trait Writable<'a, S> {
+//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
 
-    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>);
+//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>);
 
-    fn into_err(self, i: MeasIndex) -> Option<IndexedLossError>;
-}
+//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError>;
+// }
 
-trait Castable: Sized + HasNativeType {
-    fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>);
-}
+// trait Castable: Sized + HasNativeType {
+//     fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>);
+// }
 
 /// General methods for each numeric type.
 ///
@@ -1515,31 +1517,31 @@ trait Castable: Sized + HasNativeType {
 // TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
 // it lands in a stable compiler, in theory there is no reason to put the length
 // of the type as a parameter, but the current compiler is not smart enough
-trait NumProps: Sized + Copy + Default {
+trait NumProps: Sized + Copy {
     const LEN: usize;
     type BUF: AsRef<[u8]> + AsMut<[u8]> + Default;
 
-    fn from_big(buf: Self::BUF) -> Self;
+    fn from_big(buf: &Self::BUF) -> Self;
 
-    fn from_little(buf: Self::BUF) -> Self;
+    fn from_little(buf: &Self::BUF) -> Self;
 
     fn slice_from_little(bytes: &[u8], i: usize) -> Self {
         let mut tmp = Self::BUF::default();
         tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
-        Self::from_little(tmp)
+        Self::from_little(&tmp)
     }
 
     fn slice_from_big(bytes: &[u8], i: usize) -> Self {
         let mut tmp = Self::BUF::default();
         tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
-        Self::from_big(tmp)
+        Self::from_big(&tmp)
     }
 
-    fn to_big(self) -> Self::BUF;
+    fn to_big(&self) -> Self::BUF;
 
-    fn to_little(self) -> Self::BUF;
+    fn to_little(&self) -> Self::BUF;
 
-    fn to_endian(self, endian: Endian) -> Self::BUF {
+    fn to_endian(&self, endian: Endian) -> Self::BUF {
         match endian {
             Endian::Big => self.to_big(),
             Endian::Little => self.to_little(),
@@ -1547,28 +1549,42 @@ trait NumProps: Sized + Copy + Default {
     }
 }
 
-trait OrderedFromBytes0<const SRC_LEN: usize, const DST_LEN: usize>:
-    FromBytes<Bytes = [u8; DST_LEN]>
-where
-    [u8; DST_LEN]: Default,
-{
-    fn from_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; DST_LEN]) -> Self {
-        let mut buf = Self::Bytes::default();
-        for (i, j) in order.iter().enumerate() {
-            buf.as_mut()[i] = bytes[usize::from(*j)];
-        }
-        Self::from_le_bytes(&buf)
-    }
-}
+// trait OrderedFromBytes0<const SRC_LEN: usize, const DST_LEN: usize>:
+//     FromBytes<Bytes = [u8; DST_LEN]>
+// where
+//     [u8; DST_LEN]: Default,
+// {
+//     fn from_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; DST_LEN]) -> Self {
+//         let mut buf = Self::Bytes::default();
+//         for (i, j) in order.iter().enumerate() {
+//             buf.as_mut()[i] = bytes[usize::from(*j)];
+//         }
+//         Self::from_le_bytes(&buf)
+//     }
+// }
+
+// trait OrderedFromBytes1: FromBytes<Bytes = Self::FileBuf> + FCSRepr
+// where
+//     Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+//     Self::ByteOrd: AsRef<[u8]>,
+// {
+//     fn from_ordered_bytes(bytes: &Self::FileBuf, order: Self::ByteOrd) -> Self {
+//         let mut buf = Self::Bytes::default();
+//         for (i, j) in order.as_ref().iter().enumerate() {
+//             buf.as_mut()[i] = bytes.as_ref()[usize::from(*j)];
+//         }
+//         Self::from_le_bytes(&buf)
+//     }
+// }
 
 /// Methods for reading numbers which may be in arbitrary byte orders.
 trait OrderedFromBytes<const OLEN: usize>: NumProps {
     fn h_write_from_ordered<W: Write>(
-        self,
+        &self,
         h: &mut BufWriter<W>,
         order: [u8; OLEN],
     ) -> io::Result<()> {
-        let tmp = Self::to_little(self);
+        let tmp = Self::to_little(&self);
         let mut buf = [0; OLEN];
         for (i, j) in order.iter().enumerate() {
             buf[usize::from(*j)] = tmp.as_ref()[i];
@@ -1615,7 +1631,7 @@ trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
             let mut buf = Self::BUF::default();
             let b = Self::LEN - INTLEN;
             buf.as_mut()[b..].copy_from_slice(tmp);
-            Self::from_big(buf)
+            Self::from_big(&buf)
         }
     }
 
@@ -1626,14 +1642,14 @@ trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
             let tmp = &bytes[index..index + INTLEN];
             let mut buf = Self::BUF::default();
             buf.as_mut()[..INTLEN].copy_from_slice(tmp);
-            Self::from_little(buf)
+            Self::from_little(&buf)
         }
     }
 
-    fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
+    fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
         let mut buf = [0; INTLEN];
         let (start, end, tmp) = if endian == Endian::Big {
-            ((Self::LEN - INTLEN), Self::LEN, Self::to_big(self))
+            ((Self::LEN - INTLEN), Self::LEN, Self::to_big(&self))
         } else {
             (0, INTLEN, Self::to_little(self))
         };
@@ -1644,30 +1660,30 @@ trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
     fn h_write_ordered<W: Write>(
         self,
         h: &mut BufWriter<W>,
-        byteord: SizedByteOrd<INTLEN>,
+        byteord: ArrayByteOrd<[u8; INTLEN]>,
     ) -> io::Result<()> {
         match byteord {
-            SizedByteOrd::Endian(e) => self.h_write_endian(h, e),
-            SizedByteOrd::Order(o) => self.h_write_from_ordered(h, o),
+            ArrayByteOrd::Endian(e) => self.h_write_endian(h, e),
+            ArrayByteOrd::Order(o) => self.h_write_from_ordered(h, o),
         }
     }
 }
 
 /// Methods for reading/writing floats (32 and 64 bit) from FCS files.
 trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
-    fn h_write_endian<W: Write>(self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
-        let buf = Self::to_endian(self, endian);
+    fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
+        let buf = Self::to_endian(&self, endian);
         h.write_all(buf.as_ref())
     }
 
     fn h_write_ordered<W: Write>(
-        self,
+        &self,
         h: &mut BufWriter<W>,
-        byteord: SizedByteOrd<LEN>,
+        byteord: ArrayByteOrd<[u8; LEN]>,
     ) -> io::Result<()> {
         match byteord {
-            SizedByteOrd::Endian(endian) => self.h_write_endian(h, endian),
-            SizedByteOrd::Order(order) => self.h_write_from_ordered(h, order),
+            ArrayByteOrd::Endian(endian) => self.h_write_endian(h, endian),
+            ArrayByteOrd::Order(order) => self.h_write_from_ordered(h, order),
         }
     }
 }
@@ -1680,11 +1696,11 @@ macro_rules! impl_any_uint {
             }
         }
 
-        impl<'a> From<UintColumnWriter<'a, $bitmask>> for AnyWriterBitmask<'a> {
-            fn from(value: UintColumnWriter<'a, $bitmask>) -> Self {
-                Self::$var(value)
-            }
-        }
+        // impl<'a> From<UintColumnWriter<'a, $bitmask>> for AnyWriterBitmask<'a> {
+        //     fn from(value: UintColumnWriter<'a, $bitmask>) -> Self {
+        //         Self::$var(value)
+        //     }
+        // }
 
         impl TryFrom<AnyNullBitmask> for $bitmask {
             type Error = UintToUintError;
@@ -1776,29 +1792,29 @@ impl From<F64Range> for NullMixedType {
     }
 }
 
-impl<'a> From<ColumnWriter<'a, AsciiRange, u64, NoByteOrd<false>>> for WriterMixedType<'a> {
-    fn from(value: ColumnWriter<'a, AsciiRange, u64, NoByteOrd<false>>) -> Self {
-        Self::Ascii(value)
-    }
-}
+// impl<'a> From<ColumnWriter<'a, AsciiRange, u64, NoByteOrd<false>>> for WriterMixedType<'a> {
+//     fn from(value: ColumnWriter<'a, AsciiRange, u64, NoByteOrd<false>>) -> Self {
+//         Self::Ascii(value)
+//     }
+// }
 
-impl<'a> From<AnyWriterBitmask<'a>> for WriterMixedType<'a> {
-    fn from(value: AnyWriterBitmask<'a>) -> Self {
-        Self::Uint(value)
-    }
-}
+// impl<'a> From<AnyWriterBitmask<'a>> for WriterMixedType<'a> {
+//     fn from(value: AnyWriterBitmask<'a>) -> Self {
+//         Self::Uint(value)
+//     }
+// }
 
-impl<'a> From<ColumnWriter<'a, F32Range, f32, Endian>> for WriterMixedType<'a> {
-    fn from(value: ColumnWriter<'a, F32Range, f32, Endian>) -> Self {
-        Self::F32(value)
-    }
-}
+// impl<'a> From<ColumnWriter<'a, F32Range, f32, Endian>> for WriterMixedType<'a> {
+//     fn from(value: ColumnWriter<'a, F32Range, f32, Endian>) -> Self {
+//         Self::F32(value)
+//     }
+// }
 
-impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
-    fn from(value: ColumnWriter<'a, F64Range, f64, Endian>) -> Self {
-        Self::F64(value)
-    }
-}
+// impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
+//     fn from(value: ColumnWriter<'a, F64Range, f64, Endian>) -> Self {
+//         Self::F64(value)
+//     }
+// }
 
 impl IsNumType for Nothing<NumType> {
     fn lookup_datatype(
@@ -1884,338 +1900,338 @@ mixed_to_inner!(AnyNullBitmask, Uint);
 mixed_to_inner!(F32Range, F32);
 mixed_to_inner!(F64Range, F64);
 
-impl<T, const LEN: usize> Castable for Bitmask<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-    T: Copy + Ord + IsFCSDataType,
-    u64: From<T>,
-{
-    fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
-        let (trunc, y) = self.apply(x.new);
-        let t = trunc
-            .map(LossError::Other)
-            .or(x.as_err().map(LossError::Cast))
-            .map(AnyLossError::Int);
-        (y, t)
-    }
-}
+// impl<T, const LEN: usize> Castable for Bitmask<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+//     T: Copy + Ord + IsFCSDataType,
+//     u64: From<T>,
+// {
+//     fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
+//         let (trunc, y) = self.apply(x.new);
+//         let t = trunc
+//             .map(LossError::Other)
+//             .or(x.as_err().map(LossError::Cast))
+//             .map(AnyLossError::Int);
+//         (y, t)
+//     }
+// }
 
-impl<T, const LEN: usize> Castable for FloatRange<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-    T: Copy + IsFCSDataType,
-{
-    fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
-        let t = x.as_err().map(LossError::Cast).map(AnyLossError::Float);
-        (x.new, t)
-    }
-}
+// impl<T, const LEN: usize> Castable for FloatRange<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+//     T: Copy + IsFCSDataType,
+// {
+//     fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
+//         let t = x.as_err().map(LossError::Cast).map(AnyLossError::Float);
+//         (x.new, t)
+//     }
+// }
 
-impl Castable for AsciiRange {
-    fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>) {
-        let t = x.as_err().map(LossError::Cast).map(AnyLossError::Ascii);
-        (x.new, t)
-    }
-}
+// impl Castable for AsciiRange {
+//     fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>) {
+//         let t = x.as_err().map(LossError::Cast).map(AnyLossError::Ascii);
+//         (x.new, t)
+//     }
+// }
 
-impl<T, const LEN: usize> NativeWritable<Endian> for Bitmask<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
-    u64: From<T>,
-{
-    fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        x: CastResult<T>,
-        byte_layout: Endian,
-    ) -> io::Result<Option<AnyLossError>> {
-        let (y, trunc) = self.with_cast(x);
-        y.h_write_endian(h, byte_layout)?;
-        Ok(trunc)
-    }
-}
+// impl<T, const LEN: usize> NativeWritable<Endian> for Bitmask<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+//     T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
+//     u64: From<T>,
+// {
+//     fn h_write<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         x: CastResult<T>,
+//         byte_layout: Endian,
+//     ) -> io::Result<Option<AnyLossError>> {
+//         let (y, trunc) = self.with_cast(x);
+//         y.h_write_endian(h, byte_layout)?;
+//         Ok(trunc)
+//     }
+// }
 
-impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for Bitmask<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-    T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
-    u64: From<T>,
-{
-    fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        x: CastResult<T>,
-        byte_layout: SizedByteOrd<LEN>,
-    ) -> io::Result<Option<AnyLossError>> {
-        let (y, trunc) = self.with_cast(x);
-        y.h_write_ordered(h, byte_layout)?;
-        Ok(trunc)
-    }
-}
+// impl<T, const LEN: usize> NativeWritable<ArrayByteOrd<[u8; LEN]>> for Bitmask<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+//     T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
+//     u64: From<T>,
+// {
+//     fn h_write<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         x: CastResult<T>,
+//         byte_layout: ArrayByteOrd<[u8; LEN]>,
+//     ) -> io::Result<Option<AnyLossError>> {
+//         let (y, trunc) = self.with_cast(x);
+//         y.h_write_ordered(h, byte_layout)?;
+//         Ok(trunc)
+//     }
+// }
 
-impl<T, const LEN: usize> NativeWritable<Endian> for FloatRange<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
-{
-    fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        x: CastResult<T>,
-        byte_layout: Endian,
-    ) -> io::Result<Option<AnyLossError>> {
-        let (y, trunc) = self.with_cast(x);
-        y.h_write_endian(h, byte_layout)?;
-        Ok(trunc)
-    }
-}
+// impl<T, const LEN: usize> NativeWritable<Endian> for FloatRange<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+//     T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
+// {
+//     fn h_write<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         x: CastResult<T>,
+//         byte_layout: Endian,
+//     ) -> io::Result<Option<AnyLossError>> {
+//         let (y, trunc) = self.with_cast(x);
+//         y.h_write_endian(h, byte_layout)?;
+//         Ok(trunc)
+//     }
+// }
 
-impl<T, const LEN: usize> NativeWritable<SizedByteOrd<LEN>> for FloatRange<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-    T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
-{
-    fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        x: CastResult<T>,
-        byte_layout: SizedByteOrd<LEN>,
-    ) -> io::Result<Option<AnyLossError>> {
-        let (y, trunc) = self.with_cast(x);
-        y.h_write_ordered(h, byte_layout)?;
-        Ok(trunc)
-    }
-}
+// impl<T, const LEN: usize> NativeWritable<ArrayByteOrd<[u8; LEN]>> for FloatRange<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+//     T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
+// {
+//     fn h_write<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         x: CastResult<T>,
+//         byte_layout: ArrayByteOrd<[u8; LEN]>,
+//     ) -> io::Result<Option<AnyLossError>> {
+//         let (y, trunc) = self.with_cast(x);
+//         y.h_write_ordered(h, byte_layout)?;
+//         Ok(trunc)
+//     }
+// }
 
-impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
-    fn h_write<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        x: CastResult<Self::Native>,
-        _: NoByteOrd<ORD>,
-    ) -> io::Result<Option<AnyLossError>> {
-        let (value, trunc) = self.with_cast(x);
-        let str_value = value.to_string();
-        let width: usize = u8::from(self.chars()).into();
-        let err = if str_value.len() > width {
-            // if string is greater than allocated chars, only write a fraction
-            // starting from the left
-            let offset = str_value.len() - width;
-            h.write_all(&str_value.as_bytes()[offset..])?;
-            Some(LossError::Other(AsciiLossError(self.chars())))
-        } else {
-            // if string less than allocated chars, pad left side with zero before
-            // writing number
-            for _ in 0..(width - str_value.len()) {
-                h.write_all(&[48])?;
-            }
-            h.write_all(str_value.as_bytes())?;
-            None
-        };
-        Ok(err.map(AnyLossError::Ascii).or(trunc))
-    }
-}
+// impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
+//     fn h_write<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         x: CastResult<Self::Native>,
+//         _: NoByteOrd<ORD>,
+//     ) -> io::Result<Option<AnyLossError>> {
+//         let (value, trunc) = self.with_cast(x);
+//         let str_value = value.to_string();
+//         let width: usize = u8::from(self.chars()).into();
+//         let err = if str_value.len() > width {
+//             // if string is greater than allocated chars, only write a fraction
+//             // starting from the left
+//             let offset = str_value.len() - width;
+//             h.write_all(&str_value.as_bytes()[offset..])?;
+//             Some(LossError::Other(AsciiLossError(self.chars())))
+//         } else {
+//             // if string less than allocated chars, pad left side with zero before
+//             // writing number
+//             for _ in 0..(width - str_value.len()) {
+//                 h.write_all(&[48])?;
+//             }
+//             h.write_all(str_value.as_bytes())?;
+//             None
+//         };
+//         Ok(err.map(AnyLossError::Ascii).or(trunc))
+//     }
+// }
 
-impl<'a, C, S> IntoWriter<'a, S> for C
-where
-    C: ToNativeWriter,
-    ColumnWriter<'a, C, C::Native, S>: Writable<'a, S>,
-    C::Native: Default + Copy + AllFCSCast,
-    AnySource<'a, C::Native>: From<FCSColIter<'a, u8, C::Native>>
-        + From<FCSColIter<'a, u16, C::Native>>
-        + From<FCSColIter<'a, u32, C::Native>>
-        + From<FCSColIter<'a, u64, C::Native>>
-        + From<FCSColIter<'a, f32, C::Native>>
-        + From<FCSColIter<'a, f64, C::Native>>,
-    AnyLossError: From<LossError<C::Error>>,
-{
-    type Target = ColumnWriter<'a, C, C::Native, S>;
+// impl<'a, C, S> IntoWriter<'a, S> for C
+// where
+//     C: ToNativeWriter,
+//     ColumnWriter<'a, C, C::Native, S>: Writable<'a, S>,
+//     C::Native: Default + Copy + AllFCSCast,
+//     AnySource<'a, C::Native>: From<FCSColIter<'a, u8, C::Native>>
+//         + From<FCSColIter<'a, u16, C::Native>>
+//         + From<FCSColIter<'a, u32, C::Native>>
+//         + From<FCSColIter<'a, u64, C::Native>>
+//         + From<FCSColIter<'a, f32, C::Native>>
+//         + From<FCSColIter<'a, f64, C::Native>>,
+//     AnyLossError: From<LossError<C::Error>>,
+// {
+//     type Target = ColumnWriter<'a, C, C::Native, S>;
 
-    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
-        self.into_native_writer(col)
-    }
+//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+//         self.into_native_writer(col)
+//     }
 
-    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        self.check_native_writer(col).map_err(Into::into)
-    }
-}
+//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+//         self.check_native_writer(col).map_err(Into::into)
+//     }
+// }
 
-impl<'a> IntoWriter<'a, Endian> for AnyNullBitmask {
-    type Target = AnyWriterBitmask<'a>;
+// impl<'a> IntoWriter<'a, Endian> for AnyNullBitmask {
+//     type Target = AnyWriterBitmask<'a>;
 
-    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
-        match_any_uint!(self, Self, c, { c.into_native_writer(col).into() })
-    }
+//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+//         match_any_uint!(self, Self, c, { c.into_native_writer(col).into() })
+//     }
 
-    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        match_any_uint!(self, Self, c, {
-            c.check_native_writer(col).map_err(Into::into)
-        })
-    }
-}
+//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+//         match_any_uint!(self, Self, c, {
+//             c.check_native_writer(col).map_err(Into::into)
+//         })
+//     }
+// }
 
-impl<'a> IntoWriter<'a, Endian> for NullMixedType {
-    type Target = WriterMixedType<'a>;
+// impl<'a> IntoWriter<'a, Endian> for NullMixedType {
+//     type Target = WriterMixedType<'a>;
 
-    fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
-        match_any_mixed!(self, c, { c.into_writer(col).into() })
-    }
+//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
+//         match_any_mixed!(self, c, { c.into_writer(col).into() })
+//     }
 
-    fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-        match self {
-            Self::Ascii(c) => IntoWriter::<NoByteOrd3_1>::check_writer(c, col),
-            Self::Uint(c) => c.check_writer(col),
-            Self::F32(c) => c.check_native_writer(col).map_err(Into::into),
-            Self::F64(c) => c.check_native_writer(col).map_err(Into::into),
-        }
-    }
-}
+//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
+//         match self {
+//             Self::Ascii(c) => IntoWriter::<NoByteOrd3_1>::check_writer(c, col),
+//             Self::Uint(c) => c.check_writer(col),
+//             Self::F32(c) => c.check_native_writer(col).map_err(Into::into),
+//             Self::F64(c) => c.check_native_writer(col).map_err(Into::into),
+//         }
+//     }
+// }
 
-impl<'a, C, T, S> Writable<'a, S> for ColumnWriter<'a, C, T, S>
-where
-    C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter + Castable,
-    AnyFCSColumn: From<FCSColumn<T>>,
-{
-    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
-        let x = self.data.next().unwrap();
-        // TODO this might not be optimal since this loss storage logic will
-        // (probably) fire for every written value even if we don't use it
-        let loss = self.column_type.h_write(h, x, byte_layout)?;
-        self.loss = mem::take(&mut self.loss).or(loss);
-        Ok(())
-    }
+// impl<'a, C, T, S> Writable<'a, S> for ColumnWriter<'a, C, T, S>
+// where
+//     C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter + Castable,
+//     AnyFCSColumn: From<FCSColumn<T>>,
+// {
+//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
+//         let x = self.data.next().unwrap();
+//         // TODO this might not be optimal since this loss storage logic will
+//         // (probably) fire for every written value even if we don't use it
+//         let loss = self.column_type.h_write(h, x, byte_layout)?;
+//         self.loss = mem::take(&mut self.loss).or(loss);
+//         Ok(())
+//     }
 
-    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
-        let mut warn = None;
-        // TODO not optimal at all
-        let mut xs = vec![];
-        for x in self.data {
-            let (y, w) = self.column_type.with_cast(x);
-            if skip_conv_check {
-                warn = mem::take(&mut warn).or(w);
-            }
-            xs.push(y);
-        }
-        (FCSColumn::from(xs).into(), warn)
-    }
+//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
+//         let mut warn = None;
+//         // TODO not optimal at all
+//         let mut xs = vec![];
+//         for x in self.data {
+//             let (y, w) = self.column_type.with_cast(x);
+//             if skip_conv_check {
+//                 warn = mem::take(&mut warn).or(w);
+//             }
+//             xs.push(y);
+//         }
+//         (FCSColumn::from(xs).into(), warn)
+//     }
 
-    fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-        self.into_err(i)
-    }
-}
+//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
+//         self.into_err(i)
+//     }
+// }
 
-impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
-    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
-        match self {
-            Self::Ascii(c) => c.h_write(h, NoByteOrd),
-            Self::Uint(c) => c.h_write(h, byte_layout),
-            Self::F32(c) => c.h_write(h, byte_layout),
-            Self::F64(c) => c.h_write(h, byte_layout),
-        }
-    }
+// impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
+//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
+//         match self {
+//             Self::Ascii(c) => c.h_write(h, NoByteOrd),
+//             Self::Uint(c) => c.h_write(h, byte_layout),
+//             Self::F32(c) => c.h_write(h, byte_layout),
+//             Self::F64(c) => c.h_write(h, byte_layout),
+//         }
+//     }
 
-    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
-        match_any_mixed!(self, x, { x.truncate(skip_conv_check) })
-    }
+//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
+//         match_any_mixed!(self, x, { x.truncate(skip_conv_check) })
+//     }
 
-    fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-        match_any_mixed!(self, x, { x.into_err(i) })
-    }
-}
+//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
+//         match_any_mixed!(self, x, { x.into_err(i) })
+//     }
+// }
 
-impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
-    fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
-        match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
-    }
+// impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
+//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
+//         match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
+//     }
 
-    fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
-        match_any_uint!(self, Self, x, { x.truncate(skip_conv_check) })
-    }
+//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
+//         match_any_uint!(self, Self, x, { x.truncate(skip_conv_check) })
+//     }
 
-    fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-        match_any_uint!(self, Self, x, { x.into_err(i) })
-    }
-}
+//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
+//         match_any_uint!(self, Self, x, { x.into_err(i) })
+//     }
+// }
 
-impl<T, const LEN: usize> ToNativeWriter for Bitmask<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-    u64: From<T>,
-    T: Ord + Copy,
-{
-    type Error = BitmaskLossError;
+// impl<T, const LEN: usize> ToNativeWriter for Bitmask<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+//     u64: From<T>,
+//     T: Ord + Copy,
+// {
+//     type Error = BitmaskLossError;
 
-    fn check_other_loss(&self, x: T) -> Option<Self::Error> {
-        (x > self.bitmask()).then(|| BitmaskLossError(u64::from(self.bitmask())))
-    }
-}
+//     fn check_other_loss(&self, x: T) -> Option<Self::Error> {
+//         (x > self.bitmask()).then(|| BitmaskLossError(u64::from(self.bitmask())))
+//     }
+// }
 
-impl<T, const LEN: usize> ToNativeWriter for FloatRange<T, LEN>
-where
-    Self: HasNativeType<Native = T>,
-{
-    type Error = Infallible;
+// impl<T, const LEN: usize> ToNativeWriter for FloatRange<T, LEN>
+// where
+//     Self: HasNativeType<Native = T>,
+// {
+//     type Error = Infallible;
 
-    fn check_other_loss(&self, _: T) -> Option<Self::Error> {
-        None
-    }
-}
+//     fn check_other_loss(&self, _: T) -> Option<Self::Error> {
+//         None
+//     }
+// }
 
-impl ToNativeWriter for AsciiRange {
-    type Error = AsciiLossError;
+// impl ToNativeWriter for AsciiRange {
+//     type Error = AsciiLossError;
 
-    fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>
-    where
-        u64: From<Self::Native>,
-    {
-        (Chars::from_u64(x) > self.chars()).then(|| AsciiLossError(self.chars()))
-    }
-}
+//     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>
+//     where
+//         u64: From<Self::Native>,
+//     {
+//         (Chars::from_u64(x) > self.chars()).then(|| AsciiLossError(self.chars()))
+//     }
+// }
 
-/// A wrapper for any of the 6 source types that can be written.
-///
-/// Each inner type is an iterator from a different source type which emit
-/// the given target type.
-enum AnySource<'a, TargetType> {
-    FromU08(FCSColIter<'a, u8, TargetType>),
-    FromU16(FCSColIter<'a, u16, TargetType>),
-    FromU32(FCSColIter<'a, u32, TargetType>),
-    FromU64(FCSColIter<'a, u64, TargetType>),
-    FromF32(FCSColIter<'a, f32, TargetType>),
-    FromF64(FCSColIter<'a, f64, TargetType>),
-}
+// /// A wrapper for any of the 6 source types that can be written.
+// ///
+// /// Each inner type is an iterator from a different source type which emit
+// /// the given target type.
+// enum AnySource<'a, TargetType> {
+//     FromU08(FCSColIter<'a, u8, TargetType>),
+//     FromU16(FCSColIter<'a, u16, TargetType>),
+//     FromU32(FCSColIter<'a, u32, TargetType>),
+//     FromU64(FCSColIter<'a, u64, TargetType>),
+//     FromF32(FCSColIter<'a, f32, TargetType>),
+//     FromF64(FCSColIter<'a, f64, TargetType>),
+// }
 
-impl<'a, T> AnySource<'a, T> {
-    fn new(c: &'a AnyFCSColumn) -> Self
-    where
-        T: AllFCSCast,
-        Self: From<FCSColIter<'a, u8, T>>
-            + From<FCSColIter<'a, u16, T>>
-            + From<FCSColIter<'a, u32, T>>
-            + From<FCSColIter<'a, u64, T>>
-            + From<FCSColIter<'a, f32, T>>
-            + From<FCSColIter<'a, f64, T>>,
-    {
-        match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-            IsFCSDataType::as_col_iter(xs).into()
-        })
-    }
-}
+// impl<'a, T> AnySource<'a, T> {
+//     fn new(c: &'a AnyFCSColumn) -> Self
+//     where
+//         T: AllFCSCast,
+//         Self: From<FCSColIter<'a, u8, T>>
+//             + From<FCSColIter<'a, u16, T>>
+//             + From<FCSColIter<'a, u32, T>>
+//             + From<FCSColIter<'a, u64, T>>
+//             + From<FCSColIter<'a, f32, T>>
+//             + From<FCSColIter<'a, f64, T>>,
+//     {
+//         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
+//             IsFCSDataType::as_col_iter(xs).into()
+//         })
+//     }
+// }
 
-impl<T> Iterator for AnySource<'_, T> {
-    type Item = CastResult<T>;
+// impl<T> Iterator for AnySource<'_, T> {
+//     type Item = CastResult<T>;
 
-    fn next(&mut self) -> Option<Self::Item> {
-        match_many_to_one!(
-            self,
-            Self,
-            [FromU08, FromU16, FromU32, FromU64, FromF32, FromF64],
-            c,
-            { c.next() }
-        )
-    }
-}
+//     fn next(&mut self) -> Option<Self::Item> {
+//         match_many_to_one!(
+//             self,
+//             Self,
+//             [FromU08, FromU16, FromU32, FromU64, FromF32, FromF64],
+//             c,
+//             { c.next() }
+//         )
+//     }
+// }
 
 fn is_ascii_delim(x: u8) -> bool {
     // tab, newline, carriage return, space, or comma
@@ -2244,7 +2260,7 @@ impl<D> EndianLayout<AnyNullBitmask, D> {
             head.try_into_one_size(it, self.byte_layout, 1)
                 .map_errors(|(index, error)| IndexedError::new(index, error).into())
         } else {
-            let b: SizedByteOrd<4> = self.byte_layout.into();
+            let b: ArrayByteOrd<[u8; 4]> = self.byte_layout.into();
             LogResult::new_ok(FixedLayout::new(vec![], b).into())
         }
     }
@@ -2288,7 +2304,7 @@ impl<D> EndianLayout<NullMixedType, D> {
                     .map_ok_value(AnyOrderedLayout::from),
             }
         } else {
-            let b: SizedByteOrd<4> = self.byte_layout.into();
+            let b: ArrayByteOrd<[u8; 4]> = self.byte_layout.into();
             LogResult::new_ok(FixedLayout::new(vec![], b).into())
         }
     }
@@ -2336,19 +2352,45 @@ macro_rules! impl_num_props {
             const LEN: usize = $size;
             type BUF = [u8; $size];
 
-            fn to_big(self) -> Self::BUF {
-                <$t>::to_be_bytes(self)
+            fn to_big(&self) -> Self::BUF {
+                self.to_be_bytes()
             }
 
-            fn to_little(self) -> Self::BUF {
-                <$t>::to_le_bytes(self)
+            fn to_little(&self) -> Self::BUF {
+                self.to_le_bytes()
             }
 
-            fn from_big(buf: Self::BUF) -> Self {
+            fn from_big(buf: &Self::BUF) -> Self {
+                <$t>::from_be_bytes(*buf)
+            }
+
+            fn from_little(buf: &Self::BUF) -> Self {
+                <$t>::from_le_bytes(*buf)
+            }
+        }
+    };
+}
+
+// TODO silly
+macro_rules! impl_num_props0 {
+    ($size:expr, $t:ty) => {
+        impl NumProps for $t {
+            const LEN: usize = $size;
+            type BUF = [u8; $size];
+
+            fn to_big(&self) -> Self::BUF {
+                self.to_be_bytes()
+            }
+
+            fn to_little(&self) -> Self::BUF {
+                self.to_le_bytes()
+            }
+
+            fn from_big(buf: &Self::BUF) -> Self {
                 <$t>::from_be_bytes(buf)
             }
 
-            fn from_little(buf: Self::BUF) -> Self {
+            fn from_little(buf: &Self::BUF) -> Self {
                 <$t>::from_le_bytes(buf)
             }
         }
@@ -2357,7 +2399,11 @@ macro_rules! impl_num_props {
 
 impl_num_props!(1, u8);
 impl_num_props!(2, u16);
+impl_num_props0!(3, U24);
 impl_num_props!(4, u32);
+impl_num_props0!(5, U40);
+impl_num_props0!(6, U48);
+impl_num_props0!(7, U56);
 impl_num_props!(8, u64);
 impl_num_props!(4, f32);
 impl_num_props!(8, f64);
@@ -2373,16 +2419,16 @@ impl OrderedFromBytes<8> for u64 {}
 impl OrderedFromBytes<4> for f32 {}
 impl OrderedFromBytes<8> for f64 {}
 
-impl OrderedFromBytes0<1, 1> for u8 {}
-impl OrderedFromBytes0<2, 2> for u16 {}
-impl OrderedFromBytes0<3, 4> for u32 {}
-impl OrderedFromBytes0<4, 4> for u32 {}
-impl OrderedFromBytes0<5, 8> for u64 {}
-impl OrderedFromBytes0<6, 8> for u64 {}
-impl OrderedFromBytes0<7, 8> for u64 {}
-impl OrderedFromBytes0<8, 8> for u64 {}
-impl OrderedFromBytes0<4, 4> for f32 {}
-impl OrderedFromBytes0<8, 8> for f64 {}
+// impl OrderedFromBytes0<1, 1> for u8 {}
+// impl OrderedFromBytes0<2, 2> for u16 {}
+// impl OrderedFromBytes0<3, 4> for u32 {}
+// impl OrderedFromBytes0<4, 4> for u32 {}
+// impl OrderedFromBytes0<5, 8> for u64 {}
+// impl OrderedFromBytes0<6, 8> for u64 {}
+// impl OrderedFromBytes0<7, 8> for u64 {}
+// impl OrderedFromBytes0<8, 8> for u64 {}
+// impl OrderedFromBytes0<4, 4> for f32 {}
+// impl OrderedFromBytes0<8, 8> for f64 {}
 
 impl FloatFromBytes<4> for f32 {}
 impl FloatFromBytes<8> for f64 {}
@@ -2395,6 +2441,16 @@ impl IntFromBytes<5> for u64 {}
 impl IntFromBytes<6> for u64 {}
 impl IntFromBytes<7> for u64 {}
 impl IntFromBytes<8> for u64 {}
+
+impl IntFromBytes<3> for U24 {}
+impl IntFromBytes<5> for U40 {}
+impl IntFromBytes<6> for U48 {}
+impl IntFromBytes<7> for U56 {}
+
+impl OrderedFromBytes<3> for U24 {}
+impl OrderedFromBytes<5> for U40 {}
+impl OrderedFromBytes<6> for U48 {}
+impl OrderedFromBytes<7> for U56 {}
 
 impl UnalignedIntFromBytes<3, 4> for u32 {}
 impl UnalignedIntFromBytes<5, 8> for u64 {}
@@ -2520,15 +2576,18 @@ impl From<AnyNullBitmask> for BitmaskValue<u64> {
 
 impl AnyNullBitmask {
     fn init_column(&self, nrows: usize) -> AnyUintVec {
+        fn default_vec<T: Clone + Default>(n: usize) -> Vec<T> {
+            vec![T::default(); n]
+        }
         match self {
-            Self::Uint08(b) => AnyUintVec::Uint08(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint16(b) => AnyUintVec::Uint16(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint24(b) => AnyUintVec::Uint24(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint32(b) => AnyUintVec::Uint32(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint40(b) => AnyUintVec::Uint40(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint48(b) => AnyUintVec::Uint48(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint56(b) => AnyUintVec::Uint56(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint64(b) => AnyUintVec::Uint64(RangedVec::new(*b, vec![0; nrows])),
+            Self::Uint08(b) => AnyUintVec::Uint08(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint16(b) => AnyUintVec::Uint16(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint24(b) => AnyUintVec::Uint24(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint32(b) => AnyUintVec::Uint32(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint40(b) => AnyUintVec::Uint40(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint48(b) => AnyUintVec::Uint48(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint56(b) => AnyUintVec::Uint56(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint64(b) => AnyUintVec::Uint64(RangedVec::new(*b, default_vec(nrows))),
         }
     }
 
@@ -2635,7 +2694,8 @@ where
     }
 
     fn nbytes(&self, df: &FCSDataFrame) -> u64 {
-        df.ascii_nbytes()
+        unimplemented!()
+        // df.ascii_nbytes()
     }
 
     fn ranges(&self) -> Vec<Range> {
@@ -2765,17 +2825,17 @@ where
             })
     }
 
-    fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
-        df.iter_columns()
-            .enumerate()
-            .map(|(i, c)| {
-                c.check_writer::<_, _, u64>(|_| None)
-                    .map_err(|error| IndexedError::new(i, AnyLossError::Int(error)))
-                    .map_err(IndexedLossError)
-                    .into_log()
-            })
-            .sequence_def_void()
-    }
+    // fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
+    //     df.iter_columns()
+    //         .enumerate()
+    //         .map(|(i, c)| {
+    //             c.check_writer::<_, _, u64>(|_| None)
+    //                 .map_err(|error| IndexedError::new(i, AnyLossError::Int(error)))
+    //                 .map_err(IndexedLossError)
+    //                 .into_log()
+    //         })
+    //         .sequence_def_void()
+    // }
 
     fn h_write_df_inner<W: Write>(
         &self,
@@ -2783,76 +2843,77 @@ where
         df: &FCSDataFrame,
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
-        let ncols = df.ncols();
-        let nrows = df.nrows();
-        let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
-        let mut loss_ws = vec![None; column_srcs.len()];
+        unimplemented!()
+        // let ncols = df.ncols();
+        // let nrows = df.nrows();
+        // let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
+        // let mut loss_ws = vec![None; column_srcs.len()];
 
-        let mut go = || -> Result<(), io::Error> {
-            for row in 0..nrows {
-                for (col, xs) in column_srcs.iter_mut().enumerate() {
-                    let x = xs.next().unwrap();
-                    let s = x.new.to_string();
-                    loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
-                    let buf = s.as_bytes();
-                    h.write_all(buf)?;
-                    // write delimiter after all but last value
-                    if !(row == nrows - 1 && col == ncols - 1) {
-                        h.write_all(&[32])?; // 32 = space in ASCII
-                    }
-                }
-            }
-            Ok(())
-        };
+        // let mut go = || -> Result<(), io::Error> {
+        //     for row in 0..nrows {
+        //         for (col, xs) in column_srcs.iter_mut().enumerate() {
+        //             let x = xs.next().unwrap();
+        //             let s = x.new.to_string();
+        //             loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
+        //             let buf = s.as_bytes();
+        //             h.write_all(buf)?;
+        //             // write delimiter after all but last value
+        //             if !(row == nrows - 1 && col == ncols - 1) {
+        //                 h.write_all(&[32])?; // 32 = space in ASCII
+        //             }
+        //         }
+        //     }
+        //     Ok(())
+        // };
 
-        let write_res = go().into_nowarn1();
+        // let write_res = go().into_nowarn1();
 
-        if skip_conv_check {
-            write_res.nowarn_into_warn()
-        } else {
-            let cs: Vec<_> = loss_ws
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, warn)| {
-                    warn.map(LossError::Cast)
-                        .map(AnyLossError::Ascii)
-                        .map(|w| IndexedError::new(i, w))
-                        .map(IndexedLossError)
-                })
-                .collect();
-            write_res.set_commutative_warnings(cs)
-        }
+        // if skip_conv_check {
+        //     write_res.nowarn_into_warn()
+        // } else {
+        //     let cs: Vec<_> = loss_ws
+        //         .into_iter()
+        //         .enumerate()
+        //         .filter_map(|(i, warn)| {
+        //             warn.map(LossError::Cast)
+        //                 .map(AnyLossError::Ascii)
+        //                 .map(|w| IndexedError::new(i, w))
+        //                 .map(IndexedLossError)
+        //         })
+        //         .collect();
+        //     write_res.set_commutative_warnings(cs)
+        // }
     }
 
-    fn truncate_df(
-        &self,
-        df: &FCSDataFrame,
-        skip_conv_check: bool,
-    ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
-        let nrows = df.nrows();
-        let mut warnings = vec![];
-        let columns = df.iter_columns().enumerate().map(|(i, c)| {
-            let mut w = None;
-            let mut cs = vec![0; nrows];
-            for x in AnySource::<'_, u64>::new(c) {
-                cs.push(x.new);
-                if !skip_conv_check {
-                    w = mem::take(&mut w).or(x.as_err());
-                }
-            }
-            if let Some(x) = w
-                .map(LossError::Cast)
-                .map(AnyLossError::Ascii)
-                .map(|x| IndexedError::new(i, x))
-                .map(IndexedLossError)
-            {
-                warnings.push(x);
-            }
-            FCSColumn::from(cs).into()
-        });
-        let ret = FCSDataFrame::try_new(columns).unwrap();
-        Success::new_non_switchable(ret).set_warnings(warnings)
-    }
+    // fn truncate_df(
+    //     &self,
+    //     df: &FCSDataFrame,
+    //     skip_conv_check: bool,
+    // ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
+    //     let nrows = df.nrows();
+    //     let mut warnings = vec![];
+    //     let columns = df.iter_columns().enumerate().map(|(i, c)| {
+    //         let mut w = None;
+    //         let mut cs = vec![0; nrows];
+    //         for x in AnySource::<'_, u64>::new(c) {
+    //             cs.push(x.new);
+    //             if !skip_conv_check {
+    //                 w = mem::take(&mut w).or(x.as_err());
+    //             }
+    //         }
+    //         if let Some(x) = w
+    //             .map(LossError::Cast)
+    //             .map(AnyLossError::Ascii)
+    //             .map(|x| IndexedError::new(i, x))
+    //             .map(IndexedLossError)
+    //         {
+    //             warnings.push(x);
+    //         }
+    //         FCSColumn::from(cs).into()
+    //     });
+    //     let ret = FCSDataFrame::try_new(columns).unwrap();
+    //     Success::new_non_switchable(ret).set_warnings(warnings)
+    // }
 }
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
@@ -3025,11 +3086,12 @@ where
     Self: FixedLayoutIO,
     D: IsNumType,
     T: IsTot,
-    C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
+    // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
+    C: Clone + IsFixed + HasDatatype + FromRange,
     S: Copy + HasByteOrd,
     for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
     for<'c> Range: From<&'c C>,
-    <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
+    // <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     InsertRangeError: From<<C as FromRange>::Error>,
 {
     fn ranges(&self) -> Vec<Range> {
@@ -3126,24 +3188,24 @@ where
             })
     }
 
-    fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
-        debug_assert!(
-            self.columns.len() == df.ncols(),
-            "column number should match dataframe width"
-        );
-        self.columns
-            .iter()
-            .zip(df.iter_columns())
-            .enumerate()
-            .map(|(i, (col_type, col_data))| {
-                col_type
-                    .check_writer(col_data)
-                    .map_err(|error| IndexedError::new(i, error))
-                    .map_err(IndexedLossError)
-                    .into_log()
-            })
-            .sequence_def_void()
-    }
+    // fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
+    //     debug_assert!(
+    //         self.columns.len() == df.ncols(),
+    //         "column number should match dataframe width"
+    //     );
+    //     self.columns
+    //         .iter()
+    //         .zip(df.iter_columns())
+    //         .enumerate()
+    //         .map(|(i, (col_type, col_data))| {
+    //             col_type
+    //                 .check_writer(col_data)
+    //                 .map_err(|error| IndexedError::new(i, error))
+    //                 .map_err(IndexedLossError)
+    //                 .into_log()
+    //         })
+    //         .sequence_def_void()
+    // }
 
     fn h_write_df_inner<W: Write>(
         &self,
@@ -3151,75 +3213,77 @@ where
         df: &'a FCSDataFrame,
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
-        let nrows = df.nrows();
-        debug_assert!(
-            self.columns.len() == df.ncols(),
-            "column number should match dataframe width"
-        );
-        let mut cs: Vec<_> = self
-            .columns
-            .iter()
-            .zip(df.iter_columns())
-            .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
-            .collect();
+        unimplemented!()
+        // let nrows = df.nrows();
+        // debug_assert!(
+        //     self.columns.len() == df.ncols(),
+        //     "column number should match dataframe width"
+        // );
+        // let mut cs: Vec<_> = self
+        //     .columns
+        //     .iter()
+        //     .zip(df.iter_columns())
+        //     .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
+        //     .collect();
 
-        let mut go = || {
-            for _ in 0..nrows {
-                for c in &mut cs {
-                    c.h_write(h, self.byte_layout)?;
-                }
-            }
-            Ok(())
-        };
+        // let mut go = || {
+        //     for _ in 0..nrows {
+        //         for c in &mut cs {
+        //             c.h_write(h, self.byte_layout)?;
+        //         }
+        //     }
+        //     Ok(())
+        // };
 
-        let write_res = go().into_nowarn1();
+        // let write_res = go().into_nowarn1();
 
-        if skip_conv_check {
-            write_res.nowarn_into_warn()
-        } else {
-            let ws = cs
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, c)| c.into_err(i.into()))
-                .collect();
-            write_res.set_commutative_warnings(ws)
-        }
+        // if skip_conv_check {
+        //     write_res.nowarn_into_warn()
+        // } else {
+        //     let ws = cs
+        //         .into_iter()
+        //         .enumerate()
+        //         .filter_map(|(i, c)| c.into_err(i.into()))
+        //         .collect();
+        //     write_res.set_commutative_warnings(ws)
+        // }
     }
 
-    fn truncate_df(
-        &self,
-        df: &'a FCSDataFrame,
-        skip_conv_check: bool,
-    ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
-        debug_assert!(
-            self.columns.len() == df.ncols(),
-            "column number should match dataframe width"
-        );
-        let mut warnings = vec![];
-        let new_columns = self.columns.iter().zip(df.iter_columns()).enumerate().map(
-            |(i, (col_type, col_data))| {
-                let (x, warn) = col_type
-                    .clone()
-                    .into_writer(col_data)
-                    .truncate(skip_conv_check);
-                if let Some(w) = warn {
-                    warnings.push(IndexedLossError(IndexedError::new(i, w)));
-                }
-                x
-            },
-        );
-        let ret = FCSDataFrame::try_new(new_columns).unwrap();
-        Success::new_non_switchable(ret).set_warnings(warnings)
-    }
+    // fn truncate_df(
+    //     &self,
+    //     df: &'a FCSDataFrame,
+    //     skip_conv_check: bool,
+    // ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
+    //     debug_assert!(
+    //         self.columns.len() == df.ncols(),
+    //         "column number should match dataframe width"
+    //     );
+    //     let mut warnings = vec![];
+    //     let new_columns = self.columns.iter().zip(df.iter_columns()).enumerate().map(
+    //         |(i, (col_type, col_data))| {
+    //             let (x, warn) = col_type
+    //                 .clone()
+    //                 .into_writer(col_data)
+    //                 .truncate(skip_conv_check);
+    //             if let Some(w) = warn {
+    //                 warnings.push(IndexedLossError(IndexedError::new(i, w)));
+    //             }
+    //             x
+    //         },
+    //     );
+    //     let ret = FCSDataFrame::try_new(new_columns).unwrap();
+    //     Success::new_non_switchable(ret).set_warnings(warnings)
+    // }
 }
 
 impl<'a, C, S, T, D> InterLayoutOps<D> for FixedLayout<C, S, T, D>
 where
     T: IsTot,
-    C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
+    // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
+    C: Clone + IsFixed + HasDatatype + FromRange,
     S: Copy + HasByteOrd,
     for<'c> Range: From<&'c C>,
-    <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
+    // <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
     InsertRangeError: From<<C as FromRange>::Error>,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
@@ -3489,7 +3553,7 @@ where
 }
 
 macro_rules! impl_byte_layout_io {
-    ($inner:path, $layout:path, $fun:ident$(::<$($arg:tt),*>)?) => {
+    ($inner:path, $layout:path, $fun:ident) => {
         impl ByteLayoutIO<$inner> for $layout {
             fn read_matrix<R: Read>(
                 &self,
@@ -3497,23 +3561,27 @@ macro_rules! impl_byte_layout_io {
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<<$inner as HasNativeType>::Native>>,
             ) -> io::Result<()> {
-                buf.$fun$(::<$($arg),*>)*(h, cols, *self)
+                buf.$fun(h, cols, *self)
             }
         }
     };
 }
 
 macro_rules! impl_ordered_layout_io {
-    ($t:ident, $len:expr) => {
-        impl_byte_layout_io!($t, SizedByteOrd<$len>, read_ordered_matrix);
+    ($t:ident) => {
+        impl_byte_layout_io!(
+            $t,
+            ArrayByteOrd<<<$t as HasNativeType>::Native as FCSRepr>::ByteOrd>,
+            read_ordered_matrix
+        );
     };
 }
 
-macro_rules! impl_unaligned_ord_int_layout_io {
-    ($t:ident, $len:expr) => {
-        impl_byte_layout_io!($t, SizedByteOrd<$len>, read_unaligned_ordered_int_matrix);
-    };
-}
+// macro_rules! impl_unaligned_ord_int_layout_io {
+//     ($t:ident, $len:expr) => {
+//         impl_byte_layout_io!($t, SizedByteOrd<$len>, read_unaligned_ordered_int_matrix);
+//     };
+// }
 
 macro_rules! impl_endian_layout_io {
     ($t:ident) => {
@@ -3521,39 +3589,54 @@ macro_rules! impl_endian_layout_io {
     };
 }
 
-macro_rules! impl_unaligned_endian_int_layout_io {
-    ($t:ident, $len:expr) => {
-        impl_byte_layout_io!(
-            $t,
-            Endian,
-            read_unaligned_endian_int_matrix::<_, _, $len, _>
-        );
-    };
-}
+// macro_rules! impl_unaligned_endian_int_layout_io {
+//     ($t:ident, $len:expr) => {
+//         impl_byte_layout_io!(
+//             $t,
+//             Endian,
+//             read_unaligned_endian_int_matrix::<_, _, $len, _>
+//         );
+//     };
+// }
 
-impl_ordered_layout_io!(Bitmask08, 1);
-impl_ordered_layout_io!(Bitmask16, 2);
-impl_ordered_layout_io!(Bitmask32, 4);
-impl_ordered_layout_io!(Bitmask64, 8);
-impl_ordered_layout_io!(F32Range, 4);
-impl_ordered_layout_io!(F64Range, 8);
+impl_ordered_layout_io!(Bitmask08);
+impl_ordered_layout_io!(Bitmask16);
+impl_ordered_layout_io!(Bitmask24);
+impl_ordered_layout_io!(Bitmask32);
+impl_ordered_layout_io!(Bitmask40);
+impl_ordered_layout_io!(Bitmask48);
+impl_ordered_layout_io!(Bitmask56);
+impl_ordered_layout_io!(Bitmask64);
+impl_ordered_layout_io!(F32Range);
+impl_ordered_layout_io!(F64Range);
 
 impl_endian_layout_io!(Bitmask08);
 impl_endian_layout_io!(Bitmask16);
+impl_endian_layout_io!(Bitmask24);
 impl_endian_layout_io!(Bitmask32);
+impl_endian_layout_io!(Bitmask40);
+impl_endian_layout_io!(Bitmask48);
+impl_endian_layout_io!(Bitmask56);
 impl_endian_layout_io!(Bitmask64);
 impl_endian_layout_io!(F32Range);
 impl_endian_layout_io!(F64Range);
 
-impl_unaligned_ord_int_layout_io!(Bitmask24, 3);
-impl_unaligned_ord_int_layout_io!(Bitmask40, 5);
-impl_unaligned_ord_int_layout_io!(Bitmask48, 6);
-impl_unaligned_ord_int_layout_io!(Bitmask56, 7);
+// impl_endian_layout_io!(Bitmask08);
+// impl_endian_layout_io!(Bitmask16);
+// impl_endian_layout_io!(Bitmask32);
+// impl_endian_layout_io!(Bitmask64);
+// impl_endian_layout_io!(F32Range);
+// impl_endian_layout_io!(F64Range);
 
-impl_unaligned_endian_int_layout_io!(Bitmask24, 3);
-impl_unaligned_endian_int_layout_io!(Bitmask40, 5);
-impl_unaligned_endian_int_layout_io!(Bitmask48, 6);
-impl_unaligned_endian_int_layout_io!(Bitmask56, 7);
+// impl_unaligned_ord_int_layout_io!(Bitmask24, 3);
+// impl_unaligned_ord_int_layout_io!(Bitmask40, 5);
+// impl_unaligned_ord_int_layout_io!(Bitmask48, 6);
+// impl_unaligned_ord_int_layout_io!(Bitmask56, 7);
+
+// impl_unaligned_endian_int_layout_io!(Bitmask24, 3);
+// impl_unaligned_endian_int_layout_io!(Bitmask40, 5);
+// impl_unaligned_endian_int_layout_io!(Bitmask48, 6);
+// impl_unaligned_endian_int_layout_io!(Bitmask56, 7);
 
 impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
     fn h_read_unchecked_df_inner<R: Read>(
@@ -3562,32 +3645,33 @@ impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
         nrows: usize,
         conf: &ReadEventsConfig,
     ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
-        let row_width = self.event_width();
+        // let row_width = self.event_width();
 
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
+        // let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
 
-        let mut columns: Vec<_> = self
-            .columns
-            .iter()
-            .map(|r| RangedVec::new(*r, vec![0; nrows]))
-            .collect();
+        // let mut columns: Vec<_> = self
+        //     .columns
+        //     .iter()
+        //     .map(|r| RangedVec::new(*r, vec![0; nrows]))
+        //     .collect();
 
-        row_buf.read_char_matrix(h, &mut columns).map_err(|e| {
-            e.fmap_once(ReadFixedAsciiError::from)
-                .fmap_once(ReadAsciiError::from)
-                .fmap_once(ReadDataframeError::from)
-        })?;
+        // row_buf.read_char_matrix(h, &mut columns).map_err(|e| {
+        //     e.fmap_once(ReadFixedAsciiError::from)
+        //         .fmap_once(ReadAsciiError::from)
+        //         .fmap_once(ReadDataframeError::from)
+        // })?;
 
-        let trunc = conf.truncate_event_values;
-        let rs = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.data.check_range(&c.range, i.into(), trunc))
-            .collect();
+        // let trunc = conf.truncate_event_values;
+        // let rs = columns
+        //     .iter_mut()
+        //     .enumerate()
+        //     .map(|(i, c)| c.data.check_range(&c.range, i.into(), trunc))
+        //     .collect();
 
-        let data = columns.into_iter().map(AnyFCSColumn::from);
-        let df = FCSDataFrame::try_new(data).unwrap();
-        Ok((df, rs))
+        // let data = columns.into_iter().map(AnyFCSColumn::from);
+        // let df = FCSDataFrame::try_new(data).unwrap();
+        // Ok((df, rs))
+        unimplemented!()
     }
 }
 
@@ -3595,7 +3679,7 @@ impl<C, S, Tot, Dt> FixedLayoutIO for FixedLayout<C, S, Tot, Dt>
 where
     S: ByteLayoutIO<C>,
     C: HasBytes + IsFixed,
-    AnyFCSColumn: From<FCSColumn<C::Native>>,
+    // AnyFCSColumn: From<FCSColumn<C::Native>>,
     Vec<C::Native>: HasRange<C>,
     C::Native: PartialOrd,
 {
@@ -3605,25 +3689,27 @@ where
         nrows: usize,
         conf: &ReadEventsConfig,
     ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let ncols = self.columns().len();
-        let mut columns = vec![vec![C::Native::default(); nrows]; ncols];
+        // let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        // let ncols = self.columns().len();
+        // let mut columns = vec![vec![C::Native::default(); nrows]; ncols];
 
-        self.byte_layout
-            .read_matrix(h, &mut row_buf, &mut columns)?;
+        // self.byte_layout
+        //     .read_matrix(h, &mut row_buf, &mut columns)?;
 
-        let trunc = conf.truncate_event_values;
-        let rs = columns
-            .iter_mut()
-            .enumerate()
-            .zip(&self.columns[..])
-            .map(|((i, d), c)| d.check_range(c, i.into(), trunc))
-            .collect();
+        // let trunc = conf.truncate_event_values;
+        // let rs = columns
+        //     .iter_mut()
+        //     .enumerate()
+        //     .zip(&self.columns[..])
+        //     .map(|((i, d), c)| d.check_range(c, i.into(), trunc))
+        //     .collect();
 
-        let data = columns.into_iter().map(|c| FCSColumn::from(c).into());
-        let df = FCSDataFrame::try_new(data).unwrap();
+        // let data = columns.into_iter().map(|c| FCSColumn::from(c).into());
+        // let df = FCSDataFrame::try_new(data).unwrap();
 
-        Ok((df, rs))
+        // Ok((df, rs))
+
+        unimplemented!()
     }
 }
 
@@ -3644,50 +3730,51 @@ where
         nrows: usize,
         conf: &ReadEventsConfig,
     ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        unimplemented!()
+        // let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
 
-        if let Some((first, rest)) = self.columns.split_first()
-            && rest.iter().all(|x| x == first)
-        {
-            // If all columns are the same width, treat data as a matrix and use
-            // faster loop.
-            let ncols = self.columns.len();
-            macro_rules! go {
-                ($r:expr) => {{
-                    let l = FixedLayout::new(vec![*$r; ncols], self.byte_layout);
-                    l.h_read_unchecked_df_inner(h, nrows, conf)
-                }};
-            }
-            match first {
-                AnyBitmask::Uint08(r) => go!(r),
-                AnyBitmask::Uint16(r) => go!(r),
-                AnyBitmask::Uint24(r) => go!(r),
-                AnyBitmask::Uint32(r) => go!(r),
-                AnyBitmask::Uint40(r) => go!(r),
-                AnyBitmask::Uint48(r) => go!(r),
-                AnyBitmask::Uint56(r) => go!(r),
-                AnyBitmask::Uint64(r) => go!(r),
-            }
-        } else {
-            // Otherwise use static dispatch to dynamically read different
-            // widths. This will be slower since this will involve a tight loop
-            // with jump ops in it to choose the width.
-            let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+        // if let Some((first, rest)) = self.columns.split_first()
+        //     && rest.iter().all(|x| x == first)
+        // {
+        //     // If all columns are the same width, treat data as a matrix and use
+        //     // faster loop.
+        //     let ncols = self.columns.len();
+        //     macro_rules! go {
+        //         ($r:expr) => {{
+        //             let l = FixedLayout::new(vec![*$r; ncols], self.byte_layout);
+        //             l.h_read_unchecked_df_inner(h, nrows, conf)
+        //         }};
+        //     }
+        //     match first {
+        //         AnyBitmask::Uint08(r) => go!(r),
+        //         AnyBitmask::Uint16(r) => go!(r),
+        //         AnyBitmask::Uint24(r) => go!(r),
+        //         AnyBitmask::Uint32(r) => go!(r),
+        //         AnyBitmask::Uint40(r) => go!(r),
+        //         AnyBitmask::Uint48(r) => go!(r),
+        //         AnyBitmask::Uint56(r) => go!(r),
+        //         AnyBitmask::Uint64(r) => go!(r),
+        //     }
+        // } else {
+        //     // Otherwise use static dispatch to dynamically read different
+        //     // widths. This will be slower since this will involve a tight loop
+        //     // with jump ops in it to choose the width.
+        //     let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
 
-            row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
+        //     row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
 
-            let trunc = conf.truncate_event_values;
-            let rs = columns
-                .iter_mut()
-                .enumerate()
-                .map(|(i, c)| c.check_range(i.into(), trunc))
-                .collect();
+        //     let trunc = conf.truncate_event_values;
+        //     let rs = columns
+        //         .iter_mut()
+        //         .enumerate()
+        //         .map(|(i, c)| c.check_range(i.into(), trunc))
+        //         .collect();
 
-            let data = columns.into_iter().map(AnyFCSColumn::from);
-            let df = FCSDataFrame::try_new(data).unwrap();
+        //     let data = columns.into_iter().map(AnyFCSColumn::from);
+        //     let df = FCSDataFrame::try_new(data).unwrap();
 
-            Ok((df, rs))
-        }
+        //     Ok((df, rs))
+        // }
     }
 }
 
@@ -3698,73 +3785,75 @@ impl FixedLayoutIO for MixedLayout {
         nrows: usize,
         conf: &ReadEventsConfig,
     ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
-        let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let en = self.byte_layout;
-        let cs = &self.columns[..];
+        //     let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        //     let en = self.byte_layout;
+        //     let cs = &self.columns[..];
 
-        let mut columns = if let Some((first, rest)) = self.columns.split_first()
-            && rest.iter().all(|x| x.datatype() == first.datatype())
-        {
-            // If all columns have the same datatype, dispatch to another reader
-            // specific for that type. Note: we cannot simply test that the
-            // columns are equal to each other since this might fail for int
-            // layouts which have different widths; there already is a method
-            // for reading int layouts with multiple widths (which itself will
-            // dispatch further in the case of only one widths) that we wish
-            // to use.
-            let ncols = self.columns.len();
-            macro_rules! go {
-                ($r:expr) => {{
-                    let l: EndianLayout<_, Option<NumType>> =
-                        FixedLayout::new(vec![$r; ncols], self.byte_layout);
-                    return l.h_read_unchecked_df_inner(h, nrows, conf);
-                }};
-            }
-            match first {
-                MixedType::Ascii(r) => {
-                    let l: FixedAsciiLayout<Identity<Tot>, Option<NumType>, false> =
-                        FixedLayout::new(vec![*r; ncols], NoByteOrd3_1::default());
-                    return l.h_read_unchecked_df_inner(h, nrows, conf);
-                }
-                MixedType::Uint(r) => go!(*r),
-                MixedType::F32(r) => go!(r.clone()),
-                MixedType::F64(r) => go!(r.clone()),
-            }
-        } else if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
-            // If the types are all the same width (but not necessary the same
-            // type), we can "cheat" and read the layout all as one type and
-            // cast to other types after the fact. This will dramatically speed
-            // up reading for massive files such as S8/A8.
-            //
-            // This is for 32-bit float+int
-            ret
-        } else if let Some(ret) = try_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
-            // ditto 64-bit
-            ret
-        } else {
-            // Totally mixed layout, dispatch for each column. This will be
-            // slower but is necessary to read each type correctly.
-            let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
-            buf.read_mixed_df(h, &mut columns, self.byte_layout)
-                .map_err(|e| {
-                    e.fmap_once(ReadFixedAsciiError::from)
-                        .fmap_once(ReadAsciiError::from)
-                        .fmap_once(ReadDataframeError::from)
-                })?;
-            columns
-        };
+        //     let mut columns = if let Some((first, rest)) = self.columns.split_first()
+        //         && rest.iter().all(|x| x.datatype() == first.datatype())
+        //     {
+        //         // If all columns have the same datatype, dispatch to another reader
+        //         // specific for that type. Note: we cannot simply test that the
+        //         // columns are equal to each other since this might fail for int
+        //         // layouts which have different widths; there already is a method
+        //         // for reading int layouts with multiple widths (which itself will
+        //         // dispatch further in the case of only one widths) that we wish
+        //         // to use.
+        //         let ncols = self.columns.len();
+        //         macro_rules! go {
+        //             ($r:expr) => {{
+        //                 let l: EndianLayout<_, Option<NumType>> =
+        //                     FixedLayout::new(vec![$r; ncols], self.byte_layout);
+        //                 return l.h_read_unchecked_df_inner(h, nrows, conf);
+        //             }};
+        //         }
+        //         match first {
+        //             MixedType::Ascii(r) => {
+        //                 let l: FixedAsciiLayout<Identity<Tot>, Option<NumType>, false> =
+        //                     FixedLayout::new(vec![*r; ncols], NoByteOrd3_1::default());
+        //                 return l.h_read_unchecked_df_inner(h, nrows, conf);
+        //             }
+        //             MixedType::Uint(r) => go!(*r),
+        //             MixedType::F32(r) => go!(r.clone()),
+        //             MixedType::F64(r) => go!(r.clone()),
+        //         }
+        //     } else if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
+        //         // If the types are all the same width (but not necessary the same
+        //         // type), we can "cheat" and read the layout all as one type and
+        //         // cast to other types after the fact. This will dramatically speed
+        //         // up reading for massive files such as S8/A8.
+        //         //
+        //         // This is for 32-bit float+int
+        //         ret
+        //     } else if let Some(ret) = try_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
+        //         // ditto 64-bit
+        //         ret
+        //     } else {
+        //         // Totally mixed layout, dispatch for each column. This will be
+        //         // slower but is necessary to read each type correctly.
+        //         let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+        //         buf.read_mixed_df(h, &mut columns, self.byte_layout)
+        //             .map_err(|e| {
+        //                 e.fmap_once(ReadFixedAsciiError::from)
+        //                     .fmap_once(ReadAsciiError::from)
+        //                     .fmap_once(ReadDataframeError::from)
+        //             })?;
+        //         columns
+        //     };
 
-        let trunc = conf.truncate_event_values;
-        let rs = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.check_range(i.into(), trunc))
-            .collect();
+        //     let trunc = conf.truncate_event_values;
+        //     let rs = columns
+        //         .iter_mut()
+        //         .enumerate()
+        //         .map(|(i, c)| c.check_range(i.into(), trunc))
+        //         .collect();
 
-        let data = columns.into_iter().map(AnyFCSColumn::from);
-        let df = FCSDataFrame::try_new(data).unwrap();
+        //     let data = columns.into_iter().map(AnyFCSColumn::from);
+        //     let df = FCSDataFrame::try_new(data).unwrap();
 
-        Ok((df, rs))
+        //     Ok((df, rs))
+
+        unimplemented!()
     }
 }
 
@@ -3908,18 +3997,18 @@ macro_rules! def_native_wrapper {
         }
 
         impl HasOrder for $name {
-            type Order = SizedByteOrd<$size>;
+            type Order = ArrayByteOrd<[u8; $size]>;
         }
     };
 }
 
 def_native_wrapper!(Bitmask08, u8, 1, 1, B1);
 def_native_wrapper!(Bitmask16, u16, 2, 2, B2);
-def_native_wrapper!(Bitmask24, u32, 3, 4, B3);
+def_native_wrapper!(Bitmask24, U24, 3, 4, B3);
 def_native_wrapper!(Bitmask32, u32, 4, 4, B4);
-def_native_wrapper!(Bitmask40, u64, 5, 8, B5);
-def_native_wrapper!(Bitmask48, u64, 6, 8, B6);
-def_native_wrapper!(Bitmask56, u64, 7, 8, B7);
+def_native_wrapper!(Bitmask40, U40, 5, 8, B5);
+def_native_wrapper!(Bitmask48, U48, 6, 8, B6);
+def_native_wrapper!(Bitmask56, U56, 7, 8, B7);
 def_native_wrapper!(Bitmask64, u64, 8, 8, B8);
 def_native_wrapper!(F32Range, f32, 4, 4, B4);
 def_native_wrapper!(F64Range, f64, 8, 8, B8);
@@ -4027,7 +4116,7 @@ impl IntoRange for AsciiRange {
 impl<T, const LEN: usize> FromRange for Bitmask<T, LEN>
 where
     T: TryFrom<Range, Error = RangeToIntError<T>>
-        + FileBytes
+        + FCSRepr
         + Copy
         + Bounded
         + Shr<usize, Output = T>,
@@ -4162,31 +4251,27 @@ impl FromRange for NullMixedType {
 
 impl<T, const LEN: usize> IsFixed for Bitmask<T, LEN>
 where
-    Self: HasBytes,
-    u64: From<T>,
-    T: Copy,
+    T: FCSRepr,
 {
     fn nbytes(&self) -> NonZeroU8 {
-        Self::BYTES.into()
+        T::FILE_BYTES.into()
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        BitsOrChars(Self::BYTES.into())
+        BitsOrChars(T::FILE_BYTES.into())
     }
 }
 
 impl<T, const LEN: usize> IsFixed for FloatRange<T, LEN>
 where
-    Self: HasBytes,
-    T: Copy,
-    f64: From<T>,
+    T: FCSRepr,
 {
     fn nbytes(&self) -> NonZeroU8 {
-        Self::BYTES.into()
+        T::FILE_BYTES.into()
     }
 
     fn fixed_width(&self) -> BitsOrChars {
-        BitsOrChars(Self::BYTES.into())
+        BitsOrChars(T::FILE_BYTES.into())
     }
 }
 
@@ -4220,57 +4305,57 @@ impl IsFixed for NullMixedType {
     }
 }
 
-macro_rules! source_from_iter {
-    ($from:ident, $to:ident, $wrap:ident) => {
-        impl<'a> From<FCSColIter<'a, $from, $to>> for AnySource<'a, $to> {
-            fn from(value: FCSColIter<'a, $from, $to>) -> Self {
-                Self::$wrap(value)
-            }
-        }
-    };
-}
+// macro_rules! source_from_iter {
+//     ($from:ident, $to:ident, $wrap:ident) => {
+//         impl<'a> From<FCSColIter<'a, $from, $to>> for AnySource<'a, $to> {
+//             fn from(value: FCSColIter<'a, $from, $to>) -> Self {
+//                 Self::$wrap(value)
+//             }
+//         }
+//     };
+// }
 
-source_from_iter!(u8, u8, FromU08);
-source_from_iter!(u8, u16, FromU08);
-source_from_iter!(u8, u32, FromU08);
-source_from_iter!(u8, u64, FromU08);
-source_from_iter!(u8, f32, FromU08);
-source_from_iter!(u8, f64, FromU08);
+// source_from_iter!(u8, u8, FromU08);
+// source_from_iter!(u8, u16, FromU08);
+// source_from_iter!(u8, u32, FromU08);
+// source_from_iter!(u8, u64, FromU08);
+// source_from_iter!(u8, f32, FromU08);
+// source_from_iter!(u8, f64, FromU08);
 
-source_from_iter!(u16, u8, FromU16);
-source_from_iter!(u16, u16, FromU16);
-source_from_iter!(u16, u32, FromU16);
-source_from_iter!(u16, u64, FromU16);
-source_from_iter!(u16, f32, FromU16);
-source_from_iter!(u16, f64, FromU16);
+// source_from_iter!(u16, u8, FromU16);
+// source_from_iter!(u16, u16, FromU16);
+// source_from_iter!(u16, u32, FromU16);
+// source_from_iter!(u16, u64, FromU16);
+// source_from_iter!(u16, f32, FromU16);
+// source_from_iter!(u16, f64, FromU16);
 
-source_from_iter!(u32, u8, FromU32);
-source_from_iter!(u32, u16, FromU32);
-source_from_iter!(u32, u32, FromU32);
-source_from_iter!(u32, u64, FromU32);
-source_from_iter!(u32, f32, FromU32);
-source_from_iter!(u32, f64, FromU32);
+// source_from_iter!(u32, u8, FromU32);
+// source_from_iter!(u32, u16, FromU32);
+// source_from_iter!(u32, u32, FromU32);
+// source_from_iter!(u32, u64, FromU32);
+// source_from_iter!(u32, f32, FromU32);
+// source_from_iter!(u32, f64, FromU32);
 
-source_from_iter!(u64, u8, FromU64);
-source_from_iter!(u64, u16, FromU64);
-source_from_iter!(u64, u32, FromU64);
-source_from_iter!(u64, u64, FromU64);
-source_from_iter!(u64, f32, FromU64);
-source_from_iter!(u64, f64, FromU64);
+// source_from_iter!(u64, u8, FromU64);
+// source_from_iter!(u64, u16, FromU64);
+// source_from_iter!(u64, u32, FromU64);
+// source_from_iter!(u64, u64, FromU64);
+// source_from_iter!(u64, f32, FromU64);
+// source_from_iter!(u64, f64, FromU64);
 
-source_from_iter!(f32, u8, FromF32);
-source_from_iter!(f32, u16, FromF32);
-source_from_iter!(f32, u32, FromF32);
-source_from_iter!(f32, u64, FromF32);
-source_from_iter!(f32, f32, FromF32);
-source_from_iter!(f32, f64, FromF32);
+// source_from_iter!(f32, u8, FromF32);
+// source_from_iter!(f32, u16, FromF32);
+// source_from_iter!(f32, u32, FromF32);
+// source_from_iter!(f32, u64, FromF32);
+// source_from_iter!(f32, f32, FromF32);
+// source_from_iter!(f32, f64, FromF32);
 
-source_from_iter!(f64, u8, FromF64);
-source_from_iter!(f64, u16, FromF64);
-source_from_iter!(f64, u32, FromF64);
-source_from_iter!(f64, u64, FromF64);
-source_from_iter!(f64, f32, FromF64);
-source_from_iter!(f64, f64, FromF64);
+// source_from_iter!(f64, u8, FromF64);
+// source_from_iter!(f64, u16, FromF64);
+// source_from_iter!(f64, u32, FromF64);
+// source_from_iter!(f64, u64, FromF64);
+// source_from_iter!(f64, f32, FromF64);
+// source_from_iter!(f64, f64, FromF64);
 
 impl<T> Default for AnyOrderedUintLayout<T> {
     fn default() -> Self {
@@ -4429,21 +4514,21 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
 
 impl<T, const LEN: usize, TC> OrderedLayout<Bitmask<T, LEN>, TC>
 where
-    Bitmask<T, LEN>: HasOrder<Order = SizedByteOrd<LEN>>,
+    Bitmask<T, LEN>: HasOrder<Order = ArrayByteOrd<[u8; LEN]>>,
 {
     #[must_use]
     pub fn new_endian_uint(ranges: Vec<Bitmask<T, LEN>>, endian: Endian) -> Self {
-        Self::new(ranges, SizedByteOrd::Endian(endian))
+        Self::new(ranges, ArrayByteOrd::Endian(endian))
     }
 }
 
 impl<T, const LEN: usize, TC> OrderedLayout<FloatRange<T, LEN>, TC>
 where
-    FloatRange<T, LEN>: HasOrder<Order = SizedByteOrd<LEN>>,
+    FloatRange<T, LEN>: HasOrder<Order = ArrayByteOrd<[u8; LEN]>>,
 {
     #[must_use]
     pub fn new_endian_float(ranges: Vec<FloatRange<T, LEN>>, endian: Endian) -> Self {
-        Self::new(ranges, SizedByteOrd::Endian(endian))
+        Self::new(ranges, ArrayByteOrd::Endian(endian))
     }
 }
 
@@ -4945,22 +5030,22 @@ impl<T> AnyOrderedLayout<T> {
     #[must_use]
     pub fn new_uint<U, const LEN: usize>(
         columns: Vec<Bitmask<U, LEN>>,
-        byte_layout: SizedByteOrd<LEN>,
+        byte_layout: ArrayByteOrd<[u8; LEN]>,
     ) -> Self
     where
         AnyOrderedUintLayout<T>:
-            From<FixedLayout<Bitmask<U, LEN>, SizedByteOrd<LEN>, T, Nothing<NumType>>>,
+            From<FixedLayout<Bitmask<U, LEN>, ArrayByteOrd<[u8; LEN]>, T, Nothing<NumType>>>,
     {
         Self::Integer(FixedLayout::new(columns, byte_layout).into())
     }
 
     #[must_use]
-    pub fn new_f32(ranges: Vec<F32Range>, byte_layout: SizedByteOrd<4>) -> Self {
+    pub fn new_f32(ranges: Vec<F32Range>, byte_layout: ArrayByteOrd<[u8; 4]>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
     }
 
     #[must_use]
-    pub fn new_f64(ranges: Vec<F64Range>, byte_layout: SizedByteOrd<8>) -> Self {
+    pub fn new_f64(ranges: Vec<F64Range>, byte_layout: ArrayByteOrd<[u8; 8]>) -> Self {
         FixedLayout::new(ranges, byte_layout).into()
     }
 
@@ -5473,9 +5558,9 @@ pub struct IndexedLossError(IndexedError<AnyLossError>);
 /// Error when value is truncated when writing DATA
 #[derive(From, Display, Debug)]
 pub(crate) enum AnyLossError {
-    Int(LossError<BitmaskLossError>),
-    Float(LossError<Infallible>),
-    Ascii(LossError<AsciiLossError>),
+    // Int(LossError<BitmaskLossError>),
+    // Float(LossError<Infallible>),
+    // Ascii(LossError<AsciiLossError>),
 }
 
 /// Error when ASCII value is truncated to fewer chars when writing DATA

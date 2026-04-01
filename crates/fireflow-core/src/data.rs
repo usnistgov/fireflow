@@ -95,6 +95,7 @@ use crate::validated::dataframe::{
     LossError,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
+use crate::validated::unaligned::FileBytes;
 
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
@@ -110,7 +111,7 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{NonEmptyIterator as _, once},
 };
-use num_traits::{FromBytes, PrimInt};
+use num_traits::{Bounded, FromBytes};
 use thiserror::Error;
 
 use std::convert::Infallible;
@@ -120,6 +121,7 @@ use std::iter;
 use std::marker::PhantomData;
 use std::mem;
 use std::num::{NonZeroU8, ParseIntError};
+use std::ops::Shr;
 use std::str;
 
 #[cfg(feature = "serde")]
@@ -4024,7 +4026,11 @@ impl IntoRange for AsciiRange {
 
 impl<T, const LEN: usize> FromRange for Bitmask<T, LEN>
 where
-    T: TryFrom<Range, Error = RangeToIntError<T>> + PrimInt,
+    T: TryFrom<Range, Error = RangeToIntError<T>>
+        + FileBytes
+        + Copy
+        + Bounded
+        + Shr<usize, Output = T>,
     u64: From<T>,
 {
     type Error = RangeToBitmaskError;

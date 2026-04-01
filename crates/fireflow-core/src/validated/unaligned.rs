@@ -2,6 +2,8 @@ use bytemuck::NoUninit;
 use derive_more::{From, Into};
 use num_traits::Bounded;
 
+use crate::text::byteord::{Bytes, PrivBytes};
+
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit)]
 #[into(u32, u64)]
 #[from(u8, u16)]
@@ -33,13 +35,36 @@ pub(crate) struct TryFromUnalignedIntError;
 //     fn cast_from_vec(xs: Vec<Inner>) -> (Vec<Self>, Option<usize>);
 // }
 
+pub trait FileBytes {
+    const BYTES: Bytes;
+}
+
+macro_rules! impl_file_bytes {
+    ($t:ident, $n:ident) => {
+        impl FileBytes for $t {
+            const BYTES: Bytes = Bytes(PrivBytes::$n);
+        }
+    };
+}
+
+impl_file_bytes!(u8, B1);
+impl_file_bytes!(u16, B2);
+impl_file_bytes!(U24, B3);
+impl_file_bytes!(u32, B4);
+impl_file_bytes!(U40, B5);
+impl_file_bytes!(U48, B6);
+impl_file_bytes!(U56, B7);
+impl_file_bytes!(u64, B8);
+impl_file_bytes!(f32, B4);
+impl_file_bytes!(f64, B8);
+
 macro_rules! impl_unaligned {
-    ($from:ident, $to:ident, $n:expr) => {
-        impl TryFrom<$from> for $to {
+    ($inner:ident, $outer:ident, $n:expr) => {
+        impl TryFrom<$inner> for $outer {
             type Error = TryFromUnalignedIntError;
 
-            fn try_from(value: $from) -> Result<Self, Self::Error> {
-                if value > $from::from($to::max_value()) {
+            fn try_from(value: $inner) -> Result<Self, Self::Error> {
+                if value > $inner::from($outer::max_value()) {
                     Err(TryFromUnalignedIntError)
                 } else {
                     Ok(Self(value))
@@ -47,7 +72,7 @@ macro_rules! impl_unaligned {
             }
         }
 
-        impl Bounded for $to {
+        impl Bounded for $outer {
             fn min_value() -> Self {
                 Self(0)
             }
@@ -56,30 +81,6 @@ macro_rules! impl_unaligned {
                 Self((1 << $n) - 1)
             }
         }
-
-        // impl CastableVec<$from> for $to {
-        //     fn cast_from_vec(mut xs: Vec<$from>) -> (Vec<Self>, Option<usize>) {
-        //         let mut err = None;
-        //         for (i, x) in xs.iter_mut().enumerate() {
-        //             let upper = $from::from(Self::max_value());
-        //             if *x > upper {
-        //                 *x = upper;
-        //                 if err.is_none() {
-        //                     err = Some(i);
-        //                 }
-        //             }
-        //         }
-        //         let n = xs.len();
-        //         let cap = xs.capacity();
-        //         let ptr = xs.as_mut_ptr().cast::<Self>();
-        //         forget(xs);
-        //         // SAFETY: we checked that each input is with range, and the
-        //         // target type is a transparent wrapper around the input type so
-        //         // the pointer cast is valid.
-        //         let new = unsafe { Vec::from_raw_parts(ptr, n, cap) };
-        //         (new, err)
-        //     }
-        // }
     };
 }
 

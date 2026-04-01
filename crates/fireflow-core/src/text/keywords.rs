@@ -73,7 +73,7 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _, once},
 };
-use num_traits::PrimInt;
+use num_traits::Bounded;
 use num_traits::cast::ToPrimitive as _;
 use num_traits::identities::{One as _, Zero as _};
 use thiserror::Error;
@@ -3201,7 +3201,7 @@ pub struct Range(pub BigDecimal);
 impl Range {
     pub(crate) fn into_uint<T>(self) -> DeferredError<BitmaskValue<T>, RangeToIntError<()>>
     where
-        T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
+        T: TryFrom<Self, Error = RangeToIntError<T>> + Bounded + Copy,
     {
         (self - Self::from(1_u8))
             .into_uint_inner()
@@ -3215,12 +3215,12 @@ impl Range {
 
     fn into_uint_inner<T>(self) -> DeferredError<T, RangeToIntError<()>>
     where
-        T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
+        T: TryFrom<Self, Error = RangeToIntError<T>> + Bounded + Copy,
     {
         let (b, err) = self.try_into().map_or_else(
             |e: RangeToIntError<T>| match e.error_kind {
                 RangeToIntErrorKind::Overrange => (T::max_value(), Some(e.void())),
-                RangeToIntErrorKind::Underrange => (T::zero(), Some(e.void())),
+                RangeToIntErrorKind::Underrange => (T::min_value(), Some(e.void())),
                 RangeToIntErrorKind::PrecisionLoss(y) => (y, Some(e.void())),
             },
             |x| (x, None),

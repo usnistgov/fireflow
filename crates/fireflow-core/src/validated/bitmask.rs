@@ -10,12 +10,14 @@ use crate::text::keywords::Range;
 use bigdecimal::BigDecimal;
 use derive_more::Display;
 use derive_new::new;
-use num_traits::PrimInt;
+use num_traits::Bounded;
 use num_traits::identities::One as _;
-use std::mem::size_of;
+use std::ops::Shr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::unaligned::FileBytes;
 
 #[cfg(feature = "python")]
 use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
@@ -98,12 +100,10 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
         value: BitmaskValue<T>,
     ) -> DeferredError<Self, BitmaskTruncationError>
     where
-        T: PrimInt,
-        u64: From<T>,
+        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + FileBytes,
     {
         let (bitmask, truncated) = Self::from_native(value);
-        let error =
-            truncated.then(|| BitmaskTruncationError::new(Self::bytes(), u64::from(value.0)));
+        let error = truncated.then(|| BitmaskTruncationError::new(T::BYTES.0, value.0.into()));
         LogResult::new_deferred_maybe(bitmask, error)
     }
 
@@ -125,27 +125,27 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     pub fn from_native(value: BitmaskValue<T>) -> (Self, bool)
     where
-        T: PrimInt,
+        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + FileBytes,
     {
-        debug_assert!(size_of::<T>() * 8 <= 64, "type can only be 64-bit or less");
-        let native_bits = u8::try_from(size_of::<T>() * 8).unwrap();
-        let value_bits = native_bits - u8::try_from(value.0.leading_zeros()).unwrap();
-        let truncated = value_bits > Self::bits();
-        let bits = value_bits.min(Self::bits());
-        let mask = if bits == 0 {
-            T::zero()
-        } else if bits == native_bits {
+        // use min_value rather than zero to avoid constraints
+        debug_assert!(T::min_value().into() == 0_u64, "min must be zero");
+        let value64: u64 = value.0.into();
+        let max_bits = u32::from(u8::from(T::BYTES)) * 8;
+        let value_bits = u64::BITS - value64.leading_zeros();
+        let mask = if value_bits == 0 {
+            T::min_value()
+        } else if value_bits >= max_bits {
             T::max_value()
         } else {
-            (T::one() << usize::from(bits)) - T::one()
+            // TODO u32 wrapper
+            T::max_value() >> usize::try_from(max_bits - value_bits).unwrap()
         };
-        let v = BitmaskValue(value.0.min(mask));
-        (Self::new(v, mask), truncated)
+        (Self::new(value, mask), value_bits > max_bits)
     }
 
     pub(crate) fn from_u64(value: u64) -> (Self, bool)
     where
-        T: PrimInt + TryFrom<u64>,
+        T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + TryFrom<u64> + FileBytes,
     {
         T::try_from(value)
             .map(BitmaskValue)
@@ -155,20 +155,9 @@ impl<T, const LEN: usize> Bitmask<T, LEN> {
 
     fn max() -> Self
     where
-        T: PrimInt,
+        T: Bounded,
     {
-        Self::from_native(BitmaskValue(T::max_value())).0
-    }
-
-    fn bytes() -> PrivBytes {
-        u8::try_from(LEN)
-            .unwrap()
-            .try_into()
-            .expect("Bytes greater than 8")
-    }
-
-    fn bits() -> u8 {
-        u8::from(Self::bytes()) * 8
+        Self::new(BitmaskValue(T::max_value()), T::max_value())
     }
 
     pub(crate) fn try_from_many<E, X>(
@@ -269,17 +258,27 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::validated::unaligned::FileBytes;
+
     use super::{Bitmask, BitmaskValue};
 
+    use num_traits::Bounded;
     use pyo3::conversion::FromPyObjectBound;
     use pyo3::exceptions::PyOverflowError;
     use pyo3::prelude::*;
 
     use std::fmt;
+    use std::ops::Shr;
 
     impl<'py, T, const LEN: usize> FromPyObject<'py> for super::Bitmask<T, LEN>
     where
-        for<'a> T: FromPyObjectBound<'a, 'py> + num_traits::PrimInt + fmt::Display,
+        for<'a> T: FromPyObjectBound<'a, 'py>
+            + fmt::Display
+            + Into<u64>
+            + FileBytes
+            + Bounded
+            + Copy
+            + Shr<usize, Output = T>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<T>()?;

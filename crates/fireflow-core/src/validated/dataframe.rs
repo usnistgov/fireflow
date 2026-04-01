@@ -11,7 +11,6 @@ use num_traits::bounds::Bounded;
 use num_traits::cast::AsPrimitive;
 use num_traits::float::Float;
 use num_traits::identities::Zero as _;
-use num_traits::int::PrimInt;
 use polars_arrow::buffer::Buffer;
 use thiserror::Error;
 
@@ -644,7 +643,7 @@ impl PartialEq for AnyFCSColumn {
         where
             IS: AsRef<[I]>,
             FS: AsRef<[F]>,
-            I: PrimInt + AsPrimitive<F>,
+            I: Bounded + AsPrimitive<F>,
             F: Float + 'static,
         {
             xs.as_ref()

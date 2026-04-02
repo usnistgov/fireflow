@@ -12,9 +12,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::{HasRegion, TEXTSegment};
-use crate::text::byteord::{
-    BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,
-};
+use crate::text::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes};
 use crate::text::compensation::{Compensation, NewCompError};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -1730,14 +1728,14 @@ impl ByteOrd2_0 {
     #[must_use]
     pub(crate) fn nbytes(&self) -> PrivBytes {
         match self {
-            Self::O1(_) => SizedByteOrd::<1>::nbytes(),
-            Self::O2(_) => SizedByteOrd::<2>::nbytes(),
-            Self::O3(_) => SizedByteOrd::<3>::nbytes(),
-            Self::O4(_) => SizedByteOrd::<4>::nbytes(),
-            Self::O5(_) => SizedByteOrd::<5>::nbytes(),
-            Self::O6(_) => SizedByteOrd::<6>::nbytes(),
-            Self::O7(_) => SizedByteOrd::<7>::nbytes(),
-            Self::O8(_) => SizedByteOrd::<8>::nbytes(),
+            Self::O1(_) => PrivBytes::B1,
+            Self::O2(_) => PrivBytes::B2,
+            Self::O3(_) => PrivBytes::B3,
+            Self::O4(_) => PrivBytes::B4,
+            Self::O5(_) => PrivBytes::B5,
+            Self::O6(_) => PrivBytes::B6,
+            Self::O7(_) => PrivBytes::B7,
+            Self::O8(_) => PrivBytes::B8,
         }
     }
 

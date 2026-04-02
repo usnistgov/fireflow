@@ -98,6 +98,30 @@ pub trait FCSRepr {
         usize::from(u8::from(Self::MEM_BYTES))
     }
 
+    fn slice_be_bytes(bytes: &[u8], index: usize) -> Self
+    where
+        Self: FromBytes<Bytes = Self::FileBuf>,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+    {
+        let LEN = Self::FILE_BYTES.0.to_usize();
+        let mut buf = Self::FileBuf::default();
+        let tmp = &bytes[index..index + LEN];
+        buf.as_mut().copy_from_slice(tmp);
+        Self::from_be_bytes(&buf)
+    }
+
+    fn slice_le_bytes(bytes: &[u8], index: usize) -> Self
+    where
+        Self: FromBytes<Bytes = Self::FileBuf>,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+    {
+        let LEN = Self::FILE_BYTES.0.to_usize();
+        let mut buf = Self::FileBuf::default();
+        let tmp = &bytes[index..index + LEN];
+        buf.as_mut().copy_from_slice(tmp);
+        Self::from_le_bytes(&buf)
+    }
+
     fn from_ordered_bytes(bytes: &Self::FileBuf, order: &Self::ByteOrd) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,

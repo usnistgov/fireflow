@@ -260,7 +260,12 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
-pub type OrderedLayout<C, T> = FixedLayout<C, <C as HasOrder>::Order, T, Nothing<NumType>>;
+pub type OrderedLayout<C, T> = FixedLayout<
+    C,
+    ArrayByteOrd<<<C as HasNativeType>::Native as FCSRepr>::ByteOrd>,
+    T,
+    Nothing<NumType>,
+>;
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 #[derive(Debug, PartialEq, Clone)]
@@ -311,8 +316,8 @@ macro_rules! match_any_mixed {
 }
 
 impl MixedVec {
-    decl_mixed_read!(read_le, read_le, slice_from_little);
-    decl_mixed_read!(read_be, read_be, slice_from_big);
+    decl_mixed_read!(read_le, read_le, slice_be_bytes);
+    decl_mixed_read!(read_be, read_be, slice_le_bytes);
 
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         match self {
@@ -396,28 +401,28 @@ macro_rules! decl_uint_read {
         fn $name(&mut self, dst_index: usize, src: &[u8], src_index: usize) {
             match self {
                 Self::Uint08(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<1>::$fun(src, src_index);
+                    xs.data[dst_index] = u8::$fun(src, src_index);
                 }
                 Self::Uint16(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<2>::$fun(src, src_index);
+                    xs.data[dst_index] = u16::$fun(src, src_index);
                 }
                 Self::Uint24(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<3>::$fun(src, src_index);
+                    xs.data[dst_index] = U24::$fun(src, src_index);
                 }
                 Self::Uint32(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<4>::$fun(src, src_index);
+                    xs.data[dst_index] = u32::$fun(src, src_index);
                 }
                 Self::Uint40(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<5>::$fun(src, src_index);
+                    xs.data[dst_index] = U40::$fun(src, src_index);
                 }
                 Self::Uint48(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<6>::$fun(src, src_index);
+                    xs.data[dst_index] = U48::$fun(src, src_index);
                 }
                 Self::Uint56(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<7>::$fun(src, src_index);
+                    xs.data[dst_index] = U56::$fun(src, src_index);
                 }
                 Self::Uint64(xs) => {
-                    xs.data[dst_index] = IntFromBytes::<8>::$fun(src, src_index);
+                    xs.data[dst_index] = u64::$fun(src, src_index);
                 }
             }
         }
@@ -439,8 +444,8 @@ macro_rules! match_any_uint {
 }
 
 impl AnyUintVec {
-    decl_uint_read!(read_le, slice_unaligned_little);
-    decl_uint_read!(read_be, slice_unaligned_big);
+    decl_uint_read!(read_le, slice_le_bytes);
+    decl_uint_read!(read_be, slice_be_bytes);
 
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         match_any_uint!(self, AnyUintVec, x, {
@@ -1285,7 +1290,9 @@ where
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
-            None => LogResult::new_ok((PrimitiveDataFrame::default(), EventsDiagnostics::default())),
+            None => {
+                LogResult::new_ok((PrimitiveDataFrame::default(), EventsDiagnostics::default()))
+            }
             Some((begin, _)) => h
                 .seek(SeekFrom::Start(begin))
                 .map_err(IOErrorGroup::from)
@@ -1399,25 +1406,13 @@ pub trait CheckedScaleTransform {
     fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
 }
 
-/// A type which has a native Rust type
-trait HasNativeType: Sized {
+/// A column which has exactly one native Rust type
+pub trait HasNativeType: Sized {
     /// The native rust type
     type Native: Default + Copy;
 }
 
-/// A type which uses a defined number of [`PrivBytes`]
-trait HasBytes: HasNativeType {
-    /// The length of the type in an FCS file (may be less than native)
-    const BYTES: PrivBytes;
-}
-
-/// A type which uses a defined number of bytes
-pub trait HasOrder {
-    /// The sized byte order to be used with this type
-    type Order;
-}
-
-/// A column which has only one $DATATYPE
+/// A column which has exactly one $DATATYPE value always always
 trait HasOneDatatype: Sized {
     const DATATYPE: AlphaNumType;
 }
@@ -1511,43 +1506,43 @@ pub trait IsFixed {
 //     fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>);
 // }
 
-/// General methods for each numeric type.
-///
-/// This is mostly for converting to/from bytes with various endian-ness.
-// TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
-// it lands in a stable compiler, in theory there is no reason to put the length
-// of the type as a parameter, but the current compiler is not smart enough
-trait NumProps: Sized + Copy {
-    const LEN: usize;
-    type BUF: AsRef<[u8]> + AsMut<[u8]> + Default;
+// /// General methods for each numeric type.
+// ///
+// /// This is mostly for converting to/from bytes with various endian-ness.
+// // TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
+// // it lands in a stable compiler, in theory there is no reason to put the length
+// // of the type as a parameter, but the current compiler is not smart enough
+// trait NumProps: Sized + Copy {
+//     const LEN: usize;
+//     type BUF: AsRef<[u8]> + AsMut<[u8]> + Default;
 
-    fn from_big(buf: &Self::BUF) -> Self;
+//     fn from_big(buf: &Self::BUF) -> Self;
 
-    fn from_little(buf: &Self::BUF) -> Self;
+//     fn from_little(buf: &Self::BUF) -> Self;
 
-    fn slice_from_little(bytes: &[u8], i: usize) -> Self {
-        let mut tmp = Self::BUF::default();
-        tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
-        Self::from_little(&tmp)
-    }
+//     fn slice_from_little(bytes: &[u8], i: usize) -> Self {
+//         let mut tmp = Self::BUF::default();
+//         tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
+//         Self::from_little(&tmp)
+//     }
 
-    fn slice_from_big(bytes: &[u8], i: usize) -> Self {
-        let mut tmp = Self::BUF::default();
-        tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
-        Self::from_big(&tmp)
-    }
+//     fn slice_from_big(bytes: &[u8], i: usize) -> Self {
+//         let mut tmp = Self::BUF::default();
+//         tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
+//         Self::from_big(&tmp)
+//     }
 
-    fn to_big(&self) -> Self::BUF;
+//     fn to_big(&self) -> Self::BUF;
 
-    fn to_little(&self) -> Self::BUF;
+//     fn to_little(&self) -> Self::BUF;
 
-    fn to_endian(&self, endian: Endian) -> Self::BUF {
-        match endian {
-            Endian::Big => self.to_big(),
-            Endian::Little => self.to_little(),
-        }
-    }
-}
+//     // fn to_endian(&self, endian: Endian) -> Self::BUF {
+//     //     match endian {
+//     //         Endian::Big => self.to_big(),
+//     //         Endian::Little => self.to_little(),
+//     //     }
+//     // }
+// }
 
 // trait OrderedFromBytes0<const SRC_LEN: usize, const DST_LEN: usize>:
 //     FromBytes<Bytes = [u8; DST_LEN]>
@@ -1577,116 +1572,116 @@ trait NumProps: Sized + Copy {
 //     }
 // }
 
-/// Methods for reading numbers which may be in arbitrary byte orders.
-trait OrderedFromBytes<const OLEN: usize>: NumProps {
-    fn h_write_from_ordered<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        order: [u8; OLEN],
-    ) -> io::Result<()> {
-        let tmp = Self::to_little(&self);
-        let mut buf = [0; OLEN];
-        for (i, j) in order.iter().enumerate() {
-            buf[usize::from(*j)] = tmp.as_ref()[i];
-        }
-        h.write_all(buf.as_ref())
-    }
-}
+// /// Methods for reading numbers which may be in arbitrary byte orders.
+// trait OrderedFromBytes<const OLEN: usize>: NumProps {
+//     fn h_write_from_ordered<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         order: [u8; OLEN],
+//     ) -> io::Result<()> {
+//         let tmp = Self::to_little(&self);
+//         let mut buf = [0; OLEN];
+//         for (i, j) in order.iter().enumerate() {
+//             buf[usize::from(*j)] = tmp.as_ref()[i];
+//         }
+//         h.write_all(buf.as_ref())
+//     }
+// }
 
-/// Methods for reading/writing integers (1-8 bytes) from FCS files.
-trait UnalignedIntFromBytes<const SRC_LEN: usize, const DST_LEN: usize>:
-    FromBytes<Bytes = [u8; DST_LEN]>
-where
-    [u8; DST_LEN]: Default,
-{
-    fn from_unaligned_be_bytes(bytes: &[u8; SRC_LEN]) -> Self {
-        let mut buf = Self::Bytes::default();
-        let b = DST_LEN - SRC_LEN;
-        buf.as_mut()[b..].copy_from_slice(bytes);
-        Self::from_be_bytes(&buf)
-    }
+// /// Methods for reading/writing integers (1-8 bytes) from FCS files.
+// trait UnalignedIntFromBytes<const SRC_LEN: usize, const DST_LEN: usize>:
+//     FromBytes<Bytes = [u8; DST_LEN]>
+// where
+//     [u8; DST_LEN]: Default,
+// {
+//     fn from_unaligned_be_bytes(bytes: &[u8; SRC_LEN]) -> Self {
+//         let mut buf = Self::Bytes::default();
+//         let b = DST_LEN - SRC_LEN;
+//         buf.as_mut()[b..].copy_from_slice(bytes);
+//         Self::from_be_bytes(&buf)
+//     }
 
-    fn from_unaligned_le_bytes(bytes: &[u8; SRC_LEN]) -> Self {
-        let mut buf = Self::Bytes::default();
-        buf.as_mut()[..SRC_LEN].copy_from_slice(bytes);
-        Self::from_le_bytes(&buf)
-    }
+//     fn from_unaligned_le_bytes(bytes: &[u8; SRC_LEN]) -> Self {
+//         let mut buf = Self::Bytes::default();
+//         buf.as_mut()[..SRC_LEN].copy_from_slice(bytes);
+//         Self::from_le_bytes(&buf)
+//     }
 
-    fn from_unaligned_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; SRC_LEN]) -> Self {
-        let mut buf = Self::Bytes::default();
-        for (i, j) in order.iter().enumerate() {
-            buf.as_mut()[i] = bytes[usize::from(*j)];
-        }
-        Self::from_le_bytes(&buf)
-    }
-}
+//     fn from_unaligned_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; SRC_LEN]) -> Self {
+//         let mut buf = Self::Bytes::default();
+//         for (i, j) in order.iter().enumerate() {
+//             buf.as_mut()[i] = bytes[usize::from(*j)];
+//         }
+//         Self::from_le_bytes(&buf)
+//     }
+// }
 
-/// Methods for reading/writing integers (1-8 bytes) from FCS files.
-trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
-    fn slice_unaligned_big(bytes: &[u8], index: usize) -> Self {
-        if Self::LEN == INTLEN {
-            Self::slice_from_big(bytes, index)
-        } else {
-            let tmp = &bytes[index..index + INTLEN];
-            let mut buf = Self::BUF::default();
-            let b = Self::LEN - INTLEN;
-            buf.as_mut()[b..].copy_from_slice(tmp);
-            Self::from_big(&buf)
-        }
-    }
+// /// Methods for reading/writing integers (1-8 bytes) from FCS files.
+// trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
+//     // fn slice_unaligned_big(bytes: &[u8], index: usize) -> Self {
+//     //     if Self::LEN == INTLEN {
+//     //         Self::slice_from_big(bytes, index)
+//     //     } else {
+//     //         let tmp = &bytes[index..index + INTLEN];
+//     //         let mut buf = Self::BUF::default();
+//     //         let b = Self::LEN - INTLEN;
+//     //         buf.as_mut()[b..].copy_from_slice(tmp);
+//     //         Self::from_big(&buf)
+//     //     }
+//     // }
 
-    fn slice_unaligned_little(bytes: &[u8], index: usize) -> Self {
-        if Self::LEN == INTLEN {
-            Self::slice_from_little(bytes, index)
-        } else {
-            let tmp = &bytes[index..index + INTLEN];
-            let mut buf = Self::BUF::default();
-            buf.as_mut()[..INTLEN].copy_from_slice(tmp);
-            Self::from_little(&buf)
-        }
-    }
+//     // fn slice_unaligned_little(bytes: &[u8], index: usize) -> Self {
+//     //     if Self::LEN == INTLEN {
+//     //         Self::slice_from_little(bytes, index)
+//     //     } else {
+//     //         let tmp = &bytes[index..index + INTLEN];
+//     //         let mut buf = Self::BUF::default();
+//     //         buf.as_mut()[..INTLEN].copy_from_slice(tmp);
+//     //         Self::from_little(&buf)
+//     //     }
+//     // }
 
-    fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
-        let mut buf = [0; INTLEN];
-        let (start, end, tmp) = if endian == Endian::Big {
-            ((Self::LEN - INTLEN), Self::LEN, Self::to_big(&self))
-        } else {
-            (0, INTLEN, Self::to_little(self))
-        };
-        buf[..].copy_from_slice(&tmp.as_ref()[start..end]);
-        h.write_all(&buf)
-    }
+//     fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
+//         let mut buf = [0; INTLEN];
+//         let (start, end, tmp) = if endian == Endian::Big {
+//             ((Self::LEN - INTLEN), Self::LEN, Self::to_big(&self))
+//         } else {
+//             (0, INTLEN, Self::to_little(self))
+//         };
+//         buf[..].copy_from_slice(&tmp.as_ref()[start..end]);
+//         h.write_all(&buf)
+//     }
 
-    fn h_write_ordered<W: Write>(
-        self,
-        h: &mut BufWriter<W>,
-        byteord: ArrayByteOrd<[u8; INTLEN]>,
-    ) -> io::Result<()> {
-        match byteord {
-            ArrayByteOrd::Endian(e) => self.h_write_endian(h, e),
-            ArrayByteOrd::Order(o) => self.h_write_from_ordered(h, o),
-        }
-    }
-}
+//     fn h_write_ordered<W: Write>(
+//         self,
+//         h: &mut BufWriter<W>,
+//         byteord: ArrayByteOrd<[u8; INTLEN]>,
+//     ) -> io::Result<()> {
+//         match byteord {
+//             ArrayByteOrd::Endian(e) => self.h_write_endian(h, e),
+//             ArrayByteOrd::Order(o) => self.h_write_from_ordered(h, o),
+//         }
+//     }
+// }
 
-/// Methods for reading/writing floats (32 and 64 bit) from FCS files.
-trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
-    fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
-        let buf = Self::to_endian(&self, endian);
-        h.write_all(buf.as_ref())
-    }
+// /// Methods for reading/writing floats (32 and 64 bit) from FCS files.
+// trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
+//     fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
+//         let buf = Self::to_endian(&self, endian);
+//         h.write_all(buf.as_ref())
+//     }
 
-    fn h_write_ordered<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        byteord: ArrayByteOrd<[u8; LEN]>,
-    ) -> io::Result<()> {
-        match byteord {
-            ArrayByteOrd::Endian(endian) => self.h_write_endian(h, endian),
-            ArrayByteOrd::Order(order) => self.h_write_from_ordered(h, order),
-        }
-    }
-}
+//     fn h_write_ordered<W: Write>(
+//         &self,
+//         h: &mut BufWriter<W>,
+//         byteord: ArrayByteOrd<[u8; LEN]>,
+//     ) -> io::Result<()> {
+//         match byteord {
+//             ArrayByteOrd::Endian(endian) => self.h_write_endian(h, endian),
+//             ArrayByteOrd::Order(order) => self.h_write_from_ordered(h, order),
+//         }
+//     }
+// }
 
 macro_rules! impl_any_uint {
     ($var:ident, $bitmask:path) => {
@@ -1709,7 +1704,8 @@ macro_rules! impl_any_uint {
                 if let AnyBitmask::$var(x) = value {
                     Ok(x)
                 } else {
-                    Err(UintToUintError::new(w, Self::BYTES.into()))
+                    let b = <<Self as HasNativeType>::Native as FCSRepr>::FILE_BYTES;
+                    Err(UintToUintError::new(w, b.into()))
                 }
             }
         }
@@ -1722,7 +1718,8 @@ macro_rules! impl_any_uint {
                     if let AnyBitmask::$var(y) = x {
                         Ok(y)
                     } else {
-                        Err(UintToUintError::new(w, Self::BYTES.into()).into())
+                        let b = <<Self as HasNativeType>::Native as FCSRepr>::FILE_BYTES;
+                        Err(UintToUintError::new(w, b.into()).into())
                     }
                 } else {
                     let dest_type = value.as_alpha_num_type();
@@ -2343,81 +2340,81 @@ impl<D> EndianLayout<NullMixedType, D> {
     }
 }
 
-// NOTE num_traits has this but it doesn't have a nice way to init a default
-// buffer, this will probably be easier and cleaner anyways once we can use
-// const expressions
-macro_rules! impl_num_props {
-    ($size:expr, $t:ty) => {
-        impl NumProps for $t {
-            const LEN: usize = $size;
-            type BUF = [u8; $size];
+// // NOTE num_traits has this but it doesn't have a nice way to init a default
+// // buffer, this will probably be easier and cleaner anyways once we can use
+// // const expressions
+// macro_rules! impl_num_props {
+//     ($size:expr, $t:ty) => {
+//         impl NumProps for $t {
+//             const LEN: usize = $size;
+//             type BUF = [u8; $size];
 
-            fn to_big(&self) -> Self::BUF {
-                self.to_be_bytes()
-            }
+//             fn to_big(&self) -> Self::BUF {
+//                 self.to_be_bytes()
+//             }
 
-            fn to_little(&self) -> Self::BUF {
-                self.to_le_bytes()
-            }
+//             fn to_little(&self) -> Self::BUF {
+//                 self.to_le_bytes()
+//             }
 
-            fn from_big(buf: &Self::BUF) -> Self {
-                <$t>::from_be_bytes(*buf)
-            }
+//             fn from_big(buf: &Self::BUF) -> Self {
+//                 <$t>::from_be_bytes(*buf)
+//             }
 
-            fn from_little(buf: &Self::BUF) -> Self {
-                <$t>::from_le_bytes(*buf)
-            }
-        }
-    };
-}
+//             fn from_little(buf: &Self::BUF) -> Self {
+//                 <$t>::from_le_bytes(*buf)
+//             }
+//         }
+//     };
+// }
 
-// TODO silly
-macro_rules! impl_num_props0 {
-    ($size:expr, $t:ty) => {
-        impl NumProps for $t {
-            const LEN: usize = $size;
-            type BUF = [u8; $size];
+// // TODO silly
+// macro_rules! impl_num_props0 {
+//     ($size:expr, $t:ty) => {
+//         impl NumProps for $t {
+//             const LEN: usize = $size;
+//             type BUF = [u8; $size];
 
-            fn to_big(&self) -> Self::BUF {
-                self.to_be_bytes()
-            }
+//             fn to_big(&self) -> Self::BUF {
+//                 self.to_be_bytes()
+//             }
 
-            fn to_little(&self) -> Self::BUF {
-                self.to_le_bytes()
-            }
+//             fn to_little(&self) -> Self::BUF {
+//                 self.to_le_bytes()
+//             }
 
-            fn from_big(buf: &Self::BUF) -> Self {
-                <$t>::from_be_bytes(buf)
-            }
+//             fn from_big(buf: &Self::BUF) -> Self {
+//                 <$t>::from_be_bytes(buf)
+//             }
 
-            fn from_little(buf: &Self::BUF) -> Self {
-                <$t>::from_le_bytes(buf)
-            }
-        }
-    };
-}
+//             fn from_little(buf: &Self::BUF) -> Self {
+//                 <$t>::from_le_bytes(buf)
+//             }
+//         }
+//     };
+// }
 
-impl_num_props!(1, u8);
-impl_num_props!(2, u16);
-impl_num_props0!(3, U24);
-impl_num_props!(4, u32);
-impl_num_props0!(5, U40);
-impl_num_props0!(6, U48);
-impl_num_props0!(7, U56);
-impl_num_props!(8, u64);
-impl_num_props!(4, f32);
-impl_num_props!(8, f64);
+// impl_num_props!(1, u8);
+// impl_num_props!(2, u16);
+// impl_num_props0!(3, U24);
+// impl_num_props!(4, u32);
+// impl_num_props0!(5, U40);
+// impl_num_props0!(6, U48);
+// impl_num_props0!(7, U56);
+// impl_num_props!(8, u64);
+// impl_num_props!(4, f32);
+// impl_num_props!(8, f64);
 
-impl OrderedFromBytes<1> for u8 {}
-impl OrderedFromBytes<2> for u16 {}
-impl OrderedFromBytes<3> for u32 {}
-impl OrderedFromBytes<4> for u32 {}
-impl OrderedFromBytes<5> for u64 {}
-impl OrderedFromBytes<6> for u64 {}
-impl OrderedFromBytes<7> for u64 {}
-impl OrderedFromBytes<8> for u64 {}
-impl OrderedFromBytes<4> for f32 {}
-impl OrderedFromBytes<8> for f64 {}
+// impl OrderedFromBytes<1> for u8 {}
+// impl OrderedFromBytes<2> for u16 {}
+// impl OrderedFromBytes<3> for u32 {}
+// impl OrderedFromBytes<4> for u32 {}
+// impl OrderedFromBytes<5> for u64 {}
+// impl OrderedFromBytes<6> for u64 {}
+// impl OrderedFromBytes<7> for u64 {}
+// impl OrderedFromBytes<8> for u64 {}
+// impl OrderedFromBytes<4> for f32 {}
+// impl OrderedFromBytes<8> for f64 {}
 
 // impl OrderedFromBytes0<1, 1> for u8 {}
 // impl OrderedFromBytes0<2, 2> for u16 {}
@@ -2430,32 +2427,32 @@ impl OrderedFromBytes<8> for f64 {}
 // impl OrderedFromBytes0<4, 4> for f32 {}
 // impl OrderedFromBytes0<8, 8> for f64 {}
 
-impl FloatFromBytes<4> for f32 {}
-impl FloatFromBytes<8> for f64 {}
+// impl FloatFromBytes<4> for f32 {}
+// impl FloatFromBytes<8> for f64 {}
 
-impl IntFromBytes<1> for u8 {}
-impl IntFromBytes<2> for u16 {}
-impl IntFromBytes<3> for u32 {}
-impl IntFromBytes<4> for u32 {}
-impl IntFromBytes<5> for u64 {}
-impl IntFromBytes<6> for u64 {}
-impl IntFromBytes<7> for u64 {}
-impl IntFromBytes<8> for u64 {}
+// impl IntFromBytes<1> for u8 {}
+// impl IntFromBytes<2> for u16 {}
+// impl IntFromBytes<3> for u32 {}
+// impl IntFromBytes<4> for u32 {}
+// impl IntFromBytes<5> for u64 {}
+// impl IntFromBytes<6> for u64 {}
+// impl IntFromBytes<7> for u64 {}
+// impl IntFromBytes<8> for u64 {}
 
-impl IntFromBytes<3> for U24 {}
-impl IntFromBytes<5> for U40 {}
-impl IntFromBytes<6> for U48 {}
-impl IntFromBytes<7> for U56 {}
+// impl IntFromBytes<3> for U24 {}
+// impl IntFromBytes<5> for U40 {}
+// impl IntFromBytes<6> for U48 {}
+// impl IntFromBytes<7> for U56 {}
 
-impl OrderedFromBytes<3> for U24 {}
-impl OrderedFromBytes<5> for U40 {}
-impl OrderedFromBytes<6> for U48 {}
-impl OrderedFromBytes<7> for U56 {}
+// impl OrderedFromBytes<3> for U24 {}
+// impl OrderedFromBytes<5> for U40 {}
+// impl OrderedFromBytes<6> for U48 {}
+// impl OrderedFromBytes<7> for U56 {}
 
-impl UnalignedIntFromBytes<3, 4> for u32 {}
-impl UnalignedIntFromBytes<5, 8> for u64 {}
-impl UnalignedIntFromBytes<6, 8> for u64 {}
-impl UnalignedIntFromBytes<7, 8> for u64 {}
+// impl UnalignedIntFromBytes<3, 4> for u32 {}
+// impl UnalignedIntFromBytes<5, 8> for u64 {}
+// impl UnalignedIntFromBytes<6, 8> for u64 {}
+// impl UnalignedIntFromBytes<7, 8> for u64 {}
 
 impl<T> FloatRange<T> {
     /// Make new float range from $PnB and $PnR values.
@@ -3678,7 +3675,7 @@ impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
 impl<C, S, Tot, Dt> FixedLayoutIO for FixedLayout<C, S, Tot, Dt>
 where
     S: ByteLayoutIO<C>,
-    C: HasBytes + IsFixed,
+    C: HasNativeType + IsFixed,
     // AnyFCSColumn: From<FCSColumn<C::Native>>,
     Vec<C::Native>: HasRange<C>,
     C::Native: PartialOrd,
@@ -3987,35 +3984,24 @@ impl<C> EndianLayout<C, Option<NumType>> {
 }
 
 macro_rules! def_native_wrapper {
-    ($name:path, $native:ty, $size:expr, $native_size:expr, $bytes:ident) => {
+    ($name:path, $native:ty) => {
         impl HasNativeType for $name {
             type Native = $native;
-        }
-
-        impl HasBytes for $name {
-            const BYTES: PrivBytes = PrivBytes::$bytes;
-        }
-
-        impl HasOrder for $name {
-            type Order = ArrayByteOrd<[u8; $size]>;
         }
     };
 }
 
-def_native_wrapper!(Bitmask08, u8, 1, 1, B1);
-def_native_wrapper!(Bitmask16, u16, 2, 2, B2);
-def_native_wrapper!(Bitmask24, U24, 3, 4, B3);
-def_native_wrapper!(Bitmask32, u32, 4, 4, B4);
-def_native_wrapper!(Bitmask40, U40, 5, 8, B5);
-def_native_wrapper!(Bitmask48, U48, 6, 8, B6);
-def_native_wrapper!(Bitmask56, U56, 7, 8, B7);
-def_native_wrapper!(Bitmask64, u64, 8, 8, B8);
-def_native_wrapper!(F32Range, f32, 4, 4, B4);
-def_native_wrapper!(F64Range, f64, 8, 8, B8);
-
-impl HasNativeType for AsciiRange {
-    type Native = u64;
-}
+def_native_wrapper!(Bitmask08, u8);
+def_native_wrapper!(Bitmask16, u16);
+def_native_wrapper!(Bitmask24, U24);
+def_native_wrapper!(Bitmask32, u32);
+def_native_wrapper!(Bitmask40, U40);
+def_native_wrapper!(Bitmask48, U48);
+def_native_wrapper!(Bitmask56, U56);
+def_native_wrapper!(Bitmask64, u64);
+def_native_wrapper!(F32Range, f32);
+def_native_wrapper!(F64Range, f64);
+def_native_wrapper!(AsciiRange, u64);
 
 impl HasOneDatatype for AsciiRange {
     const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
@@ -4515,7 +4501,7 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
 impl<T, TC> OrderedLayout<Bitmask<T>, TC>
 where
     T: FCSRepr,
-    Bitmask<T>: HasOrder<Order = ArrayByteOrd<T::ByteOrd>>,
+    Bitmask<T>: HasNativeType<Native = T>,
 {
     #[must_use]
     pub fn new_endian_uint(ranges: Vec<Bitmask<T>>, endian: Endian) -> Self {
@@ -4526,7 +4512,7 @@ where
 impl<T, TC> OrderedLayout<FloatRange<T>, TC>
 where
     T: FCSRepr,
-    FloatRange<T>: HasOrder<Order = ArrayByteOrd<T::ByteOrd>>,
+    FloatRange<T>: HasNativeType<Native = T>,
 {
     #[must_use]
     pub fn new_endian_float(ranges: Vec<FloatRange<T>>, endian: Endian) -> Self {

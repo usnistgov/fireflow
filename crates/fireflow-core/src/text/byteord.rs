@@ -237,6 +237,10 @@ impl PrivBytes {
             .and_then(|i| Self::try_from(i).ok())
             .unwrap_or(Self::B1)
     }
+
+    pub(crate) const fn to_usize(self) -> usize {
+        self as usize
+    }
 }
 
 #[cfg(feature = "serde")]

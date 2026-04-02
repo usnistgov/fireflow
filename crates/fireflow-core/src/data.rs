@@ -138,7 +138,7 @@ use {
 /// is optional, which requires a different interface.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Option<Tot>>, generics = "'a")]
+#[delegate(LayoutOps<Option<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<Option<Tot>>);
 
@@ -147,7 +147,7 @@ pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
+#[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
 
@@ -160,7 +160,7 @@ pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
+#[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<Nothing<NumType>>);
 
@@ -172,7 +172,7 @@ pub struct DataFrame3_1(pub NonMixedEndianDataFrame<Nothing<NumType>>);
 /// each column to have a different type and size (hence "Mixed").
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
+#[delegate(LayoutOps<Identity<Tot>>)]
 pub enum DataLayout3_2 {
     Mixed(MixedLayout),
     NonMixed(NonMixedEndianLayout<Option<NumType>>),
@@ -194,7 +194,7 @@ pub type MixedDataFrame = EndianLayout<MixedColumn, Option<NumType>>;
 /// endian.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(LayoutOps<Tot>, generics = "Tot")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub enum AnyOrderedLayout<T> {
     Ascii(AnyAsciiLayout<T, Nothing<NumType>, true>),
@@ -213,7 +213,7 @@ pub enum AnyOrderedDataFrame<T> {
 /// All possible endian layouts with the same datatype (3.1)
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
+#[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum NonMixedEndianLayout<D> {
     Ascii(AnyAsciiLayout<Identity<Tot>, D, false>),
@@ -240,7 +240,7 @@ pub type EndianLayout<C, D> = FixedLayout<C, Endian, Identity<Tot>, D>;
 /// separated by delimiters).
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(LayoutOps<Tot>, generics = "Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum AnyAsciiLayout<T, D, const ORD: bool> {
     Delimited(DelimAsciiLayout<T, D, ORD>),
@@ -301,7 +301,7 @@ pub struct FixedLayoutInner<Cols, Layout, TotType, Dtype> {
 /// DATA layout for integers that may be in any byte order.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutOps<'a, Tot>, generics = "'a, Tot")]
+#[delegate(LayoutOps<Tot>, generics = "Tot")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[delegate(OrderedLayoutOps)]
 pub enum AnyOrderedUintLayout<T> {
@@ -1214,10 +1214,10 @@ pub trait IsTot: Sized + MightHave<Tot> {
 
 /// Standardized operations on layouts
 #[delegatable_trait]
-pub trait LayoutOps<'a, T>: Sized {
+pub trait LayoutOps<T>: Sized {
     fn ncols(&self) -> usize;
 
-    fn nbytes(&self, df: &PrimitiveDataFrame) -> u64;
+    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64;
 
     fn ranges(&self) -> Vec<Range>;
 
@@ -1253,12 +1253,12 @@ pub trait LayoutOps<'a, T>: Sized {
 
     // fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError>;
 
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a PrimitiveDataFrame,
-        skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error>;
+    // fn h_write_df_inner<W: Write>(
+    //     &self,
+    //     h: &mut BufWriter<W>,
+    //     df: &'a PrimitiveDataFrame,
+    //     skip_conv_check: bool,
+    // ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error>;
 
     fn check_transforms_and_len<S, G>(&self, xforms: &[S]) -> Result<(), MeasLayoutMismatchError>
     where
@@ -1344,7 +1344,7 @@ pub trait OrderedLayoutOps: Sized {
 /// A version-specific data layout
 pub trait VersionedDataLayout
 where
-    for<'a> Self: Sized + LayoutOps<'a, Self::Tot> + InterLayoutOps<Self::NumType>,
+    for<'a> Self: Sized + LayoutOps<Self::Tot> + InterLayoutOps<Self::NumType>,
 {
     type ByteLayout;
     type NumType: IsNumType;
@@ -1397,26 +1397,26 @@ where
         }
     }
 
-    fn h_write_df<W>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &PrimitiveDataFrame,
-        skip_conv_check: bool,
-    ) -> WarningsAndErrorResult<(), (), IndexedLossError, io::Error>
-    where
-        W: Write,
-    {
-        // The dataframe should be encapsulated such that a) the column number
-        // matches the number of measurements. If these are not true, the code
-        // is wrong.
-        let par = self.ncols();
-        let ncols = df.ncols();
-        debug_assert!(
-            ncols == par,
-            "dataframe columns ({ncols}) unequal to number of measurements ({par})"
-        );
-        self.h_write_df_inner(h, df, skip_conv_check)
-    }
+    // fn h_write_df<W>(
+    //     &self,
+    //     h: &mut BufWriter<W>,
+    //     df: &PrimitiveDataFrame,
+    //     skip_conv_check: bool,
+    // ) -> WarningsAndErrorResult<(), (), IndexedLossError, io::Error>
+    // where
+    //     W: Write,
+    // {
+    //     // The dataframe should be encapsulated such that a) the column number
+    //     // matches the number of measurements. If these are not true, the code
+    //     // is wrong.
+    //     let par = self.ncols();
+    //     let ncols = df.ncols();
+    //     debug_assert!(
+    //         ncols == par,
+    //         "dataframe columns ({ncols}) unequal to number of measurements ({par})"
+    //     );
+    //     self.h_write_df_inner(h, df, skip_conv_check)
+    // }
 
     fn check_measurement_vector_nolen<N, T, O: AsScaleOrTransform>(
         &self,
@@ -2776,7 +2776,7 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl<T, D, const ORD: bool> LayoutOps<'_, T> for DelimAsciiLayout<T, D, ORD>
+impl<T, D, const ORD: bool> LayoutOps<T> for DelimAsciiLayout<T, D, ORD>
 where
     T: IsTot,
     NoByteOrd<ORD>: HasByteOrd,
@@ -2786,10 +2786,10 @@ where
         self.ranges.len()
     }
 
-    fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
-        unimplemented!()
-        // df.ascii_nbytes()
-    }
+    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
+    //     unimplemented!()
+    //     // df.ascii_nbytes()
+    // }
 
     fn ranges(&self) -> Vec<Range> {
         self.ranges.iter().map(|x| Range::from(x.0)).collect()
@@ -2930,53 +2930,53 @@ where
     //         .sequence_def_void()
     // }
 
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &PrimitiveDataFrame,
-        skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
-        unimplemented!()
-        // let ncols = df.ncols();
-        // let nrows = df.nrows();
-        // let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
-        // let mut loss_ws = vec![None; column_srcs.len()];
+    // fn h_write_df_inner<W: Write>(
+    //     &self,
+    //     h: &mut BufWriter<W>,
+    //     df: &PrimitiveDataFrame,
+    //     skip_conv_check: bool,
+    // ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
+    //     unimplemented!()
+    //     // let ncols = df.ncols();
+    //     // let nrows = df.nrows();
+    //     // let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
+    //     // let mut loss_ws = vec![None; column_srcs.len()];
 
-        // let mut go = || -> Result<(), io::Error> {
-        //     for row in 0..nrows {
-        //         for (col, xs) in column_srcs.iter_mut().enumerate() {
-        //             let x = xs.next().unwrap();
-        //             let s = x.new.to_string();
-        //             loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
-        //             let buf = s.as_bytes();
-        //             h.write_all(buf)?;
-        //             // write delimiter after all but last value
-        //             if !(row == nrows - 1 && col == ncols - 1) {
-        //                 h.write_all(&[32])?; // 32 = space in ASCII
-        //             }
-        //         }
-        //     }
-        //     Ok(())
-        // };
+    //     // let mut go = || -> Result<(), io::Error> {
+    //     //     for row in 0..nrows {
+    //     //         for (col, xs) in column_srcs.iter_mut().enumerate() {
+    //     //             let x = xs.next().unwrap();
+    //     //             let s = x.new.to_string();
+    //     //             loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
+    //     //             let buf = s.as_bytes();
+    //     //             h.write_all(buf)?;
+    //     //             // write delimiter after all but last value
+    //     //             if !(row == nrows - 1 && col == ncols - 1) {
+    //     //                 h.write_all(&[32])?; // 32 = space in ASCII
+    //     //             }
+    //     //         }
+    //     //     }
+    //     //     Ok(())
+    //     // };
 
-        // let write_res = go().into_nowarn1();
+    //     // let write_res = go().into_nowarn1();
 
-        // if skip_conv_check {
-        //     write_res.nowarn_into_warn()
-        // } else {
-        //     let cs: Vec<_> = loss_ws
-        //         .into_iter()
-        //         .enumerate()
-        //         .filter_map(|(i, warn)| {
-        //             warn.map(LossError::Cast)
-        //                 .map(AnyLossError::Ascii)
-        //                 .map(|w| IndexedError::new(i, w))
-        //                 .map(IndexedLossError)
-        //         })
-        //         .collect();
-        //     write_res.set_commutative_warnings(cs)
-        // }
-    }
+    //     // if skip_conv_check {
+    //     //     write_res.nowarn_into_warn()
+    //     // } else {
+    //     //     let cs: Vec<_> = loss_ws
+    //     //         .into_iter()
+    //     //         .enumerate()
+    //     //         .filter_map(|(i, warn)| {
+    //     //             warn.map(LossError::Cast)
+    //     //                 .map(AnyLossError::Ascii)
+    //     //                 .map(|w| IndexedError::new(i, w))
+    //     //                 .map(IndexedLossError)
+    //     //         })
+    //     //         .collect();
+    //     //     write_res.set_commutative_warnings(cs)
+    //     // }
+    // }
 
     // fn truncate_df(
     //     &self,
@@ -3174,7 +3174,7 @@ impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
     }
 }
 
-impl<'a, C, S, T, D> LayoutOps<'a, T> for FixedLayout<C, S, T, D>
+impl<C, S, T, D> LayoutOps<T> for FixedLayout<C, S, T, D>
 where
     Self: FixedLayoutIO,
     D: IsNumType,
@@ -3195,9 +3195,9 @@ where
         self.columns.len()
     }
 
-    fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
-        usize_to_u64(self.event_width() * df.nrows())
-    }
+    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
+    //     usize_to_u64(self.event_width() * df.nrows())
+    // }
 
     fn datatype(&self) -> AlphaNumType {
         C::datatype_from_columns(&self.columns)
@@ -3300,47 +3300,47 @@ where
     //         .sequence_def_void()
     // }
 
-    fn h_write_df_inner<W: Write>(
-        &self,
-        h: &mut BufWriter<W>,
-        df: &'a PrimitiveDataFrame,
-        skip_conv_check: bool,
-    ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
-        unimplemented!()
-        // let nrows = df.nrows();
-        // debug_assert!(
-        //     self.columns.len() == df.ncols(),
-        //     "column number should match dataframe width"
-        // );
-        // let mut cs: Vec<_> = self
-        //     .columns
-        //     .iter()
-        //     .zip(df.iter_columns())
-        //     .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
-        //     .collect();
+    // fn h_write_df_inner<W: Write>(
+    //     &self,
+    //     h: &mut BufWriter<W>,
+    //     df: &'a PrimitiveDataFrame,
+    //     skip_conv_check: bool,
+    // ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
+    //     unimplemented!()
+    //     // let nrows = df.nrows();
+    //     // debug_assert!(
+    //     //     self.columns.len() == df.ncols(),
+    //     //     "column number should match dataframe width"
+    //     // );
+    //     // let mut cs: Vec<_> = self
+    //     //     .columns
+    //     //     .iter()
+    //     //     .zip(df.iter_columns())
+    //     //     .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
+    //     //     .collect();
 
-        // let mut go = || {
-        //     for _ in 0..nrows {
-        //         for c in &mut cs {
-        //             c.h_write(h, self.byte_layout)?;
-        //         }
-        //     }
-        //     Ok(())
-        // };
+    //     // let mut go = || {
+    //     //     for _ in 0..nrows {
+    //     //         for c in &mut cs {
+    //     //             c.h_write(h, self.byte_layout)?;
+    //     //         }
+    //     //     }
+    //     //     Ok(())
+    //     // };
 
-        // let write_res = go().into_nowarn1();
+    //     // let write_res = go().into_nowarn1();
 
-        // if skip_conv_check {
-        //     write_res.nowarn_into_warn()
-        // } else {
-        //     let ws = cs
-        //         .into_iter()
-        //         .enumerate()
-        //         .filter_map(|(i, c)| c.into_err(i.into()))
-        //         .collect();
-        //     write_res.set_commutative_warnings(ws)
-        // }
-    }
+    //     // if skip_conv_check {
+    //     //     write_res.nowarn_into_warn()
+    //     // } else {
+    //     //     let ws = cs
+    //     //         .into_iter()
+    //     //         .enumerate()
+    //     //         .filter_map(|(i, c)| c.into_err(i.into()))
+    //     //         .collect();
+    //     //     write_res.set_commutative_warnings(ws)
+    //     // }
+    // }
 
     // fn truncate_df(
     //     &self,
@@ -3369,7 +3369,7 @@ where
     // }
 }
 
-impl<'a, C, S, T, D> InterLayoutOps<D> for FixedLayout<C, S, T, D>
+impl<C, S, T, D> InterLayoutOps<D> for FixedLayout<C, S, T, D>
 where
     T: IsTot,
     // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,

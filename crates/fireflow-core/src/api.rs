@@ -34,7 +34,7 @@ use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadNextdataError, Tot,
 };
 use crate::text::lookup::ReqMetarootKey as _;
-use crate::validated::dataframe::FCSDataFrame;
+use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_segments::{
     NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
 };
@@ -451,7 +451,7 @@ pub struct NewFlatDatasetFromKwsOutput {
 #[derive(Clone, PartialEq, new)]
 pub struct FlatDatasetFromKwsOutput {
     /// DATA output
-    pub data: FCSDataFrame,
+    pub data: PrimitiveDataFrame,
 
     /// ANALYSIS output
     pub analysis: Analysis,
@@ -1863,7 +1863,7 @@ fn kws_to_df_analysis<C, R>(
     hns: &mut HeaderAndSuppOffsets,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
-    (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
+    (PrimitiveDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     (),

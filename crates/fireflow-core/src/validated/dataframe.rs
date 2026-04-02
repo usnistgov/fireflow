@@ -2,6 +2,7 @@ use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::Chars;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
+use ambassador::{Delegate, delegatable_trait};
 use type_families::{FunctorOnce as _, impl_functor_once, impl_kind1};
 
 use bytemuck::{AnyBitPattern, NoUninit, cast_vec};
@@ -27,13 +28,13 @@ use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 /// therefore allows us to return event to external interfaces without copying
 /// memory. It is validated to contain no NULL values where all columns have the
 /// same length.
-pub type FCSDataFrame = FCSDataFrame0<AnyFCSColumn>;
+pub type PrimitiveDataFrame = FFDataFrame<AnyPrimitiveColumn>;
 
 /// A dataframe with internally validated column ranges.
 ///
 /// This validation allows us to integrate it seamlessly with data layouts
 /// of varying byte widths, including those that aren't a power of 2.
-pub(crate) type InternalDataFrame = FCSDataFrame0<AnyInternalColumn>;
+pub(crate) type InternalDataFrame = FFDataFrame<AnyInternalColumn>;
 
 // impl FCSDataFrame {
 //     fn into_internal(self) -> (InternalDataFrame, Vec<Option<usize>>) {
@@ -51,10 +52,14 @@ pub(crate) type InternalDataFrame = FCSDataFrame0<AnyInternalColumn>;
 // }
 
 // NOTE cloning a buffer is O(1) so this doesn't need to be impled for a reference
-impl From<InternalDataFrame> for FCSDataFrame {
+impl From<InternalDataFrame> for PrimitiveDataFrame {
     fn from(value: InternalDataFrame) -> Self {
         Self::new(
-            value.columns.into_iter().map(AnyFCSColumn::from).collect(),
+            value
+                .columns
+                .into_iter()
+                .map(AnyPrimitiveColumn::from)
+                .collect(),
             value.nrows,
         )
     }
@@ -68,39 +73,40 @@ impl From<InternalDataFrame> for FCSDataFrame {
 //     }
 // }
 
-impl From<AnyInternalColumn> for AnyFCSColumn {
+impl From<AnyInternalColumn> for AnyPrimitiveColumn {
     fn from(value: AnyInternalColumn) -> Self {
         match value {
-            AnyInternalColumn::U08(c) => Self::U08(FCSColumn(c.inner)),
-            AnyInternalColumn::U16(c) => Self::U16(FCSColumn(c.inner)),
-            AnyInternalColumn::U24(c) => Self::U32(FCSColumn(c.inner)),
-            AnyInternalColumn::U32(c) => Self::U32(FCSColumn(c.inner)),
-            AnyInternalColumn::U40(c) => Self::U64(FCSColumn(c.inner)),
-            AnyInternalColumn::U48(c) => Self::U64(FCSColumn(c.inner)),
-            AnyInternalColumn::U56(c) => Self::U64(FCSColumn(c.inner)),
-            AnyInternalColumn::U64(c) => Self::U64(FCSColumn(c.inner)),
-            AnyInternalColumn::F32(c) => Self::F32(FCSColumn(c.inner)),
-            AnyInternalColumn::F64(c) => Self::F64(FCSColumn(c.inner)),
+            AnyInternalColumn::U08(c) => Self::U08(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::U16(c) => Self::U16(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::U24(c) => Self::U32(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::U32(c) => Self::U32(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::U40(c) => Self::U64(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::U48(c) => Self::U64(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::U56(c) => Self::U64(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::U64(c) => Self::U64(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::F32(c) => Self::F32(PrimitiveColumn(c.inner)),
+            AnyInternalColumn::F64(c) => Self::F64(PrimitiveColumn(c.inner)),
         }
     }
 }
 
 #[derive(Clone, PartialEq, new)]
 #[new(visibility = "")]
-pub struct FCSDataFrame0<C> {
+pub struct FFDataFrame<C> {
     columns: Vec<C>,
     nrows: usize,
 }
 
-impl<C> Default for FCSDataFrame0<C> {
+impl<C> Default for FFDataFrame<C> {
     fn default() -> Self {
         Self::new(vec![], 0)
     }
 }
 
 /// Any valid column from [`FCSDataFrame`]
-#[derive(Clone, From)]
-pub enum AnyFCSColumn {
+#[derive(Clone, From, Delegate)]
+#[delegate(HasLen)]
+pub enum AnyPrimitiveColumn {
     U08(U08Column),
     U16(U16Column),
     U32(U32Column),
@@ -109,7 +115,8 @@ pub enum AnyFCSColumn {
     F64(F64Column),
 }
 
-#[derive(Clone, From)]
+#[derive(Clone, From, Delegate)]
+#[delegate(HasLen)]
 pub(crate) enum AnyInternalColumn {
     U08(InternalU08Column),
     U16(InternalU16Column),
@@ -127,14 +134,14 @@ pub(crate) enum AnyInternalColumn {
 #[derive(Clone, PartialEq, AsRef)]
 #[repr(transparent)]
 #[as_ref([T])]
-pub struct FCSColumn<T>(pub Buffer<T>);
+pub struct PrimitiveColumn<T>(pub Buffer<T>);
 
-pub type U08Column = FCSColumn<u8>;
-pub type U16Column = FCSColumn<u16>;
-pub type U32Column = FCSColumn<u32>;
-pub type U64Column = FCSColumn<u64>;
-pub type F32Column = FCSColumn<f32>;
-pub type F64Column = FCSColumn<f64>;
+pub type U08Column = PrimitiveColumn<u8>;
+pub type U16Column = PrimitiveColumn<u16>;
+pub type U32Column = PrimitiveColumn<u32>;
+pub type U64Column = PrimitiveColumn<u64>;
+pub type F32Column = PrimitiveColumn<f32>;
+pub type F64Column = PrimitiveColumn<f64>;
 
 #[derive(Clone, new)]
 #[repr(transparent)]
@@ -618,7 +625,7 @@ pub enum FCSDatatype {
     F64,
 }
 
-impl PartialEq for AnyFCSColumn {
+impl PartialEq for AnyPrimitiveColumn {
     /// Test for numeric equality between two columns.
     ///
     /// This will attempt to convert b/t datatypes when testing equality; for
@@ -702,13 +709,13 @@ impl PartialEq for AnyFCSColumn {
     }
 }
 
-impl<T> From<Vec<T>> for FCSColumn<T> {
+impl<T> From<Vec<T>> for PrimitiveColumn<T> {
     fn from(value: Vec<T>) -> Self {
         Self(value.into())
     }
 }
 
-impl AnyFCSColumn {
+impl AnyPrimitiveColumn {
     #[must_use]
     pub fn len(&self) -> usize {
         match_many_to_one!(self, Self, [U08, U16, U32, U64, F32, F64], x, { x.0.len() })
@@ -773,10 +780,30 @@ pub struct ColumnLengthError {
     col_len: usize,
 }
 
-impl FCSDataFrame {
-    pub fn try_new(
-        columns: impl IntoIterator<Item = AnyFCSColumn>,
-    ) -> Result<Self, NewDataframeError> {
+#[delegatable_trait]
+pub trait HasLen {
+    // this will be used for vectors, len is always constant
+    #[allow(clippy::len_without_is_empty)]
+    fn len(&self) -> usize;
+}
+
+impl<T> HasLen for PrimitiveColumn<T> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<T, R> HasLen for InternalColumn<T, R> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<C> FFDataFrame<C> {
+    pub fn try_new(columns: impl IntoIterator<Item = C>) -> Result<Self, NewDataframeError>
+    where
+        C: HasLen,
+    {
         let mut it = columns.into_iter();
         if let Some(c0) = it.by_ref().next() {
             let nrows = c0.len();
@@ -794,7 +821,10 @@ impl FCSDataFrame {
     }
 
     #[must_use]
-    pub fn new1(column: AnyFCSColumn) -> Self {
+    pub fn new1(column: C) -> Self
+    where
+        C: HasLen,
+    {
         Self {
             nrows: column.len(),
             columns: vec![column],
@@ -806,7 +836,7 @@ impl FCSDataFrame {
         self.nrows = 0;
     }
 
-    pub fn iter_columns(&self) -> Iter<'_, AnyFCSColumn> {
+    pub fn iter_columns(&self) -> Iter<'_, C> {
         self.columns.iter()
     }
 
@@ -838,7 +868,10 @@ impl FCSDataFrame {
         self.ncols() == 0
     }
 
-    pub(crate) fn drop_in_place(&mut self, i: usize) -> Option<AnyFCSColumn> {
+    pub(crate) fn drop_in_place(&mut self, i: usize) -> Option<C>
+    where
+        C: HasLen,
+    {
         if i > self.columns.len() {
             None
         } else {
@@ -846,7 +879,10 @@ impl FCSDataFrame {
         }
     }
 
-    pub(crate) fn push_column_nocheck(&mut self, col: AnyFCSColumn) {
+    pub(crate) fn push_column_nocheck(&mut self, col: C)
+    where
+        C: HasLen,
+    {
         debug_assert!(
             self.check_new_column(&col).is_ok(),
             "new column length differs from number of rows"
@@ -859,7 +895,10 @@ impl FCSDataFrame {
     }
 
     // will panic if index is out of bounds
-    pub(crate) fn insert_column_nocheck(&mut self, i: usize, col: AnyFCSColumn) {
+    pub(crate) fn insert_column_nocheck(&mut self, i: usize, col: C)
+    where
+        C: HasLen,
+    {
         debug_assert!(
             self.check_new_column(&col).is_ok(),
             "new column length differs from number of rows"
@@ -872,7 +911,10 @@ impl FCSDataFrame {
         self.columns.insert(i, col);
     }
 
-    pub(crate) fn check_new_column(&self, col: &AnyFCSColumn) -> Result<(), ColumnLengthError> {
+    pub(crate) fn check_new_column(&self, col: &C) -> Result<(), ColumnLengthError>
+    where
+        C: HasLen,
+    {
         if let Some(df_len) = self.nrows_nonempty() {
             let col_len = col.len();
             if col_len != df_len {
@@ -881,18 +923,20 @@ impl FCSDataFrame {
         }
         Ok(())
     }
-
-    // /// Return number of bytes this will occupy if written as delimited ASCII
-    // pub(crate) fn ascii_nbytes(&self) -> u64 {
-    //     let n = self.size();
-    //     if n == 0 {
-    //         return 0;
-    //     }
-    //     let ndelim = n - 1;
-    //     let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
-    //     u64::from(ndigits) + ndelim
-    // }
 }
+
+// impl PrimitiveDataFrame {
+//     /// Return number of bytes this will occupy if written as delimited ASCII
+//     pub(crate) fn ascii_nbytes(&self) -> u64 {
+//         let n = self.size();
+//         if n == 0 {
+//             return 0;
+//         }
+//         let ndelim = n - 1;
+//         let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
+//         u64::from(ndigits) + ndelim
+//     }
+// }
 
 // pub(crate) type FCSColIter<'a, FromType, ToType> =
 //     iter::Map<iter::Copied<Iter<'a, FromType>>, fn(FromType) -> CastResult<ToType>>;

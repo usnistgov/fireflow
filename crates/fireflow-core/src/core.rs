@@ -91,7 +91,7 @@ use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::dataframe as df;
-use crate::validated::dataframe::{AnyFCSColumn, FCSDataFrame};
+use crate::validated::dataframe::{AnyPrimitiveColumn, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
     DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key1, NonStdKey, NonStdKeywords,
@@ -444,7 +444,7 @@ pub enum AnyCore<A, D, O> {
 }
 
 pub type AnyCoreTEXT = AnyCore<(), (), ()>;
-pub type AnyCoreDataset = AnyCore<Analysis, FCSDataFrame, Others>;
+pub type AnyCoreDataset = AnyCore<Analysis, PrimitiveDataFrame, Others>;
 
 macro_rules! match_anycore {
     ($self:expr, $bind:ident, $stuff:block) => {
@@ -560,7 +560,7 @@ impl AnyCoreTEXT {
 
 impl AnyCoreDataset {
     #[must_use]
-    pub fn as_data(&self) -> &FCSDataFrame {
+    pub fn as_data(&self) -> &PrimitiveDataFrame {
         match_anycore!(self, x, { &x.data })
     }
 
@@ -1279,7 +1279,7 @@ pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 pub type CoreTEXT<M, T, P, N, L> = Core<(), (), (), M, T, P, N, L>;
 
 /// A standardized FCS dataset (TEXT+DATA+ANALYSIS+OTHER)
-pub type CoreDataset<M, T, P, N, L> = Core<Analysis, FCSDataFrame, Others, M, T, P, N, L>;
+pub type CoreDataset<M, T, P, N, L> = Core<Analysis, PrimitiveDataFrame, Others, M, T, P, N, L>;
 
 pub type Core2_0<A, D, O> = Core<
     A,
@@ -1327,10 +1327,10 @@ pub type CoreTEXT3_0 = Core3_0<(), (), ()>;
 pub type CoreTEXT3_1 = Core3_1<(), (), ()>;
 pub type CoreTEXT3_2 = Core3_2<(), (), ()>;
 
-pub type CoreDataset2_0 = Core2_0<Analysis, FCSDataFrame, Others>;
-pub type CoreDataset3_0 = Core3_0<Analysis, FCSDataFrame, Others>;
-pub type CoreDataset3_1 = Core3_1<Analysis, FCSDataFrame, Others>;
-pub type CoreDataset3_2 = Core3_2<Analysis, FCSDataFrame, Others>;
+pub type CoreDataset2_0 = Core2_0<Analysis, PrimitiveDataFrame, Others>;
+pub type CoreDataset3_0 = Core3_0<Analysis, PrimitiveDataFrame, Others>;
+pub type CoreDataset3_1 = Core3_1<Analysis, PrimitiveDataFrame, Others>;
+pub type CoreDataset3_2 = Core3_2<Analysis, PrimitiveDataFrame, Others>;
 
 /// Reader for ANALYSIS segment
 #[derive(new)]
@@ -1577,7 +1577,7 @@ pub(crate) trait PrivVersioned: Versioned {
         hns: &mut HeaderAndSuppOffsets,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
+        (PrimitiveDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
         (),
@@ -2435,7 +2435,7 @@ pub(crate) type VersionedCore<A, D, O, M> = Core<
 
 pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
 
-pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, FCSDataFrame, Others, M>;
+pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, PrimitiveDataFrame, Others, M>;
 
 impl<A, D, O, M, T, P, N, L> Core<A, D, O, M, T, P, N, L> {
     /// Return $PAR, which is simply the number of measurements in this struct
@@ -4769,7 +4769,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     /// same length.
     pub fn into_coredataset(
         self,
-        df: FCSDataFrame,
+        df: PrimitiveDataFrame,
         analysis: Analysis,
         others: Others,
     ) -> Result<VersionedCoreDataset<M>, MeasDataMismatchError> {
@@ -4783,7 +4783,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 
     pub(crate) fn into_coredataset_unchecked(
         self,
-        data: FCSDataFrame,
+        data: PrimitiveDataFrame,
         analysis: Analysis,
         others: Others,
     ) -> VersionedCoreDataset<M> {
@@ -5097,7 +5097,7 @@ where
     }
 
     /// Return reference to DATA segment as dataframe.
-    pub fn data(&self) -> &FCSDataFrame {
+    pub fn data(&self) -> &PrimitiveDataFrame {
         &self.data
     }
 
@@ -5125,7 +5125,7 @@ where
     ///
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
-    pub fn set_data(&mut self, df: FCSDataFrame) -> Result<(), ColumnsToDataframeError> {
+    pub fn set_data(&mut self, df: PrimitiveDataFrame) -> Result<(), ColumnsToDataframeError> {
         let data_n = df.ncols();
         let meas_n = self.par().0;
         if data_n != meas_n {
@@ -5168,7 +5168,7 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<M>, AnyFCSColumn, Range), RemoveMeasByNameError> {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByNameError> {
         let (index, meas, rng) = self.remove_measurement_by_name_inner(n)?;
         let col = self.data.drop_in_place(index.into()).unwrap();
         Ok((index, meas, col, rng))
@@ -5180,7 +5180,7 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<M>, AnyFCSColumn, Range), RemoveMeasByIndexError> {
+    ) -> Result<(NamedTemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByIndexError> {
         let (meas, rng) = self.remove_measurement_by_index_inner(index)?;
         let col = self.data.drop_in_place(index.into()).unwrap();
         Ok((meas, col, rng))
@@ -5193,7 +5193,7 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        col: AnyFCSColumn,
+        col: AnyPrimitiveColumn,
         r: Range,
         disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalToDatasetError, PushTemporalSummary>
@@ -5219,7 +5219,7 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        col: AnyFCSColumn,
+        col: AnyPrimitiveColumn,
         r: Range,
         disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
@@ -5249,7 +5249,7 @@ where
         &mut self,
         n: M::Name,
         m: Optical<M::Optical>,
-        col: AnyFCSColumn,
+        col: AnyPrimitiveColumn,
         r: Range,
         disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
@@ -5278,7 +5278,7 @@ where
         i: MeasIndex,
         n: M::Name,
         m: Optical<M::Optical>,
-        col: AnyFCSColumn,
+        col: AnyPrimitiveColumn,
         r: Range,
         disallow_trunc: DisallowRangeTrunc,
     ) -> WarningAndGroupResult<
@@ -5313,7 +5313,7 @@ where
     pub fn set_named_measurements_and_data(
         &mut self,
         xs: NamedTemporalsAndOpticals<M>,
-        df: FCSDataFrame,
+        df: PrimitiveDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementsAndDataError>
@@ -5339,7 +5339,7 @@ where
     pub fn set_measurements_and_data(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
-        df: FCSDataFrame,
+        df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
         M::Optical: AsScaleOrTransform,
@@ -5364,7 +5364,7 @@ where
         &mut self,
         measurements: TemporalsAndOpticals<M>,
         layout: <M::Ver as Versioned>::Layout,
-        df: FCSDataFrame,
+        df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
         M::Optical: AsScaleOrTransform,

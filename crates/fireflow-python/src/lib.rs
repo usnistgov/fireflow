@@ -71,7 +71,7 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
-use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
+use fireflow_core::validated::dataframe::{AnyPrimitiveColumn, PrimitiveColumn, PrimitiveDataFrame};
 use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname::Shortname;
@@ -940,10 +940,10 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
 // times because polars is massive.
 
 #[derive(From, Into)]
-pub struct PyFCSDataFrame(FCSDataFrame);
+pub struct PyFCSDataFrame(PrimitiveDataFrame);
 
 #[derive(From, Into)]
-pub struct PyAnyFCSColumn(AnyFCSColumn);
+pub struct PyAnyFCSColumn(AnyPrimitiveColumn);
 
 impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
     type Target = PyAny;
@@ -1002,7 +1002,7 @@ impl TryFrom<PyDataFrame> for PyFCSDataFrame {
         // ASSUME this won't fail because all columns will have the same
         // length after pulling from a valid polars dataframe
         Ok(Self(
-            FCSDataFrame::try_new(cs.into_iter().map(|c| c.0)).unwrap(),
+            PrimitiveDataFrame::try_new(cs.into_iter().map(|c| c.0)).unwrap(),
         ))
     }
 }
@@ -1014,7 +1014,7 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
         fn column_to_buf<T>(ser: Series) -> Result<PyAnyFCSColumn, SeriesToColumnError>
         where
             T: NumericNative,
-            AnyFCSColumn: From<FCSColumn<T>>,
+            AnyPrimitiveColumn: From<PrimitiveColumn<T>>,
         {
             if ser.null_count() > 0 {
                 Err(SeriesToColumnError::HasNull(ser.name().clone()))
@@ -1030,7 +1030,7 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
                     .unwrap()
                     .values()
                     .clone();
-                Ok(PyAnyFCSColumn(AnyFCSColumn::from(FCSColumn(buf))))
+                Ok(PyAnyFCSColumn(AnyPrimitiveColumn::from(PrimitiveColumn(buf))))
             }
         }
 
@@ -1069,14 +1069,14 @@ impl From<SeriesToColumnError> for PyErr {
     }
 }
 
-fn as_array(c: &AnyFCSColumn) -> Box<dyn Array> {
+fn as_array(c: &AnyPrimitiveColumn) -> Box<dyn Array> {
     match c.clone() {
-        AnyFCSColumn::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
-        AnyFCSColumn::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
-        AnyFCSColumn::U32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None)),
-        AnyFCSColumn::U64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None)),
-        AnyFCSColumn::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
-        AnyFCSColumn::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
+        AnyPrimitiveColumn::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
+        AnyPrimitiveColumn::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
+        AnyPrimitiveColumn::U32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None)),
+        AnyPrimitiveColumn::U64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None)),
+        AnyPrimitiveColumn::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
+        AnyPrimitiveColumn::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
     }
 }
 
@@ -1087,7 +1087,7 @@ impl PyFCSDataFrame {
     // way to do that is to have a function that takes names since FCSDataFrame
     // does not store then itself.
     fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
-        fn as_polars_column(c: &AnyFCSColumn, name: &Shortname) -> Column {
+        fn as_polars_column(c: &AnyPrimitiveColumn, name: &Shortname) -> Column {
             // ASSUME this will not fail because the we know that any of the 6
             // allowed types will be valid columns and we don't add a NULL array
             // when making the array

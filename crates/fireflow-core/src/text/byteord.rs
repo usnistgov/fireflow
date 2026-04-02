@@ -1,5 +1,6 @@
 use crate::macros::match_many_to_one;
 use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
+use crate::text::lookup::ReqMetarootKey;
 use crate::validated::ascii_range::{Chars, CharsError};
 
 use fireflow_types::ne_str;
@@ -12,8 +13,7 @@ use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
 use std::fmt;
-use std::num::NonZeroU8;
-use std::num::ParseIntError;
+use std::num::{NonZeroU8, ParseIntError};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -22,8 +22,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 
-use super::lookup::ReqMetarootKey;
-
+// TODO it might be easier and simpler just to store and array and check if
+// needed if it is big/little. The enum was only necessary when I was checking
+// for big/little every value in a loop which we don't do now
 /// Byte order with known size in bytes
 #[derive(PartialEq, Eq, Hash, Copy, Clone, From, Debug)]
 pub enum ArrayByteOrd<A> {

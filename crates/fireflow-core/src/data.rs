@@ -90,7 +90,7 @@ use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
     Bitmask64, BitmaskLossError, BitmaskTruncationError, BitmaskValue,
 };
-use crate::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
+use crate::validated::dataframe::{AnyPrimitiveColumn, PrimitiveColumn, PrimitiveDataFrame};
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
@@ -324,7 +324,7 @@ impl MixedVec {
     }
 }
 
-impl From<MixedVec> for AnyFCSColumn {
+impl From<MixedVec> for AnyPrimitiveColumn {
     fn from(value: MixedVec) -> Self {
         unimplemented!()
         // match_any_mixed!(value, x, { x.into() })
@@ -358,12 +358,12 @@ struct RangedVec<B, T> {
     data: Vec<T>,
 }
 
-impl<B, T> From<RangedVec<B, T>> for AnyFCSColumn
+impl<B, T> From<RangedVec<B, T>> for AnyPrimitiveColumn
 where
-    Self: From<FCSColumn<T>>,
+    Self: From<PrimitiveColumn<T>>,
 {
     fn from(value: RangedVec<B, T>) -> Self {
-        Self::from(FCSColumn::from(value.data))
+        Self::from(PrimitiveColumn::from(value.data))
     }
 }
 
@@ -449,7 +449,7 @@ impl AnyUintVec {
     }
 }
 
-impl From<AnyUintVec> for AnyFCSColumn {
+impl From<AnyUintVec> for AnyPrimitiveColumn {
     fn from(value: AnyUintVec) -> Self {
         unimplemented!()
         // match_any_uint!(value, AnyUintVec, x, { x.into() })
@@ -1116,7 +1116,7 @@ pub trait IsTot: Sized + MightHave<Tot> {
 pub trait LayoutOps<'a, T>: Sized {
     fn ncols(&self) -> usize;
 
-    fn nbytes(&self, df: &FCSDataFrame) -> u64;
+    fn nbytes(&self, df: &PrimitiveDataFrame) -> u64;
 
     fn ranges(&self) -> Vec<Range>;
 
@@ -1142,7 +1142,7 @@ pub trait LayoutOps<'a, T>: Sized {
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, EventsDiagnostics),
+        (PrimitiveDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -1155,7 +1155,7 @@ pub trait LayoutOps<'a, T>: Sized {
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
+        df: &'a PrimitiveDataFrame,
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error>;
 
@@ -1277,7 +1277,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, EventsDiagnostics),
+        (PrimitiveDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -1285,7 +1285,7 @@ where
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
-            None => LogResult::new_ok((FCSDataFrame::default(), EventsDiagnostics::default())),
+            None => LogResult::new_ok((PrimitiveDataFrame::default(), EventsDiagnostics::default())),
             Some((begin, _)) => h
                 .seek(SeekFrom::Start(begin))
                 .map_err(IOErrorGroup::from)
@@ -1297,7 +1297,7 @@ where
     fn h_write_df<W>(
         &self,
         h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
+        df: &PrimitiveDataFrame,
         skip_conv_check: bool,
     ) -> WarningsAndErrorResult<(), (), IndexedLossError, io::Error>
     where
@@ -2693,7 +2693,7 @@ where
         self.ranges.len()
     }
 
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+    fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
         unimplemented!()
         // df.ascii_nbytes()
     }
@@ -2743,7 +2743,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, EventsDiagnostics),
+        (PrimitiveDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -2816,10 +2816,10 @@ where
                     .map_ok_value(|()| {
                         let cs = data
                             .into_iter()
-                            .map(FCSColumn::from)
-                            .map(AnyFCSColumn::from);
+                            .map(PrimitiveColumn::from)
+                            .map(AnyPrimitiveColumn::from);
                         let out = EventsDiagnostics::new(None, None, None, overrange);
-                        let df = FCSDataFrame::try_new(cs).unwrap();
+                        let df = PrimitiveDataFrame::try_new(cs).unwrap();
                         (df, out)
                     })
             })
@@ -2840,7 +2840,7 @@ where
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &FCSDataFrame,
+        df: &PrimitiveDataFrame,
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
         unimplemented!()
@@ -3102,7 +3102,7 @@ where
         self.columns.len()
     }
 
-    fn nbytes(&self, df: &FCSDataFrame) -> u64 {
+    fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
         usize_to_u64(self.event_width() * df.nrows())
     }
 
@@ -3145,7 +3145,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        (FCSDataFrame, EventsDiagnostics),
+        (PrimitiveDataFrame, EventsDiagnostics),
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3210,7 +3210,7 @@ where
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        df: &'a FCSDataFrame,
+        df: &'a PrimitiveDataFrame,
         skip_conv_check: bool,
     ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
         unimplemented!()
@@ -3467,7 +3467,7 @@ trait FixedLayoutIO {
         nrows: usize,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOResult<
-        (FCSDataFrame, Vec<OverrangeColumn>),
+        (PrimitiveDataFrame, Vec<OverrangeColumn>),
         EventOverRangeError,
         ReadDataframeError,
     > {
@@ -3492,7 +3492,7 @@ trait FixedLayoutIO {
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError>;
+    ) -> IOResult<(PrimitiveDataFrame, Vec<TruncatedResult>), ReadDataframeError>;
 }
 
 trait ByteLayoutIO<C: HasNativeType> {
@@ -3644,7 +3644,7 @@ impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<(PrimitiveDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
         // let row_width = self.event_width();
 
         // let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
@@ -3688,7 +3688,7 @@ where
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<(PrimitiveDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
         // let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         // let ncols = self.columns().len();
         // let mut columns = vec![vec![C::Native::default(); nrows]; ncols];
@@ -3729,7 +3729,7 @@ where
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<(PrimitiveDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
         unimplemented!()
         // let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
 
@@ -3784,7 +3784,7 @@ impl FixedLayoutIO for MixedLayout {
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(FCSDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<(PrimitiveDataFrame, Vec<TruncatedResult>), ReadDataframeError> {
         //     let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         //     let en = self.byte_layout;
         //     let cs = &self.columns[..];

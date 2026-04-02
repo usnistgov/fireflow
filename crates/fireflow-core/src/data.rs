@@ -138,6 +138,7 @@ use {
 /// is optional, which requires a different interface.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Option<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<Option<Tot>>);
@@ -147,6 +148,7 @@ pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
@@ -160,6 +162,7 @@ pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<Nothing<NumType>>);
@@ -172,6 +175,7 @@ pub struct DataFrame3_1(pub NonMixedEndianDataFrame<Nothing<NumType>>);
 /// each column to have a different type and size (hence "Mixed").
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 pub enum DataLayout3_2 {
     Mixed(MixedLayout),
@@ -194,6 +198,7 @@ pub type MixedDataFrame = EndianLayout<MixedColumn, Option<NumType>>;
 /// endian.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Tot>, generics = "Tot")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub enum AnyOrderedLayout<T> {
@@ -213,6 +218,7 @@ pub enum AnyOrderedDataFrame<T> {
 /// All possible endian layouts with the same datatype (3.1)
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum NonMixedEndianLayout<D> {
@@ -240,6 +246,7 @@ pub type EndianLayout<C, D> = FixedLayout<C, Endian, Identity<Tot>, D>;
 /// separated by delimiters).
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Tot>, generics = "Tot")]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 pub enum AnyAsciiLayout<T, D, const ORD: bool> {
@@ -301,6 +308,7 @@ pub struct FixedLayoutInner<Cols, Layout, TotType, Dtype> {
 /// DATA layout for integers that may be in any byte order.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[delegate(CommonLayoutOps)]
 #[delegate(LayoutOps<Tot>, generics = "Tot")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[delegate(OrderedLayoutOps)]
@@ -1214,10 +1222,8 @@ pub trait IsTot: Sized + MightHave<Tot> {
 
 /// Standardized operations on layouts
 #[delegatable_trait]
-pub trait LayoutOps<T>: Sized {
+pub trait CommonLayoutOps: Sized {
     fn ncols(&self) -> usize;
-
-    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64;
 
     fn ranges(&self) -> Vec<Range>;
 
@@ -1233,6 +1239,29 @@ pub trait LayoutOps<T>: Sized {
     }
 
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
+}
+
+/// Standardized operations on layouts
+#[delegatable_trait]
+pub trait LayoutOps<T>: Sized + CommonLayoutOps {
+    // fn ncols(&self) -> usize;
+
+    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64;
+
+    // fn ranges(&self) -> Vec<Range>;
+
+    // fn datatype(&self) -> AlphaNumType;
+
+    // fn datatypes(&self) -> Vec<AlphaNumType>;
+
+    // fn byteord_keyword(&self) -> ReqRootKeyword<'_>;
+
+    // fn req_keywords(&self) -> [ReqRootKeyword<'_>; 2] {
+    //     let d = ReqRootKeyword::from_value(self.datatype());
+    //     [d, self.byteord_keyword()]
+    // }
+
+    // fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
 
@@ -2776,20 +2805,14 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl<T, D, const ORD: bool> LayoutOps<T> for DelimAsciiLayout<T, D, ORD>
+impl<T, D, const ORD: bool> CommonLayoutOps for DelimAsciiLayout<T, D, ORD>
 where
-    T: IsTot,
     NoByteOrd<ORD>: HasByteOrd,
     for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
 {
     fn ncols(&self) -> usize {
         self.ranges.len()
     }
-
-    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
-    //     unimplemented!()
-    //     // df.ascii_nbytes()
-    // }
 
     fn ranges(&self) -> Vec<Range> {
         self.ranges.iter().map(|x| Range::from(x.0)).collect()
@@ -2820,6 +2843,18 @@ where
             })
             .collect()
     }
+}
+
+impl<T, D, const ORD: bool> LayoutOps<T> for DelimAsciiLayout<T, D, ORD>
+where
+    T: IsTot,
+    NoByteOrd<ORD>: HasByteOrd,
+    for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
+{
+    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
+    //     unimplemented!()
+    //     // df.ascii_nbytes()
+    // }
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
@@ -3174,30 +3209,20 @@ impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
     }
 }
 
-impl<C, S, T, D> LayoutOps<T> for FixedLayout<C, S, T, D>
+impl<C, S, T, D> CommonLayoutOps for FixedLayout<C, S, T, D>
 where
-    Self: FixedLayoutIO,
-    D: IsNumType,
-    T: IsTot,
-    // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
-    C: Clone + IsFixed + HasDatatype + FromRange,
+    C: IsFixed + HasDatatype,
     S: Copy + HasByteOrd,
     for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
     for<'c> Range: From<&'c C>,
-    // <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
-    InsertRangeError: From<<C as FromRange>::Error>,
 {
-    fn ranges(&self) -> Vec<Range> {
-        self.columns.iter().map(Into::into).collect()
-    }
-
     fn ncols(&self) -> usize {
         self.columns.len()
     }
 
-    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
-    //     usize_to_u64(self.event_width() * df.nrows())
-    // }
+    fn ranges(&self) -> Vec<Range> {
+        self.columns.iter().map(Into::into).collect()
+    }
 
     fn datatype(&self) -> AlphaNumType {
         C::datatype_from_columns(&self.columns)
@@ -3222,6 +3247,24 @@ where
             })
             .collect()
     }
+}
+
+impl<C, S, T, D> LayoutOps<T> for FixedLayout<C, S, T, D>
+where
+    Self: FixedLayoutIO,
+    D: IsNumType,
+    T: IsTot,
+    // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
+    C: Clone + IsFixed + HasDatatype + FromRange,
+    S: Copy + HasByteOrd,
+    for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
+    for<'c> Range: From<&'c C>,
+    // <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
+    InsertRangeError: From<<C as FromRange>::Error>,
+{
+    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
+    //     usize_to_u64(self.event_width() * df.nrows())
+    // }
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(

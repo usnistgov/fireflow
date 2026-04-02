@@ -58,9 +58,10 @@ use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{
-    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
-    DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, LayoutOps as _, NonMixedEndianLayout,
+    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout,
+    CommonLayoutOps as _, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
+    DelimAsciiLayout, EndianLayout, F32Range, F64Range, FixedAsciiLayout, LayoutOps as _,
+    NonMixedEndianLayout,
 };
 use fireflow_core::header;
 use fireflow_core::text::gating::{
@@ -71,7 +72,9 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
-use fireflow_core::validated::dataframe::{AnyPrimitiveColumn, PrimitiveColumn, PrimitiveDataFrame};
+use fireflow_core::validated::dataframe::{
+    AnyPrimitiveColumn, PrimitiveColumn, PrimitiveDataFrame,
+};
 use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname::Shortname;
@@ -1030,7 +1033,9 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
                     .unwrap()
                     .values()
                     .clone();
-                Ok(PyAnyFCSColumn(AnyPrimitiveColumn::from(PrimitiveColumn(buf))))
+                Ok(PyAnyFCSColumn(AnyPrimitiveColumn::from(PrimitiveColumn(
+                    buf,
+                ))))
             }
         }
 
@@ -1071,12 +1076,24 @@ impl From<SeriesToColumnError> for PyErr {
 
 fn as_array(c: &AnyPrimitiveColumn) -> Box<dyn Array> {
     match c.clone() {
-        AnyPrimitiveColumn::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
-        AnyPrimitiveColumn::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
-        AnyPrimitiveColumn::U32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None)),
-        AnyPrimitiveColumn::U64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None)),
-        AnyPrimitiveColumn::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
-        AnyPrimitiveColumn::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
+        AnyPrimitiveColumn::U08(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None))
+        }
+        AnyPrimitiveColumn::U16(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None))
+        }
+        AnyPrimitiveColumn::U32(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None))
+        }
+        AnyPrimitiveColumn::U64(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None))
+        }
+        AnyPrimitiveColumn::F32(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None))
+        }
+        AnyPrimitiveColumn::F64(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None))
+        }
     }
 }
 

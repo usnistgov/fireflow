@@ -9,11 +9,12 @@ use crate::config::{
     WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
-    DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _,
-    IsTot, LayoutConvertError, LayoutOps as _, LookupLayoutError, LookupLayoutWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
-    ReadDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
+    CheckedScaleTransform, CommonLayoutOps as _, ConvertFromLayout, DataLayout2_0, DataLayout3_0,
+    DataLayout3_1, DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError,
+    InterLayoutOps as _, IsTot, LayoutConvertError, LayoutOps as _, LookupLayoutError,
+    LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError,
+    ReadDataframeError, ReadDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup,
+    VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -1577,7 +1578,12 @@ pub(crate) trait PrivVersioned: Versioned {
         hns: &mut HeaderAndSuppOffsets,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (PrimitiveDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
+        (
+            PrimitiveDataFrame,
+            Analysis,
+            DatasetSegments,
+            EventsDiagnostics,
+        ),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
         (),
@@ -5168,7 +5174,8 @@ where
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByNameError> {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByNameError>
+    {
         let (index, meas, rng) = self.remove_measurement_by_name_inner(n)?;
         let col = self.data.drop_in_place(index.into()).unwrap();
         Ok((index, meas, col, rng))
@@ -5180,7 +5187,8 @@ where
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByIndexError> {
+    ) -> Result<(NamedTemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByIndexError>
+    {
         let (meas, rng) = self.remove_measurement_by_index_inner(index)?;
         let col = self.data.drop_in_place(index.into()).unwrap();
         Ok((meas, col, rng))

@@ -473,12 +473,12 @@ impl From<AnyUintVec> for AnyFCSColumn {
 #[derive(PartialEq, Clone, new, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
-pub struct FloatRange<T, const LEN: usize> {
+pub struct FloatRange<T> {
     range: FloatDecimal<T>,
 }
 
-pub type F32Range = FloatRange<f32, 4>;
-pub type F64Range = FloatRange<f64, 8>;
+pub type F32Range = FloatRange<f32>;
+pub type F64Range = FloatRange<f64>;
 
 // /// Instructions to write one column using an iterator
 // #[derive(new)]
@@ -1771,11 +1771,11 @@ impl From<AnyNullBitmask> for NullMixedType {
     }
 }
 
-impl<T, const LEN: usize> From<Bitmask<T, LEN>> for NullMixedType
+impl<T> From<Bitmask<T>> for NullMixedType
 where
-    AnyNullBitmask: From<Bitmask<T, LEN>>,
+    AnyNullBitmask: From<Bitmask<T>>,
 {
-    fn from(value: Bitmask<T, LEN>) -> Self {
+    fn from(value: Bitmask<T>) -> Self {
         Self::Uint(value.into())
     }
 }
@@ -1873,8 +1873,8 @@ impl From<&AnyNullBitmask> for Range {
     }
 }
 
-impl<T: Clone, const LEN: usize> From<&FloatRange<T, LEN>> for Range {
-    fn from(value: &FloatRange<T, LEN>) -> Self {
+impl<T: Clone> From<&FloatRange<T>> for Range {
+    fn from(value: &FloatRange<T>) -> Self {
         value.range.clone().into()
     }
 }
@@ -2457,7 +2457,7 @@ impl UnalignedIntFromBytes<5, 8> for u64 {}
 impl UnalignedIntFromBytes<6, 8> for u64 {}
 impl UnalignedIntFromBytes<7, 8> for u64 {}
 
-impl<T, const LEN: usize> FloatRange<T, LEN> {
+impl<T> FloatRange<T> {
     /// Make new float range from $PnB and $PnR values.
     ///
     /// Will return an error if $PnB is the incorrect size.
@@ -2469,7 +2469,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
     ) -> WarningsAndErrorResult<ConvertedRange<Self>, (), IndexedFloatRangeError, FloatWidthError>
     where
         FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
-        T: HasFloatBounds,
+        T: HasFloatBounds + FCSRepr,
     {
         PrivBytes::try_from(width)
             .map_err(|e| IndexedError::new(i, e))
@@ -2477,7 +2477,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
             .into_log::<Vec<_>, Vec<_>, Nothing<_>>()
             .map_errors(FloatWidthError::from)
             .and_then_commutative(|bytes| {
-                if usize::from(u8::from(bytes)) == LEN {
+                if usize::from(u8::from(bytes)) == T::file_len() {
                     Self::from_range(range, flag)
                         .set_err_value(())
                         .map_switchable_errors(|e| IndexedError::new(i, e))
@@ -2486,7 +2486,7 @@ impl<T, const LEN: usize> FloatRange<T, LEN> {
                         .map_errors(FloatWidthError::from)
                         .repack_warnings()
                 } else {
-                    let e = FloatWidthError::from(WrongFloatWidth::new(bytes, LEN, i));
+                    let e = FloatWidthError::from(WrongFloatWidth::new(bytes, T::file_len(), i));
                     LogResult::new_err(e)
                 }
             })
@@ -4021,7 +4021,7 @@ impl HasOneDatatype for AsciiRange {
     const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
 }
 
-impl<T, const LEN: usize> HasOneDatatype for Bitmask<T, LEN> {
+impl<T> HasOneDatatype for Bitmask<T> {
     const DATATYPE: AlphaNumType = AlphaNumType::Integer;
 }
 
@@ -4083,7 +4083,7 @@ impl HasDatatype for NullMixedType {
     }
 }
 
-impl<T, const LEN: usize> IntoRange for Bitmask<T, LEN>
+impl<T> IntoRange for Bitmask<T>
 where
     Self: HasNativeType<Native = T>,
     T: Copy + Into<Range>,
@@ -4094,7 +4094,7 @@ where
     }
 }
 
-impl<T, const LEN: usize> IntoRange for FloatRange<T, LEN>
+impl<T> IntoRange for FloatRange<T>
 where
     Self: HasNativeType<Native = T>,
     T: Copy,
@@ -4113,7 +4113,7 @@ impl IntoRange for AsciiRange {
     }
 }
 
-impl<T, const LEN: usize> FromRange for Bitmask<T, LEN>
+impl<T> FromRange for Bitmask<T>
 where
     T: TryFrom<Range, Error = RangeToIntError<T>>
         + FCSRepr
@@ -4142,7 +4142,7 @@ where
     }
 }
 
-impl<T, const LEN: usize> FromRange for FloatRange<T, LEN>
+impl<T> FromRange for FloatRange<T>
 where
     T: HasFloatBounds,
 {
@@ -4249,7 +4249,7 @@ impl FromRange for NullMixedType {
     }
 }
 
-impl<T, const LEN: usize> IsFixed for Bitmask<T, LEN>
+impl<T> IsFixed for Bitmask<T>
 where
     T: FCSRepr,
 {
@@ -4262,7 +4262,7 @@ where
     }
 }
 
-impl<T, const LEN: usize> IsFixed for FloatRange<T, LEN>
+impl<T> IsFixed for FloatRange<T>
 where
     T: FCSRepr,
 {
@@ -4512,22 +4512,24 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
     }
 }
 
-impl<T, const LEN: usize, TC> OrderedLayout<Bitmask<T, LEN>, TC>
+impl<T, TC> OrderedLayout<Bitmask<T>, TC>
 where
-    Bitmask<T, LEN>: HasOrder<Order = ArrayByteOrd<[u8; LEN]>>,
+    T: FCSRepr,
+    Bitmask<T>: HasOrder<Order = ArrayByteOrd<T::ByteOrd>>,
 {
     #[must_use]
-    pub fn new_endian_uint(ranges: Vec<Bitmask<T, LEN>>, endian: Endian) -> Self {
+    pub fn new_endian_uint(ranges: Vec<Bitmask<T>>, endian: Endian) -> Self {
         Self::new(ranges, ArrayByteOrd::Endian(endian))
     }
 }
 
-impl<T, const LEN: usize, TC> OrderedLayout<FloatRange<T, LEN>, TC>
+impl<T, TC> OrderedLayout<FloatRange<T>, TC>
 where
-    FloatRange<T, LEN>: HasOrder<Order = ArrayByteOrd<[u8; LEN]>>,
+    T: FCSRepr,
+    FloatRange<T>: HasOrder<Order = ArrayByteOrd<T::ByteOrd>>,
 {
     #[must_use]
-    pub fn new_endian_float(ranges: Vec<FloatRange<T, LEN>>, endian: Endian) -> Self {
+    pub fn new_endian_float(ranges: Vec<FloatRange<T>>, endian: Endian) -> Self {
         Self::new(ranges, ArrayByteOrd::Endian(endian))
     }
 }
@@ -5028,13 +5030,11 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     #[must_use]
-    pub fn new_uint<U, const LEN: usize>(
-        columns: Vec<Bitmask<U, LEN>>,
-        byte_layout: ArrayByteOrd<[u8; LEN]>,
-    ) -> Self
+    pub fn new_uint<U>(columns: Vec<Bitmask<U>>, byte_layout: ArrayByteOrd<U::ByteOrd>) -> Self
     where
+        U: FCSRepr,
         AnyOrderedUintLayout<T>:
-            From<FixedLayout<Bitmask<U, LEN>, ArrayByteOrd<[u8; LEN]>, T, Nothing<NumType>>>,
+            From<FixedLayout<Bitmask<U>, ArrayByteOrd<U::ByteOrd>, T, Nothing<NumType>>>,
     {
         Self::Integer(FixedLayout::new(columns, byte_layout).into())
     }
@@ -6043,7 +6043,7 @@ mod python {
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
-    impl<'py, T, const LEN: usize> FromPyObject<'py> for FloatRange<T, LEN>
+    impl<'py, T> FromPyObject<'py> for FloatRange<T>
     where
         for<'a> T: FromPyObjectBound<'a, 'py> + HasFloatBounds,
         FloatDecimal<T>: TryFrom<BigDecimal>,
@@ -6055,7 +6055,7 @@ mod python {
         }
     }
 
-    impl<'py, T, const LEN: usize> IntoPyObject<'py> for FloatRange<T, LEN> {
+    impl<'py, T> IntoPyObject<'py> for FloatRange<T> {
         type Target = PyAny;
         type Output = Bound<'py, PyAny>;
         type Error = PyErr;

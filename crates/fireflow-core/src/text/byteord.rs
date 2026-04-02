@@ -403,6 +403,14 @@ impl SizedByteOrd<2> {
     }
 }
 
+impl ArrayByteOrd<[u8; 2]> {
+    #[must_use]
+    pub fn endian(&self) -> Endian {
+        let [x, y] = (*self).into();
+        (y > x).into()
+    }
+}
+
 impl From<bool> for Endian {
     fn from(value: bool) -> Self {
         if value { Self::Big } else { Self::Little }
@@ -629,7 +637,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Endian, NewByteOrdError, SizedByteOrd};
+    use super::{ArrayByteOrd, Endian, NewByteOrdError, SizedByteOrd};
 
     use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
     use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
@@ -661,6 +669,19 @@ mod python {
     macro_rules! impl_vec_to_sized {
         ($len:expr) => {
             impl TryFrom<Vec<NonZeroU8>> for SizedByteOrd<$len> {
+                type Error = VecToSizedError;
+                fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
+                    let xs: [NonZeroU8; $len] =
+                        value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
+                            vec_len: ys.len(),
+                            req_len: $len,
+                        })?;
+                    let ret = xs.try_into()?;
+                    Ok(ret)
+                }
+            }
+
+            impl TryFrom<Vec<NonZeroU8>> for ArrayByteOrd<[u8; $len]> {
                 type Error = VecToSizedError;
                 fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
                     let xs: [NonZeroU8; $len] =
@@ -742,6 +763,51 @@ mod python {
     }
 
     impl<'py, const LEN: usize> IntoPyObject<'py> for SizedByteOrd<LEN> {
+        type Target = PyAny;
+        type Output = Bound<'py, PyAny>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Endian(Endian::Big) => BYTEORD_BIG.into_bound_py_any(py),
+                Self::Endian(Endian::Little) => BYTEORD_LITTLE.into_bound_py_any(py),
+                // use u32 here since Vec<u8> converts to bytes in python
+                Self::Order(xs) => xs
+                    .into_iter()
+                    .map(u32::from)
+                    .collect::<Vec<_>>()
+                    .into_pyobject(py),
+            }
+        }
+    }
+
+    // for mixed byte, order use literals "big" and "little" like above and also
+    // check for appropriate lists which represent mixed order
+    impl<'py, const LEN: usize> FromPyObject<'py> for ArrayByteOrd<[u8; LEN]>
+    where
+        Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
+    {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let err = || {
+                let msg = format!("must be '{BYTEORD_BIG}', '{BYTEORD_LITTLE}', or a list");
+                InvalidKeywordValueError::new_err(msg)
+            };
+            if let Ok(s) = ob.extract::<String>() {
+                match s.as_str() {
+                    BYTEORD_LITTLE => Ok(Endian::Little),
+                    BYTEORD_BIG => Ok(Endian::Big),
+                    _ => Err(err()),
+                }
+                .map(Self::from)
+            } else if let Ok(xs) = ob.extract::<Vec<NonZeroU8>>() {
+                Ok(Self::try_from(xs)?)
+            } else {
+                Err(err())
+            }
+        }
+    }
+
+    impl<'py, const LEN: usize> IntoPyObject<'py> for ArrayByteOrd<[u8; LEN]> {
         type Target = PyAny;
         type Output = Bound<'py, PyAny>;
         type Error = PyErr;

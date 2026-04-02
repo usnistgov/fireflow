@@ -1,50 +1,65 @@
 use bigdecimal::BigDecimal;
 use bytemuck::NoUninit;
-use derive_more::{From, Into, Shr};
+use derive_more::{Display, From, Into, Shr};
 use num_traits::{Bounded, FromBytes, ToBytes};
+use thiserror::Error;
 
 use crate::text::byteord::{Bytes, PrivBytes};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "python")]
+use {
+    fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject},
+    pyo3::prelude::*,
+};
+
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug, Display,
 )]
 #[into(u32, u64)]
 #[from(u8, u16)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub(crate) struct U24(u32);
+#[cfg_attr(feature = "python", derive(TryFromPyObject, IntoPyObject))]
+pub struct U24(u32);
 
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug, Display,
 )]
 #[into(u64)]
 #[from(u8, u16, u32)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub(crate) struct U40(u64);
+#[cfg_attr(feature = "python", derive(TryFromPyObject, IntoPyObject))]
+pub struct U40(u64);
 
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug, Display,
 )]
 #[into(u64)]
 #[from(u8, u16, u32)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub(crate) struct U48(u64);
+#[cfg_attr(feature = "python", derive(TryFromPyObject, IntoPyObject))]
+pub struct U48(u64);
 
 #[derive(
-    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug,
+    Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug, Display,
 )]
 #[into(u64)]
 #[from(u8, u16, u32)]
 #[repr(transparent)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub(crate) struct U56(u64);
+#[cfg_attr(feature = "python", derive(TryFromPyObject, IntoPyObject))]
+pub struct U56(u64);
 
-pub(crate) struct TryFromUnalignedIntError;
+#[derive(Error, Debug)]
+#[error("value out of range for unaligned, unsigned integer")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(PyOverflowError))]
+pub struct TryFromUnalignedIntError;
 
 // /// A Vec with an inner type which may be lossily converted to an unaligned type.
 // pub(crate) trait CastableVec<Inner>: Sized {
@@ -73,10 +88,12 @@ pub trait FCSRepr {
     /// The order the bytes appear in the file if not little/big endian.
     type ByteOrd;
 
+    #[must_use]
     fn file_len() -> usize {
         usize::from(u8::from(Self::FILE_BYTES))
     }
 
+    #[must_use]
     fn mem_len() -> usize {
         usize::from(u8::from(Self::MEM_BYTES))
     }
@@ -94,6 +111,16 @@ pub trait FCSRepr {
         Self::from_le_bytes(&buf)
     }
 
+    /// Read an FCS value from a byte stream.
+    ///
+    /// # SAFETY
+    ///
+    /// Caller must ensure that the bytes to be read, starting at the index and
+    /// up to the last byte given by index + length of bytes to be read, just be
+    /// within the slice. This will not check bounds. This is meant to be used
+    /// in very fast loops where performance is critical and adding a bounds
+    /// check would insert a jump op which would in tern prevent nice compiler
+    /// optimizations (unrolling, possibly vectorization, etc).
     unsafe fn array_from_slice(bytes: &[u8], i: usize) -> Self::FileBuf;
 }
 

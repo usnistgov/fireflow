@@ -23,14 +23,14 @@ use super::unaligned::FCSRepr;
 #[cfg(feature = "python")]
 use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
 
-/// The type of an integer column with `LEN` bytes in all versions.
+/// The type of an integer column for all versions.
 #[derive(PartialEq, Clone, Copy, PartialOrd, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility = "")]
-pub struct Bitmask<T, const LEN: usize> {
+pub struct Bitmask<T> {
     /// The value to be masked.
     ///
-    /// This can be any integer up to LEN bits.
+    /// This can be any integer up to the capacity of T.
     value: BitmaskValue<T>,
 
     /// The bitmask corresponding to [`Self::value`].
@@ -48,37 +48,37 @@ pub struct Bitmask<T, const LEN: usize> {
 #[cfg_attr(feature = "python", bound(T: FromPyObject<'py>))]
 pub struct BitmaskValue<T>(pub T);
 
-pub type Bitmask08 = Bitmask<u8, 1>;
-pub type Bitmask16 = Bitmask<u16, 2>;
-pub type Bitmask24 = Bitmask<U24, 3>;
-pub type Bitmask32 = Bitmask<u32, 4>;
-pub type Bitmask40 = Bitmask<U40, 5>;
-pub type Bitmask48 = Bitmask<U48, 6>;
-pub type Bitmask56 = Bitmask<U56, 7>;
-pub type Bitmask64 = Bitmask<u64, 8>;
+pub type Bitmask08 = Bitmask<u8>;
+pub type Bitmask16 = Bitmask<u16>;
+pub type Bitmask24 = Bitmask<U24>;
+pub type Bitmask32 = Bitmask<u32>;
+pub type Bitmask40 = Bitmask<U40>;
+pub type Bitmask48 = Bitmask<U48>;
+pub type Bitmask56 = Bitmask<U56>;
+pub type Bitmask64 = Bitmask<u64>;
 
-impl<T, const LEN: usize> From<&Bitmask<T, LEN>> for Range
+impl<T> From<&Bitmask<T>> for Range
 where
     T: Copy,
     u64: From<T>,
 {
-    fn from(value: &Bitmask<T, LEN>) -> Self {
+    fn from(value: &Bitmask<T>) -> Self {
         // NOTE add 1 since the spec treats int ranges as one less than they
         // appear in TEXT
         Self::from(u64::from(value.value.0)) + Self::from(BigDecimal::one())
     }
 }
 
-impl<T, const LEN: usize> From<Bitmask<T, LEN>> for u64
+impl<T> From<Bitmask<T>> for u64
 where
     Self: From<T>,
 {
-    fn from(value: Bitmask<T, LEN>) -> Self {
+    fn from(value: Bitmask<T>) -> Self {
         value.value.0.into()
     }
 }
 
-impl<T, const LEN: usize> Bitmask<T, LEN> {
+impl<T> Bitmask<T> {
     pub(crate) fn bitmask(&self) -> T
     where
         T: Copy,
@@ -268,13 +268,13 @@ mod python {
     use pyo3::exceptions::PyOverflowError;
     use pyo3::prelude::*;
 
-    use std::fmt;
+    use std::fmt::Display;
     use std::ops::Shr;
 
-    impl<'py, T, const LEN: usize> FromPyObject<'py> for super::Bitmask<T, LEN>
+    impl<'py, T> FromPyObject<'py> for super::Bitmask<T>
     where
         for<'a> T: FromPyObjectBound<'a, 'py>
-            + fmt::Display
+            + Display
             + Into<u64>
             + FCSRepr
             + Bounded
@@ -285,7 +285,7 @@ mod python {
             let x = ob.extract::<T>()?;
             let (ret, trunc) = Self::from_native(BitmaskValue(x));
             if trunc {
-                let e = format!("could not make {LEN}-byte bitmask from {x}");
+                let e = format!("could not make {}-byte bitmask from {x}", T::file_len());
                 Err(PyOverflowError::new_err(e))
             } else {
                 Ok(ret)
@@ -293,7 +293,7 @@ mod python {
         }
     }
 
-    impl<'py, T, const LEN: usize> IntoPyObject<'py> for Bitmask<T, LEN>
+    impl<'py, T> IntoPyObject<'py> for Bitmask<T>
     where
         T: IntoPyObject<'py>,
     {

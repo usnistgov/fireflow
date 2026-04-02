@@ -88,6 +88,11 @@ pub trait FCSRepr {
     /// The order the bytes appear in the file if not little/big endian.
     type ByteOrd;
 
+    /// The primitive underlying this type (which may be the same).
+    ///
+    /// This type must be aligned (ie power of 2 size in bytes).
+    type Prim;
+
     #[must_use]
     fn file_len() -> usize {
         usize::from(u8::from(Self::FILE_BYTES))
@@ -98,26 +103,28 @@ pub trait FCSRepr {
         usize::from(u8::from(Self::MEM_BYTES))
     }
 
+    #[must_use]
     fn slice_be_bytes(bytes: &[u8], index: usize) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
-        let LEN = Self::FILE_BYTES.0.to_usize();
+        let n = Self::file_len();
         let mut buf = Self::FileBuf::default();
-        let tmp = &bytes[index..index + LEN];
+        let tmp = &bytes[index..index + n];
         buf.as_mut().copy_from_slice(tmp);
         Self::from_be_bytes(&buf)
     }
 
+    #[must_use]
     fn slice_le_bytes(bytes: &[u8], index: usize) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
-        let LEN = Self::FILE_BYTES.0.to_usize();
+        let n = Self::file_len();
         let mut buf = Self::FileBuf::default();
-        let tmp = &bytes[index..index + LEN];
+        let tmp = &bytes[index..index + n];
         buf.as_mut().copy_from_slice(tmp);
         Self::from_le_bytes(&buf)
     }
@@ -149,13 +156,14 @@ pub trait FCSRepr {
 }
 
 macro_rules! impl_file_bytes {
-    ($t:ident, $file_bytes:ident, $mem_bytes:ident, $file_len:expr, $mem_len:expr) => {
+    ($t:ident, $prim:ident, $file_bytes:ident, $mem_bytes:ident, $file_len:expr, $mem_len:expr) => {
         impl FCSRepr for $t {
             const FILE_BYTES: Bytes = Bytes(PrivBytes::$file_bytes);
             const MEM_BYTES: Bytes = Bytes(PrivBytes::$mem_bytes);
             type FileBuf = [u8; $file_len];
             type MemBuf = [u8; $mem_len];
             type ByteOrd = Self::FileBuf;
+            type Prim = $prim;
 
             unsafe fn array_from_slice(bytes: &[u8], i: usize) -> Self::FileBuf {
                 // SAFETY: length of output and input should match
@@ -172,16 +180,16 @@ unsafe fn array_from_slice<const LEN: usize>(bytes: &[u8], i: usize, n: usize) -
     unsafe { *(xs.as_ptr().cast()) }
 }
 
-impl_file_bytes!(u8, B1, B1, 1, 1);
-impl_file_bytes!(u16, B2, B2, 2, 2);
-impl_file_bytes!(U24, B3, B4, 3, 4);
-impl_file_bytes!(u32, B4, B4, 4, 4);
-impl_file_bytes!(U40, B5, B8, 5, 8);
-impl_file_bytes!(U48, B6, B8, 6, 8);
-impl_file_bytes!(U56, B7, B8, 7, 8);
-impl_file_bytes!(u64, B8, B8, 8, 8);
-impl_file_bytes!(f32, B4, B4, 4, 4);
-impl_file_bytes!(f64, B8, B8, 8, 8);
+impl_file_bytes!(u8, u8, B1, B1, 1, 1);
+impl_file_bytes!(u16, u16, B2, B2, 2, 2);
+impl_file_bytes!(U24, u32, B3, B4, 3, 4);
+impl_file_bytes!(u32, u32, B4, B4, 4, 4);
+impl_file_bytes!(U40, u64, B5, B8, 5, 8);
+impl_file_bytes!(U48, u64, B6, B8, 6, 8);
+impl_file_bytes!(U56, u64, B7, B8, 7, 8);
+impl_file_bytes!(u64, u64, B8, B8, 8, 8);
+impl_file_bytes!(f32, f32, B4, B4, 4, 4);
+impl_file_bytes!(f64, f32, B8, B8, 8, 8);
 
 macro_rules! impl_unaligned {
     ($inner:ident, $outer:ident, $n:expr) => {

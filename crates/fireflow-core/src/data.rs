@@ -90,7 +90,9 @@ use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
     Bitmask64, BitmaskLossError, BitmaskTruncationError, BitmaskValue,
 };
-use crate::validated::dataframe::{AnyPrimitiveColumn, PrimitiveColumn, PrimitiveDataFrame};
+use crate::validated::dataframe::{
+    AnyPrimitiveColumn, FFDataFrame, InternalColumn, PrimitiveColumn, PrimitiveDataFrame,
+};
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
@@ -140,12 +142,16 @@ use {
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout2_0(pub AnyOrderedLayout<Option<Tot>>);
 
+pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
+
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
+
+pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
 ///
@@ -157,6 +163,8 @@ pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
 #[delegate(LayoutOps<'a, Identity<Tot>>, generics = "'a")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<Nothing<NumType>>);
+
+pub struct DataFrame3_1(pub NonMixedEndianDataFrame<Nothing<NumType>>);
 
 /// All possible byte layouts for the DATA segment in 3.2.
 ///
@@ -170,7 +178,14 @@ pub enum DataLayout3_2 {
     NonMixed(NonMixedEndianLayout<Option<NumType>>),
 }
 
+pub enum DataFrame3_2 {
+    Mixed(MixedDataFrame),
+    NonMixed(NonMixedEndianDataFrame<Option<NumType>>),
+}
+
 pub type MixedLayout = EndianLayout<NullMixedType, Option<NumType>>;
+
+pub type MixedDataFrame = EndianLayout<MixedColumn, Option<NumType>>;
 
 /// All possible layouts for the DATA segment in 2.0 and 3.0.
 ///
@@ -188,6 +203,13 @@ pub enum AnyOrderedLayout<T> {
     F64(OrderedLayout<F64Range, T>),
 }
 
+pub enum AnyOrderedDataFrame<T> {
+    Ascii(AnyAsciiDataFrame<T, Nothing<NumType>, true>),
+    Integer(AnyOrderedUintDataFrame<T>),
+    F32(OrderedDataFrame<F32Range, T>),
+    F64(OrderedDataFrame<F64Range, T>),
+}
+
 /// All possible endian layouts with the same datatype (3.1)
 #[derive(Clone, From, Delegate, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -200,7 +222,16 @@ pub enum NonMixedEndianLayout<D> {
     F64(EndianLayout<F64Range, D>),
 }
 
+pub enum NonMixedEndianDataFrame<D> {
+    Ascii(AnyAsciiDataFrame<Identity<Tot>, D, false>),
+    Integer(EndianLayout<AnyBitmaskColumn, D>),
+    F32(EndianLayout<NativeColumn<F32Range>, D>),
+    F64(EndianLayout<NativeColumn<F64Range>, D>),
+}
+
 pub type EndianLayout<C, D> = FixedLayout<C, Endian, Identity<Tot>, D>;
+
+// pub type EndianDataFrame<C, D> = FixedDataFrame<C, Endian, Identity<Tot>, D>;
 
 /// DATA layouts for ASCII data.
 ///
@@ -216,31 +247,55 @@ pub enum AnyAsciiLayout<T, D, const ORD: bool> {
     Fixed(FixedAsciiLayout<T, D, ORD>),
 }
 
+pub enum AnyAsciiDataFrame<T, D, const ORD: bool> {
+    Delimited(DelimAsciiDataFrame<T, D, ORD>),
+    Fixed(FixedAsciiDataFrame<T, D, ORD>),
+}
+
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
+
+pub type FixedAsciiDataFrame<T, D, const ORD: bool> =
+    FixedDataFrame<NativeColumn<AsciiRange>, NoByteOrd<ORD>, T, D>;
+
+pub type DelimAsciiLayout<T, D, const ORD: bool> =
+    DelimAsciiLayoutInner<Vec<AsciiRangeValue>, T, D, ORD>;
+
+pub type DelimAsciiDataFrame<T, D, const ORD: bool> =
+    DelimAsciiLayoutInner<FFDataFrame<AnnotatedColumn<AsciiRangeValue, u64, u64>>, T, D, ORD>;
 
 /// DATA layout for delimited ASCII.
 #[derive(Clone, Default, PartialEq, new, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct DelimAsciiLayout<T, D, const ORD: bool> {
+pub struct DelimAsciiLayoutInner<R, T, D, const ORD: bool> {
     #[as_ref([AsciiRangeValue])]
-    ranges: Vec<AsciiRangeValue>,
+    ranges: R,
     #[cfg_attr(feature = "serde", serde(skip))]
     _tot_def: PhantomData<T>,
     #[cfg_attr(feature = "serde", serde(skip))]
     _meas_data_def: PhantomData<D>,
 }
 
+pub type FixedLayout<C, L, T, D> = FixedLayoutInner<Vec<C>, L, T, D>;
+
+pub type FixedDataFrame<C, L, T, D> = FixedLayoutInner<FFDataFrame<C>, L, T, D>;
+
+pub type NativeColumn<C> = AnnotatedColumn<
+    C,
+    <<C as HasNativeType>::Native as FCSRepr>::Prim,
+    <C as HasNativeType>::Native,
+>;
+
 /// DATA layout where each column has a fixed width.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct FixedLayout<C, L, T, D> {
-    columns: Vec<C>,
-    #[as_ref(L)]
-    byte_layout: L,
+pub struct FixedLayoutInner<Cols, Layout, TotType, Dtype> {
+    columns: Cols,
+    #[as_ref(Layout)]
+    byte_layout: Layout,
     #[cfg_attr(feature = "serde", serde(skip))]
-    _tot_def: PhantomData<T>,
+    _tot_def: PhantomData<TotType>,
     #[cfg_attr(feature = "serde", serde(skip))]
-    _meas_data_def: PhantomData<D>,
+    _meas_data_def: PhantomData<Dtype>,
 }
 
 /// DATA layout for integers that may be in any byte order.
@@ -260,12 +315,35 @@ pub enum AnyOrderedUintLayout<T> {
     Uint64(OrderedLayout<Bitmask64, T>),
 }
 
+pub enum AnyOrderedUintDataFrame<T> {
+    Uint08(OrderedDataFrame<Bitmask08, T>),
+    Uint16(OrderedDataFrame<Bitmask16, T>),
+    Uint24(OrderedDataFrame<Bitmask24, T>),
+    Uint32(OrderedDataFrame<Bitmask32, T>),
+    Uint40(OrderedDataFrame<Bitmask40, T>),
+    Uint48(OrderedDataFrame<Bitmask48, T>),
+    Uint56(OrderedDataFrame<Bitmask56, T>),
+    Uint64(OrderedDataFrame<Bitmask64, T>),
+}
+
 pub type OrderedLayout<C, T> = FixedLayout<
     C,
     ArrayByteOrd<<<C as HasNativeType>::Native as FCSRepr>::ByteOrd>,
     T,
     Nothing<NumType>,
 >;
+
+pub type OrderedDataFrame<C, T> = FixedDataFrame<
+    NativeColumn<C>,
+    ArrayByteOrd<<<C as HasNativeType>::Native as FCSRepr>::ByteOrd>,
+    T,
+    Nothing<NumType>,
+>;
+
+pub struct AnnotatedColumn<M, T, R> {
+    metadata: M,
+    data: InternalColumn<T, R>,
+}
 
 /// The type of a non-delimited column in the DATA segment for 3.2
 #[derive(Debug, PartialEq, Clone)]
@@ -278,6 +356,13 @@ pub enum MixedType<A, U, F, D> {
 }
 
 pub type NullMixedType = MixedType<AsciiRange, AnyNullBitmask, F32Range, F64Range>;
+
+pub type MixedColumn = MixedType<
+    NativeColumn<AsciiRange>,
+    AnyBitmaskColumn,
+    NativeColumn<F32Range>,
+    NativeColumn<F64Range>,
+>;
 
 type MixedVec = MixedType<
     RangedVec<AsciiRange, u64>,
@@ -383,6 +468,17 @@ pub type AnyNullBitmask = AnyBitmask<
     Bitmask48,
     Bitmask56,
     Bitmask64,
+>;
+
+pub type AnyBitmaskColumn = AnyBitmask<
+    NativeColumn<Bitmask08>,
+    NativeColumn<Bitmask16>,
+    NativeColumn<Bitmask24>,
+    NativeColumn<Bitmask32>,
+    NativeColumn<Bitmask40>,
+    NativeColumn<Bitmask48>,
+    NativeColumn<Bitmask56>,
+    NativeColumn<Bitmask64>,
 >;
 
 type AnyUintVec = AnyBitmask<

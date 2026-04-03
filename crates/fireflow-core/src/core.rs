@@ -4160,7 +4160,7 @@ where
 
             for s in &header {
                 if !first {
-                    write!(w, "{delim}")?;
+                    w.write_all(&[delim])?;
                 }
                 first = false;
                 write!(w, "{s}")?;

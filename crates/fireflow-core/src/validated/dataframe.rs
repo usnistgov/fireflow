@@ -143,7 +143,7 @@ pub type U64Column = PrimitiveColumn<u64>;
 pub type F32Column = PrimitiveColumn<f32>;
 pub type F64Column = PrimitiveColumn<f64>;
 
-#[derive(Clone, new)]
+#[derive(Clone, PartialEq, new)]
 #[repr(transparent)]
 #[new(visibility = "")]
 pub(crate) struct InternalColumn<T, Raw> {
@@ -153,8 +153,8 @@ pub(crate) struct InternalColumn<T, Raw> {
 
 macro_rules! impl_internal_from_vec {
     ($t:ident, $raw:ident) => {
-        impl From<Vec<$t>> for InternalColumn<$t, $raw> {
-            fn from(value: Vec<$t>) -> Self {
+        impl From<Vec<$raw>> for InternalColumn<$t, $raw> {
+            fn from(value: Vec<$raw>) -> Self {
                 Self::new(Buffer::from(cast_vec(value)))
             }
         }
@@ -169,6 +169,8 @@ impl_internal_from_vec!(u64, U40);
 impl_internal_from_vec!(u64, U48);
 impl_internal_from_vec!(u64, U56);
 impl_internal_from_vec!(u64, u64);
+impl_internal_from_vec!(f32, f32);
+impl_internal_from_vec!(f64, f64);
 
 impl<T, Raw> InternalColumn<T, Raw> {
     fn as_raw_slice(&self) -> &[Raw] {

@@ -189,7 +189,7 @@ impl_file_bytes!(U48, u64, B6, B8, 6, 8);
 impl_file_bytes!(U56, u64, B7, B8, 7, 8);
 impl_file_bytes!(u64, u64, B8, B8, 8, 8);
 impl_file_bytes!(f32, f32, B4, B4, 4, 4);
-impl_file_bytes!(f64, f32, B8, B8, 8, 8);
+impl_file_bytes!(f64, f64, B8, B8, 8, 8);
 
 macro_rules! impl_unaligned {
     ($inner:ident, $outer:ident, $n:expr) => {

@@ -9,12 +9,12 @@ use crate::config::{
     WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    CheckedScaleTransform, CommonLayoutOps as _, ConvertFromLayout, DataLayout2_0, DataLayout3_0,
-    DataLayout3_1, DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError,
-    InterLayoutOps as _, IsTot, LayoutConvertError, LayoutOps as _, LookupLayoutError,
+    CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
+    DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _,
+    IsTot, LayoutConvertError, LayoutDatatype as _, LayoutOps, LookupLayoutError,
     LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError,
-    ReadDataframeError, ReadDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup,
-    VersionedDataLayout,
+    ReadDataframeError, ReadDataframeWarning, ReadLayoutOps, ScaleDatatypeMismatchError,
+    ScaleErrorGroup, VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -1589,6 +1589,8 @@ pub(crate) trait PrivVersioned: Versioned {
         (),
     >
     where
+        <Self::Layout as ReadLayoutOps<<Self::Layout as VersionedDataLayout>::Tot>>::DfTarget:
+            Into<PrimitiveDataFrame> + Default,
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
@@ -1616,7 +1618,7 @@ pub(crate) trait PrivVersioned: Versioned {
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|(df, event_out)| {
                         ar.h_read(h)
-                            .map(|a| (df, a, offsets.segs, event_out))
+                            .map(|a| (df.into(), a, offsets.segs, event_out))
                             .map_err(IOErrorGroup::from)
                             .into_log()
                     })

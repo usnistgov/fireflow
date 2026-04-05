@@ -3,10 +3,10 @@ use crate::validated::ascii_range::Chars;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use ambassador::{Delegate, delegatable_trait};
-use type_families::{FunctorOnce as _, impl_functor_once, impl_kind1};
+use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
 use bytemuck::{AnyBitPattern, NoUninit, cast_vec};
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use num_traits::bounds::Bounded;
 use num_traits::cast::AsPrimitive;
@@ -97,6 +97,15 @@ pub struct FFDataFrame<C> {
     nrows: usize,
 }
 
+impl_kind1!(pub FFDataFrameFamily, FFDataFrame);
+
+impl_functor!(
+    FFDataFrame,
+    self,
+    mut f,
+    FFDataFrame::new(self.columns.fmap(f), self.nrows)
+);
+
 impl<C> Default for FFDataFrame<C> {
     fn default() -> Self {
         Self::new(vec![], 0)
@@ -131,7 +140,7 @@ pub(crate) enum AnyInternalColumn {
 }
 
 /// A generic column for [`FCSDataFrame`]
-#[derive(Clone, PartialEq, AsRef)]
+#[derive(Clone, PartialEq, From, AsRef)]
 #[repr(transparent)]
 #[as_ref([T])]
 pub struct PrimitiveColumn<T>(pub Buffer<T>);
@@ -143,10 +152,11 @@ pub type U64Column = PrimitiveColumn<u64>;
 pub type F32Column = PrimitiveColumn<f32>;
 pub type F64Column = PrimitiveColumn<f64>;
 
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, Into, new)]
 #[repr(transparent)]
 #[new(visibility = "")]
 pub(crate) struct InternalColumn<T, Raw> {
+    #[into(PrimitiveColumn<T>)]
     inner: Buffer<T>,
     _outer: PhantomData<Raw>,
 }

@@ -11,10 +11,10 @@ use crate::config::{
 use crate::data::{
     CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
     DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _,
-    IsTot, LayoutConvertError, LayoutDatatype as _, LayoutOps, LookupLayoutError,
-    LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError,
-    ReadDataframeError, ReadDataframeWarning, ReadLayoutOps, ScaleDatatypeMismatchError,
-    ScaleErrorGroup, VersionedDataLayout,
+    IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims, LayoutKeywords, LayoutOps,
+    LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
+    NewDataLayoutError, ReadDataframeError, ReadDataframeWarning, ReadLayoutOps,
+    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -1616,9 +1616,9 @@ pub(crate) trait PrivVersioned: Versioned {
                     .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
-                    .and_then_commutative(|(df, event_out)| {
+                    .and_then_commutative(|df_out| {
                         ar.h_read(h)
-                            .map(|a| (df.into(), a, offsets.segs, event_out))
+                            .map(|a| (df_out.dataframe.into(), a, offsets.segs, df_out.diagnostics))
                             .map_err(IOErrorGroup::from)
                             .into_log()
                     })
@@ -2471,6 +2471,7 @@ where
     ) -> Result<Option<Nextdata>, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
     {
         let n = cores.len();
         let mut nd = None;
@@ -2492,6 +2493,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
     {
         let opts = conf.multi.append.file_options();
         let f = opts.open(path)?;
@@ -2508,6 +2510,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
     {
         if conf.big_other.is_set() {
             self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
@@ -2524,6 +2527,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError>
             + Copy
             + Zero
@@ -2542,6 +2546,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError>
             + Copy
             + Zero
@@ -2564,7 +2569,10 @@ where
         &self,
         req_or_opt: IncludeReqOrOpt,
         root_or_meas: IncludeRootOrMeas,
-    ) -> HashMap<NEString, NEString> {
+    ) -> HashMap<NEString, NEString>
+    where
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
+    {
         fn go(
             xs: impl Iterator<Item = (NEString, NEString)>,
             include: bool,
@@ -3947,6 +3955,7 @@ where
     ) -> Result<HeaderKeywordsToWrite<T>, WriteTEXTHeaderError>
     where
         Version: From<M::Ver>,
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + Zero + HeaderString + Into<u64>,
     {
         let req = self
@@ -3995,7 +4004,10 @@ where
             .chain(lv)
     }
 
-    fn req_meas_keywords(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+    fn req_meas_keywords(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>
+    where
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
+    {
         let ns = (M::Name::INFALLABLE)
             .then(|| {
                 self.measurements
@@ -4021,7 +4033,10 @@ where
             .chain(lv)
     }
 
-    fn req_root_keywords(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
+    fn req_root_keywords(&self) -> impl Iterator<Item = ReqRootKeyword<'_>>
+    where
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
+    {
         let lv = self.layout.req_keywords();
         Metaroot::req_keywords(&self.metaroot, self.par()).chain(lv)
     }
@@ -4036,6 +4051,7 @@ where
     where
         M::Temporal: Clone,
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
+        <M::Ver as Versioned>::Layout: LayoutKeywords,
     {
         const INDEX: &str = "index";
 
@@ -4814,6 +4830,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
+        <M::Ver as Versioned>::Layout: LayoutDims,
         Version: From<M::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M::Optical: AsScaleOrTransform,
@@ -4993,6 +5010,10 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        // TODO yucky :(
+        <<M::Ver as Versioned>::Layout as ReadLayoutOps<
+            <<M::Ver as Versioned>::Layout as VersionedDataLayout>::Tot,
+        >>::DfTarget: Default + Into<PrimitiveDataFrame>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -5006,13 +5027,21 @@ where
                     .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
-                    .and_then_commutative(|(data, event_out)| {
+                    .and_then_commutative(|df_out| {
                         ar.h_read(h)
                             .and_then(|analysis| {
                                 let others = or.h_read(h)?;
-                                let c = text.into_coredataset_unchecked(data, analysis, others);
-                                let out =
-                                    StdDatasetFromKwsOutput::new(offsets.segs, extra, event_out);
+                                let c = text.into_coredataset_unchecked(
+                                    // TODO this is wrong
+                                    df_out.dataframe.into(),
+                                    analysis,
+                                    others,
+                                );
+                                let out = StdDatasetFromKwsOutput::new(
+                                    offsets.segs,
+                                    extra,
+                                    df_out.diagnostics,
+                                );
                                 Ok((c, out))
                             })
                             .map_err(IOErrorGroup::from)

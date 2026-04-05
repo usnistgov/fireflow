@@ -99,13 +99,12 @@ use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
-use polars_arrow::bitmap::bitmask::BitMask;
 use type_families::{Functor as _, FunctorOnce, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
 use bytemuck::allocation::cast_vec;
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty_collections::{
@@ -139,17 +138,18 @@ use {
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
 #[derive(Clone, From, Delegate, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
 #[delegate(LayoutOps<Option<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout2_0(pub AnyOrderedLayout<Option<Tot>>);
 
 impl ReadLayoutOps<Option<Tot>> for DataLayout2_0 {
     type DfTarget = DataFrame2_0;
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -166,18 +166,19 @@ impl ReadLayoutOps<Option<Tot>> for DataLayout2_0 {
     }
 }
 
-#[derive(Clone, From, PartialEq)]
+#[derive(Clone, From, Into, PartialEq)]
+#[into(PrimitiveDataFrame)]
 pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
 
 /// All possible byte layouts for the DATA segment in 2.0.
 #[derive(Clone, From, Delegate, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
 
 impl ReadLayoutOps<Identity<Tot>> for DataLayout3_0 {
@@ -198,7 +199,8 @@ impl ReadLayoutOps<Identity<Tot>> for DataLayout3_0 {
     }
 }
 
-#[derive(Clone, From, PartialEq)]
+#[derive(Clone, From, Into, PartialEq)]
+#[into(PrimitiveDataFrame)]
 pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 
 /// All possible byte layouts for the DATA segment in 3.1.
@@ -207,13 +209,13 @@ pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
 #[derive(Clone, From, Delegate, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<Nothing<NumType>>);
 
 impl ReadLayoutOps<Identity<Tot>> for DataLayout3_1 {
@@ -234,7 +236,8 @@ impl ReadLayoutOps<Identity<Tot>> for DataLayout3_1 {
     }
 }
 
-#[derive(Clone, From, PartialEq)]
+#[derive(Clone, From, PartialEq, Into)]
+#[into(PrimitiveDataFrame)]
 pub struct DataFrame3_1(pub NonMixedEndianDataFrame<Nothing<NumType>>);
 
 /// All possible byte layouts for the DATA segment in 3.2.
@@ -284,6 +287,18 @@ pub enum DataFrame3_2 {
 pub type MixedLayout = EndianLayout<NullMixedType, Option<NumType>>;
 
 pub type MixedDataFrame = FixedDataFrame<MixedColumn, Endian, Identity<Tot>, Option<NumType>>;
+
+impl From<DataFrame3_2> for PrimitiveDataFrame {
+    fn from(value: DataFrame3_2) -> Self {
+        match_many_to_one!(value, DataFrame3_2, [Mixed, NonMixed], x, { x.into() })
+    }
+}
+
+impl From<MixedDataFrame> for PrimitiveDataFrame {
+    fn from(value: MixedDataFrame) -> Self {
+        value.columns.fmap(Into::into)
+    }
+}
 
 /// All possible layouts for the DATA segment in 2.0 and 3.0.
 ///
@@ -338,6 +353,14 @@ pub enum AnyOrderedDataFrame<T> {
     Integer(AnyOrderedUintDataFrame<T>),
     F32(OrderedDataFrame<F32Range, T>),
     F64(OrderedDataFrame<F64Range, T>),
+}
+
+impl<T> From<AnyOrderedDataFrame<T>> for PrimitiveDataFrame {
+    fn from(value: AnyOrderedDataFrame<T>) -> Self {
+        match_many_to_one!(value, AnyOrderedDataFrame, [Ascii, Integer, F32, F64], x, {
+            x.into()
+        })
+    }
 }
 
 /// All possible endian layouts with the same datatype (3.1)
@@ -397,6 +420,24 @@ pub type EndianDataFrame<C, D> = FixedDataFrame<NativeColumn<C>, Endian, Identit
 
 pub type EndianUintDataFrame<D> = FixedDataFrame<AnyBitmaskColumn, Endian, Identity<Tot>, D>;
 
+impl<D> From<EndianUintDataFrame<D>> for PrimitiveDataFrame {
+    fn from(value: EndianUintDataFrame<D>) -> Self {
+        value.columns.fmap(Into::into)
+    }
+}
+
+impl<D> From<NonMixedEndianDataFrame<D>> for PrimitiveDataFrame {
+    fn from(value: NonMixedEndianDataFrame<D>) -> Self {
+        match_many_to_one!(
+            value,
+            NonMixedEndianDataFrame,
+            [Ascii, Integer, F32, F64],
+            x,
+            { x.into() }
+        )
+    }
+}
+
 /// DATA layouts for ASCII data.
 ///
 /// This may either be fixed (ie columns have the same number of characters)
@@ -454,6 +495,14 @@ pub enum AnyAsciiDataFrame<T, D, const ORD: bool> {
     Fixed(FixedAsciiDataFrame<T, D, ORD>),
 }
 
+impl<T, D, const ORD: bool> From<AnyAsciiDataFrame<T, D, ORD>> for PrimitiveDataFrame {
+    fn from(value: AnyAsciiDataFrame<T, D, ORD>) -> Self {
+        match_many_to_one!(value, AnyAsciiDataFrame, [Delimited, Fixed], x, {
+            x.into()
+        })
+    }
+}
+
 pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
 
 pub type FixedAsciiDataFrame<T, D, const ORD: bool> =
@@ -464,6 +513,12 @@ pub type DelimAsciiLayout<T, D, const ORD: bool> =
 
 pub type DelimAsciiDataFrame<T, D, const ORD: bool> =
     DelimAsciiLayoutInner<FFDataFrame<AnnotatedColumn<AsciiRangeValue, u64, u64>>, T, D, ORD>;
+
+impl<T, D, const ORD: bool> From<DelimAsciiDataFrame<T, D, ORD>> for PrimitiveDataFrame {
+    fn from(value: DelimAsciiDataFrame<T, D, ORD>) -> Self {
+        value.ranges.fmap(|c| PrimitiveColumn::from(c).into())
+    }
+}
 
 /// DATA layout for delimited ASCII.
 #[derive(Clone, Default, PartialEq, new, AsRef)]
@@ -480,6 +535,20 @@ pub struct DelimAsciiLayoutInner<R, T, D, const ORD: bool> {
 pub type FixedLayout<C, L, T, D> = FixedLayoutInner<Vec<C>, L, T, D>;
 
 pub type FixedDataFrame<C, L, T, D> = FixedLayoutInner<FFDataFrame<C>, L, T, D>;
+
+impl<C, L, T, D> From<FixedDataFrame<NativeColumn<C>, L, T, D>> for PrimitiveDataFrame
+where
+    C: HasNativeType,
+    NativeColumn<C>: Into<PrimitiveColumn<<C::Native as FCSRepr>::Prim>>,
+    PrimitiveColumn<<C::Native as FCSRepr>::Prim>: Into<AnyPrimitiveColumn>,
+    C::Native: FCSRepr,
+{
+    fn from(value: FixedDataFrame<NativeColumn<C>, L, T, D>) -> Self {
+        value
+            .columns
+            .fmap(|c| Into::<AnyPrimitiveColumn>::into(c.into()))
+    }
+}
 
 pub type NativeColumn<C> = AnnotatedColumn<
     C,
@@ -564,6 +633,26 @@ pub enum AnyOrderedUintDataFrame<T> {
     Uint64(OrderedDataFrame<Bitmask64, T>),
 }
 
+macro_rules! match_any_uint {
+    ($value:expr, $root:ident, $inner:ident, $action:block) => {
+        match_many_to_one!(
+            $value,
+            $root,
+            [
+                Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
+            ],
+            $inner,
+            $action
+        )
+    };
+}
+
+impl<T> From<AnyOrderedUintDataFrame<T>> for PrimitiveDataFrame {
+    fn from(value: AnyOrderedUintDataFrame<T>) -> Self {
+        match_any_uint!(value, AnyOrderedUintDataFrame, x, { x.into() })
+    }
+}
+
 pub type OrderedLayout<C, T> = FixedLayout<
     C,
     ArrayByteOrd<<<C as HasNativeType>::Native as FCSRepr>::ByteOrd>,
@@ -578,10 +667,11 @@ pub type OrderedDataFrame<C, T> = FixedDataFrame<
     Nothing<NumType>,
 >;
 
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, Into, new)]
 #[new(visibility = "")]
 pub struct AnnotatedColumn<M, T, R> {
     metadata: M,
+    #[into(PrimitiveColumn<T>)]
     data: InternalColumn<T, R>,
 }
 
@@ -663,6 +753,17 @@ pub type MixedColumn = MixedType<
     NativeColumn<F32Range>,
     NativeColumn<F64Range>,
 >;
+
+impl From<MixedColumn> for AnyPrimitiveColumn {
+    fn from(value: MixedColumn) -> Self {
+        match value {
+            MixedColumn::Ascii(x) => Self::from(PrimitiveColumn::from(x)),
+            MixedColumn::Uint(x) => x.into(),
+            MixedColumn::F32(x) => Self::from(PrimitiveColumn::from(x)),
+            MixedColumn::F64(x) => Self::from(PrimitiveColumn::from(x)),
+        }
+    }
+}
 
 impl From<MixedVec> for MixedColumn {
     fn from(value: MixedVec) -> Self {
@@ -804,18 +905,12 @@ type AnyUintVec = AnyBitmask<
     UintColumn_<Bitmask64>,
 >;
 
-macro_rules! match_any_uint {
-    ($value:expr, $root:ident, $inner:ident, $action:block) => {
-        match_many_to_one!(
-            $value,
-            $root,
-            [
-                Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
-            ],
-            $inner,
-            $action
-        )
-    };
+impl From<AnyBitmaskColumn> for AnyPrimitiveColumn {
+    fn from(value: AnyBitmaskColumn) -> Self {
+        match_any_uint!(value, AnyBitmaskColumn, x, {
+            PrimitiveColumn::from(x).into()
+        })
+    }
 }
 
 impl From<AnyUintVec> for AnyBitmaskColumn {
@@ -1708,9 +1803,9 @@ pub trait ReadLayoutOps<T>: Sized {
 }
 
 #[derive(Default, new)]
-struct DataFrameResult<D> {
-    dataframe: D,
-    diagnostics: EventsDiagnostics,
+pub(crate) struct DataFrameResult<D> {
+    pub(crate) dataframe: D,
+    pub(crate) diagnostics: EventsDiagnostics,
 }
 
 impl_kind1!(DataFrameResultFamily, DataFrameResult);
@@ -1808,7 +1903,11 @@ where
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
-            None => LogResult::new_ok(DataFrameResult::default()),
+            None => {
+                // TODO need to make a "default" dataframe with the byte layout from the original layout
+                let df = unimplemented!();
+                LogResult::new_ok(DataFrameResult::new(df, EventsDiagnostics::default()))
+            }
             Some((begin, _)) => h
                 .seek(SeekFrom::Start(begin))
                 .map_err(IOErrorGroup::from)
@@ -3787,6 +3886,7 @@ where
     Layout: Copy,
 {
     type DfTarget = <Self as FixedLayoutIO>::DfTarget;
+
     fn h_read_df_inner<R: Read>(
         &self,
         h: &mut BufReader<R>,

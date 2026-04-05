@@ -1,9 +1,75 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    Data, DeriveInput, Fields, GenericParam, Generics, Ident, Path, Visibility, WherePredicate,
+    AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Fields, GenericParam, Generics,
+    Ident, Path, PathArguments, Token, Visibility, WherePredicate,
+    parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
+    punctuated::Punctuated,
 };
+
+#[proc_macro]
+pub fn impl_generic_enum_from(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as ImplFrom);
+    let name = parsed.type_path;
+    let generics =
+        if let PathArguments::AngleBracketed(args) = &name.segments.last().unwrap().arguments {
+            args.args.iter().collect()
+        } else {
+            vec![]
+        };
+
+    let mut impls = vec![];
+
+    for t in &parsed.targets {
+        let src = &t.src;
+        let var = &t.var;
+        let q = quote! {
+            impl<#(#generics),*> From<#src> for #name {
+                fn from(value: #src) -> Self {
+                    Self::#var(value)
+                }
+            }
+        };
+        impls.push(q);
+    }
+
+    quote!(#(#impls)*).into()
+}
+
+struct ImplFrom {
+    type_path: Path,
+    _comma_token: Token![,],
+    targets: Punctuated<FromType, Token![,]>,
+}
+
+struct FromType {
+    var: Ident,
+    _arrow_token: Token![<-],
+    src: Path,
+}
+
+impl Parse for ImplFrom {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ret = Self {
+            type_path: input.parse()?,
+            _comma_token: input.parse()?,
+            targets: Punctuated::parse_separated_nonempty(input)?,
+        };
+        Ok(ret)
+    }
+}
+
+impl Parse for FromType {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let ret = Self {
+            var: input.parse()?,
+            _arrow_token: input.parse()?,
+            src: input.parse()?,
+        };
+        Ok(ret)
+    }
+}
 
 #[proc_macro_derive(AllIntoPyErr, attributes(bound))]
 pub fn derive_into_pyerr(input: TokenStream) -> TokenStream {

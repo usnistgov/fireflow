@@ -97,6 +97,7 @@ use crate::validated::dataframe::{
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
+use fireflow_core_proc::impl_generic_enum_from;
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
 use type_families::{Functor, FunctorOnce, impl_functor_once, impl_kind1};
@@ -155,6 +156,10 @@ impl IntoEmptyDataFrame for DataLayout2_0 {
     }
 }
 
+impl NormalizableLayout for DataLayout2_0 {
+    fn normalize(&mut self) {}
+}
+
 impl ReadLayoutOps<Option<Tot>> for DataLayout2_0 {
     fn h_read_df_inner<R: Read>(
         &self,
@@ -186,6 +191,10 @@ pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
+
+impl NormalizableLayout for DataLayout3_0 {
+    fn normalize(&mut self) {}
+}
 
 impl IntoEmptyDataFrame for DataLayout3_0 {
     type DfTarget = DataFrame3_0;
@@ -276,6 +285,77 @@ pub enum DataLayout3_2 {
     NonMixed(NonMixedEndianLayout<Option<NumType>>),
 }
 
+impl Default for DataLayout3_2 {
+    fn default() -> Self {
+        Self::NonMixed(NonMixedEndianLayout::default())
+    }
+}
+
+impl NormalizableLayout for DataLayout3_2 {
+    fn normalize(&mut self) {
+        *self = match mem::take(self) {
+            // simplify integer layouts if all the same width
+            Self::NonMixed(mut x) => {
+                x.normalize();
+                Self::NonMixed(x)
+            }
+            Self::Mixed(x) => {
+                if let Some((c0, cs)) = x.columns.split_first() {
+                    let d0 = c0.datatype();
+                    if cs.iter().all(|c| d0 == c.datatype()) {
+                        let new = match d0 {
+                            AlphaNumType::Ascii => {
+                                let new = x
+                                    .columns
+                                    .into_iter()
+                                    .map(|c| c.try_into().expect("should all be ascii"))
+                                    .collect();
+                                NonMixedEndianLayout::from(AnyAsciiLayout::Fixed(
+                                    FixedLayoutInner::new(new, NoByteOrd),
+                                ))
+                            }
+                            AlphaNumType::Integer => {
+                                let new = x
+                                    .columns
+                                    .into_iter()
+                                    .map(|c| c.try_into().expect("should all be uint"))
+                                    .collect();
+                                let mut l = NonMixedEndianLayout::Integer(FixedLayoutInner::new(
+                                    new,
+                                    x.byte_layout,
+                                ));
+                                l.normalize();
+                                l
+                            }
+                            AlphaNumType::Float => {
+                                let new = x
+                                    .columns
+                                    .into_iter()
+                                    .map(|c| c.try_into().expect("should all be f32"))
+                                    .collect();
+                                NonMixedEndianLayout::F32(FixedLayoutInner::new(new, x.byte_layout))
+                            }
+                            AlphaNumType::Double => {
+                                let new = x
+                                    .columns
+                                    .into_iter()
+                                    .map(|c| c.try_into().expect("should all be f64"))
+                                    .collect();
+                                NonMixedEndianLayout::F64(FixedLayoutInner::new(new, x.byte_layout))
+                            }
+                        };
+                        Self::NonMixed(new)
+                    } else {
+                        Self::Mixed(x)
+                    }
+                } else {
+                    Self::Mixed(x)
+                }
+            }
+        };
+    }
+}
+
 impl IntoEmptyDataFrame for DataLayout3_2 {
     type DfTarget = DataFrame3_2;
 
@@ -342,19 +422,55 @@ impl IntoEmptyDataFrame for MixedLayout {
 /// It is so named "Ordered" because the $BYTEORD keyword represents any
 /// possible byte ordering that may occur rather than simply little or big
 /// endian.
-#[derive(Clone, From, Delegate, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
+pub type AnyOrderedLayout<T> = AnyOrdered<
+    AnyAsciiLayout<T, Nothing<NumType>, true>,
+    AnyOrderedUintLayout<T>,
+    OrderedLayout<F32Range, T>,
+    OrderedLayout<F64Range, T>,
+>;
+
+pub type AnyOrderedDataFrame<T> = AnyOrdered<
+    AnyAsciiDataFrame<T, Nothing<NumType>, true>,
+    AnyOrderedUintDataFrame<T>,
+    OrderedDataFrame<F32Range, T>,
+    OrderedDataFrame<F64Range, T>,
+>;
+
+impl_generic_enum_from! {
+    AnyOrderedLayout<T>,
+    Ascii <- AnyAsciiLayout<T, Nothing<NumType>, true>,
+    Integer <- AnyOrderedUintLayout<T>,
+    F32 <- OrderedLayout<F32Range, T>,
+    F64 <- OrderedLayout<F64Range, T>
+}
+
+impl_generic_enum_from! {
+    AnyOrderedDataFrame<T>,
+    Ascii <- AnyAsciiDataFrame<T, Nothing<NumType>, true>,
+    Integer <- AnyOrderedUintDataFrame<T>,
+    F32 <- OrderedDataFrame<F32Range, T>,
+    F64 <- OrderedDataFrame<F64Range, T>
+}
+
+#[derive(Clone, Delegate, PartialEq)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype)]
-#[delegate(LayoutKeywords)]
+#[delegate(
+    LayoutDatatype,
+    where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
+)]
+#[delegate(
+    LayoutKeywords,
+    where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
+)]
 #[delegate(LayoutOps<Tot>, generics = "Tot")]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
-pub enum AnyOrderedLayout<T> {
-    Ascii(AnyAsciiLayout<T, Nothing<NumType>, true>),
-    Integer(AnyOrderedUintLayout<T>),
-    F32(OrderedLayout<F32Range, T>),
-    F64(OrderedLayout<F64Range, T>),
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum AnyOrdered<A, I, F32, F64> {
+    Ascii(A),
+    Integer(I),
+    F32(F32),
+    F64(F64),
 }
 
 impl<T> IntoEmptyDataFrame for AnyOrderedLayout<T> {
@@ -389,14 +505,6 @@ impl<TotType> ReadLayoutOps<TotType> for AnyOrderedLayout<TotType> {
     }
 }
 
-#[derive(Clone, From, PartialEq)]
-pub enum AnyOrderedDataFrame<T> {
-    Ascii(AnyAsciiDataFrame<T, Nothing<NumType>, true>),
-    Integer(AnyOrderedUintDataFrame<T>),
-    F32(OrderedDataFrame<F32Range, T>),
-    F64(OrderedDataFrame<F64Range, T>),
-}
-
 impl<T> From<AnyOrderedDataFrame<T>> for PrimitiveDataFrame {
     fn from(value: AnyOrderedDataFrame<T>) -> Self {
         match_many_to_one!(value, AnyOrderedDataFrame, [Ascii, Integer, F32, F64], x, {
@@ -419,6 +527,17 @@ pub enum NonMixedEndianLayout<D> {
     Integer(EndianLayout<AnyNullBitmask, D>),
     F32(EndianLayout<F32Range, D>),
     F64(EndianLayout<F64Range, D>),
+}
+
+impl<D> Default for NonMixedEndianLayout<D> {
+    fn default() -> Self {
+        Self::Integer(EndianLayout::default())
+    }
+}
+
+// TODO make a new var which has each integer width in it (single width)
+impl<D> NormalizableLayout for NonMixedEndianLayout<D> {
+    fn normalize(&mut self) {}
 }
 
 impl<D> IntoEmptyDataFrame for NonMixedEndianLayout<D> {
@@ -655,24 +774,38 @@ pub struct FixedLayoutInner<Cols, Layout, TotType, Dtype> {
 }
 
 /// DATA layout for integers that may be in any byte order.
-#[derive(Clone, From, Delegate, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[delegate(LayoutDims)]
-#[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype)]
-#[delegate(LayoutKeywords)]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
-#[delegate(InterLayoutOps<Nothing<NumType>>)]
-#[delegate(OrderedLayoutOps)]
-pub enum AnyOrderedUintLayout<T> {
-    Uint08(OrderedLayout<Bitmask08, T>),
-    Uint16(OrderedLayout<Bitmask16, T>),
-    Uint24(OrderedLayout<Bitmask24, T>),
-    Uint32(OrderedLayout<Bitmask32, T>),
-    Uint40(OrderedLayout<Bitmask40, T>),
-    Uint48(OrderedLayout<Bitmask48, T>),
-    Uint56(OrderedLayout<Bitmask56, T>),
-    Uint64(OrderedLayout<Bitmask64, T>),
+pub type AnyOrderedUintLayout<T> = AnyUint<
+    OrderedLayout<Bitmask08, T>,
+    OrderedLayout<Bitmask16, T>,
+    OrderedLayout<Bitmask24, T>,
+    OrderedLayout<Bitmask32, T>,
+    OrderedLayout<Bitmask40, T>,
+    OrderedLayout<Bitmask48, T>,
+    OrderedLayout<Bitmask56, T>,
+    OrderedLayout<Bitmask64, T>,
+>;
+
+pub type AnyOrderedUintDataFrame<T> = AnyUint<
+    OrderedDataFrame<Bitmask08, T>,
+    OrderedDataFrame<Bitmask16, T>,
+    OrderedDataFrame<Bitmask24, T>,
+    OrderedDataFrame<Bitmask32, T>,
+    OrderedDataFrame<Bitmask40, T>,
+    OrderedDataFrame<Bitmask48, T>,
+    OrderedDataFrame<Bitmask56, T>,
+    OrderedDataFrame<Bitmask64, T>,
+>;
+
+impl_generic_enum_from! {
+    AnyOrderedUintLayout<T>,
+    Uint08 <- OrderedLayout<Bitmask08, T>,
+    Uint16 <- OrderedLayout<Bitmask16, T>,
+    Uint24 <- OrderedLayout<Bitmask24, T>,
+    Uint32 <- OrderedLayout<Bitmask32, T>,
+    Uint40 <- OrderedLayout<Bitmask40, T>,
+    Uint48 <- OrderedLayout<Bitmask48, T>,
+    Uint56 <- OrderedLayout<Bitmask56, T>,
+    Uint64 <- OrderedLayout<Bitmask64, T>
 }
 
 macro_rules! match_any_uint {
@@ -715,18 +848,6 @@ impl<TotType> ReadLayoutOps<TotType> for AnyOrderedUintLayout<TotType> {
     {
         match_any_uint!(self, Self, x, { x.h_read_into(h, tot, seg, conf) })
     }
-}
-
-#[derive(Clone, From, PartialEq)]
-pub enum AnyOrderedUintDataFrame<T> {
-    Uint08(OrderedDataFrame<Bitmask08, T>),
-    Uint16(OrderedDataFrame<Bitmask16, T>),
-    Uint24(OrderedDataFrame<Bitmask24, T>),
-    Uint32(OrderedDataFrame<Bitmask32, T>),
-    Uint40(OrderedDataFrame<Bitmask40, T>),
-    Uint48(OrderedDataFrame<Bitmask48, T>),
-    Uint56(OrderedDataFrame<Bitmask56, T>),
-    Uint64(OrderedDataFrame<Bitmask64, T>),
 }
 
 macro_rules! match_map_uint {
@@ -957,6 +1078,33 @@ impl MixedVec {
 /// A big or little-endian integer column of some size (1-8 bytes)
 #[derive(Debug, PartialEq, Clone, Copy, Delegate)]
 #[delegate(HasLen)]
+#[delegate(LayoutDims)]
+#[delegate(LayoutRanges)]
+#[delegate(
+    LayoutDatatype,
+    where = "C08: LayoutDims, \
+             C16: LayoutDims, \
+             C24: LayoutDims, \
+             C32: LayoutDims, \
+             C40: LayoutDims, \
+             C48: LayoutDims, \
+             C56: LayoutDims, \
+             C64: LayoutDims"
+)]
+#[delegate(
+    LayoutKeywords,
+    where = "C08: LayoutDims, \
+             C16: LayoutDims, \
+             C24: LayoutDims, \
+             C32: LayoutDims, \
+             C40: LayoutDims, \
+             C48: LayoutDims, \
+             C56: LayoutDims, \
+             C64: LayoutDims"
+)]
+#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[delegate(OrderedLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
     Uint08(C08),
@@ -1815,6 +1963,11 @@ pub trait LayoutDatatype: Sized {
             .map_err(ScaleDatatypeMismatchError::from)?;
         Ok(())
     }
+}
+
+/// A layout that can be simplified into another layout of the same type.
+pub trait NormalizableLayout {
+    fn normalize(&mut self);
 }
 
 #[delegatable_trait]
@@ -3006,22 +3159,22 @@ impl<D> EndianLayout<NullMixedType, D> {
             match head {
                 MixedType::Uint(x) => x
                     .try_into_one_size(it, endian, 1)
-                    .map_ok_value(AnyOrderedLayout::from)
+                    .map_ok_value(AnyOrderedLayout::Integer)
                     .map_errors(|(index, error)| error.into_col_error(index)),
                 MixedType::Ascii(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
                     .map_ok_value(AnyAsciiLayout::from)
-                    .map_ok_value(AnyOrderedLayout::from),
+                    .map_ok_value(AnyOrderedLayout::Ascii),
                 MixedType::F32(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
-                    .map_ok_value(AnyOrderedLayout::from),
+                    .map_ok_value(AnyOrderedLayout::F32),
                 MixedType::F64(x) => from_columns!(it)
                     .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
-                    .map_ok_value(AnyOrderedLayout::from),
+                    .map_ok_value(AnyOrderedLayout::F64),
             }
         } else {
             let b: ArrayByteOrd<[u8; 4]> = self.byte_layout.into();
-            LogResult::new_ok(FixedLayout::new(vec![], b).into())
+            LogResult::new_ok(AnyOrderedLayout::F32(FixedLayout::new(vec![], b)))
         }
     }
 

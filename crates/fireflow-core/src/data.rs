@@ -59,10 +59,10 @@ use crate::core::{
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
-    DeferredWarningAndError, DeferredWarningsAndError, ErrorGroup, ErrorsResult, GroupResult,
-    IOErrorGroup, IOResult, ImpureError, LogResult, ResultExt as _, Success, SwitchableErrorResult,
-    SwitchableErrorsResult, WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, WarningsAndIOResult, WarningsResult,
+    DeferredWarningAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
+    ImpureError, LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult,
+    WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult, WarningsAndIOResult,
 };
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
@@ -88,7 +88,7 @@ use crate::validated::ascii_range::{
 };
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskLossError, BitmaskTruncationError, BitmaskValue,
+    Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
     AnyPrimitiveColumn, FFDataFrame, HasLen, InternalColumn, PrimitiveColumn, PrimitiveDataFrame,
@@ -99,7 +99,7 @@ use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
-use type_families::{Functor as _, FunctorOnce, impl_functor_once, impl_kind1};
+use type_families::{Functor, FunctorOnce, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
@@ -584,10 +584,7 @@ impl<T, D, const ORD: bool> IntoEmptyDataFrame for DelimAsciiLayout<T, D, ORD> {
     type DfTarget = DelimAsciiDataFrame<T, D, ORD>;
 
     fn empty(&self) -> Self::DfTarget {
-        let cs = self
-            .ranges
-            .iter()
-            .map(|c| AnnotatedColumn::empty(c.clone()));
+        let cs = self.ranges.iter().map(|c| AnnotatedColumn::empty(*c));
         DelimAsciiLayoutInner::new(FFDataFrame::try_new(cs).unwrap())
     }
 }
@@ -1895,7 +1892,7 @@ pub trait ReadLayoutOps<T>: Sized + IntoEmptyDataFrame {
         Self::DfTarget: Into<X>,
     {
         self.h_read_df_inner(h, tot, seg, conf)
-            .map_ok_value(|x| x.fmap_into())
+            .map_ok_value(Functor::fmap_into)
     }
 
     fn h_read_df_inner<R: Read>(
@@ -1915,12 +1912,12 @@ pub trait ReadLayoutOps<T>: Sized + IntoEmptyDataFrame {
 }
 
 #[derive(Default, new)]
-pub(crate) struct DataFrameResult<D> {
+pub struct DataFrameResult<D> {
     pub(crate) dataframe: D,
     pub(crate) diagnostics: EventsDiagnostics,
 }
 
-impl_kind1!(pub(crate) DataFrameResultFamily, DataFrameResult);
+impl_kind1!(pub DataFrameResultFamily, DataFrameResult);
 
 impl_functor_once!(
     DataFrameResult,
@@ -3644,7 +3641,7 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
                         let cs = data
                             .into_iter()
                             .zip(&self.ranges)
-                            .map(|(data, &range)| NativeColumn::from(RangedVec::new(range, data)));
+                            .map(|(vec, &range)| NativeColumn::from(RangedVec::new(range, vec)));
                         let out = EventsDiagnostics::new(None, None, None, overrange);
                         let df = FFDataFrame::try_new(cs).unwrap();
                         DataFrameResult::new(DelimAsciiLayoutInner::new(df), out)
@@ -4446,12 +4443,11 @@ impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
 
 impl<C, S, Tot, Dt> FixedLayoutIO for FixedLayout<C, S, Tot, Dt>
 where
-    S: ByteLayoutIO<C>,
+    S: ByteLayoutIO<C> + Copy,
     C: HasNativeType + IsFixed + Clone,
     C::Native: FCSRepr + PartialOrd,
     NativeColumn<C>: From<RangedVec<C, C::Native>>,
     Vec<C::Native>: HasRange<C>,
-    S: Copy,
 {
     type DfTarget = FixedDataFrame<NativeColumn<C>, S, Tot, Dt>;
 
@@ -4514,22 +4510,27 @@ where
             // faster loop.
             let ncols = self.columns.len();
             macro_rules! go {
-                ($r:expr) => {{
+                ($r:expr, $var:ident) => {{
                     let l = FixedLayout::new(vec![*$r; ncols], self.byte_layout);
-                    l.h_read_unchecked_df_inner(h, nrows, conf)
+                    let (df, rs) = l.h_read_unchecked_df_inner(h, nrows, conf)?;
+                    // TODO hacky
+                    let wrap = FixedLayoutInner::new(
+                        df.columns.fmap(AnyBitmaskColumn::$var),
+                        self.byte_layout,
+                    );
+                    Ok((wrap, rs))
                 }};
             }
-            unimplemented!()
-            // match first {
-            //     AnyBitmask::Uint08(r) => go!(r),
-            //     AnyBitmask::Uint16(r) => go!(r),
-            //     AnyBitmask::Uint24(r) => go!(r),
-            //     AnyBitmask::Uint32(r) => go!(r),
-            //     AnyBitmask::Uint40(r) => go!(r),
-            //     AnyBitmask::Uint48(r) => go!(r),
-            //     AnyBitmask::Uint56(r) => go!(r),
-            //     AnyBitmask::Uint64(r) => go!(r),
-            // }
+            match first {
+                AnyUint::Uint08(r) => go!(r, Uint08),
+                AnyUint::Uint16(r) => go!(r, Uint16),
+                AnyUint::Uint24(r) => go!(r, Uint24),
+                AnyUint::Uint32(r) => go!(r, Uint32),
+                AnyUint::Uint40(r) => go!(r, Uint40),
+                AnyUint::Uint48(r) => go!(r, Uint48),
+                AnyUint::Uint56(r) => go!(r, Uint56),
+                AnyUint::Uint64(r) => go!(r, Uint64),
+            }
         } else {
             // Otherwise use static dispatch to dynamically read different
             // widths. This will be slower since this will involve a tight loop
@@ -6223,7 +6224,7 @@ impl From<BitmaskTruncationError> for RangeToBitmaskError {
 
 impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
     fn from(value: RangeToIntError<T>) -> Self {
-        let b = Bytes(PrivBytes::from(value.dest_type));
+        let b = Bytes(value.dest_type);
         let v = value.src_value;
         match value.error_kind {
             RangeToIntErrorKind::Overrange => Self::Over(v, b),
@@ -6336,10 +6337,10 @@ pub(crate) enum AnyLossError {
     // Ascii(LossError<AsciiLossError>),
 }
 
-/// Error when ASCII value is truncated to fewer chars when writing DATA
-#[derive(Clone, Copy, Debug, Error)]
-#[error("ASCII data truncated to {0} chars")]
-pub(crate) struct AsciiLossError(Chars);
+// /// Error when ASCII value is truncated to fewer chars when writing DATA
+// #[derive(Clone, Copy, Debug, Error)]
+// #[error("ASCII data truncated to {0} chars")]
+// pub(crate) struct AsciiLossError(Chars);
 
 type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning, LookupLayoutError>;
 

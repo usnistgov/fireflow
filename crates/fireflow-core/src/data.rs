@@ -329,12 +329,11 @@ impl From<MixedDataFrame> for PrimitiveDataFrame {
 }
 
 impl IntoEmptyDataFrame for MixedLayout {
-    type DfTarget = DataFrame3_2;
+    type DfTarget = MixedDataFrame;
 
     fn empty(&self) -> Self::DfTarget {
         let cs = self.columns.iter().map(|c| c.clone().into());
-        let df = FixedLayoutInner::new(FFDataFrame::try_new(cs).unwrap(), self.byte_layout);
-        DataFrame3_2::Mixed(df)
+        FixedLayoutInner::new(FFDataFrame::try_new(cs).unwrap(), self.byte_layout)
     }
 }
 
@@ -4483,15 +4482,15 @@ where
 }
 
 impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D>
-where
-    EndianLayout<Bitmask08, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask08, D>>,
-    EndianLayout<Bitmask16, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask16, D>>,
-    EndianLayout<Bitmask24, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask24, D>>,
-    EndianLayout<Bitmask32, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask32, D>>,
-    EndianLayout<Bitmask40, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask40, D>>,
-    EndianLayout<Bitmask48, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask48, D>>,
-    EndianLayout<Bitmask56, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask56, D>>,
-    EndianLayout<Bitmask64, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask64, D>>,
+// where
+//     EndianLayout<Bitmask08, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask08, D>>,
+//     EndianLayout<Bitmask16, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask16, D>>,
+//     EndianLayout<Bitmask24, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask24, D>>,
+//     EndianLayout<Bitmask32, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask32, D>>,
+//     EndianLayout<Bitmask40, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask40, D>>,
+//     EndianLayout<Bitmask48, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask48, D>>,
+//     EndianLayout<Bitmask56, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask56, D>>,
+//     EndianLayout<Bitmask64, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask64, D>>,
 {
     type DfTarget = EndianUintDataFrame<D>;
 
@@ -4502,60 +4501,26 @@ where
         conf: &ReadEventsConfig,
     ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError> {
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
 
-        if let Some((first, rest)) = self.columns.split_first()
-            && rest.iter().all(|x| x == first)
-        {
-            // If all columns are the same width, treat data as a matrix and use
-            // faster loop.
-            let ncols = self.columns.len();
-            macro_rules! go {
-                ($r:expr, $var:ident) => {{
-                    let l = FixedLayout::new(vec![*$r; ncols], self.byte_layout);
-                    let (df, rs) = l.h_read_unchecked_df_inner(h, nrows, conf)?;
-                    // TODO hacky
-                    let wrap = FixedLayoutInner::new(
-                        df.columns.fmap(AnyBitmaskColumn::$var),
-                        self.byte_layout,
-                    );
-                    Ok((wrap, rs))
-                }};
-            }
-            match first {
-                AnyUint::Uint08(r) => go!(r, Uint08),
-                AnyUint::Uint16(r) => go!(r, Uint16),
-                AnyUint::Uint24(r) => go!(r, Uint24),
-                AnyUint::Uint32(r) => go!(r, Uint32),
-                AnyUint::Uint40(r) => go!(r, Uint40),
-                AnyUint::Uint48(r) => go!(r, Uint48),
-                AnyUint::Uint56(r) => go!(r, Uint56),
-                AnyUint::Uint64(r) => go!(r, Uint64),
-            }
-        } else {
-            // Otherwise use static dispatch to dynamically read different
-            // widths. This will be slower since this will involve a tight loop
-            // with jump ops in it to choose the width.
-            let mut columns: Vec<_> = self.columns.iter().map(|c| c.init_column(nrows)).collect();
+        row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
 
-            row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
+        let trunc = conf.truncate_event_values;
+        let rs = columns
+            .iter_mut()
+            .enumerate()
+            .map(|(i, c)| c.check_range(i.into(), trunc))
+            .collect();
 
-            let trunc = conf.truncate_event_values;
-            let rs = columns
-                .iter_mut()
-                .enumerate()
-                .map(|(i, c)| c.check_range(i.into(), trunc))
-                .collect();
+        let data = columns.into_iter().map(AnyBitmaskColumn::from);
+        let df = FFDataFrame::try_new(data).unwrap();
 
-            let data = columns.into_iter().map(AnyBitmaskColumn::from);
-            let df = FFDataFrame::try_new(data).unwrap();
-
-            Ok((FixedLayoutInner::new(df, self.byte_layout), rs))
-        }
+        Ok((FixedLayoutInner::new(df, self.byte_layout), rs))
     }
 }
 
 impl FixedLayoutIO for MixedLayout {
-    type DfTarget = DataFrame3_2;
+    type DfTarget = MixedDataFrame;
 
     fn h_read_unchecked_df_inner<R: Read>(
         &self,
@@ -4567,39 +4532,9 @@ impl FixedLayoutIO for MixedLayout {
         let en = self.byte_layout;
         let cs = &self.columns[..];
 
-        let mut columns = if let Some((first, rest)) = self.columns.split_first()
-            && rest.iter().all(|x| x.datatype() == first.datatype())
+        let mut columns = if let Some(ret) =
+            try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)?
         {
-            // If all columns have the same datatype, dispatch to another reader
-            // specific for that type. Note: we cannot simply test that the
-            // columns are equal to each other since this might fail for int
-            // layouts which have different widths; there already is a method
-            // for reading int layouts with multiple widths (which itself will
-            // dispatch further in the case of only one widths) that we wish
-            // to use.
-            let ncols = self.columns.len();
-            macro_rules! go {
-                ($r:expr) => {{
-                    let l: EndianLayout<_, Option<NumType>> =
-                        FixedLayout::new(vec![$r; ncols], self.byte_layout);
-                    let (df, rs) = l.h_read_unchecked_df_inner(h, nrows, conf)?;
-                    (NonMixedEndianDataFrame::from(df), rs)
-                }};
-            }
-            let (df, rs) = match first {
-                MixedType::Ascii(r) => {
-                    let l: FixedAsciiLayout<Identity<Tot>, Option<NumType>, false> =
-                        FixedLayout::new(vec![*r; ncols], NoByteOrd3_1::default());
-                    let (df, rs) = l.h_read_unchecked_df_inner(h, nrows, conf)?;
-                    let ret = NonMixedEndianDataFrame::Ascii(AnyAsciiDataFrame::Fixed(df));
-                    (ret, rs)
-                }
-                MixedType::Uint(r) => go!(*r),
-                MixedType::F32(r) => go!(r.clone()),
-                MixedType::F64(r) => go!(r.clone()),
-            };
-            return Ok((DataFrame3_2::from(df), rs));
-        } else if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
             // If the types are all the same width (but not necessary the same
             // type), we can "cheat" and read the layout all as one type and
             // cast to other types after the fact. This will dramatically speed
@@ -4633,10 +4568,7 @@ impl FixedLayoutIO for MixedLayout {
         let data = columns.into_iter().map(MixedColumn::from);
         let df = FFDataFrame::try_new(data).unwrap();
 
-        Ok((
-            DataFrame3_2::Mixed(FixedLayoutInner::new(df, self.byte_layout)),
-            rs,
-        ))
+        Ok((FixedLayoutInner::new(df, self.byte_layout), rs))
     }
 }
 

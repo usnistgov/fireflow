@@ -161,6 +161,12 @@ pub(crate) struct InternalColumn<T, Raw> {
     _outer: PhantomData<Raw>,
 }
 
+impl<T, Raw> Default for InternalColumn<T, Raw> {
+    fn default() -> Self {
+        InternalColumn::new(Buffer::new())
+    }
+}
+
 macro_rules! impl_internal_from_vec {
     ($t:ident, $raw:ident) => {
         impl From<Vec<$raw>> for InternalColumn<$t, $raw> {

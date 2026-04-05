@@ -11,10 +11,10 @@ use crate::config::{
 use crate::data::{
     CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
     DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _,
-    IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims, LayoutKeywords, LayoutOps,
-    LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataLayoutError, ReadDataframeError, ReadDataframeWarning, ReadLayoutOps,
-    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
+    IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims, LayoutKeywords,
+    LayoutOps, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
+    MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
+    ReadLayoutOps, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -1589,8 +1589,7 @@ pub(crate) trait PrivVersioned: Versioned {
         (),
     >
     where
-        <Self::Layout as ReadLayoutOps<<Self::Layout as VersionedDataLayout>::Tot>>::DfTarget:
-            Into<PrimitiveDataFrame> + Default,
+        <Self::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame>,
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
@@ -4968,6 +4967,7 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame>,
     {
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
@@ -5010,10 +5010,7 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
-        // TODO yucky :(
-        <<M::Ver as Versioned>::Layout as ReadLayoutOps<
-            <<M::Ver as Versioned>::Layout as VersionedDataLayout>::Tot,
-        >>::DfTarget: Default + Into<PrimitiveDataFrame>,
+        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)

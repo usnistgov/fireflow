@@ -4463,7 +4463,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("MixedLayout");
     let layout_path = parse_quote!(fireflow_core::data::#name);
 
-    let null = quote!(fireflow_core::data::NullMixedType);
+    let null = quote!(fireflow_core::data::MixedRange);
     let fixed = quote!(fireflow_core::data::FixedLayout);
 
     let dt_ascii = code("A");

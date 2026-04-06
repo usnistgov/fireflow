@@ -901,7 +901,7 @@ impl From<NonMixedEndianLayout<Nothing<kws::NumType>>> for PyNonMixedLayout {
                 AnyAsciiLayout::Fixed(y) => y.into(),
                 AnyAsciiLayout::Delimited(y) => y.into(),
             },
-            NonMixedEndianLayout::Integer(x) => x.into(),
+            NonMixedEndianLayout::Uint(x) => x.into(),
             NonMixedEndianLayout::F32(x) => x.into(),
             NonMixedEndianLayout::F64(x) => x.into(),
         }
@@ -913,7 +913,7 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
         match value {
             PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
             PyNonMixedLayout::AsciiDelim(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::Uint(x) => Self::Integer(x.into()),
+            PyNonMixedLayout::Uint(x) => Self::Uint(x.into()),
             PyNonMixedLayout::F32(x) => Self::F32(x.into()),
             PyNonMixedLayout::F64(x) => Self::F64(x.into()),
         }

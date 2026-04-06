@@ -57,11 +57,11 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
+use fireflow_core::data::AnyEndianUintLayout;
 use fireflow_core::data::{
-    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout,
-    CommonLayoutOps as _, DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2,
-    DelimAsciiLayout, EndianLayout, F32Range, F64Range, FixedAsciiLayout, LayoutOps as _,
-    NonMixedEndianLayout,
+    self, AnyAsciiLayout, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0, DataLayout3_0,
+    DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, EndianUintLayout, F32Range,
+    F64Range, FixedAsciiLayout, LayoutDatatype as _, NonMixedEndianLayout,
 };
 use fireflow_core::header;
 use fireflow_core::text::gating::{
@@ -780,7 +780,7 @@ pub enum PyNonMixedLayout {
     )]
     AsciiDelim(PyDelimAsciiLayout),
 
-    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, Nothing<kws::NumType>>)]
+    #[from(PyEndianUintLayout, EndianUintLayout<Nothing<kws::NumType>>)]
     Uint(PyEndianUintLayout),
 
     #[from(PyEndianF32Layout, EndianLayout<F32Range, Nothing<kws::NumType>>)]
@@ -901,7 +901,10 @@ impl From<NonMixedEndianLayout<Nothing<kws::NumType>>> for PyNonMixedLayout {
                 AnyAsciiLayout::Fixed(y) => y.into(),
                 AnyAsciiLayout::Delimited(y) => y.into(),
             },
-            NonMixedEndianLayout::Uint(x) => x.into(),
+            NonMixedEndianLayout::Uint(x) => match x {
+                AnyEndianUintLayout::Single(y) => unimplemented!(),
+                AnyEndianUintLayout::Multi(y) => y.into(),
+            },
             NonMixedEndianLayout::F32(x) => x.into(),
             NonMixedEndianLayout::F64(x) => x.into(),
         }
@@ -913,7 +916,7 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
         match value {
             PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
             PyNonMixedLayout::AsciiDelim(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::Uint(x) => Self::Uint(x.into()),
+            PyNonMixedLayout::Uint(x) => Self::Uint(AnyEndianUintLayout::Multi(x.into())),
             PyNonMixedLayout::F32(x) => Self::F32(x.into()),
             PyNonMixedLayout::F64(x) => Self::F64(x.into()),
         }

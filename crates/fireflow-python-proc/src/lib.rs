@@ -4289,7 +4289,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let tot_path = keyword_path("Tot");
     let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
     let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
-    let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+    let fixed_layout_path = quote!(fireflow_core::data::DataLayout);
     let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
 
     let full_layout_path: Path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
@@ -4378,7 +4378,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let numtype_path = keyword_path("NumType");
     let nomeasdt_path = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
     let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
-    let fixed_layout_path = quote!(fireflow_core::data::FixedLayout);
+    let fixed_layout_path = quote!(fireflow_core::data::DataLayout);
 
     let full_layout_path = parse_quote!(#endian_layout_path<#range_path, #nomeasdt_path>);
 
@@ -4419,7 +4419,7 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("EndianUintLayout");
 
-    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let fixed = quote!(fireflow_core::data::DataLayout);
     let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
@@ -4469,7 +4469,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let layout_path = parse_quote!(fireflow_core::data::#name);
 
     let null = quote!(fireflow_core::data::MixedRange);
-    let fixed = quote!(fireflow_core::data::FixedLayout);
+    let fixed = quote!(fireflow_core::data::DataLayout);
 
     let dt_ascii = code("A");
     let dt_int = code("I");

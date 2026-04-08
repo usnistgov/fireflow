@@ -4642,6 +4642,28 @@ where
     }
 }
 
+impl<C, L, T, D> ColumnGroup<C, L, T, D> {
+    fn phantom_into<Tf, Df>(self) -> ColumnGroup<C, L, Tf, Df> {
+        ColumnGroup::new(self.inner, self.byte_layout)
+    }
+
+    fn byte_layout_into<Lf>(self) -> ColumnGroup<C, Lf, T, D>
+    where
+        Lf: From<L>,
+    {
+        ColumnGroup::new(self.inner, self.byte_layout.into())
+    }
+
+    fn byte_layout_try_into<Lf>(self) -> Result<ColumnGroup<C, Lf, T, D>, Lf::Error>
+    where
+        Lf: TryFrom<L>,
+    {
+        self.byte_layout
+            .try_into()
+            .map(|byte_layout| ColumnGroup::new(self.inner, byte_layout))
+    }
+}
+
 impl<C, T, D, const ORD: bool> ColumnGroup<C, NoByteOrd<ORD>, T, D> {
     pub fn new_ascii(columns: C) -> Self {
         Self::new(columns, NoByteOrd::<ORD>)
@@ -4654,7 +4676,7 @@ impl<C, S, T, D> DataLayout<C, S, T, D> {
     }
 
     pub fn columns(&self) -> &[C] {
-        &self.inner[..]
+        self.as_ref()
     }
 
     pub fn widths(&self) -> Vec<BitsOrChars>
@@ -4713,26 +4735,6 @@ impl<C, S, T, D> DataLayout<C, S, T, D> {
         X: From<C>,
     {
         DataLayout::new(self.inner.fmap(Into::into), self.byte_layout)
-    }
-
-    fn byte_layout_into<X>(self) -> DataLayout<C, X, T, D>
-    where
-        X: From<S>,
-    {
-        DataLayout::new(self.inner, self.byte_layout.into())
-    }
-
-    fn byte_layout_try_into<X>(self) -> Result<DataLayout<C, X, T, D>, X::Error>
-    where
-        X: TryFrom<S>,
-    {
-        self.byte_layout
-            .try_into()
-            .map(|byte_layout| DataLayout::new(self.inner, byte_layout))
-    }
-
-    pub fn phantom_into<T1, D1>(self) -> DataLayout<C, S, T1, D1> {
-        DataLayout::new(self.inner, self.byte_layout)
     }
 
     fn event_width(&self) -> usize

@@ -4220,7 +4220,12 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
             "The range for each measurement. Equivalent to the {PNR} keyword. \
              This is not used internally."
         ),
-        |_, _| quote!(self.0.as_ref().to_vec()),
+        |_, _| {
+            quote! {
+                let cs: &[_] = self.0.as_ref();
+                cs.to_vec()
+            }
+        },
     );
 
     let doc = DocString::new_class("A delimited ASCII layout.").arg(ranges_param);
@@ -4228,7 +4233,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #bare_path::new(ranges).into()
+                #bare_path::new_ascii(ranges).into()
             }
         }
     };

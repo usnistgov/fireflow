@@ -91,8 +91,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveColumn, FFDataFrame, HasLen, InternalColumn, PrimitiveColumn, PrimitiveDataFrame,
-    ambassador_impl_HasLen,
+    AnyPrimitiveColumn, FFDataFrame, HasLen, HasWidth, InternalColumn, PrimitiveColumn,
+    PrimitiveDataFrame, ambassador_impl_HasLen,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
@@ -376,21 +376,16 @@ pub type FixedAsciiLayout<T, D, const ORD: bool> = FixedLayout<AsciiRange, NoByt
 pub type FixedAsciiDataFrame<T, D, const ORD: bool> =
     FixedDataFrame<NativeColumn<AsciiRange>, NoByteOrd<ORD>, T, D>;
 
-pub type DelimAsciiLayout<T, D, const ORD: bool> = DelimAscii<Vec<AsciiRangeValue>, T, D, ORD>;
+pub type DelimAsciiLayout<T, D, const ORD: bool> =
+    Fixed<Vec<AsciiRangeValue>, NoByteOrd<ORD>, T, D>;
 
 pub type DelimAsciiDataFrame<T, D, const ORD: bool> =
-    DelimAscii<FFDataFrame<AnnotatedColumn<AsciiRangeValue, u64, u64>>, T, D, ORD>;
+    Fixed<FFDataFrame<AnnotatedColumn<AsciiRangeValue, u64, u64>>, NoByteOrd<ORD>, T, D>;
 
-/// DATA layout for delimited ASCII.
-#[derive(Clone, Default, PartialEq, new, AsRef)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct DelimAscii<R, T, D, const ORD: bool> {
-    #[as_ref([AsciiRangeValue])]
-    ranges: R,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    _tot_def: PhantomData<T>,
-    #[cfg_attr(feature = "serde", serde(skip))]
-    _meas_data_def: PhantomData<D>,
+impl<C, L, T, D> AsRef<[C]> for FixedLayout<C, L, T, D> {
+    fn as_ref(&self) -> &[C] {
+        self.columns.as_ref()
+    }
 }
 
 pub type FixedLayout<C, L, T, D> = Fixed<Vec<C>, L, T, D>;
@@ -1386,20 +1381,23 @@ impl<T, D, const ORD: bool> From<AnyAsciiDataFrame<T, D, ORD>> for PrimitiveData
     }
 }
 
-impl<T, D, const ORD: bool> From<DelimAsciiDataFrame<T, D, ORD>> for PrimitiveDataFrame {
-    fn from(value: DelimAsciiDataFrame<T, D, ORD>) -> Self {
-        value.ranges.fmap(|c| PrimitiveColumn::from(c).into())
-    }
-}
+// impl<T, D, const ORD: bool> From<DelimAsciiDataFrame<T, D, ORD>> for PrimitiveDataFrame {
+//     fn from(value: DelimAsciiDataFrame<T, D, ORD>) -> Self {
+//         value.columns.fmap(|c| PrimitiveColumn::from(c).into())
+//     }
+// }
 
-impl<T, D, const ORD: bool> IntoEmptyDataFrame for DelimAsciiLayout<T, D, ORD> {
-    type DfTarget = DelimAsciiDataFrame<T, D, ORD>;
+// impl<T, D, const ORD: bool> IntoEmptyDataFrame for DelimAsciiLayout<T, D, ORD> {
+//     type DfTarget = DelimAsciiDataFrame<T, D, ORD>;
 
-    fn empty(&self) -> Self::DfTarget {
-        let cs = self.ranges.iter().map(|c| AnnotatedColumn::empty(*c));
-        DelimAscii::new(FFDataFrame::try_new(cs).unwrap())
-    }
-}
+//     fn empty(&self) -> Self::DfTarget {
+//         let cs = self.columns.iter().map(|c| AnnotatedColumn::empty(*c));
+//         Fixed::new(
+//             FFDataFrame::try_new(cs).unwrap(),
+//             NoByteOrd::<ORD>::default(),
+//         )
+//     }
+// }
 
 impl<C, L, T, D> IntoEmptyDataFrame for FixedLayout<C, L, T, D>
 where
@@ -3954,15 +3952,15 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl<T, D, const ORD: bool> LayoutDims for DelimAsciiLayout<T, D, ORD> {
-    fn ncols(&self) -> usize {
-        self.ranges.len()
-    }
-}
+// impl<T, D, const ORD: bool> LayoutDims for DelimAsciiLayout<T, D, ORD> {
+//     fn ncols(&self) -> usize {
+//         self.columns.len()
+//     }
+// }
 
 impl<T, D, const ORD: bool> LayoutRanges for DelimAsciiLayout<T, D, ORD> {
     fn ranges(&self) -> Vec<Range> {
-        self.ranges.iter().map(|x| Range::from(x.0)).collect()
+        self.columns.iter().map(|x| Range::from(x.0)).collect()
     }
 }
 
@@ -3972,7 +3970,7 @@ impl<T, D, const ORD: bool> LayoutDatatype for DelimAsciiLayout<T, D, ORD> {
     }
 
     fn datatypes(&self) -> Vec<AlphaNumType> {
-        self.ranges.iter().map(|_| self.datatype()).collect()
+        self.columns.iter().map(|_| self.datatype()).collect()
     }
 }
 
@@ -3988,7 +3986,7 @@ where
     }
 
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
-        self.ranges
+        self.columns
             .iter()
             .enumerate()
             .map(|(i, r)| {
@@ -4013,10 +4011,10 @@ where
 
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
-            usize::from(index) <= self.ranges.len(),
+            usize::from(index) <= self.columns.len(),
             "Index should be less than/equal to column number"
         );
-        Range::from(self.ranges.remove(index.into()).0)
+        Range::from(self.columns.remove(index.into()).0)
     }
 
     // fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
@@ -4135,7 +4133,7 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
                 })
             };
         }
-        let rs = &self.ranges;
+        let rs = &self.columns;
         let nbytes = usize::try_from(seg.len()).expect("DATA length > usize");
         if rs.is_empty() && nbytes > 0 {
             let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
@@ -4194,11 +4192,11 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
                     .map_ok_value(|()| {
                         let cs = data
                             .into_iter()
-                            .zip(&self.ranges)
+                            .zip(&self.columns)
                             .map(|(vec, &range)| NativeColumn::from(RangedVec::new(range, vec)));
                         let out = EventsDiagnostics::new(None, None, None, overrange);
                         let df = FFDataFrame::try_new(cs).unwrap();
-                        DataFrameResult::new(DelimAscii::new(df), out)
+                        DataFrameResult::new(Fixed::new_ascii(df), out)
                     })
             })
     }
@@ -4206,7 +4204,7 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
 
 impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        self.ranges.iter().map(|_| None).collect()
+        self.columns.iter().map(|_| None).collect()
     }
 
     fn insert_nocheck(
@@ -4216,7 +4214,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
         flag: DisallowRangeTrunc,
     ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
         debug_assert!(
-            usize::from(index) <= self.ranges.len(),
+            usize::from(index) <= self.columns.len(),
             "Index should be less than/equal to number of columns"
         );
         range
@@ -4224,7 +4222,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable3(flag)
-            .map_ok_value(|r| self.ranges.insert(index.into(), r))
+            .map_ok_value(|r| self.columns.insert(index.into(), r))
             .set_err_value(())
     }
 
@@ -4238,12 +4236,12 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable3(flag)
-            .map_ok_value(|r| self.ranges.push(r))
+            .map_ok_value(|r| self.columns.push(r))
             .set_err_value(())
     }
 
     fn clear(&mut self) {
-        self.ranges.clear();
+        self.columns.clear();
     }
 }
 
@@ -4369,9 +4367,9 @@ impl<C, S: Default, T, D> Default for FixedLayout<C, S, T, D> {
     }
 }
 
-impl<C, S, T, D> LayoutDims for FixedLayout<C, S, T, D> {
+impl<C: HasWidth, S, T, D> LayoutDims for Fixed<C, S, T, D> {
     fn ncols(&self) -> usize {
-        self.columns.len()
+        self.columns.width()
     }
 }
 
@@ -4642,6 +4640,12 @@ where
 {
     fn byte_order(&self) -> ByteOrd2_0 {
         self.byte_layout.into()
+    }
+}
+
+impl<C, T, D, const ORD: bool> Fixed<C, NoByteOrd<ORD>, T, D> {
+    pub fn new_ascii(columns: C) -> Self {
+        Self::new(columns, NoByteOrd::<ORD>)
     }
 }
 
@@ -5714,8 +5718,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     #[must_use]
     pub fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
-            Self::Delimited(x) => DelimAsciiLayout::new(x.ranges).into(),
-            Self::Fixed(x) => FixedLayout::new(x.columns, NoByteOrd).into(),
+            Self::Delimited(x) => DelimAsciiLayout::new_ascii(x.columns).into(),
+            Self::Fixed(x) => FixedLayout::new_ascii(x.columns).into(),
         }
     }
 
@@ -5739,7 +5743,7 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                 .map_ok_value(|rs| {
                     let ranges = rs.iter().map(|r| r.native.value()).collect();
                     let non_truncated = rs.into_iter().map(|r| r.non_truncated).collect();
-                    let l = DelimAsciiLayout::new(ranges).into();
+                    let l = DelimAsciiLayout::new_ascii(ranges).into();
                     NewLayout::new(l, non_truncated)
                 })
                 .map_err_value(|_| ())
@@ -5752,11 +5756,11 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     }
 
     fn new_fixed(columns: impl IntoIterator<Item = AsciiRange>) -> Self {
-        Self::Fixed(FixedLayout::new(columns.into_iter().collect(), NoByteOrd))
+        Self::Fixed(FixedLayout::new_ascii(columns.into_iter().collect()))
     }
 
     fn new_delim(ranges: Vec<AsciiRangeValue>) -> Self {
-        Self::Delimited(DelimAsciiLayout::new(ranges))
+        Self::Delimited(DelimAsciiLayout::new_ascii(ranges))
     }
 }
 
@@ -5764,11 +5768,6 @@ impl<T, D, const ORD: bool> FixedAsciiLayout<T, D, ORD> {
     #[must_use]
     pub fn new_ascii_u64(ranges: Vec<AsciiRangeValue>) -> Self {
         Self::new_ascii(ranges.fmap_into())
-    }
-
-    #[must_use]
-    pub fn new_ascii(ranges: Vec<AsciiRange>) -> Self {
-        Self::new(ranges, NoByteOrd)
     }
 }
 
@@ -6218,7 +6217,8 @@ impl DataLayout3_2 {
 
     /// A dummy layout, used to make [`std::mem::replace`] work; not meaninful.
     fn mixed_dummy() -> Self {
-        NonMixedEndianLayout::from(AnyAsciiLayout::from(DelimAsciiLayout::new(vec![]))).into()
+        let a = DelimAsciiLayout::new_ascii(vec![]);
+        NonMixedEndianLayout::from(AnyAsciiLayout::from(a)).into()
     }
 
     fn lookup_inner(

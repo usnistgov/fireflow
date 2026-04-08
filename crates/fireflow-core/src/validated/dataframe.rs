@@ -30,49 +30,6 @@ use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 /// same length.
 pub type PrimitiveDataFrame = FFDataFrame<AnyPrimitiveColumn>;
 
-/// A dataframe with internally validated column ranges.
-///
-/// This validation allows us to integrate it seamlessly with data layouts
-/// of varying byte widths, including those that aren't a power of 2.
-pub(crate) type InternalDataFrame = FFDataFrame<AnyInternalColumn>;
-
-// impl FCSDataFrame {
-//     fn into_internal(self) -> (InternalDataFrame, Vec<Option<usize>>) {
-//         let ncols = self.ncols();
-//         let new_columns = Vec::with_capacity(ncols);
-//         let error_positions = Vec::with_capacity(ncols);
-//         for c in self.columns {
-//             let res = c.cast_column();
-//             new_columns.push(res.inner);
-//             error_positions.push(res.loss_position);
-//         }
-//         let new = InternalDataFrame::new(new_columns, self.nrows);
-//         (new, error_positions)
-//     }
-// }
-
-// NOTE cloning a buffer is O(1) so this doesn't need to be impled for a reference
-impl From<InternalDataFrame> for PrimitiveDataFrame {
-    fn from(value: InternalDataFrame) -> Self {
-        Self::new(
-            value
-                .columns
-                .into_iter()
-                .map(AnyPrimitiveColumn::from)
-                .collect(),
-            value.nrows,
-        )
-    }
-}
-
-// impl AnyFCSColumn {
-//     fn into_internal(self) -> CastResult<AnyInternalColumn> {
-//         match self {
-//             AnyFCSColumn::U08(c) => c.cast_column(),
-//         }
-//     }
-// }
-
 impl From<AnyInternalColumn> for AnyPrimitiveColumn {
     fn from(value: AnyInternalColumn) -> Self {
         match value {
@@ -803,6 +760,24 @@ pub trait HasLen {
     // this will be used for vectors, len is always constant
     #[allow(clippy::len_without_is_empty)]
     fn len(&self) -> usize;
+}
+
+#[delegatable_trait]
+pub trait HasWidth {
+    #[allow(clippy::len_without_is_empty)]
+    fn width(&self) -> usize;
+}
+
+impl<T> HasWidth for Vec<T> {
+    fn width(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<T> HasWidth for FFDataFrame<T> {
+    fn width(&self) -> usize {
+        self.columns.len()
+    }
 }
 
 impl<T> HasLen for PrimitiveColumn<T> {

@@ -24,7 +24,7 @@ use {
     pyo3::prelude::*,
 };
 
-/// The type of an ASCII column in all versions
+/// The type of an ASCII column in all versions where width is fixed.
 ///
 /// This represents the value of $PnB and $PnR for one measurement.
 ///
@@ -32,7 +32,7 @@ use {
 #[derive(PartialEq, Clone, Copy, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility = "")]
-pub struct AsciiRange {
+pub struct FixedAsciiRange {
     /// The maximum value of the ASCII column
     value: AsciiRangeValue,
 
@@ -42,8 +42,17 @@ pub struct AsciiRange {
     chars: Chars,
 }
 
+/// Wrapper type for $PnR for delimited ASCII columns.
+///
+/// This is like [`AsciiRange`] except it doesn't include width (ie $PnB).
+#[derive(Clone, Copy, PartialEq, Into, From)]
+#[into(u64, AsciiRangeValue)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
+pub struct DelimAsciiRange(pub AsciiRangeValue);
+
 /// Integer value for [`Range`] for an ASCII measurement
-#[derive(PartialEq, Clone, Copy, Debug, Display)]
+#[derive(PartialEq, Clone, Copy, Debug, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
 pub struct AsciiRangeValue(pub u64);
@@ -77,20 +86,26 @@ impl TryFrom<Range> for Chars {
     }
 }
 
-impl From<AsciiRangeValue> for AsciiRange {
+impl From<AsciiRangeValue> for FixedAsciiRange {
     fn from(value: AsciiRangeValue) -> Self {
         let chars = Chars::from_u64(value.0);
         Self::new(value, chars)
     }
 }
 
-impl From<&AsciiRange> for Range {
-    fn from(value: &AsciiRange) -> Self {
+impl From<&FixedAsciiRange> for Range {
+    fn from(value: &FixedAsciiRange) -> Self {
         value.value.0.into()
     }
 }
 
-impl AsciiRange {
+impl From<&DelimAsciiRange> for Range {
+    fn from(value: &DelimAsciiRange) -> Self {
+        value.0.0.into()
+    }
+}
+
+impl FixedAsciiRange {
     pub(crate) fn try_new_from_chars(
         value: AsciiRangeValue,
         chars: Chars,

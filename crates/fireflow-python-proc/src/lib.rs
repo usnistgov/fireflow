@@ -4215,7 +4215,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
 
     let ranges_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyInt::new_ascii_range_value()),
+        PyList::new1(PyInt::new_delim_ascii_range()),
         format!(
             "The range for each measurement. Equivalent to the {PNR} keyword. \
              This is not used internally."
@@ -6260,6 +6260,11 @@ impl<E: From<PyException>> PyInt<E> {
 
     fn new_ascii_range_value() -> Self {
         let p = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
+        Self::new_int(RsInt::U64).rstype(p)
+    }
+
+    fn new_delim_ascii_range() -> Self {
+        let p = parse_quote!(fireflow_core::validated::ascii_range::DelimAsciiRange);
         Self::new_int(RsInt::U64).rstype(p)
     }
 

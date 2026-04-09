@@ -84,7 +84,7 @@ use crate::text::lookup::{
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
-    AsciiRange, AsciiRangeFromKeywordsError, AsciiRangeValue, Chars,
+    AsciiRangeFromKeywordsError, AsciiRangeValue, Chars, DelimAsciiRange, FixedAsciiRange,
 };
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
@@ -371,16 +371,17 @@ pub enum AnyAscii<D, F> {
     Fixed(F),
 }
 
-pub type FixedAsciiLayout<T, D, const ORD: bool> = DataLayout<AsciiRange, NoByteOrd<ORD>, T, D>;
+pub type FixedAsciiLayout<T, D, const ORD: bool> =
+    DataLayout<FixedAsciiRange, NoByteOrd<ORD>, T, D>;
 
 pub type FixedAsciiDataFrame<T, D, const ORD: bool> =
-    DataFrame<NativeColumn<AsciiRange>, NoByteOrd<ORD>, T, D>;
+    DataFrame<NativeColumn<FixedAsciiRange>, NoByteOrd<ORD>, T, D>;
 
 pub type DelimAsciiLayout<T, D, const ORD: bool> =
-    DataLayout<AsciiRangeValue, NoByteOrd<ORD>, T, D>;
+    DataLayout<DelimAsciiRange, NoByteOrd<ORD>, T, D>;
 
 pub type DelimAsciiDataFrame<T, D, const ORD: bool> =
-    ColumnGroup<FFDataFrame<AnnotatedColumn<AsciiRangeValue, u64, u64>>, NoByteOrd<ORD>, T, D>;
+    ColumnGroup<FFDataFrame<AnnotatedColumn<DelimAsciiRange, u64, u64>>, NoByteOrd<ORD>, T, D>;
 
 impl<C, L, T, D> AsRef<[C]> for DataLayout<C, L, T, D> {
     fn as_ref(&self) -> &[C] {
@@ -669,10 +670,10 @@ pub enum AnyDatatype<A, U, F, D> {
     F64(D),
 }
 
-pub type MixedRange = AnyDatatype<AsciiRange, AnyNullBitmask, F32Range, F64Range>;
+pub type MixedRange = AnyDatatype<FixedAsciiRange, AnyNullBitmask, F32Range, F64Range>;
 
 pub type MixedColumn = AnyDatatype<
-    NativeColumn<AsciiRange>,
+    NativeColumn<FixedAsciiRange>,
     AnyBitmaskColumn,
     NativeColumn<F32Range>,
     NativeColumn<F64Range>,
@@ -1613,7 +1614,7 @@ impl From<MixedVec> for MixedColumn {
 }
 
 type MixedVec = AnyDatatype<
-    RangedVec<AsciiRange, u64>,
+    RangedVec<FixedAsciiRange, u64>,
     AnyUintVec,
     RangedVec<F32Range, f32>,
     RangedVec<F64Range, f64>,
@@ -2054,7 +2055,7 @@ impl RowBuffer {
     fn read_char_matrix<R: Read>(
         &mut self,
         h: &mut BufReader<R>,
-        cols: &mut [RangedVec<AsciiRange, u64>],
+        cols: &mut [RangedVec<FixedAsciiRange, u64>],
     ) -> IOResult<(), AsciiToUintError> {
         let ranges: Vec<_> = cols
             .iter()
@@ -3001,8 +3002,8 @@ impl<C08, C16, C24, C32, C40, C48, C56, C64> From<&AnyUint<C08, C16, C24, C32, C
     }
 }
 
-impl From<AsciiRange> for MixedRange {
-    fn from(value: AsciiRange) -> Self {
+impl From<FixedAsciiRange> for MixedRange {
+    fn from(value: FixedAsciiRange) -> Self {
         Self::Ascii(value)
     }
 }
@@ -3137,7 +3138,7 @@ macro_rules! mixed_to_inner {
     };
 }
 
-mixed_to_inner!(AsciiRange, Ascii);
+mixed_to_inner!(FixedAsciiRange, Ascii);
 mixed_to_inner!(AnyNullBitmask, Uint);
 mixed_to_inner!(F32Range, F32);
 mixed_to_inner!(F64Range, F64);
@@ -3793,7 +3794,7 @@ impl MixedRange {
         }
 
         match datatype.map_or(global_datatype, AlphaNumType::from) {
-            AlphaNumType::Ascii => from!(AsciiRange, width, range, i, flag),
+            AlphaNumType::Ascii => from!(FixedAsciiRange, width, range, i, flag),
             AlphaNumType::Integer => from!(AnyUint, width, range, i, flag),
             AlphaNumType::Float => from!(F32Range, width, range, i, flag),
             AlphaNumType::Double => from!(F64Range, width, range, i, flag),
@@ -3958,12 +3959,6 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
 //     }
 // }
 
-impl<T, D, const ORD: bool> LayoutRanges for DelimAsciiLayout<T, D, ORD> {
-    fn ranges(&self) -> Vec<Range> {
-        self.inner.iter().map(|x| Range::from(x.0)).collect()
-    }
-}
-
 impl<T, D, const ORD: bool> LayoutDatatype for DelimAsciiLayout<T, D, ORD> {
     fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Ascii
@@ -3991,7 +3986,7 @@ where
             .enumerate()
             .map(|(i, r)| {
                 let x = ReqMeasKeyword::from_value(Width::Variable, i);
-                let y = ReqMeasKeyword::from_value(Range(r.0.into()), i);
+                let y = ReqMeasKeyword::from_value(Range::from(r), i);
                 [x, y]
             })
             .collect()
@@ -4014,7 +4009,7 @@ where
             usize::from(index) <= self.inner.len(),
             "Index should be less than/equal to column number"
         );
-        Range::from(self.inner.remove(index.into()).0)
+        Range::from(&self.inner.remove(index.into()))
     }
 
     // fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
@@ -4161,8 +4156,8 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
                     // truncate values if we configured this behavior
                     for (i, (col, r)) in col_iter {
                         for (rowi, x) in col.iter_mut().enumerate() {
-                            if *x > r.0 {
-                                *x = r.0;
+                            if *x > u64::from(*r) {
+                                *x = u64::from(*r);
                                 if overrange[i].is_none() {
                                     overrange[i] = Some((rowi, true));
                                 }
@@ -4173,8 +4168,8 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
                     // otherwise warn/error if value is overrange
                     for (i, (col, r)) in col_iter {
                         for (rowi, x) in col.iter().enumerate() {
-                            if *x > r.0 {
-                                es.push(EventOverRangeError::new(rowi, i.into(), r.0.into()));
+                            if *x > u64::from(*r) {
+                                es.push(EventOverRangeError::new(rowi, i.into(), r.into()));
                                 if overrange[i].is_none() {
                                     overrange[i] = Some((rowi, false));
                                 }
@@ -4222,7 +4217,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable3(flag)
-            .map_ok_value(|r| self.inner.insert(index.into(), r))
+            .map_ok_value(|r| self.inner.insert(index.into(), DelimAsciiRange(r)))
             .set_err_value(())
     }
 
@@ -4236,7 +4231,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
             .map_errors(RangeToBitmaskError::from)
             .map_errors(InsertRangeError::from)
             .nowarn_into_switchable3(flag)
-            .map_ok_value(|r| self.inner.push(r))
+            .map_ok_value(|r| self.inner.push(DelimAsciiRange(r)))
             .set_err_value(())
     }
 
@@ -4246,7 +4241,7 @@ impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
 }
 
 fn h_read_delim_with_rows<R: Read>(
-    ranges: &[AsciiRangeValue],
+    ranges: &[DelimAsciiRange],
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
@@ -4308,7 +4303,7 @@ fn h_read_delim_with_rows<R: Read>(
 }
 
 fn h_read_delim_without_rows<R: Read>(
-    ranges: &[AsciiRangeValue],
+    ranges: &[DelimAsciiRange],
     h: &mut BufReader<R>,
     nbytes: usize,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
@@ -5274,11 +5269,10 @@ def_native_wrapper!(Bitmask56, U56);
 def_native_wrapper!(Bitmask64, u64);
 def_native_wrapper!(F32Range, f32);
 def_native_wrapper!(F64Range, f64);
-def_native_wrapper!(AsciiRange, u64);
-// TODO confusing, this is for delim ascii
-def_native_wrapper!(AsciiRangeValue, u64);
+def_native_wrapper!(FixedAsciiRange, u64);
+def_native_wrapper!(DelimAsciiRange, u64);
 
-impl HasOneDatatype for AsciiRange {
+impl HasOneDatatype for FixedAsciiRange {
     const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
 }
 
@@ -5367,7 +5361,7 @@ where
     }
 }
 
-impl IntoRange for AsciiRange {
+impl IntoRange for FixedAsciiRange {
     fn as_range(&self) -> (Self::Native, Range) {
         let r = self.value();
         (r.0, r.0.into())
@@ -5423,7 +5417,7 @@ where
     }
 }
 
-impl FromRange for AsciiRange {
+impl FromRange for FixedAsciiRange {
     type Error = RangeToAsciiError;
 
     /// Make new AsciiRange from a float or integer.
@@ -5536,7 +5530,7 @@ where
     }
 }
 
-impl IsFixed for AsciiRange {
+impl IsFixed for FixedAsciiRange {
     fn nbytes(&self) -> NonZeroU8 {
         self.chars().into()
     }
@@ -5738,10 +5732,10 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
         if cs.iter().all(|c| c.width == Width::Variable) {
             cs.into_iter()
                 .enumerate()
-                .map(|(i, c)| AsciiRange::from_range_indexed(c.range, i.into(), flag))
+                .map(|(i, c)| FixedAsciiRange::from_range_indexed(c.range, i.into(), flag))
                 .sequence_def()
                 .map_ok_value(|rs| {
-                    let ranges = rs.iter().map(|r| r.native.value()).collect();
+                    let ranges = rs.iter().map(|r| r.native.value().into()).collect();
                     let non_truncated = rs.into_iter().map(|r| r.non_truncated).collect();
                     let l = DelimAsciiLayout::new_ascii(ranges).into();
                     NewLayout::new(l, non_truncated)
@@ -5749,17 +5743,17 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
                 .map_err_value(|_| ())
         } else {
             DataLayout::try_new(cs, NoByteOrd, |i, c| {
-                AsciiRange::from_width_and_range(c.width, c.range, i, flag)
+                FixedAsciiRange::from_width_and_range(c.width, c.range, i, flag)
             })
             .map_ok_value(FunctorOnce::fmap_into_once)
         }
     }
 
-    fn new_fixed(columns: impl IntoIterator<Item = AsciiRange>) -> Self {
+    fn new_fixed(columns: impl IntoIterator<Item = FixedAsciiRange>) -> Self {
         Self::Fixed(DataLayout::new_ascii(columns.into_iter().collect()))
     }
 
-    fn new_delim(ranges: Vec<AsciiRangeValue>) -> Self {
+    fn new_delim(ranges: Vec<DelimAsciiRange>) -> Self {
         Self::Delimited(DelimAsciiLayout::new_ascii(ranges))
     }
 }
@@ -6202,7 +6196,7 @@ impl DataLayout3_2 {
                     .collect::<Result<Vec<_>, _>>()
             };
         }
-        if let Ok(xs) = go!(AsciiRange) {
+        if let Ok(xs) = go!(FixedAsciiRange) {
             NonMixedEndianLayout::new_ascii_fixed(xs).into()
         } else if let Ok(xs) = go!(AnyNullBitmask) {
             NonMixedEndianLayout::new_uint(xs, endian).into()
@@ -6294,12 +6288,12 @@ impl<T> AnyOrderedLayout<T> {
     }
 
     #[must_use]
-    pub fn new_ascii_fixed(ranges: Vec<AsciiRange>) -> Self {
+    pub fn new_ascii_fixed(ranges: Vec<FixedAsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
     #[must_use]
-    pub fn new_ascii_delim(ranges: Vec<AsciiRangeValue>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<DelimAsciiRange>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
@@ -6505,12 +6499,12 @@ impl<D> NonMixedEndianLayout<D> {
     }
 
     #[must_use]
-    pub fn new_ascii_fixed(ranges: impl IntoIterator<Item = AsciiRange>) -> Self {
+    pub fn new_ascii_fixed(ranges: impl IntoIterator<Item = FixedAsciiRange>) -> Self {
         AnyAsciiLayout::new_fixed(ranges).into()
     }
 
     #[must_use]
-    pub fn new_ascii_delim(ranges: Vec<AsciiRangeValue>) -> Self {
+    pub fn new_ascii_delim(ranges: Vec<DelimAsciiRange>) -> Self {
         AnyAsciiLayout::new_delim(ranges).into()
     }
 
@@ -7322,7 +7316,7 @@ mod python {
 
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
     use crate::text::keywords::AlphaNumType;
-    use crate::validated::ascii_range::{AsciiRange, AsciiRangeValue};
+    use crate::validated::ascii_range::{AsciiRangeValue, FixedAsciiRange};
     use crate::validated::bitmask::BitmaskValue;
 
     use fireflow_types::python::InvalidKeywordValueError;
@@ -7374,7 +7368,7 @@ mod python {
                     Ok(AnyNullBitmask::from(value.extract::<BitmaskValue<u64>>()?).into())
                 }
                 AlphaNumType::Ascii => {
-                    Ok(AsciiRange::from(value.extract::<AsciiRangeValue>()?).into())
+                    Ok(FixedAsciiRange::from(value.extract::<AsciiRangeValue>()?).into())
                 }
             }
         }

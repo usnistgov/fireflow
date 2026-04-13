@@ -557,7 +557,6 @@ impl_generic_enum_from! {
 #[derive(Clone, Delegate, PartialEq)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
-#[delegate(Insertable<Range>)]
 #[delegate(LayoutDatatype, where = "W0: LayoutDims, W: LayoutDims")]
 #[delegate(LayoutKeywords, where = "W0: LayoutDims, W: LayoutDims")]
 #[delegate(LayoutOps<Tot>, generics = "Tot")]
@@ -4602,6 +4601,56 @@ impl<C: FromRange, S, T, D> Insertable<Range> for DataLayout<C, S, T, D> {
     }
 }
 
+// This will try to convert any integer range to the smallest bitmask, so if the
+// existing layout is single width and we pass a new range that requires less
+// bits, this will become a mixed layout. This probably isn't a big deal since
+// most people will hopefully never want to keep a single width layout with one
+// tiny column that doesn't use the entire width. The only advantage would be
+// faster reads and writes since we can assume one width for the read/write
+// loops, but this is a performance consideration and probably affects very few
+// users. Accommodating this level of control would require a more complex API.
+impl<W, C08, C16, C24, C32, C40, C48, C56, C64> Insertable<Range>
+    for AnyEndianUint<AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>, W>
+where
+    W: Insertable<Range, Error = RangeToBitmaskError>,
+    C08: Insertable<Range> + Default + Generalize<W>,
+    C16: Insertable<Range> + Default + Generalize<W>,
+    C24: Insertable<Range> + Default + Generalize<W>,
+    C32: Insertable<Range> + Default + Generalize<W>,
+    C40: Insertable<Range> + Default + Generalize<W>,
+    C48: Insertable<Range> + Default + Generalize<W>,
+    C56: Insertable<Range> + Default + Generalize<W>,
+    C64: Insertable<Range> + Default + Generalize<W>,
+{
+    type Error = RangeToBitmaskError;
+
+    fn insert_nocheck0(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+        match self {
+            Self::Single(x) => match_any_uint!(x, AnyUint, y, {
+                if y.insert_nocheck0(index, col.clone()).is_err() {
+                    *self = Self::Multi(mem::take(y).into_general());
+                    return self.insert_nocheck0(index, col);
+                }
+                Ok(())
+            }),
+            Self::Multi(x) => x.insert_nocheck0(index, col),
+        }
+    }
+
+    fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
+        match self {
+            Self::Single(x) => match_any_uint!(x, AnyUint, y, {
+                if y.push0(col.clone()).is_err() {
+                    *self = Self::Multi(mem::take(y).into_general());
+                    return self.push0(col);
+                }
+                Ok(())
+            }),
+            Self::Multi(x) => x.push0(col),
+        }
+    }
+}
+
 impl<A, I, F32, F64> Insertable<Range> for AnyDatatype<A, I, F32, F64>
 where
     A: Insertable<Range>,
@@ -5664,45 +5713,67 @@ impl<D> AnySingleUintLayout<D> {
     }
 }
 
-trait IntoMixed<T> {
-    fn into_mixed(self) -> T;
+trait Generalize<T> {
+    fn into_general(self) -> T;
 }
 
-impl<C, L, T, D> IntoMixed<MixedLayout> for DataLayout<C, L, T, D>
+impl<C, L, T, D> Generalize<EndianUintLayout<D>> for DataLayout<C, L, T, D>
 where
-    C: Into<MixedRange>,
+    C: Into<AnyNullBitmask>,
     L: Into<Endian>,
 {
-    fn into_mixed(self) -> MixedLayout {
+    fn into_general(self) -> EndianUintLayout<D> {
         self.map_vec(Into::into).byte_layout_into().phantom_into()
     }
 }
 
-impl<T, D, const ORD: bool> IntoMixed<MixedLayout> for AnyAsciiLayout<T, D, ORD>
+impl<C, L, T, D> Generalize<EndianUintDataFrame<D>> for DataFrame<C, L, T, D>
 where
-    NoByteOrd<ORD>: Into<Endian>,
+    C: Into<AnyBitmaskColumn>,
+    L: Into<Endian>,
 {
-    fn into_mixed(self) -> MixedLayout {
-        match_many_to_one!(self, AnyAscii, [Delimited, Fixed], x, { x.into_mixed() })
+    fn into_general(self) -> EndianUintDataFrame<D> {
+        self.map_cols(Into::into).byte_layout_into().phantom_into()
     }
 }
 
-impl<D> IntoMixed<MixedLayout> for AnySingleUintLayout<D> {
-    fn into_mixed(self) -> MixedLayout {
+impl<C, L, T, D> Generalize<MixedLayout> for DataLayout<C, L, T, D>
+where
+    C: Into<MixedRange>,
+    L: Into<Endian>,
+{
+    fn into_general(self) -> MixedLayout {
+        self.map_vec(Into::into).byte_layout_into().phantom_into()
+    }
+}
+
+impl<T, D, const ORD: bool> Generalize<MixedLayout> for AnyAsciiLayout<T, D, ORD>
+where
+    NoByteOrd<ORD>: Into<Endian>,
+{
+    fn into_general(self) -> MixedLayout {
+        match_many_to_one!(self, AnyAscii, [Delimited, Fixed], x, { x.into_general() })
+    }
+}
+
+impl<D> Generalize<MixedLayout> for AnySingleUintLayout<D> {
+    fn into_general(self) -> MixedLayout {
         match_any_uint!(self, Self, x, { x.map_vec(Into::into).phantom_into() })
     }
 }
 
-impl<D> IntoMixed<MixedLayout> for AnyEndianUintLayout<D> {
-    fn into_mixed(self) -> MixedLayout {
-        match_many_to_one!(self, AnyEndianUint, [Single, Multi], x, { x.into_mixed() })
+impl<D> Generalize<MixedLayout> for AnyEndianUintLayout<D> {
+    fn into_general(self) -> MixedLayout {
+        match_many_to_one!(self, AnyEndianUint, [Single, Multi], x, {
+            x.into_general()
+        })
     }
 }
 
-impl<D> IntoMixed<MixedLayout> for NonMixedEndianLayout<D> {
-    fn into_mixed(self) -> MixedLayout {
+impl<D> Generalize<MixedLayout> for NonMixedEndianLayout<D> {
+    fn into_general(self) -> MixedLayout {
         match_many_to_one!(self, AnyDatatype, [Ascii, Uint, F32, F64], x, {
-            x.into_mixed()
+            x.into_general()
         })
     }
 }
@@ -6207,7 +6278,7 @@ impl Insertable<MixedRange> for DataLayout3_2 {
     fn insert_nocheck0(&mut self, index: MeasIndex, col: MixedRange) -> Result<(), Infallible> {
         macro_rules! go_mixed {
             ($from:expr) => {{
-                *self = Self::Mixed(mem::take($from).into_mixed());
+                *self = Self::Mixed(mem::take($from).into_general());
                 self.insert_nocheck0(index, col);
             }};
         }
@@ -6252,7 +6323,7 @@ impl Insertable<MixedRange> for DataLayout3_2 {
     fn push0(&mut self, col: MixedRange) -> Result<(), Infallible> {
         macro_rules! go_mixed {
             ($from:expr) => {{
-                *self = Self::Mixed(mem::take($from).into_mixed());
+                *self = Self::Mixed(mem::take($from).into_general());
                 self.push0(col);
             }};
         }

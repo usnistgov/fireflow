@@ -66,6 +66,12 @@ pub type NoByteOrd2_0 = NoByteOrd<true>;
 
 pub type NoByteOrd3_1 = NoByteOrd<false>;
 
+impl<const ORD: bool> From<NoByteOrd<ORD>> for Endian {
+    fn from(_: NoByteOrd<ORD>) -> Self {
+        Self::default()
+    }
+}
+
 /// The number of bytes for a numeric measurement
 #[derive(Into, Debug, Display)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]

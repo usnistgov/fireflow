@@ -10,11 +10,12 @@ use crate::config::{
 };
 use crate::data::{
     CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
-    DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, InterLayoutOps as _,
-    IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims, LayoutKeywords,
-    LayoutOps, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
-    ReadLayoutOps, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
+    DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, Insertable,
+    InterLayoutOps as _, IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _,
+    LayoutDims, LayoutKeywords, LayoutOps, LookupLayoutError, LookupLayoutWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError,
+    ReadDataframeWarning, ReadLayoutOps, ScaleDatatypeMismatchError, ScaleErrorGroup,
+    VersionedDataLayout,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -3669,17 +3670,19 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<(), (), InsertRangeError, PushTemporalError> {
+        // flag: DisallowRangeTrunc,
+    ) -> ErrorsResult<(), (), PushTemporalError>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
         self.measurements
             .check_push_center(&n)
             .map_errors(PushTemporalError::from)
             .nowarn_and_then(|()| {
                 self.layout
-                    .push(r, flag)
-                    .switchable_into_commutative()
-                    .map_errors(PushTemporalError::from)
-                    .repack_errors()
+                    .push0(r)
+                    .map_err(PushTemporalError::from)
+                    .into_log()
             })
             .when_ok(|| {
                 self.measurements.push_center_nocheck(n, m);
@@ -3694,17 +3697,19 @@ where
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<(), (), InsertRangeError, InsertTemporalError> {
+        // flag: DisallowRangeTrunc,
+    ) -> ErrorsResult<(), (), InsertTemporalError>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
         self.measurements
             .check_insert_center(i, &n)
             .map_errors(InsertTemporalError::from)
             .nowarn_and_then(|()| {
                 self.layout
-                    .insert_nocheck(i, r, flag)
-                    .switchable_into_commutative()
-                    .map_errors(InsertTemporalError::from)
-                    .repack_errors()
+                    .insert_nocheck0(i, r)
+                    .map_err(InsertTemporalError::from)
+                    .into_log()
             })
             .when_ok(|| {
                 self.measurements.insert_center_nocheck(i, n, m);
@@ -3717,8 +3722,11 @@ where
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<Shortname, (), InsertRangeError, PushOpticalError> {
+        // flag: DisallowRangeTrunc,
+    ) -> ErrorsResult<Shortname, (), PushOpticalError>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
         self.measurements
             .check_push(&n)
             .map(Cow::into_owned)
@@ -3726,10 +3734,9 @@ where
             .into_nowarn()
             .nowarn_and_then(|ret| {
                 self.layout
-                    .push(r, flag)
-                    .switchable_into_commutative()
-                    .map_errors(PushOpticalError::from)
-                    .repack_errors()
+                    .push0(r)
+                    .map_err(PushOpticalError::from)
+                    .into_log()
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
@@ -3746,18 +3753,20 @@ where
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        flag: DisallowRangeTrunc,
-    ) -> WarningAndErrorsResult<Shortname, (), InsertRangeError, InsertOpticalError> {
+        // flag: DisallowRangeTrunc,
+    ) -> ErrorsResult<Shortname, (), InsertOpticalError>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
         self.measurements
             .check_insert(i, &n)
             .map_ok_value(Cow::into_owned)
             .map_errors(InsertOpticalError::from)
             .nowarn_and_then(|ret| {
                 self.layout
-                    .insert_nocheck(i, r, flag)
-                    .switchable_into_commutative()
-                    .map_errors(InsertOpticalError::from)
-                    .repack_errors()
+                    .insert_nocheck0(i, r)
+                    .map_err(InsertOpticalError::from)
+                    .into_log()
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
@@ -4729,9 +4738,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalError, PushTemporalSummary> {
-        self.push_temporal_inner(n, m, r, disallow_trunc).group()
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<(), PushTemporalError, PushTemporalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
+        self.push_temporal_inner(n, m, r).group().resolve_nowarn()
     }
 
     /// Add time measurement at the given position
@@ -4744,11 +4756,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: Shortname,
         m: Temporal<M::Temporal>,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<(), InsertRangeError, InsertTemporalError, InsertTemporalSummary>
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<(), InsertTemporalError, InsertTemporalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
     {
-        self.insert_temporal_inner(i, n, m, r, disallow_trunc)
+        self.insert_temporal_inner(i, n, m, r)
             .group()
+            .resolve_nowarn()
     }
 
     /// Add optical measurement to the end of the measurement vector
@@ -4759,10 +4774,12 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<Shortname, InsertRangeError, PushOpticalError, PushOpticalSummary>
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<Shortname, PushOpticalError, PushOpticalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
     {
-        self.push_optical_inner(n, m, r, disallow_trunc).group()
+        self.push_optical_inner(n, m, r).group().resolve_nowarn()
     }
 
     /// Add optical measurement at a given position
@@ -4774,11 +4791,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         n: M::Name,
         m: Optical<M::Optical>,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<Shortname, InsertRangeError, InsertOpticalError, InsertOpticalSummary>
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<Shortname, InsertOpticalError, InsertOpticalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
     {
-        self.insert_optical_inner(i, n, m, r, disallow_trunc)
+        self.insert_optical_inner(i, n, m, r)
             .group()
+            .resolve_nowarn()
     }
 
     /// Remove measurements
@@ -5231,19 +5251,22 @@ where
         m: Temporal<M::Temporal>,
         col: AnyPrimitiveColumn,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<(), InsertRangeError, PushTemporalToDatasetError, PushTemporalSummary>
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<(), PushTemporalToDatasetError, PushTemporalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
     {
         self.data
             .check_new_column(&col)
             .map_err(PushTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_temporal_inner(n, m, r, disallow_trunc)
+                self.push_temporal_inner(n, m, r)
                     .map_errors(PushTemporalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
             .group()
+            .resolve_nowarn()
     }
 
     /// Add time measurement at the given position
@@ -5257,25 +5280,24 @@ where
         m: Temporal<M::Temporal>,
         col: AnyPrimitiveColumn,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<
-        (),
-        InsertRangeError,
-        InsertTemporalToDatasetError,
-        InsertTemporalSummary,
-    > {
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<(), InsertTemporalToDatasetError, InsertTemporalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
         self.data
             .check_new_column(&col)
             .map_err(InsertTemporalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_temporal_inner(i, n, m, r, disallow_trunc)
+                self.insert_temporal_inner(i, n, m, r)
                     .map_errors(InsertTemporalToDatasetError::from)
             })
             .when_ok(|| {
                 self.data.insert_column_nocheck(i.into(), col);
             })
             .group()
+            .resolve_nowarn()
     }
 
     /// Add measurement to the end of the measurement vector
@@ -5287,23 +5309,22 @@ where
         m: Optical<M::Optical>,
         col: AnyPrimitiveColumn,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<
-        Shortname,
-        InsertRangeError,
-        PushOpticalToDatasetError,
-        PushOpticalSummary,
-    > {
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<Shortname, PushOpticalToDatasetError, PushOpticalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
         self.data
             .check_new_column(&col)
             .map_err(PushOpticalToDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.push_optical_inner(n, m, r, disallow_trunc)
+                self.push_optical_inner(n, m, r)
                     .map_errors(PushOpticalToDatasetError::from)
             })
             .when_ok(|| self.data.push_column_nocheck(col))
             .group()
+            .resolve_nowarn()
     }
 
     /// Add measurement at a given position
@@ -5316,23 +5337,22 @@ where
         m: Optical<M::Optical>,
         col: AnyPrimitiveColumn,
         r: Range,
-        disallow_trunc: DisallowRangeTrunc,
-    ) -> WarningAndGroupResult<
-        Shortname,
-        InsertRangeError,
-        InsertOpticalInDatasetError,
-        InsertOpticalSummary,
-    > {
+        // disallow_trunc: DisallowRangeTrunc,
+    ) -> GroupResult<Shortname, InsertOpticalInDatasetError, InsertOpticalSummary>
+    where
+        <M::Ver as Versioned>::Layout: Insertable<Range, Error = InsertRangeError>,
+    {
         self.data
             .check_new_column(&col)
             .map_err(InsertOpticalInDatasetError::from)
             .into_nowarn()
             .nowarn_and_then(|()| {
-                self.insert_optical_inner(i, n, m, r, disallow_trunc)
+                self.insert_optical_inner(i, n, m, r)
                     .map_errors(InsertOpticalInDatasetError::from)
             })
             .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
             .group()
+            .resolve_nowarn()
     }
 
     /// Convert this struct into [`CoreTEXT`].

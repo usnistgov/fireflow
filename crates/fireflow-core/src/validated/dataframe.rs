@@ -872,6 +872,7 @@ impl<C> FFDataFrame<C> {
         }
     }
 
+    // TODO why called nocheck?
     pub(crate) fn push_column_nocheck(&mut self, col: C)
     where
         C: HasLen,

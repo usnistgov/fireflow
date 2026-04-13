@@ -8,6 +8,16 @@ macro_rules! match_many_to_one {
             )*
         }
     };
+
+    ($value:expr, $root:ident, [$($variant:ident),*], mut $inner:ident, $action:block) => {
+        match $value {
+            $(
+                $root::$variant(mut $inner) => {
+                    $action
+                },
+            )*
+        }
+    };
 }
 
 pub(crate) use match_many_to_one;

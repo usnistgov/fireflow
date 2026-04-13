@@ -878,7 +878,7 @@ impl From<AnyOrderedLayout<Identity<kws::Tot>>> for PyOrderedLayout {
                 AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
                 AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.into()),
             },
-            AnyOrderedLayout::Integer(x) => match x {
+            AnyOrderedLayout::Uint(x) => match x {
                 AnyOrderedUintLayout::Uint08(y) => Self::Uint08(y.into()),
                 AnyOrderedUintLayout::Uint16(y) => Self::Uint16(y.into()),
                 AnyOrderedUintLayout::Uint24(y) => Self::Uint24(y.into()),

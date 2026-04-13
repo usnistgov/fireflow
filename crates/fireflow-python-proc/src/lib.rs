@@ -2663,7 +2663,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .args([DocArg::new_range_param(), DocArg::new_notrunc_param()])
+            .arg(DocArg::new_range_param())
     };
 
     let opt_doc = push_meas_doc(true, is_dataset);
@@ -2680,17 +2680,14 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         impl #i {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
-                self.0
-                    .push_optical(#opt_inner_args)
-                    .py_resolve_commutative()
-                    .map(|_| ())
+                let _ = self.0.push_optical(#opt_inner_args)?;
+                Ok(())
             }
 
             #tmp_doc
             fn push_temporal(&mut self, #tmp_fun_args) -> PyResult<()> {
-                self.0
-                    .push_temporal(#tmp_inner_args)
-                    .py_resolve_commutative()
+                self.0.push_temporal(#tmp_inner_args)?;
+                Ok(())
             }
         }
     }
@@ -2821,7 +2818,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .args([DocArg::new_range_param(), DocArg::new_notrunc_param()])
+            .arg(DocArg::new_range_param())
     };
 
     let opt_doc = insert_meas_doc(true, is_dataset);
@@ -2841,10 +2838,8 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #opt_fun_args
             ) -> PyResult<()> {
-                self.0
-                    .insert_optical(#opt_inner_args)
-                    .py_resolve_commutative()
-                    .map(|_| ())
+                let _ = self.0.insert_optical(#opt_inner_args)?;
+                Ok(())
             }
 
             #tmp_doc
@@ -2852,9 +2847,8 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #tmp_fun_args
             ) -> PyResult<()> {
-                self.0
-                    .insert_temporal(#tmp_inner_args)
-                    .py_resolve_commutative()
+                self.0.insert_temporal(#tmp_inner_args)?;
+                Ok(())
             }
         }
     }
@@ -8016,11 +8010,11 @@ impl DocArgParam {
         Self::new_param("range", PyDecimal::new_range(), desc)
     }
 
-    fn new_notrunc_param() -> Self {
-        let d = "Disallow range to be truncated if required to fit in column's data type.";
-        let e = PyreflowError::InvalidKeywordValue;
-        Self::new_tri_flag_param("disallow_trunc", false, "DisallowRangeTrunc", d, e)
-    }
+    // fn new_notrunc_param() -> Self {
+    //     let d = "Disallow range to be truncated if required to fit in column's data type.";
+    //     let e = PyreflowError::InvalidKeywordValue;
+    //     Self::new_tri_flag_param("disallow_trunc", false, "DisallowRangeTrunc", d, e)
+    // }
 
     fn new_allow_loss_param(desc: impl fmt::Display) -> Self {
         let e = PyreflowError::Conversion;

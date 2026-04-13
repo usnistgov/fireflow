@@ -58,7 +58,7 @@ use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
 };
 use crate::logging::{
-    CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
+    CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
     ImpureError, LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult,
     WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
@@ -100,7 +100,7 @@ use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 use fireflow_core_proc::impl_generic_enum_from;
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
-use type_families::{Functor, FunctorOnce, impl_functor_once, impl_kind1};
+use type_families::{Functor, FunctorOnce, impl_functor, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
@@ -143,6 +143,7 @@ use {
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
+#[delegate(Insertable<Range>)]
 #[delegate(LayoutOps<Option<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -162,6 +163,7 @@ pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
+#[delegate(Insertable<Range>)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -182,6 +184,7 @@ pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
+#[delegate(Insertable<Range>)]
 #[delegate(LayoutOps<Identity<Tot>>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -246,7 +249,7 @@ pub type MixedDataFrame = DataFrame<MixedColumn, Endian, Identity<Tot>, Option<N
 /// It is so named "Ordered" because the $BYTEORD keyword represents any
 /// possible byte ordering that may occur rather than simply little or big
 /// endian.
-pub type AnyOrderedLayout<T> = AnyOrdered<
+pub type AnyOrderedLayout<T> = AnyDatatype<
     AnyAsciiLayout<T, Nothing<NumType>, true>,
     AnyOrderedUintLayout<T>,
     OrderedLayout<F32Range, T>,
@@ -256,7 +259,7 @@ pub type AnyOrderedLayout<T> = AnyOrdered<
 impl_generic_enum_from! {
     AnyOrderedLayout<T>,
     Ascii <- AnyAsciiLayout<T, Nothing<NumType>, true>,
-    Integer <- AnyOrderedUintLayout<T>,
+    Uint <- AnyOrderedUintLayout<T>,
     F32 <- OrderedLayout<F32Range, T>,
     F64 <- OrderedLayout<F64Range, T>
 }
@@ -266,7 +269,7 @@ impl_generic_enum_from! {
 /// It is so named "Ordered" because the $BYTEORD keyword represents any
 /// possible byte ordering that may occur rather than simply little or big
 /// endian.
-pub type AnyOrderedDataFrame<T> = AnyOrdered<
+pub type AnyOrderedDataFrame<T> = AnyDatatype<
     AnyAsciiDataFrame<T, Nothing<NumType>, true>,
     AnyOrderedUintDataFrame<T>,
     OrderedDataFrame<F32Range, T>,
@@ -276,34 +279,34 @@ pub type AnyOrderedDataFrame<T> = AnyOrdered<
 impl_generic_enum_from! {
     AnyOrderedDataFrame<T>,
     Ascii <- AnyAsciiDataFrame<T, Nothing<NumType>, true>,
-    Integer <- AnyOrderedUintDataFrame<T>,
+    Uint <- AnyOrderedUintDataFrame<T>,
     F32 <- OrderedDataFrame<F32Range, T>,
     F64 <- OrderedDataFrame<F64Range, T>
 }
 
-/// Generic container for DATA configurations in 2.0 and 3.0.
-// TODO false positive lint
-#[allow(clippy::duplicated_attributes)]
-#[derive(Clone, Delegate, PartialEq)]
-#[delegate(LayoutDims)]
-#[delegate(LayoutRanges)]
-#[delegate(
-    LayoutDatatype,
-    where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
-)]
-#[delegate(
-    LayoutKeywords,
-    where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
-)]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
-#[delegate(InterLayoutOps<Nothing<NumType>>)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyOrdered<A, I, F32, F64> {
-    Ascii(A),
-    Integer(I),
-    F32(F32),
-    F64(F64),
-}
+// /// Generic container for DATA configurations in 2.0 and 3.0.
+// // TODO false positive lint
+// #[allow(clippy::duplicated_attributes)]
+// #[derive(Clone, Delegate, PartialEq)]
+// #[delegate(LayoutDims)]
+// #[delegate(LayoutRanges)]
+// #[delegate(
+//     LayoutDatatype,
+//     where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
+// )]
+// #[delegate(
+//     LayoutKeywords,
+//     where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
+// )]
+// #[delegate(LayoutOps<Tot>, generics = "Tot")]
+// #[delegate(InterLayoutOps<Nothing<NumType>>)]
+// #[cfg_attr(feature = "serde", derive(Serialize))]
+// pub enum AnyOrdered<A, I, F32, F64> {
+//     Ascii(A),
+//     Integer(I),
+//     F32(F32),
+//     F64(F64),
+// }
 
 // TODO add single and multi-int enum node level to allow optimizations
 /// All possible endian layouts with the same datatype (3.1)
@@ -361,6 +364,7 @@ pub type AnyAsciiDataFrame<T, D, const ORD: bool> =
 #[derive(Clone, Delegate, PartialEq)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
+#[delegate(Insertable<Range>)]
 #[delegate(LayoutDatatype, where = "D: LayoutDims, F: LayoutDims")]
 #[delegate(LayoutKeywords, where = "D: LayoutDims, F: LayoutDims")]
 #[delegate(LayoutOps<Tot>, generics = "Tot")]
@@ -402,6 +406,7 @@ pub type NativeColumn<C> = AnnotatedColumn<
 /// DATA layout where each column has a fixed width.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[new(visibility(""))]
 pub struct ColumnGroup<Cols, Layout, TotType, Dtype> {
     inner: Cols,
     #[as_ref(Layout)]
@@ -410,6 +415,30 @@ pub struct ColumnGroup<Cols, Layout, TotType, Dtype> {
     _tot_def: PhantomData<TotType>,
     #[cfg_attr(feature = "serde", serde(skip))]
     _meas_data_def: PhantomData<Dtype>,
+}
+
+impl<C: Default, L: Default, T, D> Default for ColumnGroup<C, L, T, D> {
+    fn default() -> Self {
+        Self::new(C::default(), L::default())
+    }
+}
+
+impl<C, L, T, D> DataLayout<C, L, T, D> {
+    fn map_vec<Cf, F>(self, f: F) -> DataLayout<Cf, L, T, D>
+    where
+        F: Fn(C) -> Cf,
+    {
+        DataLayout::new(self.inner.fmap(f), self.byte_layout)
+    }
+}
+
+impl<C, L, T, D> DataFrame<C, L, T, D> {
+    fn map_cols<Cf, F>(self, f: F) -> DataFrame<Cf, L, T, D>
+    where
+        F: Fn(C) -> Cf,
+    {
+        DataFrame::new(self.inner.fmap(f), self.byte_layout)
+    }
 }
 
 /// DATA layout for integers that may be in any byte order.
@@ -528,6 +557,7 @@ impl_generic_enum_from! {
 #[derive(Clone, Delegate, PartialEq)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
+#[delegate(Insertable<Range>)]
 #[delegate(LayoutDatatype, where = "W0: LayoutDims, W: LayoutDims")]
 #[delegate(LayoutKeywords, where = "W0: LayoutDims, W: LayoutDims")]
 #[delegate(LayoutOps<Tot>, generics = "Tot")]
@@ -549,7 +579,17 @@ macro_rules! match_any_uint {
             $inner,
             $action
         )
-    };
+    }; // ($value:expr, $root:ident, mut $inner:ident, $action:block) => {
+       //     match_many_to_one!(
+       //         $value,
+       //         $root,
+       //         [
+       //             Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
+       //         ],
+       //         mut $inner,
+       //         $action
+       //     )
+       // };
 }
 
 pub type OrderedLayout<C, T> = DataLayout<
@@ -686,6 +726,7 @@ pub type MixedColumn = AnyDatatype<
 #[delegate(HasLen)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
+#[delegate(Insertable<Range>)]
 #[delegate(
     LayoutDatatype,
     where = "C08: LayoutDims, \
@@ -842,7 +883,7 @@ struct ComputedRowsResult {
 
 /// Output of converting $PnR to native rust type.
 #[derive(new)]
-pub(crate) struct ConvertedRange<T> {
+pub struct ConvertedRange<T> {
     /// The native value
     pub(crate) native: T,
 
@@ -850,7 +891,7 @@ pub(crate) struct ConvertedRange<T> {
     pub(crate) non_truncated: Option<Range>,
 }
 
-impl_kind1!(pub(crate) ConvertedRangeFamily, ConvertedRange);
+impl_kind1!(pub ConvertedRangeFamily, ConvertedRange);
 
 impl_functor_once!(
     ConvertedRange,
@@ -1167,13 +1208,23 @@ impl IntoEmptyDataFrame for MixedLayout {
     }
 }
 
+macro_rules! match_any_mixed {
+    ($value:expr, $inner:ident, $action:block) => {
+        match_many_to_one!(
+            $value,
+            AnyDatatype,
+            [Ascii, Uint, F32, F64],
+            $inner,
+            $action
+        )
+    };
+}
+
 impl<T> IntoEmptyDataFrame for AnyOrderedLayout<T> {
     type DfTarget = AnyOrderedDataFrame<T>;
 
     fn empty(&self) -> Self::DfTarget {
-        match_many_to_one!(self, AnyOrderedLayout, [Ascii, Integer, F32, F64], x, {
-            AnyOrderedDataFrame::from(x.empty())
-        })
+        match_any_mixed!(self, x, { AnyOrderedDataFrame::from(x.empty()) })
     }
 }
 
@@ -1193,17 +1244,13 @@ impl<TotType> ReadLayoutOps<TotType> for AnyOrderedLayout<TotType> {
     where
         TotType: IsTot,
     {
-        match_many_to_one!(self, AnyOrderedLayout, [Ascii, Integer, F32, F64], x, {
-            x.h_read_into(h, tot, seg, conf)
-        })
+        match_any_mixed!(self, x, { x.h_read_into(h, tot, seg, conf) })
     }
 }
 
 impl<T> From<AnyOrderedDataFrame<T>> for PrimitiveDataFrame {
     fn from(value: AnyOrderedDataFrame<T>) -> Self {
-        match_many_to_one!(value, AnyOrderedDataFrame, [Ascii, Integer, F32, F64], x, {
-            x.into()
-        })
+        match_any_mixed!(value, x, { x.into() })
     }
 }
 
@@ -1640,18 +1687,6 @@ macro_rules! decl_mixed_read {
             }
             Ok(())
         }
-    };
-}
-
-macro_rules! match_any_mixed {
-    ($value:expr, $inner:ident, $action:block) => {
-        match_many_to_one!(
-            $value,
-            AnyDatatype,
-            [Ascii, Uint, F32, F64],
-            $inner,
-            $action
-        )
     };
 }
 
@@ -2452,25 +2487,23 @@ impl_functor_once!(
     DataFrameResult::new(f(self.dataframe), self.diagnostics)
 );
 
+/// A type which can accept a new range but might fail due to type mismatch.
+#[delegatable_trait]
+pub trait Insertable<Column> {
+    type Error;
+
+    /// Insert a new column at index.
+    ///
+    /// This will panic if index is out of bounds.
+    fn insert_nocheck0(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error>;
+
+    /// Push new column to the right of the current column vector.
+    fn push0(&mut self, col: Column) -> Result<(), Self::Error>;
+}
+
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
-
-    // no need to check since this will be done after validating that the index
-    // is within the measurement vector, which has its own check and should
-    // always be the same length
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError>;
-
-    fn push(
-        &mut self,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError>;
 
     fn clear(&mut self);
 }
@@ -2670,13 +2703,23 @@ trait HasDatatype: Sized {
     fn datatype_from_columns(cs: &[Self]) -> AlphaNumType;
 }
 
-pub(crate) trait FromRange: Sized {
+pub trait FromRange: Sized {
     type Error;
 
-    fn from_range(
+    fn from_range(range: Range) -> Result<ConvertedRange<Self>, Self::Error> {
+        Self::from_range_inner(range)
+            .set_err_value(())
+            .resolve_nowarn()
+    }
+
+    fn from_range_switch(
         range: Range,
         flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error>;
+    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
+        Self::from_range_inner(range).nowarn_into_switchable3(flag)
+    }
+
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error>;
 }
 
 trait IntoRange: HasNativeType {
@@ -3005,6 +3048,15 @@ impl<C08, C16, C24, C32, C40, C48, C56, C64> From<&AnyUint<C08, C16, C24, C32, C
 impl From<FixedAsciiRange> for MixedRange {
     fn from(value: FixedAsciiRange) -> Self {
         Self::Ascii(value)
+    }
+}
+
+impl From<DelimAsciiRange> for MixedRange {
+    fn from(value: DelimAsciiRange) -> Self {
+        // this will automatically make any delimited ASCII layout a fixed
+        // layout if we go to mixed, which seems sane if not an exceedingly rare
+        // use case.
+        Self::Ascii(value.into())
     }
 }
 
@@ -3748,7 +3800,7 @@ impl<T> FloatRange<T> {
             .map_errors(FloatWidthError::from)
             .and_then_commutative(|bytes| {
                 if usize::from(u8::from(bytes)) == T::file_len() {
-                    Self::from_range(range, flag)
+                    Self::from_range_switch(range, flag)
                         .set_err_value(())
                         .map_switchable_errors(|e| IndexedError::new(i, e))
                         .map_switchable_errors(IndexedFloatRangeError)
@@ -3897,7 +3949,7 @@ impl AnyNullBitmask {
     {
         macro_rules! go {
             ($t:ident) => {
-                $t::from_range(range, flag).map_deferred_value(FunctorOnce::fmap_into_once)
+                $t::from_range_switch(range, flag).map_deferred_value(FunctorOnce::fmap_into_once)
             };
         }
         let ret = match width {
@@ -4197,49 +4249,6 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
     }
 }
 
-impl<T, D, const ORD: bool> InterLayoutOps<D> for DelimAsciiLayout<T, D, ORD> {
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        self.inner.iter().map(|_| None).collect()
-    }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
-        debug_assert!(
-            usize::from(index) <= self.inner.len(),
-            "Index should be less than/equal to number of columns"
-        );
-        range
-            .into_ascii_uint()
-            .map_errors(RangeToBitmaskError::from)
-            .map_errors(InsertRangeError::from)
-            .nowarn_into_switchable3(flag)
-            .map_ok_value(|r| self.inner.insert(index.into(), DelimAsciiRange(r)))
-            .set_err_value(())
-    }
-
-    fn push(
-        &mut self,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
-        range
-            .into_ascii_uint()
-            .map_errors(RangeToBitmaskError::from)
-            .map_errors(InsertRangeError::from)
-            .nowarn_into_switchable3(flag)
-            .map_ok_value(|r| self.inner.push(DelimAsciiRange(r)))
-            .set_err_value(())
-    }
-
-    fn clear(&mut self) {
-        self.inner.clear();
-    }
-}
-
 fn h_read_delim_with_rows<R: Read>(
     ranges: &[DelimAsciiRange],
     h: &mut BufReader<R>,
@@ -4356,12 +4365,6 @@ fn h_read_delim_without_rows<R: Read>(
     Ok(data)
 }
 
-impl<C, S: Default, T, D> Default for DataLayout<C, S, T, D> {
-    fn default() -> Self {
-        Self::new(vec![], S::default())
-    }
-}
-
 impl<C: HasWidth, S, T, D> LayoutDims for ColumnGroup<C, S, T, D> {
     fn ncols(&self) -> usize {
         self.inner.width()
@@ -4420,12 +4423,12 @@ where
     D: IsNumType,
     T: IsTot,
     // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
-    C: Clone + IsFixed + HasDatatype + FromRange,
+    C: Clone + IsFixed + HasDatatype,
     S: Copy + HasByteOrd,
     for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
     for<'c> Range: From<&'c C>,
     // <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
-    InsertRangeError: From<<C as FromRange>::Error>,
+    // InsertRangeError: From<<C as FromRange>::Error>,
 {
     // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
     //     usize_to_u64(self.event_width() * df.nrows())
@@ -4585,41 +4588,44 @@ where
     }
 }
 
-impl<C, S, T, D> InterLayoutOps<D> for DataLayout<C, S, T, D>
+impl<C: FromRange, S, T, D> Insertable<Range> for DataLayout<C, S, T, D> {
+    type Error = C::Error;
+
+    fn insert_nocheck0(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+        self.inner.insert(index.into(), C::from_range(col)?.native);
+        Ok(())
+    }
+
+    fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
+        self.inner.push(C::from_range(col)?.native);
+        Ok(())
+    }
+}
+
+impl<A, I, F32, F64> Insertable<Range> for AnyDatatype<A, I, F32, F64>
 where
-    T: IsTot,
-    // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
-    C: Clone + IsFixed + HasDatatype + FromRange,
-    S: Copy + HasByteOrd,
-    for<'c> Range: From<&'c C>,
-    // <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
-    InsertRangeError: From<<C as FromRange>::Error>,
+    A: Insertable<Range>,
+    I: Insertable<Range>,
+    F32: Insertable<Range>,
+    F64: Insertable<Range>,
+    InsertRangeError: From<A::Error> + From<I::Error> + From<F32::Error> + From<F64::Error>,
 {
+    type Error = InsertRangeError;
+
+    fn insert_nocheck0(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+        match_any_mixed!(self, x, {
+            x.insert_nocheck0(index, col).map_err(Self::Error::from)
+        })
+    }
+
+    fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
+        match_any_mixed!(self, x, { x.push0(col).map_err(Self::Error::from) })
+    }
+}
+
+impl<C, S, T, D> InterLayoutOps<D> for DataLayout<C, S, T, D> {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         self.inner.iter().map(|_| None).collect()
-    }
-
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
-        C::from_range(range, flag)
-            .map_switchable_errors(InsertRangeError::from)
-            .map_ok_value(|col| self.insert_column_nocheck(index, col.native))
-            .set_err_value(())
-    }
-
-    fn push(
-        &mut self,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
-        C::from_range(range, flag)
-            .map_switchable_errors(InsertRangeError::from)
-            .map_ok_value(|col| self.push_column(col.native))
-            .set_err_value(())
     }
 
     fn clear(&mut self) {
@@ -4644,7 +4650,7 @@ impl<C, L, T, D> ColumnGroup<C, L, T, D> {
 
     fn byte_layout_into<Lf>(self) -> ColumnGroup<C, Lf, T, D>
     where
-        Lf: From<L>,
+        L: Into<Lf>,
     {
         ColumnGroup::new(self.inner, self.byte_layout.into())
     }
@@ -5202,54 +5208,58 @@ where
     }
 }
 
-impl<C> EndianLayout<C, Option<NumType>> {
-    fn insert_mixed(
-        mut self,
-        index: MeasIndex,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, InsertRangeError>
-    where
-        C: TryFrom<MixedRange, Error = MixedToNonMixedError>,
-        MixedRange: From<C>,
-        NonMixedEndianLayout<Option<NumType>>: From<Self>,
-    {
-        MixedRange::from_range(range, flag).map_deferred_value(|col| match col.native.try_into() {
-            Ok(c) => {
-                self.insert_column_nocheck(index, c);
-                DataLayout3_2::NonMixed(self.into())
-            }
-            Err(e) => {
-                let mut z = self.columns_into();
-                z.insert_column_nocheck(index, e.src);
-                z.into()
-            }
-        })
-    }
+// impl<C> EndianLayout<C, Option<NumType>> {
+//     fn insert_mixed(
+//         mut self,
+//         index: MeasIndex,
+//         range: Range,
+//         flag: DisallowRangeTrunc,
+//     ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, InsertRangeError>
+//     where
+//         C: TryFrom<MixedRange, Error = MixedToNonMixedError>,
+//         MixedRange: From<C>,
+//         NonMixedEndianLayout<Option<NumType>>: From<Self>,
+//     {
+//         MixedRange::from_range_switch(range, flag).map_deferred_value(|col| {
+//             match col.native.try_into() {
+//                 Ok(c) => {
+//                     self.insert_column_nocheck(index, c);
+//                     DataLayout3_2::NonMixed(self.into())
+//                 }
+//                 Err(e) => {
+//                     let mut z = self.columns_into();
+//                     z.insert_column_nocheck(index, e.src);
+//                     z.into()
+//                 }
+//             }
+//         })
+//     }
 
-    fn push_mixed(
-        mut self,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, InsertRangeError>
-    where
-        C: TryFrom<MixedRange, Error = MixedToNonMixedError>,
-        MixedRange: From<C>,
-        NonMixedEndianLayout<Option<NumType>>: From<Self>,
-    {
-        MixedRange::from_range(range, flag).map_deferred_value(|col| match col.native.try_into() {
-            Ok(c) => {
-                self.push_column(c);
-                DataLayout3_2::NonMixed(self.into())
-            }
-            Err(e) => {
-                let mut z = self.columns_into();
-                z.push_column(e.src);
-                z.into()
-            }
-        })
-    }
-}
+//     fn push_mixed(
+//         mut self,
+//         range: Range,
+//         flag: DisallowRangeTrunc,
+//     ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, InsertRangeError>
+//     where
+//         C: TryFrom<MixedRange, Error = MixedToNonMixedError>,
+//         MixedRange: From<C>,
+//         NonMixedEndianLayout<Option<NumType>>: From<Self>,
+//     {
+//         MixedRange::from_range_switch(range, flag).map_deferred_value(|col| {
+//             match col.native.try_into() {
+//                 Ok(c) => {
+//                     self.push_column(c);
+//                     DataLayout3_2::NonMixed(self.into())
+//                 }
+//                 Err(e) => {
+//                     let mut z = self.columns_into();
+//                     z.push_column(e.src);
+//                     z.into()
+//                 }
+//             }
+//         })
+//     }
+// }
 
 macro_rules! def_native_wrapper {
     ($name:path, $native:ty) => {
@@ -5379,10 +5389,7 @@ where
 {
     type Error = RangeToBitmaskError;
 
-    fn from_range(
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
         range
             .clone()
             .into_uint()
@@ -5393,7 +5400,6 @@ where
                     .map_ok_value(|n| ConvertedRange::new(n, None))
                     .map_err_value(|n| ConvertedRange::new(n, Some(range)))
             })
-            .nowarn_into_switchable3(flag)
     }
 }
 
@@ -5403,42 +5409,55 @@ where
 {
     type Error = DecimalToFloatError;
 
-    fn from_range(
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
         range
             .clone()
             .into_float()
             .map_deferred_value(Self::new)
             .map_ok_value(|n| ConvertedRange::new(n, None))
             .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            .nowarn_into_switchable3(flag)
     }
 }
 
-impl FromRange for FixedAsciiRange {
+impl FromRange for AsciiRangeValue {
     type Error = RangeToAsciiError;
 
     /// Make new AsciiRange from a float or integer.
     ///
     /// The number of chars will be automatically selected as the minimum
     /// required to express the range.
-    fn from_range(
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
         range
             .clone()
             .into_ascii_uint()
-            .map_deferred_value(Self::from)
             .map_errors(RangeToAsciiError::from)
             .map_ok_value(|n| ConvertedRange::new(n, None))
             .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            .nowarn_into_switchable3(flag)
     }
 }
 
+impl FromRange for FixedAsciiRange {
+    type Error = RangeToAsciiError;
+
+    /// Make new [`FixedAsciiRange`] from a float or integer.
+    ///
+    /// The number of chars will be automatically selected as the minimum
+    /// required to express the range.
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        AsciiRangeValue::from_range_inner(range).map_deferred_value(|x| x.fmap_into())
+    }
+}
+
+impl FromRange for DelimAsciiRange {
+    type Error = RangeToAsciiError;
+
+    /// Make new [`DelimAsciiRange`] from a float or integer.
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        AsciiRangeValue::from_range_inner(range).map_deferred_value(|x| x.fmap_into())
+    }
+}
+
+// // TODO this might be in the same category as next
 impl FromRange for AnyNullBitmask {
     type Error = RangeToBitmaskError;
 
@@ -5446,10 +5465,7 @@ impl FromRange for AnyNullBitmask {
     ///
     /// The size will be determined by the input and will be kept as small as
     /// possible.
-    fn from_range(
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
         range
             .clone()
             .into_uint()
@@ -5457,52 +5473,80 @@ impl FromRange for AnyNullBitmask {
             .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
             .map_ok_value(|n| ConvertedRange::new(n, None))
             .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            .nowarn_into_switchable3(flag)
     }
 }
 
-impl FromRange for MixedRange {
-    type Error = InsertRangeError;
+// // TODO this isn't a very good impl for this since the type is determined by the
+// // value, but many values can map to multiple types.
+// impl FromRange for MixedRange {
+//     type Error = InsertRangeError;
 
-    /// Create a mixed type based on the range.
-    ///
-    /// If int is supplied, return one of the uint types depending on size. If
-    /// float is supplied, return f64 if range extends beyond the bounds of f32,
-    /// otherwise use f32 (note that precision is not taken into consideration).
-    ///
-    /// ASCII will never be returned. This method will never fail.
-    fn from_range(
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
-        if range.0.is_integer() {
-            AnyUint::from_range(range, flag)
-                .map_deferred_value(|x| x.fmap_once(Self::Uint))
-                .map_switchable_errors(InsertRangeError::from)
-        } else {
-            let go = |x| {
-                let ret = ConvertedRange::new(x, None);
-                SwitchableErrorResult::new_switchable_ok(ret, flag)
-            };
-            match FloatDecimal::<f32>::try_from(range.0.clone()) {
-                Ok(r) => go(Self::F32(FloatRange::new(r))),
-                Err(e) => match FloatDecimal::<f64>::try_from(e.src) {
-                    Ok(r) => go(Self::F64(FloatRange::new(r))),
-                    Err(ee) => {
-                        let m = if ee.over {
-                            f64::max_decimal()
-                        } else {
-                            f64::min_decimal()
-                        };
-                        let f = ConvertedRange::new(Self::F64(FloatRange::new(m)), Some(range));
-                        SwitchableErrorResult::new_deferred_switchable3(f, ee, flag)
-                            .map_switchable_errors(InsertRangeError::from)
-                    }
-                },
-            }
-        }
-    }
-}
+//     // /// Create a mixed type based on the range.
+//     // ///
+//     // /// If int is supplied, return one of the uint types depending on size. If
+//     // /// float is supplied, return f64 if range extends beyond the bounds of f32,
+//     // /// otherwise use f32 (note that precision is not taken into consideration).
+//     // ///
+//     // /// ASCII will never be returned. This method will never fail.
+//     // fn from_range_switch(
+//     //     range: Range,
+//     //     flag: DisallowRangeTrunc,
+//     // ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
+//     //     unimplemented!()
+//     //     // if range.0.is_integer() {
+//     //     //     AnyUint::from_range(range, flag)
+//     //     //         .map_deferred_value(|x| x.fmap_once(Self::Uint))
+//     //     //         .map_switchable_errors(InsertRangeError::from)
+//     //     // } else {
+//     //     //     let go = |x| {
+//     //     //         let ret = ConvertedRange::new(x, None);
+//     //     //         SwitchableErrorResult::new_switchable_ok(ret, flag)
+//     //     //     };
+//     //     //     match FloatDecimal::<f32>::try_from(range.0.clone()) {
+//     //     //         Ok(r) => go(Self::F32(FloatRange::new(r))),
+//     //     //         Err(e) => match FloatDecimal::<f64>::try_from(e.src) {
+//     //     //             Ok(r) => go(Self::F64(FloatRange::new(r))),
+//     //     //             Err(ee) => {
+//     //     //                 let m = if ee.over {
+//     //     //                     f64::max_decimal()
+//     //     //                 } else {
+//     //     //                     f64::min_decimal()
+//     //     //                 };
+//     //     //                 let f = ConvertedRange::new(Self::F64(FloatRange::new(m)), Some(range));
+//     //     //                 SwitchableErrorResult::new_deferred_switchable3(f, ee, flag)
+//     //     //                     .map_switchable_errors(InsertRangeError::from)
+//     //     //             }
+//     //     //         },
+//     //     //     }
+//     //     // }
+//     // }
+
+//     fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+//         unimplemented!()
+//         // if range.0.is_integer() {
+//         //     AnyUint::from_range_noswitch(range)
+//         //         .map_deferred_value(|x| x.fmap_once(Self::Uint))
+//         //         .map_errors(InsertRangeError::from)
+//         // } else {
+//         //     let go = |x| DeferredError::new_ok(ConvertedRange::new(x, None));
+//         //     match FloatDecimal::<f32>::try_from(range.0.clone()) {
+//         //         Ok(r) => go(Self::F32(FloatRange::new(r))),
+//         //         Err(e) => match FloatDecimal::<f64>::try_from(e.src) {
+//         //             Ok(r) => go(Self::F64(FloatRange::new(r))),
+//         //             Err(ee) => {
+//         //                 let m = if ee.over {
+//         //                     f64::max_decimal()
+//         //                 } else {
+//         //                     f64::min_decimal()
+//         //                 };
+//         //                 let f = ConvertedRange::new(Self::F64(FloatRange::new(m)), Some(range));
+//         //                 DeferredError::new_err(InsertRangeError::from(ee)).set_err_value(f)
+//         //             }
+//         //         },
+//         //     }
+//         // }
+//     }
+// }
 
 impl<T> IsFixed for Bitmask<T>
 where
@@ -5620,6 +5664,49 @@ impl<D> AnySingleUintLayout<D> {
     }
 }
 
+trait IntoMixed<T> {
+    fn into_mixed(self) -> T;
+}
+
+impl<C, L, T, D> IntoMixed<MixedLayout> for DataLayout<C, L, T, D>
+where
+    C: Into<MixedRange>,
+    L: Into<Endian>,
+{
+    fn into_mixed(self) -> MixedLayout {
+        self.map_vec(Into::into).byte_layout_into().phantom_into()
+    }
+}
+
+impl<T, D, const ORD: bool> IntoMixed<MixedLayout> for AnyAsciiLayout<T, D, ORD>
+where
+    NoByteOrd<ORD>: Into<Endian>,
+{
+    fn into_mixed(self) -> MixedLayout {
+        match_many_to_one!(self, AnyAscii, [Delimited, Fixed], x, { x.into_mixed() })
+    }
+}
+
+impl<D> IntoMixed<MixedLayout> for AnySingleUintLayout<D> {
+    fn into_mixed(self) -> MixedLayout {
+        match_any_uint!(self, Self, x, { x.map_vec(Into::into).phantom_into() })
+    }
+}
+
+impl<D> IntoMixed<MixedLayout> for AnyEndianUintLayout<D> {
+    fn into_mixed(self) -> MixedLayout {
+        match_many_to_one!(self, AnyEndianUint, [Single, Multi], x, { x.into_mixed() })
+    }
+}
+
+impl<D> IntoMixed<MixedLayout> for NonMixedEndianLayout<D> {
+    fn into_mixed(self) -> MixedLayout {
+        match_many_to_one!(self, AnyDatatype, [Ascii, Uint, F32, F64], x, {
+            x.into_mixed()
+        })
+    }
+}
+
 impl<T> AnyOrderedUintLayout<T> {
     #[must_use]
     pub fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
@@ -5683,7 +5770,7 @@ impl<T> AnyOrderedUintLayout<T> {
         let layout_res =
             match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
                 DataLayout::try_new(cs, o, |i, c| {
-                    Bitmask::from_range(c.range, notrunc)
+                    Bitmask::from_range_switch(c.range, notrunc)
                         .map_switchable_errors(|e| IndexedError::new(i, e))
                         .map_switchable_errors(IndexedBitmaskError)
                         .switchable_into_commutative()
@@ -6027,7 +6114,17 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
         match value {
             DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
             DataLayout3_2::Mixed(x) => unimplemented!(),
-            // .try_into_non_mixed()
+            // {
+            //     let d0 = x.datatype();
+            //     let cs = x
+            //         .columns
+            //         .iter()
+            //         .map(|c| c.as_alpha_num_type())
+            //         .enumerate()
+            //         .filter(|(_, d)| d != &d0)
+            //         .map(|(i, d)|
+            //         .collect();
+            // } // .try_into_non_mixed()
             // .map_ok_value(Self)
             // .map_errors(LayoutConvertError::from),
         }
@@ -6076,6 +6173,128 @@ impl CheckedScaleTransform for ScaleTransform {
     }
 }
 
+impl<C, L, T, D> Insertable<C> for DataLayout<C, L, T, D> {
+    type Error = Infallible;
+
+    fn insert_nocheck0(&mut self, index: MeasIndex, col: C) -> Result<(), Infallible> {
+        self.inner.insert(index.into(), col);
+        Ok(())
+    }
+
+    fn push0(&mut self, col: C) -> Result<(), Infallible> {
+        self.inner.push(col);
+        Ok(())
+    }
+}
+
+impl<C: HasLen, L, T, D> Insertable<C> for DataFrame<C, L, T, D> {
+    type Error = Infallible;
+
+    fn insert_nocheck0(&mut self, index: MeasIndex, col: C) -> Result<(), Infallible> {
+        self.inner.insert_column_nocheck(index.into(), col);
+        Ok(())
+    }
+
+    fn push0(&mut self, col: C) -> Result<(), Infallible> {
+        self.inner.push_column_nocheck(col);
+        Ok(())
+    }
+}
+
+impl Insertable<MixedRange> for DataLayout3_2 {
+    type Error = Infallible;
+
+    fn insert_nocheck0(&mut self, index: MeasIndex, col: MixedRange) -> Result<(), Infallible> {
+        macro_rules! go_mixed {
+            ($from:expr) => {{
+                *self = Self::Mixed(mem::take($from).into_mixed());
+                self.insert_nocheck0(index, col);
+            }};
+        }
+        macro_rules! go {
+            ($var:ident, $from:expr) => {
+                if let AnyDatatype::$var(r) = col {
+                    $from.inner.insert(index.into(), r.into());
+                } else {
+                    go_mixed!($from);
+                }
+            };
+        }
+
+        match self {
+            Self::Mixed(x) => {
+                x.insert_nocheck0(index, col);
+            }
+            Self::NonMixed(x) => match x {
+                AnyDatatype::Ascii(y) => match y {
+                    AnyAscii::Delimited(z) => go!(Ascii, z),
+                    AnyAscii::Fixed(z) => go!(Ascii, z),
+                },
+                AnyDatatype::Uint(y) => match y {
+                    AnyEndianUint::Single(z) => {
+                        match_any_uint!(z, AnyUint, s, {
+                            if let Ok(r) = col.clone().try_into() {
+                                s.inner.insert(index.into(), r);
+                            } else {
+                                go_mixed!(z);
+                            }
+                        });
+                    }
+                    AnyEndianUint::Multi(z) => go!(Uint, z),
+                },
+                AnyDatatype::F32(y) => go!(F32, y),
+                AnyDatatype::F64(y) => go!(F64, y),
+            },
+        }
+        Ok(())
+    }
+
+    fn push0(&mut self, col: MixedRange) -> Result<(), Infallible> {
+        macro_rules! go_mixed {
+            ($from:expr) => {{
+                *self = Self::Mixed(mem::take($from).into_mixed());
+                self.push0(col);
+            }};
+        }
+        macro_rules! go {
+            ($var:ident, $from:expr) => {
+                if let AnyDatatype::$var(r) = col {
+                    $from.inner.push(r.into());
+                } else {
+                    go_mixed!($from);
+                }
+            };
+        }
+
+        match self {
+            Self::Mixed(x) => {
+                x.push0(col);
+            }
+            Self::NonMixed(x) => match x {
+                AnyDatatype::Ascii(y) => match y {
+                    AnyAscii::Delimited(z) => go!(Ascii, z),
+                    AnyAscii::Fixed(z) => go!(Ascii, z),
+                },
+                AnyDatatype::Uint(y) => match y {
+                    AnyEndianUint::Single(z) => {
+                        match_any_uint!(z, AnyUint, s, {
+                            if let Ok(r) = col.clone().try_into() {
+                                s.inner.push(r);
+                            } else {
+                                go_mixed!(z);
+                            }
+                        });
+                    }
+                    AnyEndianUint::Multi(z) => go!(Uint, z),
+                },
+                AnyDatatype::F32(y) => go!(F32, y),
+                AnyDatatype::F64(y) => go!(F64, y),
+            },
+        }
+        Ok(())
+    }
+}
+
 impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
@@ -6095,72 +6314,8 @@ impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
         }
     }
 
-    // TODO rethink how this part of the api should work, giving a range without
-    // any type information is not well-defined since it's type is based on what
-    // is already in the layout and the user has no control over what happens
-    // after insertion
-    fn insert_nocheck(
-        &mut self,
-        index: MeasIndex,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> SwitchableErrorResult<(), (), DisallowRangeTrunc, InsertRangeError> {
-        match mem::replace(self, Self::mixed_dummy()) {
-            // If layout is mixed, interpret range as a mixed type
-            Self::Mixed(mut x) => x
-                .insert_nocheck(index, range, flag)
-                .set_deferred_value(Self::Mixed(x)),
-            // If layout is non-mixed, interpret range as an ASCII range and
-            // keep the layout as ASCII. Otherwise, interpret as a mixed range
-            // and convert the layout to a mixed layout if the interpreted
-            // result is different from the rest of the types in the layout.
-            Self::NonMixed(x) => match x {
-                NonMixedEndianLayout::Ascii(mut y) => y
-                    .insert_nocheck(index, range, flag)
-                    .set_deferred_value(Self::NonMixed(y.into())),
-                // NonMixedEndianLayout::Uint(y) => y.insert_mixed(index, range, flag),
-                NonMixedEndianLayout::Uint(y) => unimplemented!(),
-                NonMixedEndianLayout::F32(y) => y.insert_mixed(index, range, flag),
-                NonMixedEndianLayout::F64(y) => y.insert_mixed(index, range, flag),
-            },
-        }
-        .map_deferred_value(|newself| {
-            *self = newself;
-        })
-    }
-
-    // TODO ditto
-    fn push(
-        &mut self,
-        range: Range,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<(), DisallowRangeTrunc, InsertRangeError> {
-        match mem::replace(self, Self::mixed_dummy()) {
-            Self::Mixed(mut x) => x.push(range, flag).set_deferred_value(Self::Mixed(x)),
-            Self::NonMixed(x) => match x {
-                NonMixedEndianLayout::Ascii(mut y) => y
-                    .push(range, flag)
-                    .set_deferred_value(Self::NonMixed(y.into())),
-                // NonMixedEndianLayout::Uint(y) => y.push_mixed(range, flag),
-                NonMixedEndianLayout::Uint(y) => unimplemented!(),
-                NonMixedEndianLayout::F32(y) => y.push_mixed(range, flag),
-                NonMixedEndianLayout::F64(y) => y.push_mixed(range, flag),
-            },
-        }
-        .map_deferred_value(|newself| {
-            *self = newself;
-        })
-    }
-
     fn clear(&mut self) {
-        unimplemented!()
-        // *self = match mem::replace(self, Self::mixed_dummy()) {
-        //     Self::Mixed(x) => NonMixedEndianLayout::new_empty(x.datatype()).into(),
-        //     Self::NonMixed(mut x) => {
-        //         x.clear();
-        //         Self::NonMixed(x)
-        //     }
-        // }
+        *self = NonMixedEndianLayout::new_empty(self.datatype()).into();
     }
 }
 
@@ -6239,7 +6394,7 @@ impl DataLayout3_2 {
 
 impl<T> Default for AnyOrderedLayout<T> {
     fn default() -> Self {
-        Self::Integer(AnyOrderedUintLayout::default())
+        Self::Uint(AnyOrderedUintLayout::default())
     }
 }
 
@@ -6304,7 +6459,7 @@ impl<T> AnyOrderedLayout<T> {
         AnyOrderedUintLayout<T>:
             From<DataLayout<Bitmask<U>, ArrayByteOrd<U::ByteOrd>, T, Nothing<NumType>>>,
     {
-        Self::Integer(DataLayout::new(columns, byte_layout).into())
+        Self::Uint(DataLayout::new(columns, byte_layout).into())
     }
 
     #[must_use]
@@ -6367,9 +6522,7 @@ impl<T> AnyOrderedLayout<T> {
 
     #[must_use]
     pub fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
-        match_many_to_one!(self, Self, [Ascii, Integer, F32, F64], x, {
-            x.phantom_into().into()
-        })
+        match_any_mixed!(self, x, { x.phantom_into().into() })
     }
 
     pub fn into_unmixed<D>(self) -> LayoutConvertResult<NonMixedEndianLayout<D>> {
@@ -6383,7 +6536,7 @@ impl<T> AnyOrderedLayout<T> {
         }
         let res = match self {
             Self::Ascii(x) => LogResult::new_ok(NonMixedEndianLayout::from(x.phantom_into())),
-            Self::Integer(x) => x
+            Self::Uint(x) => x
                 .into_endian()
                 .map(AnyEndianUintLayout::from)
                 .map(NonMixedEndianLayout::from)
@@ -6530,11 +6683,11 @@ impl<D> NonMixedEndianLayout<D> {
     ) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         self.normalize();
         match self {
-            Self::Ascii(x) => LogResult::new_ok(AnyOrdered::Ascii(x.phantom_into())),
+            Self::Ascii(x) => LogResult::new_ok(AnyDatatype::Ascii(x.phantom_into())),
             Self::Uint(x) => match x {
                 AnyEndianUint::Multi(y) => unimplemented!(),
                 AnyEndianUint::Single(y) => match_any_uint!(y, AnyUint, z, {
-                    LogResult::new_ok(AnyOrdered::Integer(
+                    LogResult::new_ok(AnyDatatype::Uint(
                         z.phantom_into().byte_layout_into().into(),
                     ))
                 }),
@@ -6719,7 +6872,7 @@ impl fmt::Display for IndexedBitmaskError {
 /// a fixed number of bytes, where the bytes in this case happen to not align
 /// with native datatypes (u8, u16, etc).
 #[derive(Debug)]
-pub(crate) enum RangeToBitmaskError {
+pub enum RangeToBitmaskError {
     Over(BigDecimal, Bytes),
     Under(BigDecimal),
     Float(BigDecimal),
@@ -7164,7 +7317,7 @@ pub enum InsertRangeError {
 /// Inner error for converting [`Range`] to [`Bitmask`]
 ///
 /// This is separate from RangeToBitmaskError since we need different error
-/// messages here given that $PnR and $PnB do not apply to newly supply ranges.
+/// messages here given that $PnR and $PnB do not apply to newly supplied ranges.
 #[derive(From, Debug)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]

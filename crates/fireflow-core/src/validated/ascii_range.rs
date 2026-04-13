@@ -93,6 +93,18 @@ impl From<AsciiRangeValue> for FixedAsciiRange {
     }
 }
 
+impl From<DelimAsciiRange> for FixedAsciiRange {
+    fn from(value: DelimAsciiRange) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<FixedAsciiRange> for DelimAsciiRange {
+    fn from(value: FixedAsciiRange) -> Self {
+        value.value.into()
+    }
+}
+
 impl From<&FixedAsciiRange> for Range {
     fn from(value: &FixedAsciiRange) -> Self {
         value.value.0.into()
@@ -168,7 +180,7 @@ impl FixedAsciiRange {
         IndexedRangeToAsciiError,
         AsciiRangeFromKeywordsError,
     > {
-        Self::from_range(range, flag)
+        Self::from_range_switch(range, flag)
             .map_switchable_errors(|e| IndexedError::new(i, e))
             .map_switchable_errors(IndexedRangeToAsciiError)
             .switchable_into_commutative()

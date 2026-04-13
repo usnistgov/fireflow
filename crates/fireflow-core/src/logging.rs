@@ -36,7 +36,7 @@ use type_families::{
 };
 
 use derive_new::new;
-use nonempty_collections::NEVec;
+use nonempty_collections::{FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator};
 use std::convert::Infallible;
 use std::fmt;
 use std::io::Error as IOError;
@@ -1124,6 +1124,20 @@ where
         I: IntoIterator<Item = X>,
     {
         self.tail.extend(iter);
+    }
+}
+
+impl<X, C> FromNonEmptyIterator<X> for GenNonEmpty<X, C>
+where
+    C: FromIterator<X>,
+{
+    fn from_nonempty_iter<I>(iter: I) -> Self
+    where
+        I: IntoNonEmptyIterator<Item = X>,
+    {
+        let ne = iter.into_nonempty_iter();
+        let (x0, xs) = ne.next();
+        Self::new(x0, xs.collect())
     }
 }
 
@@ -2877,6 +2891,16 @@ impl<V, P, LWC, RWC, E, EC> LogResult<V, P, LWC, RWC, (), E, EC> {
             None => Self::new_ok(default),
             Some(e) => Fail(Failure::new_from_many(e, passthru)),
         }
+    }
+
+    pub(crate) fn new_from_ne_err_iter<I>(errors: I, passthru: P) -> Self
+    where
+        I: IntoNonEmptyIterator<Item = E>,
+        EC: FromIterator<E>,
+        RWC: Default,
+    {
+        let es = errors.into_nonempty_iter().collect();
+        Fail(Failure::new_from_many(es, passthru))
     }
 
     /// Map function over errors in Result

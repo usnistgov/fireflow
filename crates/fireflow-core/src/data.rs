@@ -5525,78 +5525,6 @@ impl FromRange for AnyNullBitmask {
     }
 }
 
-// // TODO this isn't a very good impl for this since the type is determined by the
-// // value, but many values can map to multiple types.
-// impl FromRange for MixedRange {
-//     type Error = InsertRangeError;
-
-//     // /// Create a mixed type based on the range.
-//     // ///
-//     // /// If int is supplied, return one of the uint types depending on size. If
-//     // /// float is supplied, return f64 if range extends beyond the bounds of f32,
-//     // /// otherwise use f32 (note that precision is not taken into consideration).
-//     // ///
-//     // /// ASCII will never be returned. This method will never fail.
-//     // fn from_range_switch(
-//     //     range: Range,
-//     //     flag: DisallowRangeTrunc,
-//     // ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, Self::Error> {
-//     //     unimplemented!()
-//     //     // if range.0.is_integer() {
-//     //     //     AnyUint::from_range(range, flag)
-//     //     //         .map_deferred_value(|x| x.fmap_once(Self::Uint))
-//     //     //         .map_switchable_errors(InsertRangeError::from)
-//     //     // } else {
-//     //     //     let go = |x| {
-//     //     //         let ret = ConvertedRange::new(x, None);
-//     //     //         SwitchableErrorResult::new_switchable_ok(ret, flag)
-//     //     //     };
-//     //     //     match FloatDecimal::<f32>::try_from(range.0.clone()) {
-//     //     //         Ok(r) => go(Self::F32(FloatRange::new(r))),
-//     //     //         Err(e) => match FloatDecimal::<f64>::try_from(e.src) {
-//     //     //             Ok(r) => go(Self::F64(FloatRange::new(r))),
-//     //     //             Err(ee) => {
-//     //     //                 let m = if ee.over {
-//     //     //                     f64::max_decimal()
-//     //     //                 } else {
-//     //     //                     f64::min_decimal()
-//     //     //                 };
-//     //     //                 let f = ConvertedRange::new(Self::F64(FloatRange::new(m)), Some(range));
-//     //     //                 SwitchableErrorResult::new_deferred_switchable3(f, ee, flag)
-//     //     //                     .map_switchable_errors(InsertRangeError::from)
-//     //     //             }
-//     //     //         },
-//     //     //     }
-//     //     // }
-//     // }
-
-//     fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-//         unimplemented!()
-//         // if range.0.is_integer() {
-//         //     AnyUint::from_range_noswitch(range)
-//         //         .map_deferred_value(|x| x.fmap_once(Self::Uint))
-//         //         .map_errors(InsertRangeError::from)
-//         // } else {
-//         //     let go = |x| DeferredError::new_ok(ConvertedRange::new(x, None));
-//         //     match FloatDecimal::<f32>::try_from(range.0.clone()) {
-//         //         Ok(r) => go(Self::F32(FloatRange::new(r))),
-//         //         Err(e) => match FloatDecimal::<f64>::try_from(e.src) {
-//         //             Ok(r) => go(Self::F64(FloatRange::new(r))),
-//         //             Err(ee) => {
-//         //                 let m = if ee.over {
-//         //                     f64::max_decimal()
-//         //                 } else {
-//         //                     f64::min_decimal()
-//         //                 };
-//         //                 let f = ConvertedRange::new(Self::F64(FloatRange::new(m)), Some(range));
-//         //                 DeferredError::new_err(InsertRangeError::from(ee)).set_err_value(f)
-//         //             }
-//         //         },
-//         //     }
-//         // }
-//     }
-// }
-
 impl<T> IsFixed for Bitmask<T>
 where
     T: FCSRepr,
@@ -6184,20 +6112,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
         value.normalize();
         match value {
             DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
-            DataLayout3_2::Mixed(x) => unimplemented!(),
-            // {
-            //     let d0 = x.datatype();
-            //     let cs = x
-            //         .columns
-            //         .iter()
-            //         .map(|c| c.as_alpha_num_type())
-            //         .enumerate()
-            //         .filter(|(_, d)| d != &d0)
-            //         .map(|(i, d)|
-            //         .collect();
-            // } // .try_into_non_mixed()
-            // .map_ok_value(Self)
-            // .map_errors(LayoutConvertError::from),
+            DataLayout3_2::Mixed(x) => x.convert_result(),
         }
     }
 }
@@ -6401,12 +6316,8 @@ impl DataLayout3_2 {
         self.normalize();
         match self {
             Self::NonMixed(x) => x.try_nonmixed_into_ordered(),
-            Self::Mixed(_) => LogResult::new_err(unimplemented!()),
+            Self::Mixed(x) => x.convert_result(),
         }
-        // match self {
-        //     Self::NonMixed(x) => x.into_ordered(),
-        //     Self::Mixed(x) => x.try_into_ordered().map_errors(LayoutConvertError::from),
-        // }
     }
 
     #[must_use]
@@ -6460,6 +6371,46 @@ impl DataLayout3_2 {
                     .map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             })
+    }
+}
+
+// impl<D> EndianUintLayout<D> {
+//     fn convert_result<X>(&self) -> LayoutConvertResult<X> {
+//         let d0 = self.datatype();
+//         let es = self
+//             .inner
+//             .iter()
+//             .filter_map(|c| {
+//                 let d = c.as_alpha_num_type();
+//                 (d0 != d).then(|| MixedToNonMixedError::new(d, c.clone()))
+//             })
+//             .enumerate()
+//             .map(|(i, e)| IndexedError::new(i, e))
+//             .map(MixedToNonMixedLayoutError::from)
+//             .map(LayoutConvertError::from)
+//             .try_into_nonempty_iter()
+//             .expect("mixed layout should have at least one different type");
+//         LogResult::new_from_ne_err_iter(es, ())
+//     }
+// }
+
+impl MixedLayout {
+    fn convert_result<X>(&self) -> LayoutConvertResult<X> {
+        let d0 = self.datatype();
+        let es = self
+            .inner
+            .iter()
+            .filter_map(|c| {
+                let d = c.as_alpha_num_type();
+                (d0 != d).then(|| MixedToNonMixedError::new(d, c.clone()))
+            })
+            .enumerate()
+            .map(|(i, e)| IndexedError::new(i, e))
+            .map(MixedToNonMixedLayoutError::from)
+            .map(LayoutConvertError::from)
+            .try_into_nonempty_iter()
+            .expect("mixed layout should have at least one different type");
+        LogResult::new_from_ne_err_iter(es, ())
     }
 }
 

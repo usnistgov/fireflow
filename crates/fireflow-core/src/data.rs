@@ -4768,17 +4768,17 @@ impl<C, S, T, D> DataLayout<C, S, T, D> {
             })
     }
 
-    fn insert_column_nocheck(&mut self, index: MeasIndex, col: C) {
-        debug_assert!(
-            usize::from(index) <= self.inner.len(),
-            "Index should be less than/equal to number of columns"
-        );
-        self.inner.insert(index.into(), col);
-    }
+    // fn insert_column_nocheck(&mut self, index: MeasIndex, col: C) {
+    //     debug_assert!(
+    //         usize::from(index) <= self.inner.len(),
+    //         "Index should be less than/equal to number of columns"
+    //     );
+    //     self.inner.insert(index.into(), col);
+    // }
 
-    fn push_column(&mut self, col: C) {
-        self.inner.push(col);
-    }
+    // fn push_column(&mut self, col: C) {
+    //     self.inner.push(col);
+    // }
 
     fn columns_into<X>(self) -> DataLayout<X, S, T, D>
     where

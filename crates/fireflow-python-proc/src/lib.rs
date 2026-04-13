@@ -2650,6 +2650,13 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
+    let is_mixed = version == Version::FCS3_2;
+    let (push_optical_fun, push_temporal_fun) = if is_mixed {
+        (quote!(push_optical_nofail), quote!(push_temporal_nofail))
+    } else {
+        (quote!(push_optical), quote!(push_temporal))
+    };
+
     let push_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
             (PyClass::new_optical(version), "optical")
@@ -2663,7 +2670,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .arg(DocArg::new_range_param())
+            .arg(DocArg::new_range_param(is_mixed))
     };
 
     let opt_doc = push_meas_doc(true, is_dataset);
@@ -2680,13 +2687,13 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         impl #i {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
-                let _ = self.0.push_optical(#opt_inner_args)?;
+                let _ = self.0.#push_optical_fun(#opt_inner_args)?;
                 Ok(())
             }
 
             #tmp_doc
             fn push_temporal(&mut self, #tmp_fun_args) -> PyResult<()> {
-                self.0.push_temporal(#tmp_inner_args)?;
+                self.0.#push_temporal_fun(#tmp_inner_args)?;
                 Ok(())
             }
         }
@@ -2801,6 +2808,17 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
+    let is_mixed = version == Version::FCS3_2;
+
+    let (insert_optical_fun, insert_temporal_fun) = if version == Version::FCS3_2 {
+        (
+            quote!(insert_optical_nofail),
+            quote!(insert_temporal_nofail),
+        )
+    } else {
+        (quote!(insert_optical), quote!(insert_temporal))
+    };
+
     // TODO not DRY
     let insert_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
@@ -2818,7 +2836,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .arg(DocArg::new_range_param())
+            .arg(DocArg::new_range_param(is_mixed))
     };
 
     let opt_doc = insert_meas_doc(true, is_dataset);
@@ -2838,7 +2856,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #opt_fun_args
             ) -> PyResult<()> {
-                let _ = self.0.insert_optical(#opt_inner_args)?;
+                let _ = self.0.#insert_optical_fun(#opt_inner_args)?;
                 Ok(())
             }
 
@@ -2847,7 +2865,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #tmp_fun_args
             ) -> PyResult<()> {
-                self.0.insert_temporal(#tmp_inner_args)?;
+                self.0.#insert_temporal_fun(#tmp_inner_args)?;
                 Ok(())
             }
         }
@@ -4462,7 +4480,6 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("MixedLayout");
     let layout_path = parse_quote!(fireflow_core::data::#name);
 
-    let null = quote!(fireflow_core::data::MixedRange);
     let fixed = quote!(fireflow_core::data::DataLayout);
 
     let dt_ascii = code("A");
@@ -4470,19 +4487,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
     let dt_f32 = code("F");
     let dt_f64 = code("D");
 
-    let desc = format!(
-        "if field 2 of {ARG_TOKEN} is less than {min} or greater than {max} \
-         when field 1 is {dt_ascii} or {dt_int}",
-        min = code("0"),
-        max = code("2**64-1"),
-    );
-    let exc = PyException::new_invalid_keyword().desc(desc);
-    let range_pytype = PyList::new1(PyUnion::new2(
-        PyTuple::new1(PyLiteral::new1(["A", "I"])).add(RsInt::U64),
-        PyTuple::new1(PyLiteral::new1(["F", "D"])).add(PyDecimal::default()),
-        parse_quote!(#null),
-    ))
-    .exc(exc);
+    let range_pytype = PyList::new1(PyUnion::new_mixed_range());
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
         "typed_ranges",
         range_pytype,
@@ -6529,9 +6534,9 @@ impl<E> PyList<E> {
         Self::new(inner, None, None)
     }
 
-    fn exc(self, exc: impl Into<E>) -> Self {
-        Self::new(self.inner, self.rstype, Some(exc.into()))
-    }
+    // fn exc(self, exc: impl Into<E>) -> Self {
+    //     Self::new(self.inner, self.rstype, Some(exc.into()))
+    // }
 
     fn rstype(self, rstype: Path) -> Self {
         Self::new(self.inner, Some(rstype), self.exc)
@@ -6919,6 +6924,26 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_key_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::KeyOrBytes);
         Self::new2(PyStr::default(), PyBytes::default(), path)
+    }
+
+    fn new_mixed_range() -> Self {
+        let dt_ascii = code("A");
+        let dt_int = code("I");
+
+        let desc = format!(
+            "if field 2 of {ARG_TOKEN} is less than {min} or greater than {max} \
+             when field 1 is {dt_ascii} or {dt_int}",
+            min = code("0"),
+            max = code("2**64-1"),
+        );
+        let exc = PyException::new_invalid_keyword().desc(desc);
+        let path = quote!(fireflow_core::data::MixedRange);
+        Self::new2(
+            PyTuple::new1(PyLiteral::new1(["A", "I"])).add(RsInt::U64),
+            PyTuple::new1(PyLiteral::new1(["F", "D"])).add(PyDecimal::default()),
+            parse_quote!(#path),
+        )
+        .exc(exc)
     }
 }
 
@@ -8005,9 +8030,14 @@ impl DocArgParam {
         Self::new_param("name", PyStr::new_shortname(), desc)
     }
 
-    fn new_range_param() -> Self {
+    fn new_range_param(is_mixed: bool) -> Self {
         let desc = format!("Range of measurement. Corresponds to {PNR}.");
-        Self::new_param("range", PyDecimal::new_range(), desc)
+        let pytype: PyType<_> = if is_mixed {
+            PyUnion::new_mixed_range().into()
+        } else {
+            PyDecimal::new_range().into()
+        };
+        Self::new_param("range", pytype, desc)
     }
 
     // fn new_notrunc_param() -> Self {

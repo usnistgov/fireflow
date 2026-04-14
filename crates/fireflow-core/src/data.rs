@@ -1543,21 +1543,21 @@ impl<C08, C16, C24, C32, C40, C48, C56, C64> AnyUint<C08, C16, C24, C32, C40, C4
         ret.0
     }
 
-    fn fmap_into8<C08f, C16f, C24f, C32f, C40f, C48f, C56f, C64f>(
-        self,
-    ) -> AnyUint<C08f, C16f, C24f, C32f, C40f, C48f, C56f, C64f>
-    where
-        C08: Into<C08f>,
-        C16: Into<C16f>,
-        C24: Into<C24f>,
-        C32: Into<C32f>,
-        C40: Into<C40f>,
-        C48: Into<C48f>,
-        C56: Into<C56f>,
-        C64: Into<C64f>,
-    {
-        match_map_uint!(self, x, x.into())
-    }
+    // fn fmap_into8<C08f, C16f, C24f, C32f, C40f, C48f, C56f, C64f>(
+    //     self,
+    // ) -> AnyUint<C08f, C16f, C24f, C32f, C40f, C48f, C56f, C64f>
+    // where
+    //     C08: Into<C08f>,
+    //     C16: Into<C16f>,
+    //     C24: Into<C24f>,
+    //     C32: Into<C32f>,
+    //     C40: Into<C40f>,
+    //     C48: Into<C48f>,
+    //     C56: Into<C56f>,
+    //     C64: Into<C64f>,
+    // {
+    //     match_map_uint!(self, x, x.into())
+    // }
 
     fn into8<X>(self) -> X
     where
@@ -2319,6 +2319,18 @@ pub trait LayoutDatatype: Sized {
     }
 }
 
+/// A type which has optional measurement keywords.
+///
+/// This is only used to return $PnDATATYPE.
+#[delegatable_trait]
+pub trait OptMeasLayoutKeywords {
+    /// Return vector of $PnDATATYPE.
+    ///
+    /// Vector length will equal DATA column number. `None` will be returned
+    /// if $PnDATATYPE is not provided. For pre-3.2 layouts, all will be `None`.
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
+}
+
 /// A layout that can be simplified into another layout of the same type.
 pub trait NormalizableLayout {
     fn normalize(&mut self);
@@ -2334,18 +2346,6 @@ pub trait LayoutKeywords: Sized + LayoutDatatype {
     }
 
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
-}
-
-/// A type which has optional measurement keywords.
-///
-/// This is only used to return $PnDATATYPE.
-#[delegatable_trait]
-pub trait OptMeasLayoutKeywords {
-    /// Return vector of $PnDATATYPE.
-    ///
-    /// Vector length will equal DATA column number. `None` will be returned
-    /// if $PnDATATYPE is not provided. For pre-3.2 layouts, all will be `None`.
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
 }
 
 #[delegatable_trait]
@@ -5135,7 +5135,7 @@ impl FromRange for FixedAsciiRange {
     /// The number of chars will be automatically selected as the minimum
     /// required to express the range.
     fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        AsciiRangeValue::from_range_inner(range).map_deferred_value(|x| x.fmap_into())
+        AsciiRangeValue::from_range_inner(range).map_deferred_value(Functor::fmap_into)
     }
 }
 
@@ -5144,11 +5144,14 @@ impl FromRange for DelimAsciiRange {
 
     /// Make new [`DelimAsciiRange`] from a float or integer.
     fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        AsciiRangeValue::from_range_inner(range).map_deferred_value(|x| x.fmap_into())
+        AsciiRangeValue::from_range_inner(range).map_deferred_value(Functor::fmap_into)
     }
 }
 
-// // TODO this might be in the same category as next
+// NOTE this is a bit weird since we are letting the type control the size.
+// There are a few edge cases where a user may wish to control the size but
+// these are all for performance and supporting them would make the API much
+// more complex.
 impl FromRange for AnyNullBitmask {
     type Error = RangeToBitmaskError;
 
@@ -5982,12 +5985,6 @@ impl DataLayout3_2 {
         } else {
             DataLayout::new(rs, endian).into()
         }
-    }
-
-    /// A dummy layout, used to make [`std::mem::replace`] work; not meaninful.
-    fn mixed_dummy() -> Self {
-        let a = DelimAsciiLayout::new_ascii(vec![]);
-        NonMixedEndianLayout::from(AnyAsciiLayout::from(a)).into()
     }
 
     fn lookup_inner(

@@ -766,17 +766,27 @@ pub trait HasLen {
 pub trait HasWidth {
     #[allow(clippy::len_without_is_empty)]
     fn width(&self) -> usize;
+
+    fn clear(&mut self);
 }
 
 impl<T> HasWidth for Vec<T> {
     fn width(&self) -> usize {
         self.len()
     }
+
+    fn clear(&mut self) {
+        self.clear();
+    }
 }
 
 impl<T> HasWidth for FFDataFrame<T> {
     fn width(&self) -> usize {
         self.columns.len()
+    }
+
+    fn clear(&mut self) {
+        self.columns.clear();
     }
 }
 

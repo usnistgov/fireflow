@@ -2261,6 +2261,8 @@ pub trait IsTot: Sized + MightHave<Tot> {
 #[delegatable_trait]
 pub trait LayoutDims: Sized {
     fn ncols(&self) -> usize;
+
+    fn clear(&mut self);
 }
 
 #[delegatable_trait]
@@ -2417,8 +2419,6 @@ pub trait Removable<Column>: Sized {
 #[delegatable_trait]
 pub trait InterLayoutOps<D> {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
-
-    fn clear(&mut self);
 }
 
 /// Standardized operations on ordered layouts
@@ -3918,19 +3918,13 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-// impl<T, D, const ORD: bool> LayoutDims for DelimAsciiLayout<T, D, ORD> {
-//     fn ncols(&self) -> usize {
-//         self.columns.len()
-//     }
-// }
-
 impl<T, D, const ORD: bool> LayoutDatatype for DelimAsciiLayout<T, D, ORD> {
     fn datatype(&self) -> AlphaNumType {
         AlphaNumType::Ascii
     }
 
     fn datatypes(&self) -> Vec<AlphaNumType> {
-        self.inner.iter().map(|_| self.datatype()).collect()
+        vec![self.datatype(); self.inner.len()]
     }
 }
 
@@ -4172,6 +4166,10 @@ impl<C: HasWidth, S, T, D> LayoutDims for ColumnGroup<C, S, T, D> {
     fn ncols(&self) -> usize {
         self.inner.width()
     }
+
+    fn clear(&mut self) {
+        self.inner.clear();
+    }
 }
 
 impl<C, S, T, D> LayoutRanges for DataLayout<C, S, T, D>
@@ -4379,10 +4377,6 @@ where
 impl<C, S, T, D> InterLayoutOps<D> for DataLayout<C, S, T, D> {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         self.inner.iter().map(|_| None).collect()
-    }
-
-    fn clear(&mut self) {
-        self.inner.clear();
     }
 }
 
@@ -5939,10 +5933,6 @@ impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
                 })
                 .collect(),
         }
-    }
-
-    fn clear(&mut self) {
-        *self = NonMixedEndianLayout::new_empty(self.datatype()).into();
     }
 }
 

@@ -100,7 +100,7 @@ use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 use fireflow_core_proc::impl_generic_enum_from;
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
-use type_families::{Functor, FunctorOnce, impl_functor, impl_functor_once, impl_kind1};
+use type_families::{Functor, FunctorOnce, Sibling1, impl_functor, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
@@ -319,9 +319,17 @@ pub type EndianLayout<C, D> = DataLayout<C, Endian, Identity<Tot>, D>;
 
 pub type EndianDataFrame<C, D> = DataFrame<NativeColumn<C>, Endian, Identity<Tot>, D>;
 
-pub type EndianUintLayout<D> = EndianLayout<AnyNullBitmask, D>;
+pub type EndianUintLayout<D> = EndianLayout<AnyBitmask, D>;
 
 pub type EndianUintDataFrame<D> = DataFrame<AnyBitmaskColumn, Endian, Identity<Tot>, D>;
+
+type EndianGroup<C, I, D> = ColumnGroup<C, I, Endian, Identity<Tot>, D>;
+
+type EndianGroup3_2<C, I> = EndianGroup<C, I, Option<NumType>>;
+
+type AsciiGroup<C, I, T, D, const ORD: bool> = ColumnGroup<C, I, NoByteOrd<ORD>, T, D>;
+
+type AsciiGroup3_2<C, I> = AsciiGroup<C, I, Identity<Tot>, Option<NumType>, false>;
 
 /// DATA layouts for ASCII data.
 ///
@@ -360,17 +368,11 @@ pub type DelimAsciiLayout<T, D, const ORD: bool> =
     DataLayout<DelimAsciiRange, NoByteOrd<ORD>, T, D>;
 
 pub type DelimAsciiDataFrame<T, D, const ORD: bool> =
-    ColumnGroup<FFDataFrame<AnnotatedColumn<DelimAsciiRange, u64, u64>>, NoByteOrd<ORD>, T, D>;
+    DataFrame<AnnotatedColumn<DelimAsciiRange, u64, u64>, NoByteOrd<ORD>, T, D>;
 
-impl<C, L, T, D> AsRef<[C]> for DataLayout<C, L, T, D> {
-    fn as_ref(&self) -> &[C] {
-        self.inner.as_ref()
-    }
-}
+pub type DataLayout<C, L, T, D> = ColumnGroup<Vec<C>, C, L, T, D>;
 
-pub type DataLayout<C, L, T, D> = ColumnGroup<Vec<C>, L, T, D>;
-
-pub type DataFrame<C, L, T, D> = ColumnGroup<FFDataFrame<C>, L, T, D>;
+pub type DataFrame<C, L, T, D> = ColumnGroup<FFDataFrame<C>, C, L, T, D>;
 
 pub type NativeColumn<C> = AnnotatedColumn<
     C,
@@ -382,37 +384,42 @@ pub type NativeColumn<C> = AnnotatedColumn<
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
-pub struct ColumnGroup<Cols, Layout, TotType, Dtype> {
-    inner: Cols,
+pub struct ColumnGroup<Cols, Inner, Layout, TotType, Dtype> {
+    /// Thing holding the columns.
+    container: Cols,
+    /// The byte layout of a value in a column.
     #[as_ref(Layout)]
     byte_layout: Layout,
+    /// The type within `container`.
+    #[cfg_attr(feature = "serde", serde(skip))]
+    _inner: PhantomData<Inner>,
+    /// Marker type to describe $TOT
     #[cfg_attr(feature = "serde", serde(skip))]
     _tot_def: PhantomData<TotType>,
+    /// Marker type to describe $PnDatatype
     #[cfg_attr(feature = "serde", serde(skip))]
     _meas_data_def: PhantomData<Dtype>,
 }
 
-impl<C: Default, L: Default, T, D> Default for ColumnGroup<C, L, T, D> {
+impl<C: AsRef<[I]>, I, L, T, D> AsRef<[I]> for ColumnGroup<C, I, L, T, D> {
+    fn as_ref(&self) -> &[I] {
+        self.container.as_ref()
+    }
+}
+
+impl<C: Default, I, L: Default, T, D> Default for ColumnGroup<C, I, L, T, D> {
     fn default() -> Self {
         Self::new(C::default(), L::default())
     }
 }
 
-impl<C, L, T, D> DataLayout<C, L, T, D> {
-    fn map_vec<Cf, F>(self, f: F) -> DataLayout<Cf, L, T, D>
+impl<C, I, L, T, D> ColumnGroup<C, I, L, T, D> {
+    fn map_inner<F, If>(self, f: F) -> ColumnGroup<Sibling1<C, If>, If, L, T, D>
     where
-        F: Fn(C) -> Cf,
+        F: FnMut(I) -> If,
+        C: Functor<I>,
     {
-        DataLayout::new(self.inner.fmap(f), self.byte_layout)
-    }
-}
-
-impl<C, L, T, D> DataFrame<C, L, T, D> {
-    fn map_cols<Cf, F>(self, f: F) -> DataFrame<Cf, L, T, D>
-    where
-        F: Fn(C) -> Cf,
-    {
-        DataFrame::new(self.inner.fmap(f), self.byte_layout)
+        ColumnGroup::new(self.container.fmap(f), self.byte_layout)
     }
 }
 
@@ -496,6 +503,18 @@ impl_generic_enum_from! {
     Uint48 <- EndianLayout<Bitmask48, D>,
     Uint56 <- EndianLayout<Bitmask56, D>,
     Uint64 <- EndianLayout<Bitmask64, D>
+}
+
+impl_generic_enum_from! {
+    AnyBitmask,
+    Uint08 <- Bitmask08,
+    Uint16 <- Bitmask16,
+    Uint24 <- Bitmask24,
+    Uint32 <- Bitmask32,
+    Uint40 <- Bitmask40,
+    Uint48 <- Bitmask48,
+    Uint56 <- Bitmask56,
+    Uint64 <- Bitmask64
 }
 
 impl_generic_enum_from! {
@@ -674,7 +693,7 @@ pub enum AnyDatatype<A, U, F, D> {
     F64(D),
 }
 
-pub type MixedRange = AnyDatatype<FixedAsciiRange, AnyNullBitmask, F32Range, F64Range>;
+pub type MixedRange = AnyDatatype<FixedAsciiRange, AnyBitmask, F32Range, F64Range>;
 
 pub type MixedColumn = AnyDatatype<
     NativeColumn<FixedAsciiRange>,
@@ -736,7 +755,7 @@ struct RangedVec<B, T> {
 
 type UintRangedVec<C> = RangedVec<C, <C as HasNativeType>::Native>;
 
-pub type AnyNullBitmask =
+pub type AnyBitmask =
     AnyUint<Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56, Bitmask64>;
 
 pub type AnyBitmaskColumn = AnyUint<
@@ -943,10 +962,6 @@ impl IntoEmptyDataFrame for DataLayout2_0 {
     }
 }
 
-impl NormalizableLayout for DataLayout2_0 {
-    fn normalize(&mut self) {}
-}
-
 impl ReadLayoutOps<Option<Tot>> for DataLayout2_0 {
     fn h_read_df_inner<R: Read>(
         &self,
@@ -962,10 +977,6 @@ impl ReadLayoutOps<Option<Tot>> for DataLayout2_0 {
     > {
         self.0.h_read_into(h, tot, seg, conf)
     }
-}
-
-impl NormalizableLayout for DataLayout3_0 {
-    fn normalize(&mut self) {}
 }
 
 impl IntoEmptyDataFrame for DataLayout3_0 {
@@ -1018,9 +1029,9 @@ impl ReadLayoutOps<Identity<Tot>> for DataLayout3_1 {
     }
 }
 
-impl Default for DataLayout3_2 {
+impl<M, N: Default> Default for Any3_2<M, N> {
     fn default() -> Self {
-        Self::NonMixed(NonMixedEndianLayout::default())
+        Self::NonMixed(N::default())
     }
 }
 
@@ -1038,96 +1049,9 @@ impl<C08, C16, C24, C32: Default, C40, C48, C56, C64> Default
     }
 }
 
-impl NormalizableLayout for DataLayout3_2 {
-    fn normalize(&mut self) {
-        *self = match mem::take(self) {
-            Self::NonMixed(mut x) => {
-                // this will simplify integer layouts as necessary
-                x.normalize();
-                Self::NonMixed(x)
-            }
-            Self::Mixed(x) => {
-                if let Some((c0, cs)) = x.inner.split_first() {
-                    let d0 = c0.col_datatype();
-                    if cs.iter().all(|c| d0 == c.col_datatype()) {
-                        let new = match d0 {
-                            AlphaNumType::Ascii => {
-                                let new = x.inner.fmap(|c| c.try_into().unwrap());
-                                AnyDatatype::Ascii(AnyAscii::Fixed(ColumnGroup::new(
-                                    new, NoByteOrd,
-                                )))
-                            }
-                            AlphaNumType::Integer => {
-                                let new = x.inner.fmap(|c| c.try_into().unwrap());
-                                let mut l =
-                                    AnyEndianUint::Multi(ColumnGroup::new(new, x.byte_layout));
-                                l.normalize();
-                                AnyDatatype::Uint(l)
-                            }
-                            AlphaNumType::Float => {
-                                let new = x.inner.fmap(|c| c.try_into().unwrap());
-                                AnyDatatype::F32(ColumnGroup::new(new, x.byte_layout))
-                            }
-                            AlphaNumType::Double => {
-                                let new = x.inner.fmap(|c| c.try_into().unwrap());
-                                AnyDatatype::F64(ColumnGroup::new(new, x.byte_layout))
-                            }
-                        };
-                        Self::NonMixed(new)
-                    } else {
-                        Self::Mixed(x)
-                    }
-                } else {
-                    // Return sane default if empty. This is useful since
-                    // returning single will prevent tripping error routines
-                    // when normalization is used as the first step in
-                    // conversion from multi->single, where a multi result
-                    // indicates failure.
-                    Self::NonMixed(AnyDatatype::F32(ColumnGroup::new(vec![], x.byte_layout)))
-                }
-            }
-        };
-    }
-}
-
-impl<D> NormalizableLayout for AnyEndianUintLayout<D> {
-    fn normalize(&mut self) {
-        *self = match mem::take(self) {
-            Self::Single(x) => Self::Single(x),
-            Self::Multi(x) => {
-                if let Some((c0, cs)) = x.inner.split_first() {
-                    let n = c0.file_bytes();
-                    if cs.iter().all(|c| n == c.file_bytes()) {
-                        macro_rules! go {
-                            ($var:ident) => {{
-                                let new = x.inner.fmap(|c| c.try_into().unwrap());
-                                AnyUint::$var(ColumnGroup::new(new, x.byte_layout))
-                            }};
-                        }
-                        let new = match n {
-                            PrivBytes::B1 => go!(Uint08),
-                            PrivBytes::B2 => go!(Uint16),
-                            PrivBytes::B3 => go!(Uint24),
-                            PrivBytes::B4 => go!(Uint32),
-                            PrivBytes::B5 => go!(Uint40),
-                            PrivBytes::B6 => go!(Uint48),
-                            PrivBytes::B7 => go!(Uint56),
-                            PrivBytes::B8 => go!(Uint64),
-                        };
-                        Self::Single(new)
-                    } else {
-                        Self::Multi(x)
-                    }
-                } else {
-                    // Return sane default if empty. This is useful since
-                    // returning single will prevent tripping error routines
-                    // when normalization is used as the first step in
-                    // conversion from multi->single, where a multi result
-                    // indicates failure.
-                    Self::Single(AnyUint::Uint32(ColumnGroup::new(vec![], x.byte_layout)))
-                }
-            }
-        };
+impl<A, I: Default, F32, F64> Default for AnyDatatype<A, I, F32, F64> {
+    fn default() -> Self {
+        Self::Uint(I::default())
     }
 }
 
@@ -1169,7 +1093,7 @@ impl From<DataFrame3_2> for PrimitiveDataFrame {
 
 impl From<MixedDataFrame> for PrimitiveDataFrame {
     fn from(value: MixedDataFrame) -> Self {
-        value.inner.fmap(Into::into)
+        value.container.fmap(Into::into)
     }
 }
 
@@ -1177,7 +1101,7 @@ impl IntoEmptyDataFrame for MixedLayout {
     type DfTarget = MixedDataFrame;
 
     fn empty(&self) -> Self::DfTarget {
-        let cs = self.inner.iter().map(|c| c.clone().into());
+        let cs = self.container.iter().map(|c| c.clone().into());
         ColumnGroup::new(FFDataFrame::try_new(cs).unwrap(), self.byte_layout)
     }
 }
@@ -1225,23 +1149,6 @@ impl<TotType> ReadLayoutOps<TotType> for AnyOrderedLayout<TotType> {
 impl<T> From<AnyOrderedDataFrame<T>> for PrimitiveDataFrame {
     fn from(value: AnyOrderedDataFrame<T>) -> Self {
         match_any_mixed!(value, x, { x.into() })
-    }
-}
-
-impl<D> Default for NonMixedEndianLayout<D> {
-    fn default() -> Self {
-        Self::Uint(AnyEndianUint::Multi(EndianLayout::default()))
-    }
-}
-
-impl<A, I: NormalizableLayout, F32, F64> NormalizableLayout for AnyDatatype<A, I, F32, F64> {
-    fn normalize(&mut self) {
-        match self {
-            Self::Ascii(_) => (),
-            Self::Uint(x) => x.normalize(),
-            Self::F32(_) => (),
-            Self::F64(_) => (),
-        }
     }
 }
 
@@ -1309,18 +1216,18 @@ where
     }
 }
 
-impl<D> IntoEmptyDataFrame for EndianLayout<AnyNullBitmask, D> {
+impl<D> IntoEmptyDataFrame for EndianLayout<AnyBitmask, D> {
     type DfTarget = EndianUintDataFrame<D>;
 
     fn empty(&self) -> Self::DfTarget {
-        let cs = self.inner.iter().map(|&c| c.into());
+        let cs = self.container.iter().map(|&c| c.into());
         ColumnGroup::new(FFDataFrame::try_new(cs).unwrap(), self.byte_layout)
     }
 }
 
 impl<D> From<EndianUintDataFrame<D>> for PrimitiveDataFrame {
     fn from(value: EndianUintDataFrame<D>) -> Self {
-        value.inner.fmap(Into::into)
+        value.container.fmap(Into::into)
     }
 }
 
@@ -1439,7 +1346,10 @@ where
     type DfTarget = DataFrame<NativeColumn<C>, L, T, D>;
 
     fn empty(&self) -> Self::DfTarget {
-        let cs = self.inner.iter().map(|c| AnnotatedColumn::empty(c.clone()));
+        let cs = self
+            .container
+            .iter()
+            .map(|c| AnnotatedColumn::empty(c.clone()));
         ColumnGroup::new(FFDataFrame::try_new(cs).unwrap(), self.byte_layout.clone())
     }
 }
@@ -1453,7 +1363,7 @@ where
 {
     fn from(value: DataFrame<NativeColumn<C>, L, T, D>) -> Self {
         value
-            .inner
+            .container
             .fmap(|c| Into::<AnyPrimitiveColumn>::into(c.into()))
     }
 }
@@ -1693,8 +1603,8 @@ where
     }
 }
 
-impl From<AnyNullBitmask> for AnyBitmaskColumn {
-    fn from(value: AnyNullBitmask) -> Self {
+impl From<AnyBitmask> for AnyBitmaskColumn {
+    fn from(value: AnyBitmask) -> Self {
         match_map_uint!(value, x, AnnotatedColumn::empty(x))
     }
 }
@@ -2606,6 +2516,14 @@ pub trait HasNativeType: Sized {
     type Native: Default + Copy;
 }
 
+trait HasBytes: Sized {
+    fn bytes(&self) -> PrivBytes;
+}
+
+trait HasColumnBytes {
+    fn col_bytes(&self) -> Vec<PrivBytes>;
+}
+
 /// A column which has exactly one $DATATYPE value always always
 trait HasOneDatatype: Sized {
     const DATATYPE: AlphaNumType;
@@ -2887,33 +2805,69 @@ pub trait IsFixed {
 //     }
 // }
 
-macro_rules! impl_any_uint {
-    ($var:ident, $bitmask:path) => {
-        impl From<$bitmask> for AnyNullBitmask {
-            fn from(value: $bitmask) -> Self {
-                Self::$var(value)
-            }
-        }
-
-        // impl<'a> From<UintColumnWriter<'a, $bitmask>> for AnyWriterBitmask<'a> {
-        //     fn from(value: UintColumnWriter<'a, $bitmask>) -> Self {
-        //         Self::$var(value)
-        //     }
-        // }
-
-        impl TryFrom<AnyNullBitmask> for $bitmask {
+macro_rules! impl_uint_try_from {
+    ($outer:path, $inner:path, $var:ident) => {
+        impl TryFrom<$outer> for $inner {
             type Error = UintToUintError;
-            fn try_from(value: AnyNullBitmask) -> Result<Self, Self::Error> {
-                let w = value.nbytes();
+            fn try_from(value: $outer) -> Result<Self, Self::Error> {
                 if let AnyUint::$var(x) = value {
                     Ok(x)
                 } else {
-                    let b = <<Self as HasNativeType>::Native as FCSRepr>::FILE_BYTES;
-                    Err(UintToUintError::new(w, b.into()))
+                    let b = <<$inner as HasNativeType>::Native as FCSRepr>::FILE_BYTES;
+                    Err(UintToUintError::new(value.bytes().into(), b.into()))
                 }
             }
         }
+    };
+}
 
+impl_uint_try_from!(AnyBitmask, Bitmask08, Uint08);
+impl_uint_try_from!(AnyBitmask, Bitmask16, Uint16);
+impl_uint_try_from!(AnyBitmask, Bitmask24, Uint24);
+impl_uint_try_from!(AnyBitmask, Bitmask32, Uint32);
+impl_uint_try_from!(AnyBitmask, Bitmask40, Uint40);
+impl_uint_try_from!(AnyBitmask, Bitmask48, Uint48);
+impl_uint_try_from!(AnyBitmask, Bitmask56, Uint56);
+impl_uint_try_from!(AnyBitmask, Bitmask64, Uint64);
+
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask08>, Uint08);
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask16>, Uint16);
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask24>, Uint24);
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask32>, Uint32);
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask40>, Uint40);
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask48>, Uint48);
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask56>, Uint56);
+impl_uint_try_from!(AnyBitmaskColumn, NativeColumn<Bitmask64>, Uint64);
+
+macro_rules! impl_mixed_try_from {
+    ($outer:path, $inner:path, $var:ident) => {
+        impl TryFrom<$outer> for $inner {
+            type Error = MixedToNonMixedError;
+            fn try_from(value: $outer) -> Result<Self, Self::Error> {
+                if let AnyDatatype::$var(x) = value {
+                    Ok(x)
+                } else {
+                    let src_type = value.col_datatype();
+                    let dst_type = <$inner as HasOneDatatype>::DATATYPE;
+                    Err(MixedToNonMixedError::new(src_type, dst_type))
+                }
+            }
+        }
+    };
+}
+
+impl_mixed_try_from!(MixedRange, FixedAsciiRange, Ascii);
+impl_mixed_try_from!(MixedRange, AnyBitmask, Uint);
+impl_mixed_try_from!(MixedRange, F32Range, F32);
+impl_mixed_try_from!(MixedRange, F64Range, F64);
+
+impl_mixed_try_from!(MixedColumn, NativeColumn<FixedAsciiRange>, Ascii);
+impl_mixed_try_from!(MixedColumn, AnyBitmaskColumn, Uint);
+impl_mixed_try_from!(MixedColumn, NativeColumn<F32Range>, F32);
+impl_mixed_try_from!(MixedColumn, NativeColumn<F64Range>, F64);
+
+macro_rules! impl_any_uint {
+    ($var:ident, $bitmask:path) => {
         impl TryFrom<MixedRange> for $bitmask {
             type Error = MixedToOrderedUintError;
             fn try_from(value: MixedRange) -> Result<Self, Self::Error> {
@@ -2926,8 +2880,8 @@ macro_rules! impl_any_uint {
                         Err(UintToUintError::new(w, b.into()).into())
                     }
                 } else {
-                    let dest_type = value.as_alpha_num_type();
-                    Err(MixedToNonMixedError::new(dest_type, value).into())
+                    let src_type = value.col_datatype();
+                    Err(MixedToNonMixedError::new(src_type, AlphaNumType::Integer).into())
                 }
             }
         }
@@ -2975,15 +2929,15 @@ impl From<DelimAsciiRange> for MixedRange {
     }
 }
 
-impl From<AnyNullBitmask> for MixedRange {
-    fn from(value: AnyNullBitmask) -> Self {
+impl From<AnyBitmask> for MixedRange {
+    fn from(value: AnyBitmask) -> Self {
         Self::Uint(value)
     }
 }
 
 impl<T> From<Bitmask<T>> for MixedRange
 where
-    AnyNullBitmask: From<Bitmask<T>>,
+    AnyBitmask: From<Bitmask<T>>,
 {
     fn from(value: Bitmask<T>) -> Self {
         Self::Uint(value.into())
@@ -3077,9 +3031,9 @@ impl From<&MixedRange> for Range {
     }
 }
 
-impl From<&AnyNullBitmask> for Range {
-    fn from(value: &AnyNullBitmask) -> Self {
-        match_any_uint!(value, AnyNullBitmask, x, { x.into() })
+impl From<&AnyBitmask> for Range {
+    fn from(value: &AnyBitmask) -> Self {
+        match_any_uint!(value, AnyBitmask, x, { x.into() })
     }
 }
 
@@ -3088,27 +3042,6 @@ impl<T: Clone> From<&FloatRange<T>> for Range {
         value.range.clone().into()
     }
 }
-
-macro_rules! mixed_to_inner {
-    ($inner:ident, $var:ident) => {
-        impl TryFrom<MixedRange> for $inner {
-            type Error = MixedToNonMixedError;
-            fn try_from(value: MixedRange) -> Result<Self, Self::Error> {
-                let dest_type = value.as_alpha_num_type();
-                if let AnyDatatype::$var(x) = value {
-                    Ok(x)
-                } else {
-                    Err(MixedToNonMixedError::new(dest_type, value))
-                }
-            }
-        }
-    };
-}
-
-mixed_to_inner!(FixedAsciiRange, Ascii);
-mixed_to_inner!(AnyNullBitmask, Uint);
-mixed_to_inner!(F32Range, F32);
-mixed_to_inner!(F64Range, F64);
 
 // impl<T, const LEN: usize> Castable for Bitmask<T, LEN>
 // where
@@ -3267,7 +3200,7 @@ mixed_to_inner!(F64Range, F64);
 //     }
 // }
 
-// impl<'a> IntoWriter<'a, Endian> for AnyNullBitmask {
+// impl<'a> IntoWriter<'a, Endian> for AnyBitmask {
 //     type Target = AnyWriterBitmask<'a>;
 
 //     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
@@ -3448,7 +3381,7 @@ fn is_ascii_delim(x: u8) -> bool {
     x == 9 || x == 10 || x == 13 || x == 32 || x == 44
 }
 
-// impl<D> EndianLayout<AnyNullBitmask, D> {
+// impl<D> EndianLayout<AnyBitmask, D> {
 //     // pub(crate) fn endian_uint_try_new(
 //     //     cs: Vec<ColumnLayoutValues<D>>,
 //     //     e: Endian,
@@ -3778,7 +3711,7 @@ impl MixedRange {
     }
 }
 
-impl From<BitmaskValue<u64>> for AnyNullBitmask {
+impl From<BitmaskValue<u64>> for AnyBitmask {
     /// Make a new bitmask from a u64.
     ///
     /// The width is determined by the magnitude of the range; the smallest
@@ -3787,7 +3720,7 @@ impl From<BitmaskValue<u64>> for AnyNullBitmask {
         macro_rules! go {
             ($var:ident, $x:expr) => {{
                 let (ret, truncated) = Bitmask::from_u64($x.0);
-                debug_assert!(!truncated, "AnyNullBitmask input should never be truncated");
+                debug_assert!(!truncated, "AnyBitmask input should never be truncated");
                 Self::$var(ret)
             }};
         }
@@ -3804,14 +3737,14 @@ impl From<BitmaskValue<u64>> for AnyNullBitmask {
     }
 }
 
-impl From<AnyNullBitmask> for BitmaskValue<u64> {
+impl From<AnyBitmask> for BitmaskValue<u64> {
     /// Convert bitmask range (not bitmask itself) to u64.
-    fn from(value: AnyNullBitmask) -> Self {
-        match_any_uint!(value, AnyNullBitmask, x, { Self(u64::from(x)) })
+    fn from(value: AnyBitmask) -> Self {
+        match_any_uint!(value, AnyBitmask, x, { Self(u64::from(x)) })
     }
 }
 
-impl AnyNullBitmask {
+impl AnyBitmask {
     fn init_column(&self, nrows: usize) -> AnyUintVec {
         fn default_vec<T: Clone + Default>(n: usize) -> Vec<T> {
             vec![T::default(); n]
@@ -3926,7 +3859,7 @@ impl<T, D, const ORD: bool> LayoutDatatype for DelimAsciiLayout<T, D, ORD> {
     }
 
     fn datatypes(&self) -> Vec<AlphaNumType> {
-        vec![self.datatype(); self.inner.len()]
+        vec![self.datatype(); self.container.len()]
     }
 }
 
@@ -3942,7 +3875,7 @@ where
     }
 
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
-        self.inner
+        self.container
             .iter()
             .enumerate()
             .map(|(i, r)| {
@@ -3979,7 +3912,7 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
                 })
             };
         }
-        let rs = &self.inner;
+        let rs = &self.container;
         let nbytes = usize::try_from(seg.len()).expect("DATA length > usize");
         if rs.is_empty() && nbytes > 0 {
             let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
@@ -4038,7 +3971,7 @@ impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
                     .map_ok_value(|()| {
                         let cs = data
                             .into_iter()
-                            .zip(&self.inner)
+                            .zip(&self.container)
                             .map(|(vec, &range)| NativeColumn::from(RangedVec::new(range, vec)));
                         let out = EventsDiagnostics::new(None, None, None, overrange);
                         let df = FFDataFrame::try_new(cs).unwrap();
@@ -4164,35 +4097,42 @@ fn h_read_delim_without_rows<R: Read>(
     Ok(data)
 }
 
-impl<C: HasWidth, S, T, D> LayoutDims for ColumnGroup<C, S, T, D> {
+impl<C: HasWidth, I, L, T, D> LayoutDims for ColumnGroup<C, I, L, T, D> {
     fn ncols(&self) -> usize {
-        self.inner.width()
+        self.container.width()
     }
 
     fn clear(&mut self) {
-        self.inner.clear();
+        self.container.clear();
     }
 }
 
-impl<C, S, T, D> LayoutRanges for DataLayout<C, S, T, D>
+impl<C, I, L, T, D> LayoutRanges for ColumnGroup<C, I, L, T, D>
 where
-    for<'c> Range: From<&'c C>,
+    Self: AsRef<[I]>,
+    for<'c> Range: From<&'c I>,
 {
     fn ranges(&self) -> Vec<Range> {
-        self.inner.iter().map(Into::into).collect()
+        let cs = self.as_ref();
+        cs.iter().map(Into::into).collect()
     }
 }
 
-impl<C, S, T, D> LayoutDatatype for DataLayout<C, S, T, D>
+impl<C, I, S, T, D> LayoutDatatype for ColumnGroup<C, I, S, T, D>
 where
-    C: HasDatatype,
+    C: AsRef<[I]>,
+    I: HasDatatype,
 {
     fn datatype(&self) -> AlphaNumType {
-        C::datatype_from_columns(&self.inner)
+        I::datatype_from_columns(self.container.as_ref())
     }
 
     fn datatypes(&self) -> Vec<AlphaNumType> {
-        self.inner.iter().map(HasDatatype::col_datatype).collect()
+        self.container
+            .as_ref()
+            .iter()
+            .map(HasDatatype::col_datatype)
+            .collect()
     }
 }
 
@@ -4208,7 +4148,7 @@ where
     }
 
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
-        self.inner
+        self.container
             .iter()
             .enumerate()
             .map(|(i, c)| {
@@ -4226,10 +4166,10 @@ where
 {
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
-            usize::from(index) <= self.inner.len(),
+            usize::from(index) <= self.container.len(),
             "Index should be less than/equal to column number"
         );
-        Range::from(&self.inner.remove(index.into()))
+        Range::from(&self.container.remove(index.into()))
     }
 }
 
@@ -4295,12 +4235,13 @@ impl<C: FromRange, S, T, D> Insertable<Range> for DataLayout<C, S, T, D> {
     type Error = C::Error;
 
     fn insert_nocheck0(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
-        self.inner.insert(index.into(), C::from_range(col)?.native);
+        self.container
+            .insert(index.into(), C::from_range(col)?.native);
         Ok(())
     }
 
     fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
-        self.inner.push(C::from_range(col)?.native);
+        self.container.push(C::from_range(col)?.native);
         Ok(())
     }
 }
@@ -4378,7 +4319,7 @@ where
 
 impl<C, S, T, D> OptMeasLayoutKeywords for DataLayout<C, S, T, D> {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        vec![None; self.inner.len()]
+        vec![None; self.container.len()]
     }
 }
 
@@ -4392,29 +4333,33 @@ where
     }
 }
 
-impl<C, L, T, D> ColumnGroup<C, L, T, D> {
-    fn phantom_into<Tf, Df>(self) -> ColumnGroup<C, L, Tf, Df> {
-        ColumnGroup::new(self.inner, self.byte_layout)
+impl<C, I, L, T, D> ColumnGroup<C, I, L, T, D> {
+    fn phantom_into<Tf, Df>(self) -> ColumnGroup<C, I, L, Tf, Df> {
+        ColumnGroup::new(self.container, self.byte_layout)
     }
 
-    fn byte_layout_into<Lf>(self) -> ColumnGroup<C, Lf, T, D>
+    fn set_byte_layout<Lf>(self, byte_layout: Lf) -> ColumnGroup<C, I, Lf, T, D> {
+        ColumnGroup::new(self.container, byte_layout)
+    }
+
+    fn byte_layout_into<Lf>(self) -> ColumnGroup<C, I, Lf, T, D>
     where
         L: Into<Lf>,
     {
-        ColumnGroup::new(self.inner, self.byte_layout.into())
+        ColumnGroup::new(self.container, self.byte_layout.into())
     }
 
-    fn byte_layout_try_into<Lf>(self) -> Result<ColumnGroup<C, Lf, T, D>, Lf::Error>
+    fn byte_layout_try_into<Lf>(self) -> Result<ColumnGroup<C, I, Lf, T, D>, Lf::Error>
     where
         Lf: TryFrom<L>,
     {
         self.byte_layout
             .try_into()
-            .map(|byte_layout| ColumnGroup::new(self.inner, byte_layout))
+            .map(|byte_layout| ColumnGroup::new(self.container, byte_layout))
     }
 }
 
-impl<C, T, D, const ORD: bool> ColumnGroup<C, NoByteOrd<ORD>, T, D> {
+impl<C, I, T, D, const ORD: bool> ColumnGroup<C, I, NoByteOrd<ORD>, T, D> {
     pub fn new_ascii(columns: C) -> Self {
         Self::new(columns, NoByteOrd::<ORD>)
     }
@@ -4433,7 +4378,7 @@ impl<C, S, T, D> DataLayout<C, S, T, D> {
     where
         C: IsFixed,
     {
-        self.inner.iter().map(IsFixed::fixed_width).collect()
+        self.container.iter().map(IsFixed::fixed_width).collect()
     }
 
     // fn new1(head: C, tail: impl IntoIterator<Item = C>, byte_layout: S) -> Self {
@@ -4484,14 +4429,14 @@ impl<C, S, T, D> DataLayout<C, S, T, D> {
     where
         X: From<C>,
     {
-        DataLayout::new(self.inner.fmap(Into::into), self.byte_layout)
+        DataLayout::new(self.container.fmap(Into::into), self.byte_layout)
     }
 
     fn event_width(&self) -> usize
     where
         C: IsFixed,
     {
-        self.inner
+        self.container
             .iter()
             .map(|c| usize::from(u8::from(c.nbytes())))
             .sum()
@@ -4726,7 +4671,7 @@ impl<T, D, const ORD: bool> FixedLayoutIO for FixedAsciiLayout<T, D, ORD> {
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
 
         let mut columns: Vec<_> = self
-            .inner
+            .container
             .iter()
             .map(|r| RangedVec::new(*r, vec![0; nrows]))
             .collect();
@@ -4777,13 +4722,13 @@ where
         let rs = columns
             .iter_mut()
             .enumerate()
-            .zip(&self.inner[..])
+            .zip(&self.container[..])
             .map(|((i, d), c)| d.check_range(c, i.into(), trunc))
             .collect();
 
         let data = columns
             .into_iter()
-            .zip(self.inner.iter().cloned())
+            .zip(self.container.iter().cloned())
             .map(|(data, range)| NativeColumn::from(RangedVec::new(range, data)));
         let df = FFDataFrame::try_new(data).unwrap();
 
@@ -4791,7 +4736,7 @@ where
     }
 }
 
-impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
+impl<D> FixedLayoutIO for EndianLayout<AnyBitmask, D> {
     type DfTarget = EndianUintDataFrame<D>;
 
     fn h_read_unchecked_df_inner<R: Read>(
@@ -4801,7 +4746,11 @@ impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
         conf: &ReadEventsConfig,
     ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError> {
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let mut columns: Vec<_> = self.inner.iter().map(|c| c.init_column(nrows)).collect();
+        let mut columns: Vec<_> = self
+            .container
+            .iter()
+            .map(|c| c.init_column(nrows))
+            .collect();
 
         row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
 
@@ -4830,7 +4779,7 @@ impl FixedLayoutIO for MixedLayout {
     ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError> {
         let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         let en = self.byte_layout;
-        let cs = &self.inner[..];
+        let cs = &self.container[..];
 
         let mut columns =
             if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
@@ -4847,7 +4796,11 @@ impl FixedLayoutIO for MixedLayout {
             } else {
                 // Totally mixed layout, dispatch for each column. This will be
                 // slower but is necessary to read each type correctly.
-                let mut columns: Vec<_> = self.inner.iter().map(|c| c.init_column(nrows)).collect();
+                let mut columns: Vec<_> = self
+                    .container
+                    .iter()
+                    .map(|c| c.init_column(nrows))
+                    .collect();
                 buf.read_mixed_df(h, &mut columns, self.byte_layout)
                     .map_err(|e| {
                         e.fmap_once(ReadFixedAsciiError::from)
@@ -4968,6 +4921,92 @@ def_native_wrapper!(F64Range, f64);
 def_native_wrapper!(FixedAsciiRange, u64);
 def_native_wrapper!(DelimAsciiRange, u64);
 
+impl<M: HasNativeType, T, R> HasNativeType for AnnotatedColumn<M, T, R> {
+    type Native = M::Native;
+}
+
+impl<T> HasBytes for Bitmask<T>
+where
+    Self: HasNativeType<Native = T>,
+    T: FCSRepr,
+{
+    fn bytes(&self) -> PrivBytes {
+        T::FILE_BYTES.0
+    }
+}
+
+impl<T> HasBytes for FloatRange<T>
+where
+    Self: HasNativeType<Native = T>,
+    T: FCSRepr,
+{
+    fn bytes(&self) -> PrivBytes {
+        T::FILE_BYTES.0
+    }
+}
+
+impl<M: HasBytes, T, R> HasBytes for AnnotatedColumn<M, T, R> {
+    fn bytes(&self) -> PrivBytes {
+        self.metadata.bytes()
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> HasBytes
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: HasBytes,
+    C16: HasBytes,
+    C24: HasBytes,
+    C32: HasBytes,
+    C40: HasBytes,
+    C48: HasBytes,
+    C56: HasBytes,
+    C64: HasBytes,
+{
+    fn bytes(&self) -> PrivBytes {
+        match_any_uint!(self, Self, x, { x.bytes() })
+    }
+}
+
+impl<C, L, T, D> HasColumnBytes for DataLayout<C, L, T, D>
+where
+    C: HasBytes,
+{
+    fn col_bytes(&self) -> Vec<PrivBytes> {
+        self.container.iter().map(HasBytes::bytes).collect()
+    }
+}
+
+impl<C, L, T, D> HasColumnBytes for DataFrame<C, L, T, D>
+where
+    C: HasBytes,
+{
+    fn col_bytes(&self) -> Vec<PrivBytes> {
+        self.container
+            .as_ref()
+            .iter()
+            .map(HasBytes::bytes)
+            .collect()
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> HasColumnBytes
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: HasColumnBytes,
+    C16: HasColumnBytes,
+    C24: HasColumnBytes,
+    C32: HasColumnBytes,
+    C40: HasColumnBytes,
+    C48: HasColumnBytes,
+    C56: HasColumnBytes,
+    C64: HasColumnBytes,
+{
+    fn col_bytes(&self) -> Vec<PrivBytes> {
+        match_any_uint!(self, Self, x, { x.col_bytes() })
+    }
+}
+
 impl HasOneDatatype for FixedAsciiRange {
     const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
 }
@@ -4984,8 +5023,14 @@ impl HasOneDatatype for F64Range {
     const DATATYPE: AlphaNumType = AlphaNumType::Double;
 }
 
-impl HasOneDatatype for AnyNullBitmask {
+impl<C08, C16, C24, C32, C40, C48, C56, C64> HasOneDatatype
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+{
     const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+}
+
+impl<M: HasOneDatatype, T, R> HasOneDatatype for AnnotatedColumn<M, T, R> {
+    const DATATYPE: AlphaNumType = M::DATATYPE;
 }
 
 impl<T: HasOneDatatype> HasDatatype for T {
@@ -5147,7 +5192,7 @@ impl FromRange for DelimAsciiRange {
 // There are a few edge cases where a user may wish to control the size but
 // these are all for performance and supporting them would make the API much
 // more complex.
-impl FromRange for AnyNullBitmask {
+impl FromRange for AnyBitmask {
     type Error = RangeToBitmaskError;
 
     /// make a new bitmask from a float or integer.
@@ -5201,7 +5246,7 @@ impl IsFixed for FixedAsciiRange {
     }
 }
 
-impl IsFixed for AnyNullBitmask {
+impl IsFixed for AnyBitmask {
     fn nbytes(&self) -> NonZeroU8 {
         match_any_uint!(self, Self, x, { x.nbytes() })
     }
@@ -5281,17 +5326,29 @@ impl<D> AnySingleUintLayout<D> {
     }
 }
 
+// /// A type which is an integer and has a width.
+// trait UintBytes {
+//     fn byte_width(&self) -> PrivBytes;
+// }
+
+// // trait UintWidths {
+// //     fn byte_widths(&self) -> PrivBytes;
+// // }
+
+// // impl UintWidths for DataLayout<C, L, T, D>
+// // }
+
 trait Generalize<T> {
     fn into_general(self) -> T;
 }
 
 impl<C, L, T, D> Generalize<EndianUintLayout<D>> for DataLayout<C, L, T, D>
 where
-    C: Into<AnyNullBitmask>,
+    C: Into<AnyBitmask>,
     L: Into<Endian>,
 {
     fn into_general(self) -> EndianUintLayout<D> {
-        self.map_vec(Into::into).byte_layout_into().phantom_into()
+        self.map_inner(Into::into).byte_layout_into().phantom_into()
     }
 }
 
@@ -5301,7 +5358,7 @@ where
     L: Into<Endian>,
 {
     fn into_general(self) -> EndianUintDataFrame<D> {
-        self.map_cols(Into::into).byte_layout_into().phantom_into()
+        self.map_inner(Into::into).byte_layout_into().phantom_into()
     }
 }
 
@@ -5311,7 +5368,7 @@ where
     L: Into<Endian>,
 {
     fn into_general(self) -> MixedLayout {
-        self.map_vec(Into::into).byte_layout_into().phantom_into()
+        self.map_inner(Into::into).byte_layout_into().phantom_into()
     }
 }
 
@@ -5326,7 +5383,7 @@ where
 
 impl<D> Generalize<MixedLayout> for AnySingleUintLayout<D> {
     fn into_general(self) -> MixedLayout {
-        match_any_uint!(self, Self, x, { x.map_vec(Into::into).phantom_into() })
+        match_any_uint!(self, Self, x, { x.map_inner(Into::into).phantom_into() })
     }
 }
 
@@ -5438,8 +5495,8 @@ impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
     #[must_use]
     pub fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
         match self {
-            Self::Delimited(x) => DelimAsciiLayout::new_ascii(x.inner).into(),
-            Self::Fixed(x) => DataLayout::new_ascii(x.inner).into(),
+            Self::Delimited(x) => DelimAsciiLayout::new_ascii(x.container).into(),
+            Self::Fixed(x) => DataLayout::new_ascii(x.container).into(),
         }
     }
 
@@ -5699,6 +5756,208 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 }
 
+// Implement NormalizableLayout
+//
+// Most layouts will noop since they only have one possibility. The only two
+// exceptions are Endian Integer layouts which can have one or many widths
+// (normalization will try to convert to explicit single layout) and mixed-type
+// layouts (normalization will try to reduce to a single type, with the nuance
+// that these also may have mixed width integer layouts inside them).
+
+impl NormalizableLayout for DataLayout2_0 {
+    fn normalize(&mut self) {}
+}
+
+impl NormalizableLayout for DataLayout3_0 {
+    fn normalize(&mut self) {}
+}
+
+impl<A, I: NormalizableLayout, F32, F64> NormalizableLayout for AnyDatatype<A, I, F32, F64> {
+    fn normalize(&mut self) {
+        if let Self::Uint(x) = self {
+            x.normalize();
+        }
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64, I08, I16, I24, I32, I40, I48, I56, I64, C, I, D>
+    NormalizableLayout
+    for AnyEndianUint<
+        AnyUint<
+            EndianGroup<C08, I08, D>,
+            EndianGroup<C16, I16, D>,
+            EndianGroup<C24, I24, D>,
+            EndianGroup<C32, I32, D>,
+            EndianGroup<C40, I40, D>,
+            EndianGroup<C48, I48, D>,
+            EndianGroup<C56, I56, D>,
+            EndianGroup<C64, I64, D>,
+        >,
+        EndianGroup<C, I, D>,
+    >
+where
+    Self: Default
+        + From<
+            AnyUint<
+                EndianGroup<Sibling1<C, I08>, I08, D>,
+                EndianGroup<Sibling1<C, I16>, I16, D>,
+                EndianGroup<Sibling1<C, I24>, I24, D>,
+                EndianGroup<Sibling1<C, I32>, I32, D>,
+                EndianGroup<Sibling1<C, I40>, I40, D>,
+                EndianGroup<Sibling1<C, I48>, I48, D>,
+                EndianGroup<Sibling1<C, I56>, I56, D>,
+                EndianGroup<Sibling1<C, I64>, I64, D>,
+            >,
+        >,
+    ColumnGroup<C, I, Endian, Identity<Tot>, D>: HasColumnBytes,
+    C32: Default,
+    C: Functor<I>,
+    I: TryInto<I08>
+        + TryInto<I16>
+        + TryInto<I24>
+        + TryInto<I32>
+        + TryInto<I40>
+        + TryInto<I48>
+        + TryInto<I56>
+        + TryInto<I64>,
+    <I as TryInto<I08>>::Error: fmt::Debug,
+    <I as TryInto<I16>>::Error: fmt::Debug,
+    <I as TryInto<I24>>::Error: fmt::Debug,
+    <I as TryInto<I32>>::Error: fmt::Debug,
+    <I as TryInto<I40>>::Error: fmt::Debug,
+    <I as TryInto<I48>>::Error: fmt::Debug,
+    <I as TryInto<I56>>::Error: fmt::Debug,
+    <I as TryInto<I64>>::Error: fmt::Debug,
+{
+    fn normalize(&mut self) {
+        fn go<X, Y>(x: X) -> Y
+        where
+            X: TryInto<Y>,
+            X::Error: fmt::Debug,
+        {
+            x.try_into().unwrap()
+        }
+        *self = match mem::take(self) {
+            Self::Single(x) => Self::Single(x),
+            Self::Multi(x) => {
+                if let Some((c0, cs)) = x.col_bytes().split_first() {
+                    if cs.iter().all(|c| c0 == c) {
+                        let new = match c0 {
+                            PrivBytes::B1 => AnyUint::Uint08(x.map_inner(go)),
+                            PrivBytes::B2 => AnyUint::Uint16(x.map_inner(go)),
+                            PrivBytes::B3 => AnyUint::Uint24(x.map_inner(go)),
+                            PrivBytes::B4 => AnyUint::Uint32(x.map_inner(go)),
+                            PrivBytes::B5 => AnyUint::Uint40(x.map_inner(go)),
+                            PrivBytes::B6 => AnyUint::Uint48(x.map_inner(go)),
+                            PrivBytes::B7 => AnyUint::Uint56(x.map_inner(go)),
+                            PrivBytes::B8 => AnyUint::Uint64(x.map_inner(go)),
+                        };
+                        Self::from(new)
+                    } else {
+                        Self::Multi(x)
+                    }
+                } else {
+                    // Return sane default if empty. This is useful since
+                    // returning single will prevent tripping error routines
+                    // when normalization is used as the first step in
+                    // conversion from multi->single, where a multi result
+                    // indicates failure.
+                    let new = ColumnGroup::new(C32::default(), x.byte_layout);
+                    Self::Single(AnyUint::Uint32(new))
+                }
+            }
+        };
+    }
+}
+
+type NonMixed3_2<Cd, Ca, Ci, Cf32, Cf64, Id, Ia, Ii, If32, If64, Gi> = AnyDatatype<
+    AnyAscii<AsciiGroup3_2<Cd, Id>, AsciiGroup3_2<Ca, Ia>>,
+    AnyEndianUint<Gi, EndianGroup3_2<Ci, Ii>>,
+    EndianGroup3_2<Cf32, If32>,
+    EndianGroup3_2<Cf64, If64>,
+>;
+
+impl<Cm, Ca, Cd, Ci, Cf32, Cf64, Im, Ia, Id, Ii, If32, If64, Gi> NormalizableLayout
+    for Any3_2<
+        EndianGroup3_2<Cm, Im>,
+        NonMixed3_2<Cd, Ca, Ci, Cf32, Cf64, Id, Ia, Ii, If32, If64, Gi>,
+    >
+where
+    Self: Default
+        + From<
+            NonMixed3_2<
+                Sibling1<Cm, Id>,
+                Sibling1<Cm, Ia>,
+                Sibling1<Cm, Ii>,
+                Sibling1<Cm, If32>,
+                Sibling1<Cm, If64>,
+                Id,
+                Ia,
+                Ii,
+                If32,
+                If64,
+                Gi,
+            >,
+        >,
+    NonMixed3_2<Cd, Ca, Ci, Cf32, Cf64, Id, Ia, Ii, If32, If64, Gi>: NormalizableLayout,
+    AnyEndianUint<Gi, EndianGroup3_2<Sibling1<Cm, Ii>, Ii>>: NormalizableLayout,
+    EndianGroup3_2<Cm, Im>: LayoutDatatype,
+    Im: HasDatatype + TryInto<Ia> + TryInto<Ii> + TryInto<If32> + TryInto<If64>,
+    Cm: AsRef<[Im]> + Functor<Im>,
+    Cf32: Default,
+    <Im as TryInto<Ia>>::Error: fmt::Debug,
+    <Im as TryInto<Ii>>::Error: fmt::Debug,
+    <Im as TryInto<If32>>::Error: fmt::Debug,
+    <Im as TryInto<If64>>::Error: fmt::Debug,
+{
+    fn normalize(&mut self) {
+        fn go<X, Y>(x: X) -> Y
+        where
+            X: TryInto<Y>,
+            X::Error: fmt::Debug,
+        {
+            x.try_into().unwrap()
+        }
+        *self = match mem::take(self) {
+            Self::NonMixed(mut x) => {
+                // this will simplify integer layouts as necessary
+                x.normalize();
+                Self::NonMixed(x)
+            }
+            Self::Mixed(x) => {
+                if let Some((d0, ds)) = x.datatypes().split_first() {
+                    if ds.iter().all(|d| d0 == d) {
+                        let new = match d0 {
+                            AlphaNumType::Ascii => {
+                                let y = x.map_inner(go).set_byte_layout(NoByteOrd);
+                                AnyDatatype::Ascii(AnyAscii::Fixed(y))
+                            }
+                            AlphaNumType::Integer => {
+                                let mut l = AnyEndianUint::Multi(x.map_inner(go));
+                                l.normalize();
+                                AnyDatatype::Uint(l)
+                            }
+                            AlphaNumType::Float => AnyDatatype::F32(x.map_inner(go)),
+                            AlphaNumType::Double => AnyDatatype::F64(x.map_inner(go)),
+                        };
+                        Self::from(new)
+                    } else {
+                        Self::Mixed(x)
+                    }
+                } else {
+                    // Return sane default if empty. This is useful since
+                    // returning single will prevent tripping error routines
+                    // when normalization is used as the first step in
+                    // conversion from multi->single, where a multi result
+                    // indicates failure.
+                    let new = ColumnGroup::new(Cf32::default(), x.byte_layout);
+                    Self::NonMixed(AnyDatatype::F32(new))
+                }
+            }
+        };
+    }
+}
+
 impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
     fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
         LogResult::new_ok(Self(value.0.phantom_into()))
@@ -5803,12 +6062,12 @@ impl<C, L, T, D> Insertable<C> for DataLayout<C, L, T, D> {
     type Error = Infallible;
 
     fn insert_nocheck0(&mut self, index: MeasIndex, col: C) -> Result<(), Infallible> {
-        self.inner.insert(index.into(), col);
+        self.container.insert(index.into(), col);
         Ok(())
     }
 
     fn push0(&mut self, col: C) -> Result<(), Infallible> {
-        self.inner.push(col);
+        self.container.push(col);
         Ok(())
     }
 }
@@ -5817,12 +6076,12 @@ impl<C: HasLen, L, T, D> Insertable<C> for DataFrame<C, L, T, D> {
     type Error = Infallible;
 
     fn insert_nocheck0(&mut self, index: MeasIndex, col: C) -> Result<(), Infallible> {
-        self.inner.insert_column_nocheck(index.into(), col);
+        self.container.insert_column_nocheck(index.into(), col);
         Ok(())
     }
 
     fn push0(&mut self, col: C) -> Result<(), Infallible> {
-        self.inner.push_column_nocheck(col);
+        self.container.push_column_nocheck(col);
         Ok(())
     }
 }
@@ -5840,7 +6099,7 @@ impl Insertable<MixedRange> for DataLayout3_2 {
         macro_rules! go {
             ($var:ident, $from:expr) => {
                 if let AnyDatatype::$var(r) = col {
-                    $from.inner.insert(index.into(), r.into());
+                    $from.container.insert(index.into(), r.into());
                 } else {
                     go_mixed!($from);
                 }
@@ -5860,7 +6119,7 @@ impl Insertable<MixedRange> for DataLayout3_2 {
                     AnyEndianUint::Single(z) => {
                         match_any_uint!(z, AnyUint, s, {
                             if let Ok(r) = col.clone().try_into() {
-                                s.inner.insert(index.into(), r);
+                                s.container.insert(index.into(), r);
                             } else {
                                 go_mixed!(z);
                             }
@@ -5885,7 +6144,7 @@ impl Insertable<MixedRange> for DataLayout3_2 {
         macro_rules! go {
             ($var:ident, $from:expr) => {
                 if let AnyDatatype::$var(r) = col {
-                    $from.inner.push(r.into());
+                    $from.container.push(r.into());
                 } else {
                     go_mixed!($from);
                 }
@@ -5905,7 +6164,7 @@ impl Insertable<MixedRange> for DataLayout3_2 {
                     AnyEndianUint::Single(z) => {
                         match_any_uint!(z, AnyUint, s, {
                             if let Ok(r) = col.clone().try_into() {
-                                s.inner.push(r);
+                                s.container.push(r);
                             } else {
                                 go_mixed!(z);
                             }
@@ -5927,7 +6186,7 @@ impl OptMeasLayoutKeywords for DataLayout3_2 {
         match self {
             Self::NonMixed(x) => vec![None; x.ncols()],
             Self::Mixed(x) => x
-                .inner
+                .container
                 .iter()
                 .enumerate()
                 .map(|(i, c)| {
@@ -5971,7 +6230,7 @@ impl DataLayout3_2 {
         }
         if let Ok(xs) = go!(FixedAsciiRange) {
             NonMixedEndianLayout::new_ascii_fixed(xs).into()
-        } else if let Ok(xs) = go!(AnyNullBitmask) {
+        } else if let Ok(xs) = go!(AnyBitmask) {
             NonMixedEndianLayout::new_uint(xs, endian).into()
         } else if let Ok(xs) = go!(F32Range) {
             NonMixedEndianLayout::new_f32(xs, endian).into()
@@ -6006,7 +6265,7 @@ impl DataLayout3_2 {
 
 impl<D> EndianUintLayout<D> {
     fn conversion_fail<X>(&self) -> LayoutConvertResult<X> {
-        debug_assert!(!self.inner.is_empty(), "columns must be non-empty");
+        debug_assert!(!self.container.is_empty(), "columns must be non-empty");
         let ((_, w0), ws) = self
             .widths()
             .try_into_nonempty_iter()
@@ -6026,14 +6285,14 @@ impl<D> EndianUintLayout<D> {
 
 impl MixedLayout {
     fn conversion_fail<X>(&self) -> LayoutConvertResult<X> {
-        debug_assert!(!self.inner.is_empty(), "columns must be non-empty");
+        debug_assert!(!self.container.is_empty(), "columns must be non-empty");
         let d0 = self.datatype();
         let es = self
-            .inner
+            .container
             .iter()
             .filter_map(|c| {
                 let d = c.as_alpha_num_type();
-                (d0 != d).then(|| MixedToNonMixedError::new(d, c.clone()))
+                (d0 != d).then(|| MixedToNonMixedError::new(d, d0))
             })
             .enumerate()
             .map(|(i, e)| IndexedError::new(i, e))
@@ -6042,12 +6301,6 @@ impl MixedLayout {
             .try_into_nonempty_iter()
             .expect("mixed layout should have at least one different type");
         LogResult::new_from_ne_err_iter(es, ())
-    }
-}
-
-impl<T> Default for AnyOrderedLayout<T> {
-    fn default() -> Self {
-        Self::Uint(AnyOrderedUintLayout::default())
     }
 }
 
@@ -6317,7 +6570,7 @@ impl<D> NonMixedEndianLayout<D> {
     // TODO make fixed width versions of this?
 
     #[must_use]
-    pub fn new_uint(columns: Vec<AnyNullBitmask>, endian: Endian) -> Self {
+    pub fn new_uint(columns: Vec<AnyBitmask>, endian: Endian) -> Self {
         AnyEndianUint::Multi(DataLayout::new(columns, endian)).into()
     }
 
@@ -6899,8 +7152,8 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 #[derive(From, Debug, Error)]
 #[error(
     "{b} and {r} when {p}='{from}' are incompatible in layout with $DATATYPE='{to}'",
-    from = _0.error.src.as_alpha_num_type().as_displayable(),
-    to = _0.error.dest_type.as_displayable(),
+    from = _0.error.src.as_displayable(),
+    to = _0.error.dest.as_displayable(),
     p = NumType::std(_0.index),
     b = Width::std(_0.index),
     r = Range::std(_0.index),
@@ -6948,8 +7201,8 @@ pub struct UintToUintError {
 /// Error when $PnDATATYPE of a column does not match $DATATYPE in a new layout.
 #[derive(Debug, new)]
 pub struct MixedToNonMixedError {
-    dest_type: AlphaNumType,
-    src: MixedRange,
+    src: AlphaNumType,
+    dest: AlphaNumType,
 }
 
 /// Error when attempting to insert new [`Range`] into a layout.
@@ -7118,7 +7371,7 @@ fn usize_to_u64(x: usize) -> u64 {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AnyNullBitmask, FloatRange, MixedRange};
+    use super::{AnyBitmask, FloatRange, MixedRange};
 
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
     use crate::text::keywords::AlphaNumType;
@@ -7171,7 +7424,7 @@ mod python {
                     Ok(FloatRange::new(y).into())
                 }
                 AlphaNumType::Integer => {
-                    Ok(AnyNullBitmask::from(value.extract::<BitmaskValue<u64>>()?).into())
+                    Ok(AnyBitmask::from(value.extract::<BitmaskValue<u64>>()?).into())
                 }
                 AlphaNumType::Ascii => {
                     Ok(FixedAsciiRange::from(value.extract::<AsciiRangeValue>()?).into())

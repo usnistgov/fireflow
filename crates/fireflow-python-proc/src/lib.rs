@@ -4432,7 +4432,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("EndianUintLayout");
 
     let fixed = quote!(fireflow_core::data::DataLayout);
-    let bitmask = quote!(fireflow_core::data::AnyNullBitmask);
+    let bitmask = quote!(fireflow_core::data::AnyBitmask);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
     let endian_layout = quote!(fireflow_core::data::EndianLayout);

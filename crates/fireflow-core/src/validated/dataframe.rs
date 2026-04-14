@@ -47,9 +47,10 @@ impl From<AnyInternalColumn> for AnyPrimitiveColumn {
     }
 }
 
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, AsRef, new)]
 #[new(visibility = "")]
 pub struct FFDataFrame<C> {
+    #[as_ref([C])]
     columns: Vec<C>,
     nrows: usize,
 }

@@ -76,6 +76,7 @@ pub trait FCSRepr {
     /// Length of type in bytes when in a file (as enum 1-8)
     const FILE_BYTES: Bytes;
 
+    // TODO these are only going to be powers of 2
     /// Length of type in bytes when in memory (as enum 1-8)
     const MEM_BYTES: Bytes;
 

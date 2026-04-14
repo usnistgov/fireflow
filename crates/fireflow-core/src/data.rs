@@ -3863,30 +3863,6 @@ impl<T, D, const ORD: bool> LayoutDatatype for DelimAsciiLayout<T, D, ORD> {
     }
 }
 
-impl<T, D, const ORD: bool> LayoutKeywords for DelimAsciiLayout<T, D, ORD>
-where
-    NoByteOrd<ORD>: HasByteOrd,
-    for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
-{
-    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
-        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        let b = <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd);
-        ReqRootKeyword::from_value(b)
-    }
-
-    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
-        self.container
-            .iter()
-            .enumerate()
-            .map(|(i, r)| {
-                let x = ReqMeasKeyword::from_value(Width::Variable, i);
-                let y = ReqMeasKeyword::from_value(Range::from(r), i);
-                [x, y]
-            })
-            .collect()
-    }
-}
-
 impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
     fn h_read_df_inner<R: Read>(
         &self,
@@ -4097,69 +4073,6 @@ fn h_read_delim_without_rows<R: Read>(
     Ok(data)
 }
 
-impl<C: HasWidth, I, L, T, D> LayoutDims for ColumnGroup<C, I, L, T, D> {
-    fn ncols(&self) -> usize {
-        self.container.width()
-    }
-
-    fn clear(&mut self) {
-        self.container.clear();
-    }
-}
-
-impl<C, I, L, T, D> LayoutRanges for ColumnGroup<C, I, L, T, D>
-where
-    Self: AsRef<[I]>,
-    for<'c> Range: From<&'c I>,
-{
-    fn ranges(&self) -> Vec<Range> {
-        let cs = self.as_ref();
-        cs.iter().map(Into::into).collect()
-    }
-}
-
-impl<C, I, S, T, D> LayoutDatatype for ColumnGroup<C, I, S, T, D>
-where
-    C: AsRef<[I]>,
-    I: HasDatatype,
-{
-    fn datatype(&self) -> AlphaNumType {
-        I::datatype_from_columns(self.container.as_ref())
-    }
-
-    fn datatypes(&self) -> Vec<AlphaNumType> {
-        self.container
-            .as_ref()
-            .iter()
-            .map(HasDatatype::col_datatype)
-            .collect()
-    }
-}
-
-impl<C, S, T, D> LayoutKeywords for DataLayout<C, S, T, D>
-where
-    C: IsFixed + HasDatatype,
-    S: Copy + HasByteOrd,
-    for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
-    for<'c> Range: From<&'c C>,
-{
-    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
-        ReqRootKeyword::from_value(S::ByteOrd::from(self.byte_layout))
-    }
-
-    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
-        self.container
-            .iter()
-            .enumerate()
-            .map(|(i, c)| {
-                let w = ReqMeasKeyword::from_value(Width::Fixed(c.fixed_width()), i);
-                let r = ReqMeasKeyword::from_value(Range::from(c), i);
-                [w, r]
-            })
-            .collect()
-    }
-}
-
 impl<C, S, T, D> Removable<Range> for DataLayout<C, S, T, D>
 where
     for<'c> Range: From<&'c C>,
@@ -4314,12 +4227,6 @@ where
 
     fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
         match_any_mixed!(self, x, { x.push0(col).map_err(Self::Error::from) })
-    }
-}
-
-impl<C, S, T, D> OptMeasLayoutKeywords for DataLayout<C, S, T, D> {
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        vec![None; self.container.len()]
     }
 }
 
@@ -5756,6 +5663,146 @@ impl VersionedDataLayout for DataLayout3_2 {
     }
 }
 
+// Implement base traits for column group
+//
+// These traits are simple because they can be fractally delegated via enums
+// without any special tricks.
+
+impl<C: HasWidth, I, L, T, D> LayoutDims for ColumnGroup<C, I, L, T, D> {
+    fn ncols(&self) -> usize {
+        self.container.width()
+    }
+
+    fn clear(&mut self) {
+        self.container.clear();
+    }
+}
+
+impl<C, I, L, T, D> LayoutRanges for ColumnGroup<C, I, L, T, D>
+where
+    Self: AsRef<[I]>,
+    for<'c> Range: From<&'c I>,
+{
+    fn ranges(&self) -> Vec<Range> {
+        let cs = self.as_ref();
+        cs.iter().map(Into::into).collect()
+    }
+}
+
+impl<C, I, S, T, D> LayoutDatatype for ColumnGroup<C, I, S, T, D>
+where
+    C: AsRef<[I]>,
+    I: HasDatatype,
+{
+    fn datatype(&self) -> AlphaNumType {
+        I::datatype_from_columns(self.container.as_ref())
+    }
+
+    fn datatypes(&self) -> Vec<AlphaNumType> {
+        self.container
+            .as_ref()
+            .iter()
+            .map(HasDatatype::col_datatype)
+            .collect()
+    }
+}
+
+// Implement keywords (except meas opt)
+
+// TODO clean these up
+
+impl<T, D, const ORD: bool> LayoutKeywords for DelimAsciiLayout<T, D, ORD>
+where
+    NoByteOrd<ORD>: HasByteOrd,
+    for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
+{
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
+        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
+        let b = <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd);
+        ReqRootKeyword::from_value(b)
+    }
+
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
+        self.container
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let x = ReqMeasKeyword::from_value(Width::Variable, i);
+                let y = ReqMeasKeyword::from_value(Range::from(r), i);
+                [x, y]
+            })
+            .collect()
+    }
+}
+
+impl<C, I, L, T, D> LayoutKeywords for ColumnGroup<C, I, L, T, D>
+where
+    C: AsRef<[I]>,
+    I: IsFixed + HasDatatype,
+    L: Copy + HasByteOrd,
+    for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<L::ByteOrd>>,
+    for<'c> Range: From<&'c I>,
+{
+    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
+        ReqRootKeyword::from_value(L::ByteOrd::from(self.byte_layout))
+    }
+
+    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
+        self.container
+            .as_ref()
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                let w = ReqMeasKeyword::from_value(Width::Fixed(c.fixed_width()), i);
+                let r = ReqMeasKeyword::from_value(Range::from(c), i);
+                [w, r]
+            })
+            .collect()
+    }
+}
+
+// Implement optional measured keywords
+//
+// This will return a vector of `None` in all cases except 3.2 where this will
+// return the value of $PnDATATYPE if it exists. The base case can be delegated
+// for pre-3.2.
+
+impl<C, I, S, T, D> OptMeasLayoutKeywords for ColumnGroup<C, I, S, T, D>
+where
+    C: AsRef<[I]>,
+{
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
+        vec![None; self.container.as_ref().len()]
+    }
+}
+
+impl<C, I, N> OptMeasLayoutKeywords for Any3_2<EndianGroup3_2<C, I>, N>
+where
+    C: AsRef<[I]>,
+    I: HasDatatype,
+    Self: LayoutDatatype,
+    N: LayoutDims,
+{
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
+        let dt = self.datatype();
+        match self {
+            Self::NonMixed(x) => vec![None; x.ncols()],
+            Self::Mixed(x) => x
+                .container
+                .as_ref()
+                .iter()
+                .enumerate()
+                .map(|(i, c)| {
+                    NumType::try_from(c.col_datatype())
+                        .ok()
+                        .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y))
+                        .map(|v| SplitKeyword1::from_value1(v, i))
+                })
+                .collect(),
+        }
+    }
+}
+
 // Implement NormalizableLayout
 //
 // Most layouts will noop since they only have one possibility. The only two
@@ -6177,26 +6224,6 @@ impl Insertable<MixedRange> for DataLayout3_2 {
             },
         }
         Ok(())
-    }
-}
-
-impl OptMeasLayoutKeywords for DataLayout3_2 {
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        let dt = self.datatype();
-        match self {
-            Self::NonMixed(x) => vec![None; x.ncols()],
-            Self::Mixed(x) => x
-                .container
-                .iter()
-                .enumerate()
-                .map(|(i, c)| {
-                    NumType::try_from(c.col_datatype())
-                        .ok()
-                        .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y))
-                        .map(|v| SplitKeyword1::from_value1(v, i))
-                })
-                .collect(),
-        }
     }
 }
 

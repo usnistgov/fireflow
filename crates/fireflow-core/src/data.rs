@@ -1078,7 +1078,12 @@ impl NormalizableLayout for DataLayout3_2 {
                         Self::Mixed(x)
                     }
                 } else {
-                    Self::Mixed(x)
+                    // Return sane default if empty. This is useful since
+                    // returning single will prevent tripping error routines
+                    // when normalization is used as the first step in
+                    // conversion from multi->single, where a multi result
+                    // indicates failure.
+                    Self::NonMixed(AnyDatatype::F32(ColumnGroup::new(vec![], x.byte_layout)))
                 }
             }
         };
@@ -1114,7 +1119,12 @@ impl<D> NormalizableLayout for AnyEndianUintLayout<D> {
                         Self::Multi(x)
                     }
                 } else {
-                    Self::Multi(x)
+                    // Return sane default if empty. This is useful since
+                    // returning single will prevent tripping error routines
+                    // when normalization is used as the first step in
+                    // conversion from multi->single, where a multi result
+                    // indicates failure.
+                    Self::Single(AnyUint::Uint32(ColumnGroup::new(vec![], x.byte_layout)))
                 }
             }
         };
@@ -1224,9 +1234,15 @@ impl<D> Default for NonMixedEndianLayout<D> {
     }
 }
 
-// TODO make a new var which has each integer width in it (single width)
-impl<D> NormalizableLayout for NonMixedEndianLayout<D> {
-    fn normalize(&mut self) {}
+impl<A, I: NormalizableLayout, F32, F64> NormalizableLayout for AnyDatatype<A, I, F32, F64> {
+    fn normalize(&mut self) {
+        match self {
+            Self::Ascii(_) => (),
+            Self::Uint(x) => x.normalize(),
+            Self::F32(_) => (),
+            Self::F64(_) => (),
+        }
+    }
 }
 
 impl<D> IntoEmptyDataFrame for AnyEndianUintLayout<D> {
@@ -1668,20 +1684,6 @@ impl MixedVec {
     }
 }
 
-// impl From<MixedVec> for AnyPrimitiveColumn {
-//     fn from(value: MixedVec) -> Self {
-//         unimplemented!()
-//         // match_any_mixed!(value, x, { x.into() })
-//     }
-// }
-
-// type WriterMixedType<'a> = MixedType<
-//     ColumnWriter<'a, AsciiRange, u64, NoByteOrd3_1>,
-//     AnyWriterBitmask<'a>,
-//     ColumnWriter<'a, F32Range, f32, Endian>,
-//     ColumnWriter<'a, F64Range, f64, Endian>,
-// >;
-
 impl<B, T> From<RangedVec<B, T>> for AnyPrimitiveColumn
 where
     Self: From<PrimitiveColumn<T>>,
@@ -1754,13 +1756,6 @@ impl AnyUintVec {
         })
     }
 }
-
-// impl From<AnyUintVec> for AnyPrimitiveColumn {
-//     fn from(value: AnyUintVec) -> Self {
-//         unimplemented!()
-//         // match_any_uint!(value, AnyUintVec, x, { x.into() })
-//     }
-// }
 
 // type AnyWriterBitmask<'a> = AnyBitmask<
 //     UintColumnWriter<'a, Bitmask08>,
@@ -5757,7 +5752,7 @@ impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
         value.normalize();
         match value {
             DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
-            DataLayout3_2::Mixed(x) => x.convert_result(),
+            DataLayout3_2::Mixed(x) => x.conversion_fail(),
         }
     }
 }
@@ -5957,7 +5952,7 @@ impl DataLayout3_2 {
         self.normalize();
         match self {
             Self::NonMixed(x) => x.try_nonmixed_into_ordered(),
-            Self::Mixed(x) => x.convert_result(),
+            Self::Mixed(x) => x.conversion_fail(),
         }
     }
 
@@ -6009,28 +6004,29 @@ impl DataLayout3_2 {
     }
 }
 
-// impl<D> EndianUintLayout<D> {
-//     fn convert_result<X>(&self) -> LayoutConvertResult<X> {
-//         let d0 = self.datatype();
-//         let es = self
-//             .inner
-//             .iter()
-//             .filter_map(|c| {
-//                 let d = c.as_alpha_num_type();
-//                 (d0 != d).then(|| MixedToNonMixedError::new(d, c.clone()))
-//             })
-//             .enumerate()
-//             .map(|(i, e)| IndexedError::new(i, e))
-//             .map(MixedToNonMixedLayoutError::from)
-//             .map(LayoutConvertError::from)
-//             .try_into_nonempty_iter()
-//             .expect("mixed layout should have at least one different type");
-//         LogResult::new_from_ne_err_iter(es, ())
-//     }
-// }
+impl<D> EndianUintLayout<D> {
+    fn conversion_fail<X>(&self) -> LayoutConvertResult<X> {
+        debug_assert!(!self.inner.is_empty(), "columns must be non-empty");
+        let ((_, w0), ws) = self
+            .widths()
+            .try_into_nonempty_iter()
+            .unwrap()
+            .enumerate()
+            .next();
+        let es = ws
+            .filter(|(_, w)| &w0 != w)
+            .map(|(i, w)| IndexedError::new(i, UintToUintError::new(w.into(), w0.into())))
+            .map(UintEndianToOrderedLayoutError::from)
+            .map(LayoutConvertError::from)
+            .try_into_nonempty_iter()
+            .expect("mixed layout should have at least one different type");
+        LogResult::new_from_ne_err_iter(es, ())
+    }
+}
 
 impl MixedLayout {
-    fn convert_result<X>(&self) -> LayoutConvertResult<X> {
+    fn conversion_fail<X>(&self) -> LayoutConvertResult<X> {
+        debug_assert!(!self.inner.is_empty(), "columns must be non-empty");
         let d0 = self.datatype();
         let es = self
             .inner
@@ -6342,7 +6338,7 @@ impl<D> NonMixedEndianLayout<D> {
         match self {
             Self::Ascii(x) => LogResult::new_ok(AnyDatatype::Ascii(x.phantom_into())),
             Self::Uint(x) => match x {
-                AnyEndianUint::Multi(y) => unimplemented!(),
+                AnyEndianUint::Multi(y) => y.conversion_fail(),
                 AnyEndianUint::Single(y) => match_any_uint!(y, AnyUint, z, {
                     LogResult::new_ok(AnyDatatype::Uint(
                         z.phantom_into().byte_layout_into().into(),
@@ -6946,7 +6942,7 @@ pub enum MixedToOrderedUintError {
 #[derive(Debug, new)]
 pub struct UintToUintError {
     from: NonZeroU8,
-    to: u8,
+    to: NonZeroU8,
 }
 
 /// Error when $PnDATATYPE of a column does not match $DATATYPE in a new layout.

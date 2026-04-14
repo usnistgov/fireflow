@@ -284,31 +284,6 @@ impl_generic_enum_from! {
     F64 <- OrderedDataFrame<F64Range, T>
 }
 
-// /// Generic container for DATA configurations in 2.0 and 3.0.
-// // TODO false positive lint
-// #[allow(clippy::duplicated_attributes)]
-// #[derive(Clone, Delegate, PartialEq)]
-// #[delegate(LayoutDims)]
-// #[delegate(LayoutRanges)]
-// #[delegate(
-//     LayoutDatatype,
-//     where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
-// )]
-// #[delegate(
-//     LayoutKeywords,
-//     where = "A: LayoutDims, I: LayoutDims, F32: LayoutDims, F64: LayoutDims"
-// )]
-// #[delegate(LayoutOps<Tot>, generics = "Tot")]
-// #[delegate(InterLayoutOps<Nothing<NumType>>)]
-// #[cfg_attr(feature = "serde", derive(Serialize))]
-// pub enum AnyOrdered<A, I, F32, F64> {
-//     Ascii(A),
-//     Integer(I),
-//     F32(F32),
-//     F64(F64),
-// }
-
-// TODO add single and multi-int enum node level to allow optimizations
 /// All possible endian layouts with the same datatype (3.1)
 pub type NonMixedEndianLayout<D> = AnyDatatype<
     AnyAsciiLayout<Identity<Tot>, D, false>,
@@ -578,17 +553,7 @@ macro_rules! match_any_uint {
             $inner,
             $action
         )
-    }; // ($value:expr, $root:ident, mut $inner:ident, $action:block) => {
-       //     match_many_to_one!(
-       //         $value,
-       //         $root,
-       //         [
-       //             Uint08, Uint16, Uint24, Uint32, Uint40, Uint48, Uint56, Uint64
-       //         ],
-       //         mut $inner,
-       //         $action
-       //     )
-       // };
+    };
 }
 
 pub type OrderedLayout<C, T> = DataLayout<
@@ -2293,27 +2258,6 @@ pub trait IsTot: Sized + MightHave<Tot> {
     }
 }
 
-// /// Standardized operations on layouts
-// #[delegatable_trait]
-// pub trait CommonLayoutOps: Sized {
-//     fn ncols(&self) -> usize;
-
-//     fn ranges(&self) -> Vec<Range>;
-
-//     fn datatype(&self) -> AlphaNumType;
-
-//     fn datatypes(&self) -> Vec<AlphaNumType>;
-
-//     fn byteord_keyword(&self) -> ReqRootKeyword<'_>;
-
-//     fn req_keywords(&self) -> [ReqRootKeyword<'_>; 2] {
-//         let d = ReqRootKeyword::from_value(self.datatype());
-//         [d, self.byteord_keyword()]
-//     }
-
-//     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
-// }
-
 #[delegatable_trait]
 pub trait LayoutDims: Sized {
     fn ncols(&self) -> usize;
@@ -2393,41 +2337,7 @@ pub trait LayoutKeywords: Sized + LayoutDatatype {
 /// Standardized operations on layouts
 #[delegatable_trait]
 pub trait LayoutOps<T>: Sized {
-    // fn ncols(&self) -> usize;
-
-    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64;
-
-    // fn ranges(&self) -> Vec<Range>;
-
-    // fn datatype(&self) -> AlphaNumType;
-
-    // fn datatypes(&self) -> Vec<AlphaNumType>;
-
-    // fn byteord_keyword(&self) -> ReqRootKeyword<'_>;
-
-    // fn req_keywords(&self) -> [ReqRootKeyword<'_>; 2] {
-    //     let d = ReqRootKeyword::from_value(self.datatype());
-    //     [d, self.byteord_keyword()]
-    // }
-
-    // fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
-
-    // fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError>;
-
-    // fn h_write_df_inner<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &'a PrimitiveDataFrame,
-    //     skip_conv_check: bool,
-    // ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error>;
-
-    // fn truncate_df(
-    //     &self,
-    //     df: &'a FCSDataFrame,
-    //     skip_conv_check: bool,
-    // ) -> WarningsResult<FCSDataFrame, IndexedLossError>;
 }
 
 #[delegatable_trait]
@@ -4050,11 +3960,6 @@ where
     NoByteOrd<ORD>: HasByteOrd,
     for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
 {
-    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
-    //     unimplemented!()
-    //     // df.ascii_nbytes()
-    // }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
             usize::from(index) <= self.inner.len(),
@@ -4062,96 +3967,6 @@ where
         );
         Range::from(&self.inner.remove(index.into()))
     }
-
-    // fn check_writer(&self, df: &FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
-    //     df.iter_columns()
-    //         .enumerate()
-    //         .map(|(i, c)| {
-    //             c.check_writer::<_, _, u64>(|_| None)
-    //                 .map_err(|error| IndexedError::new(i, AnyLossError::Int(error)))
-    //                 .map_err(IndexedLossError)
-    //                 .into_log()
-    //         })
-    //         .sequence_def_void()
-    // }
-
-    // fn h_write_df_inner<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &PrimitiveDataFrame,
-    //     skip_conv_check: bool,
-    // ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
-    //     unimplemented!()
-    //     // let ncols = df.ncols();
-    //     // let nrows = df.nrows();
-    //     // let mut column_srcs: Vec<_> = df.iter_columns().map(AnySource::<'_, u64>::new).collect();
-    //     // let mut loss_ws = vec![None; column_srcs.len()];
-
-    //     // let mut go = || -> Result<(), io::Error> {
-    //     //     for row in 0..nrows {
-    //     //         for (col, xs) in column_srcs.iter_mut().enumerate() {
-    //     //             let x = xs.next().unwrap();
-    //     //             let s = x.new.to_string();
-    //     //             loss_ws[col] = mem::take(&mut loss_ws[col]).or(x.as_err());
-    //     //             let buf = s.as_bytes();
-    //     //             h.write_all(buf)?;
-    //     //             // write delimiter after all but last value
-    //     //             if !(row == nrows - 1 && col == ncols - 1) {
-    //     //                 h.write_all(&[32])?; // 32 = space in ASCII
-    //     //             }
-    //     //         }
-    //     //     }
-    //     //     Ok(())
-    //     // };
-
-    //     // let write_res = go().into_nowarn1();
-
-    //     // if skip_conv_check {
-    //     //     write_res.nowarn_into_warn()
-    //     // } else {
-    //     //     let cs: Vec<_> = loss_ws
-    //     //         .into_iter()
-    //     //         .enumerate()
-    //     //         .filter_map(|(i, warn)| {
-    //     //             warn.map(LossError::Cast)
-    //     //                 .map(AnyLossError::Ascii)
-    //     //                 .map(|w| IndexedError::new(i, w))
-    //     //                 .map(IndexedLossError)
-    //     //         })
-    //     //         .collect();
-    //     //     write_res.set_commutative_warnings(cs)
-    //     // }
-    // }
-
-    // fn truncate_df(
-    //     &self,
-    //     df: &FCSDataFrame,
-    //     skip_conv_check: bool,
-    // ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
-    //     let nrows = df.nrows();
-    //     let mut warnings = vec![];
-    //     let columns = df.iter_columns().enumerate().map(|(i, c)| {
-    //         let mut w = None;
-    //         let mut cs = vec![0; nrows];
-    //         for x in AnySource::<'_, u64>::new(c) {
-    //             cs.push(x.new);
-    //             if !skip_conv_check {
-    //                 w = mem::take(&mut w).or(x.as_err());
-    //             }
-    //         }
-    //         if let Some(x) = w
-    //             .map(LossError::Cast)
-    //             .map(AnyLossError::Ascii)
-    //             .map(|x| IndexedError::new(i, x))
-    //             .map(IndexedLossError)
-    //         {
-    //             warnings.push(x);
-    //         }
-    //         FCSColumn::from(cs).into()
-    //     });
-    //     let ret = FCSDataFrame::try_new(columns).unwrap();
-    //     Success::new_non_switchable(ret).set_warnings(warnings)
-    // }
 }
 
 impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
@@ -5091,17 +4906,7 @@ where
     }
 }
 
-impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D>
-// where
-//     EndianLayout<Bitmask08, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask08, D>>,
-//     EndianLayout<Bitmask16, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask16, D>>,
-//     EndianLayout<Bitmask24, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask24, D>>,
-//     EndianLayout<Bitmask32, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask32, D>>,
-//     EndianLayout<Bitmask40, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask40, D>>,
-//     EndianLayout<Bitmask48, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask48, D>>,
-//     EndianLayout<Bitmask56, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask56, D>>,
-//     EndianLayout<Bitmask64, D>: FixedLayoutIO<DfTarget = EndianDataFrame<Bitmask64, D>>,
-{
+impl<D> FixedLayoutIO for EndianLayout<AnyNullBitmask, D> {
     type DfTarget = EndianUintDataFrame<D>;
 
     fn h_read_unchecked_df_inner<R: Read>(
@@ -5256,59 +5061,6 @@ where
         Ok(None)
     }
 }
-
-// impl<C> EndianLayout<C, Option<NumType>> {
-//     fn insert_mixed(
-//         mut self,
-//         index: MeasIndex,
-//         range: Range,
-//         flag: DisallowRangeTrunc,
-//     ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, InsertRangeError>
-//     where
-//         C: TryFrom<MixedRange, Error = MixedToNonMixedError>,
-//         MixedRange: From<C>,
-//         NonMixedEndianLayout<Option<NumType>>: From<Self>,
-//     {
-//         MixedRange::from_range_switch(range, flag).map_deferred_value(|col| {
-//             match col.native.try_into() {
-//                 Ok(c) => {
-//                     self.insert_column_nocheck(index, c);
-//                     DataLayout3_2::NonMixed(self.into())
-//                 }
-//                 Err(e) => {
-//                     let mut z = self.columns_into();
-//                     z.insert_column_nocheck(index, e.src);
-//                     z.into()
-//                 }
-//             }
-//         })
-//     }
-
-//     fn push_mixed(
-//         mut self,
-//         range: Range,
-//         flag: DisallowRangeTrunc,
-//     ) -> DeferredSwitchableError<DataLayout3_2, DisallowRangeTrunc, InsertRangeError>
-//     where
-//         C: TryFrom<MixedRange, Error = MixedToNonMixedError>,
-//         MixedRange: From<C>,
-//         NonMixedEndianLayout<Option<NumType>>: From<Self>,
-//     {
-//         MixedRange::from_range_switch(range, flag).map_deferred_value(|col| {
-//             match col.native.try_into() {
-//                 Ok(c) => {
-//                     self.push_column(c);
-//                     DataLayout3_2::NonMixed(self.into())
-//                 }
-//                 Err(e) => {
-//                     let mut z = self.columns_into();
-//                     z.push_column(e.src);
-//                     z.into()
-//                 }
-//             }
-//         })
-//     }
-// }
 
 macro_rules! def_native_wrapper {
     ($name:path, $native:ty) => {

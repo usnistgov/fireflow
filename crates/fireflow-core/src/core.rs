@@ -11,7 +11,7 @@ use crate::config::{
 use crate::data::{
     CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
     DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, Insertable,
-    InterLayoutOps as _, IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _,
+    OptMeasLayoutKeywords as _, IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _,
     LayoutDims, LayoutKeywords, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
     MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
     ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,

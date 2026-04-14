@@ -145,7 +145,7 @@ use {
 #[delegate(LayoutKeywords)]
 #[delegate(Insertable<Range>)]
 #[delegate(Removable<Range>)]
-#[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[delegate(OptMeasLayoutKeywords)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout2_0(pub AnyOrderedLayout<Option<Tot>>);
 
@@ -165,7 +165,7 @@ pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
 #[delegate(LayoutKeywords)]
 #[delegate(Insertable<Range>)]
 #[delegate(Removable<Range>)]
-#[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[delegate(OptMeasLayoutKeywords)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
 
@@ -186,7 +186,7 @@ pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 #[delegate(LayoutKeywords)]
 #[delegate(Insertable<Range>)]
 #[delegate(Removable<Range>)]
-#[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[delegate(OptMeasLayoutKeywords)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<Nothing<NumType>>);
 
@@ -343,7 +343,7 @@ pub type AnyAsciiDataFrame<T, D, const ORD: bool> =
 #[delegate(LayoutDatatype, where = "D: LayoutDims, F: LayoutDims")]
 #[delegate(LayoutKeywords, where = "D: LayoutDims, F: LayoutDims")]
 #[delegate(Removable<Range>)]
-#[delegate(InterLayoutOps<DT>, generics = "DT")]
+#[delegate(OptMeasLayoutKeywords)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyAscii<D, F> {
     Delimited(D),
@@ -535,7 +535,7 @@ impl_generic_enum_from! {
 #[delegate(LayoutDatatype, where = "W0: LayoutDims, W: LayoutDims")]
 #[delegate(LayoutKeywords, where = "W0: LayoutDims, W: LayoutDims")]
 #[delegate(Removable<Range>)]
-#[delegate(InterLayoutOps<DT>, generics = "DT")]
+#[delegate(OptMeasLayoutKeywords)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyEndianUint<W0, W> {
     Single(W0),
@@ -665,7 +665,7 @@ where
              D: LayoutDims"
 )]
 #[delegate(Removable<Range>)]
-#[delegate(InterLayoutOps<DT>, generics = "DT")]
+#[delegate(OptMeasLayoutKeywords)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyDatatype<A, U, F, D> {
     Ascii(A),
@@ -714,7 +714,7 @@ pub type MixedColumn = AnyDatatype<
              C64: LayoutDims"
 )]
 #[delegate(Removable<Range>)]
-#[delegate(InterLayoutOps<Nothing<NumType>>)]
+#[delegate(OptMeasLayoutKeywords)]
 #[delegate(OrderedLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
@@ -2336,6 +2336,18 @@ pub trait LayoutKeywords: Sized + LayoutDatatype {
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
 }
 
+/// A type which has optional measurement keywords.
+///
+/// This is only used to return $PnDATATYPE.
+#[delegatable_trait]
+pub trait OptMeasLayoutKeywords {
+    /// Return vector of $PnDATATYPE.
+    ///
+    /// Vector length will equal DATA column number. `None` will be returned
+    /// if $PnDATATYPE is not provided. For pre-3.2 layouts, all will be `None`.
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
+}
+
 #[delegatable_trait]
 pub trait IntoEmptyDataFrame {
     type DfTarget;
@@ -2416,11 +2428,6 @@ pub trait Removable<Column>: Sized {
     fn remove_nocheck(&mut self, index: MeasIndex) -> Column;
 }
 
-#[delegatable_trait]
-pub trait InterLayoutOps<D> {
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
-}
-
 /// Standardized operations on ordered layouts
 #[delegatable_trait]
 pub trait OrderedLayoutOps: Sized {
@@ -2439,7 +2446,7 @@ where
         + LayoutDatatype
         + LayoutDims
         + Removable<Range>
-        + InterLayoutOps<Self::NumType>,
+        + OptMeasLayoutKeywords,
 {
     type ByteLayout;
     type NumType: IsNumType;
@@ -4374,9 +4381,9 @@ where
     }
 }
 
-impl<C, S, T, D> InterLayoutOps<D> for DataLayout<C, S, T, D> {
+impl<C, S, T, D> OptMeasLayoutKeywords for DataLayout<C, S, T, D> {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        self.inner.iter().map(|_| None).collect()
+        vec![None; self.inner.len()]
     }
 }
 
@@ -5916,11 +5923,11 @@ impl Insertable<MixedRange> for DataLayout3_2 {
     }
 }
 
-impl InterLayoutOps<Option<NumType>> for DataLayout3_2 {
+impl OptMeasLayoutKeywords for DataLayout3_2 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
         match self {
-            Self::NonMixed(x) => iter::repeat_n(None, x.ncols()).collect(),
+            Self::NonMixed(x) => vec![None; x.ncols()],
             Self::Mixed(x) => x
                 .inner
                 .iter()

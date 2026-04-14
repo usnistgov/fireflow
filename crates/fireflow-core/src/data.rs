@@ -144,7 +144,7 @@ use {
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
 #[delegate(Insertable<Range>)]
-#[delegate(LayoutOps<Option<Tot>>)]
+#[delegate(Removable<Range>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout2_0(pub AnyOrderedLayout<Option<Tot>>);
@@ -164,7 +164,7 @@ pub struct DataFrame2_0(pub AnyOrderedDataFrame<Option<Tot>>);
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
 #[delegate(Insertable<Range>)]
-#[delegate(LayoutOps<Identity<Tot>>)]
+#[delegate(Removable<Range>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout3_0(pub AnyOrderedLayout<Identity<Tot>>);
@@ -185,7 +185,7 @@ pub struct DataFrame3_0(pub AnyOrderedDataFrame<Identity<Tot>>);
 #[delegate(LayoutDatatype)]
 #[delegate(LayoutKeywords)]
 #[delegate(Insertable<Range>)]
-#[delegate(LayoutOps<Identity<Tot>>)]
+#[delegate(Removable<Range>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataLayout3_1(pub NonMixedEndianLayout<Nothing<NumType>>);
@@ -231,7 +231,7 @@ impl_generic_enum_from! {
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "M: LayoutDims, N: LayoutDims")]
 #[delegate(LayoutKeywords, where = "M: LayoutDims, N: LayoutDims")]
-#[delegate(LayoutOps<Identity<Tot>>)]
+#[delegate(Removable<Range>)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Any3_2<M, N> {
     Mixed(M),
@@ -342,7 +342,7 @@ pub type AnyAsciiDataFrame<T, D, const ORD: bool> =
 #[delegate(Insertable<Range>)]
 #[delegate(LayoutDatatype, where = "D: LayoutDims, F: LayoutDims")]
 #[delegate(LayoutKeywords, where = "D: LayoutDims, F: LayoutDims")]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(Removable<Range>)]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyAscii<D, F> {
@@ -534,7 +534,7 @@ impl_generic_enum_from! {
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "W0: LayoutDims, W: LayoutDims")]
 #[delegate(LayoutKeywords, where = "W0: LayoutDims, W: LayoutDims")]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(Removable<Range>)]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyEndianUint<W0, W> {
@@ -664,7 +664,7 @@ where
              F: LayoutDims, \
              D: LayoutDims"
 )]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(Removable<Range>)]
 #[delegate(InterLayoutOps<DT>, generics = "DT")]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyDatatype<A, U, F, D> {
@@ -713,7 +713,7 @@ pub type MixedColumn = AnyDatatype<
              C56: LayoutDims, \
              C64: LayoutDims"
 )]
-#[delegate(LayoutOps<Tot>, generics = "Tot")]
+#[delegate(Removable<Range>)]
 #[delegate(InterLayoutOps<Nothing<NumType>>)]
 #[delegate(OrderedLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -2334,12 +2334,6 @@ pub trait LayoutKeywords: Sized + LayoutDatatype {
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]>;
 }
 
-/// Standardized operations on layouts
-#[delegatable_trait]
-pub trait LayoutOps<T>: Sized {
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Range;
-}
-
 #[delegatable_trait]
 pub trait IntoEmptyDataFrame {
     type DfTarget;
@@ -2396,9 +2390,10 @@ impl_functor_once!(
     DataFrameResult::new(f(self.dataframe), self.diagnostics)
 );
 
-/// A type which can accept a new range but might fail due to type mismatch.
+/// A type which can accept a new column.
 #[delegatable_trait]
 pub trait Insertable<Column> {
+    /// Error to emit if new column is not compatible with existing columns.
     type Error;
 
     /// Insert a new column at index.
@@ -2408,6 +2403,15 @@ pub trait Insertable<Column> {
 
     /// Push new column to the right of the current column vector.
     fn push0(&mut self, col: Column) -> Result<(), Self::Error>;
+}
+
+/// A type which can have a column removed from it.
+#[delegatable_trait]
+pub trait Removable<Column>: Sized {
+    /// Remove a column.
+    ///
+    /// Will panic if index is out of bounds.
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Column;
 }
 
 #[delegatable_trait]
@@ -2434,7 +2438,7 @@ where
         + ReadLayoutOps<Self::Tot>
         + LayoutDatatype
         + LayoutDims
-        + LayoutOps<Self::Tot>
+        + Removable<Range>
         + InterLayoutOps<Self::NumType>,
 {
     type ByteLayout;
@@ -3954,21 +3958,6 @@ where
     }
 }
 
-impl<T, D, const ORD: bool> LayoutOps<T> for DelimAsciiLayout<T, D, ORD>
-where
-    T: IsTot,
-    NoByteOrd<ORD>: HasByteOrd,
-    for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
-{
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
-        debug_assert!(
-            usize::from(index) <= self.inner.len(),
-            "Index should be less than/equal to column number"
-        );
-        Range::from(&self.inner.remove(index.into()))
-    }
-}
-
 impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
     fn h_read_df_inner<R: Read>(
         &self,
@@ -4231,23 +4220,10 @@ where
     }
 }
 
-impl<C, S, T, D> LayoutOps<T> for DataLayout<C, S, T, D>
+impl<C, S, T, D> Removable<Range> for DataLayout<C, S, T, D>
 where
-    Self: FixedLayoutIO,
-    D: IsNumType,
-    T: IsTot,
-    // C: Clone + IsFixed + HasDatatype + IntoWriter<'a, S> + FromRange,
-    C: Clone + IsFixed + HasDatatype,
-    S: Copy + HasByteOrd,
-    for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<S::ByteOrd>>,
     for<'c> Range: From<&'c C>,
-    // <C as IntoWriter<'a, S>>::Target: Writable<'a, S>,
-    // InsertRangeError: From<<C as FromRange>::Error>,
 {
-    // fn nbytes(&self, df: &PrimitiveDataFrame) -> u64 {
-    //     usize_to_u64(self.event_width() * df.nrows())
-    // }
-
     fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
             usize::from(index) <= self.inner.len(),
@@ -4255,93 +4231,6 @@ where
         );
         Range::from(&self.inner.remove(index.into()))
     }
-
-    // fn check_writer(&self, df: &'a FCSDataFrame) -> ErrorsResult<(), (), IndexedLossError> {
-    //     debug_assert!(
-    //         self.columns.len() == df.ncols(),
-    //         "column number should match dataframe width"
-    //     );
-    //     self.columns
-    //         .iter()
-    //         .zip(df.iter_columns())
-    //         .enumerate()
-    //         .map(|(i, (col_type, col_data))| {
-    //             col_type
-    //                 .check_writer(col_data)
-    //                 .map_err(|error| IndexedError::new(i, error))
-    //                 .map_err(IndexedLossError)
-    //                 .into_log()
-    //         })
-    //         .sequence_def_void()
-    // }
-
-    // fn h_write_df_inner<W: Write>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &'a PrimitiveDataFrame,
-    //     skip_conv_check: bool,
-    // ) -> DeferredWarningsAndError<(), IndexedLossError, io::Error> {
-    //     unimplemented!()
-    //     // let nrows = df.nrows();
-    //     // debug_assert!(
-    //     //     self.columns.len() == df.ncols(),
-    //     //     "column number should match dataframe width"
-    //     // );
-    //     // let mut cs: Vec<_> = self
-    //     //     .columns
-    //     //     .iter()
-    //     //     .zip(df.iter_columns())
-    //     //     .map(|(col_type, col_data)| col_type.clone().into_writer(col_data))
-    //     //     .collect();
-
-    //     // let mut go = || {
-    //     //     for _ in 0..nrows {
-    //     //         for c in &mut cs {
-    //     //             c.h_write(h, self.byte_layout)?;
-    //     //         }
-    //     //     }
-    //     //     Ok(())
-    //     // };
-
-    //     // let write_res = go().into_nowarn1();
-
-    //     // if skip_conv_check {
-    //     //     write_res.nowarn_into_warn()
-    //     // } else {
-    //     //     let ws = cs
-    //     //         .into_iter()
-    //     //         .enumerate()
-    //     //         .filter_map(|(i, c)| c.into_err(i.into()))
-    //     //         .collect();
-    //     //     write_res.set_commutative_warnings(ws)
-    //     // }
-    // }
-
-    // fn truncate_df(
-    //     &self,
-    //     df: &'a FCSDataFrame,
-    //     skip_conv_check: bool,
-    // ) -> WarningsResult<FCSDataFrame, IndexedLossError> {
-    //     debug_assert!(
-    //         self.columns.len() == df.ncols(),
-    //         "column number should match dataframe width"
-    //     );
-    //     let mut warnings = vec![];
-    //     let new_columns = self.columns.iter().zip(df.iter_columns()).enumerate().map(
-    //         |(i, (col_type, col_data))| {
-    //             let (x, warn) = col_type
-    //                 .clone()
-    //                 .into_writer(col_data)
-    //                 .truncate(skip_conv_check);
-    //             if let Some(w) = warn {
-    //                 warnings.push(IndexedLossError(IndexedError::new(i, w)));
-    //             }
-    //             x
-    //         },
-    //     );
-    //     let ret = FCSDataFrame::try_new(new_columns).unwrap();
-    //     Success::new_non_switchable(ret).set_warnings(warnings)
-    // }
 }
 
 impl<Col, Layout, TotType, Dtype> ReadLayoutOps<TotType> for DataLayout<Col, Layout, TotType, Dtype>

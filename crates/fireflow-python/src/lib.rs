@@ -59,9 +59,10 @@ use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::AnyEndianUintLayout;
 use fireflow_core::data::{
-    self, AnyAsciiLayout, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0, DataLayout3_0,
-    DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, EndianUintLayout, F32Range,
-    F64Range, FixedAsciiLayout, LayoutDatatype as _, NonMixedEndianLayout,
+    self, AnyAsciiLayout, AnyOrderedLayout, AnyOrderedUintLayout, ByteLayoutInto as _,
+    DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout,
+    EndianUintLayout, F32Range, F64Range, FixedAsciiLayout, LayoutDatatype as _,
+    NonMixedEndianLayout, PhantomInto as _,
 };
 use fireflow_core::header;
 use fireflow_core::text::gating::{
@@ -102,16 +103,15 @@ use fireflow_python_proc::{
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
     impl_coredataset_set_measurements_layout_and_data,
-    impl_coredataset_set_named_measurements_and_data, impl_coredataset_truncate_data,
-    impl_coredataset_unset_data, impl_coretext_from_kws, impl_coretext_to_dataset,
-    impl_coretext_unset_measurements, impl_coretext_write_multi, impl_gated_meas,
-    impl_layout_byte_widths, impl_meas_awh_pnfeature, impl_new_core, impl_new_delim_ascii_layout,
-    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
-    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_dataset_summary,
-    impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
-    impl_py_flat_text_diagnostics, impl_py_flat_text_output, impl_py_header,
-    impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
+    impl_coredataset_set_named_measurements_and_data, impl_coredataset_unset_data,
+    impl_coretext_from_kws, impl_coretext_to_dataset, impl_coretext_unset_measurements,
+    impl_coretext_write_multi, impl_gated_meas, impl_layout_byte_widths, impl_meas_awh_pnfeature,
+    impl_new_core, impl_new_delim_ascii_layout, impl_new_endian_float_layout,
+    impl_new_endian_uint_layout, impl_new_fixed_ascii_layout, impl_new_gate_bi_regions,
+    impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
+    impl_py_dataset_segments, impl_py_dataset_summary, impl_py_flat_dataset_output,
+    impl_py_flat_dataset_with_kws_output, impl_py_flat_text_diagnostics, impl_py_flat_text_output,
+    impl_py_header, impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
     impl_py_new_flat_dataset_with_kws_output, impl_py_new_std_dataset_with_kws_output,
     impl_py_read_events_diagnostics, impl_py_split_text_diagnostics, impl_py_std_dataset_output,
     impl_py_std_dataset_with_kws_output, impl_py_std_diagnostics, impl_py_std_text_output,
@@ -855,8 +855,14 @@ impl From<DataLayout3_2> for PyLayout3_2 {
 impl From<PyOrderedLayout> for AnyOrderedLayout<Identity<kws::Tot>> {
     fn from(value: PyOrderedLayout) -> Self {
         match value {
-            PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
-            PyOrderedLayout::AsciiDelim(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
+            PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0)
+                .phantom_into()
+                .byte_layout_into()
+                .into(),
+            PyOrderedLayout::AsciiDelim(x) => AnyAsciiLayout::from(x.0)
+                .phantom_into()
+                .byte_layout_into()
+                .into(),
             PyOrderedLayout::Uint08(x) => AnyOrderedUintLayout::from(x.0).into(),
             PyOrderedLayout::Uint16(x) => AnyOrderedUintLayout::from(x.0).into(),
             PyOrderedLayout::Uint24(x) => AnyOrderedUintLayout::from(x.0).into(),
@@ -875,8 +881,8 @@ impl From<AnyOrderedLayout<Identity<kws::Tot>>> for PyOrderedLayout {
     fn from(value: AnyOrderedLayout<Identity<kws::Tot>>) -> Self {
         match value {
             AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
-                AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
-                AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.into()),
+                AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
+                AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
             },
             AnyOrderedLayout::Uint(x) => match x {
                 AnyOrderedUintLayout::Uint08(y) => Self::Uint08(y.into()),

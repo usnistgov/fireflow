@@ -322,11 +322,11 @@ pub type EndianUintLayout<D> = EndianLayout<AnyBitmask, D>;
 
 pub type EndianUintDataFrame<D> = DataFrame<AnyBitmaskColumn, Endian, Identity<Tot>, D>;
 
-type EndianGroup<C, I, D> = ColumnGroup<C, I, Endian, Identity<Tot>, D>;
+type EndianGroup<C, I, D> = MarkedColumnGroup<C, I, Endian, Identity<Tot>, D>;
 
 type EndianGroup3_2<C, I> = EndianGroup<C, I, Option<NumType>>;
 
-type AsciiGroup<C, I, T, D, const ORD: bool> = ColumnGroup<C, I, NoByteOrd<ORD>, T, D>;
+type AsciiGroup<C, I, T, D, const ORD: bool> = MarkedColumnGroup<C, I, NoByteOrd<ORD>, T, D>;
 
 type AsciiGroup3_2<C, I> = AsciiGroup<C, I, Identity<Tot>, Option<NumType>, false>;
 
@@ -369,9 +369,9 @@ pub type DelimAsciiLayout<T, D, const ORD: bool> =
 pub type DelimAsciiDataFrame<T, D, const ORD: bool> =
     DataFrame<AnnotatedColumn<DelimAsciiRange, u64, u64>, NoByteOrd<ORD>, T, D>;
 
-pub type DataLayout<C, L, T, D> = ColumnGroup<Vec<C>, C, L, T, D>;
+pub type DataLayout<C, L, T, D> = MarkedColumnGroup<Vec<C>, C, L, T, D>;
 
-pub type DataFrame<C, L, T, D> = ColumnGroup<FFDataFrame<C>, C, L, T, D>;
+pub type DataFrame<C, L, T, D> = MarkedColumnGroup<FFDataFrame<C>, C, L, T, D>;
 
 pub type NativeColumn<C> = AnnotatedColumn<
     C,
@@ -379,11 +379,14 @@ pub type NativeColumn<C> = AnnotatedColumn<
     <C as HasNativeType>::Native,
 >;
 
+type MarkedColumnGroup<Cols, Inner, Layout, TotType, Dtype> =
+    ColumnGroup<Cols, Inner, Layout, ColumnMarkers<TotType, Dtype>>;
+
 /// DATA layout where each column has a fixed width.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
-pub struct ColumnGroup<Cols, Inner, Layout, TotType, Dtype> {
+pub struct ColumnGroup<Cols, Inner, Layout, Markers> {
     /// Thing holding the columns.
     container: Cols,
     /// The byte layout of a value in a column.
@@ -392,28 +395,37 @@ pub struct ColumnGroup<Cols, Inner, Layout, TotType, Dtype> {
     /// The type within `container`.
     #[cfg_attr(feature = "serde", serde(skip))]
     _inner: PhantomData<Inner>,
-    /// Marker type to describe $TOT
+    /// Marker types to further describe layout
     #[cfg_attr(feature = "serde", serde(skip))]
-    _tot_def: PhantomData<TotType>,
-    /// Marker type to describe $PnDatatype
-    #[cfg_attr(feature = "serde", serde(skip))]
-    _meas_data_def: PhantomData<Dtype>,
+    _markers: PhantomData<Markers>,
 }
 
-impl<C: AsRef<[I]>, I, L, T, D> AsRef<[I]> for ColumnGroup<C, I, L, T, D> {
+/// Zero-sized marker types to describe data layouts.
+///
+/// These are used to distinguish certain layouts which have identical structure
+/// but otherwise behave different depending on context.
+#[derive(Clone, PartialEq, Default)]
+pub struct ColumnMarkers<T, D> {
+    /// Marker type to describe $TOT
+    tot_def: PhantomData<T>,
+    /// Marker type to describe $PnDatatype
+    meas_data_def: PhantomData<D>,
+}
+
+impl<C: AsRef<[I]>, I, L, M> AsRef<[I]> for ColumnGroup<C, I, L, M> {
     fn as_ref(&self) -> &[I] {
         self.container.as_ref()
     }
 }
 
-impl<C: Default, I, L: Default, T, D> Default for ColumnGroup<C, I, L, T, D> {
+impl<C: Default, I, L: Default, M> Default for ColumnGroup<C, I, L, M> {
     fn default() -> Self {
         Self::new(C::default(), L::default())
     }
 }
 
-impl<C, I, L, T, D> ColumnGroup<C, I, L, T, D> {
-    fn map_inner<F, If>(self, f: F) -> ColumnGroup<Sibling1<C, If>, If, L, T, D>
+impl<C, I, L, M> ColumnGroup<C, I, L, M> {
+    fn map_inner<F, If>(self, f: F) -> ColumnGroup<Sibling1<C, If>, If, L, M>
     where
         F: FnMut(I) -> If,
         C: Functor<I>,
@@ -949,6 +961,35 @@ macro_rules! match_map_uint {
             AnyUint::Uint48($inner) => AnyUint::Uint48($action),
             AnyUint::Uint56($inner) => AnyUint::Uint56($action),
             AnyUint::Uint64($inner) => AnyUint::Uint64($action),
+        }
+    };
+}
+
+macro_rules! match_map_datatype {
+    ($value:expr, $inner:ident, $action:expr) => {
+        match $value {
+            AnyDatatype::Ascii($inner) => AnyDatatype::Ascii($action),
+            AnyDatatype::Uint($inner) => AnyDatatype::Uint($action),
+            AnyDatatype::F32($inner) => AnyDatatype::F32($action),
+            AnyDatatype::F64($inner) => AnyDatatype::F64($action),
+        }
+    };
+}
+
+macro_rules! match_map_ascii {
+    ($value:expr, $inner:ident, $action:expr) => {
+        match $value {
+            AnyAscii::Delimited($inner) => AnyAscii::Delimited($action),
+            AnyAscii::Fixed($inner) => AnyAscii::Fixed($action),
+        }
+    };
+}
+
+macro_rules! match_map_endian_uint {
+    ($value:expr, $inner:ident, $action:expr) => {
+        match $value {
+            AnyEndianUint::Multi($inner) => AnyEndianUint::Multi($action),
+            AnyEndianUint::Single($inner) => AnyEndianUint::Single($action),
         }
     };
 }
@@ -2487,10 +2528,7 @@ where
 }
 
 /// Convert layout to new FCS version
-pub trait ConvertFromLayout<T>: Sized
-where
-    Self: VersionedDataLayout,
-{
+pub trait ConvertFromLayout<T>: Sized {
     fn convert_from_layout(value: T) -> LayoutConvertResult<Self>;
 }
 
@@ -2506,6 +2544,22 @@ pub trait CheckedScaleTransform {
 pub trait HasNativeType: Sized {
     /// The native rust type
     type Native: Default + Copy;
+}
+
+/// A type which has nested marker types that can be losslessly converted
+pub trait PhantomInto {
+    type Target<M>;
+    fn phantom_into<Mf>(self) -> Self::Target<Mf>;
+}
+
+/// A type which has a byte layout that can be losslessly converted to another
+pub trait ByteLayoutInto {
+    type Layout;
+    type Target<L>;
+
+    fn byte_layout_into<Lf>(self) -> Self::Target<Lf>
+    where
+        Self::Layout: Into<Lf>;
 }
 
 /// A column type which has a binary (ie not ASCII) representation.
@@ -3439,11 +3493,6 @@ impl<D> AnyEndianUintLayout<D> {
             })
         })
     }
-
-    #[must_use]
-    pub fn phantom_into<D1>(self) -> AnyEndianUintLayout<D1> {
-        match_many_to_one!(self, Self, [Single, Multi], x, { x.phantom_into().into() })
-    }
 }
 
 impl<D> EndianLayout<MixedRange, D> {
@@ -3708,15 +3757,6 @@ impl MixedRange {
             AlphaNumType::Integer => from!(AnyUint, width, range, i, flag),
             AlphaNumType::Float => from!(F32Range, width, range, i, flag),
             AlphaNumType::Double => from!(F64Range, width, range, i, flag),
-        }
-    }
-
-    fn as_alpha_num_type(&self) -> AlphaNumType {
-        match self {
-            Self::Ascii(_) => AlphaNumType::Ascii,
-            Self::Uint(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Float,
-            Self::F64(_) => AlphaNumType::Double,
         }
     }
 }
@@ -4240,23 +4280,12 @@ where
     }
 }
 
-impl<C, I, L, T, D> ColumnGroup<C, I, L, T, D> {
-    fn phantom_into<Tf, Df>(self) -> ColumnGroup<C, I, L, Tf, Df> {
-        ColumnGroup::new(self.container, self.byte_layout)
-    }
-
-    fn set_byte_layout<Lf>(self, byte_layout: Lf) -> ColumnGroup<C, I, Lf, T, D> {
+impl<C, I, L, M> ColumnGroup<C, I, L, M> {
+    fn set_byte_layout<Lf>(self, byte_layout: Lf) -> ColumnGroup<C, I, Lf, M> {
         ColumnGroup::new(self.container, byte_layout)
     }
 
-    fn byte_layout_into<Lf>(self) -> ColumnGroup<C, I, Lf, T, D>
-    where
-        L: Into<Lf>,
-    {
-        ColumnGroup::new(self.container, self.byte_layout.into())
-    }
-
-    fn byte_layout_try_into<Lf>(self) -> Result<ColumnGroup<C, I, Lf, T, D>, Lf::Error>
+    fn byte_layout_try_into<Lf>(self) -> Result<ColumnGroup<C, I, Lf, M>, Lf::Error>
     where
         Lf: TryFrom<L>,
     {
@@ -4266,28 +4295,86 @@ impl<C, I, L, T, D> ColumnGroup<C, I, L, T, D> {
     }
 }
 
-impl<C, I, T, D, const ORD: bool> ColumnGroup<C, I, NoByteOrd<ORD>, T, D> {
+impl<C, I, M, const ORD: bool> ColumnGroup<C, I, NoByteOrd<ORD>, M> {
     pub fn new_ascii(columns: C) -> Self {
         Self::new(columns, NoByteOrd::<ORD>)
     }
 }
 
-impl<C, S, T, D> DataLayout<C, S, T, D> {
-    pub fn new_empty(byte_layout: S) -> Self {
-        Self::new(vec![], byte_layout)
+impl<C, I, L, M> ColumnGroup<C, I, L, M> {
+    pub fn new_empty(byte_layout: L) -> Self
+    where
+        C: Default,
+    {
+        Self::new(C::default(), byte_layout)
     }
 
-    pub fn columns(&self) -> &[C] {
-        self.as_ref()
+    pub fn columns(&self) -> &[I]
+    where
+        C: AsRef<[I]>,
+    {
+        self.container.as_ref()
     }
 
     pub fn widths(&self) -> Vec<BitsOrChars>
     where
-        C: IsFixed,
+        C: AsRef<[I]>,
+        I: IsFixed,
     {
-        self.container.iter().map(IsFixed::fixed_width).collect()
+        self.columns().iter().map(IsFixed::fixed_width).collect()
     }
 
+    /// Produce conversion error if columns are not all the same width.
+    ///
+    /// Useful when converting a mixed-width int layout into a single layout.
+    fn conversion_fail_by_width<X>(&self) -> LayoutConvertResult<X>
+    where
+        C: AsRef<[I]>,
+        I: IsFixed,
+    {
+        debug_assert!(!self.columns().is_empty(), "columns must be non-empty");
+        let ((_, w0), ws) = self
+            .widths()
+            .try_into_nonempty_iter()
+            .unwrap()
+            .enumerate()
+            .next();
+        let es = ws
+            .filter(|(_, w)| &w0 != w)
+            .map(|(i, w)| IndexedError::new(i, UintToUintError::new(w.into(), w0.into())))
+            .map(UintEndianToOrderedLayoutError::from)
+            .map(LayoutConvertError::from)
+            .try_into_nonempty_iter()
+            .expect("mixed layout should have at least one different type");
+        LogResult::new_from_ne_err_iter(es, ())
+    }
+
+    /// Produce conversion error if columns are not all the same type.
+    ///
+    /// Useful when converting a mixed-type layout into a single layout.
+    fn conversion_fail_by_datatype<X>(&self) -> LayoutConvertResult<X>
+    where
+        C: AsRef<[I]>,
+        Self: LayoutDatatype,
+    {
+        debug_assert!(!self.columns().is_empty(), "columns must be non-empty");
+        let d0 = self.datatype();
+        let es = self
+            .datatypes()
+            .into_iter()
+            .filter(|&d| d0 != d)
+            .map(|d| MixedToNonMixedError::new(d, d0))
+            .enumerate()
+            .map(|(i, e)| IndexedError::new(i, e))
+            .map(MixedToNonMixedLayoutError::from)
+            .map(LayoutConvertError::from)
+            .try_into_nonempty_iter()
+            .expect("mixed layout should have at least one different type");
+        LogResult::new_from_ne_err_iter(es, ())
+    }
+}
+
+impl<C, S, T, D> DataLayout<C, S, T, D> {
     // fn new1(head: C, tail: impl IntoIterator<Item = C>, byte_layout: S) -> Self {
     //     let mut cs = vec![head];
     //     cs.extend(tail);
@@ -4859,14 +4946,6 @@ where
 // source_from_iter!(f64, f32, FromF64);
 // source_from_iter!(f64, f64, FromF64);
 
-impl<D> AnySingleUintLayout<D> {
-    // TODO why pub?
-    #[must_use]
-    pub fn phantom_into<X>(self) -> AnySingleUintLayout<X> {
-        match_map_uint!(self, l, l.phantom_into())
-    }
-}
-
 // /// A type which is an integer and has a width.
 // trait UintBytes {
 //     fn byte_width(&self) -> PrivBytes;
@@ -4945,11 +5024,6 @@ impl<D> Generalize<MixedLayout> for NonMixedEndianLayout<D> {
 }
 
 impl<T> AnyOrderedUintLayout<T> {
-    #[must_use]
-    pub fn phantom_into<X>(self) -> AnyOrderedUintLayout<X> {
-        match_map_uint!(self, l, l.phantom_into())
-    }
-
     fn into_endian<D>(self) -> Result<AnySingleUintLayout<D>, OrderedToEndianError> {
         let ret = match_map_uint!(
             self,
@@ -5033,14 +5107,6 @@ impl<T, D, const ORD: bool> Default for AnyAsciiLayout<T, D, ORD> {
 }
 
 impl<T, D, const ORD: bool> AnyAsciiLayout<T, D, ORD> {
-    #[must_use]
-    pub fn phantom_into<T1, D1, const ORD_1: bool>(self) -> AnyAsciiLayout<T1, D1, ORD_1> {
-        match self {
-            Self::Delimited(x) => DelimAsciiLayout::new_ascii(x.container).into(),
-            Self::Fixed(x) => DataLayout::new_ascii(x.container).into(),
-        }
-    }
-
     pub(crate) fn try_new(
         cs: Vec<ColumnLayoutValues<D>>,
         flag: DisallowRangeTrunc,
@@ -5276,9 +5342,7 @@ impl VersionedDataLayout for DataLayout3_2 {
                     columns.fmap(|c| ColumnLayoutValues::new(c.width, c.range, Nothing::default()));
                 NonMixedEndianLayout::try_new(dt, byteord.0, ds, conf).map_ok_value(
                     |x: NewLayout<_>| {
-                        x.fmap_once(|y: NonMixedEndianLayout<_>| {
-                            Self::NonMixed(y.phantom_into::<Option<NumType>>())
-                        })
+                        x.fmap_once(|y: NonMixedEndianLayout<_>| Self::NonMixed(y.phantom_into()))
                     },
                 )
             }
@@ -5302,7 +5366,7 @@ impl VersionedDataLayout for DataLayout3_2 {
 // These traits are simple because they can be fractally delegated via enums
 // without any special tricks.
 
-impl<C: HasWidth, I, L, T, D> LayoutDims for ColumnGroup<C, I, L, T, D> {
+impl<C: HasWidth, I, L, M> LayoutDims for ColumnGroup<C, I, L, M> {
     fn ncols(&self) -> usize {
         self.container.width()
     }
@@ -5312,7 +5376,7 @@ impl<C: HasWidth, I, L, T, D> LayoutDims for ColumnGroup<C, I, L, T, D> {
     }
 }
 
-impl<C, I, L, T, D> LayoutRanges for ColumnGroup<C, I, L, T, D>
+impl<C, I, L, M> LayoutRanges for ColumnGroup<C, I, L, M>
 where
     Self: AsRef<[I]>,
     for<'c> Range: From<&'c I>,
@@ -5323,7 +5387,7 @@ where
     }
 }
 
-impl<C, I, S, T, D> LayoutDatatype for ColumnGroup<C, I, S, T, D>
+impl<C, I, S, M> LayoutDatatype for ColumnGroup<C, I, S, M>
 where
     C: AsRef<[I]>,
     I: HasDatatype,
@@ -5341,7 +5405,7 @@ where
     }
 }
 
-impl<C, I, L, T, D> LayoutKeywords for ColumnGroup<C, I, L, T, D>
+impl<C, I, L, M> LayoutKeywords for ColumnGroup<C, I, L, M>
 where
     C: AsRef<[I]>,
     I: HasDatatype + IntoWidth,
@@ -5373,7 +5437,7 @@ where
 // return the value of $PnDATATYPE if it exists. The base case can be delegated
 // for pre-3.2.
 
-impl<C, I, S, T, D> OptMeasLayoutKeywords for ColumnGroup<C, I, S, T, D>
+impl<C, I, S, M> OptMeasLayoutKeywords for ColumnGroup<C, I, S, M>
 where
     Self: LayoutDims,
 {
@@ -5414,7 +5478,7 @@ where
 // This should apply to all except ASCII layouts since these can only return
 // byte widths up to 8.
 
-impl<C, I, L, T, D> HasColumnBytes for ColumnGroup<C, I, L, T, D>
+impl<C, I, L, M> HasColumnBytes for ColumnGroup<C, I, L, M>
 where
     C: AsRef<[I]>,
     I: IsBinary,
@@ -5442,6 +5506,334 @@ where
 {
     fn col_bytes(&self) -> Vec<PrivBytes> {
         match_any_uint!(self, Self, x, { x.col_bytes() })
+    }
+}
+
+// Implement data layout conversions
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+        LogResult::new_ok(Self(value.0.phantom_into()))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+        LogResult::new_ok(Self(value.0.phantom_into()))
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
+    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        value.into_ordered().map_ok_value(Into::into)
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_1()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_1()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
+    fn convert_from_layout(mut value: DataLayout3_2) -> LayoutConvertResult<Self> {
+        value.normalize();
+        match value {
+            DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
+            DataLayout3_2::Mixed(x) => x.conversion_fail_by_datatype(),
+        }
+    }
+}
+
+impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_2()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
+        value.0.into_3_2()
+    }
+}
+
+impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
+    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
+        LogResult::new_ok(Self::NonMixed(value.0.phantom_into()))
+    }
+}
+
+// Implement dataframe conversion
+
+// impl ConvertFromLayout<DataFrame3_0> for DataFrame2_0 {
+//     fn convert_from_layout(value: DataFrame3_0) -> LayoutConvertResult<Self> {
+//         LogResult::new_ok(Self(value.0.phantom_into()))
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_1> for DataFrame2_0 {
+//     fn convert_from_layout(value: DataFrame3_1) -> LayoutConvertResult<Self> {
+//         value.into_ordered().map_ok_value(Into::into)
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_2> for DataFrame2_0 {
+//     fn convert_from_layout(value: DataFrame3_2) -> LayoutConvertResult<Self> {
+//         value.into_ordered().map_ok_value(Into::into)
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame2_0> for DataFrame3_0 {
+//     fn convert_from_layout(value: DataFrame2_0) -> LayoutConvertResult<Self> {
+//         LogResult::new_ok(Self(value.0.phantom_into()))
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_1> for DataFrame3_0 {
+//     fn convert_from_layout(value: DataFrame3_1) -> LayoutConvertResult<Self> {
+//         value.into_ordered().map_ok_value(Into::into)
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_2> for DataFrame3_0 {
+//     fn convert_from_layout(value: DataFrame3_2) -> LayoutConvertResult<Self> {
+//         value.into_ordered().map_ok_value(Into::into)
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame2_0> for DataFrame3_1 {
+//     fn convert_from_layout(value: DataFrame2_0) -> LayoutConvertResult<Self> {
+//         value.0.into_3_1()
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_0> for DataFrame3_1 {
+//     fn convert_from_layout(value: DataFrame3_0) -> LayoutConvertResult<Self> {
+//         value.0.into_3_1()
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_2> for DataFrame3_1 {
+//     fn convert_from_layout(mut value: DataFrame3_2) -> LayoutConvertResult<Self> {
+//         value.normalize();
+//         match value {
+//             DataFrame3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
+//             DataFrame3_2::Mixed(x) => x.conversion_fail_by_datatype(),
+//         }
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame2_0> for DataFrame3_2 {
+//     fn convert_from_layout(value: DataFrame2_0) -> LayoutConvertResult<Self> {
+//         value.0.into_3_2()
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_0> for DataFrame3_2 {
+//     fn convert_from_layout(value: DataFrame3_0) -> LayoutConvertResult<Self> {
+//         value.0.into_3_2()
+//     }
+// }
+
+// impl ConvertFromLayout<DataFrame3_1> for DataFrame3_2 {
+//     fn convert_from_layout(value: DataFrame3_1) -> LayoutConvertResult<Self> {
+//         LogResult::new_ok(Self::NonMixed(value.0.phantom_into()))
+//     }
+// }
+
+// Implement byte layout conversions
+
+impl<C, I, L, M> ByteLayoutInto for ColumnGroup<C, I, L, M> {
+    type Layout = L;
+    type Target<Lf> = ColumnGroup<C, I, Lf, M>;
+
+    fn byte_layout_into<Lf>(self) -> Self::Target<Lf>
+    where
+        L: Into<Lf>,
+    {
+        ColumnGroup::new(self.container, self.byte_layout.into())
+    }
+}
+
+impl<D, F> ByteLayoutInto for AnyAscii<D, F>
+where
+    D: ByteLayoutInto,
+    F: ByteLayoutInto<Layout = D::Layout>,
+{
+    type Layout = D::Layout;
+    type Target<Mf> = AnyAscii<D::Target<Mf>, F::Target<Mf>>;
+
+    fn byte_layout_into<Lf>(self) -> Self::Target<Lf>
+    where
+        Self::Layout: Into<Lf>,
+    {
+        match_map_ascii!(self, x, x.byte_layout_into())
+    }
+}
+
+impl<A, I, F32, F64> ByteLayoutInto for AnyDatatype<A, I, F32, F64>
+where
+    A: ByteLayoutInto,
+    I: ByteLayoutInto<Layout = A::Layout>,
+    F32: ByteLayoutInto<Layout = A::Layout>,
+    F64: ByteLayoutInto<Layout = A::Layout>,
+{
+    type Layout = A::Layout;
+    type Target<Mf> = AnyDatatype<A::Target<Mf>, I::Target<Mf>, F32::Target<Mf>, F64::Target<Mf>>;
+
+    fn byte_layout_into<Lf>(self) -> Self::Target<Lf>
+    where
+        Self::Layout: Into<Lf>,
+    {
+        match_map_datatype!(self, x, x.byte_layout_into())
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> ByteLayoutInto
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: ByteLayoutInto,
+    C16: ByteLayoutInto<Layout = C08::Layout>,
+    C24: ByteLayoutInto<Layout = C08::Layout>,
+    C32: ByteLayoutInto<Layout = C08::Layout>,
+    C40: ByteLayoutInto<Layout = C08::Layout>,
+    C48: ByteLayoutInto<Layout = C08::Layout>,
+    C56: ByteLayoutInto<Layout = C08::Layout>,
+    C64: ByteLayoutInto<Layout = C08::Layout>,
+{
+    type Layout = C08::Layout;
+    type Target<Mf> = AnyUint<
+        C08::Target<Mf>,
+        C16::Target<Mf>,
+        C24::Target<Mf>,
+        C32::Target<Mf>,
+        C40::Target<Mf>,
+        C48::Target<Mf>,
+        C56::Target<Mf>,
+        C64::Target<Mf>,
+    >;
+
+    fn byte_layout_into<Lf>(self) -> Self::Target<Lf>
+    where
+        Self::Layout: Into<Lf>,
+    {
+        match_map_uint!(self, x, x.byte_layout_into())
+    }
+}
+
+impl<W0, W> ByteLayoutInto for AnyEndianUint<W0, W>
+where
+    W0: ByteLayoutInto,
+    W: ByteLayoutInto<Layout = W0::Layout>,
+{
+    type Layout = W0::Layout;
+    type Target<Mf> = AnyEndianUint<W0::Target<Mf>, W::Target<Mf>>;
+
+    fn byte_layout_into<Lf>(self) -> Self::Target<Lf>
+    where
+        Self::Layout: Into<Lf>,
+    {
+        match_map_endian_uint!(self, x, x.byte_layout_into())
+    }
+}
+
+// Implement marker conversions
+
+impl<C, I, T, M> PhantomInto for ColumnGroup<C, I, T, M> {
+    type Target<Mf> = ColumnGroup<C, I, T, Mf>;
+
+    fn phantom_into<Mf>(self) -> Self::Target<Mf> {
+        ColumnGroup::new(self.container, self.byte_layout)
+    }
+}
+
+impl<D, F> PhantomInto for AnyAscii<D, F>
+where
+    D: PhantomInto,
+    F: PhantomInto,
+{
+    type Target<Mf> = AnyAscii<D::Target<Mf>, F::Target<Mf>>;
+
+    fn phantom_into<Mf>(self) -> Self::Target<Mf> {
+        match_map_ascii!(self, x, x.phantom_into())
+    }
+}
+
+impl<A, I, F32, F64> PhantomInto for AnyDatatype<A, I, F32, F64>
+where
+    A: PhantomInto,
+    I: PhantomInto,
+    F32: PhantomInto,
+    F64: PhantomInto,
+{
+    type Target<Mf> = AnyDatatype<A::Target<Mf>, I::Target<Mf>, F32::Target<Mf>, F64::Target<Mf>>;
+
+    fn phantom_into<Mf>(self) -> Self::Target<Mf> {
+        match_map_datatype!(self, x, x.phantom_into())
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> PhantomInto
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: PhantomInto,
+    C16: PhantomInto,
+    C24: PhantomInto,
+    C32: PhantomInto,
+    C40: PhantomInto,
+    C48: PhantomInto,
+    C56: PhantomInto,
+    C64: PhantomInto,
+{
+    type Target<Mf> = AnyUint<
+        C08::Target<Mf>,
+        C16::Target<Mf>,
+        C24::Target<Mf>,
+        C32::Target<Mf>,
+        C40::Target<Mf>,
+        C48::Target<Mf>,
+        C56::Target<Mf>,
+        C64::Target<Mf>,
+    >;
+
+    fn phantom_into<Mf>(self) -> Self::Target<Mf> {
+        match_map_uint!(self, x, x.phantom_into())
+    }
+}
+
+impl<W0, W> PhantomInto for AnyEndianUint<W0, W>
+where
+    W0: PhantomInto,
+    W: PhantomInto,
+{
+    type Target<Mf> = AnyEndianUint<W0::Target<Mf>, W::Target<Mf>>;
+
+    fn phantom_into<Mf>(self) -> Self::Target<Mf> {
+        match_map_endian_uint!(self, x, x.phantom_into())
     }
 }
 
@@ -5498,7 +5890,7 @@ where
                 EndianGroup<Sibling1<C, I64>, I64, D>,
             >,
         >,
-    ColumnGroup<C, I, Endian, Identity<Tot>, D>: HasColumnBytes,
+    MarkedColumnGroup<C, I, Endian, Identity<Tot>, D>: HasColumnBytes,
     C32: Default,
     C: Functor<I>,
     I: TryInto<I08>
@@ -5976,82 +6368,6 @@ impl FromRange for AnyBitmask {
     }
 }
 
-impl ConvertFromLayout<DataLayout3_0> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self(value.0.phantom_into()))
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_1> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_2> for DataLayout2_0 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self(value.0.phantom_into()))
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_1> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_2> for DataLayout3_0 {
-    fn convert_from_layout(value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.into_ordered().map_ok_value(Into::into)
-    }
-}
-
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_1()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_0> for DataLayout3_1 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_1()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_2> for DataLayout3_1 {
-    fn convert_from_layout(mut value: DataLayout3_2) -> LayoutConvertResult<Self> {
-        value.normalize();
-        match value {
-            DataLayout3_2::NonMixed(x) => LogResult::new_ok(Self(x.phantom_into())),
-            DataLayout3_2::Mixed(x) => x.conversion_fail(),
-        }
-    }
-}
-
-impl ConvertFromLayout<DataLayout2_0> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout2_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_2()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_0> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout3_0) -> LayoutConvertResult<Self> {
-        value.0.into_3_2()
-    }
-}
-
-impl ConvertFromLayout<DataLayout3_1> for DataLayout3_2 {
-    fn convert_from_layout(value: DataLayout3_1) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self::NonMixed(value.0.phantom_into()))
-    }
-}
-
 impl CheckedScaleTransform for Scale {
     type Err = ScaleMismatchError;
     type Summary = ScaleMismatchSummary;
@@ -6204,12 +6520,18 @@ impl DataLayout3_1 {
     }
 }
 
+// impl DataFrame3_1 {
+//     pub(crate) fn into_ordered<T>(self) -> LayoutConvertResult<AnyOrderedDataFrame<T>> {
+//         self.0.try_nonmixed_into_ordered()
+//     }
+// }
+
 impl DataLayout3_2 {
     pub(crate) fn into_ordered<T>(mut self) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         self.normalize();
         match self {
             Self::NonMixed(x) => x.try_nonmixed_into_ordered(),
-            Self::Mixed(x) => x.conversion_fail(),
+            Self::Mixed(x) => x.conversion_fail_by_datatype(),
         }
     }
 
@@ -6258,47 +6580,6 @@ impl DataLayout3_2 {
                     .map_commutative_warnings(LookupLayoutWarning::from)
                     .map_errors(LookupLayoutError::from)
             })
-    }
-}
-
-impl<D> EndianUintLayout<D> {
-    fn conversion_fail<X>(&self) -> LayoutConvertResult<X> {
-        debug_assert!(!self.container.is_empty(), "columns must be non-empty");
-        let ((_, w0), ws) = self
-            .widths()
-            .try_into_nonempty_iter()
-            .unwrap()
-            .enumerate()
-            .next();
-        let es = ws
-            .filter(|(_, w)| &w0 != w)
-            .map(|(i, w)| IndexedError::new(i, UintToUintError::new(w.into(), w0.into())))
-            .map(UintEndianToOrderedLayoutError::from)
-            .map(LayoutConvertError::from)
-            .try_into_nonempty_iter()
-            .expect("mixed layout should have at least one different type");
-        LogResult::new_from_ne_err_iter(es, ())
-    }
-}
-
-impl MixedLayout {
-    fn conversion_fail<X>(&self) -> LayoutConvertResult<X> {
-        debug_assert!(!self.container.is_empty(), "columns must be non-empty");
-        let d0 = self.datatype();
-        let es = self
-            .container
-            .iter()
-            .filter_map(|c| {
-                let d = c.as_alpha_num_type();
-                (d0 != d).then(|| MixedToNonMixedError::new(d, d0))
-            })
-            .enumerate()
-            .map(|(i, e)| IndexedError::new(i, e))
-            .map(MixedToNonMixedLayoutError::from)
-            .map(LayoutConvertError::from)
-            .try_into_nonempty_iter()
-            .expect("mixed layout should have at least one different type");
-        LogResult::new_from_ne_err_iter(es, ())
     }
 }
 
@@ -6424,11 +6705,6 @@ impl<T> AnyOrderedLayout<T> {
         }
     }
 
-    #[must_use]
-    pub fn phantom_into<X>(self) -> AnyOrderedLayout<X> {
-        match_any_mixed!(self, x, { x.phantom_into().into() })
-    }
-
     pub fn into_unmixed<D>(self) -> LayoutConvertResult<NonMixedEndianLayout<D>> {
         macro_rules! go_float {
             ($i:expr) => {
@@ -6439,11 +6715,13 @@ impl<T> AnyOrderedLayout<T> {
             };
         }
         let res = match self {
-            Self::Ascii(x) => LogResult::new_ok(NonMixedEndianLayout::from(x.phantom_into())),
+            Self::Ascii(x) => {
+                LogResult::new_ok(AnyDatatype::Ascii(x.phantom_into().byte_layout_into()))
+            }
             Self::Uint(x) => x
                 .into_endian()
-                .map(AnyEndianUintLayout::from)
-                .map(NonMixedEndianLayout::from)
+                .map(AnyEndianUintLayout::Single)
+                .map(AnyDatatype::Uint)
                 .into_log(),
             Self::F32(x) => go_float!(x),
             Self::F64(x) => go_float!(x),
@@ -6587,9 +6865,11 @@ impl<D> NonMixedEndianLayout<D> {
     ) -> LayoutConvertResult<AnyOrderedLayout<T>> {
         self.normalize();
         match self {
-            Self::Ascii(x) => LogResult::new_ok(AnyDatatype::Ascii(x.phantom_into())),
+            Self::Ascii(x) => {
+                LogResult::new_ok(AnyDatatype::Ascii(x.phantom_into().byte_layout_into()))
+            }
             Self::Uint(x) => match x {
-                AnyEndianUint::Multi(y) => y.conversion_fail(),
+                AnyEndianUint::Multi(y) => y.conversion_fail_by_width(),
                 AnyEndianUint::Single(y) => match_any_uint!(y, AnyUint, z, {
                     LogResult::new_ok(AnyDatatype::Uint(
                         z.phantom_into().byte_layout_into().into(),
@@ -6599,13 +6879,6 @@ impl<D> NonMixedEndianLayout<D> {
             Self::F32(x) => LogResult::new_ok(x.phantom_into().byte_layout_into().into()),
             Self::F64(x) => LogResult::new_ok(x.phantom_into().byte_layout_into().into()),
         }
-    }
-
-    #[must_use]
-    pub fn phantom_into<D1>(self) -> NonMixedEndianLayout<D1> {
-        match_many_to_one!(self, Self, [Ascii, Uint, F32, F64], x, {
-            x.phantom_into().into()
-        })
     }
 }
 

@@ -72,6 +72,18 @@ impl<const ORD: bool> From<NoByteOrd<ORD>> for Endian {
     }
 }
 
+impl From<NoByteOrd2_0> for NoByteOrd3_1 {
+    fn from(_: NoByteOrd2_0) -> Self {
+        Self
+    }
+}
+
+impl From<NoByteOrd3_1> for NoByteOrd2_0 {
+    fn from(_: NoByteOrd3_1) -> Self {
+        Self
+    }
+}
+
 /// The number of bytes for a numeric measurement
 #[derive(Into, Debug, Display)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]
@@ -244,9 +256,9 @@ impl PrivBytes {
             .unwrap_or(Self::B1)
     }
 
-    pub(crate) const fn to_usize(self) -> usize {
-        self as usize
-    }
+    // pub(crate) const fn to_usize(self) -> usize {
+    //     self as usize
+    // }
 }
 
 #[cfg(feature = "serde")]

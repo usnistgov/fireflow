@@ -68,7 +68,7 @@ use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
     ArrayByteOrd, BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd,
-    NoByteOrd3_1, OrderedToEndianError, PrivBytes, WidthToBytesError, WidthToFixedError,
+    OrderedToEndianError, PrivBytes, WidthToBytesError, WidthToFixedError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -84,7 +84,7 @@ use crate::text::lookup::{
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
-    AsciiRangeFromKeywordsError, AsciiRangeValue, Chars, DelimAsciiRange, FixedAsciiRange,
+    AsciiRangeFromKeywordsError, AsciiRangeValue, DelimAsciiRange, FixedAsciiRange,
 };
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
@@ -100,7 +100,7 @@ use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
 use fireflow_core_proc::impl_generic_enum_from;
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
-use type_families::{Functor, FunctorOnce, Sibling1, impl_functor, impl_functor_once, impl_kind1};
+use type_families::{Functor, FunctorOnce, Sibling1, impl_functor_once, impl_kind1};
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
@@ -112,13 +112,12 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{NonEmptyIterator as _, once},
 };
-use num_traits::{Bounded, FromBytes, ToBytes};
+use num_traits::{Bounded, FromBytes};
 use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
-use std::iter;
+use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::marker::PhantomData;
 use std::mem;
 use std::num::{NonZeroU8, ParseIntError};
@@ -1437,37 +1436,37 @@ where
 }
 
 impl<C08, C16, C24, C32, C40, C48, C56, C64> AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
-    fn file_bytes(&self) -> PrivBytes
-    where
-        C08: HasNativeType,
-        C16: HasNativeType,
-        C24: HasNativeType,
-        C32: HasNativeType,
-        C40: HasNativeType,
-        C48: HasNativeType,
-        C56: HasNativeType,
-        C64: HasNativeType,
-        C08::Native: FCSRepr,
-        C16::Native: FCSRepr,
-        C24::Native: FCSRepr,
-        C32::Native: FCSRepr,
-        C40::Native: FCSRepr,
-        C48::Native: FCSRepr,
-        C56::Native: FCSRepr,
-        C64::Native: FCSRepr,
-    {
-        let ret = match self {
-            Self::Uint08(_) => C08::Native::FILE_BYTES,
-            Self::Uint16(_) => C16::Native::FILE_BYTES,
-            Self::Uint24(_) => C24::Native::FILE_BYTES,
-            Self::Uint32(_) => C32::Native::FILE_BYTES,
-            Self::Uint40(_) => C40::Native::FILE_BYTES,
-            Self::Uint48(_) => C48::Native::FILE_BYTES,
-            Self::Uint56(_) => C56::Native::FILE_BYTES,
-            Self::Uint64(_) => C64::Native::FILE_BYTES,
-        };
-        ret.0
-    }
+    // fn file_bytes(&self) -> PrivBytes
+    // where
+    //     C08: HasNativeType,
+    //     C16: HasNativeType,
+    //     C24: HasNativeType,
+    //     C32: HasNativeType,
+    //     C40: HasNativeType,
+    //     C48: HasNativeType,
+    //     C56: HasNativeType,
+    //     C64: HasNativeType,
+    //     C08::Native: FCSRepr,
+    //     C16::Native: FCSRepr,
+    //     C24::Native: FCSRepr,
+    //     C32::Native: FCSRepr,
+    //     C40::Native: FCSRepr,
+    //     C48::Native: FCSRepr,
+    //     C56::Native: FCSRepr,
+    //     C64::Native: FCSRepr,
+    // {
+    //     let ret = match self {
+    //         Self::Uint08(_) => C08::Native::FILE_BYTES,
+    //         Self::Uint16(_) => C16::Native::FILE_BYTES,
+    //         Self::Uint24(_) => C24::Native::FILE_BYTES,
+    //         Self::Uint32(_) => C32::Native::FILE_BYTES,
+    //         Self::Uint40(_) => C40::Native::FILE_BYTES,
+    //         Self::Uint48(_) => C48::Native::FILE_BYTES,
+    //         Self::Uint56(_) => C56::Native::FILE_BYTES,
+    //         Self::Uint64(_) => C64::Native::FILE_BYTES,
+    //     };
+    //     ret.0
+    // }
 
     // fn fmap_into8<C08f, C16f, C24f, C32f, C40f, C48f, C56f, C64f>(
     //     self,
@@ -1842,10 +1841,6 @@ impl RowBuffer {
                     // of this exactly equals the size of the buffer itself in
                     // bytes, which means what follows can never overflow.
                     let buf = unsafe { T::array_from_slice(&self.bytes, src_idx) };
-                    // let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + src_len) };
-                    // // SAFETY: this will not overflow because the slice and
-                    // // array are both LEN u8 elements.
-                    // let buf: T::FileBuf = unsafe { *(xs.as_ptr().cast()) };
                     *value = from_buf(&buf);
                 }
             }
@@ -1867,9 +1862,6 @@ impl RowBuffer {
                 );
                 // SAFETY: see above
                 let buf = unsafe { T::array_from_slice(&self.bytes, src_idx) };
-                // let xs = unsafe { self.bytes.get_unchecked(src_idx..src_idx + src_len) };
-                // SAFETY: see above
-                // let buf: T::FileBuf = unsafe { *(xs.as_ptr().cast()) };
                 *value = from_buf(&buf);
             }
         }
@@ -2516,7 +2508,8 @@ pub trait HasNativeType: Sized {
     type Native: Default + Copy;
 }
 
-trait HasBytes: Sized {
+/// A column type which has a binary (ie not ASCII) representation.
+trait IsBinary: Sized {
     fn bytes(&self) -> PrivBytes;
 }
 
@@ -2545,6 +2538,7 @@ pub trait FromRange: Sized {
             .resolve_nowarn()
     }
 
+    #[must_use]
     fn from_range_switch(
         range: Range,
         flag: DisallowRangeTrunc,
@@ -2557,6 +2551,22 @@ pub trait FromRange: Sized {
 
 trait IntoRange: HasNativeType {
     fn as_range(&self) -> (Self::Native, Range);
+}
+
+trait IntoWidth {
+    fn as_width(&self) -> Width;
+}
+
+impl<T: IsFixed> IntoWidth for T {
+    fn as_width(&self) -> Width {
+        Width::Fixed(self.fixed_width())
+    }
+}
+
+impl IntoWidth for DelimAsciiRange {
+    fn as_width(&self) -> Width {
+        Width::Variable
+    }
 }
 
 /// A type which has a known width
@@ -3853,16 +3863,6 @@ impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
     }
 }
 
-impl<T, D, const ORD: bool> LayoutDatatype for DelimAsciiLayout<T, D, ORD> {
-    fn datatype(&self) -> AlphaNumType {
-        AlphaNumType::Ascii
-    }
-
-    fn datatypes(&self) -> Vec<AlphaNumType> {
-        vec![self.datatype(); self.container.len()]
-    }
-}
-
 impl<T, D, const ORD: bool> ReadLayoutOps<T> for DelimAsciiLayout<T, D, ORD> {
     fn h_read_df_inner<R: Read>(
         &self,
@@ -4807,372 +4807,6 @@ where
     }
 }
 
-macro_rules! def_native_wrapper {
-    ($name:path, $native:ty) => {
-        impl HasNativeType for $name {
-            type Native = $native;
-        }
-    };
-}
-
-def_native_wrapper!(Bitmask08, u8);
-def_native_wrapper!(Bitmask16, u16);
-def_native_wrapper!(Bitmask24, U24);
-def_native_wrapper!(Bitmask32, u32);
-def_native_wrapper!(Bitmask40, U40);
-def_native_wrapper!(Bitmask48, U48);
-def_native_wrapper!(Bitmask56, U56);
-def_native_wrapper!(Bitmask64, u64);
-def_native_wrapper!(F32Range, f32);
-def_native_wrapper!(F64Range, f64);
-def_native_wrapper!(FixedAsciiRange, u64);
-def_native_wrapper!(DelimAsciiRange, u64);
-
-impl<M: HasNativeType, T, R> HasNativeType for AnnotatedColumn<M, T, R> {
-    type Native = M::Native;
-}
-
-impl<T> HasBytes for Bitmask<T>
-where
-    Self: HasNativeType<Native = T>,
-    T: FCSRepr,
-{
-    fn bytes(&self) -> PrivBytes {
-        T::FILE_BYTES.0
-    }
-}
-
-impl<T> HasBytes for FloatRange<T>
-where
-    Self: HasNativeType<Native = T>,
-    T: FCSRepr,
-{
-    fn bytes(&self) -> PrivBytes {
-        T::FILE_BYTES.0
-    }
-}
-
-impl<M: HasBytes, T, R> HasBytes for AnnotatedColumn<M, T, R> {
-    fn bytes(&self) -> PrivBytes {
-        self.metadata.bytes()
-    }
-}
-
-impl<C08, C16, C24, C32, C40, C48, C56, C64> HasBytes
-    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
-where
-    C08: HasBytes,
-    C16: HasBytes,
-    C24: HasBytes,
-    C32: HasBytes,
-    C40: HasBytes,
-    C48: HasBytes,
-    C56: HasBytes,
-    C64: HasBytes,
-{
-    fn bytes(&self) -> PrivBytes {
-        match_any_uint!(self, Self, x, { x.bytes() })
-    }
-}
-
-impl<C, L, T, D> HasColumnBytes for DataLayout<C, L, T, D>
-where
-    C: HasBytes,
-{
-    fn col_bytes(&self) -> Vec<PrivBytes> {
-        self.container.iter().map(HasBytes::bytes).collect()
-    }
-}
-
-impl<C, L, T, D> HasColumnBytes for DataFrame<C, L, T, D>
-where
-    C: HasBytes,
-{
-    fn col_bytes(&self) -> Vec<PrivBytes> {
-        self.container
-            .as_ref()
-            .iter()
-            .map(HasBytes::bytes)
-            .collect()
-    }
-}
-
-impl<C08, C16, C24, C32, C40, C48, C56, C64> HasColumnBytes
-    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
-where
-    C08: HasColumnBytes,
-    C16: HasColumnBytes,
-    C24: HasColumnBytes,
-    C32: HasColumnBytes,
-    C40: HasColumnBytes,
-    C48: HasColumnBytes,
-    C56: HasColumnBytes,
-    C64: HasColumnBytes,
-{
-    fn col_bytes(&self) -> Vec<PrivBytes> {
-        match_any_uint!(self, Self, x, { x.col_bytes() })
-    }
-}
-
-impl HasOneDatatype for FixedAsciiRange {
-    const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
-}
-
-impl<T> HasOneDatatype for Bitmask<T> {
-    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
-}
-
-impl HasOneDatatype for F32Range {
-    const DATATYPE: AlphaNumType = AlphaNumType::Float;
-}
-
-impl HasOneDatatype for F64Range {
-    const DATATYPE: AlphaNumType = AlphaNumType::Double;
-}
-
-impl<C08, C16, C24, C32, C40, C48, C56, C64> HasOneDatatype
-    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
-{
-    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
-}
-
-impl<M: HasOneDatatype, T, R> HasOneDatatype for AnnotatedColumn<M, T, R> {
-    const DATATYPE: AlphaNumType = M::DATATYPE;
-}
-
-impl<T: HasOneDatatype> HasDatatype for T {
-    fn col_datatype(&self) -> AlphaNumType {
-        T::DATATYPE
-    }
-
-    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
-        T::DATATYPE
-    }
-}
-
-impl<A, I, F32, F64> HasDatatype for AnyDatatype<A, I, F32, F64> {
-    fn col_datatype(&self) -> AlphaNumType {
-        match self {
-            Self::Ascii(_) => AlphaNumType::Ascii,
-            Self::Uint(_) => AlphaNumType::Integer,
-            Self::F32(_) => AlphaNumType::Float,
-            Self::F64(_) => AlphaNumType::Double,
-        }
-    }
-
-    fn datatype_from_columns(cs: &[Self]) -> AlphaNumType {
-        // If any numeric types are none, then that means at least one column is
-        // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
-        // cannot be "A". Otherwise, find majority type.
-        if let Some(xs) = cs.try_into_nonempty_iter() {
-            if let Ok(mut ds) = xs
-                .map(|c| NumType::try_from(c.col_datatype()))
-                .collect::<Result<NEVec<_>, _>>()
-            {
-                ds.sort();
-                let (dt, _) = ds
-                    .nonempty_iter()
-                    .group_by(|x| *x)
-                    .map(|x| (*x.first(), x.len()))
-                    .max_by_key(|(_, n)| *n);
-                (*dt).into()
-            } else {
-                AlphaNumType::Ascii
-            }
-        } else {
-            // NOTE this is a totally arbitrary default
-            AlphaNumType::Integer
-        }
-    }
-}
-
-impl<T> IntoRange for Bitmask<T>
-where
-    Self: HasNativeType<Native = T>,
-    T: Copy + Into<Range>,
-{
-    fn as_range(&self) -> (Self::Native, Range) {
-        let b = self.bitmask();
-        (b, b.into())
-    }
-}
-
-impl<T> IntoRange for FloatRange<T>
-where
-    Self: HasNativeType<Native = T>,
-    T: Copy,
-    FloatDecimal<T>: Into<Range> + Into<T>,
-{
-    fn as_range(&self) -> (Self::Native, Range) {
-        let r = &self.range;
-        (r.clone().into(), r.clone().into())
-    }
-}
-
-impl IntoRange for FixedAsciiRange {
-    fn as_range(&self) -> (Self::Native, Range) {
-        let r = self.value();
-        (r.0, r.0.into())
-    }
-}
-
-impl<T> FromRange for Bitmask<T>
-where
-    T: TryFrom<Range, Error = RangeToIntError<T>>
-        + FCSRepr
-        + Copy
-        + Bounded
-        + Shr<usize, Output = T>,
-    u64: From<T>,
-{
-    type Error = RangeToBitmaskError;
-
-    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        range
-            .clone()
-            .into_uint()
-            .map_error(RangeToBitmaskError::from)
-            .and_then_replace(|x| {
-                Self::try_from_native(x)
-                    .map_error(RangeToBitmaskError::from)
-                    .map_ok_value(|n| ConvertedRange::new(n, None))
-                    .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            })
-    }
-}
-
-impl<T> FromRange for FloatRange<T>
-where
-    T: HasFloatBounds,
-{
-    type Error = DecimalToFloatError;
-
-    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        range
-            .clone()
-            .into_float()
-            .map_deferred_value(Self::new)
-            .map_ok_value(|n| ConvertedRange::new(n, None))
-            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-    }
-}
-
-impl FromRange for AsciiRangeValue {
-    type Error = RangeToAsciiError;
-
-    /// Make new AsciiRange from a float or integer.
-    ///
-    /// The number of chars will be automatically selected as the minimum
-    /// required to express the range.
-    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        range
-            .clone()
-            .into_ascii_uint()
-            .map_errors(RangeToAsciiError::from)
-            .map_ok_value(|n| ConvertedRange::new(n, None))
-            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-    }
-}
-
-impl FromRange for FixedAsciiRange {
-    type Error = RangeToAsciiError;
-
-    /// Make new [`FixedAsciiRange`] from a float or integer.
-    ///
-    /// The number of chars will be automatically selected as the minimum
-    /// required to express the range.
-    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        AsciiRangeValue::from_range_inner(range).map_deferred_value(Functor::fmap_into)
-    }
-}
-
-impl FromRange for DelimAsciiRange {
-    type Error = RangeToAsciiError;
-
-    /// Make new [`DelimAsciiRange`] from a float or integer.
-    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        AsciiRangeValue::from_range_inner(range).map_deferred_value(Functor::fmap_into)
-    }
-}
-
-// NOTE this is a bit weird since we are letting the type control the size.
-// There are a few edge cases where a user may wish to control the size but
-// these are all for performance and supporting them would make the API much
-// more complex.
-impl FromRange for AnyBitmask {
-    type Error = RangeToBitmaskError;
-
-    /// make a new bitmask from a float or integer.
-    ///
-    /// The size will be determined by the input and will be kept as small as
-    /// possible.
-    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        range
-            .clone()
-            .into_uint()
-            .map_errors(RangeToBitmaskError::from)
-            .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
-            .map_ok_value(|n| ConvertedRange::new(n, None))
-            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-    }
-}
-
-impl<T> IsFixed for Bitmask<T>
-where
-    T: FCSRepr,
-{
-    fn nbytes(&self) -> NonZeroU8 {
-        T::FILE_BYTES.into()
-    }
-
-    fn fixed_width(&self) -> BitsOrChars {
-        BitsOrChars(T::FILE_BYTES.into())
-    }
-}
-
-impl<T> IsFixed for FloatRange<T>
-where
-    T: FCSRepr,
-{
-    fn nbytes(&self) -> NonZeroU8 {
-        T::FILE_BYTES.into()
-    }
-
-    fn fixed_width(&self) -> BitsOrChars {
-        BitsOrChars(T::FILE_BYTES.into())
-    }
-}
-
-impl IsFixed for FixedAsciiRange {
-    fn nbytes(&self) -> NonZeroU8 {
-        self.chars().into()
-    }
-
-    fn fixed_width(&self) -> BitsOrChars {
-        BitsOrChars(self.chars().into())
-    }
-}
-
-impl IsFixed for AnyBitmask {
-    fn nbytes(&self) -> NonZeroU8 {
-        match_any_uint!(self, Self, x, { x.nbytes() })
-    }
-
-    fn fixed_width(&self) -> BitsOrChars {
-        match_any_uint!(self, Self, x, { x.fixed_width() })
-    }
-}
-
-impl IsFixed for MixedRange {
-    fn nbytes(&self) -> NonZeroU8 {
-        match_any_mixed!(self, x, { x.nbytes() })
-    }
-
-    fn fixed_width(&self) -> BitsOrChars {
-        match_any_mixed!(self, x, { x.fixed_width() })
-    }
-}
-
 // macro_rules! source_from_iter {
 //     ($from:ident, $to:ident, $wrap:ident) => {
 //         impl<'a> From<FCSColIter<'a, $from, $to>> for AnySource<'a, $to> {
@@ -5707,44 +5341,16 @@ where
     }
 }
 
-// Implement keywords (except meas opt)
-
-// TODO clean these up
-
-impl<T, D, const ORD: bool> LayoutKeywords for DelimAsciiLayout<T, D, ORD>
-where
-    NoByteOrd<ORD>: HasByteOrd,
-    for<'a> ReqRootKeyword<'a>: From<SplitKeyword0<<NoByteOrd<ORD> as HasByteOrd>::ByteOrd>>,
-{
-    fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
-        // NOTE BYTEORD is meaningless for delimited ASCII so use a dummy
-        let b = <NoByteOrd<ORD> as HasByteOrd>::ByteOrd::from(NoByteOrd);
-        ReqRootKeyword::from_value(b)
-    }
-
-    fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
-        self.container
-            .iter()
-            .enumerate()
-            .map(|(i, r)| {
-                let x = ReqMeasKeyword::from_value(Width::Variable, i);
-                let y = ReqMeasKeyword::from_value(Range::from(r), i);
-                [x, y]
-            })
-            .collect()
-    }
-}
-
 impl<C, I, L, T, D> LayoutKeywords for ColumnGroup<C, I, L, T, D>
 where
     C: AsRef<[I]>,
-    I: IsFixed + HasDatatype,
+    I: HasDatatype + IntoWidth,
     L: Copy + HasByteOrd,
     for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<L::ByteOrd>>,
     for<'c> Range: From<&'c I>,
 {
     fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
-        ReqRootKeyword::from_value(L::ByteOrd::from(self.byte_layout))
+        ReqRootKeyword::from_value(self.byte_layout.into())
     }
 
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
@@ -5753,7 +5359,7 @@ where
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let w = ReqMeasKeyword::from_value(Width::Fixed(c.fixed_width()), i);
+                let w = ReqMeasKeyword::from_value(c.as_width(), i);
                 let r = ReqMeasKeyword::from_value(Range::from(c), i);
                 [w, r]
             })
@@ -5769,10 +5375,10 @@ where
 
 impl<C, I, S, T, D> OptMeasLayoutKeywords for ColumnGroup<C, I, S, T, D>
 where
-    C: AsRef<[I]>,
+    Self: LayoutDims,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        vec![None; self.container.as_ref().len()]
+        vec![None; self.ncols()]
     }
 }
 
@@ -5800,6 +5406,42 @@ where
                 })
                 .collect(),
         }
+    }
+}
+
+// Implement column-level byte width for applicable data layouts
+//
+// This should apply to all except ASCII layouts since these can only return
+// byte widths up to 8.
+
+impl<C, I, L, T, D> HasColumnBytes for ColumnGroup<C, I, L, T, D>
+where
+    C: AsRef<[I]>,
+    I: IsBinary,
+{
+    fn col_bytes(&self) -> Vec<PrivBytes> {
+        self.container
+            .as_ref()
+            .iter()
+            .map(IsBinary::bytes)
+            .collect()
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> HasColumnBytes
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: HasColumnBytes,
+    C16: HasColumnBytes,
+    C24: HasColumnBytes,
+    C32: HasColumnBytes,
+    C40: HasColumnBytes,
+    C48: HasColumnBytes,
+    C56: HasColumnBytes,
+    C64: HasColumnBytes,
+{
+    fn col_bytes(&self) -> Vec<PrivBytes> {
+        match_any_uint!(self, Self, x, { x.col_bytes() })
     }
 }
 
@@ -6002,6 +5644,335 @@ where
                 }
             }
         };
+    }
+}
+
+// Implement byte width for column types which have a known width.
+//
+// This applies to all except ASCII types since it can only return up to 8 bytes
+
+impl<T> IsBinary for Bitmask<T>
+where
+    Self: HasNativeType<Native = T>,
+    T: FCSRepr,
+{
+    fn bytes(&self) -> PrivBytes {
+        T::FILE_BYTES.0
+    }
+}
+
+impl<T> IsBinary for FloatRange<T>
+where
+    Self: HasNativeType<Native = T>,
+    T: FCSRepr,
+{
+    fn bytes(&self) -> PrivBytes {
+        T::FILE_BYTES.0
+    }
+}
+
+impl<M: IsBinary, T, R> IsBinary for AnnotatedColumn<M, T, R> {
+    fn bytes(&self) -> PrivBytes {
+        self.metadata.bytes()
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> IsBinary
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: IsBinary,
+    C16: IsBinary,
+    C24: IsBinary,
+    C32: IsBinary,
+    C40: IsBinary,
+    C48: IsBinary,
+    C56: IsBinary,
+    C64: IsBinary,
+{
+    fn bytes(&self) -> PrivBytes {
+        match_any_uint!(self, Self, x, { x.bytes() })
+    }
+}
+
+// Implement fixed width for column types that have known width
+//
+// This applies to all except delim ASCII where $PnB is numeric and not *
+
+impl<T: IsBinary> IsFixed for T {
+    fn nbytes(&self) -> NonZeroU8 {
+        self.bytes().into()
+    }
+
+    fn fixed_width(&self) -> BitsOrChars {
+        BitsOrChars(self.bytes().into())
+    }
+}
+
+impl IsFixed for FixedAsciiRange {
+    fn nbytes(&self) -> NonZeroU8 {
+        self.chars().into()
+    }
+
+    fn fixed_width(&self) -> BitsOrChars {
+        BitsOrChars(self.chars().into())
+    }
+}
+
+impl IsFixed for MixedRange {
+    fn nbytes(&self) -> NonZeroU8 {
+        match_any_mixed!(self, x, { x.nbytes() })
+    }
+
+    fn fixed_width(&self) -> BitsOrChars {
+        match_any_mixed!(self, x, { x.fixed_width() })
+    }
+}
+
+// Implement native type for columns which map to exactly one Rust type
+//
+// Applies to all except compound types (ie mixed int width and mixed type)
+
+macro_rules! def_native_wrapper {
+    ($name:path, $native:ty) => {
+        impl HasNativeType for $name {
+            type Native = $native;
+        }
+    };
+}
+
+def_native_wrapper!(Bitmask08, u8);
+def_native_wrapper!(Bitmask16, u16);
+def_native_wrapper!(Bitmask24, U24);
+def_native_wrapper!(Bitmask32, u32);
+def_native_wrapper!(Bitmask40, U40);
+def_native_wrapper!(Bitmask48, U48);
+def_native_wrapper!(Bitmask56, U56);
+def_native_wrapper!(Bitmask64, u64);
+def_native_wrapper!(F32Range, f32);
+def_native_wrapper!(F64Range, f64);
+def_native_wrapper!(FixedAsciiRange, u64);
+def_native_wrapper!(DelimAsciiRange, u64);
+
+impl<M: HasNativeType, T, R> HasNativeType for AnnotatedColumn<M, T, R> {
+    type Native = M::Native;
+}
+
+// Implement datatype for column types which correspond 1-1 with $DATATYPE
+
+impl HasOneDatatype for FixedAsciiRange {
+    const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
+}
+
+impl HasOneDatatype for DelimAsciiRange {
+    const DATATYPE: AlphaNumType = AlphaNumType::Ascii;
+}
+
+impl<T> HasOneDatatype for Bitmask<T> {
+    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+}
+
+impl HasOneDatatype for F32Range {
+    const DATATYPE: AlphaNumType = AlphaNumType::Float;
+}
+
+impl HasOneDatatype for F64Range {
+    const DATATYPE: AlphaNumType = AlphaNumType::Double;
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> HasOneDatatype
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+{
+    const DATATYPE: AlphaNumType = AlphaNumType::Integer;
+}
+
+impl<M: HasOneDatatype, T, R> HasOneDatatype for AnnotatedColumn<M, T, R> {
+    const DATATYPE: AlphaNumType = M::DATATYPE;
+}
+
+// Implement datatype for columns which might map to more than one datatype
+
+impl<T: HasOneDatatype> HasDatatype for T {
+    fn col_datatype(&self) -> AlphaNumType {
+        T::DATATYPE
+    }
+
+    fn datatype_from_columns(_: &[Self]) -> AlphaNumType {
+        T::DATATYPE
+    }
+}
+
+impl<A, I, F32, F64> HasDatatype for AnyDatatype<A, I, F32, F64> {
+    fn col_datatype(&self) -> AlphaNumType {
+        match self {
+            Self::Ascii(_) => AlphaNumType::Ascii,
+            Self::Uint(_) => AlphaNumType::Integer,
+            Self::F32(_) => AlphaNumType::Float,
+            Self::F64(_) => AlphaNumType::Double,
+        }
+    }
+
+    fn datatype_from_columns(cs: &[Self]) -> AlphaNumType {
+        // If any numeric types are none, then that means at least one column is
+        // ASCII, which means that $DATATYPE needs to be "A" since $PnDATATYPE
+        // cannot be "A". Otherwise, find majority type.
+        if let Some(xs) = cs.try_into_nonempty_iter() {
+            if let Ok(mut ds) = xs
+                .map(|c| NumType::try_from(c.col_datatype()))
+                .collect::<Result<NEVec<_>, _>>()
+            {
+                ds.sort();
+                let (dt, _) = ds
+                    .nonempty_iter()
+                    .group_by(|x| *x)
+                    .map(|x| (*x.first(), x.len()))
+                    .max_by_key(|(_, n)| *n);
+                (*dt).into()
+            } else {
+                AlphaNumType::Ascii
+            }
+        } else {
+            // NOTE this is a totally arbitrary default
+            AlphaNumType::Integer
+        }
+    }
+}
+
+// Implement column type -> Range (ie $PnR)
+//
+// For now this is only used to get the range in terms of its native rust type
+// and the $PnR (a BigDecimal) for documentation purposes when reading layouts
+// and checking for out of range values.
+
+impl<T> IntoRange for Bitmask<T>
+where
+    Self: HasNativeType<Native = T>,
+    T: Copy + Into<Range>,
+{
+    fn as_range(&self) -> (Self::Native, Range) {
+        let b = self.bitmask();
+        (b, b.into())
+    }
+}
+
+impl<T> IntoRange for FloatRange<T>
+where
+    Self: HasNativeType<Native = T>,
+    T: Copy,
+    FloatDecimal<T>: Into<Range> + Into<T>,
+{
+    fn as_range(&self) -> (Self::Native, Range) {
+        let r = &self.range;
+        (r.clone().into(), r.clone().into())
+    }
+}
+
+impl IntoRange for FixedAsciiRange {
+    fn as_range(&self) -> (Self::Native, Range) {
+        let r = self.value();
+        (r.0, r.0.into())
+    }
+}
+
+// Implement Range (ie $PnR) -> column type
+
+impl<T> FromRange for Bitmask<T>
+where
+    T: TryFrom<Range, Error = RangeToIntError<T>>
+        + FCSRepr
+        + Copy
+        + Bounded
+        + Shr<usize, Output = T>,
+    u64: From<T>,
+{
+    type Error = RangeToBitmaskError;
+
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        range
+            .clone()
+            .into_uint()
+            .map_error(RangeToBitmaskError::from)
+            .and_then_replace(|x| {
+                Self::try_from_native(x)
+                    .map_error(RangeToBitmaskError::from)
+                    .map_ok_value(|n| ConvertedRange::new(n, None))
+                    .map_err_value(|n| ConvertedRange::new(n, Some(range)))
+            })
+    }
+}
+
+impl<T> FromRange for FloatRange<T>
+where
+    T: HasFloatBounds,
+{
+    type Error = DecimalToFloatError;
+
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        range
+            .clone()
+            .into_float()
+            .map_deferred_value(Self::new)
+            .map_ok_value(|n| ConvertedRange::new(n, None))
+            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
+    }
+}
+
+impl FromRange for AsciiRangeValue {
+    type Error = RangeToAsciiError;
+
+    /// Make new AsciiRange from a float or integer.
+    ///
+    /// The number of chars will be automatically selected as the minimum
+    /// required to express the range.
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        range
+            .clone()
+            .into_ascii_uint()
+            .map_errors(RangeToAsciiError::from)
+            .map_ok_value(|n| ConvertedRange::new(n, None))
+            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
+    }
+}
+
+impl FromRange for FixedAsciiRange {
+    type Error = RangeToAsciiError;
+
+    /// Make new [`FixedAsciiRange`] from a float or integer.
+    ///
+    /// The number of chars will be automatically selected as the minimum
+    /// required to express the range.
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        AsciiRangeValue::from_range_inner(range).map_deferred_value(Functor::fmap_into)
+    }
+}
+
+impl FromRange for DelimAsciiRange {
+    type Error = RangeToAsciiError;
+
+    /// Make new [`DelimAsciiRange`] from a float or integer.
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        AsciiRangeValue::from_range_inner(range).map_deferred_value(Functor::fmap_into)
+    }
+}
+
+impl FromRange for AnyBitmask {
+    type Error = RangeToBitmaskError;
+
+    /// make a new bitmask from a float or integer.
+    ///
+    /// The size will be determined by the input and will be kept as small as
+    /// possible.
+    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+        // NOTE this is a bit weird since we are letting the type control the
+        // size. There are a few edge cases where a user may wish to control the
+        // size but these are all for performance and supporting them would make
+        // the API much more complex.
+        range
+            .clone()
+            .into_uint()
+            .map_errors(RangeToBitmaskError::from)
+            .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
+            .map_ok_value(|n| ConvertedRange::new(n, None))
+            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
     }
 }
 

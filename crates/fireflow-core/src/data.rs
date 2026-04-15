@@ -204,23 +204,11 @@ pub struct DataFrame3_1(pub NonMixedEndianDataFrame<Nothing<NumType>>);
 /// each column to have a different type and size (hence "Mixed").
 pub type DataLayout3_2 = Any3_2<MixedLayout, NonMixedEndianLayout<Option<NumType>>>;
 
-impl_generic_enum_from! {
-    DataLayout3_2,
-    Mixed <- MixedLayout,
-    NonMixed <- NonMixedEndianLayout<Option<NumType>>
-}
-
 /// All possible storage configurations in 3.2.
 ///
 /// In addition to the loosened integer layouts in 3.1, 3.2 additionally allows
 /// each column to have a different type and size (hence "Mixed").
 pub type DataFrame3_2 = Any3_2<MixedDataFrame, NonMixedEndianDataFrame<Option<NumType>>>;
-
-impl_generic_enum_from! {
-    DataFrame3_2,
-    Mixed <- MixedDataFrame,
-    NonMixed <- NonMixedEndianDataFrame<Option<NumType>>
-}
 
 /// Generic container for 3.2 DATA configurations.
 // TODO false positive lint
@@ -235,6 +223,20 @@ impl_generic_enum_from! {
 pub enum Any3_2<M, N> {
     Mixed(M),
     NonMixed(N),
+}
+
+impl<C, I, L, M, N> From<ColumnGroup<C, I, L, M>> for Any3_2<ColumnGroup<C, I, L, M>, N> {
+    fn from(value: ColumnGroup<C, I, L, M>) -> Self {
+        Self::Mixed(value)
+    }
+}
+
+impl<A, I, F32, F64, M> From<AnyDatatype<A, I, F32, F64>>
+    for Any3_2<M, AnyDatatype<A, I, F32, F64>>
+{
+    fn from(value: AnyDatatype<A, I, F32, F64>) -> Self {
+        Self::NonMixed(value)
+    }
 }
 
 /// A DATA layout where every column may have a different type (3.2 only).
@@ -262,6 +264,37 @@ impl_generic_enum_from! {
     F32 <- OrderedLayout<F32Range, T>,
     F64 <- OrderedLayout<F64Range, T>
 }
+
+// impl<D, F, I, F32, F64> From<AnyAscii<D, F>> for AnyDatatype<AnyAscii<D, F>, I, F32, F64> {
+//     fn from(value: AnyAscii<D, F>) -> Self {
+//         Self::Ascii(value)
+//     }
+// }
+
+// impl<A, F32, F64, C08, C16, C24, C32, C40, C48, C56, C64>
+//     From<AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>>
+//     for AnyDatatype<A, AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>, F32, F64>
+// {
+//     fn from(value: AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>) -> Self {
+//         Self::Uint(value)
+//     }
+// }
+
+// impl<A, I, F64, Cf, If, L, M> From<ColumnGroup<Cf, If, L, M>>
+//     for AnyDatatype<A, I, ColumnGroup<Cf, If, L, M>, F64>
+// {
+//     fn from(value: ColumnGroup<Cf, If, L, M>) -> Self {
+//         Self::F32(value)
+//     }
+// }
+
+// impl<A, I, F32, Cf, If, L, M> From<ColumnGroup<Cf, If, L, M>>
+//     for AnyDatatype<A, I, F32, ColumnGroup<Cf, If, L, M>>
+// {
+//     fn from(value: ColumnGroup<Cf, If, L, M>) -> Self {
+//         Self::F64(value)
+//     }
+// }
 
 /// All possible DATA storage configuration for 2.0 and 3.0.
 ///
@@ -542,20 +575,23 @@ impl_generic_enum_from! {
 
 pub type AnyEndianUintLayout<D> = AnyEndianUint<AnySingleUintLayout<D>, EndianUintLayout<D>>;
 
-impl_generic_enum_from! {
-    AnyEndianUintLayout<D>,
-    Single <- AnySingleUintLayout<D>,
-    Multi <- EndianUintLayout<D>
+impl<X, C, I, L, D> From<ColumnGroup<C, I, L, D>> for AnyEndianUint<X, ColumnGroup<C, I, L, D>> {
+    fn from(value: ColumnGroup<C, I, L, D>) -> Self {
+        Self::Multi(value)
+    }
+}
+
+impl<X, C08, C16, C24, C32, C40, C48, C56, C64>
+    From<AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>>
+    for AnyEndianUint<AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>, X>
+{
+    fn from(value: AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>) -> Self {
+        Self::Single(value)
+    }
 }
 
 pub type AnyEndianUintDataFrame<D> =
     AnyEndianUint<AnySingleUintDataFrame<D>, EndianUintDataFrame<D>>;
-
-impl_generic_enum_from! {
-    AnyEndianUintDataFrame<D>,
-    Single <- AnySingleUintDataFrame<D>,
-    Multi <- EndianUintDataFrame<D>
-}
 
 // TODO false positive lint
 #[allow(clippy::duplicated_attributes)]

@@ -1,10 +1,8 @@
 macro_rules! match_many_to_one {
-    ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
+    ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:expr) => {
         match $value {
             $(
-                $root::$variant($inner) => {
-                    $action
-                },
+                $root::$variant($inner) => $action,
             )*
         }
     };

@@ -9,11 +9,11 @@ use crate::config::{
     WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    CheckedScaleTransform, ConvertFromLayout, DataLayout2_0, DataLayout3_0, DataLayout3_1,
-    DataLayout3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, Insertable,
-    OptMeasLayoutKeywords as _, IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _,
-    LayoutDims, LayoutKeywords, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataLayoutError, ReadDataframeError, ReadDataframeWarning,
+    CheckedScaleTransform, ConvertFromLayout, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1,
+    DataHeaders3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, Insertable,
+    IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims, LayoutKeywords,
+    LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
+    NewDataLayoutError, OptMeasLayoutKeywords as _, ReadDataframeError, ReadDataframeWarning,
     ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
 };
 use crate::header::{
@@ -176,10 +176,10 @@ use {
 ///
 /// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L`               |
 /// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|
-/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataLayout2_0`] |
-/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataLayout3_0`] |
-/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataLayout3_1`] |
-/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataLayout3_2`] |
+/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders2_0`] |
+/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders3_0`] |
+/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_1`] |
+/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_2`] |
 ///
 /// # Generic parameters for data
 ///
@@ -1291,7 +1291,7 @@ pub type Core2_0<A, D, O> = Core<
     InnerTemporal2_0,
     InnerOptical2_0,
     Option<Shortname>,
-    DataLayout2_0,
+    DataHeaders2_0,
 >;
 pub type Core3_0<A, D, O> = Core<
     A,
@@ -1301,7 +1301,7 @@ pub type Core3_0<A, D, O> = Core<
     InnerTemporal3_0,
     InnerOptical3_0,
     Option<Shortname>,
-    DataLayout3_0,
+    DataHeaders3_0,
 >;
 pub type Core3_1<A, D, O> = Core<
     A,
@@ -1311,7 +1311,7 @@ pub type Core3_1<A, D, O> = Core<
     InnerTemporal3_1,
     InnerOptical3_1,
     Identity<Shortname>,
-    DataLayout3_1,
+    DataHeaders3_1,
 >;
 pub type Core3_2<A, D, O> = Core<
     A,
@@ -1321,7 +1321,7 @@ pub type Core3_2<A, D, O> = Core<
     InnerTemporal3_2,
     InnerOptical3_2,
     Identity<Shortname>,
-    DataLayout3_2,
+    DataHeaders3_2,
 >;
 
 pub type CoreTEXT2_0 = Core2_0<(), (), ()>;
@@ -5805,7 +5805,7 @@ impl CoreTEXT2_0 {
     #[must_use]
     pub fn try_new_2_0(
         measurements: TemporalsAndOpticals2_0,
-        layout: DataLayout2_0,
+        layout: DataHeaders2_0,
         mode: Mode,
         cyt: Cyt,
         comp: Option<Compensation>,
@@ -5863,7 +5863,7 @@ impl CoreTEXT3_0 {
     #[must_use]
     pub fn try_new_3_0(
         measurements: TemporalsAndOpticals3_0,
-        layout: DataLayout3_0,
+        layout: DataHeaders3_0,
         mode: Mode,
         cyt: Cyt,
         comp: Option<Compensation>,
@@ -5935,7 +5935,7 @@ impl CoreTEXT3_1 {
     #[must_use]
     pub fn try_new_3_1(
         measurements: TemporalsAndOpticals3_1,
-        layout: DataLayout3_1,
+        layout: DataHeaders3_1,
         mode: Mode,
         cyt: Cyt,
         btim: Option<Btim<FCSTime100>>,
@@ -6015,7 +6015,7 @@ impl CoreTEXT3_2 {
     #[must_use]
     pub fn try_new_3_2(
         measurements: TemporalsAndOpticals3_2,
-        layout: DataLayout3_2,
+        layout: DataHeaders3_2,
         cyt: Cyt3_2,
         mode: Option<Mode3_2>,
         btim: Option<Btim<FCSTime100>>,
@@ -7288,10 +7288,10 @@ macro_rules! impl_versioned {
     };
 }
 
-impl_versioned!(Version2_0, DataLayout2_0, TEXTOffsets2_0);
-impl_versioned!(Version3_0, DataLayout3_0, TEXTOffsets3_0);
-impl_versioned!(Version3_1, DataLayout3_1, TEXTOffsets3_0);
-impl_versioned!(Version3_2, DataLayout3_2, TEXTOffsets3_2);
+impl_versioned!(Version2_0, DataHeaders2_0, TEXTOffsets2_0);
+impl_versioned!(Version3_0, DataHeaders3_0, TEXTOffsets3_0);
+impl_versioned!(Version3_1, DataHeaders3_1, TEXTOffsets3_0);
+impl_versioned!(Version3_2, DataHeaders3_2, TEXTOffsets3_2);
 
 impl PrivVersioned for Version2_0 {}
 impl PrivVersioned for Version3_0 {}

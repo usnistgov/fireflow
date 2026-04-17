@@ -388,7 +388,8 @@ pub trait Pointed<A>: IsKind1 {
 
 #[macro_export]
 macro_rules! impl_kind1 {
-    ($vis:vis$f:ident, $t:ident) => {
+    ($(#[$meta:meta])* $vis:vis$f:ident, $t:ident) => {
+        $(#[$meta])*
         $vis struct $f;
 
         impl $crate::Kind1 for $f {
@@ -418,8 +419,15 @@ macro_rules! impl_kind2 {
 
 pub struct HashMapFamily<K, S>(PhantomData<K>, PhantomData<S>);
 
-impl_kind1!(pub OptFamily, Option);
-impl_kind1!(pub VecFamily, Vec);
+impl_kind1!(
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+    pub OptFamily, Option
+);
+
+impl_kind1!(
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+    pub VecFamily, Vec
+);
 
 impl<K, S> Kind1 for HashMapFamily<K, S> {
     type Type<X> = HashMap<K, X, S>;

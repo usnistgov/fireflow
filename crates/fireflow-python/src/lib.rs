@@ -57,12 +57,14 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
-use fireflow_core::data::AnyEndianUintLayout;
+use fireflow_core::data::ColumnMarkers;
+use fireflow_core::data::F32Col;
+use fireflow_core::data::F64Col;
 use fireflow_core::data::{
-    self, AnyAsciiLayout, AnyOrderedLayout, AnyOrderedUintLayout, ByteLayoutInto as _,
-    DataLayout2_0, DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout,
-    EndianUintLayout, F32Range, F64Range, FixedAsciiLayout, LayoutDatatype as _,
-    NonMixedEndianLayout, PhantomInto as _,
+    self, AnyAsciiHeaders, AnyEndianUintHeaders, AnyOrderedHeaders, AnyOrderedUintHeaders,
+    DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2, DelimAsciiHeaders,
+    EndianHeaders, EndianUintHeaders, F32Range, F64Range, FixedAsciiHeaders, LayoutDatatype as _,
+    NonMixedEndianHeaders, PhantomInto as _,
 };
 use fireflow_core::header;
 use fireflow_core::text::gating::{
@@ -659,13 +661,17 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
-// Implement __new__ and attributes for PyFixedAsciiLayout
-impl_new_fixed_ascii_layout!(FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
+// Implement __new__ and attributes for PyFixedAsciiHeaders
+impl_new_fixed_ascii_layout!(
+    FixedAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+);
 
-// Implement __new__ and attributes for PyFixedDelimLayout
-impl_new_delim_ascii_layout!(DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
+// Implement __new__ and attributes for PyFixedDelimHeaders
+impl_new_delim_ascii_layout!(
+    DelimAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+);
 
-// Implement __new__ and attributes for all PyOrderedUint*Layout structs
+// Implement __new__ and attributes for all PyOrderedUint*Headers structs
 impl_new_ordered_layout!(1, false);
 impl_new_ordered_layout!(2, false);
 impl_new_ordered_layout!(3, false);
@@ -675,23 +681,23 @@ impl_new_ordered_layout!(6, false);
 impl_new_ordered_layout!(7, false);
 impl_new_ordered_layout!(8, false);
 
-// Implement __new__ and attributes for all PyOrderedF*Layout structs
+// Implement __new__ and attributes for all PyOrderedF*Headers structs
 impl_new_ordered_layout!(4, true);
 impl_new_ordered_layout!(8, true);
 
-// Implement __new__ and attributes for all PyEndianF*Layout structs
+// Implement __new__ and attributes for all PyEndianF*Headers structs
 impl_new_endian_float_layout!(4);
 impl_new_endian_float_layout!(8);
 
-// Implement __new__ and attributes for PyEndianUintLayout
+// Implement __new__ and attributes for PyEndianUintHeaders
 impl_new_endian_uint_layout!();
 
-// Implement __new__ and attributes for PyMixedLayout
+// Implement __new__ and attributes for PyMixedHeaders
 impl_new_mixed_layout!();
 
 // Implement method to return the byte widths of variable-widths layouts
-impl_layout_byte_widths!(PyEndianUintLayout);
-impl_layout_byte_widths!(PyMixedLayout);
+impl_layout_byte_widths!(PyEndianUintHeaders);
+impl_layout_byte_widths!(PyMixedHeaders);
 
 #[derive(IntoPyObject, From)]
 pub enum PyAnyCoreTEXT {
@@ -751,180 +757,180 @@ impl From<PyAnyCoreDataset> for core::AnyCoreDataset {
 }
 
 #[derive(FromPyObject, IntoPyObject)]
-pub enum PyOrderedLayout {
-    AsciiFixed(PyFixedAsciiLayout),
-    AsciiDelim(PyDelimAsciiLayout),
-    Uint08(PyOrderedUint08Layout),
-    Uint16(PyOrderedUint16Layout),
-    Uint24(PyOrderedUint24Layout),
-    Uint32(PyOrderedUint32Layout),
-    Uint40(PyOrderedUint40Layout),
-    Uint48(PyOrderedUint48Layout),
-    Uint56(PyOrderedUint56Layout),
-    Uint64(PyOrderedUint64Layout),
-    F32(PyOrderedF32Layout),
-    F64(PyOrderedF64Layout),
+pub enum PyOrderedHeaders {
+    AsciiFixed(PyFixedAsciiHeaders),
+    AsciiDelim(PyDelimAsciiHeaders),
+    Uint08(PyOrderedUint08Headers),
+    Uint16(PyOrderedUint16Headers),
+    Uint24(PyOrderedUint24Headers),
+    Uint32(PyOrderedUint32Headers),
+    Uint40(PyOrderedUint40Headers),
+    Uint48(PyOrderedUint48Headers),
+    Uint56(PyOrderedUint56Headers),
+    Uint64(PyOrderedUint64Headers),
+    F32(PyOrderedF32Headers),
+    F64(PyOrderedF64Headers),
 }
 
 #[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyNonMixedLayout {
+pub enum PyNonMixedHeaders {
     #[from(
-        PyFixedAsciiLayout,
-        FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
+        PyFixedAsciiHeaders,
+        FixedAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
     )]
-    AsciiFixed(PyFixedAsciiLayout),
+    AsciiFixed(PyFixedAsciiHeaders),
 
     #[from(
-        PyDelimAsciiLayout,
-        DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
+        PyDelimAsciiHeaders,
+        DelimAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
     )]
-    AsciiDelim(PyDelimAsciiLayout),
+    AsciiDelim(PyDelimAsciiHeaders),
 
-    #[from(PyEndianUintLayout, EndianUintLayout<Nothing<kws::NumType>>)]
-    Uint(PyEndianUintLayout),
+    #[from(PyEndianUintHeaders, EndianUintHeaders<Nothing<kws::NumType>>)]
+    Uint(PyEndianUintHeaders),
 
-    #[from(PyEndianF32Layout, EndianLayout<F32Range, Nothing<kws::NumType>>)]
-    F32(PyEndianF32Layout),
+    #[from(PyEndianF32Headers, EndianHeaders<F32Col, Nothing<kws::NumType>>)]
+    F32(PyEndianF32Headers),
 
-    #[from(PyEndianF64Layout, EndianLayout<F64Range, Nothing<kws::NumType>>)]
-    F64(PyEndianF64Layout),
+    #[from(PyEndianF64Headers, EndianHeaders<F64Col, Nothing<kws::NumType>>)]
+    F64(PyEndianF64Headers),
 }
 
 #[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyLayout3_2 {
-    NonMixed(PyNonMixedLayout),
-    Mixed(PyMixedLayout),
+pub enum PyHeaders3_2 {
+    NonMixed(PyNonMixedHeaders),
+    Mixed(PyMixedHeaders),
 }
 
-impl From<PyOrderedLayout> for DataLayout2_0 {
-    fn from(value: PyOrderedLayout) -> Self {
-        Self(AnyOrderedLayout::from(value).phantom_into())
+impl From<PyOrderedHeaders> for DataHeaders2_0 {
+    fn from(value: PyOrderedHeaders) -> Self {
+        Self(AnyOrderedHeaders::from(value).phantom_into())
     }
 }
 
-impl From<PyOrderedLayout> for DataLayout3_0 {
-    fn from(value: PyOrderedLayout) -> Self {
-        Self(AnyOrderedLayout::from(value))
+impl From<PyOrderedHeaders> for DataHeaders3_0 {
+    fn from(value: PyOrderedHeaders) -> Self {
+        Self(AnyOrderedHeaders::from(value))
     }
 }
 
-impl From<PyNonMixedLayout> for DataLayout3_1 {
-    fn from(value: PyNonMixedLayout) -> Self {
-        Self(NonMixedEndianLayout::from(value))
+impl From<PyNonMixedHeaders> for DataHeaders3_1 {
+    fn from(value: PyNonMixedHeaders) -> Self {
+        Self(NonMixedEndianHeaders::from(value))
     }
 }
 
-impl From<PyLayout3_2> for DataLayout3_2 {
-    fn from(value: PyLayout3_2) -> Self {
+impl From<PyHeaders3_2> for DataHeaders3_2 {
+    fn from(value: PyHeaders3_2) -> Self {
         match value {
-            PyLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            PyLayout3_2::NonMixed(x) => {
-                Self::NonMixed(NonMixedEndianLayout::from(x).phantom_into())
+            PyHeaders3_2::Mixed(x) => Self::Mixed(x.into()),
+            PyHeaders3_2::NonMixed(x) => {
+                Self::NonMixed(NonMixedEndianHeaders::from(x).phantom_into())
             }
         }
     }
 }
 
-impl From<DataLayout2_0> for PyOrderedLayout {
-    fn from(value: DataLayout2_0) -> Self {
+impl From<DataHeaders2_0> for PyOrderedHeaders {
+    fn from(value: DataHeaders2_0) -> Self {
         value.0.phantom_into().into()
     }
 }
 
-impl From<DataLayout3_0> for PyOrderedLayout {
-    fn from(value: DataLayout3_0) -> Self {
+impl From<DataHeaders3_0> for PyOrderedHeaders {
+    fn from(value: DataHeaders3_0) -> Self {
         value.0.into()
     }
 }
 
-impl From<DataLayout3_1> for PyNonMixedLayout {
-    fn from(value: DataLayout3_1) -> Self {
+impl From<DataHeaders3_1> for PyNonMixedHeaders {
+    fn from(value: DataHeaders3_1) -> Self {
         value.0.into()
     }
 }
 
-impl From<DataLayout3_2> for PyLayout3_2 {
-    fn from(value: DataLayout3_2) -> Self {
+impl From<DataHeaders3_2> for PyHeaders3_2 {
+    fn from(value: DataHeaders3_2) -> Self {
         match value {
-            DataLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            DataLayout3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
+            DataHeaders3_2::Mixed(x) => Self::Mixed(x.into()),
+            DataHeaders3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
         }
     }
 }
 
-impl From<PyOrderedLayout> for AnyOrderedLayout<Identity<kws::Tot>> {
-    fn from(value: PyOrderedLayout) -> Self {
+impl From<PyOrderedHeaders> for AnyOrderedHeaders<Identity<kws::Tot>> {
+    fn from(value: PyOrderedHeaders) -> Self {
         match value {
-            PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0)
+            PyOrderedHeaders::AsciiFixed(x) => AnyAsciiHeaders::from(x.0)
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
-            PyOrderedLayout::AsciiDelim(x) => AnyAsciiLayout::from(x.0)
+            PyOrderedHeaders::AsciiDelim(x) => AnyAsciiHeaders::from(x.0)
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
-            PyOrderedLayout::Uint08(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint16(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint24(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint32(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint40(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint48(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint56(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint64(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::F32(x) => x.0.into(),
-            PyOrderedLayout::F64(x) => x.0.into(),
+            PyOrderedHeaders::Uint08(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint16(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint24(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint32(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint40(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint48(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint56(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint64(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::F32(x) => x.0.into(),
+            PyOrderedHeaders::F64(x) => x.0.into(),
         }
     }
 }
 
-impl From<AnyOrderedLayout<Identity<kws::Tot>>> for PyOrderedLayout {
-    fn from(value: AnyOrderedLayout<Identity<kws::Tot>>) -> Self {
+impl From<AnyOrderedHeaders<Identity<kws::Tot>>> for PyOrderedHeaders {
+    fn from(value: AnyOrderedHeaders<Identity<kws::Tot>>) -> Self {
         match value {
-            AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
-                AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
-                AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
+            AnyOrderedHeaders::Ascii(x) => match x.phantom_into() {
+                AnyAsciiHeaders::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
+                AnyAsciiHeaders::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
             },
-            AnyOrderedLayout::Uint(x) => match x {
-                AnyOrderedUintLayout::Uint08(y) => Self::Uint08(y.into()),
-                AnyOrderedUintLayout::Uint16(y) => Self::Uint16(y.into()),
-                AnyOrderedUintLayout::Uint24(y) => Self::Uint24(y.into()),
-                AnyOrderedUintLayout::Uint32(y) => Self::Uint32(y.into()),
-                AnyOrderedUintLayout::Uint40(y) => Self::Uint40(y.into()),
-                AnyOrderedUintLayout::Uint48(y) => Self::Uint48(y.into()),
-                AnyOrderedUintLayout::Uint56(y) => Self::Uint56(y.into()),
-                AnyOrderedUintLayout::Uint64(y) => Self::Uint64(y.into()),
+            AnyOrderedHeaders::Uint(x) => match x {
+                AnyOrderedUintHeaders::Uint08(y) => Self::Uint08(y.into()),
+                AnyOrderedUintHeaders::Uint16(y) => Self::Uint16(y.into()),
+                AnyOrderedUintHeaders::Uint24(y) => Self::Uint24(y.into()),
+                AnyOrderedUintHeaders::Uint32(y) => Self::Uint32(y.into()),
+                AnyOrderedUintHeaders::Uint40(y) => Self::Uint40(y.into()),
+                AnyOrderedUintHeaders::Uint48(y) => Self::Uint48(y.into()),
+                AnyOrderedUintHeaders::Uint56(y) => Self::Uint56(y.into()),
+                AnyOrderedUintHeaders::Uint64(y) => Self::Uint64(y.into()),
             },
-            AnyOrderedLayout::F32(x) => Self::F32(x.into()),
-            AnyOrderedLayout::F64(x) => Self::F64(x.into()),
+            AnyOrderedHeaders::F32(x) => Self::F32(x.into()),
+            AnyOrderedHeaders::F64(x) => Self::F64(x.into()),
         }
     }
 }
 
-impl From<NonMixedEndianLayout<Nothing<kws::NumType>>> for PyNonMixedLayout {
-    fn from(value: NonMixedEndianLayout<Nothing<kws::NumType>>) -> Self {
+impl From<NonMixedEndianHeaders<Nothing<kws::NumType>>> for PyNonMixedHeaders {
+    fn from(value: NonMixedEndianHeaders<Nothing<kws::NumType>>) -> Self {
         match value {
-            NonMixedEndianLayout::Ascii(x) => match x {
-                AnyAsciiLayout::Fixed(y) => y.into(),
-                AnyAsciiLayout::Delimited(y) => y.into(),
+            NonMixedEndianHeaders::Ascii(x) => match x {
+                AnyAsciiHeaders::Fixed(y) => y.into(),
+                AnyAsciiHeaders::Delimited(y) => y.into(),
             },
-            NonMixedEndianLayout::Uint(x) => match x {
-                AnyEndianUintLayout::Single(y) => unimplemented!(),
-                AnyEndianUintLayout::Multi(y) => y.into(),
+            NonMixedEndianHeaders::Uint(x) => match x {
+                AnyEndianUintHeaders::Single(y) => unimplemented!(),
+                AnyEndianUintHeaders::Multi(y) => y.into(),
             },
-            NonMixedEndianLayout::F32(x) => x.into(),
-            NonMixedEndianLayout::F64(x) => x.into(),
+            NonMixedEndianHeaders::F32(x) => x.into(),
+            NonMixedEndianHeaders::F64(x) => x.into(),
         }
     }
 }
 
-impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
-    fn from(value: PyNonMixedLayout) -> Self {
+impl From<PyNonMixedHeaders> for NonMixedEndianHeaders<Nothing<kws::NumType>> {
+    fn from(value: PyNonMixedHeaders) -> Self {
         match value {
-            PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::AsciiDelim(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::Uint(x) => Self::Uint(AnyEndianUintLayout::Multi(x.into())),
-            PyNonMixedLayout::F32(x) => Self::F32(x.into()),
-            PyNonMixedLayout::F64(x) => Self::F64(x.into()),
+            PyNonMixedHeaders::AsciiFixed(x) => Self::Ascii(x.0.into()),
+            PyNonMixedHeaders::AsciiDelim(x) => Self::Ascii(x.0.into()),
+            PyNonMixedHeaders::Uint(x) => Self::Uint(AnyEndianUintHeaders::Multi(x.into())),
+            PyNonMixedHeaders::F32(x) => Self::F32(x.into()),
+            PyNonMixedHeaders::F64(x) => Self::F64(x.into()),
         }
     }
 }

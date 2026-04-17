@@ -1,31 +1,61 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Fields, GenericParam, Generics,
-    Ident, Path, PathArguments, Token, Visibility, WherePredicate,
+    AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Fields, GenericArgument,
+    GenericParam, Generics, Ident, Path, PathArguments, Token, Type, Visibility, WherePredicate,
+    parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,
+    token::Paren,
 };
 
 #[proc_macro]
 pub fn impl_generic_enum_from(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as ImplFrom);
-    let name = parsed.type_path;
-    let generics =
-        if let PathArguments::AngleBracketed(args) = &name.segments.last().unwrap().arguments {
-            args.args.iter().collect()
-        } else {
-            vec![]
-        };
+    let name = &parsed.type_path.segments.first().unwrap().ident;
+    let self_generics = if let PathArguments::AngleBracketed(args) =
+        &parsed.type_path.segments.last().unwrap().arguments
+    {
+        args.args.iter().collect()
+    } else {
+        vec![]
+    };
+
+    let more_generics: Vec<_> = parsed.generics.params.iter().map(|c| quote!(#c)).collect();
 
     let mut impls = vec![];
 
+    // #[allow(clippy::never_loop)]
     for t in &parsed.targets {
         let src = &t.src;
         let var = &t.var;
+        // If one of the supplied linked parameters matches one of the
+        // parameters in the self type, replace it with the From parameter (ie
+        // the thing in From<...>)
+        let mut local_generics = vec![];
+        let local_self_generics: Vec<_> = self_generics
+            .iter()
+            .map(|&g| match (&t.link, g) {
+                (Some(l), GenericArgument::Type(Type::Path(p)))
+                    if p.path.segments.first().unwrap().ident == l.param =>
+                {
+                    quote!(#src)
+                }
+                _ => {
+                    // if linked parameter is found, don't keep the param in the
+                    // function-level generic list since this will be
+                    // unconstrained
+                    let ret = quote!(#g);
+                    local_generics.push(ret.clone());
+                    ret
+                }
+            })
+            .collect();
+        local_generics.extend(more_generics.clone());
+        local_generics.extend(t.generics.params.iter().map(|c| quote!(#c)));
         let q = quote! {
-            impl<#(#generics),*> From<#src> for #name {
+            impl<#(#local_generics),*> From<#src> for #name<#(#local_self_generics),*> {
                 fn from(value: #src) -> Self {
                     Self::#var(value)
                 }
@@ -39,21 +69,30 @@ pub fn impl_generic_enum_from(input: TokenStream) -> TokenStream {
 
 struct ImplFrom {
     type_path: Path,
-    _comma_token: Token![,],
+    generics: Generics,
+    _comma_token0: Token![,],
     targets: Punctuated<FromType, Token![,]>,
 }
 
 struct FromType {
     var: Ident,
-    _arrow_token: Token![<-],
+    link: Option<GenericLink>,
+    generics: Generics,
+    _arrow_token: Token![~],
     src: Path,
+}
+
+struct GenericLink {
+    _paren: Paren,
+    param: Ident,
 }
 
 impl Parse for ImplFrom {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let ret = Self {
             type_path: input.parse()?,
-            _comma_token: input.parse()?,
+            generics: input.parse()?,
+            _comma_token0: input.parse()?,
             targets: Punctuated::parse_separated_nonempty(input)?,
         };
         Ok(ret)
@@ -62,13 +101,87 @@ impl Parse for ImplFrom {
 
 impl Parse for FromType {
     fn parse(input: ParseStream) -> syn::Result<Self> {
+        let var = input.parse()?;
+        let link = if input.peek(Paren) {
+            Some(input.parse()?)
+        } else {
+            None
+        };
         let ret = Self {
-            var: input.parse()?,
+            var,
+            link,
+            generics: input.parse()?,
             _arrow_token: input.parse()?,
             src: input.parse()?,
         };
         Ok(ret)
     }
+}
+
+impl Parse for GenericLink {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        let paren = parenthesized!(content in input);
+        let param = content.parse()?;
+        let ret = Self {
+            _paren: paren,
+            param,
+        };
+        Ok(ret)
+    }
+}
+
+#[proc_macro_derive(IntoInner, attributes(into_inner))]
+pub fn derive_from_inner(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as DeriveInput);
+    let name = &parsed.ident;
+    let generics = &parsed.generics;
+    let gen_idents = generic_idents(generics);
+
+    let mut into_clauses = vec![];
+
+    if let Data::Enum(e) = &parsed.data {
+        for v in &e.variants {
+            let i = &v.ident;
+            if let Fields::Unnamed(fs) = &v.fields
+                && fs.unnamed.len() == 1
+            {
+                let c = quote!(#name::#i(x) => x.into());
+                into_clauses.push(c);
+            } else {
+                panic!("only variants with one unnamed field are allowed")
+            }
+        }
+    } else {
+        panic!("not an enum")
+    }
+
+    let bounds: Vec<_> = gen_idents.iter().map(|i| quote!(#i: Into<Self>)).collect();
+
+    let ret: Vec<_> = parsed
+        .attrs
+        .iter()
+        .filter_map(|a| {
+            let m = a.meta.require_list().ok()?;
+            let x = (m.path.get_ident().unwrap() == "into_inner").then_some(&m.tokens)?;
+            Some(parse_quote!(#x))
+        })
+        .map(|inner: Path| {
+            quote! {
+                impl #generics From<#name<#(#gen_idents),*>> for #inner
+                where
+                    #(#bounds),*
+                {
+                    fn from(value: #name<#(#gen_idents),*>) -> Self {
+                        match value {
+                            #(#into_clauses),*
+                        }
+                    }
+                }
+            }
+        })
+        .collect();
+    quote!(#(#ret),*).into()
 }
 
 #[proc_macro_derive(AllIntoPyErr, attributes(bound))]

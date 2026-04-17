@@ -4265,7 +4265,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     let nbits = nbytes * 8;
 
     let (range_pytype, range_desc, what, base, range_path, dt) = if is_float {
-        let range = format_ident!("F{:02}Range", nbits);
+        let coltype = format_ident!("F{:02}Col", nbits);
         let range_desc = format!(
             "The range for each measurement. Corresponds to {PNR}. \
              This is not used internally so only serves for users' \
@@ -4276,11 +4276,11 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             range_desc,
             "float",
             "F",
-            quote!(fireflow_core::data::#range),
+            quote!(fireflow_core::data::#coltype),
             if nbytes == 4 { "F" } else { "D" },
         )
     } else {
-        let bitmask = format_ident!("Bitmask{:02}", nbits);
+        let coltype = format_ident!("U{:02}Col", nbits);
         let range_desc = format!(
             "The range for each measurement. Corresponds to \
              {PNR} - 1, which implies that the value for each \
@@ -4294,19 +4294,19 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             range_desc,
             "integer",
             "Uint",
-            quote!(fireflow_core::validated::bitmask::#bitmask),
+            quote!(fireflow_core::data::#coltype),
             "I",
         )
     };
     let tot_path = keyword_path("Tot");
     let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
-    let ordered_layout_path = quote!(fireflow_core::data::OrderedLayout);
-    let fixed_layout_path = quote!(fireflow_core::data::DataLayout);
+    let ordered_layout_path = quote!(fireflow_core::data::OrderedHeaders);
+    let fixed_layout_path = quote!(fireflow_core::data::ColumnGroup);
     let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
 
     let full_layout_path: Path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
 
-    let layout_name = format!("Ordered{base}{nbits:02}Layout");
+    let layout_name = format!("Ordered{base}{nbits:02}Headers");
 
     let summary = format!("{nbits}-bit ordered {what} layout.");
 
@@ -4384,17 +4384,17 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
         .base10_parse::<usize>()
         .expect("Must be an integer");
     let nbits = nbytes * 8;
-    let range = format_ident!("F{:02}Range", nbits);
-    let range_path: Path = parse_quote!(fireflow_core::data::#range);
+    let coltype = format_ident!("F{:02}Col", nbits);
+    let coltype_path: Path = parse_quote!(fireflow_core::data::#coltype);
 
     let numtype_path = keyword_path("NumType");
     let nomeasdt_path = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let endian_layout_path = quote!(fireflow_core::data::EndianLayout);
-    let fixed_layout_path = quote!(fireflow_core::data::DataLayout);
+    let endian_layout_path = quote!(fireflow_core::data::EndianHeaders);
+    let fixed_layout_path = quote!(fireflow_core::data::ColumnGroup);
 
-    let full_layout_path = parse_quote!(#endian_layout_path<#range_path, #nomeasdt_path>);
+    let full_layout_path = parse_quote!(#endian_layout_path<#coltype_path, #nomeasdt_path>);
 
-    let layout_name = format!("EndianF{nbits:02}Layout");
+    let layout_name = format!("EndianF{nbits:02}Headers");
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
@@ -4429,14 +4429,15 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("EndianUintLayout");
+    let name = format_ident!("EndianUintHeaders");
 
-    let fixed = quote!(fireflow_core::data::DataLayout);
-    let bitmask = quote!(fireflow_core::data::AnyBitmask);
+    let fixed = quote!(fireflow_core::data::ColumnGroup);
+    let coltype = quote!(fireflow_core::data::UvarCol);
+    let anybitmask = quote!(fireflow_core::data::AnyBitmask);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let endian_layout = quote!(fireflow_core::data::EndianLayout);
-    let layout_path = parse_quote!(#endian_layout<#bitmask, #nomeasdt>);
+    let endian_layout = quote!(fireflow_core::data::EndianHeaders);
+    let layout_path = parse_quote!(#endian_layout<#coltype, #nomeasdt>);
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
@@ -4461,10 +4462,11 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let doc =
         DocString::new_class("A mixed-width integer layout.").args([ranges_param, is_big_param]);
 
+    // TODO hide this in the library
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let rs = ranges.fmap(#bitmask::from);
+                let rs = ranges.fmap(#anybitmask::from);
                 #fixed::new(rs, endian).into()
             }
         }
@@ -4477,10 +4479,10 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("MixedLayout");
+    let name = format_ident!("MixedHeaders");
     let layout_path = parse_quote!(fireflow_core::data::#name);
 
-    let fixed = quote!(fireflow_core::data::DataLayout);
+    let fixed = quote!(fireflow_core::data::ColumnGroup);
 
     let dt_ascii = code("A");
     let dt_int = code("I");
@@ -7255,19 +7257,19 @@ impl DocArgRWIvar {
     }
 
     fn new_layout_ivar(version: Version) -> Self {
-        let ascii_layouts = ["FixedAsciiLayout", "DelimAsciiLayout"];
-        let non_mixed_layouts = ["EndianUintLayout", "EndianF32Layout", "EndianF64Layout"];
+        let ascii_layouts = ["FixedAsciiHeaders", "DelimAsciiHeaders"];
+        let non_mixed_layouts = ["EndianUintHeaders", "EndianF32Headers", "EndianF64Headers"];
         let ordered_layouts = [
-            "OrderedUint08Layout",
-            "OrderedUint16Layout",
-            "OrderedUint24Layout",
-            "OrderedUint32Layout",
-            "OrderedUint40Layout",
-            "OrderedUint48Layout",
-            "OrderedUint56Layout",
-            "OrderedUint64Layout",
-            "OrderedF32Layout",
-            "OrderedF64Layout",
+            "OrderedUint08Headers",
+            "OrderedUint16Headers",
+            "OrderedUint24Headers",
+            "OrderedUint32Headers",
+            "OrderedUint40Headers",
+            "OrderedUint48Headers",
+            "OrderedUint56Headers",
+            "OrderedUint64Headers",
+            "OrderedF32Headers",
+            "OrderedF64Headers",
         ];
 
         let layout_pytype = match version {
@@ -7277,21 +7279,21 @@ impl DocArgRWIvar {
                     .chain(non_mixed_layouts)
                     .chain(["MixedLayout"])
                     .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyLayout3_2))
+                PyUnion::new1(ys, parse_quote!(PyHeaders3_2))
             }
             Version::FCS3_1 => {
                 let ys = ascii_layouts
                     .into_iter()
                     .chain(non_mixed_layouts)
                     .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyNonMixedLayout))
+                PyUnion::new1(ys, parse_quote!(PyNonMixedHeaders))
             }
             _ => {
                 let ys = ascii_layouts
                     .into_iter()
                     .chain(ordered_layouts)
                     .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyOrderedLayout))
+                PyUnion::new1(ys, parse_quote!(PyOrderedHeaders))
             }
         };
         let layout_desc = if version == Version::FCS3_2 {

@@ -55,7 +55,10 @@ pub struct FFDataFrame<C> {
     nrows: usize,
 }
 
-impl_kind1!(pub FFDataFrameFamily, FFDataFrame);
+impl_kind1!(
+    #[derive(PartialEq, Eq, PartialOrd, Ord, Clone, Copy)]
+    pub FFDataFrameFamily, FFDataFrame
+);
 
 impl_functor!(
     FFDataFrame,

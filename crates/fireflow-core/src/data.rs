@@ -4831,8 +4831,10 @@ impl CheckedScaleTransform for ScaleTransform {
 
 // Implement default for layout types
 //
-// For now these are only used for making dummy layouts when normalizing since
-// this is most easily done with mem::take
+// Note, this is different from the IntoEmptyDataFrame trait since this will
+// make a totally empty layout (no columns) whereas IntoEmptyDataFrame will
+// convert a headers layout to a dataframe layout with the same number of
+// columns which often won't be zero.
 
 impl<C: Default, I, F, L: Default, M, const ORD: bool> Default for ColumnGroup<C, F, I, L, M, ORD> {
     fn default() -> Self {
@@ -4863,6 +4865,12 @@ impl<C08, C16, C24, C32: Default, C40, C48, C56, C64> Default
 impl<A, I: Default, F32, F64> Default for AnyDatatype<A, I, F32, F64> {
     fn default() -> Self {
         Self::Uint(I::default())
+    }
+}
+
+impl<D, F: Default> Default for AnyAscii<D, F> {
+    fn default() -> Self {
+        Self::Fixed(F::default())
     }
 }
 
@@ -5810,18 +5818,6 @@ impl<T> AnyOrderedUintHeaders<T> {
             .map_errors(NewFixedIntLayoutError::from)
             .zip_commutative(layout_res)
             .map_ok_value(|((), layout)| layout)
-    }
-}
-
-// TODO is this necessary?
-impl<const ORD: bool, M> Default for AnyAsciiHeaders<ORD, M>
-where
-    FixedAsciiCol: IsCol<VecFamily, ORD>,
-    DelimAsciiCol: IsCol<VecFamily, ORD>,
-    <FixedAsciiCol as IsCol<VecFamily, ORD>>::Layout: Default,
-{
-    fn default() -> Self {
-        Self::Fixed(ColumnGroup::default())
     }
 }
 

@@ -415,14 +415,14 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
 #[delegate(Insertable<Range>)]
-#[delegate(LayoutDatatype, where = "D: LayoutDims, F: LayoutDims")]
-#[delegate(LayoutKeywords, where = "D: LayoutDims, F: LayoutDims")]
+#[delegate(LayoutDatatype, where = "Delim: LayoutDims, Fixed: LayoutDims")]
+#[delegate(LayoutKeywords, where = "Delim: LayoutDims, Fixed: LayoutDims")]
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyAscii<D, F> {
-    Delimited(D),
-    Fixed(F),
+pub enum AnyAscii<Delim, Fixed> {
+    Delimited(Delim),
+    Fixed(Fixed),
 }
 
 type AnyAsciiGroup<Fam, const ORD: bool, M> =
@@ -4046,23 +4046,23 @@ where
 }
 
 impl<C, F, I, L, M, const ORD: bool> ColumnGroup<C, F, I, L, M, ORD> {
-    fn set_byte_layout<Lf, const ORDf: bool>(
+    fn set_byte_layout<Lf, const ORD_F: bool>(
         self,
         byte_layout: Lf,
-    ) -> ColumnGroup<C, F, I, Lf, M, ORDf> {
+    ) -> ColumnGroup<C, F, I, Lf, M, ORD_F> {
         ColumnGroup::new(self.container, byte_layout)
     }
 
-    pub fn byte_layout_into<Lf, const ORDf: bool>(self) -> ColumnGroup<C, F, I, Lf, M, ORDf>
+    pub fn byte_layout_into<Lf, const ORD_F: bool>(self) -> ColumnGroup<C, F, I, Lf, M, ORD_F>
     where
         L: Into<Lf>,
     {
         ColumnGroup::new(self.container, self.byte_layout.into())
     }
 
-    fn byte_layout_try_into<Lf, const ORDf: bool>(
+    fn byte_layout_try_into<Lf, const ORD_F: bool>(
         self,
-    ) -> Result<ColumnGroup<C, F, I, Lf, M, ORDf>, Lf::Error>
+    ) -> Result<ColumnGroup<C, F, I, Lf, M, ORD_F>, Lf::Error>
     where
         Lf: TryFrom<L>,
     {
@@ -5360,7 +5360,7 @@ where
     type DfTarget = ColumnGroup_<FFDataFrameFamily, C, ORD, M>;
 
     fn empty(&self) -> Self::DfTarget {
-        let cs = self.container.iter().map(|c| c.empty());
+        let cs = self.container.iter().map(IntoEmptyColumn::empty);
         ColumnGroup::new(FFDataFrame::try_new(cs).unwrap(), self.byte_layout.clone())
     }
 }
@@ -5821,7 +5821,7 @@ impl IntoEmptyColumn for AnyBitmask {
     type Target = AnyBitmaskColumn;
 
     fn empty(&self) -> Self::Target {
-        match_map_uint!(self, x, AnnotatedColumn::empty(x.clone()))
+        match_map_uint!(self, x, AnnotatedColumn::empty(*x))
     }
 }
 
@@ -6309,13 +6309,6 @@ where
         + ColInto<<FixedAsciiCol as IsCol<F, false>>::Inner>,
 {
     fn normalize(&mut self) {
-        fn go<X, Y>(x: X) -> Y
-        where
-            X: TryInto<Y>,
-            X::Error: fmt::Debug,
-        {
-            x.try_into().unwrap()
-        }
         *self = match mem::take(self) {
             Self::NonMixed(mut x) => {
                 // this will simplify integer layouts as necessary
@@ -7243,9 +7236,10 @@ impl<Cd, Ca, Id, Ia, F, M, const ORD: bool>
         ColumnGroup<Ca, F, Ia, NoByteOrd<ORD>, M, ORD>,
     >
 {
-    pub fn byte_layout_into<L, const ORDf: bool>(
+    #[allow(clippy::type_complexity)]
+    pub fn byte_layout_into<L, const ORD_F: bool>(
         self,
-    ) -> AnyAscii<ColumnGroup<Cd, F, Id, L, M, ORDf>, ColumnGroup<Ca, F, Ia, L, M, ORDf>>
+    ) -> AnyAscii<ColumnGroup<Cd, F, Id, L, M, ORD_F>, ColumnGroup<Ca, F, Ia, L, M, ORD_F>>
     where
         NoByteOrd<ORD>: Into<L>,
     {

@@ -139,66 +139,33 @@ use {
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-#[derive(Clone, From, Delegate, PartialEq)]
-#[delegate(LayoutDims)]
-#[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype)]
-#[delegate(LayoutKeywords)]
-#[delegate(Insertable<Range>)]
-#[delegate(Removable<Range>)]
-#[delegate(OptMeasLayoutKeywords)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct DataHeaders2_0(pub AnyOrderedLayout2_0<VecFamily>);
+pub type DataHeaders2_0 = AnyOrderedLayout2_0<VecFamily>;
 
 /// All possible DATA storage configurations for 2.0.
 ///
 /// This is identical to 3.0 in every way except that the $TOT keyword in 2.0
 /// is optional, which requires a different interface.
-#[derive(Clone, From, Into, PartialEq)]
-#[into(PrimitiveDataFrame)]
-pub struct DataFrame2_0(pub AnyOrderedLayout2_0<FFDataFrameFamily>);
+pub type DataFrame2_0 = AnyOrderedLayout2_0<FFDataFrameFamily>;
 
 /// All possible byte layouts for the DATA segment in 3.0.
-#[derive(Clone, From, Delegate, PartialEq)]
-#[delegate(LayoutDims)]
-#[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype)]
-#[delegate(LayoutKeywords)]
-#[delegate(Insertable<Range>)]
-#[delegate(Removable<Range>)]
-#[delegate(OptMeasLayoutKeywords)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct DataHeaders3_0(pub AnyOrderedLayout3_0<VecFamily>);
+pub type DataHeaders3_0 = AnyOrderedLayout3_0<VecFamily>;
 
 /// All possible DATA storage configurations in 3.0.
-#[derive(Clone, From, Into, PartialEq)]
-#[into(PrimitiveDataFrame)]
-pub struct DataFrame3_0(pub AnyOrderedLayout3_0<FFDataFrameFamily>);
+pub type DataFrame3_0 = AnyOrderedLayout3_0<FFDataFrameFamily>;
 
 /// All possible byte layouts for the DATA segment in 3.1.
 ///
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-#[derive(Clone, From, Delegate, PartialEq)]
-#[delegate(LayoutDims)]
-#[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype)]
-#[delegate(LayoutKeywords)]
-#[delegate(Insertable<Range>)]
-#[delegate(Removable<Range>)]
-#[delegate(OptMeasLayoutKeywords)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct DataHeaders3_1(pub NonMixedEndianGroup<VecFamily, Nothing<NumType>>);
+pub type DataHeaders3_1 = NonMixedEndianHeaders<Nothing<NumType>>;
 
 /// All possible storage configurations in 3.1.
 ///
 /// Unlike 2.0 and 3.0, the integer layout allows the column widths to be
 /// different. This is a consequence of making BYTEORD only mean "big or little
 /// endian" and have nothing to do with number of bytes.
-#[derive(Clone, From, PartialEq, Into)]
-#[into(PrimitiveDataFrame)]
-pub struct DataFrame3_1(pub NonMixedEndianGroup<FFDataFrameFamily, Nothing<NumType>>);
+pub type DataFrame3_1 = NonMixedEndianDataFrame<Nothing<NumType>>;
 
 /// All possible byte layouts for the DATA segment in 3.2.
 ///
@@ -284,6 +251,10 @@ pub enum AnyAscii<Delim, Fixed> {
 
 type AnyAsciiGroup<Fam, const ORD: bool, M> =
     AnyAscii<DelimAsciiGroup<Fam, ORD, M>, FixedAsciiGroup<Fam, ORD, M>>;
+
+type AnyAsciiGroup2_0<F, T> = AnyAsciiGroup<F, true, ColumnMarkers<T, Nothing<NumType>>>;
+
+type AnyAsciiGroup3_1<F, D> = AnyAsciiGroup<F, false, ColumnMarkers<Identity<Tot>, D>>;
 
 pub type AnyAsciiHeaders<const ORD: bool, M> = AnyAsciiGroup<VecFamily, ORD, M>;
 
@@ -1838,7 +1809,7 @@ impl VersionedDataLayout for DataHeaders2_0 {
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
-        AnyOrderedHeaders::new_empty(datatype).into()
+        AnyOrderedHeaders::new_empty(datatype)
     }
 
     fn try_new(
@@ -1874,7 +1845,7 @@ impl VersionedDataLayout for DataHeaders3_0 {
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
-        AnyOrderedHeaders::new_empty(datatype).into()
+        AnyOrderedHeaders::new_empty(datatype)
     }
 
     fn try_new(
@@ -1911,7 +1882,7 @@ impl VersionedDataLayout for DataHeaders3_1 {
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
-        NonMixedEndianHeaders::new_empty(datatype).into()
+        NonMixedEndianHeaders::new_empty(datatype)
     }
 
     fn try_new(
@@ -2217,21 +2188,21 @@ pub trait IntoEmptyDataFrame {
     fn empty(&self) -> Self::DfTarget;
 }
 
-macro_rules! impl_into_empty_df_newtype {
-    ($from:path, $to:path) => {
-        impl IntoEmptyDataFrame for $from {
-            type DfTarget = $to;
+// macro_rules! impl_into_empty_df_newtype {
+//     ($from:path, $to:path) => {
+//         impl IntoEmptyDataFrame for $from {
+//             type DfTarget = $to;
 
-            fn empty(&self) -> Self::DfTarget {
-                self.0.empty().into()
-            }
-        }
-    };
-}
+//             fn empty(&self) -> Self::DfTarget {
+//                 self.0.empty().into()
+//             }
+//         }
+//     };
+// }
 
-impl_into_empty_df_newtype!(DataHeaders2_0, DataFrame2_0);
-impl_into_empty_df_newtype!(DataHeaders3_0, DataFrame3_0);
-impl_into_empty_df_newtype!(DataHeaders3_1, DataFrame3_1);
+// impl_into_empty_df_newtype!(DataHeaders2_0, DataFrame2_0);
+// impl_into_empty_df_newtype!(DataHeaders3_0, DataFrame3_0);
+// impl_into_empty_df_newtype!(DataHeaders3_1, DataFrame3_1);
 
 impl IntoEmptyDataFrame for DataHeaders3_2 {
     type DfTarget = DataFrame3_2;
@@ -2367,30 +2338,30 @@ pub trait ReadLayoutOps<T>: Sized + IntoEmptyDataFrame {
         T: IsTot;
 }
 
-macro_rules! impl_read_ops_newtype {
-    ($t:path, $tot:path) => {
-        impl ReadLayoutOps<$tot> for $t {
-            fn h_read_df_inner<R: Read>(
-                &self,
-                h: &mut BufReader<R>,
-                tot: $tot,
-                seg: &mut AnyDataSegment,
-                conf: &ReadEventsConfig,
-            ) -> WarningsAndIOGroupResult<
-                DataFrameResult<Self::DfTarget>,
-                ReadDataframeWarning,
-                ReadDataframeError,
-                (),
-            > {
-                self.0.h_read_into(h, tot, seg, conf)
-            }
-        }
-    };
-}
+// macro_rules! impl_read_ops_newtype {
+//     ($t:path, $tot:path) => {
+//         impl ReadLayoutOps<$tot> for $t {
+//             fn h_read_df_inner<R: Read>(
+//                 &self,
+//                 h: &mut BufReader<R>,
+//                 tot: $tot,
+//                 seg: &mut AnyDataSegment,
+//                 conf: &ReadEventsConfig,
+//             ) -> WarningsAndIOGroupResult<
+//                 DataFrameResult<Self::DfTarget>,
+//                 ReadDataframeWarning,
+//                 ReadDataframeError,
+//                 (),
+//             > {
+//                 self.0.h_read_into(h, tot, seg, conf)
+//             }
+//         }
+//     };
+// }
 
-impl_read_ops_newtype!(DataHeaders2_0, Option<Tot>);
-impl_read_ops_newtype!(DataHeaders3_0, Identity<Tot>);
-impl_read_ops_newtype!(DataHeaders3_1, Identity<Tot>);
+// impl_read_ops_newtype!(DataHeaders2_0, Option<Tot>);
+// impl_read_ops_newtype!(DataHeaders3_0, Identity<Tot>);
+// impl_read_ops_newtype!(DataHeaders3_1, Identity<Tot>);
 
 impl ReadLayoutOps<Identity<Tot>> for DataHeaders3_2 {
     fn h_read_df_inner<R: Read>(
@@ -3128,73 +3099,73 @@ pub trait ConvertFromLayout<T>: Sized {
 
 impl ConvertFromLayout<DataHeaders3_0> for DataHeaders2_0 {
     fn convert_from_layout(value: DataHeaders3_0) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self(value.0.phantom_into()))
+        LogResult::new_ok(value.phantom_into())
     }
 }
 
-impl ConvertFromLayout<DataHeaders3_1> for DataHeaders2_0 {
-    fn convert_from_layout(value: DataHeaders3_1) -> LayoutConvertResult<Self> {
-        AnyOrderedGroup::convert_from_layout(value.0).map_ok_value(Into::into)
-    }
-}
+// impl ConvertFromLayout<DataHeaders3_1> for DataHeaders2_0 {
+//     fn convert_from_layout(value: DataHeaders3_1) -> LayoutConvertResult<Self> {
+//         AnyOrderedGroup::convert_from_layout(value).map_ok_value(Into::into)
+//     }
+// }
 
-impl ConvertFromLayout<DataHeaders3_2> for DataHeaders2_0 {
-    fn convert_from_layout(value: DataHeaders3_2) -> LayoutConvertResult<Self> {
-        AnyOrderedGroup::convert_from_layout(value).map_ok_value(Into::into)
-    }
-}
+// impl ConvertFromLayout<DataHeaders3_2> for DataHeaders2_0 {
+//     fn convert_from_layout(value: DataHeaders3_2) -> LayoutConvertResult<Self> {
+//         AnyOrderedGroup::convert_from_layout(value).map_ok_value(Into::into)
+//     }
+// }
 
 impl ConvertFromLayout<DataHeaders2_0> for DataHeaders3_0 {
     fn convert_from_layout(value: DataHeaders2_0) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self(value.0.phantom_into()))
+        LogResult::new_ok(value.phantom_into())
     }
 }
 
-impl ConvertFromLayout<DataHeaders3_1> for DataHeaders3_0 {
-    fn convert_from_layout(value: DataHeaders3_1) -> LayoutConvertResult<Self> {
-        AnyOrderedGroup::convert_from_layout(value.0).map_ok_value(Into::into)
-    }
-}
+// impl ConvertFromLayout<DataHeaders3_1> for DataHeaders3_0 {
+//     fn convert_from_layout(value: DataHeaders3_1) -> LayoutConvertResult<Self> {
+//         AnyOrderedGroup::convert_from_layout(value).map_ok_value(Into::into)
+//     }
+// }
 
-impl ConvertFromLayout<DataHeaders3_2> for DataHeaders3_0 {
-    fn convert_from_layout(value: DataHeaders3_2) -> LayoutConvertResult<Self> {
-        AnyOrderedGroup::convert_from_layout(value).map_ok_value(Into::into)
-    }
-}
+// impl ConvertFromLayout<DataHeaders3_2> for DataHeaders3_0 {
+//     fn convert_from_layout(value: DataHeaders3_2) -> LayoutConvertResult<Self> {
+//         AnyOrderedGroup::convert_from_layout(value).map_ok_value(Into::into)
+//     }
+// }
 
-impl ConvertFromLayout<DataHeaders2_0> for DataHeaders3_1 {
-    fn convert_from_layout(value: DataHeaders2_0) -> LayoutConvertResult<Self> {
-        NonMixedEndianGroup::convert_from_layout(value.0).map_ok_value(Into::into)
-    }
-}
+// impl ConvertFromLayout<DataHeaders2_0> for DataHeaders3_1 {
+//     fn convert_from_layout(value: DataHeaders2_0) -> LayoutConvertResult<Self> {
+//         NonMixedEndianGroup::convert_from_layout(value).map_ok_value(Into::into)
+//     }
+// }
 
-impl ConvertFromLayout<DataHeaders3_0> for DataHeaders3_1 {
-    fn convert_from_layout(value: DataHeaders3_0) -> LayoutConvertResult<Self> {
-        NonMixedEndianGroup::convert_from_layout(value.0).map_ok_value(Into::into)
-    }
-}
+// impl ConvertFromLayout<DataHeaders3_0> for DataHeaders3_1 {
+//     fn convert_from_layout(value: DataHeaders3_0) -> LayoutConvertResult<Self> {
+//         NonMixedEndianGroup::convert_from_layout(value).map_ok_value(Into::into)
+//     }
+// }
 
-impl ConvertFromLayout<DataHeaders3_2> for DataHeaders3_1 {
-    fn convert_from_layout(value: DataHeaders3_2) -> LayoutConvertResult<Self> {
-        NonMixedEndianGroup::convert_from_layout(value).map_ok_value(Into::into)
-    }
-}
+// impl ConvertFromLayout<DataHeaders3_2> for DataHeaders3_1 {
+//     fn convert_from_layout(value: DataHeaders3_2) -> LayoutConvertResult<Self> {
+//         NonMixedEndianGroup::convert_from_layout(value).map_ok_value(Into::into)
+//     }
+// }
 
 impl ConvertFromLayout<DataHeaders2_0> for DataHeaders3_2 {
     fn convert_from_layout(value: DataHeaders2_0) -> LayoutConvertResult<Self> {
-        NonMixedEndianGroup::convert_from_layout(value.0).map_ok_value(Self::NonMixed)
+        NonMixedEndianGroup::convert_from_layout(value).map_ok_value(Self::NonMixed)
     }
 }
 
 impl ConvertFromLayout<DataHeaders3_0> for DataHeaders3_2 {
     fn convert_from_layout(value: DataHeaders3_0) -> LayoutConvertResult<Self> {
-        NonMixedEndianGroup::convert_from_layout(value.0).map_ok_value(Self::NonMixed)
+        NonMixedEndianGroup::convert_from_layout(value).map_ok_value(Self::NonMixed)
     }
 }
 
 impl ConvertFromLayout<DataHeaders3_1> for DataHeaders3_2 {
     fn convert_from_layout(value: DataHeaders3_1) -> LayoutConvertResult<Self> {
-        LogResult::new_ok(Self::NonMixed(value.0.phantom_into()))
+        LogResult::new_ok(Self::NonMixed(value.phantom_into()))
     }
 }
 
@@ -3323,11 +3294,36 @@ where
     U64Col: IsCol<F, false> + IsCol<F, true>,
 {
     fn convert_from_layout(value: AnyOrderedUintGroup<F, T>) -> LayoutConvertResult<Self> {
-        match_any_uint!(
-            value,
-            x,
+        match_any_uint!(value, x, {
             EndianGroup::convert_from_layout(x).map_ok_value(Self::from)
-        )
+        })
+    }
+}
+
+impl<F, D, T> ConvertFromLayout<AnyFixedUintGroup<F, D>> for AnyOrderedUintGroup<F, T>
+where
+    OrderedGroup<F, U08Col, T>: ConvertFromLayout<EndianGroup<F, U08Col, D>>,
+    OrderedGroup<F, U16Col, T>: ConvertFromLayout<EndianGroup<F, U16Col, D>>,
+    OrderedGroup<F, U24Col, T>: ConvertFromLayout<EndianGroup<F, U24Col, D>>,
+    OrderedGroup<F, U32Col, T>: ConvertFromLayout<EndianGroup<F, U32Col, D>>,
+    OrderedGroup<F, U40Col, T>: ConvertFromLayout<EndianGroup<F, U40Col, D>>,
+    OrderedGroup<F, U48Col, T>: ConvertFromLayout<EndianGroup<F, U48Col, D>>,
+    OrderedGroup<F, U56Col, T>: ConvertFromLayout<EndianGroup<F, U56Col, D>>,
+    OrderedGroup<F, U64Col, T>: ConvertFromLayout<EndianGroup<F, U64Col, D>>,
+    F: Kind1,
+    U08Col: IsCol<F, false> + IsCol<F, true>,
+    U16Col: IsCol<F, false> + IsCol<F, true>,
+    U24Col: IsCol<F, false> + IsCol<F, true>,
+    U32Col: IsCol<F, false> + IsCol<F, true>,
+    U40Col: IsCol<F, false> + IsCol<F, true>,
+    U48Col: IsCol<F, false> + IsCol<F, true>,
+    U56Col: IsCol<F, false> + IsCol<F, true>,
+    U64Col: IsCol<F, false> + IsCol<F, true>,
+{
+    fn convert_from_layout(value: AnyFixedUintGroup<F, D>) -> LayoutConvertResult<Self> {
+        match_any_uint!(value, x, {
+            OrderedGroup::convert_from_layout(x).map_ok_value(Self::from)
+        })
     }
 }
 
@@ -3363,8 +3359,7 @@ where
     FixedAsciiCol: IsCol<F, false> + IsCol<F, true>,
     DelimAsciiCol: IsCol<F, false> + IsCol<F, true>,
     UvarCol: IsCol<F, false>,
-    AnyAsciiGroup<F, false, ColumnMarkers<Identity<Tot>, D>>:
-        ConvertFromLayout<AnyAsciiGroup<F, true, ColumnMarkers<T, Nothing<NumType>>>>,
+    AnyAsciiGroup3_1<F, D>: ConvertFromLayout<AnyAsciiGroup2_0<F, T>>,
     AnyFixedUintGroup<F, D>: ConvertFromLayout<AnyOrderedUintGroup<F, T>>,
     EndianGroup<F, F32Col, D>: ConvertFromLayout<OrderedGroup<F, F32Col, T>>,
     EndianGroup<F, F64Col, D>: ConvertFromLayout<OrderedGroup<F, F64Col, T>>,
@@ -3390,49 +3385,42 @@ where
 impl<F, D, T> ConvertFromLayout<NonMixedEndianGroup<F, D>> for AnyOrderedGroup<F, T>
 where
     F: Kind1,
-    U08Col: IsCol<F, false> + IsCol<F, true, Inner = <U08Col as IsCol<F, false>>::Inner>,
-    U16Col: IsCol<F, false> + IsCol<F, true, Inner = <U16Col as IsCol<F, false>>::Inner>,
-    U24Col: IsCol<F, false> + IsCol<F, true, Inner = <U24Col as IsCol<F, false>>::Inner>,
-    U32Col: IsCol<F, false> + IsCol<F, true, Inner = <U32Col as IsCol<F, false>>::Inner>,
-    U40Col: IsCol<F, false> + IsCol<F, true, Inner = <U40Col as IsCol<F, false>>::Inner>,
-    U48Col: IsCol<F, false> + IsCol<F, true, Inner = <U48Col as IsCol<F, false>>::Inner>,
-    U56Col: IsCol<F, false> + IsCol<F, true, Inner = <U56Col as IsCol<F, false>>::Inner>,
-    U64Col: IsCol<F, false> + IsCol<F, true, Inner = <U64Col as IsCol<F, false>>::Inner>,
-    F32Col: IsCol<F, false> + IsCol<F, true, Inner = <F32Col as IsCol<F, false>>::Inner>,
-    F64Col: IsCol<F, false> + IsCol<F, true, Inner = <F64Col as IsCol<F, false>>::Inner>,
-    FixedAsciiCol:
-        IsCol<F, false> + IsCol<F, true, Inner = <FixedAsciiCol as IsCol<F, false>>::Inner>,
-    DelimAsciiCol:
-        IsCol<F, false> + IsCol<F, true, Inner = <DelimAsciiCol as IsCol<F, false>>::Inner>,
+    U08Col: IsCol<F, false> + IsCol<F, true>,
+    U16Col: IsCol<F, false> + IsCol<F, true>,
+    U24Col: IsCol<F, false> + IsCol<F, true>,
+    U32Col: IsCol<F, false> + IsCol<F, true>,
+    U40Col: IsCol<F, false> + IsCol<F, true>,
+    U48Col: IsCol<F, false> + IsCol<F, true>,
+    U56Col: IsCol<F, false> + IsCol<F, true>,
+    U64Col: IsCol<F, false> + IsCol<F, true>,
+    F32Col: IsCol<F, false> + IsCol<F, true>,
+    F64Col: IsCol<F, false> + IsCol<F, true>,
+    FixedAsciiCol: IsCol<F, false> + IsCol<F, true>,
+    DelimAsciiCol: IsCol<F, false> + IsCol<F, true>,
     UvarCol: IsCol<F, false>,
+    AnyAsciiGroup2_0<F, T>: ConvertFromLayout<AnyAsciiGroup3_1<F, D>>,
+    AnyOrderedUintGroup<F, T>: ConvertFromLayout<AnyFixedUintGroup<F, D>>,
+    OrderedGroup<F, F32Col, T>: ConvertFromLayout<EndianGroup<F, F32Col, D>>,
+    OrderedGroup<F, F64Col, T>: ConvertFromLayout<EndianGroup<F, F64Col, D>>,
     NonMixedEndianGroup<F, D>: NormalizableLayout,
     F::Type<<UvarCol as IsCol<F, false>>::Inner>: AsRef<[<UvarCol as IsCol<F, false>>::Inner]>,
     <UvarCol as IsCol<F, false>>::Inner: IsFixed,
-    <U08Col as IsCol<F, false>>::Layout: Into<<U08Col as IsCol<F, true>>::Layout>,
-    <U16Col as IsCol<F, false>>::Layout: Into<<U16Col as IsCol<F, true>>::Layout>,
-    <U24Col as IsCol<F, false>>::Layout: Into<<U24Col as IsCol<F, true>>::Layout>,
-    <U32Col as IsCol<F, false>>::Layout: Into<<U32Col as IsCol<F, true>>::Layout>,
-    <U40Col as IsCol<F, false>>::Layout: Into<<U40Col as IsCol<F, true>>::Layout>,
-    <U48Col as IsCol<F, false>>::Layout: Into<<U48Col as IsCol<F, true>>::Layout>,
-    <U56Col as IsCol<F, false>>::Layout: Into<<U56Col as IsCol<F, true>>::Layout>,
-    <U64Col as IsCol<F, false>>::Layout: Into<<U64Col as IsCol<F, true>>::Layout>,
-    <F32Col as IsCol<F, false>>::Layout: Into<<F32Col as IsCol<F, true>>::Layout>,
-    <F64Col as IsCol<F, false>>::Layout: Into<<F64Col as IsCol<F, true>>::Layout>,
-    <FixedAsciiCol as IsCol<F, false>>::Layout: Into<<FixedAsciiCol as IsCol<F, true>>::Layout>,
-    <DelimAsciiCol as IsCol<F, false>>::Layout: Into<<DelimAsciiCol as IsCol<F, true>>::Layout>,
 {
     fn convert_from_layout(mut value: NonMixedEndianGroup<F, D>) -> LayoutConvertResult<Self> {
         value.normalize();
-        let new: AnyDatatype<_, _, _, _> = match value {
-            AnyDatatype::Ascii(x) => x.byte_layout_into().into(),
+        match value {
+            AnyDatatype::Ascii(x) => {
+                AnyAsciiGroup::convert_from_layout(x).map_ok_value(Self::Ascii)
+            }
             AnyDatatype::Uint(x) => match x {
-                AnyEndianUint::Multi(y) => return y.conversion_fail_by_width(),
-                AnyEndianUint::Single(y) => match_map_uint!(y, z, z.byte_layout_into()).into(),
+                AnyEndianUint::Multi(y) => y.conversion_fail_by_width(),
+                AnyEndianUint::Single(y) => {
+                    AnyOrderedUintGroup::convert_from_layout(y).map_ok_value(Self::Uint)
+                }
             },
-            AnyDatatype::F32(x) => x.byte_layout_into().into(),
-            AnyDatatype::F64(x) => x.byte_layout_into().into(),
-        };
-        LogResult::new_ok(new.phantom_into())
+            AnyDatatype::F32(x) => OrderedGroup::convert_from_layout(x).map_ok_value(Self::F32),
+            AnyDatatype::F64(x) => OrderedGroup::convert_from_layout(x).map_ok_value(Self::F64),
+        }
     }
 }
 

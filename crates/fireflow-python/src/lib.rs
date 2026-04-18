@@ -804,21 +804,21 @@ pub enum PyHeaders3_2 {
 
 impl From<PyOrderedHeaders> for DataHeaders2_0 {
     fn from(value: PyOrderedHeaders) -> Self {
-        Self(AnyOrderedHeaders::from(value).phantom_into())
+        AnyOrderedHeaders::<Identity<kws::Tot>>::from(value).phantom_into()
     }
 }
 
-impl From<PyOrderedHeaders> for DataHeaders3_0 {
-    fn from(value: PyOrderedHeaders) -> Self {
-        Self(AnyOrderedHeaders::from(value))
-    }
-}
+// impl From<PyOrderedHeaders> for DataHeaders3_0 {
+//     fn from(value: PyOrderedHeaders) -> Self {
+//         AnyOrderedHeaders::<Identity<kws::Tot>>::from(value)
+//     }
+// }
 
-impl From<PyNonMixedHeaders> for DataHeaders3_1 {
-    fn from(value: PyNonMixedHeaders) -> Self {
-        Self(NonMixedEndianHeaders::from(value))
-    }
-}
+// impl From<PyNonMixedHeaders> for DataHeaders3_1 {
+//     fn from(value: PyNonMixedHeaders) -> Self {
+//         Self(NonMixedEndianHeaders::from(value))
+//     }
+// }
 
 impl From<PyHeaders3_2> for DataHeaders3_2 {
     fn from(value: PyHeaders3_2) -> Self {
@@ -833,21 +833,23 @@ impl From<PyHeaders3_2> for DataHeaders3_2 {
 
 impl From<DataHeaders2_0> for PyOrderedHeaders {
     fn from(value: DataHeaders2_0) -> Self {
-        value.0.phantom_into().into()
+        value
+            .phantom_into::<ColumnMarkers<Identity<kws::Tot>, _>>()
+            .into()
     }
 }
 
-impl From<DataHeaders3_0> for PyOrderedHeaders {
-    fn from(value: DataHeaders3_0) -> Self {
-        value.0.into()
-    }
-}
+// impl From<DataHeaders3_0> for PyOrderedHeaders {
+//     fn from(value: DataHeaders3_0) -> Self {
+//         value.into()
+//     }
+// }
 
-impl From<DataHeaders3_1> for PyNonMixedHeaders {
-    fn from(value: DataHeaders3_1) -> Self {
-        value.0.into()
-    }
-}
+// impl From<DataHeaders3_1> for PyNonMixedHeaders {
+//     fn from(value: DataHeaders3_1) -> Self {
+//         value.0.into()
+//     }
+// }
 
 impl From<DataHeaders3_2> for PyHeaders3_2 {
     fn from(value: DataHeaders3_2) -> Self {

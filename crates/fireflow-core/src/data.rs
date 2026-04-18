@@ -2631,6 +2631,127 @@ where
     }
 }
 
+fn h_read_delim_with_rows<R: Read>(
+    ranges: &[DelimAsciiRange],
+    h: &mut BufReader<R>,
+    tot: Tot,
+    nbytes: usize,
+) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimWithRowsAsciiError>> {
+    let mut buf = Vec::new();
+    let mut last_was_delim = false;
+    let nrows = tot.0;
+    let ncols = ranges.len();
+    debug_assert!(ncols > 0, "no columns given for ASCII layout");
+    // Here we have $TOT so initialize vectors to required length
+    let mut data = vec![vec![0; nrows]; ncols];
+    let mut row = 0;
+    let mut col = 0;
+    // Delimiters are tab, newline, carriage return, space, or comma. Any
+    // consecutive delimiter counts as one, and delimiters can be mixed.
+    macro_rules! go {
+        () => {
+            data[col][row] = ascii_to_uint(&buf)
+                .map_err(ReadDelimWithRowsAsciiError::Parse)
+                .map_err(ImpureError::Pure)?;
+            if col == ncols - 1 {
+                col = 0;
+                row += 1;
+            } else {
+                col += 1;
+            }
+        };
+    }
+    for b in h.bytes().take(nbytes) {
+        let byte = b?;
+        // exit if we encounter more rows than expected.
+        if row == nrows {
+            let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
+            return Err(ImpureError::Pure(e));
+        }
+        if is_ascii_delim(byte) {
+            if !last_was_delim {
+                last_was_delim = true;
+                go!();
+                buf.clear();
+            }
+        } else {
+            buf.push(byte);
+            last_was_delim = false;
+        }
+    }
+    // The spec isn't clear if the last value should be a delim or
+    // not, so flush the buffer if it has anything in it since we
+    // only try to parse if we hit a delim above.
+    if !buf.is_empty() {
+        go!();
+    }
+    if !(col == 0 && row == nrows) {
+        let e = DelimIncompleteError { col, row, nrows };
+        let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
+        return Err(ee);
+    }
+    Ok(data)
+}
+
+fn h_read_delim_without_rows<R: Read>(
+    ranges: &[DelimAsciiRange],
+    h: &mut BufReader<R>,
+    nbytes: usize,
+) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
+    let mut buf = Vec::new();
+    // Here we don't have $TOT so init to empty vectors
+    let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
+    let ncols = data.len();
+    debug_assert!(ncols > 0, "no columns given for ASCII layout");
+    let mut col = 0;
+    let mut last_was_delim = false;
+    let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
+        ascii_to_uint(buf_)
+            .map_err(ReadDelimAsciiWithoutRowsError::Parse)
+            .map_err(ImpureError::Pure)
+            .map(|x| data_[col_].push(x))
+    };
+    // Delimiters are tab, newline, carriage return, space, or comma. Any
+    // consecutive delimiter counts as one, and delimiters can be mixed.
+    // If we don't know the number of rows, the only choice is to push onto
+    // the column vectors one at a time. This leads to the possibility that
+    // the vectors may not be the same length in the end, in which case,
+    // scream loudly and bail.
+    for b in h.bytes().take(nbytes) {
+        let byte = b?;
+        if is_ascii_delim(byte) {
+            if !last_was_delim {
+                last_was_delim = true;
+                buf.clear();
+                go(&mut data, col, &buf)?;
+                if col == ncols - 1 {
+                    col = 0;
+                } else {
+                    col += 1;
+                }
+            }
+        } else {
+            buf.push(byte);
+            last_was_delim = false;
+        }
+    }
+    if data.iter().map(Vec::len).unique().count() > 1 {
+        return Err(ImpureError::Pure(ReadDelimAsciiUnequalColumnsError.into()));
+    }
+    // The spec isn't clear if the last value should be a delim or
+    // not, so flush the buffer if it has anything in it since we
+    // only try to parse if we hit a delim above.
+    if !buf.is_empty() {
+        go(&mut data, col, &buf)?;
+    }
+    Ok(data)
+}
+
+fn is_ascii_delim(x: u8) -> bool {
+    // tab, newline, carriage return, space, or comma
+    x == 9 || x == 10 || x == 13 || x == 32 || x == 44
+}
+
 // Implement low-level reading for header layouts with fixed width.
 //
 // All the "fast" code for reading DATA is here. Each impl is mostly a loop
@@ -5348,429 +5469,7 @@ impl<C, F, I, L, M, const ORD: bool> ColumnGroup<C, F, I, L, M, ORD> {
     }
 }
 
-impl From<AnyBitmask> for AnyBitmaskColumn {
-    fn from(value: AnyBitmask) -> Self {
-        match_map_uint!(value, x, AnnotatedColumn::empty(x))
-    }
-}
-
-impl From<AnyUintVec> for AnyBitmaskColumn {
-    fn from(value: AnyUintVec) -> Self {
-        match_map_uint!(value, x, NativeColumn::from(x))
-    }
-}
-
-macro_rules! decl_mixed_read {
-    ($name:ident, $int_fun:ident, $float_fun:ident) => {
-        fn $name(
-            &mut self,
-            dst_index: usize,
-            src: &[u8],
-            src_index: usize,
-        ) -> Result<(), AsciiToUintError> {
-            match self {
-                Self::Ascii(xs) => {
-                    let src_width = usize::from(u8::from(xs.range.chars()));
-                    xs.data[dst_index] = ascii_to_uint(&src[src_index..src_index + src_width])?;
-                    return Ok(());
-                }
-                Self::Uint(xs) => xs.$int_fun(dst_index, src, src_index),
-                Self::F32(xs) => xs.data[dst_index] = f32::$float_fun(src, src_index),
-                Self::F64(xs) => xs.data[dst_index] = f64::$float_fun(src, src_index),
-            }
-            Ok(())
-        }
-    };
-}
-
-impl MixedVec {
-    decl_mixed_read!(read_le, read_le, slice_be_bytes);
-    decl_mixed_read!(read_be, read_be, slice_le_bytes);
-
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
-        match self {
-            Self::Ascii(x) => x.data.check_range(&x.range, i, trunc),
-            Self::Uint(x) => x.check_range(i, trunc),
-            Self::F32(x) => x.data.check_range(&x.range, i, trunc),
-            Self::F64(x) => x.data.check_range(&x.range, i, trunc),
-        }
-    }
-}
-
-macro_rules! decl_uint_read {
-    ($name:ident, $fun:ident) => {
-        fn $name(&mut self, dst_index: usize, src: &[u8], src_index: usize) {
-            match self {
-                Self::Uint08(xs) => {
-                    xs.data[dst_index] = u8::$fun(src, src_index);
-                }
-                Self::Uint16(xs) => {
-                    xs.data[dst_index] = u16::$fun(src, src_index);
-                }
-                Self::Uint24(xs) => {
-                    xs.data[dst_index] = U24::$fun(src, src_index);
-                }
-                Self::Uint32(xs) => {
-                    xs.data[dst_index] = u32::$fun(src, src_index);
-                }
-                Self::Uint40(xs) => {
-                    xs.data[dst_index] = U40::$fun(src, src_index);
-                }
-                Self::Uint48(xs) => {
-                    xs.data[dst_index] = U48::$fun(src, src_index);
-                }
-                Self::Uint56(xs) => {
-                    xs.data[dst_index] = U56::$fun(src, src_index);
-                }
-                Self::Uint64(xs) => {
-                    xs.data[dst_index] = u64::$fun(src, src_index);
-                }
-            }
-        }
-    };
-}
-
-impl AnyUintVec {
-    decl_uint_read!(read_le, slice_le_bytes);
-    decl_uint_read!(read_be, slice_be_bytes);
-
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
-        match_any_uint!(self, x, x.data.check_range(&x.range, i, trunc))
-    }
-}
-
-impl<T> FloatRange<T> {
-    /// Make new float range from $PnB and $PnR values.
-    ///
-    /// Will return an error if $PnB is the incorrect size.
-    pub(crate) fn from_width_and_range(
-        width: Width,
-        range: Range,
-        i: MeasIndex,
-        flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorResult<ConvertedRange<Self>, (), IndexedFloatRangeError, FloatWidthError>
-    where
-        FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
-        T: HasFloatBounds + FCSRepr,
-    {
-        PrivBytes::try_from(width)
-            .map_err(|e| IndexedError::new(i, e))
-            .map_err(IndexedWidthToBytesError)
-            .into_log::<Vec<_>, Vec<_>, Nothing<_>>()
-            .map_errors(FloatWidthError::from)
-            .and_then_commutative(|bytes| {
-                if usize::from(u8::from(bytes)) == T::file_len() {
-                    Self::from_range_switch(range, flag)
-                        .set_err_value(())
-                        .map_switchable_errors(|e| IndexedError::new(i, e))
-                        .map_switchable_errors(IndexedFloatRangeError)
-                        .switchable_into_commutative()
-                        .map_errors(FloatWidthError::from)
-                        .repack_warnings()
-                } else {
-                    let e = FloatWidthError::from(WrongFloatWidth::new(bytes, T::file_len(), i));
-                    LogResult::new_err(e)
-                }
-            })
-    }
-}
-
-impl MixedRange {
-    fn init_column(&self, nrows: usize) -> MixedVec {
-        match self {
-            Self::Ascii(b) => MixedVec::Ascii(RangedVec::new(*b, vec![0; nrows])),
-            Self::Uint(b) => MixedVec::Uint(b.init_column(nrows)),
-            Self::F32(b) => MixedVec::F32(RangedVec::new(b.clone(), vec![0.0; nrows])),
-            Self::F64(b) => MixedVec::F64(RangedVec::new(b.clone(), vec![0.0; nrows])),
-        }
-    }
-
-    /// Make a new mixed range from $PnB and $PnR, and $PnDATATYPE values
-    pub(crate) fn from_width_and_range(
-        width: Width,
-        range: Range,
-        datatype: Option<NumType>,
-        global_datatype: AlphaNumType,
-        i: MeasIndex,
-        flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<ConvertedRange<Self>, (), NewMixedTypeWarning, NewMixedTypeError>
-    {
-        macro_rules! from {
-            ($t:ident, $width:expr, $range:expr, $i:expr, $flag:expr) => {
-                $t::from_width_and_range($width, $range, $i, $flag)
-                    .map_ok_value(|x| x.fmap_once(Self::from))
-                    .map_commutative_warnings(NewMixedTypeWarning::from)
-                    .map_errors(NewMixedTypeError::from)
-                    .repack_errors()
-            };
-        }
-
-        match datatype.map_or(global_datatype, AlphaNumType::from) {
-            AlphaNumType::Ascii => from!(FixedAsciiRange, width, range, i, flag),
-            AlphaNumType::Integer => from!(AnyUint, width, range, i, flag),
-            AlphaNumType::Float => from!(F32Range, width, range, i, flag),
-            AlphaNumType::Double => from!(F64Range, width, range, i, flag),
-        }
-    }
-}
-
-impl From<BitmaskValue<u64>> for AnyBitmask {
-    /// Make a new bitmask from a u64.
-    ///
-    /// The width is determined by the magnitude of the range; the smallest
-    /// possible will be used.
-    fn from(value: BitmaskValue<u64>) -> Self {
-        macro_rules! go {
-            ($var:ident, $x:expr) => {{
-                let (ret, truncated) = Bitmask::from_u64($x.0);
-                debug_assert!(!truncated, "AnyBitmask input should never be truncated");
-                Self::$var(ret)
-            }};
-        }
-        match PrivBytes::from_u64(value.0) {
-            PrivBytes::B1 => go!(Uint08, value),
-            PrivBytes::B2 => go!(Uint16, value),
-            PrivBytes::B3 => go!(Uint24, value),
-            PrivBytes::B4 => go!(Uint32, value),
-            PrivBytes::B5 => go!(Uint40, value),
-            PrivBytes::B6 => go!(Uint48, value),
-            PrivBytes::B7 => go!(Uint56, value),
-            PrivBytes::B8 => go!(Uint64, value),
-        }
-    }
-}
-
-impl From<AnyBitmask> for BitmaskValue<u64> {
-    /// Convert bitmask range (not bitmask itself) to u64.
-    fn from(value: AnyBitmask) -> Self {
-        match_any_uint!(value, x, Self(u64::from(x)))
-    }
-}
-
-impl AnyBitmask {
-    fn init_column(&self, nrows: usize) -> AnyUintVec {
-        fn default_vec<T: Clone + Default>(n: usize) -> Vec<T> {
-            vec![T::default(); n]
-        }
-        match self {
-            Self::Uint08(b) => AnyUintVec::Uint08(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint16(b) => AnyUintVec::Uint16(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint24(b) => AnyUintVec::Uint24(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint32(b) => AnyUintVec::Uint32(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint40(b) => AnyUintVec::Uint40(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint48(b) => AnyUintVec::Uint48(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint56(b) => AnyUintVec::Uint56(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint64(b) => AnyUintVec::Uint64(RangedVec::new(*b, default_vec(nrows))),
-        }
-    }
-
-    /// Make a new bitmask from $PnB and PnR values.
-    ///
-    /// Will return an error if $PnB (in bits) cannot be converted into a width
-    /// in bytes.
-    fn from_width_and_range(
-        width: Width,
-        range: Range,
-        i: MeasIndex,
-        flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorResult<ConvertedRange<Self>, (), IndexedBitmaskError, NewUintTypeError>
-    {
-        width
-            .try_into()
-            .map_err(|e| IndexedError::new(i, e))
-            .map_err(IndexedWidthToBytesError)
-            .map_err(NewUintTypeError::from)
-            .into_log()
-            .and_then_commutative(|bytes| {
-                Self::try_new(bytes, range, i, flag)
-                    .set_err_value(())
-                    .switchable_into_commutative()
-                    .map_errors(NewUintTypeError::from)
-                    .repack_warnings()
-            })
-    }
-
-    /// Make a new bitmask with a given width (in bytes) using a float/int.
-    fn try_new(
-        width: PrivBytes,
-        range: Range,
-        i: MeasIndex,
-        flag: DisallowRangeTrunc,
-    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, IndexedBitmaskError>
-    {
-        macro_rules! go {
-            ($t:ident) => {
-                $t::from_range_switch(range, flag).map_deferred_value(FunctorOnce::fmap_into_once)
-            };
-        }
-        let ret = match width {
-            PrivBytes::B1 => go!(Bitmask08),
-            PrivBytes::B2 => go!(Bitmask16),
-            PrivBytes::B3 => go!(Bitmask24),
-            PrivBytes::B4 => go!(Bitmask32),
-            PrivBytes::B5 => go!(Bitmask40),
-            PrivBytes::B6 => go!(Bitmask48),
-            PrivBytes::B7 => go!(Bitmask56),
-            PrivBytes::B8 => go!(Bitmask64),
-        };
-        ret.map_switchable_errors(|e| IndexedError::new(i, e))
-            .map_switchable_errors(IndexedBitmaskError)
-    }
-
-    // pub(crate) fn try_into_one_size<X, E, T>(
-    //     self,
-    //     tail: impl IntoIterator<Item = X>,
-    //     endian: Endian,
-    //     starting_index: usize,
-    // ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), (MeasIndex, E)>
-    // where
-    //     Bitmask08: TryFrom<X, Error = E>,
-    //     Bitmask16: TryFrom<X, Error = E>,
-    //     Bitmask24: TryFrom<X, Error = E>,
-    //     Bitmask32: TryFrom<X, Error = E>,
-    //     Bitmask40: TryFrom<X, Error = E>,
-    //     Bitmask48: TryFrom<X, Error = E>,
-    //     Bitmask56: TryFrom<X, Error = E>,
-    //     Bitmask64: TryFrom<X, Error = E>,
-    // {
-    //     match_any_uint!(self, Self, x, {
-    //         Bitmask::try_from_many(tail, starting_index)
-    //             .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()).into())
-    //     })
-    // }
-}
-
-fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
-    if buf.is_ascii() {
-        // SAFETY: we just checked that all bytes are ASCII
-        let s = unsafe { str::from_utf8_unchecked(buf) };
-        s.parse().map_err(AsciiToUintError::from)
-    } else {
-        Err(NotAsciiError(buf.to_vec()).into())
-    }
-}
-
-impl From<ColumnLayoutValues3_2> for ColumnLayoutValues2_0 {
-    fn from(value: ColumnLayoutValues3_2) -> Self {
-        Self::new(value.width, value.range, Nothing::default())
-    }
-}
-
-fn h_read_delim_with_rows<R: Read>(
-    ranges: &[DelimAsciiRange],
-    h: &mut BufReader<R>,
-    tot: Tot,
-    nbytes: usize,
-) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimWithRowsAsciiError>> {
-    let mut buf = Vec::new();
-    let mut last_was_delim = false;
-    let nrows = tot.0;
-    let ncols = ranges.len();
-    debug_assert!(ncols > 0, "no columns given for ASCII layout");
-    // Here we have $TOT so initialize vectors to required length
-    let mut data = vec![vec![0; nrows]; ncols];
-    let mut row = 0;
-    let mut col = 0;
-    // Delimiters are tab, newline, carriage return, space, or comma. Any
-    // consecutive delimiter counts as one, and delimiters can be mixed.
-    macro_rules! go {
-        () => {
-            data[col][row] = ascii_to_uint(&buf)
-                .map_err(ReadDelimWithRowsAsciiError::Parse)
-                .map_err(ImpureError::Pure)?;
-            if col == ncols - 1 {
-                col = 0;
-                row += 1;
-            } else {
-                col += 1;
-            }
-        };
-    }
-    for b in h.bytes().take(nbytes) {
-        let byte = b?;
-        // exit if we encounter more rows than expected.
-        if row == nrows {
-            let e = ReadDelimWithRowsAsciiError::RowsExceeded(RowsExceededError(nrows));
-            return Err(ImpureError::Pure(e));
-        }
-        if is_ascii_delim(byte) {
-            if !last_was_delim {
-                last_was_delim = true;
-                go!();
-                buf.clear();
-            }
-        } else {
-            buf.push(byte);
-            last_was_delim = false;
-        }
-    }
-    // The spec isn't clear if the last value should be a delim or
-    // not, so flush the buffer if it has anything in it since we
-    // only try to parse if we hit a delim above.
-    if !buf.is_empty() {
-        go!();
-    }
-    if !(col == 0 && row == nrows) {
-        let e = DelimIncompleteError { col, row, nrows };
-        let ee = ImpureError::Pure(ReadDelimWithRowsAsciiError::Incomplete(e));
-        return Err(ee);
-    }
-    Ok(data)
-}
-
-fn h_read_delim_without_rows<R: Read>(
-    ranges: &[DelimAsciiRange],
-    h: &mut BufReader<R>,
-    nbytes: usize,
-) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
-    let mut buf = Vec::new();
-    // Here we don't have $TOT so init to empty vectors
-    let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
-    let ncols = data.len();
-    debug_assert!(ncols > 0, "no columns given for ASCII layout");
-    let mut col = 0;
-    let mut last_was_delim = false;
-    let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
-        ascii_to_uint(buf_)
-            .map_err(ReadDelimAsciiWithoutRowsError::Parse)
-            .map_err(ImpureError::Pure)
-            .map(|x| data_[col_].push(x))
-    };
-    // Delimiters are tab, newline, carriage return, space, or comma. Any
-    // consecutive delimiter counts as one, and delimiters can be mixed.
-    // If we don't know the number of rows, the only choice is to push onto
-    // the column vectors one at a time. This leads to the possibility that
-    // the vectors may not be the same length in the end, in which case,
-    // scream loudly and bail.
-    for b in h.bytes().take(nbytes) {
-        let byte = b?;
-        if is_ascii_delim(byte) {
-            if !last_was_delim {
-                last_was_delim = true;
-                buf.clear();
-                go(&mut data, col, &buf)?;
-                if col == ncols - 1 {
-                    col = 0;
-                } else {
-                    col += 1;
-                }
-            }
-        } else {
-            buf.push(byte);
-            last_was_delim = false;
-        }
-    }
-    if data.iter().map(Vec::len).unique().count() > 1 {
-        return Err(ImpureError::Pure(ReadDelimAsciiUnequalColumnsError.into()));
-    }
-    // The spec isn't clear if the last value should be a delim or
-    // not, so flush the buffer if it has anything in it since we
-    // only try to parse if we hit a delim above.
-    if !buf.is_empty() {
-        go(&mut data, col, &buf)?;
-    }
-    Ok(data)
-}
+// Implement methods on specific aliases of column group
 
 impl<T> AnyOrderedUintHeaders<T> {
     fn try_new(
@@ -6209,6 +5908,117 @@ impl<Cd, Ca, Id, Ia, F, Ld, La, M, const ORD: bool>
     }
 }
 
+impl<D> AnyEndianUintHeaders<D> {
+    fn try_new(
+        cs: Vec<ColumnLayoutValues<D>>,
+        e: Endian,
+        flag: DisallowRangeTrunc,
+    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), IndexedBitmaskError, NewUintTypeError>
+    where
+        D: IsNumType,
+    {
+        ColumnGroup::try_new(cs, e, |i, c| {
+            AnyUint::from_width_and_range(c.width, c.range, i, flag).repack_errors()
+        })
+        .map_ok_value(|res| {
+            res.fmap_once(|c| {
+                let mut wrapped = Self::Multi(c);
+                wrapped.normalize();
+                wrapped
+            })
+        })
+    }
+}
+
+// Implement conversions for ranged vectors
+//
+// These are used for low level IO operations when making dataframes.
+
+impl From<AnyUintVec> for AnyBitmaskColumn {
+    fn from(value: AnyUintVec) -> Self {
+        match_map_uint!(value, x, NativeColumn::from(x))
+    }
+}
+
+macro_rules! decl_mixed_read {
+    ($name:ident, $int_fun:ident, $float_fun:ident) => {
+        fn $name(
+            &mut self,
+            dst_index: usize,
+            src: &[u8],
+            src_index: usize,
+        ) -> Result<(), AsciiToUintError> {
+            match self {
+                Self::Ascii(xs) => {
+                    let src_width = usize::from(u8::from(xs.range.chars()));
+                    xs.data[dst_index] = ascii_to_uint(&src[src_index..src_index + src_width])?;
+                    return Ok(());
+                }
+                Self::Uint(xs) => xs.$int_fun(dst_index, src, src_index),
+                Self::F32(xs) => xs.data[dst_index] = f32::$float_fun(src, src_index),
+                Self::F64(xs) => xs.data[dst_index] = f64::$float_fun(src, src_index),
+            }
+            Ok(())
+        }
+    };
+}
+
+impl MixedVec {
+    decl_mixed_read!(read_le, read_le, slice_be_bytes);
+    decl_mixed_read!(read_be, read_be, slice_le_bytes);
+
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+        match self {
+            Self::Ascii(x) => x.data.check_range(&x.range, i, trunc),
+            Self::Uint(x) => x.check_range(i, trunc),
+            Self::F32(x) => x.data.check_range(&x.range, i, trunc),
+            Self::F64(x) => x.data.check_range(&x.range, i, trunc),
+        }
+    }
+}
+
+macro_rules! decl_uint_read {
+    ($name:ident, $fun:ident) => {
+        fn $name(&mut self, dst_index: usize, src: &[u8], src_index: usize) {
+            match self {
+                Self::Uint08(xs) => {
+                    xs.data[dst_index] = u8::$fun(src, src_index);
+                }
+                Self::Uint16(xs) => {
+                    xs.data[dst_index] = u16::$fun(src, src_index);
+                }
+                Self::Uint24(xs) => {
+                    xs.data[dst_index] = U24::$fun(src, src_index);
+                }
+                Self::Uint32(xs) => {
+                    xs.data[dst_index] = u32::$fun(src, src_index);
+                }
+                Self::Uint40(xs) => {
+                    xs.data[dst_index] = U40::$fun(src, src_index);
+                }
+                Self::Uint48(xs) => {
+                    xs.data[dst_index] = U48::$fun(src, src_index);
+                }
+                Self::Uint56(xs) => {
+                    xs.data[dst_index] = U56::$fun(src, src_index);
+                }
+                Self::Uint64(xs) => {
+                    xs.data[dst_index] = u64::$fun(src, src_index);
+                }
+            }
+        }
+    };
+}
+
+impl AnyUintVec {
+    decl_uint_read!(read_le, slice_le_bytes);
+    decl_uint_read!(read_be, slice_be_bytes);
+
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+        match_any_uint!(self, x, x.data.check_range(&x.range, i, trunc))
+    }
+}
+
 impl From<MixedVec> for MixedColumn {
     fn from(value: MixedVec) -> Self {
         match value {
@@ -6219,6 +6029,213 @@ impl From<MixedVec> for MixedColumn {
         }
     }
 }
+
+// Implement misc methods for header ranges
+
+impl<T> FloatRange<T> {
+    /// Make new float range from $PnB and $PnR values.
+    ///
+    /// Will return an error if $PnB is the incorrect size.
+    pub(crate) fn from_width_and_range(
+        width: Width,
+        range: Range,
+        i: MeasIndex,
+        flag: DisallowRangeTrunc,
+    ) -> WarningsAndErrorResult<ConvertedRange<Self>, (), IndexedFloatRangeError, FloatWidthError>
+    where
+        FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
+        T: HasFloatBounds + FCSRepr,
+    {
+        PrivBytes::try_from(width)
+            .map_err(|e| IndexedError::new(i, e))
+            .map_err(IndexedWidthToBytesError)
+            .into_log::<Vec<_>, Vec<_>, Nothing<_>>()
+            .map_errors(FloatWidthError::from)
+            .and_then_commutative(|bytes| {
+                if usize::from(u8::from(bytes)) == T::file_len() {
+                    Self::from_range_switch(range, flag)
+                        .set_err_value(())
+                        .map_switchable_errors(|e| IndexedError::new(i, e))
+                        .map_switchable_errors(IndexedFloatRangeError)
+                        .switchable_into_commutative()
+                        .map_errors(FloatWidthError::from)
+                        .repack_warnings()
+                } else {
+                    let e = FloatWidthError::from(WrongFloatWidth::new(bytes, T::file_len(), i));
+                    LogResult::new_err(e)
+                }
+            })
+    }
+}
+
+impl MixedRange {
+    fn init_column(&self, nrows: usize) -> MixedVec {
+        match self {
+            Self::Ascii(b) => MixedVec::Ascii(RangedVec::new(*b, vec![0; nrows])),
+            Self::Uint(b) => MixedVec::Uint(b.init_column(nrows)),
+            Self::F32(b) => MixedVec::F32(RangedVec::new(b.clone(), vec![0.0; nrows])),
+            Self::F64(b) => MixedVec::F64(RangedVec::new(b.clone(), vec![0.0; nrows])),
+        }
+    }
+
+    /// Make a new mixed range from $PnB and $PnR, and $PnDATATYPE values
+    pub(crate) fn from_width_and_range(
+        width: Width,
+        range: Range,
+        datatype: Option<NumType>,
+        global_datatype: AlphaNumType,
+        i: MeasIndex,
+        flag: DisallowRangeTrunc,
+    ) -> WarningsAndErrorsResult<ConvertedRange<Self>, (), NewMixedTypeWarning, NewMixedTypeError>
+    {
+        macro_rules! from {
+            ($t:ident, $width:expr, $range:expr, $i:expr, $flag:expr) => {
+                $t::from_width_and_range($width, $range, $i, $flag)
+                    .map_ok_value(|x| x.fmap_once(Self::from))
+                    .map_commutative_warnings(NewMixedTypeWarning::from)
+                    .map_errors(NewMixedTypeError::from)
+                    .repack_errors()
+            };
+        }
+
+        match datatype.map_or(global_datatype, AlphaNumType::from) {
+            AlphaNumType::Ascii => from!(FixedAsciiRange, width, range, i, flag),
+            AlphaNumType::Integer => from!(AnyUint, width, range, i, flag),
+            AlphaNumType::Float => from!(F32Range, width, range, i, flag),
+            AlphaNumType::Double => from!(F64Range, width, range, i, flag),
+        }
+    }
+}
+
+impl From<BitmaskValue<u64>> for AnyBitmask {
+    /// Make a new bitmask from a u64.
+    ///
+    /// The width is determined by the magnitude of the range; the smallest
+    /// possible will be used.
+    fn from(value: BitmaskValue<u64>) -> Self {
+        macro_rules! go {
+            ($var:ident, $x:expr) => {{
+                let (ret, truncated) = Bitmask::from_u64($x.0);
+                debug_assert!(!truncated, "AnyBitmask input should never be truncated");
+                Self::$var(ret)
+            }};
+        }
+        match PrivBytes::from_u64(value.0) {
+            PrivBytes::B1 => go!(Uint08, value),
+            PrivBytes::B2 => go!(Uint16, value),
+            PrivBytes::B3 => go!(Uint24, value),
+            PrivBytes::B4 => go!(Uint32, value),
+            PrivBytes::B5 => go!(Uint40, value),
+            PrivBytes::B6 => go!(Uint48, value),
+            PrivBytes::B7 => go!(Uint56, value),
+            PrivBytes::B8 => go!(Uint64, value),
+        }
+    }
+}
+
+impl From<AnyBitmask> for BitmaskValue<u64> {
+    /// Convert bitmask range (not bitmask itself) to u64.
+    fn from(value: AnyBitmask) -> Self {
+        match_any_uint!(value, x, Self(u64::from(x)))
+    }
+}
+
+impl AnyBitmask {
+    fn init_column(&self, nrows: usize) -> AnyUintVec {
+        fn default_vec<T: Clone + Default>(n: usize) -> Vec<T> {
+            vec![T::default(); n]
+        }
+        match self {
+            Self::Uint08(b) => AnyUintVec::Uint08(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint16(b) => AnyUintVec::Uint16(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint24(b) => AnyUintVec::Uint24(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint32(b) => AnyUintVec::Uint32(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint40(b) => AnyUintVec::Uint40(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint48(b) => AnyUintVec::Uint48(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint56(b) => AnyUintVec::Uint56(RangedVec::new(*b, default_vec(nrows))),
+            Self::Uint64(b) => AnyUintVec::Uint64(RangedVec::new(*b, default_vec(nrows))),
+        }
+    }
+
+    /// Make a new bitmask from $PnB and PnR values.
+    ///
+    /// Will return an error if $PnB (in bits) cannot be converted into a width
+    /// in bytes.
+    fn from_width_and_range(
+        width: Width,
+        range: Range,
+        i: MeasIndex,
+        flag: DisallowRangeTrunc,
+    ) -> WarningsAndErrorResult<ConvertedRange<Self>, (), IndexedBitmaskError, NewUintTypeError>
+    {
+        width
+            .try_into()
+            .map_err(|e| IndexedError::new(i, e))
+            .map_err(IndexedWidthToBytesError)
+            .map_err(NewUintTypeError::from)
+            .into_log()
+            .and_then_commutative(|bytes| {
+                Self::try_new(bytes, range, i, flag)
+                    .set_err_value(())
+                    .switchable_into_commutative()
+                    .map_errors(NewUintTypeError::from)
+                    .repack_warnings()
+            })
+    }
+
+    /// Make a new bitmask with a given width (in bytes) using a float/int.
+    fn try_new(
+        width: PrivBytes,
+        range: Range,
+        i: MeasIndex,
+        flag: DisallowRangeTrunc,
+    ) -> DeferredSwitchableError<ConvertedRange<Self>, DisallowRangeTrunc, IndexedBitmaskError>
+    {
+        macro_rules! go {
+            ($t:ident) => {
+                $t::from_range_switch(range, flag).map_deferred_value(FunctorOnce::fmap_into_once)
+            };
+        }
+        let ret = match width {
+            PrivBytes::B1 => go!(Bitmask08),
+            PrivBytes::B2 => go!(Bitmask16),
+            PrivBytes::B3 => go!(Bitmask24),
+            PrivBytes::B4 => go!(Bitmask32),
+            PrivBytes::B5 => go!(Bitmask40),
+            PrivBytes::B6 => go!(Bitmask48),
+            PrivBytes::B7 => go!(Bitmask56),
+            PrivBytes::B8 => go!(Bitmask64),
+        };
+        ret.map_switchable_errors(|e| IndexedError::new(i, e))
+            .map_switchable_errors(IndexedBitmaskError)
+    }
+
+    // pub(crate) fn try_into_one_size<X, E, T>(
+    //     self,
+    //     tail: impl IntoIterator<Item = X>,
+    //     endian: Endian,
+    //     starting_index: usize,
+    // ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), (MeasIndex, E)>
+    // where
+    //     Bitmask08: TryFrom<X, Error = E>,
+    //     Bitmask16: TryFrom<X, Error = E>,
+    //     Bitmask24: TryFrom<X, Error = E>,
+    //     Bitmask32: TryFrom<X, Error = E>,
+    //     Bitmask40: TryFrom<X, Error = E>,
+    //     Bitmask48: TryFrom<X, Error = E>,
+    //     Bitmask56: TryFrom<X, Error = E>,
+    //     Bitmask64: TryFrom<X, Error = E>,
+    // {
+    //     match_any_uint!(self, Self, x, {
+    //         Bitmask::try_from_many(tail, starting_index)
+    //             .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()).into())
+    //     })
+    // }
+}
+
+// Implement methods for RowBuffer
+//
+// This includes most of code used for reading and writing bytes from DATA
 
 impl RowBuffer {
     fn init(max_size: RowBufferSize, nrows: usize, row_width: usize) -> Self {
@@ -6512,6 +6529,18 @@ impl RowBuffer {
     }
 }
 
+// Misc functions used throughout module
+
+fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
+    if buf.is_ascii() {
+        // SAFETY: we just checked that all bytes are ASCII
+        let s = unsafe { str::from_utf8_unchecked(buf) };
+        s.parse().map_err(AsciiToUintError::from)
+    } else {
+        Err(NotAsciiError(buf.to_vec()).into())
+    }
+}
+
 // TODO put these in a more general place
 fn u64_to_usize(x: u64) -> usize {
     usize::try_from(x).expect("overflow")
@@ -6519,33 +6548,6 @@ fn u64_to_usize(x: u64) -> usize {
 
 fn usize_to_u64(x: usize) -> u64 {
     u64::try_from(x).expect("overflow")
-}
-
-fn is_ascii_delim(x: u8) -> bool {
-    // tab, newline, carriage return, space, or comma
-    x == 9 || x == 10 || x == 13 || x == 32 || x == 44
-}
-
-impl<D> AnyEndianUintHeaders<D> {
-    pub(crate) fn try_new(
-        cs: Vec<ColumnLayoutValues<D>>,
-        e: Endian,
-        flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), IndexedBitmaskError, NewUintTypeError>
-    where
-        D: IsNumType,
-    {
-        ColumnGroup::try_new(cs, e, |i, c| {
-            AnyUint::from_width_and_range(c.width, c.range, i, flag).repack_errors()
-        })
-        .map_ok_value(|res| {
-            res.fmap_once(|c| {
-                let mut wrapped = Self::Multi(c);
-                wrapped.normalize();
-                wrapped
-            })
-        })
-    }
 }
 
 // type AnyWriterBitmask<'a> = AnyBitmask<

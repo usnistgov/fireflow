@@ -52,7 +52,8 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig, ReadEventsConfig,
+    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig,
+    ReadEventsConfig, WriteTEXTInnerConfig,
 };
 use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -114,12 +115,12 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{NonEmptyIterator as _, once},
 };
-use num_traits::{Bounded, FromBytes};
+use num_traits::{Bounded, FromBytes, ToBytes};
 use thiserror::Error;
 
 use std::convert::Infallible;
 use std::fmt;
-use std::io::{self, BufReader, Read, Seek, SeekFrom};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem;
 use std::num::{NonZeroU8, ParseIntError};
@@ -189,6 +190,7 @@ pub type DataFrame3_2 = Any3_2Layout<FFDataFrameFamily>;
 #[delegate(LayoutDatatype, where = "M: LayoutDims, N: LayoutDims")]
 #[delegate(LayoutKeywords, where = "M: LayoutDims, N: LayoutDims")]
 #[delegate(Removable<Range>)]
+#[delegate(WriteLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Any3_2<M, N> {
     Mixed(M),
@@ -243,6 +245,7 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[delegate(LayoutKeywords, where = "Delim: LayoutDims, Fixed: LayoutDims")]
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
+#[delegate(WriteLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyAscii<Delim, Fixed> {
     Delimited(Delim),
@@ -379,14 +382,15 @@ pub struct ColumnMarkers<T, D> {
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype, where = "W0: LayoutDims, W: LayoutDims")]
-#[delegate(LayoutKeywords, where = "W0: LayoutDims, W: LayoutDims")]
+#[delegate(LayoutDatatype, where = "Single: LayoutDims, Multi: LayoutDims")]
+#[delegate(LayoutKeywords, where = "Single: LayoutDims, Multi: LayoutDims")]
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
+#[delegate(WriteLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum AnyEndianUint<W0, W> {
-    Single(W0),
-    Multi(W),
+pub enum AnyEndianUint<Single, Multi> {
+    Single(Single),
+    Multi(Multi),
 }
 
 type AnyEndianUintGroup<Fam, D> = AnyEndianUint<
@@ -472,6 +476,7 @@ where
 )]
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
+#[delegate(WriteLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyDatatype<A, U, F, D> {
     Ascii(A),
@@ -545,6 +550,7 @@ pub type MixedColumn = AnyDatatype<
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(OrderedLayoutOps)]
+#[delegate(WriteLayoutOps)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
     Uint08(C08),
@@ -1636,8 +1642,8 @@ macro_rules! match_map_endian_uint {
 //
 // This is the main trait that public-facing APIs will use.
 
-/// A version-specific data layout.
-pub trait VersionedDataLayout
+/// A version-specific data layout with just headers (no DATA).
+pub trait VersionedDataHeaders
 where
     for<'a> Self: Sized
         + ReadLayoutOps<Self::Tot>
@@ -1787,7 +1793,7 @@ where
     }
 }
 
-impl VersionedDataLayout for DataHeaders2_0 {
+impl VersionedDataHeaders for DataHeaders2_0 {
     type ByteLayout = ByteOrd2_0;
     type NumType = Nothing<NumType>;
     type Tot = Option<Tot>;
@@ -1823,7 +1829,7 @@ impl VersionedDataLayout for DataHeaders2_0 {
     }
 }
 
-impl VersionedDataLayout for DataHeaders3_0 {
+impl VersionedDataHeaders for DataHeaders3_0 {
     type ByteLayout = ByteOrd2_0;
     type NumType = Nothing<NumType>;
     type Tot = Identity<Tot>;
@@ -1859,7 +1865,7 @@ impl VersionedDataLayout for DataHeaders3_0 {
     }
 }
 
-impl VersionedDataLayout for DataHeaders3_1 {
+impl VersionedDataHeaders for DataHeaders3_1 {
     type ByteLayout = Endian;
     type NumType = Nothing<NumType>;
     type Tot = Identity<Tot>;
@@ -1896,7 +1902,7 @@ impl VersionedDataLayout for DataHeaders3_1 {
     }
 }
 
-impl VersionedDataLayout for DataHeaders3_2 {
+impl VersionedDataHeaders for DataHeaders3_2 {
     type ByteLayout = ByteOrd3_1;
     type NumType = Option<NumType>;
     type Tot = Identity<Tot>;
@@ -1970,6 +1976,33 @@ impl VersionedDataLayout for DataHeaders3_2 {
         }
     }
 }
+
+// Implement version specific ops for dataframes
+
+/// A version-specific dataframe (headers + DATA)
+pub trait VersionedDataFrame
+where
+    for<'a> Self: Sized
+        + WriteLayoutOps
+        + LayoutDatatype
+        + LayoutDims
+        + NormalizableLayout
+        // + Removable<Range>
+        + OptMeasLayoutKeywords,
+{
+    fn h_write_df<W>(&mut self, h: &mut BufWriter<W>, conf: &WriteTEXTInnerConfig) -> io::Result<()>
+    where
+        W: Write,
+    {
+        self.normalize();
+        self.h_write_df_inner(h, conf)
+    }
+}
+
+impl VersionedDataFrame for DataFrame2_0 {}
+impl VersionedDataFrame for DataFrame3_0 {}
+impl VersionedDataFrame for DataFrame3_1 {}
+impl VersionedDataFrame for DataFrame3_2 {}
 
 // Implement base traits for layouts
 //
@@ -2752,6 +2785,76 @@ fn is_ascii_delim(x: u8) -> bool {
     x == 9 || x == 10 || x == 13 || x == 32 || x == 44
 }
 
+// Implement write ops for dataframes
+
+/// A headers type that can be converted to a dataframe by reading a bytestream.
+#[delegatable_trait]
+pub trait WriteLayoutOps: Sized {
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteTEXTInnerConfig,
+    ) -> io::Result<()>;
+}
+
+impl<Col, I, Layout, const ORD: bool, TotType, Dtype> WriteLayoutOps
+    for ColumnGroup<
+        FFDataFrame<Col>,
+        FFDataFrameFamily,
+        I,
+        Layout,
+        ColumnMarkers<TotType, Dtype>,
+        ORD,
+    >
+where
+    Self: FixedWrite,
+{
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteTEXTInnerConfig,
+    ) -> io::Result<()> {
+        self.h_write_fixed_df(h, conf)
+    }
+}
+
+// delim ASCII needs to be handled differently, this is almost certainly not
+// optimal but nobody will likely notice ;)
+impl<const ORD: bool, TotType, Dtype> WriteLayoutOps
+    for ColumnGroup<
+        FFDataFrame<NativeColumn<DelimAsciiRange>>,
+        FFDataFrameFamily,
+        DelimAsciiCol,
+        NoByteOrd<ORD>,
+        ColumnMarkers<TotType, Dtype>,
+        ORD,
+    >
+{
+    fn h_write_df_inner<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        _: &WriteTEXTInnerConfig,
+    ) -> io::Result<()> {
+        let df = &self.container;
+        let ncols = df.ncols();
+        let nrows = df.nrows();
+
+        for row_idx in 0..nrows {
+            for (col_idx, col) in df.iter_columns().enumerate() {
+                let xs = col.data.as_ref();
+                let s = xs[row_idx].to_string();
+                h.write_all(s.as_bytes())?;
+                // write delimiter after all but last value
+                if !(row_idx == nrows - 1 && col_idx == ncols - 1) {
+                    h.write_all(&[32])?; // 32 = space in ASCII
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
+
 // Implement low-level reading for header layouts with fixed width.
 //
 // All the "fast" code for reading DATA is here. Each impl is mostly a loop
@@ -2807,8 +2910,8 @@ fn is_ascii_delim(x: u8) -> bool {
 // For (2), cache coherence is attained in all loops via a buffer which will
 // contain a fixed number of rows that fix nicely in CPU cache (ideally L1d).
 // Without this, most files will result in constant cache misses since FCS files
-// are row major and we wish to store data in column major. See the RowBuffer type
-// for more details.
+// are row major and we wish to store data in column major. See the RowBuffer
+// type for more details.
 //
 // In the loops below, this is achieved via 3 sub-loops (from outer to inner):
 // - read N rows from DATA and store in buffer
@@ -2828,6 +2931,7 @@ fn is_ascii_delim(x: u8) -> bool {
 trait FixedLayoutIO {
     type DfTarget;
 
+    // TODO move this up one level of trait
     fn h_read_unchecked_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
@@ -3106,7 +3210,7 @@ where
     W: TryFrom<MixedRange>,
     (Vec<C::Native>, W): Into<MixedVec>,
     C: HasNativeType,
-    C::Native: Default + Clone,
+    C::Native: Default + Clone + FCSRepr,
 {
     if let Ok(cs) = ranges
         .iter()
@@ -3125,6 +3229,101 @@ where
         Ok(Some(ret))
     } else {
         Ok(None)
+    }
+}
+
+// Implemement low level fixed writing
+
+trait FixedWrite {
+    fn h_write_fixed_df<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteTEXTInnerConfig,
+    ) -> io::Result<()>;
+}
+
+// basic write loop for most use cases
+impl<C, L, I, M, const ORD: bool> FixedWrite
+    for ColumnGroup<FFDataFrame<NativeColumn<C>>, FFDataFrameFamily, I, L, M, ORD>
+where
+    L: ByteLayoutIO<C> + Copy,
+    C: HasNativeType + IsBinary + Clone,
+    C::Native: FCSRepr + PartialOrd,
+{
+    fn h_write_fixed_df<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteTEXTInnerConfig,
+    ) -> io::Result<()> {
+        let nrows = self.container.nrows();
+        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let cols = self.container.as_ref();
+        self.byte_layout.write_matrix(h, &mut row_buf, cols)
+    }
+}
+
+// ASCII-specific loop which involves possibility of failure after reading every
+// value
+impl<M, const ORD: bool> FixedWrite
+    for ColumnGroup<
+        FFDataFrame<NativeColumn<FixedAsciiRange>>,
+        FFDataFrameFamily,
+        FixedAsciiCol,
+        NoByteOrd<ORD>,
+        M,
+        ORD,
+    >
+{
+    fn h_write_fixed_df<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteTEXTInnerConfig,
+    ) -> io::Result<()> {
+        let nrows = self.container.nrows();
+        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let cols = self.container.as_ref();
+        row_buf.write_char_matrix(h, cols)
+    }
+}
+
+// Variable uint-layout which will try to normalize to a single-width layout,
+// otherwise using a slower loop with branching to deal with the different
+// widths.
+impl<M> FixedWrite
+    for ColumnGroup<FFDataFrame<AnyBitmaskColumn>, FFDataFrameFamily, UvarCol, Endian, M, false>
+{
+    fn h_write_fixed_df<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteTEXTInnerConfig,
+    ) -> io::Result<()> {
+        let nrows = self.container.nrows();
+        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let cols = self.container.as_ref();
+        row_buf.write_any_uint_df(h, cols, self.byte_layout)
+    }
+}
+
+// loop for mixed layouts which will first try to normalize to a simpler layout
+// with one type, next try to read as one type and cast to others if there are
+// multiple types of the same width (just as fast as the first), and finally
+// falling back on a slower loop with branching to deal with multiple
+// types/widths.
+impl<M> FixedWrite
+    for ColumnGroup<FFDataFrame<MixedColumn>, FFDataFrameFamily, MixedCol, Endian, M, false>
+{
+    fn h_write_fixed_df<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        conf: &WriteTEXTInnerConfig,
+    ) -> io::Result<()> {
+        let nrows = self.container.nrows();
+        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let cols = self.container.as_ref();
+        // TODO use the 32/64 width cheat, which will involve unifying this with
+        // the read logic above, which will also involve moving the range checks
+        // outside this low-level IO stuff
+        row_buf.write_mixed_df(h, cols, self.byte_layout)
     }
 }
 
@@ -3824,7 +4023,15 @@ impl NormalizableLayout for DataHeaders2_0 {
     fn normalize(&mut self) {}
 }
 
+impl NormalizableLayout for DataFrame2_0 {
+    fn normalize(&mut self) {}
+}
+
 impl NormalizableLayout for DataHeaders3_0 {
+    fn normalize(&mut self) {}
+}
+
+impl NormalizableLayout for DataFrame3_0 {
     fn normalize(&mut self) {}
 }
 
@@ -4216,6 +4423,16 @@ impl IsFixed for FixedAsciiRange {
 
     fn fixed_width(&self) -> BitsOrChars {
         BitsOrChars(self.chars().into())
+    }
+}
+
+impl IsFixed for NativeColumn<FixedAsciiRange> {
+    fn nbytes(&self) -> NonZeroU8 {
+        self.header.nbytes()
+    }
+
+    fn fixed_width(&self) -> BitsOrChars {
+        self.header.fixed_width()
     }
 }
 
@@ -4878,17 +5095,27 @@ where
 // type and then cast to other types), each byte layout can be mapped to a
 // specialized loop which reads all bytes as a matrix.
 
-trait ByteLayoutIO<C: HasNativeType> {
+trait ByteLayoutIO<C: HasNativeType>
+where
+    C::Native: FCSRepr,
+{
     fn read_matrix<R: Read>(
         &self,
         h: &mut BufReader<R>,
         buf: &mut RowBuffer,
         cols: &mut Vec<Vec<C::Native>>,
     ) -> io::Result<()>;
+
+    fn write_matrix<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        buf: &mut RowBuffer,
+        cols: &[NativeColumn<C>],
+    ) -> io::Result<()>;
 }
 
 macro_rules! impl_byte_layout_io {
-    ($inner:path, $layout:path, $fun:ident) => {
+    ($inner:path, $layout:path, $read_fun:ident, $write_fun:ident) => {
         impl ByteLayoutIO<$inner> for $layout {
             fn read_matrix<R: Read>(
                 &self,
@@ -4896,7 +5123,16 @@ macro_rules! impl_byte_layout_io {
                 buf: &mut RowBuffer,
                 cols: &mut Vec<Vec<<$inner as HasNativeType>::Native>>,
             ) -> io::Result<()> {
-                buf.$fun(h, cols, *self)
+                buf.$read_fun(h, cols, *self)
+            }
+
+            fn write_matrix<W: Write>(
+                &self,
+                h: &mut BufWriter<W>,
+                buf: &mut RowBuffer,
+                cols: &[NativeColumn<$inner>],
+            ) -> io::Result<()> {
+                buf.$write_fun(h, cols, *self)
             }
         }
     };
@@ -4907,14 +5143,15 @@ macro_rules! impl_ordered_layout_io {
         impl_byte_layout_io!(
             $t,
             ArrayByteOrd<<<$t as HasNativeType>::Native as FCSRepr>::ByteOrd>,
-            read_ordered_matrix
+            read_ordered_matrix,
+            write_ordered_matrix
         );
     };
 }
 
 macro_rules! impl_endian_layout_io {
     ($t:ident) => {
-        impl_byte_layout_io!($t, Endian, read_endian_matrix);
+        impl_byte_layout_io!($t, Endian, read_endian_matrix, write_endian_matrix);
     };
 }
 
@@ -5544,7 +5781,7 @@ where
     FixedAsciiCol: IsCol<VecFamily, ORD, Inner = FixedAsciiRange, Layout = NoByteOrd<ORD>>,
     DelimAsciiCol: IsCol<VecFamily, ORD, Inner = DelimAsciiRange, Layout = NoByteOrd<ORD>>,
 {
-    pub(crate) fn try_new(
+    fn try_new(
         cs: Vec<ColumnLayoutValues<D>>,
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<
@@ -6036,7 +6273,7 @@ impl<T> FloatRange<T> {
     /// Make new float range from $PnB and $PnR values.
     ///
     /// Will return an error if $PnB is the incorrect size.
-    pub(crate) fn from_width_and_range(
+    fn from_width_and_range(
         width: Width,
         range: Range,
         i: MeasIndex,
@@ -6079,7 +6316,7 @@ impl MixedRange {
     }
 
     /// Make a new mixed range from $PnB and $PnR, and $PnDATATYPE values
-    pub(crate) fn from_width_and_range(
+    fn from_width_and_range(
         width: Width,
         range: Range,
         datatype: Option<NumType>,
@@ -6209,28 +6446,6 @@ impl AnyBitmask {
         ret.map_switchable_errors(|e| IndexedError::new(i, e))
             .map_switchable_errors(IndexedBitmaskError)
     }
-
-    // pub(crate) fn try_into_one_size<X, E, T>(
-    //     self,
-    //     tail: impl IntoIterator<Item = X>,
-    //     endian: Endian,
-    //     starting_index: usize,
-    // ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), (MeasIndex, E)>
-    // where
-    //     Bitmask08: TryFrom<X, Error = E>,
-    //     Bitmask16: TryFrom<X, Error = E>,
-    //     Bitmask24: TryFrom<X, Error = E>,
-    //     Bitmask32: TryFrom<X, Error = E>,
-    //     Bitmask40: TryFrom<X, Error = E>,
-    //     Bitmask48: TryFrom<X, Error = E>,
-    //     Bitmask56: TryFrom<X, Error = E>,
-    //     Bitmask64: TryFrom<X, Error = E>,
-    // {
-    //     match_any_uint!(self, Self, x, {
-    //         Bitmask::try_from_many(tail, starting_index)
-    //             .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()).into())
-    //     })
-    // }
 }
 
 // Implement methods for RowBuffer
@@ -6410,6 +6625,39 @@ impl RowBuffer {
         Ok(())
     }
 
+    /// Read stream of bytes using buffer where each value is the same type
+    fn write_matrix<W, C, T, F>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        cols: &[NativeColumn<C>],
+        to_buf: F,
+    ) -> io::Result<()>
+    where
+        W: Write,
+        C: HasNativeType<Native = T>,
+        F: Fn(&T) -> T::FileBuf,
+        T: FCSRepr,
+    {
+        unimplemented!()
+    }
+
+    fn write_columns<C, W, Fr, Fw>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        columns: &[C],
+        mut fread: Fr,
+        fwidth: Fw,
+    ) -> io::Result<()>
+    where
+        W: Write,
+        // TODO newtype these indices to be less confusing
+        // dst bytes, dst index, src bytes, src index, column_index
+        Fr: FnMut(&mut C, usize, &[u8], usize),
+        Fw: Fn(usize) -> usize,
+    {
+        unimplemented!()
+    }
+
     /// Read a matrix where type is an aligned big or little endian value.
     fn read_endian_matrix<R, T>(
         &mut self,
@@ -6525,6 +6773,117 @@ impl RowBuffer {
         match endian {
             Endian::Big => self.read_columns(h, cols, AnyDatatype::read_be, |i| src_widths[i]),
             Endian::Little => self.read_columns(h, cols, AnyDatatype::read_le, |i| src_widths[i]),
+        }
+    }
+
+    /// Write a matrix where type is an aligned big or little endian value.
+    fn write_endian_matrix<W, C, T>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        cols: &[NativeColumn<C>],
+        endian: Endian,
+    ) -> io::Result<()>
+    where
+        W: Write,
+        C: HasNativeType<Native = T>,
+        T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
+    {
+        match endian {
+            Endian::Big => self.write_matrix(h, cols, T::to_be_bytes),
+            Endian::Little => self.write_matrix(h, cols, T::to_le_bytes),
+        }
+    }
+
+    /// Write a matrix where type is an aligned big, little, or mixed endian value.
+    fn write_ordered_matrix<W, C, T>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        cols: &[NativeColumn<C>],
+        s: ArrayByteOrd<T::ByteOrd>,
+    ) -> io::Result<()>
+    where
+        W: Write,
+        C: HasNativeType<Native = T>,
+        T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
+        T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+        T::ByteOrd: AsRef<[u8]>,
+    {
+        match s {
+            ArrayByteOrd::Endian(e) => self.write_endian_matrix(h, cols, e),
+            ArrayByteOrd::Order(o) => self.write_matrix(h, cols, |bs| T::to_ordered_bytes(bs, &o)),
+        }
+    }
+
+    /// Write a matrix where input bytes characters are to be read as u64
+    fn write_char_matrix<W: Write>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        cols: &[NativeColumn<FixedAsciiRange>],
+    ) -> io::Result<()> {
+        let ranges: Vec<_> = cols
+            .iter()
+            .map(|c| usize::from(u8::from(c.header.chars())))
+            .collect();
+        self.write_columns(
+            h,
+            cols,
+            |dst, dst_index, src, src_index| {
+                unimplemented!();
+                // let src_width = usize::from(u8::from(dst.range.chars()));
+                // let x = ascii_to_uint(&src[src_index..src_index + src_width])?;
+                // dst.data[dst_index] = x;
+                // Ok(())
+            },
+            |i| ranges[i],
+        )
+    }
+
+    /// Write a dataframe of unsigned integers with different widths
+    fn write_any_uint_df<W: Write>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        cols: &[AnyBitmaskColumn],
+        endian: Endian,
+    ) -> io::Result<()> {
+        let src_widths: Vec<_> = cols
+            .iter()
+            .map(|c| usize::from(u8::from(c.bytes())))
+            .collect();
+        match endian {
+            Endian::Big => self.write_columns(
+                h,
+                cols,
+                |dst, dst_index, src, src_index| dst.read_be(dst_index, src, src_index),
+                |i| src_widths[i],
+            ),
+            Endian::Little => self.write_columns(
+                h,
+                cols,
+                |dst, dst_index, src, src_index| dst.read_le(dst_index, src, src_index),
+                |i| src_widths[i],
+            ),
+        }
+    }
+
+    /// Write a dataframe of any mix of column types
+    fn write_mixed_df<W: Write>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        cols: &[MixedColumn],
+        endian: Endian,
+    ) -> io::Result<()> {
+        let src_widths: Vec<_> = cols
+            .iter()
+            .map(|c| match c {
+                AnyDatatype::Ascii(x) => usize::from(u8::from(x.header.chars())),
+                AnyDatatype::Uint(x) => usize::from(u8::from(x.bytes())),
+                AnyDatatype::F32(_) => 4,
+                AnyDatatype::F64(_) => 8,
+            })
+            .collect();
+        match endian {
+            Endian::Big => self.write_columns(h, cols, AnyDatatype::read_be, |i| src_widths[i]),
+            Endian::Little => self.write_columns(h, cols, AnyDatatype::read_le, |i| src_widths[i]),
         }
     }
 }

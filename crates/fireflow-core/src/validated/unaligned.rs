@@ -143,6 +143,20 @@ pub trait FCSRepr {
         Self::from_le_bytes(&buf)
     }
 
+    fn to_ordered_bytes(&self, order: &Self::ByteOrd) -> Self::FileBuf
+    where
+        Self: ToBytes<Bytes = Self::FileBuf>,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+        Self::ByteOrd: AsRef<[u8]>,
+    {
+        let bytes = self.to_le_bytes();
+        let mut buf = Self::FileBuf::default();
+        for (i, j) in order.as_ref().iter().enumerate() {
+            buf.as_mut()[i] = bytes.as_ref()[usize::from(*j)];
+        }
+        buf
+    }
+
     /// Read an FCS value from a byte stream.
     ///
     /// # SAFETY

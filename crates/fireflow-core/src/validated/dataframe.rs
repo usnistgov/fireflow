@@ -113,11 +113,12 @@ pub type U64Column = PrimitiveColumn<u64>;
 pub type F32Column = PrimitiveColumn<f32>;
 pub type F64Column = PrimitiveColumn<f64>;
 
-#[derive(Clone, PartialEq, Into, new)]
+#[derive(Clone, PartialEq, Into, AsRef, new)]
 #[repr(transparent)]
 #[new(visibility = "")]
 pub(crate) struct InternalColumn<T, Raw> {
     #[into(PrimitiveColumn<T>)]
+    #[as_ref([T])]
     inner: Buffer<T>,
     _outer: PhantomData<Raw>,
 }

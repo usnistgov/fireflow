@@ -14,7 +14,7 @@ use crate::data::{
     IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims, LayoutKeywords,
     LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
     NewDataLayoutError, OptMeasLayoutKeywords as _, ReadDataframeError, ReadDataframeWarning,
-    ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataLayout,
+    ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataHeaders,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -1566,8 +1566,8 @@ pub trait AsScaleOrTransform {
 }
 
 pub trait Versioned {
-    type Layout: VersionedDataLayout;
-    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataLayout>::Tot>;
+    type Layout: VersionedDataHeaders;
+    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataHeaders>::Tot>;
 
     fn fcs_version() -> Version;
 }
@@ -4591,7 +4591,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: VersionedDataLayout,
+        <M::Ver as Versioned>::Layout: VersionedDataHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4632,7 +4632,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: VersionedDataLayout,
+        <M::Ver as Versioned>::Layout: VersionedDataHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4657,7 +4657,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: VersionedDataLayout,
+        <M::Ver as Versioned>::Layout: VersionedDataHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
         M::Optical: LookupOptical + AsScaleOrTransform,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -5114,7 +5114,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
 impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetaroot,
-    <M::Ver as Versioned>::Layout: VersionedDataLayout,
+    <M::Ver as Versioned>::Layout: VersionedDataHeaders,
 {
     pub fn new_from_keywords<C>(
         p: &PathBuf,

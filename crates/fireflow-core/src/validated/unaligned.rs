@@ -137,7 +137,6 @@ pub trait FCSRepr {
         Self::from_le_bytes(&buf)
     }
 
-    #[must_use]
     fn to_be_slice(&self, dst: &mut [u8], index: DstIndex)
     where
         Self: ToBytes<Bytes = Self::FileBuf>,
@@ -148,7 +147,6 @@ pub trait FCSRepr {
         dst.as_mut()[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
     }
 
-    #[must_use]
     fn to_le_slice(&self, dst: &mut [u8], index: DstIndex)
     where
         Self: ToBytes<Bytes = Self::FileBuf>,

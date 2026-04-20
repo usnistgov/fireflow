@@ -439,6 +439,17 @@ pub type NativeColumn<C> = AnnotatedColumn<
     <C as HasNativeType>::Native,
 >;
 
+impl<T> AsRef<[T::Native]> for NativeColumn<T>
+where
+    T: HasNativeType,
+    T::Native: FCSRepr,
+    InternalColumn<<T::Native as FCSRepr>::Prim, T::Native>: AsRef<[T::Native]>,
+{
+    fn as_ref(&self) -> &[T::Native] {
+        self.data.as_ref()
+    }
+}
+
 impl<T> From<RangedVec<T, T::Native>> for NativeColumn<T>
 where
     T: HasNativeType,
@@ -2845,7 +2856,7 @@ impl<const ORD: bool, TotType, Dtype> WriteLayoutOps
 
         for row_idx in 0..nrows {
             for (col_idx, col) in df.iter_columns().enumerate() {
-                let xs = col.data.as_ref();
+                let xs = col.as_ref();
                 let s = xs[row_idx].to_string();
                 h.write_all(s.as_bytes())?;
                 // write delimiter after all but last value
@@ -6207,23 +6218,16 @@ macro_rules! decl_mixed_read {
 
 macro_rules! decl_mixed_write {
     ($name:ident, $int_fun:ident, $float_fun:ident) => {
-        fn $name(
-            &self,
-            src_index: SrcIndex,
-            dst: &mut [u8],
-            dst_index: DstIndex,
-        ) -> Result<(), AsciiToUintError> {
+        fn $name(&self, src_index: SrcIndex, dst: &mut [u8], dst_index: DstIndex) {
             match self {
                 Self::Ascii(xs) => {
-                    let dst_width = usize::from(u8::from(xs.header.chars()));
-                    xs.data.as_ref()[dst_index.0] =
-                        ascii_to_uint(&dst[dst_index.0..dst_index.0 + dst_width]);
+                    let v = xs.as_ref()[src_index.0];
+                    xs.header.to_slice_unchecked(v, dst, dst_index);
                 }
                 Self::Uint(xs) => xs.$int_fun(src_index, dst, dst_index),
-                Self::F32(xs) => xs.data.as_ref()[src_index.0].$float_fun(dst, dst_index),
-                Self::F64(xs) => xs.data.as_ref()[src_index.0].$float_fun(dst, dst_index),
+                Self::F32(xs) => xs.as_ref()[src_index.0].$float_fun(dst, dst_index),
+                Self::F64(xs) => xs.as_ref()[src_index.0].$float_fun(dst, dst_index),
             }
-            Ok(())
         }
     };
 }
@@ -6284,26 +6288,26 @@ macro_rules! decl_uint_write {
     ($name:ident, $fun:ident) => {
         fn $name(&self, src_index: SrcIndex, dst: &mut [u8], dst_index: DstIndex) {
             match self {
-                Self::Uint08(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
-                Self::Uint16(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
+                Self::Uint08(xs) => xs.as_ref()[src_index.0].$fun(dst, dst_index),
+                Self::Uint16(xs) => xs.as_ref()[src_index.0].$fun(dst, dst_index),
                 Self::Uint24(xs) => {
-                    let ys: &[U24] = xs.data.as_ref();
+                    let ys: &[U24] = xs.as_ref();
                     ys[src_index.0].$fun(dst, dst_index);
                 }
-                Self::Uint32(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
+                Self::Uint32(xs) => xs.as_ref()[src_index.0].$fun(dst, dst_index),
                 Self::Uint40(xs) => {
-                    let ys: &[U40] = xs.data.as_ref();
+                    let ys: &[U40] = xs.as_ref();
                     ys[src_index.0].$fun(dst, dst_index);
                 }
                 Self::Uint48(xs) => {
-                    let ys: &[U48] = xs.data.as_ref();
+                    let ys: &[U48] = xs.as_ref();
                     ys[src_index.0].$fun(dst, dst_index);
                 }
                 Self::Uint56(xs) => {
-                    let ys: &[U56] = xs.data.as_ref();
+                    let ys: &[U56] = xs.as_ref();
                     ys[src_index.0].$fun(dst, dst_index);
                 }
-                Self::Uint64(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
+                Self::Uint64(xs) => xs.as_ref()[src_index.0].$fun(dst, dst_index),
             }
         }
     };
@@ -6829,11 +6833,11 @@ impl ReadBuffer {
 }
 
 impl WriteBuffer {
-    fn write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn write<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
         h.write_all(&self.bytes[..])
     }
 
-    fn write_remainder<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn write_remainder<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
         let n = self.remainder_bytes();
         h.write_all(&self.bytes[..n])
     }
@@ -6902,15 +6906,8 @@ impl WriteBuffer {
         F: Fn(&T) -> T::FileBuf,
         T: FCSRepr,
     {
-        // This method has several nice optimizations:
-        // 1. No errors on the inner two loops
-        // 2. All values have the same byte layout, which means we don't need
-        //    to dispatch different methods for different columns
-        // 3. Using the assertions below and some unsafe code, we can remove
-        //    all bounds checks on the inner loop.
-        //
-        // 1-3 above mean that that two inner loops have no jumps, which means
-        // the compiler can unroll the loops and possibly autovectorize.
+        // This has similar analogous optimizations and assumptions as
+        // ReadBuffer::read_matrix
         let dst_len = T::file_len();
         assert!(
             columns.iter().all(|c| c.len() == self.nrows),
@@ -6925,7 +6922,7 @@ impl WriteBuffer {
             "invalid whole reads number"
         );
 
-        // Read groups of rows in outer loop
+        // Write groups of rows in outer loop
         for buf_idx in 0..self.whole_row_number() {
             let start_row = buf_idx * self.rows_per_buffer;
             // Once we have a buffer, iterate through each column and write data
@@ -6934,7 +6931,7 @@ impl WriteBuffer {
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
                 let end_row = start_row + self.rows_per_buffer;
-                let local_c = &c.data.as_ref()[start_row..end_row];
+                let local_c = &c.as_ref()[start_row..end_row];
                 for (row, value) in local_c.iter().enumerate() {
                     let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                     debug_assert!(
@@ -6951,18 +6948,20 @@ impl WriteBuffer {
                     // - 1) + (column_number - 1) * LEN. Adding LEN to the end
                     // of this exactly equals the size of the buffer itself in
                     // bytes, which means what follows can never overflow.
-                    unsafe { T::array_to_slice(&buf, &mut self.bytes, dst_idx) };
+                    unsafe {
+                        T::array_to_slice(&buf, &mut self.bytes, dst_idx);
+                    };
                 }
             }
             self.write(h)?;
         }
 
-        // Read remaining rows if they exist
+        // Write remaining rows if they exist
         let remainder_rows = self.remainder_row_number();
         let dst_row_offset = self.whole_row_number() * self.rows_per_buffer;
         for (ci, c) in columns.iter().enumerate() {
             let dst_col_offset = ci * dst_len;
-            let local_c = &c.data.as_ref()[dst_row_offset..dst_row_offset + remainder_rows];
+            let local_c = &c.as_ref()[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter().enumerate() {
                 let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                 debug_assert!(
@@ -6971,7 +6970,9 @@ impl WriteBuffer {
                 );
                 let buf = to_buf(value);
                 // SAFETY: see above
-                unsafe { T::array_to_slice(&buf, &mut self.bytes, dst_idx) };
+                unsafe {
+                    T::array_to_slice(&buf, &mut self.bytes, dst_idx);
+                };
             }
         }
 
@@ -7033,12 +7034,9 @@ impl WriteBuffer {
         self.write_columns(
             h,
             cols,
-            |dst, dst_index, src, src_index| {
-                unimplemented!();
-                // let src_width = usize::from(u8::from(dst.range.chars()));
-                // let x = ascii_to_uint(&src[src_index..src_index + src_width])?;
-                // dst.data[dst_index] = x;
-                // Ok(())
+            |src, src_index, dst, dst_index| {
+                let v = src.as_ref()[src_index.0];
+                src.header.to_slice_unchecked(v, dst, dst_index);
             },
             |i| ranges[i],
         )
@@ -7056,18 +7054,8 @@ impl WriteBuffer {
             .map(|c| usize::from(u8::from(c.bytes())))
             .collect();
         match endian {
-            Endian::Big => self.write_columns(
-                h,
-                cols,
-                |src, src_index, dst, dst_index| src.write_be(src_index, dst, dst_index),
-                |i| src_widths[i],
-            ),
-            Endian::Little => self.write_columns(
-                h,
-                cols,
-                |src, src_index, dst, dst_index| src.write_le(src_index, dst, dst_index),
-                |i| src_widths[i],
-            ),
+            Endian::Big => self.write_columns(h, cols, AnyUint::write_be, |i| src_widths[i]),
+            Endian::Little => self.write_columns(h, cols, AnyUint::write_le, |i| src_widths[i]),
         }
     }
 

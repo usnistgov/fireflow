@@ -10,12 +10,16 @@ use crate::validated::keys::IndexedKey as _;
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use std::fmt;
-use std::num::{NonZero, NonZeroU8, NonZeroUsize};
 use thiserror::Error;
+
+use std::fmt;
+use std::io::{self, BufWriter, Write};
+use std::num::{NonZero, NonZeroU8, NonZeroUsize};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::unaligned::DstIndex;
 
 #[cfg(feature = "python")]
 use {
@@ -118,6 +122,11 @@ impl From<&DelimAsciiRange> for Range {
 }
 
 impl FixedAsciiRange {
+    #[must_use]
+    pub fn value(&self) -> AsciiRangeValue {
+        self.value
+    }
+
     pub(crate) fn try_new_from_chars(
         value: AsciiRangeValue,
         chars: Chars,
@@ -192,9 +201,17 @@ impl FixedAsciiRange {
         self.chars
     }
 
-    #[must_use]
-    pub fn value(&self) -> AsciiRangeValue {
-        self.value
+    pub(crate) fn to_slice_unchecked(&self, value: u64, dst: &mut [u8], dst_index: DstIndex) {
+        let i = dst_index.0;
+        let width = usize::from(u8::from(self.chars()));
+        let str_value = value.to_string();
+        debug_assert!(i + width <= dst.len(), "new value will overflow");
+        debug_assert!(str_value.len() <= width, "ASCII value will be truncated");
+        let n_zero = width - str_value.len();
+        for j in i..i + n_zero {
+            dst[j] = b'0';
+        }
+        dst[i + n_zero..i + width].copy_from_slice(str_value.as_bytes());
     }
 }
 

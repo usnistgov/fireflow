@@ -96,7 +96,7 @@ use crate::validated::dataframe::{
     PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
-use crate::validated::unaligned::{FCSRepr, U24, U40, U48, U56};
+use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{RowBufferSize, TruncateEventValues};
@@ -764,13 +764,17 @@ impl TruncatedResult {
 /// the buffer) to fit in the CPU's cache (ideally L1d). In practice, final
 /// speed will be determined by the balance between syscall overhead for reads
 /// and writes vs cache misses.
-struct RowBuffer {
+struct RowBuffer<const IS_READ: bool> {
     nrows: usize,
     row_width: usize,
     rows_per_buffer: usize,
     buf_size: u64,
     bytes: Vec<u8>,
 }
+
+type ReadBuffer = RowBuffer<true>;
+
+type WriteBuffer = RowBuffer<false>;
 
 type MixedVec = AnyDatatype<
     RangedVec<FixedAsciiRange, u64>,
@@ -3202,7 +3206,7 @@ fn try_single<R, W, C>(
     ranges: &[MixedRange],
     nrows: usize,
     endian: Endian,
-    row_buf: &mut RowBuffer,
+    row_buf: &mut ReadBuffer,
 ) -> io::Result<Option<Vec<MixedVec>>>
 where
     R: Read,
@@ -5102,14 +5106,14 @@ where
     fn read_matrix<R: Read>(
         &self,
         h: &mut BufReader<R>,
-        buf: &mut RowBuffer,
+        buf: &mut ReadBuffer,
         cols: &mut Vec<Vec<C::Native>>,
     ) -> io::Result<()>;
 
     fn write_matrix<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        buf: &mut RowBuffer,
+        buf: &mut WriteBuffer,
         cols: &[NativeColumn<C>],
     ) -> io::Result<()>;
 }
@@ -5120,7 +5124,7 @@ macro_rules! impl_byte_layout_io {
             fn read_matrix<R: Read>(
                 &self,
                 h: &mut BufReader<R>,
-                buf: &mut RowBuffer,
+                buf: &mut ReadBuffer,
                 cols: &mut Vec<Vec<<$inner as HasNativeType>::Native>>,
             ) -> io::Result<()> {
                 buf.$read_fun(h, cols, *self)
@@ -5129,7 +5133,7 @@ macro_rules! impl_byte_layout_io {
             fn write_matrix<W: Write>(
                 &self,
                 h: &mut BufWriter<W>,
-                buf: &mut RowBuffer,
+                buf: &mut WriteBuffer,
                 cols: &[NativeColumn<$inner>],
             ) -> io::Result<()> {
                 buf.$write_fun(h, cols, *self)
@@ -6181,19 +6185,43 @@ macro_rules! decl_mixed_read {
     ($name:ident, $int_fun:ident, $float_fun:ident) => {
         fn $name(
             &mut self,
-            dst_index: usize,
+            dst_index: DstIndex,
             src: &[u8],
-            src_index: usize,
+            src_index: SrcIndex,
         ) -> Result<(), AsciiToUintError> {
             match self {
                 Self::Ascii(xs) => {
                     let src_width = usize::from(u8::from(xs.range.chars()));
-                    xs.data[dst_index] = ascii_to_uint(&src[src_index..src_index + src_width])?;
+                    xs.data[dst_index.0] =
+                        ascii_to_uint(&src[src_index.0..src_index.0 + src_width])?;
                     return Ok(());
                 }
                 Self::Uint(xs) => xs.$int_fun(dst_index, src, src_index),
-                Self::F32(xs) => xs.data[dst_index] = f32::$float_fun(src, src_index),
-                Self::F64(xs) => xs.data[dst_index] = f64::$float_fun(src, src_index),
+                Self::F32(xs) => xs.data[dst_index.0] = f32::$float_fun(src, src_index),
+                Self::F64(xs) => xs.data[dst_index.0] = f64::$float_fun(src, src_index),
+            }
+            Ok(())
+        }
+    };
+}
+
+macro_rules! decl_mixed_write {
+    ($name:ident, $int_fun:ident, $float_fun:ident) => {
+        fn $name(
+            &self,
+            src_index: SrcIndex,
+            dst: &mut [u8],
+            dst_index: DstIndex,
+        ) -> Result<(), AsciiToUintError> {
+            match self {
+                Self::Ascii(xs) => {
+                    let dst_width = usize::from(u8::from(xs.header.chars()));
+                    xs.data.as_ref()[dst_index.0] =
+                        ascii_to_uint(&dst[dst_index.0..dst_index.0 + dst_width]);
+                }
+                Self::Uint(xs) => xs.$int_fun(src_index, dst, dst_index),
+                Self::F32(xs) => xs.data.as_ref()[src_index.0].$float_fun(dst, dst_index),
+                Self::F64(xs) => xs.data.as_ref()[src_index.0].$float_fun(dst, dst_index),
             }
             Ok(())
         }
@@ -6201,8 +6229,8 @@ macro_rules! decl_mixed_read {
 }
 
 impl MixedVec {
-    decl_mixed_read!(read_le, read_le, slice_be_bytes);
-    decl_mixed_read!(read_be, read_be, slice_le_bytes);
+    decl_mixed_read!(read_le, read_le, from_be_slice);
+    decl_mixed_read!(read_be, read_be, from_le_slice);
 
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         match self {
@@ -6214,46 +6242,85 @@ impl MixedVec {
     }
 }
 
+impl MixedColumn {
+    decl_mixed_write!(write_le, write_le, to_be_slice);
+    decl_mixed_write!(write_be, write_be, to_le_slice);
+}
+
 macro_rules! decl_uint_read {
     ($name:ident, $fun:ident) => {
-        fn $name(&mut self, dst_index: usize, src: &[u8], src_index: usize) {
+        fn $name(&mut self, dst_index: DstIndex, src: &[u8], src_index: SrcIndex) {
             match self {
                 Self::Uint08(xs) => {
-                    xs.data[dst_index] = u8::$fun(src, src_index);
+                    xs.data[dst_index.0] = u8::$fun(src, src_index);
                 }
                 Self::Uint16(xs) => {
-                    xs.data[dst_index] = u16::$fun(src, src_index);
+                    xs.data[dst_index.0] = u16::$fun(src, src_index);
                 }
                 Self::Uint24(xs) => {
-                    xs.data[dst_index] = U24::$fun(src, src_index);
+                    xs.data[dst_index.0] = U24::$fun(src, src_index);
                 }
                 Self::Uint32(xs) => {
-                    xs.data[dst_index] = u32::$fun(src, src_index);
+                    xs.data[dst_index.0] = u32::$fun(src, src_index);
                 }
                 Self::Uint40(xs) => {
-                    xs.data[dst_index] = U40::$fun(src, src_index);
+                    xs.data[dst_index.0] = U40::$fun(src, src_index);
                 }
                 Self::Uint48(xs) => {
-                    xs.data[dst_index] = U48::$fun(src, src_index);
+                    xs.data[dst_index.0] = U48::$fun(src, src_index);
                 }
                 Self::Uint56(xs) => {
-                    xs.data[dst_index] = U56::$fun(src, src_index);
+                    xs.data[dst_index.0] = U56::$fun(src, src_index);
                 }
                 Self::Uint64(xs) => {
-                    xs.data[dst_index] = u64::$fun(src, src_index);
+                    xs.data[dst_index.0] = u64::$fun(src, src_index);
                 }
             }
         }
     };
 }
 
+macro_rules! decl_uint_write {
+    ($name:ident, $fun:ident) => {
+        fn $name(&self, src_index: SrcIndex, dst: &mut [u8], dst_index: DstIndex) {
+            match self {
+                Self::Uint08(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
+                Self::Uint16(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
+                Self::Uint24(xs) => {
+                    let ys: &[U24] = xs.data.as_ref();
+                    ys[src_index.0].$fun(dst, dst_index);
+                }
+                Self::Uint32(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
+                Self::Uint40(xs) => {
+                    let ys: &[U40] = xs.data.as_ref();
+                    ys[src_index.0].$fun(dst, dst_index);
+                }
+                Self::Uint48(xs) => {
+                    let ys: &[U48] = xs.data.as_ref();
+                    ys[src_index.0].$fun(dst, dst_index);
+                }
+                Self::Uint56(xs) => {
+                    let ys: &[U56] = xs.data.as_ref();
+                    ys[src_index.0].$fun(dst, dst_index);
+                }
+                Self::Uint64(xs) => xs.data.as_ref()[src_index.0].$fun(dst, dst_index),
+            }
+        }
+    };
+}
+
 impl AnyUintVec {
-    decl_uint_read!(read_le, slice_le_bytes);
-    decl_uint_read!(read_be, slice_be_bytes);
+    decl_uint_read!(read_le, from_le_slice);
+    decl_uint_read!(read_be, from_be_slice);
 
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         match_any_uint!(self, x, x.data.check_range(&x.range, i, trunc))
     }
+}
+
+impl AnyBitmaskColumn {
+    decl_uint_write!(write_le, to_le_slice);
+    decl_uint_write!(write_be, to_be_slice);
 }
 
 impl From<MixedVec> for MixedColumn {
@@ -6452,7 +6519,7 @@ impl AnyBitmask {
 //
 // This includes most of code used for reading and writing bytes from DATA
 
-impl RowBuffer {
+impl<const IS_READ: bool> RowBuffer<IS_READ> {
     fn init(max_size: RowBufferSize, nrows: usize, row_width: usize) -> Self {
         // Max this to 1 here so that we always have at least one row we are
         // reading. If there are any machines that produce files with at least
@@ -6460,15 +6527,36 @@ impl RowBuffer {
         // these will produce some lovely cache miss fireworks on most CPUs :/
         let rows_per_buffer = (max_size.0 / row_width).max(1);
         let buf_size = rows_per_buffer * row_width;
-        Self {
+        let mut new = Self {
             nrows,
             rows_per_buffer,
             buf_size: usize_to_u64(buf_size),
             row_width,
             bytes: Vec::with_capacity(buf_size),
+        };
+        if !IS_READ {
+            // When writing, we need to fill the buffer with 0's up to capacity
+            // and then copy data to it.
+            new.bytes.fill(0);
         }
+        new
     }
 
+    fn whole_row_number(&self) -> usize {
+        self.nrows / self.rows_per_buffer
+    }
+
+    fn remainder_row_number(&self) -> usize {
+        self.nrows % self.rows_per_buffer
+    }
+
+    fn remainder_bytes(&self) -> usize {
+        let remainder_rows = self.remainder_row_number();
+        remainder_rows * self.row_width
+    }
+}
+
+impl ReadBuffer {
     fn read_size<R: Read>(&mut self, h: &mut BufReader<R>, size: u64) -> io::Result<()> {
         self.bytes.clear();
         h.take(size).read_to_end(&mut self.bytes)?;
@@ -6479,8 +6567,9 @@ impl RowBuffer {
         self.read_size(h, self.buf_size)
     }
 
-    fn whole_reads(&self) -> usize {
-        self.nrows / self.rows_per_buffer
+    fn read_remainder<R: Read>(&mut self, h: &mut BufReader<R>) -> io::Result<()> {
+        let n = usize_to_u64(self.remainder_bytes());
+        self.read_size(h, n)
     }
 
     fn read_columns<C, E, R, Fr, Fw>(
@@ -6492,15 +6581,13 @@ impl RowBuffer {
     ) -> IOResult<(), E>
     where
         R: Read,
-        // TODO newtype these indices to be less confusing
-        // dst bytes, dst index, src bytes, src index, column_index
-        Fr: FnMut(&mut C, usize, &[u8], usize) -> Result<(), E>,
+        Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
         Fw: Fn(usize) -> usize,
     {
         // Read groups of rows in outer loop
         let mut src_col_offset;
         let mut dst_row_offset = 0;
-        for _ in 0..self.whole_reads() {
+        for _ in 0..self.whole_row_number() {
             self.read(h)?;
             src_col_offset = 0;
             // Once we have a buffer, iterate through each column and write data
@@ -6509,8 +6596,8 @@ impl RowBuffer {
                 // indexing consecutively in the current column
                 let src_width = fwidth(ci);
                 for row in 0..self.rows_per_buffer {
-                    let src_idx = src_col_offset + self.row_width * row;
-                    let dst_idx = dst_row_offset + row;
+                    let src_idx = SrcIndex(src_col_offset + self.row_width * row);
+                    let dst_idx = DstIndex(dst_row_offset + row);
                     fread(c, dst_idx, &self.bytes, src_idx).map_err(ImpureError::Pure)?;
                 }
                 src_col_offset += src_width;
@@ -6519,14 +6606,12 @@ impl RowBuffer {
         }
 
         // Read remaining rows if they exist
-        let remainder_rows = self.nrows % self.rows_per_buffer;
-        let remainder_size = usize_to_u64(remainder_rows * self.row_width);
-        self.read_size(h, remainder_size)?;
+        self.read_remainder(h)?;
         src_col_offset = 0;
         for (ci, c) in columns.iter_mut().enumerate() {
-            for row in 0..remainder_rows {
-                let src_idx = src_col_offset + self.row_width * row;
-                let dst_idx = dst_row_offset + row;
+            for row in 0..self.remainder_row_number() {
+                let src_idx = SrcIndex(src_col_offset + self.row_width * row);
+                let dst_idx = DstIndex(dst_row_offset + row);
                 fread(c, dst_idx, &self.bytes, src_idx).map_err(ImpureError::Pure)?;
             }
             src_col_offset += fwidth(ci);
@@ -6566,12 +6651,12 @@ impl RowBuffer {
             "incorrect column number size"
         );
         assert!(
-            self.rows_per_buffer * self.whole_reads() <= self.nrows,
+            self.rows_per_buffer * self.whole_row_number() <= self.nrows,
             "invalid whole reads number"
         );
 
         // Read groups of rows in outer loop
-        for buf_idx in 0..self.whole_reads() {
+        for buf_idx in 0..self.whole_row_number() {
             self.read(h)?;
             let start_row = buf_idx * self.rows_per_buffer;
             // Once we have a buffer, iterate through each column and write data
@@ -6582,9 +6667,9 @@ impl RowBuffer {
                 let end_row = start_row + self.rows_per_buffer;
                 let local_c = &mut c[start_row..end_row];
                 for (row, value) in local_c.iter_mut().enumerate() {
-                    let src_idx = src_col_offset + self.row_width * row;
+                    let src_idx = SrcIndex(src_col_offset + self.row_width * row);
                     debug_assert!(
-                        src_idx + src_len < u64_to_usize(self.buf_size),
+                        src_idx.0 + src_len < u64_to_usize(self.buf_size),
                         "out of bounds"
                     );
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
@@ -6603,17 +6688,16 @@ impl RowBuffer {
         }
 
         // Read remaining rows if they exist
-        let remainder_rows = self.nrows % self.rows_per_buffer;
-        let remainder_size = usize_to_u64(remainder_rows * self.row_width);
-        self.read_size(h, remainder_size)?;
+        self.read_remainder(h)?;
+        let remainder_rows = self.remainder_row_number();
+        let dst_row_offset = self.whole_row_number() * self.rows_per_buffer;
         for (ci, c) in columns.iter_mut().enumerate() {
             let src_col_offset = ci * src_len;
-            let dst_row_offset = self.whole_reads() * self.rows_per_buffer;
             let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter_mut().enumerate() {
-                let src_idx = src_col_offset + self.row_width * row;
+                let src_idx = SrcIndex(src_col_offset + self.row_width * row);
                 debug_assert!(
-                    src_idx + src_len < u64_to_usize(self.buf_size),
+                    src_idx.0 + src_len < u64_to_usize(self.buf_size),
                     "out of bounds"
                 );
                 // SAFETY: see above
@@ -6623,39 +6707,6 @@ impl RowBuffer {
         }
 
         Ok(())
-    }
-
-    /// Read stream of bytes using buffer where each value is the same type
-    fn write_matrix<W, C, T, F>(
-        &mut self,
-        h: &mut BufWriter<W>,
-        cols: &[NativeColumn<C>],
-        to_buf: F,
-    ) -> io::Result<()>
-    where
-        W: Write,
-        C: HasNativeType<Native = T>,
-        F: Fn(&T) -> T::FileBuf,
-        T: FCSRepr,
-    {
-        unimplemented!()
-    }
-
-    fn write_columns<C, W, Fr, Fw>(
-        &mut self,
-        h: &mut BufWriter<W>,
-        columns: &[C],
-        mut fread: Fr,
-        fwidth: Fw,
-    ) -> io::Result<()>
-    where
-        W: Write,
-        // TODO newtype these indices to be less confusing
-        // dst bytes, dst index, src bytes, src index, column_index
-        Fr: FnMut(&mut C, usize, &[u8], usize),
-        Fw: Fn(usize) -> usize,
-    {
-        unimplemented!()
     }
 
     /// Read a matrix where type is an aligned big or little endian value.
@@ -6709,8 +6760,8 @@ impl RowBuffer {
             cols,
             |dst, dst_index, src, src_index| {
                 let src_width = usize::from(u8::from(dst.range.chars()));
-                let x = ascii_to_uint(&src[src_index..src_index + src_width])?;
-                dst.data[dst_index] = x;
+                let x = ascii_to_uint(&src[src_index.0..src_index.0 + src_width])?;
+                dst.data[dst_index.0] = x;
                 Ok(())
             },
             |i| ranges[i],
@@ -6775,6 +6826,159 @@ impl RowBuffer {
             Endian::Little => self.read_columns(h, cols, AnyDatatype::read_le, |i| src_widths[i]),
         }
     }
+}
+
+impl WriteBuffer {
+    fn write<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        h.write_all(&self.bytes[..])
+    }
+
+    fn write_remainder<W: Write>(&mut self, h: &mut BufWriter<W>) -> io::Result<()> {
+        let n = self.remainder_bytes();
+        h.write_all(&self.bytes[..n])
+    }
+
+    fn write_columns<C, W, Fp, Fw>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        columns: &[C],
+        mut fpush: Fp,
+        fwidth: Fw,
+    ) -> io::Result<()>
+    where
+        W: Write,
+        Fp: FnMut(&C, SrcIndex, &mut [u8], DstIndex),
+        Fw: Fn(usize) -> usize,
+    {
+        // Write groups of rows in outer loop
+        let mut dst_col_offset;
+        let mut src_row_offset = 0;
+        for _ in 0..self.whole_row_number() {
+            dst_col_offset = 0;
+            // Once we have a buffer, iterate through each column and write data
+            for (ci, c) in columns.iter().enumerate() {
+                // Within each column, write rows, striding the row buffer and
+                // indexing consecutively in the current column
+                let src_width = fwidth(ci);
+                for row in 0..self.rows_per_buffer {
+                    let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
+                    let src_idx = SrcIndex(src_row_offset + row);
+                    fpush(c, src_idx, &mut self.bytes, dst_idx);
+                }
+                dst_col_offset += src_width;
+            }
+            src_row_offset += self.rows_per_buffer;
+            self.write(h)?;
+        }
+
+        // Read remaining rows if they exist
+        let remainder_rows = self.remainder_row_number();
+        dst_col_offset = 0;
+        for (ci, c) in columns.iter().enumerate() {
+            for row in 0..remainder_rows {
+                let src_idx = SrcIndex(dst_col_offset + self.row_width * row);
+                let dst_idx = DstIndex(src_row_offset + row);
+                fpush(c, src_idx, &mut self.bytes, dst_idx);
+            }
+            dst_col_offset += fwidth(ci);
+        }
+
+        self.write_remainder(h)?;
+
+        Ok(())
+    }
+
+    /// Read stream of bytes using buffer where each value is the same type
+    fn write_matrix<W, C, T, F>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        columns: &[NativeColumn<C>],
+        to_buf: F,
+    ) -> io::Result<()>
+    where
+        W: Write,
+        C: HasNativeType<Native = T>,
+        InternalColumn<T::Prim, T>: AsRef<[T]>,
+        F: Fn(&T) -> T::FileBuf,
+        T: FCSRepr,
+    {
+        // This method has several nice optimizations:
+        // 1. No errors on the inner two loops
+        // 2. All values have the same byte layout, which means we don't need
+        //    to dispatch different methods for different columns
+        // 3. Using the assertions below and some unsafe code, we can remove
+        //    all bounds checks on the inner loop.
+        //
+        // 1-3 above mean that that two inner loops have no jumps, which means
+        // the compiler can unroll the loops and possibly autovectorize.
+        let dst_len = T::file_len();
+        assert!(
+            columns.iter().all(|c| c.len() == self.nrows),
+            "all column lengths should be equal to given row number"
+        );
+        assert!(
+            columns.len() * dst_len == self.row_width,
+            "incorrect column number size"
+        );
+        assert!(
+            self.rows_per_buffer * self.whole_row_number() <= self.nrows,
+            "invalid whole reads number"
+        );
+
+        // Read groups of rows in outer loop
+        for buf_idx in 0..self.whole_row_number() {
+            let start_row = buf_idx * self.rows_per_buffer;
+            // Once we have a buffer, iterate through each column and write data
+            for (ci, c) in columns.iter().enumerate() {
+                let dst_col_offset = ci * dst_len;
+                // Within each column, write rows, striding the row buffer and
+                // indexing consecutively in the current column
+                let end_row = start_row + self.rows_per_buffer;
+                let local_c = &c.data.as_ref()[start_row..end_row];
+                for (row, value) in local_c.iter().enumerate() {
+                    let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
+                    debug_assert!(
+                        dst_idx.0 + dst_len < u64_to_usize(self.buf_size),
+                        "out of bounds"
+                    );
+                    let buf = to_buf(value);
+                    // SAFETY: src_idx given as row_width * R + C * LEN where R
+                    // is row index (within the buffer) and C is column index.
+                    // Both R and C must be less than the number of rows per
+                    // buffer and the number of columns respectively since we
+                    // are getting these via enumerate(). Therefore, the maximum
+                    // that src_idx can ever be is row_width * (rows_per_buffer
+                    // - 1) + (column_number - 1) * LEN. Adding LEN to the end
+                    // of this exactly equals the size of the buffer itself in
+                    // bytes, which means what follows can never overflow.
+                    unsafe { T::array_to_slice(&buf, &mut self.bytes, dst_idx) };
+                }
+            }
+            self.write(h)?;
+        }
+
+        // Read remaining rows if they exist
+        let remainder_rows = self.remainder_row_number();
+        let dst_row_offset = self.whole_row_number() * self.rows_per_buffer;
+        for (ci, c) in columns.iter().enumerate() {
+            let dst_col_offset = ci * dst_len;
+            let local_c = &c.data.as_ref()[dst_row_offset..dst_row_offset + remainder_rows];
+            for (row, value) in local_c.iter().enumerate() {
+                let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
+                debug_assert!(
+                    dst_idx.0 + dst_len < u64_to_usize(self.buf_size),
+                    "out of bounds"
+                );
+                let buf = to_buf(value);
+                // SAFETY: see above
+                unsafe { T::array_to_slice(&buf, &mut self.bytes, dst_idx) };
+            }
+        }
+
+        self.write_remainder(h)?;
+
+        Ok(())
+    }
 
     /// Write a matrix where type is an aligned big or little endian value.
     fn write_endian_matrix<W, C, T>(
@@ -6786,6 +6990,7 @@ impl RowBuffer {
     where
         W: Write,
         C: HasNativeType<Native = T>,
+        InternalColumn<T::Prim, T>: AsRef<[T]>,
         T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
     {
         match endian {
@@ -6804,6 +7009,7 @@ impl RowBuffer {
     where
         W: Write,
         C: HasNativeType<Native = T>,
+        InternalColumn<T::Prim, T>: AsRef<[T]>,
         T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
         T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
         T::ByteOrd: AsRef<[u8]>,
@@ -6853,13 +7059,13 @@ impl RowBuffer {
             Endian::Big => self.write_columns(
                 h,
                 cols,
-                |dst, dst_index, src, src_index| dst.read_be(dst_index, src, src_index),
+                |src, src_index, dst, dst_index| src.write_be(src_index, dst, dst_index),
                 |i| src_widths[i],
             ),
             Endian::Little => self.write_columns(
                 h,
                 cols,
-                |dst, dst_index, src, src_index| dst.read_le(dst_index, src, src_index),
+                |src, src_index, dst, dst_index| src.write_le(src_index, dst, dst_index),
                 |i| src_widths[i],
             ),
         }
@@ -6882,8 +7088,8 @@ impl RowBuffer {
             })
             .collect();
         match endian {
-            Endian::Big => self.write_columns(h, cols, AnyDatatype::read_be, |i| src_widths[i]),
-            Endian::Little => self.write_columns(h, cols, AnyDatatype::read_le, |i| src_widths[i]),
+            Endian::Big => self.write_columns(h, cols, AnyDatatype::write_be, |i| src_widths[i]),
+            Endian::Little => self.write_columns(h, cols, AnyDatatype::write_le, |i| src_widths[i]),
         }
     }
 }

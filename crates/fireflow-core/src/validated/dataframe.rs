@@ -17,7 +17,7 @@ use thiserror::Error;
 
 use std::iter;
 use std::marker::PhantomData;
-use std::slice::Iter;
+use std::slice::{Iter, from_raw_parts};
 
 #[cfg(feature = "python")]
 use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
@@ -149,6 +149,31 @@ impl_internal_from_vec!(u64, U56);
 impl_internal_from_vec!(u64, u64);
 impl_internal_from_vec!(f32, f32);
 impl_internal_from_vec!(f64, f64);
+
+// AsRef for unaligned types needs an unsafe cast. This should be fine so long
+// as the InternalColumn is sealed and maintains the coupling between the
+// unaligned wrapper type and the primitive aligned type.
+//
+// Aligned types don't need this because of the AsRef impl on the InternalColumn
+// type itself.
+
+macro_rules! impl_internal_as_ref_unaligned {
+    ($t:ident, $raw:ident) => {
+        impl AsRef<[$raw]> for InternalColumn<$t, $raw> {
+            fn as_ref(&self) -> &[$raw] {
+                let xs = self.inner.as_ref();
+                // SAFETY primitive type in an internal column should be within
+                // the range of the raw type
+                unsafe { from_raw_parts(xs.as_ptr() as *const $raw, xs.len()) }
+            }
+        }
+    };
+}
+
+impl_internal_as_ref_unaligned!(u32, U24);
+impl_internal_as_ref_unaligned!(u64, U40);
+impl_internal_as_ref_unaligned!(u64, U48);
+impl_internal_as_ref_unaligned!(u64, U56);
 
 impl<T, Raw> InternalColumn<T, Raw> {
     fn as_raw_slice(&self) -> &[Raw] {

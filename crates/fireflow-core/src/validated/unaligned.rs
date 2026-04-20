@@ -1,10 +1,11 @@
+use crate::text::byteord::{Bytes, PrivBytes};
+
 use bigdecimal::BigDecimal;
 use bytemuck::NoUninit;
 use derive_more::{Display, From, Into, Shr};
 use num_traits::{Bounded, FromBytes, ToBytes};
+use std::ptr::copy_nonoverlapping;
 use thiserror::Error;
-
-use crate::text::byteord::{Bytes, PrivBytes};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -61,6 +62,12 @@ pub struct U56(u64);
 #[cfg_attr(feature = "python", pyerr(PyOverflowError))]
 pub struct TryFromUnalignedIntError;
 
+/// Index in a slice from which bytes are to be copied.
+pub(crate) struct SrcIndex(pub(crate) usize);
+
+/// Index in a slice into which bytes are to be copied.
+pub(crate) struct DstIndex(pub(crate) usize);
+
 // /// A Vec with an inner type which may be lossily converted to an unaligned type.
 // pub(crate) trait CastableVec<Inner>: Sized {
 //     fn cast_from_vec(xs: Vec<Inner>) -> (Vec<Self>, Option<usize>);
@@ -105,29 +112,51 @@ pub trait FCSRepr {
     }
 
     #[must_use]
-    fn slice_be_bytes(bytes: &[u8], index: usize) -> Self
+    fn from_be_slice(src: &[u8], index: SrcIndex) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
         let n = Self::file_len();
         let mut buf = Self::FileBuf::default();
-        let tmp = &bytes[index..index + n];
+        let tmp = &src[index.0..index.0 + n];
         buf.as_mut().copy_from_slice(tmp);
         Self::from_be_bytes(&buf)
     }
 
     #[must_use]
-    fn slice_le_bytes(bytes: &[u8], index: usize) -> Self
+    fn from_le_slice(src: &[u8], index: SrcIndex) -> Self
     where
         Self: FromBytes<Bytes = Self::FileBuf>,
         Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
     {
         let n = Self::file_len();
         let mut buf = Self::FileBuf::default();
-        let tmp = &bytes[index..index + n];
+        let tmp = &src[index.0..index.0 + n];
         buf.as_mut().copy_from_slice(tmp);
         Self::from_le_bytes(&buf)
+    }
+
+    #[must_use]
+    fn to_be_slice(&self, dst: &mut [u8], index: DstIndex)
+    where
+        Self: ToBytes<Bytes = Self::FileBuf>,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+    {
+        let tmp = self.to_be_bytes();
+        let n = Self::file_len();
+        dst.as_mut()[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
+    }
+
+    #[must_use]
+    fn to_le_slice(&self, dst: &mut [u8], index: DstIndex)
+    where
+        Self: ToBytes<Bytes = Self::FileBuf>,
+        Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
+    {
+        let tmp = self.to_le_bytes();
+        let n = Self::file_len();
+        dst.as_mut()[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
     }
 
     fn from_ordered_bytes(bytes: &Self::FileBuf, order: &Self::ByteOrd) -> Self
@@ -162,12 +191,24 @@ pub trait FCSRepr {
     /// # SAFETY
     ///
     /// Caller must ensure that the bytes to be read, starting at the index and
-    /// up to the last byte given by index + length of bytes to be read, just be
+    /// up to the last byte given by index + length of bytes to be read, are
     /// within the slice. This will not check bounds. This is meant to be used
     /// in very fast loops where performance is critical and adding a bounds
     /// check would insert a jump op which would in tern prevent nice compiler
     /// optimizations (unrolling, possibly vectorization, etc).
-    unsafe fn array_from_slice(bytes: &[u8], i: usize) -> Self::FileBuf;
+    unsafe fn array_from_slice(src: &[u8], i: SrcIndex) -> Self::FileBuf;
+
+    /// Write an FCS value to a byte stream.
+    ///
+    /// # SAFETY
+    ///
+    /// Caller must ensure that the bytes to be written, starting at the index
+    /// and up to the last byte given by index + length of bytes to be written,
+    /// are within the slice. This will not check bounds. This is meant to be
+    /// used in very fast loops where performance is critical and adding a
+    /// bounds check would insert a jump op which would in tern prevent nice
+    /// compiler optimizations (unrolling, possibly vectorization, etc).
+    unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: DstIndex);
 }
 
 macro_rules! impl_file_bytes {
@@ -180,19 +221,32 @@ macro_rules! impl_file_bytes {
             type ByteOrd = Self::FileBuf;
             type Prim = $prim;
 
-            unsafe fn array_from_slice(bytes: &[u8], i: usize) -> Self::FileBuf {
-                // SAFETY: length of output and input should match
-                unsafe { array_from_slice(bytes, i, Self::file_len()) }
+            unsafe fn array_from_slice(src: &[u8], i: SrcIndex) -> Self::FileBuf {
+                // SAFETY: caller must ensure this is not out of bounds
+                unsafe { array_from_slice(src, i) }
+            }
+
+            unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: DstIndex) {
+                // SAFETY: caller must ensure this is not out of bounds
+                unsafe { array_to_slice(src, dst, i) }
             }
         }
     };
 }
 
-unsafe fn array_from_slice<const LEN: usize>(bytes: &[u8], i: usize, n: usize) -> [u8; LEN] {
+unsafe fn array_from_slice<const LEN: usize>(src: &[u8], i: SrcIndex) -> [u8; LEN] {
     // SAFETY: caller should ensure this is not out of bounds
-    let xs = unsafe { bytes.get_unchecked(i..i + n) };
-    // SAFETY: the caller should ensure that LEN is set properly
+    let xs = unsafe { src.get_unchecked(i.0..i.0 + LEN) };
+    // SAFETY: length of slice should match returned array
     unsafe { *(xs.as_ptr().cast()) }
+}
+
+unsafe fn array_to_slice<const LEN: usize>(src: &[u8; LEN], dst: &mut [u8], i: DstIndex) {
+    // SAFETY: caller should ensure this is not out of bounds
+    unsafe {
+        let p = dst.as_mut_ptr().add(i.0);
+        copy_nonoverlapping(src.as_ptr(), p, LEN)
+    }
 }
 
 impl_file_bytes!(u8, u8, B1, B1, 1, 1);

@@ -53,7 +53,7 @@
 
 use crate::config::{
     AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, WriteDatasetInnerConfig, WriteTEXTInnerConfig,
+    ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -189,7 +189,8 @@ pub type DataFrame3_2 = Any3_2Layout<FFDataFrameFamily>;
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "M: LayoutDims, N: LayoutDims")]
 #[delegate(LayoutKeywords, where = "M: LayoutDims, N: LayoutDims")]
-#[delegate(Removable<Range>)]
+#[delegate(RemovableRange)]
+#[delegate(RemovableColumn)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -244,7 +245,8 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[delegate(Insertable<Range>)]
 #[delegate(LayoutDatatype, where = "Delim: LayoutDims, Fixed: LayoutDims")]
 #[delegate(LayoutKeywords, where = "Delim: LayoutDims, Fixed: LayoutDims")]
-#[delegate(Removable<Range>)]
+#[delegate(RemovableRange)]
+#[delegate(RemovableColumn)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -386,7 +388,8 @@ pub struct ColumnMarkers<T, D> {
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "Single: LayoutDims, Multi: LayoutDims")]
 #[delegate(LayoutKeywords, where = "Single: LayoutDims, Multi: LayoutDims")]
-#[delegate(Removable<Range>)]
+#[delegate(RemovableRange)]
+#[delegate(RemovableColumn)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -442,11 +445,14 @@ pub type NativeColumn<C> = AnnotatedColumn<
     <C as HasNativeType>::Native,
 >;
 
+type NativeInternalColumn<C> =
+    InternalColumn<<<C as HasNativeType>::Native as FCSRepr>::Prim, <C as HasNativeType>::Native>;
+
 impl<T> AsRef<[T::Native]> for NativeColumn<T>
 where
     T: HasNativeType,
     T::Native: FCSRepr,
-    InternalColumn<<T::Native as FCSRepr>::Prim, T::Native>: AsRef<[T::Native]>,
+    NativeInternalColumn<T>: AsRef<[T::Native]>,
 {
     fn as_ref(&self) -> &[T::Native] {
         self.data.as_ref()
@@ -457,8 +463,7 @@ impl<T> From<RangedVec<T, T::Native>> for NativeColumn<T>
 where
     T: HasNativeType,
     T::Native: FCSRepr,
-    Vec<T::Native>:
-        Into<InternalColumn<<<T as HasNativeType>::Native as FCSRepr>::Prim, T::Native>>,
+    Vec<T::Native>: Into<NativeInternalColumn<T>>,
 {
     fn from(value: RangedVec<T, T::Native>) -> Self {
         Self::new(value.range, value.data.into())
@@ -488,7 +493,8 @@ where
              F: LayoutDims, \
              D: LayoutDims"
 )]
-#[delegate(Removable<Range>)]
+#[delegate(RemovableRange)]
+#[delegate(RemovableColumn)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -562,7 +568,8 @@ pub type MixedColumn = AnyDatatype<
              C56: LayoutDims, \
              C64: LayoutDims"
 )]
-#[delegate(Removable<Range>)]
+#[delegate(RemovableRange)]
+#[delegate(RemovableColumn)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(OrderedLayoutOps)]
 #[delegate(WriteLayoutOps)]
@@ -1704,7 +1711,7 @@ where
         + ReadLayoutOps<Self::Tot>
         + LayoutDatatype
         + LayoutDims
-        + Removable<Range>
+        + RemovableRange
         + OptMeasLayoutKeywords,
 {
     type ByteLayout;
@@ -2063,7 +2070,7 @@ where
         + LayoutDatatype
         + LayoutDims
         + NormalizableLayout
-        // + Removable<Range>
+        + RemovableColumn
         + OptMeasLayoutKeywords,
 {
     fn h_write_df<W>(
@@ -2990,7 +2997,7 @@ where
     L: ByteLayoutIO<C> + Copy,
     C: HasNativeType + IsFixed + Clone,
     C::Native: FCSRepr,
-    InternalColumn<<C::Native as FCSRepr>::Prim, C::Native>: From<Vec<C::Native>>,
+    NativeInternalColumn<C>: From<Vec<C::Native>>,
 {
     type DfTarget = ColumnGroup<FFDataFrame<NativeColumn<C>>, FFDataFrameFamily, I, L, M, ORD>;
 
@@ -3997,25 +4004,52 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
 
 // TODO return type of mixed type which was removed?
 
-/// A type which can have a column removed from it.
+/// A type which can have a range removed from it.
 #[delegatable_trait]
-pub trait Removable<Column>: Sized {
-    /// Remove a column.
+pub trait RemovableRange: Sized {
+    /// Remove a range.
     ///
     /// Will panic if index is out of bounds.
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Column;
+    fn remove_range_nocheck(&mut self, index: MeasIndex) -> Range;
 }
 
-impl<C, I, L, M, const ORD: bool> Removable<Range> for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
+/// A type which can have a range removed from it.
+#[delegatable_trait]
+pub trait RemovableColumn: Sized {
+    /// Remove a column and range.
+    ///
+    /// Will panic if index is out of bounds.
+    fn remove_col_nocheck(&mut self, index: MeasIndex) -> RangeAndColumn;
+}
+
+impl<C, I, L, M, const ORD: bool> RemovableRange for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
 where
     for<'c> Range: From<&'c C>,
 {
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
+    fn remove_range_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
             usize::from(index) <= self.container.len(),
             "Index should be less than/equal to column number"
         );
         Range::from(&self.container.remove(index.into()))
+    }
+}
+
+pub type RangeAndColumn = (Range, AnyPrimitiveColumn);
+
+impl<C, I, L, M, const ORD: bool> RemovableColumn
+    for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
+where
+    for<'c> Range: From<&'c C>,
+    for<'c> AnyPrimitiveColumn: From<&'c C>,
+{
+    fn remove_col_nocheck(&mut self, index: MeasIndex) -> RangeAndColumn {
+        debug_assert!(
+            usize::from(index) <= self.container.ncols(),
+            "Index should be less than/equal to column number"
+        );
+        let c = &self.container.remove(index.into());
+        (Range::from(c), AnyPrimitiveColumn::from(c))
     }
 }
 
@@ -4696,9 +4730,49 @@ impl From<&AnyBitmask> for Range {
     }
 }
 
+impl From<MixedRange> for Range {
+    fn from(value: MixedRange) -> Self {
+        match_any_datatype!(value, x, x.into())
+    }
+}
+
+impl From<AnyBitmask> for Range {
+    fn from(value: AnyBitmask) -> Self {
+        match_any_uint!(value, x, x.into())
+    }
+}
+
 impl<T: Clone> From<&FloatRange<T>> for Range {
     fn from(value: &FloatRange<T>) -> Self {
-        value.range.clone().into()
+        value.clone().into()
+    }
+}
+
+impl<T: Clone> From<FloatRange<T>> for Range {
+    fn from(value: FloatRange<T>) -> Self {
+        value.range.into()
+    }
+}
+
+impl<C> From<&NativeColumn<C>> for Range
+where
+    C: HasNativeType + Clone + Into<Self>,
+    C::Native: FCSRepr,
+{
+    fn from(value: &NativeColumn<C>) -> Self {
+        value.header.clone().into()
+    }
+}
+
+impl From<&AnyBitmaskColumn> for Range {
+    fn from(value: &AnyBitmaskColumn) -> Self {
+        match_any_uint!(value, x, x.into())
+    }
+}
+
+impl From<&MixedColumn> for Range {
+    fn from(value: &MixedColumn) -> Self {
+        match_any_datatype!(value, x, x.into())
     }
 }
 
@@ -4915,6 +4989,31 @@ impl From<MixedColumn> for AnyPrimitiveColumn {
 impl From<AnyBitmaskColumn> for AnyPrimitiveColumn {
     fn from(value: AnyBitmaskColumn) -> Self {
         match_any_uint!(value, x, PrimitiveColumn::from(x).into())
+    }
+}
+
+impl<C> From<&NativeColumn<C>> for AnyPrimitiveColumn
+where
+    C: HasNativeType,
+    C::Native: FCSRepr,
+    NativeInternalColumn<C>: Clone + Into<PrimitiveColumn<<C::Native as FCSRepr>::Prim>>,
+    PrimitiveColumn<<C::Native as FCSRepr>::Prim>: Into<Self>,
+{
+    fn from(value: &NativeColumn<C>) -> Self {
+        let new: PrimitiveColumn<_> = value.data.clone().into();
+        new.into()
+    }
+}
+
+impl From<&MixedColumn> for AnyPrimitiveColumn {
+    fn from(value: &MixedColumn) -> Self {
+        value.clone().into()
+    }
+}
+
+impl From<&AnyBitmaskColumn> for AnyPrimitiveColumn {
+    fn from(value: &AnyBitmaskColumn) -> Self {
+        value.clone().into()
     }
 }
 

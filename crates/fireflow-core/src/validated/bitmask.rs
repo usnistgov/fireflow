@@ -57,15 +57,25 @@ pub type Bitmask48 = Bitmask<U48>;
 pub type Bitmask56 = Bitmask<U56>;
 pub type Bitmask64 = Bitmask<u64>;
 
+impl<T> From<Bitmask<T>> for Range
+where
+    T: Copy,
+    u64: From<T>,
+{
+    fn from(value: Bitmask<T>) -> Self {
+        // NOTE add 1 since the spec treats int ranges as one less than they
+        // appear in TEXT
+        Self::from(u64::from(value.value.0)) + Self::from(BigDecimal::one())
+    }
+}
+
 impl<T> From<&Bitmask<T>> for Range
 where
     T: Copy,
     u64: From<T>,
 {
     fn from(value: &Bitmask<T>) -> Self {
-        // NOTE add 1 since the spec treats int ranges as one less than they
-        // appear in TEXT
-        Self::from(u64::from(value.value.0)) + Self::from(BigDecimal::one())
+        (*value).into()
     }
 }
 

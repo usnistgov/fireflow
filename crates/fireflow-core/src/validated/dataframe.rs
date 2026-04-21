@@ -935,6 +935,10 @@ impl<C> FFDataFrame<C> {
         self.ncols() == 0
     }
 
+    pub(crate) fn remove(&mut self, i: usize) -> C {
+        self.columns.remove(i)
+    }
+
     pub(crate) fn drop_in_place(&mut self, i: usize) -> Option<C>
     where
         C: HasLen,
@@ -942,7 +946,7 @@ impl<C> FFDataFrame<C> {
         if i > self.columns.len() {
             None
         } else {
-            Some(self.columns.remove(i))
+            Some(self.remove(i))
         }
     }
 

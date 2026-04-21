@@ -15,8 +15,8 @@ use crate::data::{
     LayoutKeywords, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
     MeasurementsWithLayoutError, NewDataLayoutError, OptMeasLayoutKeywords as _,
     ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataframeError,
-    ReadDataframeWarning, ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup,
-    VersionedDataHeaders,
+    ReadDataframeWarning, ReadLayoutOps, RemovableRange, ScaleDatatypeMismatchError,
+    ScaleErrorGroup, VersionedDataHeaders,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -3640,7 +3640,7 @@ where
             ExistingLinkErrors::try_new(es)?;
         }
         let (i, e) = self.measurements.remove_name(name)?;
-        let r = self.layout.remove_nocheck(i);
+        let r = self.layout.remove_range_nocheck(i);
         Ok((i, e, r))
     }
 
@@ -3658,7 +3658,7 @@ where
             ExistingLinkErrors::try_new(es)?;
         }
         let p = self.measurements.remove_index(index)?;
-        let r = self.layout.remove_nocheck(index);
+        let r = self.layout.remove_range_nocheck(index);
         Ok((p, r))
     }
 

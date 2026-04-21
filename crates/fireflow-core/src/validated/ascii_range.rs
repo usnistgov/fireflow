@@ -109,6 +109,18 @@ impl From<FixedAsciiRange> for DelimAsciiRange {
     }
 }
 
+impl From<FixedAsciiRange> for Range {
+    fn from(value: FixedAsciiRange) -> Self {
+        value.value.0.into()
+    }
+}
+
+impl From<DelimAsciiRange> for Range {
+    fn from(value: DelimAsciiRange) -> Self {
+        value.0.0.into()
+    }
+}
+
 impl From<&FixedAsciiRange> for Range {
     fn from(value: &FixedAsciiRange) -> Self {
         value.value.0.into()

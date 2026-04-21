@@ -9,12 +9,14 @@ use crate::config::{
     WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    CheckedScaleTransform, ConvertFromLayout, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1,
-    DataHeaders3_2, EventsDiagnostics, IndexedLossError, InsertRangeError, Insertable,
-    IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims, LayoutKeywords,
-    LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataLayoutError, OptMeasLayoutKeywords as _, ReadDataframeError, ReadDataframeWarning,
-    ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataHeaders,
+    CheckRanges, CheckedScaleTransform, ConvertFromLayout, DataHeaders2_0, DataHeaders3_0,
+    DataHeaders3_1, DataHeaders3_2, EventsDiagnostics, IndexedLossError, InsertRangeError,
+    Insertable, IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims,
+    LayoutKeywords, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
+    MeasurementsWithLayoutError, NewDataLayoutError, OptMeasLayoutKeywords as _,
+    ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataframeError,
+    ReadDataframeWarning, ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup,
+    VersionedDataHeaders,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -1590,7 +1592,7 @@ pub(crate) trait PrivVersioned: Versioned {
         (),
     >
     where
-        <Self::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame>,
+        <Self::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame> + CheckRanges,
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
@@ -5141,7 +5143,8 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
-        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame>,
+        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget:
+            Into<PrimitiveDataFrame> + CheckRanges,
     {
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
@@ -5184,7 +5187,8 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
-        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame>,
+        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget:
+            Into<PrimitiveDataFrame> + CheckRanges,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -9383,7 +9387,7 @@ pub enum StdDatasetFromFlatTextError {
 pub enum StdDatasetFromFlatTextErrorInner {
     DatasetOffset(DatasetOffsetError),
     TEXT(StdTEXTFromFlatTEXTErrorInner),
-    Dataframe(ReadDataframeError),
+    Dataframe(ReadCheckedDataframeError),
     Offsets(LookupTEXTOffsetsError),
     Warn(StdDatasetFromFlatTEXTWarning),
 }
@@ -9394,7 +9398,7 @@ pub enum StdDatasetFromFlatTextErrorInner {
 pub enum StdDatasetFromFlatTEXTWarning {
     TEXT(StdTEXTFromFlatTEXTWarning),
     Offsets(LookupTEXTOffsetsWarning),
-    Layout(ReadDataframeWarning),
+    Layout(ReadCheckedDataframeWarning),
 }
 
 /// Error when $PnE is not set on optical measurement and target version requires it
@@ -9681,7 +9685,7 @@ pub enum LookupAndReadDataAnalysisError {
     Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
     Layout(LookupLayoutError),
-    Dataframe(ReadDataframeError),
+    Dataframe(ReadCheckedDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
 }
 
@@ -9691,7 +9695,7 @@ pub enum LookupAndReadDataAnalysisError {
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     Layout(LookupLayoutWarning),
-    Data(ReadDataframeWarning),
+    Data(ReadCheckedDataframeWarning),
 }
 
 /// Error when looking up offsets for parsing DATA

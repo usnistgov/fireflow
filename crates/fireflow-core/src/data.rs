@@ -63,7 +63,7 @@ use crate::logging::{
     DeferredWarningAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
     ImpureError, LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult,
     WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, WarningsAndIOResult,
+    WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
@@ -191,6 +191,7 @@ pub type DataFrame3_2 = Any3_2Layout<FFDataFrameFamily>;
 #[delegate(LayoutKeywords, where = "M: LayoutDims, N: LayoutDims")]
 #[delegate(Removable<Range>)]
 #[delegate(WriteLayoutOps)]
+#[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Any3_2<M, N> {
     Mixed(M),
@@ -246,6 +247,7 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
+#[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyAscii<Delim, Fixed> {
     Delimited(Delim),
@@ -387,6 +389,7 @@ pub struct ColumnMarkers<T, D> {
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
+#[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyEndianUint<Single, Multi> {
     Single(Single),
@@ -488,6 +491,7 @@ where
 #[delegate(Removable<Range>)]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
+#[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyDatatype<A, U, F, D> {
     Ascii(A),
@@ -562,6 +566,7 @@ pub type MixedColumn = AnyDatatype<
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(OrderedLayoutOps)]
 #[delegate(WriteLayoutOps)]
+#[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
     Uint08(C08),
@@ -702,7 +707,7 @@ impl_functor_once!(
 );
 
 /// Result of possibly truncated value
-pub(crate) enum TruncatedResult {
+pub enum TruncatedResult {
     None,
     Truncated(usize),
     Overrange(MeasIndex, usize, Range),
@@ -1085,6 +1090,22 @@ pub enum LookupMeasLayoutError {
     NumType(OptIndexedKeyError<NumType>),
 }
 
+/// Error when reading DATA segment and checking ranges
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReadCheckedDataframeError {
+    Read(ReadDataframeError),
+    Overrange(EventOverRangeErrors),
+}
+
+/// Warning when reading DATA segment and checking ranges
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReadCheckedDataframeWarning {
+    Read(ReadDataframeWarning),
+    Overrange(EventOverRangeError),
+}
+
 /// Error when reading DATA segment
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1092,7 +1113,6 @@ pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
     Width(EventWidthError),
     TotMismatch(TotEventMismatchError),
-    Overrange(EventOverRangeErrors),
 }
 
 /// Warning when reading DATA segment
@@ -1101,7 +1121,6 @@ pub enum ReadDataframeError {
 pub enum ReadDataframeWarning {
     Uneven(UnevenEventWidthError),
     Tot(TotEventMismatchError),
-    Overrange(EventOverRangeError),
 }
 
 /// Error when event value is above its $PnR
@@ -1711,10 +1730,13 @@ where
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         DataFrameResult<Self::DfTarget>,
-        ReadDataframeWarning,
-        ReadDataframeError,
+        ReadCheckedDataframeWarning,
+        ReadCheckedDataframeError,
         (),
-    > {
+    >
+    where
+        Self::DfTarget: CheckRanges,
+    {
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
@@ -1722,11 +1744,29 @@ where
                 let ret = DataFrameResult::new(self.empty(), EventsDiagnostics::default());
                 LogResult::new_ok(ret)
             }
-            Some((begin, _)) => h
-                .seek(SeekFrom::Start(begin))
-                .map_err(IOErrorGroup::from)
-                .into_log()
-                .nowarn_and_then(|_| self.h_read_df_inner(h, tot, seg, conf)),
+            Some((begin, _)) => {
+                // seek to start
+                io_to_log!(h.seek(SeekFrom::Start(begin)));
+                // read dataframe
+                self.h_read_df_inner(h, tot, seg, conf)
+                    .map_pure_errors(ReadCheckedDataframeError::from)
+                    .map_commutative_warnings(ReadCheckedDataframeWarning::from)
+                    .and_then_commutative(|mut res| {
+                        // check dataframe ranges (if configured)
+                        let rs = res.dataframe.check_ranges(conf.truncate_event_values);
+                        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
+                        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
+                        res.diagnostics.overrange_columns = overrange;
+                        let flag = conf.disallow_over_range;
+                        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
+                            .switchable_into_commutative()
+                            .group()
+                            .map_error(ReadCheckedDataframeError::from)
+                            .map_error(IOErrorGroup::new_pure_one)
+                            .map_commutative_warnings(ReadCheckedDataframeWarning::from)
+                            .map_ok_value(|()| res)
+                    })
+            }
         }
     }
 
@@ -2523,7 +2563,7 @@ where
 impl<Col, I, Layout, const ORD: bool, TotType, Dtype> ReadLayoutOps<TotType>
     for ColumnGroup<Vec<Col>, VecFamily, I, Layout, ColumnMarkers<TotType, Dtype>, ORD>
 where
-    Self: FixedLayoutIO + IntoEmptyDataFrame<DfTarget = <Self as FixedLayoutIO>::DfTarget>,
+    Self: FixedRead + IntoEmptyDataFrame<DfTarget = <Self as FixedRead>::DfTarget>,
     Dtype: IsNumType,
     Col: Clone + IsFixed,
     Layout: Copy,
@@ -2564,13 +2604,12 @@ where
                 let n = u64_to_usize(nrow_out.total_events);
                 self.h_read_fixed_df(h, n, conf)
                     .map_err(IOErrorGroup::from)
-                    // .map_commutative_warnings(ReadDataframeWarning::from)
-                    // .repack_warnings()
                     .map(|df| {
                         let out = EventsDiagnostics::new(
                             Some(nrow_out.event_width),
                             Some(nrow_out.remainder),
                             tot_not_eq,
+                            // TODO this is awkward
                             vec![],
                         );
                         DataFrameResult::new(df, out)
@@ -2603,7 +2642,7 @@ where
         h: &mut BufReader<R>,
         tot: TotType,
         seg: &mut AnyDataSegment,
-        conf: &ReadEventsConfig,
+        _: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         DataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -2623,7 +2662,7 @@ where
             };
         }
         let rs = &self.container[..];
-        let nbytes = usize::try_from(seg.len()).expect("DATA length > usize");
+        let nbytes = u64_to_usize(seg.len());
         if rs.is_empty() && nbytes > 0 {
             let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
             return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
@@ -2641,53 +2680,6 @@ where
                     data.iter().map(Vec::len).unique().count() < 2,
                     "columns must all be same length"
                 );
-                // let mut es = vec![];
-                // let mut overrange = vec![None; rs.len()];
-                // let trunc = conf.truncate_event_values;
-                // let col_iter = data.iter_mut().zip(rs).enumerate();
-                // if AlphaNumType::Ascii.matches_truncation(trunc) {
-                //     // truncate values if we configured this behavior
-                //     for (i, (col, r)) in col_iter {
-                //         for (rowi, x) in col.iter_mut().enumerate() {
-                //             if *x > u64::from(*r) {
-                //                 *x = u64::from(*r);
-                //                 if overrange[i].is_none() {
-                //                     overrange[i] = Some((rowi, true));
-                //                 }
-                //             }
-                //         }
-                //     }
-                // } else {
-                //     // otherwise warn/error if value is overrange
-                //     for (i, (col, r)) in col_iter {
-                //         for (rowi, x) in col.iter().enumerate() {
-                //             if *x > u64::from(*r) {
-                //                 es.push(EventOverRangeError::new(rowi, i.into(), r.into()));
-                //                 if overrange[i].is_none() {
-                //                     overrange[i] = Some((rowi, false));
-                //                 }
-                //             }
-                //         }
-                //     }
-                // }
-                // let flag = conf.disallow_over_range;
-                // SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-                //     .switchable_into_commutative()
-                //     .group()
-                //     .map_commutative_warnings(ReadDataframeWarning::from)
-                //     .map_error(ReadDataframeError::from)
-                //     .map_error(IOErrorGroup::new_pure_one)
-                //     .map_ok_value(|()| {
-                //         let cs = data
-                //             .into_iter()
-                //             .map(InternalColumn::from)
-                //             .zip(&self.container)
-                //             .map(|(vec, &range)| NativeColumn::new(range, vec));
-                //         let out = EventsDiagnostics::new(None, None, None, overrange);
-                //         let df = FFDataFrame::try_new(cs).unwrap();
-                //         DataFrameResult::new(ColumnGroup::new_ascii(df), out)
-                //     })
-
                 let cs = data
                     .into_iter()
                     .map(InternalColumn::from)
@@ -2965,36 +2957,8 @@ impl<const ORD: bool, TotType, Dtype> WriteLayoutOps
 ///
 /// This trait is meant to be specialized for different layouts in order to
 /// make it fast.
-trait FixedLayoutIO {
+trait FixedRead {
     type DfTarget;
-
-    // // TODO move this up one level of trait
-    // fn h_read_unchecked_df<R: Read>(
-    //     &self,
-    //     h: &mut BufReader<R>,
-    //     nrows: usize,
-    //     conf: &ReadEventsConfig,
-    // ) -> WarningsAndIOResult<
-    //     (Self::DfTarget, Vec<OverrangeColumn>),
-    //     EventOverRangeError,
-    //     ReadDataframeError,
-    // > {
-    //     let df = match self.h_read_unchecked_df_inner(h, nrows, conf) {
-    //         Ok(x) => x,
-    //         Err(e) => return LogResult::new_err(e),
-    //     };
-    //     let rs = df.check_ranges(conf.truncate_event_values);
-    //     let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-    //     let es = rs.into_iter().filter_map(TruncatedResult::into_err);
-
-    //     let flag = conf.disallow_over_range;
-    //     SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-    //         .switchable_into_commutative()
-    //         .group()
-    //         .map_error(ReadDataframeError::from)
-    //         .map_error(ImpureError::Pure)
-    //         .map_ok_value(|()| (df, overrange))
-    // }
 
     fn h_read_fixed_df<R: Read>(
         &self,
@@ -3005,13 +2969,12 @@ trait FixedLayoutIO {
 }
 
 // basic read loop for most use cases
-impl<C, L, I, M, const ORD: bool> FixedLayoutIO for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
+impl<C, L, I, M, const ORD: bool> FixedRead for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
 where
     L: ByteLayoutIO<C> + Copy,
     C: HasNativeType + IsFixed + Clone,
-    C::Native: FCSRepr + PartialOrd,
+    C::Native: FCSRepr,
     InternalColumn<<C::Native as FCSRepr>::Prim, C::Native>: From<Vec<C::Native>>,
-    Vec<C::Native>: HasRange<C>,
 {
     type DfTarget = ColumnGroup<FFDataFrame<NativeColumn<C>>, FFDataFrameFamily, I, L, M, ORD>;
 
@@ -3041,7 +3004,7 @@ where
 
 // ASCII-specific loop which involves possibility of failure after reading every
 // value
-impl<M, const ORD: bool> FixedLayoutIO
+impl<M, const ORD: bool> FixedRead
     for ColumnGroup<Vec<FixedAsciiRange>, VecFamily, FixedAsciiCol, NoByteOrd<ORD>, M, ORD>
 {
     type DfTarget = ColumnGroup<
@@ -3084,7 +3047,7 @@ impl<M, const ORD: bool> FixedLayoutIO
 // Variable uint-layout which will try to normalize to a single-width layout,
 // otherwise using a slower loop with branching to deal with the different
 // widths.
-impl<M> FixedLayoutIO for ColumnGroup<Vec<AnyBitmask>, VecFamily, UvarCol, Endian, M, false> {
+impl<M> FixedRead for ColumnGroup<Vec<AnyBitmask>, VecFamily, UvarCol, Endian, M, false> {
     type DfTarget =
         ColumnGroup<FFDataFrame<AnyBitmaskColumn>, FFDataFrameFamily, UvarCol, Endian, M, false>;
 
@@ -3115,7 +3078,7 @@ impl<M> FixedLayoutIO for ColumnGroup<Vec<AnyBitmask>, VecFamily, UvarCol, Endia
 // multiple types of the same width (just as fast as the first), and finally
 // falling back on a slower loop with branching to deal with multiple
 // types/widths.
-impl<M> FixedLayoutIO for ColumnGroup<Vec<MixedRange>, VecFamily, MixedCol, Endian, M, false> {
+impl<M> FixedRead for ColumnGroup<Vec<MixedRange>, VecFamily, MixedCol, Endian, M, false> {
     type DfTarget =
         ColumnGroup<FFDataFrame<MixedColumn>, FFDataFrameFamily, MixedCol, Endian, M, false>;
 
@@ -4613,6 +4576,13 @@ impl IntoNativeRange for FixedAsciiRange {
     }
 }
 
+impl IntoNativeRange for DelimAsciiRange {
+    fn as_range(&self) -> (Self::Native, Range) {
+        let r = self.0;
+        (r.0, r.0.into())
+    }
+}
+
 // Implement header type -> Range (ie $PnR) for types defined here.
 //
 // For bitmask and ascii types this is defined in separate modules.
@@ -5038,14 +5008,29 @@ impl IsNumType for Option<NumType> {
 // have bitmasks that must be followed per standard, but this behavior can be
 // configured.
 
-/// A type which has values that can be checked against a range.
-trait HasRange<C> {
-    fn check_range(
-        &mut self,
-        range: &C,
-        i: MeasIndex,
-        trunc: TruncateEventValues,
-    ) -> TruncatedResult;
+// /// A type which has values that can be checked against a range.
+// trait HasRange<C> {
+//     fn check_range(
+//         &mut self,
+//         range: &C,
+//         i: MeasIndex,
+//         trunc: TruncateEventValues,
+//     ) -> TruncatedResult;
+// }
+
+#[delegatable_trait]
+pub trait CheckRanges {
+    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>;
+}
+
+impl<C, I, L, M, const ORD: bool> CheckRanges
+    for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
+where
+    C: CheckRange,
+{
+    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult> {
+        self.container.check_ranges(trunc)
+    }
 }
 
 pub(crate) trait CheckRange {
@@ -5096,44 +5081,44 @@ impl CheckRange for MixedColumn {
     }
 }
 
-impl<C> HasRange<C> for Vec<C::Native>
-where
-    C: HasNativeType + IntoNativeRange + HasDatatype,
-    C::Native: PartialOrd,
-{
-    fn check_range(
-        &mut self,
-        range: &C,
-        i: MeasIndex,
-        trunc: TruncateEventValues,
-    ) -> TruncatedResult {
-        let dt = range.col_datatype();
-        let (upper_limit, rng) = range.as_range();
-        if dt.matches_truncation(trunc) {
-            // If we wish to truncate this column, silently truncate without
-            // throwing any errors
-            let mut j = None;
-            for (rowi, x) in self.iter_mut().enumerate() {
-                if *x > upper_limit {
-                    if j.is_none() {
-                        j = Some(rowi);
-                    }
-                    *x = upper_limit;
-                }
-            }
-            j.map_or(TruncatedResult::None, TruncatedResult::Truncated)
-        } else {
-            // Otherwise, scan through the values and return error on first
-            // encounter with overrange value
-            for (rowi, x) in self.iter().enumerate() {
-                if *x > upper_limit {
-                    return TruncatedResult::Overrange(i, rowi, rng);
-                }
-            }
-            TruncatedResult::None
-        }
-    }
-}
+// impl<C> HasRange<C> for Vec<C::Native>
+// where
+//     C: HasNativeType + IntoNativeRange + HasDatatype,
+//     C::Native: PartialOrd,
+// {
+//     fn check_range(
+//         &mut self,
+//         range: &C,
+//         i: MeasIndex,
+//         trunc: TruncateEventValues,
+//     ) -> TruncatedResult {
+//         let dt = range.col_datatype();
+//         let (upper_limit, rng) = range.as_range();
+//         if dt.matches_truncation(trunc) {
+//             // If we wish to truncate this column, silently truncate without
+//             // throwing any errors
+//             let mut j = None;
+//             for (rowi, x) in self.iter_mut().enumerate() {
+//                 if *x > upper_limit {
+//                     if j.is_none() {
+//                         j = Some(rowi);
+//                     }
+//                     *x = upper_limit;
+//                 }
+//             }
+//             j.map_or(TruncatedResult::None, TruncatedResult::Truncated)
+//         } else {
+//             // Otherwise, scan through the values and return error on first
+//             // encounter with overrange value
+//             for (rowi, x) in self.iter().enumerate() {
+//                 if *x > upper_limit {
+//                     return TruncatedResult::Overrange(i, rowi, rng);
+//                 }
+//             }
+//             TruncatedResult::None
+//         }
+//     }
+// }
 
 // Implement read dispatch for byte layouts.
 //
@@ -5566,15 +5551,6 @@ where
     #[must_use]
     pub fn new_endian_float(ranges: Vec<FloatRange<T>>, endian: Endian) -> Self {
         Self::new(ranges, ArrayByteOrd::Endian(endian))
-    }
-}
-
-impl<C, I, L, M, const ORD: bool> ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD> {
-    pub(crate) fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>
-    where
-        C: CheckRange,
-    {
-        self.container.check_ranges(trunc)
     }
 }
 
@@ -6275,15 +6251,6 @@ macro_rules! decl_mixed_write {
 impl MixedVec {
     decl_mixed_read!(read_le, read_le, from_be_slice);
     decl_mixed_read!(read_be, read_be, from_le_slice);
-
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
-        match self {
-            Self::Ascii(x) => x.data.check_range(&x.range, i, trunc),
-            Self::Uint(x) => x.check_range(i, trunc),
-            Self::F32(x) => x.data.check_range(&x.range, i, trunc),
-            Self::F64(x) => x.data.check_range(&x.range, i, trunc),
-        }
-    }
 }
 
 impl MixedColumn {
@@ -6356,10 +6323,6 @@ macro_rules! decl_uint_write {
 impl AnyUintVec {
     decl_uint_read!(read_le, from_le_slice);
     decl_uint_read!(read_be, from_be_slice);
-
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
-        match_any_uint!(self, x, x.data.check_range(&x.range, i, trunc))
-    }
 }
 
 impl AnyBitmaskColumn {

@@ -1678,7 +1678,7 @@ pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) 
 
     let df = core.as_data();
     let nrows = df.nrows();
-    let cols: Vec<_> = df.iter_columns().collect();
+    let cols: Vec<_> = df.iter().collect();
     let ncols = cols.len();
     let dtypes = core.datatypes();
     debug_assert!(dtypes.len() == ncols, "datatypes are wrong length");

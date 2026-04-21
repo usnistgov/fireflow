@@ -591,14 +591,6 @@ pub type AnyOrderedUintHeaders<T> = AnyOrderedUintGroup<VecFamily, T>;
 
 type AnyOrderedUintDataFrame<T> = AnyOrderedUintGroup<FFDataFrameFamily, T>;
 
-#[derive(new)]
-struct RangedVec<B, T> {
-    range: B,
-    data: Vec<T>,
-}
-
-type NativeRangedVec<C> = RangedVec<C, <C as HasNativeType>::Native>;
-
 pub type AnyBitmask =
     AnyUint<Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56, Bitmask64>;
 
@@ -611,17 +603,6 @@ pub type AnyBitmaskColumn = AnyUint<
     NativeColumn<Bitmask48>,
     NativeColumn<Bitmask56>,
     NativeColumn<Bitmask64>,
->;
-
-type AnyUintVec = AnyUint<
-    NativeRangedVec<Bitmask08>,
-    NativeRangedVec<Bitmask16>,
-    NativeRangedVec<Bitmask24>,
-    NativeRangedVec<Bitmask32>,
-    NativeRangedVec<Bitmask40>,
-    NativeRangedVec<Bitmask48>,
-    NativeRangedVec<Bitmask56>,
-    NativeRangedVec<Bitmask64>,
 >;
 
 /// The type of any floating point column in all versions
@@ -701,13 +682,6 @@ pub struct EventsDiagnostics {
 
 type OverrangeColumn = Option<(usize, bool)>;
 
-#[derive(new)]
-struct ComputedRowsResult {
-    total_events: u64,
-    event_width: u64,
-    remainder: u64,
-}
-
 /// Output of converting $PnR to native rust type.
 #[derive(new)]
 pub struct ConvertedRange<T> {
@@ -728,7 +702,7 @@ impl_functor_once!(
 );
 
 /// Result of possibly truncated value
-enum TruncatedResult {
+pub(crate) enum TruncatedResult {
     None,
     Truncated(usize),
     Overrange(MeasIndex, usize, Range),
@@ -751,48 +725,6 @@ impl TruncatedResult {
         }
     }
 }
-
-/// A cache-friendly buffer for reading and writing DATA.
-///
-/// Since FCS data is row-major and we want to output it in column-major, we
-/// effectively need to transpose the data on-the-fly as it is being read. We
-/// can't just think about this like a matrix transposition because we have
-/// different data types, and we need to read into separate vectors anyways
-/// since this is what polars expects to see when is makes a series.
-///
-/// Therefore, the idea is the read several rows at a time into an intermediate
-/// row buffer from which raw bytes will be copied, possibly rearranged (in the
-/// case of mixed byteord), padded (in the case of non-power-of-two integers),
-/// cast as their target datatype, and finally stored in their final column
-/// vectors. Once we have this row buffer, each column will be filled serially
-/// which means the source buffer will be strided and the destination buffer
-/// will be indexed contiguously. The row buffer will be able to store a whole
-/// number of rows from the DATA segment.
-///
-/// Since we are only dealing with one segment of one column at the same time,
-/// this means that we can adjust this size of this buffer and the one column
-/// segment by extension (it will have the same length as the number of rows in
-/// the buffer) to fit in the CPU's cache (ideally L1d). In practice, final
-/// speed will be determined by the balance between syscall overhead for reads
-/// and writes vs cache misses.
-struct RowBuffer<const IS_READ: bool> {
-    nrows: usize,
-    row_width: usize,
-    rows_per_buffer: usize,
-    buf_size: u64,
-    bytes: Vec<u8>,
-}
-
-type ReadBuffer = RowBuffer<true>;
-
-type WriteBuffer = RowBuffer<false>;
-
-type MixedVec = AnyDatatype<
-    RangedVec<FixedAsciiRange, u64>,
-    AnyUintVec,
-    RangedVec<F32Range, f32>,
-    RangedVec<F64Range, f64>,
->;
 
 #[derive(Default, new)]
 pub struct DataFrameResult<D> {
@@ -1558,6 +1490,85 @@ pub(crate) struct IndexedError<E> {
     pub(crate) index: IndexFromOne,
     pub(crate) error: E,
 }
+
+#[derive(new)]
+struct ComputedRowsResult {
+    total_events: u64,
+    event_width: u64,
+    remainder: u64,
+}
+
+/// A vector with a range.
+///
+/// This is used internally when making new dataframes for layouts which have
+/// variable types and widths between columns. The range is necessary in order
+/// to assess the width and type of the column at runtime.
+///
+/// We cannot used AnnotatedColumn for these use cases since making a new
+/// dataframe involves making a new buffer with the correct number of rows and
+/// filling with 0's; the 0's are then mutated in place. This cannot happen in
+/// an AnnotatedColumn since the underlying storage is a polars buffer which is
+/// harder to mutate in place.
+#[derive(new)]
+struct RangedVec<B, T> {
+    range: B,
+    data: Vec<T>,
+}
+
+type NativeRangedVec<C> = RangedVec<C, <C as HasNativeType>::Native>;
+
+type AnyUintVec = AnyUint<
+    NativeRangedVec<Bitmask08>,
+    NativeRangedVec<Bitmask16>,
+    NativeRangedVec<Bitmask24>,
+    NativeRangedVec<Bitmask32>,
+    NativeRangedVec<Bitmask40>,
+    NativeRangedVec<Bitmask48>,
+    NativeRangedVec<Bitmask56>,
+    NativeRangedVec<Bitmask64>,
+>;
+
+type MixedVec = AnyDatatype<
+    RangedVec<FixedAsciiRange, u64>,
+    AnyUintVec,
+    RangedVec<F32Range, f32>,
+    RangedVec<F64Range, f64>,
+>;
+
+/// A cache-friendly buffer for reading and writing DATA.
+///
+/// Since FCS data is row-major and we want to output it in column-major, we
+/// effectively need to transpose the data on-the-fly as it is being read. We
+/// can't just think about this like a matrix transposition because we have
+/// different data types, and we need to read into separate vectors anyways
+/// since this is what polars expects to see when is makes a series.
+///
+/// Therefore, the idea is the read several rows at a time into an intermediate
+/// row buffer from which raw bytes will be copied, possibly rearranged (in the
+/// case of mixed byteord), padded (in the case of non-power-of-two integers),
+/// cast as their target datatype, and finally stored in their final column
+/// vectors. Once we have this row buffer, each column will be filled serially
+/// which means the source buffer will be strided and the destination buffer
+/// will be indexed contiguously. The row buffer will be able to store a whole
+/// number of rows from the DATA segment.
+///
+/// Since we are only dealing with one segment of one column at the same time,
+/// this means that we can adjust this size of this buffer and the one column
+/// segment by extension (it will have the same length as the number of rows in
+/// the buffer) to fit in the CPU's cache (ideally L1d). In practice, final
+/// speed will be determined by the balance between syscall overhead for reads
+/// and writes vs cache misses.
+struct RowBuffer<const IS_READ: bool> {
+    nrows: usize,
+    row_width: usize,
+    rows_per_buffer: usize,
+    buf_size: u64,
+    bytes: Vec<u8>,
+}
+
+type ReadBuffer = RowBuffer<true>;
+
+type WriteBuffer = RowBuffer<false>;
 
 // Make some nice macros to dispatch and/or map our type-specific enums
 //
@@ -2550,20 +2561,21 @@ where
                     .map_ok_value(|tot_not_eq| (tot_not_eq, nrow_out))
             })
             .and_then_commutative(|(tot_not_eq, nrow_out)| {
-                let n = usize::try_from(nrow_out.total_events).expect("nrows exceeds usize");
-                self.h_read_unchecked_df(h, n, conf)
-                    .map_error(IOErrorGroup::from)
-                    .map_commutative_warnings(ReadDataframeWarning::from)
-                    .repack_warnings()
-                    .map_ok_value(|(df, trunc)| {
+                let n = u64_to_usize(nrow_out.total_events);
+                self.h_read_fixed_df(h, n, conf)
+                    .map_err(IOErrorGroup::from)
+                    // .map_commutative_warnings(ReadDataframeWarning::from)
+                    // .repack_warnings()
+                    .map(|df| {
                         let out = EventsDiagnostics::new(
                             Some(nrow_out.event_width),
                             Some(nrow_out.remainder),
                             tot_not_eq,
-                            trunc,
+                            vec![],
                         );
                         DataFrameResult::new(df, out)
                     })
+                    .into_log()
             })
     }
 }
@@ -2624,58 +2636,68 @@ where
         );
 
         res.map_err(IOErrorGroup::from)
-            .into_log()
-            .and_then_commutative(|mut data| {
+            .map(|data| {
                 debug_assert!(
                     data.iter().map(Vec::len).unique().count() < 2,
                     "columns must all be same length"
                 );
-                let mut es = vec![];
-                let mut overrange = vec![None; rs.len()];
-                let trunc = conf.truncate_event_values;
-                let col_iter = data.iter_mut().zip(rs).enumerate();
-                if AlphaNumType::Ascii.matches_truncation(trunc) {
-                    // truncate values if we configured this behavior
-                    for (i, (col, r)) in col_iter {
-                        for (rowi, x) in col.iter_mut().enumerate() {
-                            if *x > u64::from(*r) {
-                                *x = u64::from(*r);
-                                if overrange[i].is_none() {
-                                    overrange[i] = Some((rowi, true));
-                                }
-                            }
-                        }
-                    }
-                } else {
-                    // otherwise warn/error if value is overrange
-                    for (i, (col, r)) in col_iter {
-                        for (rowi, x) in col.iter().enumerate() {
-                            if *x > u64::from(*r) {
-                                es.push(EventOverRangeError::new(rowi, i.into(), r.into()));
-                                if overrange[i].is_none() {
-                                    overrange[i] = Some((rowi, false));
-                                }
-                            }
-                        }
-                    }
-                }
-                let flag = conf.disallow_over_range;
-                SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-                    .switchable_into_commutative()
-                    .group()
-                    .map_commutative_warnings(ReadDataframeWarning::from)
-                    .map_error(ReadDataframeError::from)
-                    .map_error(IOErrorGroup::new_pure_one)
-                    .map_ok_value(|()| {
-                        let cs = data
-                            .into_iter()
-                            .zip(&self.container)
-                            .map(|(vec, &range)| NativeColumn::from(RangedVec::new(range, vec)));
-                        let out = EventsDiagnostics::new(None, None, None, overrange);
-                        let df = FFDataFrame::try_new(cs).unwrap();
-                        DataFrameResult::new(ColumnGroup::new_ascii(df), out)
-                    })
+                // let mut es = vec![];
+                // let mut overrange = vec![None; rs.len()];
+                // let trunc = conf.truncate_event_values;
+                // let col_iter = data.iter_mut().zip(rs).enumerate();
+                // if AlphaNumType::Ascii.matches_truncation(trunc) {
+                //     // truncate values if we configured this behavior
+                //     for (i, (col, r)) in col_iter {
+                //         for (rowi, x) in col.iter_mut().enumerate() {
+                //             if *x > u64::from(*r) {
+                //                 *x = u64::from(*r);
+                //                 if overrange[i].is_none() {
+                //                     overrange[i] = Some((rowi, true));
+                //                 }
+                //             }
+                //         }
+                //     }
+                // } else {
+                //     // otherwise warn/error if value is overrange
+                //     for (i, (col, r)) in col_iter {
+                //         for (rowi, x) in col.iter().enumerate() {
+                //             if *x > u64::from(*r) {
+                //                 es.push(EventOverRangeError::new(rowi, i.into(), r.into()));
+                //                 if overrange[i].is_none() {
+                //                     overrange[i] = Some((rowi, false));
+                //                 }
+                //             }
+                //         }
+                //     }
+                // }
+                // let flag = conf.disallow_over_range;
+                // SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
+                //     .switchable_into_commutative()
+                //     .group()
+                //     .map_commutative_warnings(ReadDataframeWarning::from)
+                //     .map_error(ReadDataframeError::from)
+                //     .map_error(IOErrorGroup::new_pure_one)
+                //     .map_ok_value(|()| {
+                //         let cs = data
+                //             .into_iter()
+                //             .map(InternalColumn::from)
+                //             .zip(&self.container)
+                //             .map(|(vec, &range)| NativeColumn::new(range, vec));
+                //         let out = EventsDiagnostics::new(None, None, None, overrange);
+                //         let df = FFDataFrame::try_new(cs).unwrap();
+                //         DataFrameResult::new(ColumnGroup::new_ascii(df), out)
+                //     })
+
+                let cs = data
+                    .into_iter()
+                    .map(InternalColumn::from)
+                    .zip(&self.container)
+                    .map(|(vec, &range)| NativeColumn::new(range, vec));
+                let df = FFDataFrame::try_new(cs).unwrap();
+                let out = EventsDiagnostics::new(None, None, None, vec![]);
+                DataFrameResult::new(ColumnGroup::new_ascii(df), out)
             })
+            .into_log()
     }
 }
 
@@ -2855,7 +2877,7 @@ impl<const ORD: bool, TotType, Dtype> WriteLayoutOps
         let nrows = df.nrows();
 
         for row_idx in 0..nrows {
-            for (col_idx, col) in df.iter_columns().enumerate() {
+            for (col_idx, col) in df.iter().enumerate() {
                 let xs = col.as_ref();
                 let s = xs[row_idx].to_string();
                 h.write_all(s.as_bytes())?;
@@ -2946,39 +2968,40 @@ impl<const ORD: bool, TotType, Dtype> WriteLayoutOps
 trait FixedLayoutIO {
     type DfTarget;
 
-    // TODO move this up one level of trait
-    fn h_read_unchecked_df<R: Read>(
+    // // TODO move this up one level of trait
+    // fn h_read_unchecked_df<R: Read>(
+    //     &self,
+    //     h: &mut BufReader<R>,
+    //     nrows: usize,
+    //     conf: &ReadEventsConfig,
+    // ) -> WarningsAndIOResult<
+    //     (Self::DfTarget, Vec<OverrangeColumn>),
+    //     EventOverRangeError,
+    //     ReadDataframeError,
+    // > {
+    //     let df = match self.h_read_unchecked_df_inner(h, nrows, conf) {
+    //         Ok(x) => x,
+    //         Err(e) => return LogResult::new_err(e),
+    //     };
+    //     let rs = df.check_ranges(conf.truncate_event_values);
+    //     let overrange = rs.iter().map(TruncatedResult::as_col).collect();
+    //     let es = rs.into_iter().filter_map(TruncatedResult::into_err);
+
+    //     let flag = conf.disallow_over_range;
+    //     SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
+    //         .switchable_into_commutative()
+    //         .group()
+    //         .map_error(ReadDataframeError::from)
+    //         .map_error(ImpureError::Pure)
+    //         .map_ok_value(|()| (df, overrange))
+    // }
+
+    fn h_read_fixed_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOResult<
-        (Self::DfTarget, Vec<OverrangeColumn>),
-        EventOverRangeError,
-        ReadDataframeError,
-    > {
-        let (df, rs) = match self.h_read_unchecked_df_inner(h, nrows, conf) {
-            Ok(x) => x,
-            Err(e) => return LogResult::new_err(e),
-        };
-        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
-
-        let flag = conf.disallow_over_range;
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-            .switchable_into_commutative()
-            .group()
-            .map_error(ReadDataframeError::from)
-            .map_error(ImpureError::Pure)
-            .map_ok_value(|()| (df, overrange))
-    }
-
-    fn h_read_unchecked_df_inner<R: Read>(
-        &self,
-        h: &mut BufReader<R>,
-        nrows: usize,
-        conf: &ReadEventsConfig,
-    ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError>;
+    ) -> IOResult<Self::DfTarget, ReadDataframeError>;
 }
 
 // basic read loop for most use cases
@@ -2987,17 +3010,17 @@ where
     L: ByteLayoutIO<C> + Copy,
     C: HasNativeType + IsFixed + Clone,
     C::Native: FCSRepr + PartialOrd,
-    NativeColumn<C>: From<RangedVec<C, C::Native>>,
+    InternalColumn<<C::Native as FCSRepr>::Prim, C::Native>: From<Vec<C::Native>>,
     Vec<C::Native>: HasRange<C>,
 {
     type DfTarget = ColumnGroup<FFDataFrame<NativeColumn<C>>, FFDataFrameFamily, I, L, M, ORD>;
 
-    fn h_read_unchecked_df_inner<R: Read>(
+    fn h_read_fixed_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         let ncols = self.columns().len();
         let mut columns = vec![vec![C::Native::default(); nrows]; ncols];
@@ -3005,21 +3028,14 @@ where
         self.byte_layout
             .read_matrix(h, &mut row_buf, &mut columns)?;
 
-        let trunc = conf.truncate_event_values;
-        let rs = columns
-            .iter_mut()
-            .enumerate()
-            .zip(&self.container[..])
-            .map(|((i, d), c)| d.check_range(c, i.into(), trunc))
-            .collect();
-
         let data = columns
             .into_iter()
+            .map(InternalColumn::from)
             .zip(self.container.iter().cloned())
-            .map(|(data, range)| NativeColumn::from(RangedVec::new(range, data)));
-        let df = FFDataFrame::try_new(data).unwrap();
+            .map(|(data, range)| NativeColumn::new(range, data));
+        let df = FFDataFrame::try_new(data).expect("column lengths are the same");
 
-        Ok((ColumnGroup::new(df, self.byte_layout), rs))
+        Ok(ColumnGroup::new(df, self.byte_layout))
     }
 }
 
@@ -3037,12 +3053,12 @@ impl<M, const ORD: bool> FixedLayoutIO
         ORD,
     >;
 
-    fn h_read_unchecked_df_inner<R: Read>(
+    fn h_read_fixed_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let row_width = self.event_width();
 
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, row_width);
@@ -3059,16 +3075,9 @@ impl<M, const ORD: bool> FixedLayoutIO
                 .fmap_once(ReadDataframeError::from)
         })?;
 
-        let trunc = conf.truncate_event_values;
-        let rs = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.data.check_range(&c.range, i.into(), trunc))
-            .collect();
-
         let data = columns.into_iter().map(NativeColumn::from);
         let df = FFDataFrame::try_new(data).unwrap();
-        Ok((ColumnGroup::new(df, self.byte_layout), rs))
+        Ok(ColumnGroup::new(df, self.byte_layout))
     }
 }
 
@@ -3079,12 +3088,12 @@ impl<M> FixedLayoutIO for ColumnGroup<Vec<AnyBitmask>, VecFamily, UvarCol, Endia
     type DfTarget =
         ColumnGroup<FFDataFrame<AnyBitmaskColumn>, FFDataFrameFamily, UvarCol, Endian, M, false>;
 
-    fn h_read_unchecked_df_inner<R: Read>(
+    fn h_read_fixed_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         let mut columns: Vec<_> = self
             .container
@@ -3094,17 +3103,10 @@ impl<M> FixedLayoutIO for ColumnGroup<Vec<AnyBitmask>, VecFamily, UvarCol, Endia
 
         row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
 
-        let trunc = conf.truncate_event_values;
-        let rs = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.check_range(i.into(), trunc))
-            .collect();
-
         let data = columns.into_iter().map(AnyBitmaskColumn::from);
         let df = FFDataFrame::try_new(data).unwrap();
 
-        Ok((ColumnGroup::new(df, self.byte_layout), rs))
+        Ok(ColumnGroup::new(df, self.byte_layout))
     }
 }
 
@@ -3117,56 +3119,48 @@ impl<M> FixedLayoutIO for ColumnGroup<Vec<MixedRange>, VecFamily, MixedCol, Endi
     type DfTarget =
         ColumnGroup<FFDataFrame<MixedColumn>, FFDataFrameFamily, MixedCol, Endian, M, false>;
 
-    fn h_read_unchecked_df_inner<R: Read>(
+    fn h_read_fixed_df<R: Read>(
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
         conf: &ReadEventsConfig,
-    ) -> IOResult<(Self::DfTarget, Vec<TruncatedResult>), ReadDataframeError> {
+    ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         let en = self.byte_layout;
         let cs = &self.container[..];
 
-        let mut columns =
-            if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
-                // If the types are all the same width (but not necessary the same
-                // type), we can "cheat" and read the layout all as one type and
-                // cast to other types after the fact. This will dramatically speed
-                // up reading for massive files such as S8/A8.
-                //
-                // This is for 32-bit float+int
-                ret
-            } else if let Some(ret) = try_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
-                // ditto 64-bit
-                ret
-            } else {
-                // Totally mixed layout, dispatch for each column. This will be
-                // slower but is necessary to read each type correctly.
-                let mut columns: Vec<_> = self
-                    .container
-                    .iter()
-                    .map(|c| c.init_column(nrows))
-                    .collect();
-                buf.read_mixed_df(h, &mut columns, self.byte_layout)
-                    .map_err(|e| {
-                        e.fmap_once(ReadFixedAsciiError::from)
-                            .fmap_once(ReadAsciiError::from)
-                            .fmap_once(ReadDataframeError::from)
-                    })?;
-                columns
-            };
-
-        let trunc = conf.truncate_event_values;
-        let rs = columns
-            .iter_mut()
-            .enumerate()
-            .map(|(i, c)| c.check_range(i.into(), trunc))
-            .collect();
+        let columns = if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
+            // If the types are all the same width (but not necessary the same
+            // type), we can "cheat" and read the layout all as one type and
+            // cast to other types after the fact. This will dramatically speed
+            // up reading for massive files such as S8/A8.
+            //
+            // This is for 32-bit float+int
+            ret
+        } else if let Some(ret) = try_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
+            // ditto 64-bit
+            ret
+        } else {
+            // Totally mixed layout, dispatch for each column. This will be
+            // slower but is necessary to read each type correctly.
+            let mut columns: Vec<_> = self
+                .container
+                .iter()
+                .map(|c| c.init_column(nrows))
+                .collect();
+            buf.read_mixed_df(h, &mut columns, self.byte_layout)
+                .map_err(|e| {
+                    e.fmap_once(ReadFixedAsciiError::from)
+                        .fmap_once(ReadAsciiError::from)
+                        .fmap_once(ReadDataframeError::from)
+                })?;
+            columns
+        };
 
         let data = columns.into_iter().map(MixedColumn::from);
         let df = FFDataFrame::try_new(data).unwrap();
 
-        Ok((ColumnGroup::new(df, self.byte_layout), rs))
+        Ok(ColumnGroup::new(df, self.byte_layout))
     }
 }
 
@@ -4839,17 +4833,6 @@ impl_col_into!(MixedColumn, NativeColumn<FixedAsciiRange>);
 impl_col_into!(MixedColumn, AnyBitmaskColumn);
 
 // Implement column -> primitive column
-//
-// TODO are these necessary?
-
-// impl<B, T> From<RangedVec<B, T>> for AnyPrimitiveColumn
-// where
-//     Self: From<PrimitiveColumn<T>>,
-// {
-//     fn from(value: RangedVec<B, T>) -> Self {
-//         Self::from(PrimitiveColumn::from(value.data))
-//     }
-// }
 
 impl From<MixedColumn> for AnyPrimitiveColumn {
     fn from(value: MixedColumn) -> Self {
@@ -5063,6 +5046,54 @@ trait HasRange<C> {
         i: MeasIndex,
         trunc: TruncateEventValues,
     ) -> TruncatedResult;
+}
+
+pub(crate) trait CheckRange {
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult;
+}
+
+impl<C> CheckRange for NativeColumn<C>
+where
+    C: Clone + HasNativeType + HasDatatype + IntoNativeRange,
+    <<C as HasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd,
+    C::Native: FCSRepr + Into<<<C as HasNativeType>::Native as FCSRepr>::Prim>,
+{
+    // TODO these errors could be cleaned up; we know that the highest range
+    // that can be truncated is u64 or f64 so it isn't necessary to return a
+    // rang object. Furthermore it shouldn't be necessary to pass the calling index.
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+        let dt = self.header.col_datatype();
+        let (u, rng) = self.header.as_range();
+        let upper_limit = u.into();
+        if dt.matches_truncation(trunc) {
+            // If we wish to truncate this column, silently truncate without
+            // throwing any errors
+            let j = self.data.truncate(u);
+            j.map_or(TruncatedResult::None, TruncatedResult::Truncated)
+        } else {
+            // Otherwise, scan through the values and return error on first
+            // encounter with overrange value
+            self.data
+                .as_ref()
+                .iter()
+                .position(|x| *x > upper_limit)
+                .map_or(TruncatedResult::None, |rowi| {
+                    TruncatedResult::Overrange(i, rowi, rng)
+                })
+        }
+    }
+}
+
+impl CheckRange for AnyBitmaskColumn {
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+        match_any_uint!(self, x, x.check_range(i, trunc))
+    }
+}
+
+impl CheckRange for MixedColumn {
+    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+        match_any_datatype!(self, x, x.check_range(i, trunc))
+    }
 }
 
 impl<C> HasRange<C> for Vec<C::Native>
@@ -5535,6 +5566,15 @@ where
     #[must_use]
     pub fn new_endian_float(ranges: Vec<FloatRange<T>>, endian: Endian) -> Self {
         Self::new(ranges, ArrayByteOrd::Endian(endian))
+    }
+}
+
+impl<C, I, L, M, const ORD: bool> ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD> {
+    pub(crate) fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>
+    where
+        C: CheckRange,
+    {
+        self.container.check_ranges(trunc)
     }
 }
 
@@ -6453,16 +6493,7 @@ impl AnyBitmask {
         fn default_vec<T: Clone + Default>(n: usize) -> Vec<T> {
             vec![T::default(); n]
         }
-        match self {
-            Self::Uint08(b) => AnyUintVec::Uint08(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint16(b) => AnyUintVec::Uint16(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint24(b) => AnyUintVec::Uint24(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint32(b) => AnyUintVec::Uint32(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint40(b) => AnyUintVec::Uint40(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint48(b) => AnyUintVec::Uint48(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint56(b) => AnyUintVec::Uint56(RangedVec::new(*b, default_vec(nrows))),
-            Self::Uint64(b) => AnyUintVec::Uint64(RangedVec::new(*b, default_vec(nrows))),
-        }
+        match_map_uint!(self, x, RangedVec::new(*x, default_vec(nrows)))
     }
 
     /// Make a new bitmask from $PnB and PnR values.
@@ -6755,6 +6786,7 @@ impl ReadBuffer {
         h: &mut BufReader<R>,
         cols: &mut [RangedVec<FixedAsciiRange, u64>],
     ) -> IOResult<(), AsciiToUintError> {
+        // TODO this smells like something that could be cleaned up later
         let ranges: Vec<_> = cols
             .iter()
             .map(|c| usize::from(u8::from(c.range.chars())))

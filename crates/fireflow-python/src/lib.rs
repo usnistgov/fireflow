@@ -973,7 +973,7 @@ impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let columns = self
             .0
-            .iter_columns()
+            .iter()
             .enumerate()
             .map(|(i, c)| {
                 Series::from_arrow(PlSmallStr::from(format!("X{i}")), as_array(c))
@@ -1139,7 +1139,7 @@ impl PyFCSDataFrame {
         );
         let columns = self
             .0
-            .iter_columns()
+            .iter()
             .zip(names)
             .map(|(c, n)| as_polars_column(c, n))
             .collect();

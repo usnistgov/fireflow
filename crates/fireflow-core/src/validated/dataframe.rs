@@ -1,8 +1,10 @@
+use crate::data::{CheckRange, TruncatedResult};
 use crate::macros::match_many_to_one;
 use crate::validated::ascii_range::Chars;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use ambassador::{Delegate, delegatable_trait};
+use fireflow_types::config::TruncateEventValues;
 use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
 use bytemuck::{AnyBitPattern, NoUninit, cast_vec};
@@ -17,6 +19,7 @@ use thiserror::Error;
 
 use std::iter;
 use std::marker::PhantomData;
+use std::mem;
 use std::slice::{Iter, from_raw_parts};
 
 #[cfg(feature = "python")]
@@ -180,6 +183,26 @@ impl<T, Raw> InternalColumn<T, Raw> {
         debug_assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
         // SAFETY: T and Raw are assumed to have the same layout and size
         unsafe { &*self.inner.as_ref().as_ptr().cast::<&[Raw]>() }
+    }
+
+    pub(crate) fn truncate(&mut self, upper: Raw) -> Option<usize>
+    where
+        T: Copy + PartialOrd,
+        Raw: Into<T>,
+    {
+        let mut xs = mem::take(&mut self.inner).make_mut();
+        let mut j = None;
+        let u: T = upper.into();
+        for (rowi, x) in xs.iter_mut().enumerate() {
+            if *x > u {
+                if j.is_none() {
+                    j = Some(rowi);
+                }
+                *x = u;
+            }
+        }
+        self.inner = Buffer::from(xs);
+        j
     }
 
     fn truncate_from_samesize_int(buf: Buffer<T>) -> CastColResult<Self>
@@ -869,8 +892,19 @@ impl<C> FFDataFrame<C> {
         self.nrows = 0;
     }
 
-    pub fn iter_columns(&self) -> Iter<'_, C> {
+    pub fn iter(&self) -> Iter<'_, C> {
         self.columns.iter()
+    }
+
+    pub(crate) fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>
+    where
+        C: CheckRange,
+    {
+        self.columns
+            .iter_mut()
+            .enumerate()
+            .map(|(i, c)| c.check_range(i.into(), trunc))
+            .collect()
     }
 
     #[must_use]

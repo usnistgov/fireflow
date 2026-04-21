@@ -3680,7 +3680,7 @@ where
             .map_errors(PushTemporalError::Center)
             .nowarn_and_then(|()| {
                 self.layout
-                    .push0(r)
+                    .push(r)
                     .map_err(PushTemporalError::from)
                     .into_log()
             })
@@ -3707,7 +3707,7 @@ where
             .map_errors(InsertTemporalError::Center)
             .nowarn_and_then(|()| {
                 self.layout
-                    .insert_nocheck0(i, r)
+                    .insert_nocheck(i, r)
                     .map_err(InsertTemporalError::from)
                     .into_log()
             })
@@ -3734,7 +3734,7 @@ where
             .into_nowarn()
             .nowarn_and_then(|ret| {
                 self.layout
-                    .push0(r)
+                    .push(r)
                     .map_err(PushOpticalError::from)
                     .into_log()
                     .set_ok_value(ret)
@@ -3764,7 +3764,7 @@ where
             .map_errors(InsertOpticalError::Insert)
             .nowarn_and_then(|ret| {
                 self.layout
-                    .insert_nocheck0(i, r)
+                    .insert_nocheck(i, r)
                     .map_err(InsertOpticalError::from)
                     .into_log()
                     .set_ok_value(ret)
@@ -3790,7 +3790,7 @@ where
         <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
     {
         self.measurements.check_push_center(&n).when_ok(|| {
-            self.layout.push0(r);
+            self.layout.push(r);
             self.measurements.push_center_nocheck(n, m);
             let i = self.par().0.into();
             self.metaroot.specific.insert_meas_index_inner(i);
@@ -3808,7 +3808,7 @@ where
         <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
     {
         self.measurements.check_insert_center(i, &n).when_ok(|| {
-            self.layout.insert_nocheck0(i, r);
+            self.layout.insert_nocheck(i, r);
             self.measurements.insert_center_nocheck(i, n, m);
             self.metaroot.specific.insert_meas_index_inner(i);
         })
@@ -3828,7 +3828,7 @@ where
             .map(Cow::into_owned)
             .into_nowarn()
             .map_ok_value(|ret| {
-                self.layout.push0(r);
+                self.layout.push(r);
                 self.measurements.push_nocheck(n, m);
                 let i = self.par().0.into();
                 self.metaroot.specific.insert_meas_index_inner(i);
@@ -3850,7 +3850,7 @@ where
             .check_insert(i, &n)
             .map_ok_value(Cow::into_owned)
             .map_ok_value(|ret| {
-                self.layout.insert_nocheck0(i, r);
+                self.layout.insert_nocheck(i, r);
                 self.measurements.insert_nocheck(i, n, m);
                 self.metaroot.specific.insert_meas_index_inner(i);
                 ret

@@ -3752,10 +3752,10 @@ pub trait Insertable<Column> {
     /// Insert a new column at index.
     ///
     /// This will panic if index is out of bounds.
-    fn insert_nocheck0(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error>;
+    fn insert_nocheck(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error>;
 
     /// Push new column to the right of the current column vector.
-    fn push0(&mut self, col: Column) -> Result<(), Self::Error>;
+    fn push(&mut self, col: Column) -> Result<(), Self::Error>;
 }
 
 // This will try to convert any integer range to the smallest bitmask, so if the
@@ -3770,31 +3770,31 @@ pub trait Insertable<Column> {
 impl<D> Insertable<Range> for AnyEndianUintHeaders<D> {
     type Error = RangeToBitmaskError;
 
-    fn insert_nocheck0(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => match_any_uint!(x, y, {
-                if y.insert_nocheck0(index, col.clone()).is_err() {
+                if y.insert_nocheck(index, col.clone()).is_err() {
                     let new = mem::take(y).map_inner(AnyBitmask::from);
                     *self = Self::Multi(new);
-                    return self.insert_nocheck0(index, col);
+                    return self.insert_nocheck(index, col);
                 }
                 Ok(())
             }),
-            Self::Multi(x) => x.insert_nocheck0(index, col),
+            Self::Multi(x) => x.insert_nocheck(index, col),
         }
     }
 
-    fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
+    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => match_any_uint!(x, y, {
-                if y.push0(col.clone()).is_err() {
+                if y.push(col.clone()).is_err() {
                     let new = mem::take(y).map_inner(AnyBitmask::from);
                     *self = Self::Multi(new);
-                    return self.push0(col);
+                    return self.push(col);
                 }
                 Ok(())
             }),
-            Self::Multi(x) => x.push0(col),
+            Self::Multi(x) => x.push(col),
         }
     }
 }
@@ -3809,14 +3809,14 @@ where
 {
     type Error = InsertRangeError;
 
-    fn insert_nocheck0(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
         match_any_datatype!(self, x, {
-            x.insert_nocheck0(index, col).map_err(Self::Error::from)
+            x.insert_nocheck(index, col).map_err(Self::Error::from)
         })
     }
 
-    fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
-        match_any_datatype!(self, x, x.push0(col).map_err(Self::Error::from))
+    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
+        match_any_datatype!(self, x, x.push(col).map_err(Self::Error::from))
     }
 }
 
@@ -3825,13 +3825,13 @@ impl<C: FromRange, I, L, M, const ORD: bool> Insertable<Range>
 {
     type Error = C::Error;
 
-    fn insert_nocheck0(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
         self.container
             .insert(index.into(), C::from_range(col)?.native);
         Ok(())
     }
 
-    fn push0(&mut self, col: Range) -> Result<(), Self::Error> {
+    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
         self.container.push(C::from_range(col)?.native);
         Ok(())
     }
@@ -3868,7 +3868,7 @@ impl<C: FromRange, I, L, M, const ORD: bool> Insertable<Range>
 impl Insertable<MixedRange> for DataHeaders3_2 {
     type Error = Infallible;
 
-    fn insert_nocheck0(&mut self, index: MeasIndex, col: MixedRange) -> Result<(), Infallible> {
+    fn insert_nocheck(&mut self, index: MeasIndex, col: MixedRange) -> Result<(), Infallible> {
         macro_rules! go_mixed {
             ($from:expr) => {{
                 *self = Self::Mixed(
@@ -3876,7 +3876,7 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
                         .map_inner(MixedRange::from)
                         .byte_layout_into(),
                 );
-                self.insert_nocheck0(index, col);
+                self.insert_nocheck(index, col);
             }};
         }
         macro_rules! go {
@@ -3915,14 +3915,14 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
         Ok(())
     }
 
-    fn push0(&mut self, col: MixedRange) -> Result<(), Infallible> {
+    fn push(&mut self, col: MixedRange) -> Result<(), Infallible> {
         macro_rules! go_mixed {
             ($from:expr) => {{
                 let new = mem::take($from)
                     .map_inner(MixedRange::from)
                     .byte_layout_into();
                 *self = Self::Mixed(new);
-                self.push0(col);
+                self.push(col);
             }};
         }
         macro_rules! go {

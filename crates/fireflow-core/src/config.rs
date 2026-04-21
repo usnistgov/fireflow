@@ -230,12 +230,6 @@ pub struct WriteTEXTInnerConfig {
 
     /// If `true` use 20 chars for OTHER offset width, otherwise 8.
     pub big_other: BigOther,
-
-    /// Set the size in bytes for the internal buffer used to write DATA.
-    ///
-    /// This is the same as [`ReadEventsConfig::row_buffer_size`]; see there
-    /// for details.
-    pub row_buffer_size: RowBufferSize,
 }
 
 /// Specific configuration for writing one dataset
@@ -258,6 +252,12 @@ pub struct WriteDatasetInnerConfig {
     /// Lossy conversion will be performed regardless, but warnings will be
     /// emitted if this is `false`.
     pub skip_conversion_check: SkipConversionCheck,
+
+    /// Set the size in bytes for the internal buffer used to write DATA.
+    ///
+    /// This is the same as [`ReadEventsConfig::row_buffer_size`]; see there
+    /// for details.
+    pub row_buffer_size: RowBufferSize,
 }
 
 /// Options that apply to writing multiple datasets

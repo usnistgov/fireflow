@@ -636,6 +636,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
         .arg(DocArg::new_skip_conversion_check_param())
+        .arg(DocArg::new_row_buffer_size(false))
         .returns(ret);
 
     let fun_args = doc.fun_args();
@@ -652,6 +653,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
             let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                 tconf,
                 skip_conversion_check.into(),
+                row_buffer_size,
             );
             let cs = datasets.fmap(|c| c.into());
             #fun_path(&path, &cs[..], &dconf).py_resolve_commutative()
@@ -2134,6 +2136,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
         .arg(DocArg::new_skip_conversion_check_param())
+        .arg(DocArg::new_row_buffer_size(false))
         .arg(DocArg::new_appendable_param())
         .arg(DocArg::new_append_param())
         .returns(ret);
@@ -2153,6 +2156,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                     tconf,
                     skip_conversion_check.into(),
+                    row_buffer_size,
                 );
                 let mconf = fireflow_core::config::WriteMultiConfig::new(
                     appendable.into(),
@@ -8249,7 +8253,7 @@ impl DocArgParam {
             Self::new_allow_tot_mismatch_param(),
             Self::new_truncate_event_values(),
             Self::new_disallow_over_range(),
-            Self::new_row_buffer_size(),
+            Self::new_row_buffer_size(true),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
@@ -9083,9 +9087,10 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
     }
 
-    fn new_row_buffer_size() -> Self {
+    fn new_row_buffer_size(is_reader: bool) -> Self {
+        let act = if is_reader { "read" } else { "write" };
         let d = format!(
-            "Set the size in bytes for the internal buffer used to read {DATA}. \
+            "Set the size in bytes for the internal buffer used to {act} {DATA}. \
              This is a performance parameter that balances read syscalls (too low) \
              and cache misses (too high). It should generally be 90% of the CPU's \
              L1D cache size."

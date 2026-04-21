@@ -53,7 +53,7 @@
 
 use crate::config::{
     AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, WriteTEXTInnerConfig,
+    ReadEventsConfig, WriteDatasetInnerConfig, WriteTEXTInnerConfig,
 };
 use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
@@ -92,8 +92,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveColumn, F32Column, FFDataFrame, FFDataFrameFamily, HasLen, HasWidth,
-    InternalColumn, PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
+    AnyPrimitiveColumn, FFDataFrame, FFDataFrameFamily, HasLen, HasWidth, InternalColumn,
+    PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -2066,7 +2066,11 @@ where
         // + Removable<Range>
         + OptMeasLayoutKeywords,
 {
-    fn h_write_df<W>(&mut self, h: &mut BufWriter<W>, conf: &WriteTEXTInnerConfig) -> io::Result<()>
+    fn h_write_df<W>(
+        &mut self,
+        h: &mut BufWriter<W>,
+        conf: &WriteDatasetInnerConfig,
+    ) -> io::Result<()>
     where
         W: Write,
     {
@@ -2832,7 +2836,7 @@ pub trait WriteLayoutOps: Sized {
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteTEXTInnerConfig,
+        conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()>;
 }
 
@@ -2851,7 +2855,7 @@ where
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteTEXTInnerConfig,
+        conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         self.h_write_fixed_df(h, conf)
     }
@@ -2872,7 +2876,7 @@ impl<const ORD: bool, TotType, Dtype> WriteLayoutOps
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        _: &WriteTEXTInnerConfig,
+        _: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let df = &self.container;
         let ncols = df.ncols();
@@ -2962,11 +2966,13 @@ impl<const ORD: bool, TotType, Dtype> WriteLayoutOps
 
 /// Fixed header layout type to be converted to a dataframe type via a bytestream.
 ///
-/// Does not apply to delimited ASCII layouts since these do not have a single
-/// width.
+/// Does not apply to delimited ASCII layouts since these do not have
+/// predictable widths in each column.
 ///
 /// This trait is meant to be specialized for different layouts in order to
 /// make it fast.
+///
+/// NOTE: layouts are assumed to be normalized prior to calling this trait.
 trait FixedRead {
     type DfTarget;
 
@@ -3013,7 +3019,7 @@ where
 }
 
 // ASCII-specific loop which involves possibility of failure after reading every
-// value
+// value (slower, requires branching)
 impl<M, const ORD: bool> FixedRead
     for ColumnGroup<Vec<FixedAsciiRange>, VecFamily, FixedAsciiCol, NoByteOrd<ORD>, M, ORD>
 {
@@ -3054,9 +3060,8 @@ impl<M, const ORD: bool> FixedRead
     }
 }
 
-// Variable uint-layout which will try to normalize to a single-width layout,
-// otherwise using a slower loop with branching to deal with the different
-// widths.
+// variable uint impl which is slower since it has branching to deal with
+// multiple widths
 impl<M> FixedRead for ColumnGroup<Vec<AnyBitmask>, VecFamily, UvarCol, Endian, M, false> {
     type DfTarget =
         ColumnGroup<FFDataFrame<AnyBitmaskColumn>, FFDataFrameFamily, UvarCol, Endian, M, false>;
@@ -3083,11 +3088,10 @@ impl<M> FixedRead for ColumnGroup<Vec<AnyBitmask>, VecFamily, UvarCol, Endian, M
     }
 }
 
-// loop for mixed layouts which will first try to normalize to a simpler layout
-// with one type, next try to read as one type and cast to others if there are
-// multiple types of the same width (just as fast as the first), and finally
-// falling back on a slower loop with branching to deal with multiple
-// types/widths.
+// Loop for mixed layouts which will first try to read as one type and cast to
+// others if there are multiple types of the same width (very fast since this
+// reads a matrix) and falling back on a slower loop with branching to deal with
+// multiple types/widths.
 impl<M> FixedRead for ColumnGroup<Vec<MixedRange>, VecFamily, MixedCol, Endian, M, false> {
     type DfTarget =
         ColumnGroup<FFDataFrame<MixedColumn>, FFDataFrameFamily, MixedCol, Endian, M, false>;
@@ -3211,12 +3215,16 @@ where
 }
 
 // Implemement low level fixed writing
+//
+// This has the same assumptions and optimizations as the read methods above,
+// except that there is no error case to deal with in the case as ASCII since
+// all u64 numbers are valid ASCII (not vice versa)
 
 trait FixedWrite {
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteTEXTInnerConfig,
+        conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()>;
 }
 
@@ -3232,7 +3240,7 @@ where
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteTEXTInnerConfig,
+        conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
@@ -3241,8 +3249,7 @@ where
     }
 }
 
-// ASCII-specific loop which involves possibility of failure after reading every
-// value
+// ASCII-specific loop
 impl<M, const ORD: bool> FixedWrite
     for ColumnGroup<
         FFDataFrame<NativeColumn<FixedAsciiRange>>,
@@ -3256,7 +3263,7 @@ impl<M, const ORD: bool> FixedWrite
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteTEXTInnerConfig,
+        conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
@@ -3265,16 +3272,14 @@ impl<M, const ORD: bool> FixedWrite
     }
 }
 
-// Variable uint-layout which will try to normalize to a single-width layout,
-// otherwise using a slower loop with branching to deal with the different
-// widths.
+// variable uint-layout
 impl<M> FixedWrite
     for ColumnGroup<FFDataFrame<AnyBitmaskColumn>, FFDataFrameFamily, UvarCol, Endian, M, false>
 {
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteTEXTInnerConfig,
+        conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
@@ -3283,18 +3288,14 @@ impl<M> FixedWrite
     }
 }
 
-// loop for mixed layouts which will first try to normalize to a simpler layout
-// with one type, next try to read as one type and cast to others if there are
-// multiple types of the same width (just as fast as the first), and finally
-// falling back on a slower loop with branching to deal with multiple
-// types/widths.
+// mixed type layout
 impl<M> FixedWrite
     for ColumnGroup<FFDataFrame<MixedColumn>, FFDataFrameFamily, MixedCol, Endian, M, false>
 {
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
-        conf: &WriteTEXTInnerConfig,
+        conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
         let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());

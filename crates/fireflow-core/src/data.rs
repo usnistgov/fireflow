@@ -1711,6 +1711,7 @@ where
         + ReadLayoutOps<Self::Tot>
         + LayoutDatatype
         + LayoutDims
+        + NormalizableLayout
         + RemovableRange
         + OptMeasLayoutKeywords,
 {
@@ -1740,7 +1741,7 @@ where
     ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError>;
 
     fn h_read_df<R: Read + Seek>(
-        &self,
+        &mut self,
         h: &mut BufReader<R>,
         tot: Self::Tot,
         seg: &mut AnyDataSegment,
@@ -1764,6 +1765,8 @@ where
             Some((begin, _)) => {
                 // seek to start
                 io_to_log!(h.seek(SeekFrom::Start(begin)));
+                // normalize layout (which is why self must be mut)
+                self.normalize();
                 // read dataframe
                 self.h_read_df_inner(h, tot, seg, conf)
                     .map_pure_errors(ReadCheckedDataframeError::from)
@@ -2071,7 +2074,8 @@ where
         + LayoutDims
         + NormalizableLayout
         + RemovableColumn
-        + OptMeasLayoutKeywords,
+        + OptMeasLayoutKeywords
+        + CheckRanges,
 {
     fn h_write_df<W>(
         &mut self,
@@ -2081,6 +2085,7 @@ where
     where
         W: Write,
     {
+        // normalize before writing (which is why self must be mut)
         self.normalize();
         self.h_write_df_inner(h, conf)
     }

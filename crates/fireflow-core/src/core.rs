@@ -1611,7 +1611,7 @@ pub(crate) trait PrivVersioned: Versioned {
             .zip_commutative(offset_res)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(layout_out, mut offsets)| {
+            .and_then_commutative(|(mut layout_out, mut offsets)| {
                 let ar = AnalysisReader::new(offsets.segs.analysis);
                 layout_out
                     .layout
@@ -5195,7 +5195,7 @@ where
             .map_errors(StdDatasetFromFlatTextErrorInner::from)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(text, extra, mut offsets)| {
+            .and_then_commutative(|(mut text, extra, mut offsets)| {
                 let or = hns.header.segments.others_reader();
                 let ar = AnalysisReader::new(offsets.segs.analysis);
                 text.layout

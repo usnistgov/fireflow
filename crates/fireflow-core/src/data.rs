@@ -92,8 +92,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveColumn, FFDataFrame, FFDataFrameFamily, HasLen, HasWidth, InternalColumn,
-    PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
+    AnyPrimitiveColumn, F32Column, FFDataFrame, FFDataFrameFamily, HasLen, HasWidth,
+    InternalColumn, PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -107,7 +107,7 @@ use type_families::{
 
 use ambassador::{Delegate, delegatable_trait};
 use bigdecimal::BigDecimal;
-use bytemuck::allocation::cast_vec;
+use bytemuck::{cast_slice, cast_vec};
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
@@ -1588,6 +1588,16 @@ struct RowBuffer<const IS_READ: bool> {
 type ReadBuffer = RowBuffer<true>;
 
 type WriteBuffer = RowBuffer<false>;
+
+enum Any4ByteType<F32, I32> {
+    F32(F32),
+    Uint32(I32),
+}
+
+enum Any8ByteType<F64, I64> {
+    F64(F64),
+    Uint64(I64),
+}
 
 // Make some nice macros to dispatch and/or map our type-specific enums
 //
@@ -3092,7 +3102,9 @@ impl<M> FixedRead for ColumnGroup<Vec<MixedRange>, VecFamily, MixedCol, Endian, 
         let en = self.byte_layout;
         let cs = &self.container[..];
 
-        let columns = if let Some(ret) = try_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)? {
+        let columns = if let Some(ret) =
+            try_read_single::<_, _, F32Range>(h, cs, nrows, en, &mut buf)?
+        {
             // If the types are all the same width (but not necessary the same
             // type), we can "cheat" and read the layout all as one type and
             // cast to other types after the fact. This will dramatically speed
@@ -3100,7 +3112,7 @@ impl<M> FixedRead for ColumnGroup<Vec<MixedRange>, VecFamily, MixedCol, Endian, 
             //
             // This is for 32-bit float+int
             ret
-        } else if let Some(ret) = try_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
+        } else if let Some(ret) = try_read_single::<_, _, F64Range>(h, cs, nrows, en, &mut buf)? {
             // ditto 64-bit
             ret
         } else {
@@ -3127,17 +3139,11 @@ impl<M> FixedRead for ColumnGroup<Vec<MixedRange>, VecFamily, MixedCol, Endian, 
     }
 }
 
-enum Any4ByteType {
-    F32(F32Range),
-    Uint32(Bitmask32),
-}
+type Any4ByteRange = Any4ByteType<F32Range, Bitmask32>;
 
-enum Any8ByteType {
-    F64(F64Range),
-    Uint64(Bitmask64),
-}
+type Any8ByteRange = Any8ByteType<F64Range, Bitmask64>;
 
-macro_rules! impl_single_width {
+macro_rules! impl_single_width_range {
     ($t:ident, $i:ident, $f:ident, $u:ident) => {
         impl TryFrom<MixedRange> for $t {
             type Error = ();
@@ -3165,11 +3171,11 @@ macro_rules! impl_single_width {
     };
 }
 
-impl_single_width!(Any4ByteType, f32, F32, Uint32);
-impl_single_width!(Any8ByteType, f64, F64, Uint64);
+impl_single_width_range!(Any4ByteRange, f32, F32, Uint32);
+impl_single_width_range!(Any8ByteRange, f64, F64, Uint64);
 
-/// Try to read DATA using a multiple types with a single width.
-fn try_single<R, W, C>(
+/// Try to read DATA using multiple types with a single width.
+fn try_read_single<R, W, C>(
     h: &mut BufReader<R>,
     ranges: &[MixedRange],
     nrows: usize,
@@ -3221,6 +3227,7 @@ where
     L: ByteLayoutIO<C> + Copy,
     C: HasNativeType + IsBinary + Clone,
     C::Native: FCSRepr + PartialOrd,
+    NativeColumn<C>: AsRef<[C::Native]>,
 {
     fn h_write_fixed_df<W: Write>(
         &self,
@@ -3229,8 +3236,8 @@ where
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let cols = self.container.as_ref();
-        self.byte_layout.write_matrix(h, &mut row_buf, cols)
+        let cols: Vec<_> = self.container.iter().map(AsRef::as_ref).collect();
+        self.byte_layout.write_matrix(h, &mut row_buf, &cols[..])
     }
 }
 
@@ -3290,12 +3297,75 @@ impl<M> FixedWrite
         conf: &WriteTEXTInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
-        let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
+        let en = self.byte_layout;
         let cols = self.container.as_ref();
-        // TODO use the 32/64 width cheat, which will involve unifying this with
-        // the read logic above, which will also involve moving the range checks
-        // outside this low-level IO stuff
-        row_buf.write_mixed_df(h, cols, self.byte_layout)
+        if try_write_single::<_, Any4ByteColumn, F32Range>(h, cols, en, &mut buf)?
+            || try_write_single::<_, Any8ByteColumn, F64Range>(h, cols, en, &mut buf)?
+        {
+            Ok(())
+        } else {
+            buf.write_mixed_df(h, cols, self.byte_layout)
+        }
+    }
+}
+
+type Any4ByteColumn = Any4ByteType<NativeColumn<F32Range>, NativeColumn<Bitmask32>>;
+
+type Any8ByteColumn = Any8ByteType<NativeColumn<F64Range>, NativeColumn<Bitmask64>>;
+
+macro_rules! impl_single_width_column {
+    ($t:ident, $i:ident, $f:ident, $u:ident) => {
+        impl TryFrom<MixedColumn> for $t {
+            type Error = ();
+            fn try_from(value: MixedColumn) -> Result<Self, Self::Error> {
+                match value {
+                    AnyDatatype::$f(r) => Ok(Self::$f(r)),
+                    AnyDatatype::Uint(AnyUint::$u(r)) => Ok(Self::$u(r)),
+                    _ => Err(()),
+                }
+            }
+        }
+
+        impl AsRef<[$i]> for $t {
+            fn as_ref(&self) -> &[$i] {
+                match self {
+                    $t::$f(r) => r.as_ref(),
+                    $t::$u(r) => cast_slice(r.as_ref()),
+                }
+            }
+        }
+    };
+}
+
+impl_single_width_column!(Any4ByteColumn, f32, F32, Uint32);
+impl_single_width_column!(Any8ByteColumn, f64, F64, Uint64);
+
+/// Try to write DATA using multiple types with a single width.
+fn try_write_single<W, T, C>(
+    h: &mut BufWriter<W>,
+    cols: &[MixedColumn],
+    endian: Endian,
+    write_buf: &mut WriteBuffer,
+) -> io::Result<bool>
+where
+    W: Write,
+    Endian: ByteLayoutIO<C>,
+    T: TryFrom<MixedColumn> + AsRef<[C::Native]>,
+    C: HasNativeType,
+    C::Native: FCSRepr,
+{
+    if let Ok(cs) = cols
+        .iter()
+        .cloned()
+        .map(T::try_from)
+        .collect::<Result<Vec<_>, _>>()
+    {
+        let columns: Vec<_> = cs.iter().map(AsRef::as_ref).collect();
+        ByteLayoutIO::<C>::write_matrix(&endian, h, write_buf, &columns[..])?;
+        Ok(true)
+    } else {
+        Ok(false)
     }
 }
 
@@ -4140,6 +4210,32 @@ where
                 }
             }
         };
+    }
+}
+
+// Implement range check for dataframe
+//
+// This might to be used after reading and before writing to ensure all data
+// is within $PnR. This should be done by default for integers.
+//
+// This needs to be generic so it can work on all dataframes, including those
+// within nested enums.
+
+/// Check that all columns in dataframe are within range.
+///
+/// Return error or warning-like result depending on configuration parameter.
+#[delegatable_trait]
+pub trait CheckRanges {
+    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>;
+}
+
+impl<C, I, L, M, const ORD: bool> CheckRanges
+    for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
+where
+    C: CheckRange,
+{
+    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult> {
+        self.container.check_ranges(trunc)
     }
 }
 
@@ -5001,37 +5097,9 @@ impl IsNumType for Option<NumType> {
     }
 }
 
-// Implement range check for vectors
+// Implement range check for columns
 //
-// This is used after reading DATA to verify that ranges are satisfied (and
-// truncate as desired). This is used by integer layouts by default since these
-// have bitmasks that must be followed per standard, but this behavior can be
-// configured.
-
-// /// A type which has values that can be checked against a range.
-// trait HasRange<C> {
-//     fn check_range(
-//         &mut self,
-//         range: &C,
-//         i: MeasIndex,
-//         trunc: TruncateEventValues,
-//     ) -> TruncatedResult;
-// }
-
-#[delegatable_trait]
-pub trait CheckRanges {
-    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>;
-}
-
-impl<C, I, L, M, const ORD: bool> CheckRanges
-    for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
-where
-    C: CheckRange,
-{
-    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult> {
-        self.container.check_ranges(trunc)
-    }
-}
+// This is the column-level trait for CheckRanges; see for details.
 
 pub(crate) trait CheckRange {
     fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult;
@@ -5081,45 +5149,6 @@ impl CheckRange for MixedColumn {
     }
 }
 
-// impl<C> HasRange<C> for Vec<C::Native>
-// where
-//     C: HasNativeType + IntoNativeRange + HasDatatype,
-//     C::Native: PartialOrd,
-// {
-//     fn check_range(
-//         &mut self,
-//         range: &C,
-//         i: MeasIndex,
-//         trunc: TruncateEventValues,
-//     ) -> TruncatedResult {
-//         let dt = range.col_datatype();
-//         let (upper_limit, rng) = range.as_range();
-//         if dt.matches_truncation(trunc) {
-//             // If we wish to truncate this column, silently truncate without
-//             // throwing any errors
-//             let mut j = None;
-//             for (rowi, x) in self.iter_mut().enumerate() {
-//                 if *x > upper_limit {
-//                     if j.is_none() {
-//                         j = Some(rowi);
-//                     }
-//                     *x = upper_limit;
-//                 }
-//             }
-//             j.map_or(TruncatedResult::None, TruncatedResult::Truncated)
-//         } else {
-//             // Otherwise, scan through the values and return error on first
-//             // encounter with overrange value
-//             for (rowi, x) in self.iter().enumerate() {
-//                 if *x > upper_limit {
-//                     return TruncatedResult::Overrange(i, rowi, rng);
-//                 }
-//             }
-//             TruncatedResult::None
-//         }
-//     }
-// }
-
 // Implement read dispatch for byte layouts.
 //
 // For simple cases where DATA is all the same type (or can be read as the same
@@ -5141,7 +5170,7 @@ where
         &self,
         h: &mut BufWriter<W>,
         buf: &mut WriteBuffer,
-        cols: &[NativeColumn<C>],
+        cols: &[&[<C as HasNativeType>::Native]],
     ) -> io::Result<()>;
 }
 
@@ -5161,7 +5190,7 @@ macro_rules! impl_byte_layout_io {
                 &self,
                 h: &mut BufWriter<W>,
                 buf: &mut WriteBuffer,
-                cols: &[NativeColumn<$inner>],
+                cols: &[&[<$inner as HasNativeType>::Native]],
             ) -> io::Result<()> {
                 buf.$write_fun(h, cols, *self)
             }
@@ -6208,6 +6237,17 @@ impl From<AnyUintVec> for AnyBitmaskColumn {
     }
 }
 
+impl From<MixedVec> for MixedColumn {
+    fn from(value: MixedVec) -> Self {
+        match value {
+            MixedVec::Ascii(x) => Self::Ascii(NativeColumn::from(x)),
+            MixedVec::Uint(x) => Self::Uint(x.into()),
+            MixedVec::F32(x) => Self::F32(NativeColumn::from(x)),
+            MixedVec::F64(x) => Self::F64(NativeColumn::from(x)),
+        }
+    }
+}
+
 macro_rules! decl_mixed_read {
     ($name:ident, $int_fun:ident, $float_fun:ident) => {
         fn $name(
@@ -6232,6 +6272,11 @@ macro_rules! decl_mixed_read {
     };
 }
 
+impl MixedVec {
+    decl_mixed_read!(read_le, read_le, from_be_slice);
+    decl_mixed_read!(read_be, read_be, from_le_slice);
+}
+
 macro_rules! decl_mixed_write {
     ($name:ident, $int_fun:ident, $float_fun:ident) => {
         fn $name(&self, src_index: SrcIndex, dst: &mut [u8], dst_index: DstIndex) {
@@ -6246,11 +6291,6 @@ macro_rules! decl_mixed_write {
             }
         }
     };
-}
-
-impl MixedVec {
-    decl_mixed_read!(read_le, read_le, from_be_slice);
-    decl_mixed_read!(read_be, read_be, from_le_slice);
 }
 
 impl MixedColumn {
@@ -6291,6 +6331,11 @@ macro_rules! decl_uint_read {
     };
 }
 
+impl AnyUintVec {
+    decl_uint_read!(read_le, from_le_slice);
+    decl_uint_read!(read_be, from_be_slice);
+}
+
 macro_rules! decl_uint_write {
     ($name:ident, $fun:ident) => {
         fn $name(&self, src_index: SrcIndex, dst: &mut [u8], dst_index: DstIndex) {
@@ -6320,25 +6365,9 @@ macro_rules! decl_uint_write {
     };
 }
 
-impl AnyUintVec {
-    decl_uint_read!(read_le, from_le_slice);
-    decl_uint_read!(read_be, from_be_slice);
-}
-
 impl AnyBitmaskColumn {
     decl_uint_write!(write_le, to_le_slice);
     decl_uint_write!(write_be, to_be_slice);
-}
-
-impl From<MixedVec> for MixedColumn {
-    fn from(value: MixedVec) -> Self {
-        match value {
-            MixedVec::Ascii(x) => Self::Ascii(NativeColumn::from(x)),
-            MixedVec::Uint(x) => Self::Uint(x.into()),
-            MixedVec::F32(x) => Self::F32(NativeColumn::from(x)),
-            MixedVec::F64(x) => Self::F64(NativeColumn::from(x)),
-        }
-    }
 }
 
 // Implement misc methods for header ranges
@@ -6888,16 +6917,14 @@ impl WriteBuffer {
     }
 
     /// Read stream of bytes using buffer where each value is the same type
-    fn write_matrix<W, C, T, F>(
+    fn write_matrix<W, T, F>(
         &mut self,
         h: &mut BufWriter<W>,
-        columns: &[NativeColumn<C>],
+        columns: &[&[T]],
         to_buf: F,
     ) -> io::Result<()>
     where
         W: Write,
-        C: HasNativeType<Native = T>,
-        InternalColumn<T::Prim, T>: AsRef<[T]>,
         F: Fn(&T) -> T::FileBuf,
         T: FCSRepr,
     {
@@ -6926,7 +6953,7 @@ impl WriteBuffer {
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
                 let end_row = start_row + self.rows_per_buffer;
-                let local_c = &c.as_ref()[start_row..end_row];
+                let local_c = &c[start_row..end_row];
                 for (row, value) in local_c.iter().enumerate() {
                     let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                     debug_assert!(
@@ -6956,7 +6983,7 @@ impl WriteBuffer {
         let dst_row_offset = self.whole_row_number() * self.rows_per_buffer;
         for (ci, c) in columns.iter().enumerate() {
             let dst_col_offset = ci * dst_len;
-            let local_c = &c.as_ref()[dst_row_offset..dst_row_offset + remainder_rows];
+            let local_c = &c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter().enumerate() {
                 let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                 debug_assert!(
@@ -6977,16 +7004,14 @@ impl WriteBuffer {
     }
 
     /// Write a matrix where type is an aligned big or little endian value.
-    fn write_endian_matrix<W, C, T>(
+    fn write_endian_matrix<W, T>(
         &mut self,
         h: &mut BufWriter<W>,
-        cols: &[NativeColumn<C>],
+        cols: &[&[T]],
         endian: Endian,
     ) -> io::Result<()>
     where
         W: Write,
-        C: HasNativeType<Native = T>,
-        InternalColumn<T::Prim, T>: AsRef<[T]>,
         T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
     {
         match endian {
@@ -6996,16 +7021,14 @@ impl WriteBuffer {
     }
 
     /// Write a matrix where type is an aligned big, little, or mixed endian value.
-    fn write_ordered_matrix<W, C, T>(
+    fn write_ordered_matrix<W, T>(
         &mut self,
         h: &mut BufWriter<W>,
-        cols: &[NativeColumn<C>],
+        cols: &[&[T]],
         s: ArrayByteOrd<T::ByteOrd>,
     ) -> io::Result<()>
     where
         W: Write,
-        C: HasNativeType<Native = T>,
-        InternalColumn<T::Prim, T>: AsRef<[T]>,
         T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
         T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
         T::ByteOrd: AsRef<[u8]>,

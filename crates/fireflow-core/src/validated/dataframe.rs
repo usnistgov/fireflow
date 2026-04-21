@@ -104,7 +104,7 @@ pub(crate) enum AnyInternalColumn {
 }
 
 /// A generic column for [`FCSDataFrame`]
-#[derive(Clone, PartialEq, From, AsRef)]
+#[derive(Clone, PartialEq, From, Into, AsRef)]
 #[repr(transparent)]
 #[as_ref([T])]
 pub struct PrimitiveColumn<T>(pub Buffer<T>);
@@ -121,6 +121,7 @@ pub type F64Column = PrimitiveColumn<f64>;
 #[new(visibility = "")]
 pub(crate) struct InternalColumn<T, Raw> {
     #[into(PrimitiveColumn<T>)]
+    #[into(Buffer<T>)]
     #[as_ref([T])]
     inner: Buffer<T>,
     _outer: PhantomData<Raw>,
@@ -165,7 +166,7 @@ macro_rules! impl_internal_as_ref_unaligned {
         impl AsRef<[$raw]> for InternalColumn<$t, $raw> {
             fn as_ref(&self) -> &[$raw] {
                 let xs = self.inner.as_ref();
-                // SAFETY primitive type in an internal column should be within
+                // SAFETY: primitive type in an internal column should be within
                 // the range of the raw type
                 unsafe { from_raw_parts(xs.as_ptr() as *const $raw, xs.len()) }
             }
@@ -263,12 +264,28 @@ pub(crate) type InternalF32Column = InternalColumn<f32, f32>;
 pub(crate) type InternalF64Column = InternalColumn<f64, f64>;
 
 #[derive(new)]
-struct CastColResult<T> {
+#[new(visibility(""))]
+pub struct CastColError {
+    position: usize,
+}
+
+// TODO add to/from type names to this for error messages
+#[derive(new)]
+pub(crate) struct CastColResult<T> {
     inner: T,
     loss_position: Option<usize>,
 }
 
-impl_kind1!(CastColResultFamily, CastColResult);
+impl<T> CastColResult<T> {
+    pub(crate) fn into_err(self) -> Result<T, CastColError> {
+        match self.loss_position {
+            Some(e) => Err(CastColError::new(e)),
+            None => Ok(self.inner),
+        }
+    }
+}
+
+impl_kind1!(pub(crate) CastColResultFamily, CastColResult);
 
 impl_functor_once!(
     CastColResult,
@@ -277,57 +294,96 @@ impl_functor_once!(
     CastColResult::new(f(self.inner), self.loss_position,)
 );
 
-trait FromColumn<From>: Sized {
+pub(crate) trait FromColumn<From>: Sized {
     fn from_column(col: From) -> CastColResult<Self>;
 }
 
-// Primitive->primitive column casts
+impl<T> FromColumn<AnyPrimitiveColumn> for T
+where
+    T: FromColumn<U08Column>
+        + FromColumn<U16Column>
+        + FromColumn<U32Column>
+        + FromColumn<U64Column>
+        + FromColumn<F32Column>
+        + FromColumn<F64Column>,
+{
+    fn from_column(col: AnyPrimitiveColumn) -> CastColResult<Self> {
+        match_many_to_one!(
+            col,
+            AnyPrimitiveColumn,
+            [U08, U16, U32, U64, F32, F64],
+            x,
+            FromColumn::from_column(x)
+        )
+    }
+}
 
+// Lots of macros for casting b/t columns.
+//
+// This would be way easier with specialization. Alas, use total brute force to
+// impl each conversion between each type. We have 6 types of primitive columns
+// and 10 types of internal columns. The latter require bidirectional mapping in
+// order to do in-place layout conversions. The former requires unidirectional
+// mapping from primitive to internal which will be used for column insertion
+// operations.
+//
+// All of these might be lossy since we might have a larger value being forced
+// into a smaller size.
+//
+// Note that going from Internal to Primitive does not result in loss since we
+// don't care what primitive type we end up with in this case and each internal
+// column can map perfectly to one primitive colume.
+
+/// Cast one column into another when underlying types are exactly the same.
 macro_rules! impl_cast_col_noop {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                CastColResult::new(Self::new(col.inner), None)
+                CastColResult::new(Self::new(col.into()), None)
             }
         }
     };
 }
 
+/// Cast one column into another when first type converts losslessly to second.
 macro_rules! impl_cast_col_into {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                map_buffer(&col.inner, |x| (x.into(), false)).fmap_once(Self::new)
+                map_buffer(&col.into(), |x| (x.into(), false)).fmap_once(Self::new)
             }
         }
     };
 }
 
+/// Cast one int column into another where conversion might fail.
 macro_rules! impl_cast_col_int_to_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                buffer_int_to_int(&col.inner).fmap_once(Self::new)
+                buffer_int_to_int(&col.into()).fmap_once(Self::new)
             }
         }
     };
 }
 
+/// Cast one int column into float column where conversion might fail.
 macro_rules! impl_cast_col_int_to_float {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                buffer_int_to_float(&col.inner).fmap_once(Self::new)
+                buffer_int_to_float(&col.into()).fmap_once(Self::new)
             }
         }
     };
 }
 
+/// Cast one float column to into column where conversion might fail.
 macro_rules! impl_cast_col_float_to_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                buffer_float_to_int(&col.inner).fmap_once(Self::new)
+                buffer_float_to_int(&col.into()).fmap_once(Self::new)
             }
         }
     };
@@ -342,37 +398,61 @@ macro_rules! impl_truncate_from_samesize_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                Self::truncate_from_samesize_int(col.inner)
+                Self::truncate_from_samesize_int(col.into())
             }
         }
     };
 }
 
+/// Cast an integer column to a truncated column with different internal type.
+///
+/// This might fail for two reasons. First, the starting value is bigger than
+/// the target type can hold. Second, the value might be higher than the maximum
+/// range of the target type, which is not the same as the maximum bitwise value
+/// of the target type because it is truncated.
 macro_rules! impl_truncate_from_int {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                Self::truncate_from_int(&col.inner)
+                Self::truncate_from_int(&col.into())
             }
         }
     };
 }
 
+/// Cast an float column to a truncated int column.
 macro_rules! impl_truncate_from_float {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                Self::truncate_from_float(&col.inner)
+                Self::truncate_from_float(&col.into())
             }
         }
     };
 }
 
+/// Cast an int column to a float when int is validated to be within float range.
 macro_rules! impl_int_to_float_lossless {
     ($from:ident, $to:ident) => {
         impl FromColumn<$from> for $to {
             fn from_column(col: $from) -> CastColResult<Self> {
-                map_buffer(&col.inner, |x| (x.as_(), false)).fmap_once(Self::new)
+                map_buffer(&col.into(), |x| (x.as_(), false)).fmap_once(Self::new)
+            }
+        }
+    };
+}
+
+/// Cast an f64 to f32 column.
+macro_rules! impl_f64_to_f32 {
+    ($from:ident, $to:ident) => {
+        impl FromColumn<$from> for $to {
+            fn from_column(col: $from) -> CastColResult<Self> {
+                let go = |x: f64| {
+                    let new_value: f32 = x.as_();
+                    let old_value = f64::from(new_value);
+                    (new_value, x != old_value)
+                };
+                map_buffer(&col.into(), go).fmap_once(Self::new)
             }
         }
     };
@@ -392,6 +472,17 @@ impl_cast_col_into!(InternalU08Column, InternalU64Column);
 impl_cast_col_into!(InternalU08Column, InternalF32Column);
 impl_cast_col_into!(InternalU08Column, InternalF64Column);
 
+impl_cast_col_noop!(U08Column, InternalU08Column);
+impl_cast_col_into!(U08Column, InternalU16Column);
+impl_cast_col_into!(U08Column, InternalU24Column);
+impl_cast_col_into!(U08Column, InternalU32Column);
+impl_cast_col_into!(U08Column, InternalU40Column);
+impl_cast_col_into!(U08Column, InternalU48Column);
+impl_cast_col_into!(U08Column, InternalU56Column);
+impl_cast_col_into!(U08Column, InternalU64Column);
+impl_cast_col_into!(U08Column, InternalF32Column);
+impl_cast_col_into!(U08Column, InternalF64Column);
+
 // U16; all except u8 are larger, so no conversions require checks except for
 // u16 -> u8
 
@@ -405,6 +496,17 @@ impl_cast_col_into!(InternalU16Column, InternalU56Column);
 impl_cast_col_into!(InternalU16Column, InternalU64Column);
 impl_cast_col_into!(InternalU16Column, InternalF32Column);
 impl_cast_col_into!(InternalU16Column, InternalF64Column);
+
+impl_cast_col_int_to_int!(U16Column, InternalU08Column);
+impl_cast_col_noop!(U16Column, InternalU16Column);
+impl_cast_col_into!(U16Column, InternalU24Column);
+impl_cast_col_into!(U16Column, InternalU32Column);
+impl_cast_col_into!(U16Column, InternalU40Column);
+impl_cast_col_into!(U16Column, InternalU48Column);
+impl_cast_col_into!(U16Column, InternalU56Column);
+impl_cast_col_into!(U16Column, InternalU64Column);
+impl_cast_col_into!(U16Column, InternalF32Column);
+impl_cast_col_into!(U16Column, InternalF64Column);
 
 // U24; all except u8 and u16 are larger, so no conversion require checks except
 // for u24 (really a u32) -> u8 or u16. u24 is actually a u32 internally and
@@ -441,6 +543,17 @@ impl_cast_col_into!(InternalU32Column, InternalU56Column);
 impl_cast_col_into!(InternalU32Column, InternalU64Column);
 impl_cast_col_int_to_float!(InternalU32Column, InternalF32Column);
 impl_cast_col_into!(InternalU32Column, InternalF64Column);
+
+impl_cast_col_int_to_int!(U32Column, InternalU08Column);
+impl_cast_col_int_to_int!(U32Column, InternalU16Column);
+impl_truncate_from_samesize_int!(U32Column, InternalU24Column);
+impl_cast_col_noop!(U32Column, InternalU32Column);
+impl_cast_col_into!(U32Column, InternalU40Column);
+impl_cast_col_into!(U32Column, InternalU48Column);
+impl_cast_col_into!(U32Column, InternalU56Column);
+impl_cast_col_into!(U32Column, InternalU64Column);
+impl_cast_col_int_to_float!(U32Column, InternalF32Column);
+impl_cast_col_into!(U32Column, InternalF64Column);
 
 // U40; in general this is treated as a u64 when going to smaller types. The
 // only special thing we need to add is an additional range check for u24
@@ -508,6 +621,17 @@ impl_cast_col_noop!(InternalU64Column, InternalU64Column);
 impl_cast_col_int_to_float!(InternalU64Column, InternalF32Column);
 impl_cast_col_int_to_float!(InternalU64Column, InternalF64Column);
 
+impl_cast_col_int_to_int!(U64Column, InternalU08Column);
+impl_cast_col_int_to_int!(U64Column, InternalU16Column);
+impl_truncate_from_int!(U64Column, InternalU24Column);
+impl_cast_col_int_to_int!(U64Column, InternalU32Column);
+impl_truncate_from_samesize_int!(U64Column, InternalU40Column);
+impl_truncate_from_samesize_int!(U64Column, InternalU48Column);
+impl_truncate_from_samesize_int!(U64Column, InternalU56Column);
+impl_cast_col_noop!(U64Column, InternalU64Column);
+impl_cast_col_int_to_float!(U64Column, InternalF32Column);
+impl_cast_col_int_to_float!(U64Column, InternalF64Column);
+
 // F32; When converting to a primitive integer, this conversion requires a
 // loss of precision check. When converting to an unaligned integer (u24, etc)
 // this additionally requires a range check to ensure the integer value is not
@@ -527,6 +651,17 @@ impl_cast_col_float_to_int!(InternalF32Column, InternalU64Column);
 impl_cast_col_noop!(InternalF32Column, InternalF32Column);
 impl_cast_col_into!(InternalF32Column, InternalF64Column);
 
+impl_cast_col_float_to_int!(F32Column, InternalU08Column);
+impl_cast_col_float_to_int!(F32Column, InternalU16Column);
+impl_truncate_from_float!(F32Column, InternalU24Column);
+impl_cast_col_float_to_int!(F32Column, InternalU32Column);
+impl_truncate_from_float!(F32Column, InternalU40Column);
+impl_truncate_from_float!(F32Column, InternalU48Column);
+impl_truncate_from_float!(F32Column, InternalU56Column);
+impl_cast_col_float_to_int!(F32Column, InternalU64Column);
+impl_cast_col_noop!(F32Column, InternalF32Column);
+impl_cast_col_into!(F32Column, InternalF64Column);
+
 // F64; same as f32 except going from f64 to f32 requires a loss of precision
 // check
 
@@ -538,20 +673,19 @@ impl_truncate_from_float!(InternalF64Column, InternalU40Column);
 impl_truncate_from_float!(InternalF64Column, InternalU48Column);
 impl_truncate_from_float!(InternalF64Column, InternalU56Column);
 impl_cast_col_float_to_int!(InternalF64Column, InternalU64Column);
-
-impl FromColumn<InternalF64Column> for InternalF32Column {
-    #[allow(clippy::float_cmp)]
-    fn from_column(col: InternalF64Column) -> CastColResult<Self> {
-        let go = |x: f64| {
-            let new_value: f32 = x.as_();
-            let old_value = f64::from(new_value);
-            (new_value, x != old_value)
-        };
-        map_buffer(&col.inner, go).fmap_once(Self::new)
-    }
-}
-
+impl_f64_to_f32!(InternalF64Column, InternalF32Column);
 impl_cast_col_noop!(InternalF64Column, InternalF64Column);
+
+impl_cast_col_float_to_int!(F64Column, InternalU08Column);
+impl_cast_col_float_to_int!(F64Column, InternalU16Column);
+impl_truncate_from_float!(F64Column, InternalU24Column);
+impl_cast_col_float_to_int!(F64Column, InternalU32Column);
+impl_truncate_from_float!(F64Column, InternalU40Column);
+impl_truncate_from_float!(F64Column, InternalU48Column);
+impl_truncate_from_float!(F64Column, InternalU56Column);
+impl_cast_col_float_to_int!(F64Column, InternalU64Column);
+impl_f64_to_f32!(F64Column, InternalF32Column);
+impl_cast_col_noop!(F64Column, InternalF64Column);
 
 fn buffer_int_to_float<I, F>(buf: &Buffer<I>) -> CastColResult<Buffer<F>>
 where

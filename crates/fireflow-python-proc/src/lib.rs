@@ -2654,8 +2654,9 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let is_mixed = version == Version::FCS3_2;
-    let (push_optical_fun, push_temporal_fun) = if is_mixed {
+    let range_nofail = version == Version::FCS3_2;
+    let mixed_range = version >= Version::FCS3_1;
+    let (push_optical_fun, push_temporal_fun) = if range_nofail {
         (quote!(push_optical_nofail), quote!(push_temporal_nofail))
     } else {
         (quote!(push_optical), quote!(push_temporal))
@@ -2674,7 +2675,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .arg(DocArg::new_range_param(is_mixed))
+            .arg(DocArg::new_range_param(mixed_range))
     };
 
     let opt_doc = push_meas_doc(true, is_dataset);
@@ -2812,9 +2813,9 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let is_mixed = version == Version::FCS3_2;
-
-    let (insert_optical_fun, insert_temporal_fun) = if version == Version::FCS3_2 {
+    let range_nofail = version == Version::FCS3_2;
+    let mixed_range = version >= Version::FCS3_1;
+    let (insert_optical_fun, insert_temporal_fun) = if range_nofail {
         (
             quote!(insert_optical_nofail),
             quote!(insert_temporal_nofail),
@@ -2840,7 +2841,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .arg(DocArg::new_range_param(is_mixed))
+            .arg(DocArg::new_range_param(mixed_range))
     };
 
     let opt_doc = insert_meas_doc(true, is_dataset);

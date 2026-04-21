@@ -92,8 +92,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveColumn, FFDataFrame, FFDataFrameFamily, HasLen, HasWidth, InternalColumn,
-    PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
+    AnyPrimitiveColumn, CastColError, FFDataFrame, FFDataFrameFamily, FromColumn, HasLen, HasWidth,
+    InternalColumn, PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -189,8 +189,7 @@ pub type DataFrame3_2 = Any3_2Layout<FFDataFrameFamily>;
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "M: LayoutDims, N: LayoutDims")]
 #[delegate(LayoutKeywords, where = "M: LayoutDims, N: LayoutDims")]
-#[delegate(RemovableRange)]
-#[delegate(RemovableColumn)]
+#[delegate(Removable<R>, generics = "R")]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -242,11 +241,9 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
-#[delegate(Insertable<Range>)]
 #[delegate(LayoutDatatype, where = "Delim: LayoutDims, Fixed: LayoutDims")]
 #[delegate(LayoutKeywords, where = "Delim: LayoutDims, Fixed: LayoutDims")]
-#[delegate(RemovableRange)]
-#[delegate(RemovableColumn)]
+#[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -388,8 +385,7 @@ pub struct ColumnMarkers<T, D> {
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "Single: LayoutDims, Multi: LayoutDims")]
 #[delegate(LayoutKeywords, where = "Single: LayoutDims, Multi: LayoutDims")]
-#[delegate(RemovableRange)]
-#[delegate(RemovableColumn)]
+#[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -493,8 +489,7 @@ where
              F: LayoutDims, \
              D: LayoutDims"
 )]
-#[delegate(RemovableRange)]
-#[delegate(RemovableColumn)]
+#[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -545,7 +540,7 @@ pub type MixedColumn = AnyDatatype<
 #[delegate(IsBinary)]
 #[delegate(LayoutDims)]
 #[delegate(LayoutRanges)]
-#[delegate(Insertable<Range>)]
+#[delegate(Insertable<R>, generics = "R")]
 #[delegate(
     LayoutDatatype,
     where = "C08: LayoutDims, \
@@ -568,8 +563,7 @@ pub type MixedColumn = AnyDatatype<
              C56: LayoutDims, \
              C64: LayoutDims"
 )]
-#[delegate(RemovableRange)]
-#[delegate(RemovableColumn)]
+#[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(OrderedLayoutOps)]
 #[delegate(WriteLayoutOps)]
@@ -1374,7 +1368,18 @@ pub enum InsertRangeError {
     #[error("could not insert range into float layout because {0}")]
     #[from(DecimalToFloatError)]
     Float(DecimalToFloatError),
+    #[error("could not insert range {0}")]
+    #[from(MismatchTypeRangeError)]
+    MismatchTypes(MismatchTypeRangeError),
 }
+
+/// Error when insert range with concrete type which mismatches layout.
+#[derive(Debug, Error)]
+// TODO make this say something useful
+#[error("range type mistmatches")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
+pub struct MismatchTypeRangeError;
 
 /// Inner error for converting [`Range`] to [`Bitmask`]
 ///
@@ -1712,7 +1717,7 @@ where
         + LayoutDatatype
         + LayoutDims
         + NormalizableLayout
-        + RemovableRange
+        + Removable<Range>
         + OptMeasLayoutKeywords,
 {
     type ByteLayout;
@@ -1789,27 +1794,6 @@ where
             }
         }
     }
-
-    // fn h_write_df<W>(
-    //     &self,
-    //     h: &mut BufWriter<W>,
-    //     df: &PrimitiveDataFrame,
-    //     skip_conv_check: bool,
-    // ) -> WarningsAndErrorResult<(), (), IndexedLossError, io::Error>
-    // where
-    //     W: Write,
-    // {
-    //     // The dataframe should be encapsulated such that a) the column number
-    //     // matches the number of measurements. If these are not true, the code
-    //     // is wrong.
-    //     let par = self.ncols();
-    //     let ncols = df.ncols();
-    //     debug_assert!(
-    //         ncols == par,
-    //         "dataframe columns ({ncols}) unequal to number of measurements ({par})"
-    //     );
-    //     self.h_write_df_inner(h, df, skip_conv_check)
-    // }
 
     fn check_measurement_vector_nolen<N, T, O: AsScaleOrTransform>(
         &self,
@@ -2073,7 +2057,7 @@ where
         + LayoutDatatype
         + LayoutDims
         + NormalizableLayout
-        + RemovableColumn
+        + Removable<RangeAndColumn>
         + OptMeasLayoutKeywords
         + CheckRanges,
 {
@@ -3798,43 +3782,47 @@ pub trait Insertable<Column> {
     fn push(&mut self, col: Column) -> Result<(), Self::Error>;
 }
 
-// This will try to convert any integer range to the smallest bitmask, so if the
-// existing layout is single width and we pass a new range that requires less
-// bits, this will become a mixed layout. This probably isn't a big deal since
-// most people will hopefully never want to keep a single width layout with one
-// tiny column that doesn't use the entire width. The only advantage would be
-// faster reads and writes since we can assume one width for the read/write
-// loops, but this is a performance consideration and probably affects very few
-// users. Accommodating this level of control would require a more complex API.
-// impl<W, C08, C16, C24, C32, C40, C48, C56, C64> Insertable<Range>
-impl<D> Insertable<Range> for AnyEndianUintHeaders<D> {
-    type Error = RangeToBitmaskError;
+impl<D, F> Insertable<Range> for AnyAscii<D, F>
+where
+    D: Insertable<Range>,
+    F: Insertable<Range>,
+    InsertRangeError: From<D::Error> + From<F::Error>,
+{
+    type Error = InsertRangeError;
 
     fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
-        match self {
-            Self::Single(x) => match_any_uint!(x, y, {
-                if y.insert_nocheck(index, col.clone()).is_err() {
-                    let new = mem::take(y).map_inner(AnyBitmask::from);
-                    *self = Self::Multi(new);
-                    return self.insert_nocheck(index, col);
-                }
-                Ok(())
-            }),
-            Self::Multi(x) => x.insert_nocheck(index, col),
-        }
+        match_any_ascii!(self, x, x.insert_nocheck(index, col)?);
+        Ok(())
     }
 
     fn push(&mut self, col: Range) -> Result<(), Self::Error> {
+        match_any_ascii!(self, x, x.push(col)?);
+        Ok(())
+    }
+}
+
+impl<D, F> Insertable<FixedAsciiRange> for AnyAscii<D, F>
+where
+    D: Insertable<DelimAsciiRange, Error = Infallible>,
+    F: Insertable<FixedAsciiRange, Error = Infallible>,
+{
+    type Error = Infallible;
+
+    fn insert_nocheck(
+        &mut self,
+        index: MeasIndex,
+        col: FixedAsciiRange,
+    ) -> Result<(), Self::Error> {
         match self {
-            Self::Single(x) => match_any_uint!(x, y, {
-                if y.push(col.clone()).is_err() {
-                    let new = mem::take(y).map_inner(AnyBitmask::from);
-                    *self = Self::Multi(new);
-                    return self.push(col);
-                }
-                Ok(())
-            }),
-            Self::Multi(x) => x.push(col),
+            Self::Delimited(x) => x.insert_nocheck(index, col.into()),
+            Self::Fixed(x) => x.insert_nocheck(index, col),
+        }
+    }
+
+    fn push(&mut self, col: FixedAsciiRange) -> Result<(), Self::Error> {
+        match self {
+            Self::Delimited(x) => x.push(col.into()),
+            Self::Fixed(x) => x.push(col),
         }
     }
 }
@@ -3860,51 +3848,84 @@ where
     }
 }
 
-impl<C: FromRange, I, L, M, const ORD: bool> Insertable<Range>
-    for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
-{
-    type Error = C::Error;
+// Insert any width of int range into a variable layout. This cannot fail since
+// any single-width layout can be made into a variable-width layout which can
+// accept any width.
+impl<D> Insertable<AnyBitmask> for AnyEndianUintHeaders<D> {
+    type Error = Infallible;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
-        self.container
-            .insert(index.into(), C::from_range(col)?.native);
+    fn insert_nocheck(&mut self, index: MeasIndex, col: AnyBitmask) -> Result<(), Self::Error> {
+        let i = index.into();
+        match self {
+            Self::Single(x) => match_any_uint!(x, y, {
+                if let Ok(r) = col.try_into() {
+                    y.container.insert(i, r);
+                } else {
+                    let mut new = mem::take(y).map_inner(AnyBitmask::from);
+                    new.container.insert(i, col);
+                    *self = Self::Multi(new);
+                }
+            }),
+            Self::Multi(x) => x.container.insert(i, col),
+        }
         Ok(())
     }
 
-    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
-        self.container.push(C::from_range(col)?.native);
+    fn push(&mut self, col: AnyBitmask) -> Result<(), Self::Error> {
+        match self {
+            Self::Single(x) => match_any_uint!(x, y, {
+                if let Ok(r) = col.try_into() {
+                    y.container.push(r);
+                } else {
+                    let mut new = mem::take(y).map_inner(AnyBitmask::from);
+                    new.container.push(col);
+                    *self = Self::Multi(new);
+                }
+            }),
+            Self::Multi(x) => x.container.push(col),
+        }
         Ok(())
     }
 }
 
-// impl<C, L, T, D> Insertable<C> for DataLayout<C, L, T, D> {
-//     type Error = Infallible;
+// Insert any type of range into a nonmmixed layout, which may fail. This is
+// better than just inserting a raw range since it gives the caller control over
+// the final column type.
+impl<A, I, F32, F64> Insertable<MixedRange> for AnyDatatype<A, I, F32, F64>
+where
+    A: Insertable<FixedAsciiRange, Error = Infallible>,
+    I: Insertable<AnyBitmask, Error = Infallible>,
+    F32: Insertable<F32Range, Error = Infallible>,
+    F64: Insertable<F64Range, Error = Infallible>,
+{
+    type Error = InsertRangeError;
 
-//     fn insert_nocheck0(&mut self, index: MeasIndex, col: C) -> Result<(), Infallible> {
-//         self.container.insert(index.into(), col);
-//         Ok(())
-//     }
+    fn insert_nocheck(&mut self, index: MeasIndex, col: MixedRange) -> Result<(), Self::Error> {
+        match (self, col) {
+            (Self::Ascii(x), AnyDatatype::Ascii(r)) => x.insert_nocheck(index, r),
+            (Self::Uint(x), AnyDatatype::Uint(r)) => x.insert_nocheck(index, r),
+            (Self::F32(x), AnyDatatype::F32(r)) => x.insert_nocheck(index, r),
+            (Self::F64(x), AnyDatatype::F64(r)) => x.insert_nocheck(index, r),
+            _ => return Err(MismatchTypeRangeError.into()),
+        };
+        Ok(())
+    }
 
-//     fn push0(&mut self, col: C) -> Result<(), Infallible> {
-//         self.container.push(col);
-//         Ok(())
-//     }
-// }
+    fn push(&mut self, col: MixedRange) -> Result<(), Self::Error> {
+        match (self, col) {
+            (Self::Ascii(x), AnyDatatype::Ascii(r)) => x.push(r),
+            (Self::Uint(x), AnyDatatype::Uint(r)) => x.push(r),
+            (Self::F32(x), AnyDatatype::F32(r)) => x.push(r),
+            (Self::F64(x), AnyDatatype::F64(r)) => x.push(r),
+            _ => return Err(MismatchTypeRangeError.into()),
+        };
+        Ok(())
+    }
+}
 
-// impl<C: HasLen, L, T, D> Insertable<C> for DataFrame<C, L, T, D> {
-//     type Error = Infallible;
-
-//     fn insert_nocheck0(&mut self, index: MeasIndex, col: C) -> Result<(), Infallible> {
-//         self.container.insert_column_nocheck(index.into(), col);
-//         Ok(())
-//     }
-
-//     fn push0(&mut self, col: C) -> Result<(), Infallible> {
-//         self.container.push_column_nocheck(col);
-//         Ok(())
-//     }
-// }
-
+// Insert any type of range into a mixed layout. This cannot fail since any
+// single-type layout can be made into a mixed-type layout which can accept
+// anything.
 impl Insertable<MixedRange> for DataHeaders3_2 {
     type Error = Infallible;
 
@@ -3938,13 +3959,11 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
                 },
                 AnyDatatype::Uint(y) => match y {
                     AnyEndianUint::Single(z) => {
-                        match_any_uint!(z, s, {
-                            if let Ok(r) = col.clone().try_into() {
-                                s.container.insert(index.into(), r);
-                            } else {
-                                go_mixed!(s);
-                            }
-                        });
+                        if let AnyDatatype::Uint(r) = col {
+                            let Ok(()) = y.insert_nocheck(index, r);
+                        } else {
+                            match_any_uint!(z, s, go_mixed!(s));
+                        }
                     }
                     AnyEndianUint::Multi(z) => go!(Uint, z),
                 },
@@ -3984,13 +4003,11 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
                 },
                 AnyDatatype::Uint(y) => match y {
                     AnyEndianUint::Single(z) => {
-                        match_any_uint!(z, s, {
-                            if let Ok(r) = col.clone().try_into() {
-                                s.container.push(r);
-                            } else {
-                                go_mixed!(s);
-                            }
-                        });
+                        if let AnyDatatype::Uint(r) = col {
+                            let Ok(()) = y.push(r);
+                        } else {
+                            match_any_uint!(z, s, go_mixed!(s));
+                        }
                     }
                     AnyEndianUint::Multi(z) => go!(Uint, z),
                 },
@@ -4002,6 +4019,136 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
     }
 }
 
+impl<C: FromRange, I, L, M, const ORD: bool> Insertable<Range>
+    for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
+{
+    type Error = C::Error;
+
+    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+        self.container
+            .insert(index.into(), C::from_range(col)?.native);
+        Ok(())
+    }
+
+    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
+        self.container.push(C::from_range(col)?.native);
+        Ok(())
+    }
+}
+
+impl<C, I, L, M, const ORD: bool> Insertable<C> for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD> {
+    type Error = Infallible;
+
+    fn insert_nocheck(&mut self, index: MeasIndex, col: C) -> Result<(), Self::Error> {
+        self.container.insert(index.into(), col);
+        Ok(())
+    }
+
+    fn push(&mut self, col: C) -> Result<(), Self::Error> {
+        self.container.push(col);
+        Ok(())
+    }
+}
+
+// impl<D> Insertable<RangeAndColumn> for AnyEndianUintDataFrame<D> {
+//     type Error = ();
+
+//     fn insert_nocheck(&mut self, index: MeasIndex, col: RangeAndColumn) -> Result<(), Self::Error> {
+//         match self {
+//             Self::Single(x) => match_any_uint!(x, y, {
+//                 if y.insert_nocheck(index, col.clone()).is_err() {
+//                     let new = mem::take(y).map_inner(AnyBitmask::from);
+//                     *self = Self::Multi(new);
+//                     return self.insert_nocheck(index, col);
+//                 }
+//                 Ok(())
+//             }),
+//             Self::Multi(x) => x.insert_nocheck(index, col),
+//         }
+//     }
+
+//     fn push(&mut self, col: RangeAndColumn) -> Result<(), Self::Error> {
+//         match self {
+//             Self::Single(x) => match_any_uint!(x, y, {
+//                 if y.push(col.clone()).is_err() {
+//                     let new = mem::take(y).map_inner(AnyBitmask::from);
+//                     *self = Self::Multi(new);
+//                     return self.push(col);
+//                 }
+//                 Ok(())
+//             }),
+//             Self::Multi(x) => x.push(col),
+//         }
+//     }
+// }
+
+// impl<A, I, F32, F64> Insertable<RangeAndColumn> for AnyDatatype<A, I, F32, F64>
+// where
+//     A: Insertable<RangeAndColumn>,
+//     I: Insertable<RangeAndColumn>,
+//     F32: Insertable<RangeAndColumn>,
+//     F64: Insertable<RangeAndColumn>,
+//     InsertRangeError: From<A::Error> + From<I::Error> + From<F32::Error> + From<F64::Error>,
+// {
+//     type Error = InsertRangeError;
+
+//     fn insert_nocheck(&mut self, index: MeasIndex, col: RangeAndColumn) -> Result<(), Self::Error> {
+//         match_any_datatype!(self, x, {
+//             x.insert_nocheck(index, col).map_err(Self::Error::from)
+//         })
+//     }
+
+//     fn push(&mut self, col: RangeAndColumn) -> Result<(), Self::Error> {
+//         match_any_datatype!(self, x, x.push(col).map_err(Self::Error::from))
+//     }
+// }
+
+// // Insert range and column
+// //
+// // ASSUME length is correct for new column, caller must verify this
+// impl<H, T, R, I, L, M, const ORD: bool> Insertable<RangeAndColumn>
+//     for ColumnGroup<FFDataFrame<AnnotatedColumn<H, T, R>>, FFDataFrameFamily, I, L, M, ORD>
+// where
+//     RangeAndColumn: TryInto<AnnotatedColumn<H, T, R>>,
+// {
+//     type Error = <RangeAndColumn as TryInto<AnnotatedColumn<H, T, R>>>::Error;
+
+//     fn insert_nocheck(&mut self, index: MeasIndex, col: RangeAndColumn) -> Result<(), Self::Error> {
+//         self.container
+//             .insert_column_nocheck(index.into(), col.try_into()?);
+//         Ok(())
+//     }
+
+//     fn push(&mut self, col: RangeAndColumn) -> Result<(), Self::Error> {
+//         self.container.push_column_nocheck(col.try_into()?);
+//         Ok(())
+//     }
+// }
+
+// impl<H, T, R> TryFrom<RangeAndColumn> for AnnotatedColumn<H, T, R>
+// where
+//     H: FromRange,
+//     InternalColumn<T, R>: FromColumn<AnyPrimitiveColumn>,
+// {
+//     type Error = InsertRangeAndColumnError<H::Error>;
+
+//     fn try_from(value: RangeAndColumn) -> Result<Self, Self::Error> {
+//         let (r, c) = value;
+//         let header = H::from_range(r)
+//             .map_err(InsertRangeAndColumnError::Range)?
+//             .native;
+//         let data = InternalColumn::from_column(c)
+//             .into_err()
+//             .map_err(InsertRangeAndColumnError::Column)?;
+//         Ok(Self::new(header, data))
+//     }
+// }
+
+// pub enum InsertRangeAndColumnError<E> {
+//     Range(E),
+//     Column(CastColError),
+// }
+
 // Implement removable operations for layouts.
 //
 // Unlike insertions, this cannot fail which makes this trait simpler.
@@ -4009,29 +4156,20 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
 
 // TODO return type of mixed type which was removed?
 
-/// A type which can have a range removed from it.
+/// A type which can have a column element removed from it.
 #[delegatable_trait]
-pub trait RemovableRange: Sized {
-    /// Remove a range.
+pub trait Removable<C>: Sized {
+    /// Remove a column.
     ///
     /// Will panic if index is out of bounds.
-    fn remove_range_nocheck(&mut self, index: MeasIndex) -> Range;
+    fn remove_nocheck(&mut self, index: MeasIndex) -> C;
 }
 
-/// A type which can have a range removed from it.
-#[delegatable_trait]
-pub trait RemovableColumn: Sized {
-    /// Remove a column and range.
-    ///
-    /// Will panic if index is out of bounds.
-    fn remove_col_nocheck(&mut self, index: MeasIndex) -> RangeAndColumn;
-}
-
-impl<C, I, L, M, const ORD: bool> RemovableRange for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
+impl<C, I, L, M, const ORD: bool> Removable<Range> for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
 where
     for<'c> Range: From<&'c C>,
 {
-    fn remove_range_nocheck(&mut self, index: MeasIndex) -> Range {
+    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
             usize::from(index) <= self.container.len(),
             "Index should be less than/equal to column number"
@@ -4042,13 +4180,13 @@ where
 
 pub type RangeAndColumn = (Range, AnyPrimitiveColumn);
 
-impl<C, I, L, M, const ORD: bool> RemovableColumn
+impl<C, I, L, M, const ORD: bool> Removable<RangeAndColumn>
     for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
 where
     for<'c> Range: From<&'c C>,
     for<'c> AnyPrimitiveColumn: From<&'c C>,
 {
-    fn remove_col_nocheck(&mut self, index: MeasIndex) -> RangeAndColumn {
+    fn remove_nocheck(&mut self, index: MeasIndex) -> RangeAndColumn {
         debug_assert!(
             usize::from(index) <= self.container.ncols(),
             "Index should be less than/equal to column number"
@@ -4886,27 +5024,32 @@ impl FromRange for DelimAsciiRange {
     }
 }
 
-impl FromRange for AnyBitmask {
-    type Error = RangeToBitmaskError;
+// impl FromRange for AnyBitmask {
+//     type Error = RangeToBitmaskError;
 
-    /// make a new bitmask from a float or integer.
-    ///
-    /// The size will be determined by the input and will be kept as small as
-    /// possible.
-    fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
-        // NOTE this is a bit weird since we are letting the type control the
-        // size. There are a few edge cases where a user may wish to control the
-        // size but these are all for performance and supporting them would make
-        // the API much more complex.
-        range
-            .clone()
-            .into_uint()
-            .map_errors(RangeToBitmaskError::from)
-            .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
-            .map_ok_value(|n| ConvertedRange::new(n, None))
-            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-    }
-}
+//     /// make a new bitmask from a float or integer.
+//     ///
+//     /// The size will be determined by the input and will be kept as small as
+//     /// possible.
+//     fn from_range_inner(range: Range) -> DeferredError<ConvertedRange<Self>, Self::Error> {
+//         // NOTE this is a bit weird since we are letting the type control the
+//         // size. There are a few edge cases where a user may wish to control the
+//         // size but these are all for performance and supporting them would make
+//         // the API much more complex.
+//         range
+//             .clone()
+//             .into_uint()
+//             .map_errors(RangeToBitmaskError::from)
+//             .map_deferred_value(|x: BitmaskValue<u64>| Self::from(x))
+//             .map_ok_value(|n| ConvertedRange::new(n, None))
+//             .map_err_value(|n| ConvertedRange::new(n, Some(range)))
+//     }
+// }
+
+// Implement Range (ie $PnR) and data -> column type
+//
+// This applies to all except mixed type headers since these need additional
+// information to interpret the $PnR value as a given type.
 
 // Implement header -> $PnB conversion
 //

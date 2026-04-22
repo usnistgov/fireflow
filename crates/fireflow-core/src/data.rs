@@ -600,6 +600,24 @@ type AnyOrderedUintDataFrame<T> = AnyOrderedUintGroup<FFDataFrameFamily, T>;
 pub type AnyBitmask =
     AnyUint<Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56, Bitmask64>;
 
+/// Either a [`Range`] or something else, both of which encode $PnR.
+///
+/// This is meant for cases where createing a new column can be done with either
+/// a general decimal value or a specific type which encodes further information
+/// about the column to be written.
+pub enum RangeOrType<T> {
+    Range(Range),
+    Specific(T),
+}
+
+pub type RangeOrBitmaskRange = RangeOrType<AnyBitmask>;
+
+pub type RangeOrBitmaskColumn = RangeOrType<AnyBitmaskColumn>;
+
+pub type RangeOrMixedRange = RangeOrType<MixedRange>;
+
+pub type RangeOrMixedColumn = RangeOrType<MixedColumn>;
+
 pub type AnyBitmaskColumn = AnyUint<
     NativeColumn<Bitmask08>,
     NativeColumn<Bitmask16>,
@@ -3776,10 +3794,16 @@ pub trait Insertable<Column> {
     /// Insert a new column at index.
     ///
     /// This will panic if index is out of bounds.
-    fn insert_nocheck(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error>;
+    fn insert_nocheck(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error> {
+        self.insert_or_push(Some(index), col)
+    }
 
     /// Push new column to the right of the current column vector.
-    fn push(&mut self, col: Column) -> Result<(), Self::Error>;
+    fn push(&mut self, col: Column) -> Result<(), Self::Error> {
+        self.insert_or_push(None, col)
+    }
+
+    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Column) -> Result<(), Self::Error>;
 }
 
 impl<D, F> Insertable<Range> for AnyAscii<D, F>
@@ -3790,13 +3814,8 @@ where
 {
     type Error = InsertRangeError;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
-        match_any_ascii!(self, x, x.insert_nocheck(index, col)?);
-        Ok(())
-    }
-
-    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
-        match_any_ascii!(self, x, x.push(col)?);
+    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Range) -> Result<(), Self::Error> {
+        match_any_ascii!(self, x, x.insert_or_push(index, col)?);
         Ok(())
     }
 }
@@ -3808,21 +3827,14 @@ where
 {
     type Error = Infallible;
 
-    fn insert_nocheck(
+    fn insert_or_push(
         &mut self,
-        index: MeasIndex,
+        index: Option<MeasIndex>,
         col: FixedAsciiRange,
     ) -> Result<(), Self::Error> {
         match self {
-            Self::Delimited(x) => x.insert_nocheck(index, col.into()),
-            Self::Fixed(x) => x.insert_nocheck(index, col),
-        }
-    }
-
-    fn push(&mut self, col: FixedAsciiRange) -> Result<(), Self::Error> {
-        match self {
-            Self::Delimited(x) => x.push(col.into()),
-            Self::Fixed(x) => x.push(col),
+            Self::Delimited(x) => x.insert_or_push(index, col.into()),
+            Self::Fixed(x) => x.insert_or_push(index, col),
         }
     }
 }
@@ -3837,14 +3849,10 @@ where
 {
     type Error = InsertRangeError;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
+    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Range) -> Result<(), Self::Error> {
         match_any_datatype!(self, x, {
-            x.insert_nocheck(index, col).map_err(Self::Error::from)
+            x.insert_or_push(index, col).map_err(Self::Error::from)
         })
-    }
-
-    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
-        match_any_datatype!(self, x, x.push(col).map_err(Self::Error::from))
     }
 }
 
@@ -3854,39 +3862,76 @@ where
 impl<D> Insertable<AnyBitmask> for AnyEndianUintHeaders<D> {
     type Error = Infallible;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: AnyBitmask) -> Result<(), Self::Error> {
-        let i = index.into();
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: AnyBitmask,
+    ) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => match_any_uint!(x, y, {
                 if let Ok(r) = col.try_into() {
-                    y.container.insert(i, r);
+                    if let Some(i) = index {
+                        y.container.insert(i.into(), r);
+                    } else {
+                        y.container.push(r);
+                    }
+                    Ok(())
                 } else {
                     let mut new = mem::take(y).map_inner(AnyBitmask::from);
-                    new.container.insert(i, col);
+                    new.insert_or_push(index, col)?;
                     *self = Self::Multi(new);
+                    Ok(())
                 }
             }),
-            Self::Multi(x) => x.container.insert(i, col),
+            Self::Multi(x) => x.insert_or_push(index, col),
         }
-        Ok(())
-    }
-
-    fn push(&mut self, col: AnyBitmask) -> Result<(), Self::Error> {
-        match self {
-            Self::Single(x) => match_any_uint!(x, y, {
-                if let Ok(r) = col.try_into() {
-                    y.container.push(r);
-                } else {
-                    let mut new = mem::take(y).map_inner(AnyBitmask::from);
-                    new.container.push(col);
-                    *self = Self::Multi(new);
-                }
-            }),
-            Self::Multi(x) => x.container.push(col),
-        }
-        Ok(())
     }
 }
+
+// // Insert general or specific range into variable int layout.
+// impl<D> Insertable<RangeOrBitmaskRange> for AnyEndianUintHeaders<D> {
+//     type Error = InsertRangeError;
+
+//     fn insert_nocheck(
+//         &mut self,
+//         index: MeasIndex,
+//         col: RangeOrBitmaskRange,
+//     ) -> Result<(), Self::Error> {
+//         let i = index.into();
+//         match (self, col) {
+//             (Self::Single(x), RangeOrType::Range(r)) => x.insert_nocheck(index, r),
+//             (Self::Single(x), RangeOrType::Specific(r)) => {}
+//             //     match_any_uint!(x, y, {
+//             //     if let Ok(r) = col.try_into() {
+//             //         y.container.insert(i, r);
+//             //     } else {
+//             //         let mut new = mem::take(y).map_inner(AnyBitmask::from);
+//             //         new.container.insert(i, col);
+//             //         *self = Self::Multi(new);
+//             //     }
+//             // }),
+//             (Self::Multi(x), RangeOrType::Range(_)) => return Err(MismatchTypeRangeError.into()),
+//             (Self::Multi(x), RangeOrType::Specific(r)) => x.container.insert(i, r),
+//         }
+//         Ok(())
+//     }
+
+//     fn push(&mut self, col: RangeOrBitmaskRange) -> Result<(), Self::Error> {
+//         match self {
+//             Self::Single(x) => match_any_uint!(x, y, {
+//                 if let Ok(r) = col.try_into() {
+//                     y.container.push(r);
+//                 } else {
+//                     let mut new = mem::take(y).map_inner(AnyBitmask::from);
+//                     new.container.push(col);
+//                     *self = Self::Multi(new);
+//                 }
+//             }),
+//             Self::Multi(x) => x.container.push(col),
+//         }
+//         Ok(())
+//     }
+// }
 
 // Insert any type of range into a nonmmixed layout, which may fail. This is
 // better than just inserting a raw range since it gives the caller control over
@@ -3900,23 +3945,16 @@ where
 {
     type Error = InsertRangeError;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: MixedRange) -> Result<(), Self::Error> {
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: MixedRange,
+    ) -> Result<(), Self::Error> {
         match (self, col) {
-            (Self::Ascii(x), AnyDatatype::Ascii(r)) => x.insert_nocheck(index, r),
-            (Self::Uint(x), AnyDatatype::Uint(r)) => x.insert_nocheck(index, r),
-            (Self::F32(x), AnyDatatype::F32(r)) => x.insert_nocheck(index, r),
-            (Self::F64(x), AnyDatatype::F64(r)) => x.insert_nocheck(index, r),
-            _ => return Err(MismatchTypeRangeError.into()),
-        };
-        Ok(())
-    }
-
-    fn push(&mut self, col: MixedRange) -> Result<(), Self::Error> {
-        match (self, col) {
-            (Self::Ascii(x), AnyDatatype::Ascii(r)) => x.push(r),
-            (Self::Uint(x), AnyDatatype::Uint(r)) => x.push(r),
-            (Self::F32(x), AnyDatatype::F32(r)) => x.push(r),
-            (Self::F64(x), AnyDatatype::F64(r)) => x.push(r),
+            (Self::Ascii(x), AnyDatatype::Ascii(r)) => x.insert_or_push(index, r),
+            (Self::Uint(x), AnyDatatype::Uint(r)) => x.insert_or_push(index, r),
+            (Self::F32(x), AnyDatatype::F32(r)) => x.insert_or_push(index, r),
+            (Self::F64(x), AnyDatatype::F64(r)) => x.insert_or_push(index, r),
             _ => return Err(MismatchTypeRangeError.into()),
         };
         Ok(())
@@ -3929,7 +3967,11 @@ where
 impl Insertable<MixedRange> for DataHeaders3_2 {
     type Error = Infallible;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: MixedRange) -> Result<(), Infallible> {
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: MixedRange,
+    ) -> Result<(), Infallible> {
         macro_rules! go_mixed {
             ($from:expr) => {{
                 *self = Self::Mixed(
@@ -3937,57 +3979,17 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
                         .map_inner(MixedRange::from)
                         .byte_layout_into(),
                 );
-                self.insert_nocheck(index, col);
+                self.insert_or_push(index, col);
             }};
         }
         macro_rules! go {
             ($var:ident, $from:expr) => {
                 if let AnyDatatype::$var(r) = col {
-                    $from.container.insert(index.into(), r.into());
-                } else {
-                    go_mixed!($from);
-                }
-            };
-        }
-
-        match self {
-            Self::Mixed(x) => x.container.insert(index.into(), col),
-            Self::NonMixed(x) => match x {
-                AnyDatatype::Ascii(y) => match y {
-                    AnyAscii::Delimited(z) => go!(Ascii, z),
-                    AnyAscii::Fixed(z) => go!(Ascii, z),
-                },
-                AnyDatatype::Uint(y) => match y {
-                    AnyEndianUint::Single(z) => {
-                        if let AnyDatatype::Uint(r) = col {
-                            let Ok(()) = y.insert_nocheck(index, r);
-                        } else {
-                            match_any_uint!(z, s, go_mixed!(s));
-                        }
+                    if let Some(i) = index {
+                        $from.container.insert(i.into(), r.into());
+                    } else {
+                        $from.container.push(r.into());
                     }
-                    AnyEndianUint::Multi(z) => go!(Uint, z),
-                },
-                AnyDatatype::F32(y) => go!(F32, y),
-                AnyDatatype::F64(y) => go!(F64, y),
-            },
-        }
-        Ok(())
-    }
-
-    fn push(&mut self, col: MixedRange) -> Result<(), Infallible> {
-        macro_rules! go_mixed {
-            ($from:expr) => {{
-                let new = mem::take($from)
-                    .map_inner(MixedRange::from)
-                    .byte_layout_into();
-                *self = Self::Mixed(new);
-                self.push(col);
-            }};
-        }
-        macro_rules! go {
-            ($var:ident, $from:expr) => {
-                if let AnyDatatype::$var(r) = col {
-                    $from.container.push(r.into());
                 } else {
                     go_mixed!($from);
                 }
@@ -3995,7 +3997,7 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
         }
 
         match self {
-            Self::Mixed(x) => x.container.push(col),
+            Self::Mixed(x) => x.insert_or_push(index, col)?,
             Self::NonMixed(x) => match x {
                 AnyDatatype::Ascii(y) => match y {
                     AnyAscii::Delimited(z) => go!(Ascii, z),
@@ -4004,7 +4006,7 @@ impl Insertable<MixedRange> for DataHeaders3_2 {
                 AnyDatatype::Uint(y) => match y {
                     AnyEndianUint::Single(z) => {
                         if let AnyDatatype::Uint(r) = col {
-                            let Ok(()) = y.push(r);
+                            let Ok(()) = y.insert_or_push(index, r);
                         } else {
                             match_any_uint!(z, s, go_mixed!(s));
                         }
@@ -4024,14 +4026,12 @@ impl<C: FromRange, I, L, M, const ORD: bool> Insertable<Range>
 {
     type Error = C::Error;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: Range) -> Result<(), Self::Error> {
-        self.container
-            .insert(index.into(), C::from_range(col)?.native);
-        Ok(())
-    }
-
-    fn push(&mut self, col: Range) -> Result<(), Self::Error> {
-        self.container.push(C::from_range(col)?.native);
+    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Range) -> Result<(), Self::Error> {
+        if let Some(i) = index {
+            self.container.insert(i.into(), C::from_range(col)?.native);
+        } else {
+            self.container.push(C::from_range(col)?.native);
+        }
         Ok(())
     }
 }
@@ -4039,13 +4039,12 @@ impl<C: FromRange, I, L, M, const ORD: bool> Insertable<Range>
 impl<C, I, L, M, const ORD: bool> Insertable<C> for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD> {
     type Error = Infallible;
 
-    fn insert_nocheck(&mut self, index: MeasIndex, col: C) -> Result<(), Self::Error> {
-        self.container.insert(index.into(), col);
-        Ok(())
-    }
-
-    fn push(&mut self, col: C) -> Result<(), Self::Error> {
-        self.container.push(col);
+    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: C) -> Result<(), Self::Error> {
+        if let Some(i) = index {
+            self.container.insert(i.into(), col);
+        } else {
+            self.container.push(col);
+        }
         Ok(())
     }
 }

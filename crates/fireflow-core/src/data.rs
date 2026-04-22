@@ -92,8 +92,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveColumn, FFDataFrame, FFDataFrameFamily, HasLen, HasWidth, InternalColumn,
-    PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
+    AnyPrimitiveColumn, CastColError, FFDataFrame, FFDataFrameFamily, FromColumn, HasLen, HasWidth,
+    InternalColumn, PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -244,6 +244,7 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "Delim: LayoutDims, Fixed: LayoutDims")]
 #[delegate(LayoutKeywords, where = "Delim: LayoutDims, Fixed: LayoutDims")]
+#[delegate(Insertable<R>, generics = "R")]
 #[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
@@ -607,18 +608,18 @@ pub type AnyBitmask =
 /// a general decimal value or a specific type which encodes further information
 /// about the column to be written.
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-pub enum RangeOrType<T> {
-    Range(Range),
-    Specific(T),
+pub enum ToInsert<D, S> {
+    Decimal(D),
+    Specific(S),
 }
 
-pub type RangeOrBitmaskRange = RangeOrType<AnyBitmask>;
+pub type RangeOrBitmaskRange = ToInsert<Range, AnyBitmask>;
 
-pub type RangeOrBitmaskColumn = RangeOrType<AnyBitmaskColumn>;
+pub type RangeOrBitmaskColumn = ToInsert<RangeAndColumn, AnyBitmaskColumn>;
 
-pub type RangeOrMixedRange = RangeOrType<MixedRange>;
+pub type RangeOrMixedRange = ToInsert<Range, MixedRange>;
 
-pub type RangeOrMixedColumn = RangeOrType<MixedColumn>;
+pub type RangeOrMixedColumn = ToInsert<RangeAndColumn, MixedColumn>;
 
 pub type AnyBitmaskColumn = AnyUint<
     NativeColumn<Bitmask08>,
@@ -3808,20 +3809,6 @@ pub trait Insertable<Column> {
     fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Column) -> Result<(), Self::Error>;
 }
 
-impl<D, F> Insertable<Range> for AnyAscii<D, F>
-where
-    D: Insertable<Range>,
-    F: Insertable<Range>,
-    InsertRangeError: From<D::Error> + From<F::Error>,
-{
-    type Error = InsertRangeError;
-
-    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Range) -> Result<(), Self::Error> {
-        match_any_ascii!(self, x, x.insert_or_push(index, col)?);
-        Ok(())
-    }
-}
-
 impl<A, I, F32, F64> Insertable<Range> for AnyDatatype<A, I, F32, F64>
 where
     A: Insertable<Range>,
@@ -3900,8 +3887,8 @@ impl<D> Insertable<RangeOrBitmaskRange> for AnyEndianUintHeaders<D> {
         col: RangeOrBitmaskRange,
     ) -> Result<(), Self::Error> {
         match col {
-            RangeOrType::Range(r) => self.insert_or_push(index, r)?,
-            RangeOrType::Specific(r) => {
+            ToInsert::Decimal(r) => self.insert_or_push(index, r)?,
+            ToInsert::Specific(r) => {
                 let Ok(()) = self.insert_or_push(index, r);
             }
         }
@@ -3917,20 +3904,20 @@ impl<D> Insertable<RangeOrBitmaskRange> for NonMixedEndianHeaders<D> {
         index: Option<MeasIndex>,
         col: RangeOrBitmaskRange,
     ) -> Result<(), Self::Error> {
+        macro_rules! go {
+            ($layout:expr) => {
+                if let ToInsert::Decimal(r) = col {
+                    $layout.insert_or_push(index, r)?;
+                } else {
+                    return Err(MismatchTypeRangeError.into());
+                }
+            };
+        }
         match self {
-            Self::Ascii(x) => match col {
-                RangeOrType::Range(r) => x.insert_or_push(index, r)?,
-                RangeOrType::Specific(_) => return Err(MismatchTypeRangeError.into()),
-            },
+            Self::Ascii(x) => go!(x),
             Self::Uint(x) => x.insert_or_push(index, col)?,
-            Self::F32(x) => match col {
-                RangeOrType::Range(r) => x.insert_or_push(index, r)?,
-                RangeOrType::Specific(_) => return Err(MismatchTypeRangeError.into()),
-            },
-            Self::F64(x) => match col {
-                RangeOrType::Range(r) => x.insert_or_push(index, r)?,
-                RangeOrType::Specific(_) => return Err(MismatchTypeRangeError.into()),
-            },
+            Self::F32(x) => go!(x),
+            Self::F64(x) => go!(x),
         }
         Ok(())
     }
@@ -3964,18 +3951,18 @@ impl Insertable<RangeOrMixedRange> for DataHeaders3_2 {
                         $from.container.push(r.into());
                     }
                 } else {
-                    go_mixed!(RangeOrType::Specific($col), $from);
+                    go_mixed!(ToInsert::Specific($col), $from);
                 }
             };
         }
 
         match col {
-            RangeOrType::Range(r) => match self {
+            ToInsert::Decimal(r) => match self {
                 Self::Mixed(_) => return Err(MismatchTypeRangeError.into()),
                 Self::NonMixed(x) => x.insert_or_push(index, r)?,
             },
 
-            RangeOrType::Specific(r) => match self {
+            ToInsert::Specific(r) => match self {
                 Self::Mixed(x) => {
                     let Ok(()) = x.insert_or_push(index, r);
                 }
@@ -3989,7 +3976,7 @@ impl Insertable<RangeOrMixedRange> for DataHeaders3_2 {
                             if let AnyDatatype::Uint(rr) = r {
                                 let Ok(()) = y.insert_or_push(index, rr);
                             } else {
-                                match_any_uint!(z, s, go_mixed!(RangeOrType::Specific(r), s));
+                                match_any_uint!(z, s, go_mixed!(ToInsert::Specific(r), s));
                             }
                         }
                         AnyEndianUint::Multi(z) => go!(r, Uint, z),
@@ -4031,104 +4018,277 @@ impl<C, I, L, M, const ORD: bool> Insertable<C> for ColumnGroup<Vec<C>, VecFamil
     }
 }
 
-// impl<D> Insertable<RangeAndColumn> for AnyEndianUintDataFrame<D> {
-//     type Error = ();
+impl<A, I, F32, F64, Ae, Ie, F32e, F64e> Insertable<RangeAndColumn> for AnyDatatype<A, I, F32, F64>
+where
+    A: Insertable<RangeAndColumn, Error = InsertRangeAndColumnError<Ae>>,
+    I: Insertable<RangeAndColumn, Error = InsertRangeAndColumnError<Ie>>,
+    F32: Insertable<RangeAndColumn, Error = InsertRangeAndColumnError<F32e>>,
+    F64: Insertable<RangeAndColumn, Error = InsertRangeAndColumnError<F64e>>,
+    InsertRangeError: From<Ae> + From<Ie> + From<F32e> + From<F64e>,
+{
+    type Error = InsertRangeAndColumnError<InsertRangeError>;
 
-//     fn insert_nocheck(&mut self, index: MeasIndex, col: RangeAndColumn) -> Result<(), Self::Error> {
-//         match self {
-//             Self::Single(x) => match_any_uint!(x, y, {
-//                 if y.insert_nocheck(index, col.clone()).is_err() {
-//                     let new = mem::take(y).map_inner(AnyBitmask::from);
-//                     *self = Self::Multi(new);
-//                     return self.insert_nocheck(index, col);
-//                 }
-//                 Ok(())
-//             }),
-//             Self::Multi(x) => x.insert_nocheck(index, col),
-//         }
-//     }
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: RangeAndColumn,
+    ) -> Result<(), Self::Error> {
+        match_any_datatype!(self, x, {
+            x.insert_or_push(index, col)
+                .map_err(|e| e.fmap_once(InsertRangeError::from))
+        })
+    }
+}
 
-//     fn push(&mut self, col: RangeAndColumn) -> Result<(), Self::Error> {
-//         match self {
-//             Self::Single(x) => match_any_uint!(x, y, {
-//                 if y.push(col.clone()).is_err() {
-//                     let new = mem::take(y).map_inner(AnyBitmask::from);
-//                     *self = Self::Multi(new);
-//                     return self.push(col);
-//                 }
-//                 Ok(())
-//             }),
-//             Self::Multi(x) => x.push(col),
-//         }
-//     }
-// }
+impl<D> Insertable<RangeAndColumn> for AnyEndianUintDataFrame<D> {
+    type Error = InsertRangeAndColumnError<InsertRangeError>;
 
-// impl<A, I, F32, F64> Insertable<RangeAndColumn> for AnyDatatype<A, I, F32, F64>
-// where
-//     A: Insertable<RangeAndColumn>,
-//     I: Insertable<RangeAndColumn>,
-//     F32: Insertable<RangeAndColumn>,
-//     F64: Insertable<RangeAndColumn>,
-//     InsertRangeError: From<A::Error> + From<I::Error> + From<F32::Error> + From<F64::Error>,
-// {
-//     type Error = InsertRangeError;
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: RangeAndColumn,
+    ) -> Result<(), Self::Error> {
+        match self {
+            Self::Single(x) => {
+                x.insert_or_push(index, col)
+                    .map_err(FunctorOnce::fmap_into_once)?;
+                Ok(())
+            }
+            Self::Multi(_) => Err(InsertRangeAndColumnError::Range(
+                MismatchTypeRangeError.into(),
+            )),
+        }
+    }
+}
 
-//     fn insert_nocheck(&mut self, index: MeasIndex, col: RangeAndColumn) -> Result<(), Self::Error> {
-//         match_any_datatype!(self, x, {
-//             x.insert_nocheck(index, col).map_err(Self::Error::from)
-//         })
-//     }
+impl<D> Insertable<AnyBitmaskColumn> for AnyEndianUintDataFrame<D> {
+    type Error = Infallible;
 
-//     fn push(&mut self, col: RangeAndColumn) -> Result<(), Self::Error> {
-//         match_any_datatype!(self, x, x.push(col).map_err(Self::Error::from))
-//     }
-// }
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: AnyBitmaskColumn,
+    ) -> Result<(), Self::Error> {
+        match self {
+            Self::Single(x) => {
+                match_any_uint!(x, y, {
+                    if let Ok(r) = col.clone().try_into() {
+                        if let Some(i) = index {
+                            y.container.insert_column_nocheck(i.into(), r);
+                        } else {
+                            y.container.push_column_nocheck(r);
+                        }
+                    } else {
+                        let mut new = mem::take(y).map_inner(AnyBitmaskColumn::from);
+                        new.insert_or_push(index, col);
+                        *self = Self::Multi(new);
+                    }
+                    Ok(())
+                })
+            }
+            Self::Multi(x) => x.insert_or_push(index, col),
+        }
+    }
+}
 
-// // Insert range and column
-// //
-// // ASSUME length is correct for new column, caller must verify this
-// impl<H, T, R, I, L, M, const ORD: bool> Insertable<RangeAndColumn>
-//     for ColumnGroup<FFDataFrame<AnnotatedColumn<H, T, R>>, FFDataFrameFamily, I, L, M, ORD>
-// where
-//     RangeAndColumn: TryInto<AnnotatedColumn<H, T, R>>,
-// {
-//     type Error = <RangeAndColumn as TryInto<AnnotatedColumn<H, T, R>>>::Error;
+impl<D> Insertable<RangeOrBitmaskColumn> for AnyEndianUintDataFrame<D> {
+    type Error = InsertRangeAndColumnError<InsertRangeError>;
 
-//     fn insert_nocheck(&mut self, index: MeasIndex, col: RangeAndColumn) -> Result<(), Self::Error> {
-//         self.container
-//             .insert_column_nocheck(index.into(), col.try_into()?);
-//         Ok(())
-//     }
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: RangeOrBitmaskColumn,
+    ) -> Result<(), Self::Error> {
+        match col {
+            ToInsert::Decimal(r) => self.insert_or_push(index, r)?,
+            ToInsert::Specific(r) => {
+                let Ok(()) = self.insert_or_push(index, r);
+            }
+        }
+        Ok(())
+    }
+}
 
-//     fn push(&mut self, col: RangeAndColumn) -> Result<(), Self::Error> {
-//         self.container.push_column_nocheck(col.try_into()?);
-//         Ok(())
-//     }
-// }
+impl<D> Insertable<RangeOrBitmaskColumn> for NonMixedEndianDataFrame<D> {
+    type Error = InsertRangeAndColumnError<InsertRangeError>;
 
-// impl<H, T, R> TryFrom<RangeAndColumn> for AnnotatedColumn<H, T, R>
-// where
-//     H: FromRange,
-//     InternalColumn<T, R>: FromColumn<AnyPrimitiveColumn>,
-// {
-//     type Error = InsertRangeAndColumnError<H::Error>;
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: RangeOrBitmaskColumn,
+    ) -> Result<(), Self::Error> {
+        macro_rules! go {
+            ($layout:expr) => {
+                if let ToInsert::Decimal(r) = col {
+                    $layout
+                        .insert_or_push(index, r)
+                        .map_err(InsertRangeAndColumnError::fmap_into_once)?;
+                } else {
+                    return Err(InsertRangeAndColumnError::Range(
+                        MismatchTypeRangeError.into(),
+                    ));
+                }
+            };
+        }
+        match self {
+            Self::Ascii(x) => go!(x),
+            Self::Uint(x) => x.insert_or_push(index, col)?,
+            Self::F32(x) => go!(x),
+            Self::F64(x) => go!(x),
+        }
+        Ok(())
+    }
+}
 
-//     fn try_from(value: RangeAndColumn) -> Result<Self, Self::Error> {
-//         let (r, c) = value;
-//         let header = H::from_range(r)
-//             .map_err(InsertRangeAndColumnError::Range)?
-//             .native;
-//         let data = InternalColumn::from_column(c)
-//             .into_err()
-//             .map_err(InsertRangeAndColumnError::Column)?;
-//         Ok(Self::new(header, data))
-//     }
-// }
+impl Insertable<RangeOrMixedColumn> for DataFrame3_2 {
+    type Error = InsertRangeAndColumnError<InsertRangeError>;
 
-// pub enum InsertRangeAndColumnError<E> {
-//     Range(E),
-//     Column(CastColError),
-// }
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: RangeOrMixedColumn,
+    ) -> Result<(), Self::Error> {
+        macro_rules! go_mixed {
+            ($col:expr, $from:expr) => {{
+                let mut new = Self::Mixed(
+                    mem::take($from)
+                        .map_inner(MixedColumn::from)
+                        .byte_layout_into(),
+                );
+                new.insert_or_push(index, $col)?;
+                *self = new;
+            }};
+        }
+        macro_rules! go {
+            ($col:expr, $var:ident, $from:expr) => {
+                if let AnyDatatype::$var(r) = $col {
+                    if let Some(i) = index {
+                        $from.container.insert_column_nocheck(i.into(), r.into());
+                    } else {
+                        $from.container.push_column_nocheck(r.into());
+                    }
+                } else {
+                    go_mixed!(ToInsert::Specific($col), $from);
+                }
+            };
+        }
+
+        match col {
+            ToInsert::Decimal(r) => match self {
+                Self::Mixed(_) => {
+                    return Err(InsertRangeAndColumnError::Range(
+                        MismatchTypeRangeError.into(),
+                    ));
+                }
+                Self::NonMixed(x) => x.insert_or_push(index, r)?,
+            },
+
+            ToInsert::Specific(r) => match self {
+                Self::Mixed(x) => {
+                    let Ok(()) = x.insert_or_push(index, r);
+                }
+                Self::NonMixed(x) => match x {
+                    AnyDatatype::Ascii(y) => match y {
+                        AnyAscii::Delimited(z) => go!(r, Ascii, z),
+                        AnyAscii::Fixed(z) => go!(r, Ascii, z),
+                    },
+                    AnyDatatype::Uint(y) => match y {
+                        AnyEndianUint::Single(z) => {
+                            if let AnyDatatype::Uint(rr) = r {
+                                let Ok(()) = y.insert_or_push(index, rr);
+                            } else {
+                                match_any_uint!(z, s, go_mixed!(ToInsert::Specific(r), s));
+                            }
+                        }
+                        AnyEndianUint::Multi(z) => go!(r, Uint, z),
+                    },
+                    AnyDatatype::F32(y) => go!(r, F32, y),
+                    AnyDatatype::F64(y) => go!(r, F64, y),
+                },
+            },
+        }
+        Ok(())
+    }
+}
+
+// Insert range and column
+//
+// ASSUME length is correct for new column, caller must verify this
+impl<H, T, R, I, L, M, const ORD: bool> Insertable<RangeAndColumn>
+    for ColumnGroup<FFDataFrame<AnnotatedColumn<H, T, R>>, FFDataFrameFamily, I, L, M, ORD>
+where
+    RangeAndColumn: TryInto<AnnotatedColumn<H, T, R>>,
+{
+    type Error = <RangeAndColumn as TryInto<AnnotatedColumn<H, T, R>>>::Error;
+
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: RangeAndColumn,
+    ) -> Result<(), Self::Error> {
+        let c = col.try_into()?;
+        if let Some(i) = index {
+            self.container.insert_column_nocheck(i.into(), c);
+        } else {
+            self.container.push_column_nocheck(c);
+        }
+        Ok(())
+    }
+}
+
+// Insert range and column (no fail version)
+//
+// ASSUME length is correct for new column, caller must verify this
+impl<C: HasLen, I, L, M, const ORD: bool> Insertable<C>
+    for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
+{
+    type Error = Infallible;
+
+    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: C) -> Result<(), Self::Error> {
+        if let Some(i) = index {
+            self.container.insert_column_nocheck(i.into(), col);
+        } else {
+            self.container.push_column_nocheck(col);
+        }
+        Ok(())
+    }
+}
+
+impl<H, T, R> TryFrom<RangeAndColumn> for AnnotatedColumn<H, T, R>
+where
+    H: FromRange,
+    InternalColumn<T, R>: FromColumn<AnyPrimitiveColumn>,
+{
+    type Error = InsertRangeAndColumnError<H::Error>;
+
+    fn try_from(value: RangeAndColumn) -> Result<Self, Self::Error> {
+        let (r, c) = value;
+        let header = H::from_range(r)
+            .map_err(InsertRangeAndColumnError::Range)?
+            .native;
+        let data = InternalColumn::from_column(c)
+            .into_err()
+            .map_err(InsertRangeAndColumnError::Column)?;
+        Ok(Self::new(header, data))
+    }
+}
+
+pub enum InsertRangeAndColumnError<E> {
+    Range(E),
+    Column(CastColError),
+}
+
+impl_kind1!(pub InsertRangeAndColumnErrorFamily, InsertRangeAndColumnError);
+
+impl_functor_once!(
+    InsertRangeAndColumnError,
+    self,
+    mut f,
+    match self {
+        Self::Range(x) => InsertRangeAndColumnError::Range(f(x)),
+        Self::Column(x) => InsertRangeAndColumnError::Column(x),
+    }
+);
 
 // Implement removable operations for layouts.
 //
@@ -5640,11 +5800,31 @@ impl_generic_enum_from! {
 }
 
 impl_generic_enum_from! {
+    AnyBitmaskColumn,
+    Uint08 ~ NativeColumn<Bitmask08>,
+    Uint16 ~ NativeColumn<Bitmask16>,
+    Uint24 ~ NativeColumn<Bitmask24>,
+    Uint32 ~ NativeColumn<Bitmask32>,
+    Uint40 ~ NativeColumn<Bitmask40>,
+    Uint48 ~ NativeColumn<Bitmask48>,
+    Uint56 ~ NativeColumn<Bitmask56>,
+    Uint64 ~ NativeColumn<Bitmask64>
+}
+
+impl_generic_enum_from! {
     MixedRange,
     Ascii ~ FixedAsciiRange,
     Uint ~ AnyBitmask,
     F32 ~ F32Range,
     F64 ~ F64Range
+}
+
+impl_generic_enum_from! {
+    MixedColumn,
+    Ascii ~ NativeColumn<FixedAsciiRange>,
+    Uint ~ AnyBitmaskColumn,
+    F32 ~ NativeColumn<F32Range>,
+    F64 ~ NativeColumn<F64Range>
 }
 
 // necessary for inserting $PnR into mixed layuot
@@ -5658,11 +5838,47 @@ impl From<DelimAsciiRange> for MixedRange {
 }
 
 // necessary for inserting $PnR into mixed layuot
+impl From<NativeColumn<DelimAsciiRange>> for MixedColumn {
+    fn from(value: NativeColumn<DelimAsciiRange>) -> Self {
+        // this will automatically make any delimited ASCII layout a fixed
+        // layout if we go to mixed, which seems sane if not an exceedingly rare
+        // use case.
+        Self::Ascii(value.into())
+    }
+}
+
+// necessary for inserting $PnR into mixed layuot
+impl From<NativeColumn<DelimAsciiRange>> for NativeColumn<FixedAsciiRange> {
+    fn from(value: NativeColumn<DelimAsciiRange>) -> Self {
+        NativeColumn::new(value.header.into(), value.data)
+    }
+}
+
+// necessary for inserting $PnR into mixed layuot
+impl From<NativeColumn<FixedAsciiRange>> for NativeColumn<DelimAsciiRange> {
+    fn from(value: NativeColumn<FixedAsciiRange>) -> Self {
+        NativeColumn::new(value.header.into(), value.data)
+    }
+}
+
+// necessary for inserting $PnR into mixed layuot
 impl<T> From<Bitmask<T>> for MixedRange
 where
     AnyBitmask: From<Bitmask<T>>,
 {
     fn from(value: Bitmask<T>) -> Self {
+        Self::Uint(value.into())
+    }
+}
+
+// necessary for inserting $PnR into mixed layuot
+impl<T> From<NativeColumn<Bitmask<T>>> for MixedColumn
+where
+    AnyBitmaskColumn: From<NativeColumn<Bitmask<T>>>,
+    Bitmask<T>: HasNativeType,
+    <Bitmask<T> as HasNativeType>::Native: FCSRepr,
+{
+    fn from(value: NativeColumn<Bitmask<T>>) -> Self {
         Self::Uint(value.into())
     }
 }

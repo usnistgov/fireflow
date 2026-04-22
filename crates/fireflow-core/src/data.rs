@@ -92,8 +92,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveColumn, CastColError, FFDataFrame, FFDataFrameFamily, FromColumn, HasLen, HasWidth,
-    InternalColumn, PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
+    AnyPrimitiveColumn, FFDataFrame, FFDataFrameFamily, HasLen, HasWidth, InternalColumn,
+    PrimitiveColumn, PrimitiveDataFrame, ambassador_impl_HasLen,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -134,6 +134,7 @@ use serde::Serialize;
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
+    pyo3::prelude::*,
 };
 
 /// All possible byte layouts for the DATA segment in 2.0.
@@ -605,6 +606,7 @@ pub type AnyBitmask =
 /// This is meant for cases where createing a new column can be done with either
 /// a general decimal value or a specific type which encodes further information
 /// about the column to be written.
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 pub enum RangeOrType<T> {
     Range(Range),
     Specific(T),
@@ -3820,25 +3822,6 @@ where
     }
 }
 
-impl<D, F> Insertable<FixedAsciiRange> for AnyAscii<D, F>
-where
-    D: Insertable<DelimAsciiRange, Error = Infallible>,
-    F: Insertable<FixedAsciiRange, Error = Infallible>,
-{
-    type Error = Infallible;
-
-    fn insert_or_push(
-        &mut self,
-        index: Option<MeasIndex>,
-        col: FixedAsciiRange,
-    ) -> Result<(), Self::Error> {
-        match self {
-            Self::Delimited(x) => x.insert_or_push(index, col.into()),
-            Self::Fixed(x) => x.insert_or_push(index, col),
-        }
-    }
-}
-
 impl<A, I, F32, F64> Insertable<Range> for AnyDatatype<A, I, F32, F64>
 where
     A: Insertable<Range>,
@@ -3856,9 +3839,25 @@ where
     }
 }
 
-// Insert any width of int range into a variable layout. This cannot fail since
-// any single-width layout can be made into a variable-width layout which can
-// accept any width.
+// Insert general range into potentially variable int layout. If single-width,
+// coerce range to the width of the layout. If variable, fail instantly since
+// width of the new range is ambiguous.
+impl<D> Insertable<Range> for AnyEndianUintHeaders<D> {
+    type Error = InsertRangeError;
+
+    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Range) -> Result<(), Self::Error> {
+        match self {
+            Self::Single(x) => {
+                x.insert_or_push(index, col)?;
+                Ok(())
+            }
+            Self::Multi(_) => Err(MismatchTypeRangeError.into()),
+        }
+    }
+}
+
+// Insert specific bitmask into potentially variable int layout. If
+// single-width, convert to multi before inserting.
 impl<D> Insertable<AnyBitmask> for AnyEndianUintHeaders<D> {
     type Error = Infallible;
 
@@ -3868,153 +3867,136 @@ impl<D> Insertable<AnyBitmask> for AnyEndianUintHeaders<D> {
         col: AnyBitmask,
     ) -> Result<(), Self::Error> {
         match self {
-            Self::Single(x) => match_any_uint!(x, y, {
-                if let Ok(r) = col.try_into() {
-                    if let Some(i) = index {
-                        y.container.insert(i.into(), r);
+            Self::Single(x) => {
+                match_any_uint!(x, y, {
+                    if let Ok(r) = col.try_into() {
+                        if let Some(i) = index {
+                            y.container.insert(i.into(), r);
+                        } else {
+                            y.container.push(r);
+                        }
                     } else {
-                        y.container.push(r);
+                        let mut new = mem::take(y).map_inner(AnyBitmask::from);
+                        new.insert_or_push(index, col);
+                        *self = Self::Multi(new);
                     }
                     Ok(())
-                } else {
-                    let mut new = mem::take(y).map_inner(AnyBitmask::from);
-                    new.insert_or_push(index, col)?;
-                    *self = Self::Multi(new);
-                    Ok(())
-                }
-            }),
+                })
+            }
             Self::Multi(x) => x.insert_or_push(index, col),
         }
     }
 }
 
-// // Insert general or specific range into variable int layout.
-// impl<D> Insertable<RangeOrBitmaskRange> for AnyEndianUintHeaders<D> {
-//     type Error = InsertRangeError;
-
-//     fn insert_nocheck(
-//         &mut self,
-//         index: MeasIndex,
-//         col: RangeOrBitmaskRange,
-//     ) -> Result<(), Self::Error> {
-//         let i = index.into();
-//         match (self, col) {
-//             (Self::Single(x), RangeOrType::Range(r)) => x.insert_nocheck(index, r),
-//             (Self::Single(x), RangeOrType::Specific(r)) => {}
-//             //     match_any_uint!(x, y, {
-//             //     if let Ok(r) = col.try_into() {
-//             //         y.container.insert(i, r);
-//             //     } else {
-//             //         let mut new = mem::take(y).map_inner(AnyBitmask::from);
-//             //         new.container.insert(i, col);
-//             //         *self = Self::Multi(new);
-//             //     }
-//             // }),
-//             (Self::Multi(x), RangeOrType::Range(_)) => return Err(MismatchTypeRangeError.into()),
-//             (Self::Multi(x), RangeOrType::Specific(r)) => x.container.insert(i, r),
-//         }
-//         Ok(())
-//     }
-
-//     fn push(&mut self, col: RangeOrBitmaskRange) -> Result<(), Self::Error> {
-//         match self {
-//             Self::Single(x) => match_any_uint!(x, y, {
-//                 if let Ok(r) = col.try_into() {
-//                     y.container.push(r);
-//                 } else {
-//                     let mut new = mem::take(y).map_inner(AnyBitmask::from);
-//                     new.container.push(col);
-//                     *self = Self::Multi(new);
-//                 }
-//             }),
-//             Self::Multi(x) => x.container.push(col),
-//         }
-//         Ok(())
-//     }
-// }
-
-// Insert any type of range into a nonmmixed layout, which may fail. This is
-// better than just inserting a raw range since it gives the caller control over
-// the final column type.
-impl<A, I, F32, F64> Insertable<MixedRange> for AnyDatatype<A, I, F32, F64>
-where
-    A: Insertable<FixedAsciiRange, Error = Infallible>,
-    I: Insertable<AnyBitmask, Error = Infallible>,
-    F32: Insertable<F32Range, Error = Infallible>,
-    F64: Insertable<F64Range, Error = Infallible>,
-{
+// Insert general or specific range into variable int layout. The range can
+// either be a general decimal or a specific bitmask type which implies the
+// width of the new column.
+impl<D> Insertable<RangeOrBitmaskRange> for AnyEndianUintHeaders<D> {
     type Error = InsertRangeError;
 
     fn insert_or_push(
         &mut self,
         index: Option<MeasIndex>,
-        col: MixedRange,
+        col: RangeOrBitmaskRange,
     ) -> Result<(), Self::Error> {
-        match (self, col) {
-            (Self::Ascii(x), AnyDatatype::Ascii(r)) => x.insert_or_push(index, r),
-            (Self::Uint(x), AnyDatatype::Uint(r)) => x.insert_or_push(index, r),
-            (Self::F32(x), AnyDatatype::F32(r)) => x.insert_or_push(index, r),
-            (Self::F64(x), AnyDatatype::F64(r)) => x.insert_or_push(index, r),
-            _ => return Err(MismatchTypeRangeError.into()),
-        };
+        match col {
+            RangeOrType::Range(r) => self.insert_or_push(index, r)?,
+            RangeOrType::Specific(r) => {
+                let Ok(()) = self.insert_or_push(index, r);
+            }
+        }
         Ok(())
     }
 }
 
-// Insert any type of range into a mixed layout. This cannot fail since any
-// single-type layout can be made into a mixed-type layout which can accept
-// anything.
-impl Insertable<MixedRange> for DataHeaders3_2 {
-    type Error = Infallible;
+impl<D> Insertable<RangeOrBitmaskRange> for NonMixedEndianHeaders<D> {
+    type Error = InsertRangeError;
 
     fn insert_or_push(
         &mut self,
         index: Option<MeasIndex>,
-        col: MixedRange,
-    ) -> Result<(), Infallible> {
+        col: RangeOrBitmaskRange,
+    ) -> Result<(), Self::Error> {
+        match self {
+            Self::Ascii(x) => match col {
+                RangeOrType::Range(r) => x.insert_or_push(index, r)?,
+                RangeOrType::Specific(_) => return Err(MismatchTypeRangeError.into()),
+            },
+            Self::Uint(x) => x.insert_or_push(index, col)?,
+            Self::F32(x) => match col {
+                RangeOrType::Range(r) => x.insert_or_push(index, r)?,
+                RangeOrType::Specific(_) => return Err(MismatchTypeRangeError.into()),
+            },
+            Self::F64(x) => match col {
+                RangeOrType::Range(r) => x.insert_or_push(index, r)?,
+                RangeOrType::Specific(_) => return Err(MismatchTypeRangeError.into()),
+            },
+        }
+        Ok(())
+    }
+}
+
+impl Insertable<RangeOrMixedRange> for DataHeaders3_2 {
+    type Error = InsertRangeError;
+
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: RangeOrMixedRange,
+    ) -> Result<(), Self::Error> {
         macro_rules! go_mixed {
-            ($from:expr) => {{
-                *self = Self::Mixed(
+            ($col:expr, $from:expr) => {{
+                let mut new = Self::Mixed(
                     mem::take($from)
                         .map_inner(MixedRange::from)
                         .byte_layout_into(),
                 );
-                self.insert_or_push(index, col);
+                new.insert_or_push(index, $col)?;
+                *self = new;
             }};
         }
         macro_rules! go {
-            ($var:ident, $from:expr) => {
-                if let AnyDatatype::$var(r) = col {
+            ($col:expr, $var:ident, $from:expr) => {
+                if let AnyDatatype::$var(r) = $col {
                     if let Some(i) = index {
                         $from.container.insert(i.into(), r.into());
                     } else {
                         $from.container.push(r.into());
                     }
                 } else {
-                    go_mixed!($from);
+                    go_mixed!(RangeOrType::Specific($col), $from);
                 }
             };
         }
 
-        match self {
-            Self::Mixed(x) => x.insert_or_push(index, col)?,
-            Self::NonMixed(x) => match x {
-                AnyDatatype::Ascii(y) => match y {
-                    AnyAscii::Delimited(z) => go!(Ascii, z),
-                    AnyAscii::Fixed(z) => go!(Ascii, z),
-                },
-                AnyDatatype::Uint(y) => match y {
-                    AnyEndianUint::Single(z) => {
-                        if let AnyDatatype::Uint(r) = col {
-                            let Ok(()) = y.insert_or_push(index, r);
-                        } else {
-                            match_any_uint!(z, s, go_mixed!(s));
+        match col {
+            RangeOrType::Range(r) => match self {
+                Self::Mixed(_) => return Err(MismatchTypeRangeError.into()),
+                Self::NonMixed(x) => x.insert_or_push(index, r)?,
+            },
+
+            RangeOrType::Specific(r) => match self {
+                Self::Mixed(x) => {
+                    let Ok(()) = x.insert_or_push(index, r);
+                }
+                Self::NonMixed(x) => match x {
+                    AnyDatatype::Ascii(y) => match y {
+                        AnyAscii::Delimited(z) => go!(r, Ascii, z),
+                        AnyAscii::Fixed(z) => go!(r, Ascii, z),
+                    },
+                    AnyDatatype::Uint(y) => match y {
+                        AnyEndianUint::Single(z) => {
+                            if let AnyDatatype::Uint(rr) = r {
+                                let Ok(()) = y.insert_or_push(index, rr);
+                            } else {
+                                match_any_uint!(z, s, go_mixed!(RangeOrType::Specific(r), s));
+                            }
                         }
-                    }
-                    AnyEndianUint::Multi(z) => go!(Uint, z),
+                        AnyEndianUint::Multi(z) => go!(r, Uint, z),
+                    },
+                    AnyDatatype::F32(y) => go!(r, F32, y),
+                    AnyDatatype::F64(y) => go!(r, F64, y),
                 },
-                AnyDatatype::F32(y) => go!(F32, y),
-                AnyDatatype::F64(y) => go!(F64, y),
             },
         }
         Ok(())
@@ -8287,14 +8269,11 @@ fn usize_to_u64(x: usize) -> u64 {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AnyBitmask, FloatRange, MixedRange};
+    use super::{AnyBitmask, AnyUint, FloatRange, MixedRange};
 
     use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
-    use crate::text::keywords::AlphaNumType;
-    use crate::validated::ascii_range::{AsciiRangeValue, FixedAsciiRange};
-    use crate::validated::bitmask::BitmaskValue;
 
-    use fireflow_types::python::InvalidKeywordValueError;
+    use fireflow_types::python::{ColumnType, IntegerWidth};
 
     use bigdecimal::BigDecimal;
     use pyo3::conversion::FromPyObjectBound;
@@ -8323,29 +8302,59 @@ mod python {
         }
     }
 
+    impl<'py> FromPyObject<'py> for AnyBitmask {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let (width, value): (IntegerWidth, Bound<'py, PyAny>) = ob.extract()?;
+            let ret = match width {
+                IntegerWidth::I08 => Self::Uint08(value.extract()?),
+                IntegerWidth::I16 => Self::Uint16(value.extract()?),
+                IntegerWidth::I24 => Self::Uint24(value.extract()?),
+                IntegerWidth::I32 => Self::Uint32(value.extract()?),
+                IntegerWidth::I40 => Self::Uint40(value.extract()?),
+                IntegerWidth::I48 => Self::Uint48(value.extract()?),
+                IntegerWidth::I56 => Self::Uint56(value.extract()?),
+                IntegerWidth::I64 => Self::Uint64(value.extract()?),
+            };
+            Ok(ret)
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for AnyBitmask {
+        type Target = PyTuple;
+        type Output = Bound<'py, PyTuple>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Uint08(x) => (IntegerWidth::I08, x).into_pyobject(py),
+                Self::Uint16(x) => (IntegerWidth::I16, x).into_pyobject(py),
+                Self::Uint24(x) => (IntegerWidth::I24, x).into_pyobject(py),
+                Self::Uint32(x) => (IntegerWidth::I32, x).into_pyobject(py),
+                Self::Uint40(x) => (IntegerWidth::I40, x).into_pyobject(py),
+                Self::Uint48(x) => (IntegerWidth::I48, x).into_pyobject(py),
+                Self::Uint56(x) => (IntegerWidth::I56, x).into_pyobject(py),
+                Self::Uint64(x) => (IntegerWidth::I64, x).into_pyobject(py),
+            }
+        }
+    }
+
     impl<'py> FromPyObject<'py> for MixedRange {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (datatype, value): (AlphaNumType, Bound<'py, PyAny>) = ob.extract()?;
-            match datatype {
-                AlphaNumType::Float => {
-                    let x = value.extract::<f32>()?;
-                    let y = FloatDecimal::try_from(x)
-                        .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))?;
-                    Ok(FloatRange::new(y).into())
-                }
-                AlphaNumType::Double => {
-                    let x = value.extract::<f64>()?;
-                    let y = FloatDecimal::try_from(x)
-                        .map_err(|e| InvalidKeywordValueError::new_err(e.to_string()))?;
-                    Ok(FloatRange::new(y).into())
-                }
-                AlphaNumType::Integer => {
-                    Ok(AnyBitmask::from(value.extract::<BitmaskValue<u64>>()?).into())
-                }
-                AlphaNumType::Ascii => {
-                    Ok(FixedAsciiRange::from(value.extract::<AsciiRangeValue>()?).into())
-                }
-            }
+            let (ctype, value): (ColumnType, Bound<'py, PyAny>) = ob.extract()?;
+            let ret = match ctype {
+                ColumnType::A => Self::Ascii(value.extract()?),
+                ColumnType::F => Self::F32(value.extract()?),
+                ColumnType::D => Self::F64(value.extract()?),
+                ColumnType::I08 => Self::Uint(AnyUint::Uint08(value.extract()?)),
+                ColumnType::I16 => Self::Uint(AnyUint::Uint16(value.extract()?)),
+                ColumnType::I24 => Self::Uint(AnyUint::Uint24(value.extract()?)),
+                ColumnType::I32 => Self::Uint(AnyUint::Uint32(value.extract()?)),
+                ColumnType::I40 => Self::Uint(AnyUint::Uint40(value.extract()?)),
+                ColumnType::I48 => Self::Uint(AnyUint::Uint48(value.extract()?)),
+                ColumnType::I56 => Self::Uint(AnyUint::Uint56(value.extract()?)),
+                ColumnType::I64 => Self::Uint(AnyUint::Uint64(value.extract()?)),
+            };
+            Ok(ret)
         }
     }
 
@@ -8356,10 +8365,17 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Ascii(x) => ("A", x.value()).into_pyobject(py),
-                Self::Uint(x) => ("I", BitmaskValue::<u64>::from(x)).into_pyobject(py),
-                Self::F32(x) => ("F", BigDecimal::from(x.range)).into_pyobject(py),
-                Self::F64(x) => ("D", BigDecimal::from(x.range)).into_pyobject(py),
+                Self::Ascii(x) => (ColumnType::A, x).into_pyobject(py),
+                Self::F32(x) => (ColumnType::F, x).into_pyobject(py),
+                Self::F64(x) => (ColumnType::D, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint08(x)) => (ColumnType::I08, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint16(x)) => (ColumnType::I16, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint24(x)) => (ColumnType::I24, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint32(x)) => (ColumnType::I32, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint40(x)) => (ColumnType::I40, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint48(x)) => (ColumnType::I48, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint56(x)) => (ColumnType::I56, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint64(x)) => (ColumnType::I64, x).into_pyobject(py),
             }
         }
     }

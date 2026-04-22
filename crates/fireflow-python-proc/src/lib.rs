@@ -26,6 +26,7 @@ use fireflow_types::keywords as tk;
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use fireflow_types::python::{COL_TYPE_ASCII, COL_TYPE_F32, COL_TYPE_F64, IntegerWidth};
 use itertools::Itertools as _;
 use nonempty_collections::{
     NEVec,
@@ -2654,13 +2655,8 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let range_nofail = version == Version::FCS3_2;
-    let mixed_range = version >= Version::FCS3_1;
-    let (push_optical_fun, push_temporal_fun) = if range_nofail {
-        (quote!(push_optical_nofail), quote!(push_temporal_nofail))
-    } else {
-        (quote!(push_optical), quote!(push_temporal))
-    };
+    let rng = DocArg::new_range_param(version);
+    let rng_path = rng.pytype.as_rust_type();
 
     let push_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
@@ -2675,7 +2671,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .arg(DocArg::new_range_param(mixed_range))
+            .arg(rng.clone())
     };
 
     let opt_doc = push_meas_doc(true, is_dataset);
@@ -2692,13 +2688,13 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         impl #i {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
-                let _ = self.0.#push_optical_fun(#opt_inner_args)?;
+                let _ = self.0.push_optical::<#rng_path>(#opt_inner_args)?;
                 Ok(())
             }
 
             #tmp_doc
             fn push_temporal(&mut self, #tmp_fun_args) -> PyResult<()> {
-                self.0.#push_temporal_fun(#tmp_inner_args)?;
+                self.0.push_temporal::<#rng_path>(#tmp_inner_args)?;
                 Ok(())
             }
         }
@@ -2813,16 +2809,8 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let range_nofail = version == Version::FCS3_2;
-    let mixed_range = version >= Version::FCS3_1;
-    let (insert_optical_fun, insert_temporal_fun) = if range_nofail {
-        (
-            quote!(insert_optical_nofail),
-            quote!(insert_temporal_nofail),
-        )
-    } else {
-        (quote!(insert_optical), quote!(insert_temporal))
-    };
+    let rng = DocArg::new_range_param(version);
+    let rng_path = rng.pytype.as_rust_type();
 
     // TODO not DRY
     let insert_meas_doc = |is_optical: bool, hasdata: bool| {
@@ -2841,7 +2829,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .args(col_param)
-            .arg(DocArg::new_range_param(mixed_range))
+            .arg(rng.clone())
     };
 
     let opt_doc = insert_meas_doc(true, is_dataset);
@@ -2861,7 +2849,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #opt_fun_args
             ) -> PyResult<()> {
-                let _ = self.0.#insert_optical_fun(#opt_inner_args)?;
+                let _ = self.0.insert_optical::<#rng_path>(#opt_inner_args)?;
                 Ok(())
             }
 
@@ -2870,7 +2858,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #tmp_fun_args
             ) -> PyResult<()> {
-                self.0.#insert_temporal_fun(#tmp_inner_args)?;
+                self.0.insert_temporal::<#rng_path>(#tmp_inner_args)?;
                 Ok(())
             }
         }
@@ -6933,6 +6921,7 @@ impl<E: From<PyException>> PyUnion<E> {
         Self::new2(PyStr::default(), PyBytes::default(), path)
     }
 
+    // TODO this should be obsolete
     fn new_mixed_range() -> Self {
         let dt_ascii = code("A");
         let dt_int = code("I");
@@ -6951,6 +6940,29 @@ impl<E: From<PyException>> PyUnion<E> {
             parse_quote!(#path),
         )
         .exc(exc)
+    }
+
+    fn new_range_or_bitmask_range() -> Self {
+        let path = quote!(fireflow_core::data::RangeOrBitmaskRange);
+        let ints = PyTuple::new1(PyLiteral::new1(IntegerWidth::iter_str()))
+            .add(RsInt::U64)
+            .into();
+        let rng = PyType::from(PyDecimal::new_range());
+        Self::new1([ints, rng], parse_quote!(#path))
+    }
+
+    fn new_range_or_mixed_range() -> Self {
+        let path = quote!(fireflow_core::data::RangeOrMixedRange);
+        let int_literals = once(COL_TYPE_ASCII.as_str()).chain(IntegerWidth::iter_str());
+        let float_literals = [COL_TYPE_F32.as_str(), COL_TYPE_F64.as_str()];
+        let ints = PyTuple::new1(PyLiteral::new1(int_literals))
+            .add(RsInt::U64)
+            .into();
+        let floats = PyTuple::new1(PyLiteral::new1(float_literals))
+            .add(PyDecimal::default())
+            .into();
+        let rng = PyType::from(PyDecimal::new_range());
+        Self::new1([ints, floats, rng], parse_quote!(#path))
     }
 }
 
@@ -8037,12 +8049,12 @@ impl DocArgParam {
         Self::new_param("name", PyStr::new_shortname(), desc)
     }
 
-    fn new_range_param(is_mixed: bool) -> Self {
+    fn new_range_param(version: Version) -> Self {
         let desc = format!("Range of measurement. Corresponds to {PNR}.");
-        let pytype: PyType<_> = if is_mixed {
-            PyUnion::new_mixed_range().into()
-        } else {
-            PyDecimal::new_range().into()
+        let pytype: PyType<_> = match version {
+            Version::FCS2_0 | Version::FCS3_0 => PyDecimal::new_range().into(),
+            Version::FCS3_1 => PyUnion::new_range_or_bitmask_range().into(),
+            Version::FCS3_2 => PyUnion::new_range_or_mixed_range().into(),
         };
         Self::new_param("range", pytype, desc)
     }

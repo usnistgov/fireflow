@@ -1,3 +1,10 @@
+use crate::config::EnumStrIter;
+use crate::nonempty_string::NEStr;
+use crate::{impl_str_enum, ne_str};
+
+use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
+
+use derive_more::Display;
 use pyo3::create_exception;
 use pyo3::exceptions::{PyException, PyWarning};
 
@@ -165,4 +172,68 @@ create_exception!(
     PyreflowWarning,
     PyWarning,
     "Generic warning created by ``pyreflow``."
+);
+
+const I08: &NEStr = ne_str!("I08");
+const I16: &NEStr = ne_str!("I16");
+const I24: &NEStr = ne_str!("I24");
+const I32: &NEStr = ne_str!("I32");
+const I40: &NEStr = ne_str!("I40");
+const I48: &NEStr = ne_str!("I48");
+const I56: &NEStr = ne_str!("I56");
+const I64: &NEStr = ne_str!("I64");
+
+pub const COL_TYPE_ASCII: &NEStr = ne_str!("A");
+pub const COL_TYPE_F32: &NEStr = ne_str!("F");
+pub const COL_TYPE_F64: &NEStr = ne_str!("D");
+
+impl_str_enum!(
+    /// All supported integer widths.
+    ///
+    /// This is used to interpret that value of other python types (ie
+    /// integers for $PnR) which have a specific width according to a
+    /// layout.
+    #[derive(Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    pub IntegerWidth,
+    /// Error when parsing [`IntegerWidth`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub IntegerWidthError,
+    I08 => I08,
+    I16 => I16,
+    I24 => I24,
+    I32 => I32,
+    I40 => I40,
+    I48 => I48,
+    I56 => I56,
+    I64 => I64
+);
+
+impl_str_enum!(
+    /// All supported column types
+    ///
+    /// This is used to interpret that value of other python types (ie
+    /// integers for $PnR) which have a specific width according to a
+    /// layout.
+    #[derive(Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    pub ColumnType,
+    /// Error when parsing [`ColumnType`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub ColumnTypeError,
+    A => COL_TYPE_ASCII,
+    F => COL_TYPE_F32,
+    D => COL_TYPE_F64,
+    I08 => I08,
+    I16 => I16,
+    I24 => I24,
+    I32 => I32,
+    I40 => I40,
+    I48 => I48,
+    I56 => I56,
+    I64 => I64
 );

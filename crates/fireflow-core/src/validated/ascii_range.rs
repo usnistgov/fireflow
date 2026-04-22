@@ -371,14 +371,33 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::OtherWidth;
-    use pyo3::prelude::*;
+    use super::{AsciiRangeValue, FixedAsciiRange, OtherWidth};
+
+    use pyo3::{prelude::*, types::PyInt};
+
+    use std::convert::Infallible;
 
     impl<'py> FromPyObject<'py> for OtherWidth {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x: u8 = ob.extract()?;
             let y = x.try_into()?;
             Ok(y)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for FixedAsciiRange {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(ob.extract::<AsciiRangeValue>()?.into())
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for FixedAsciiRange {
+        type Target = PyInt;
+        type Output = Bound<'py, PyInt>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.value().into_pyobject(py)
         }
     }
 }

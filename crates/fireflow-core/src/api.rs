@@ -2035,21 +2035,21 @@ where
     })
 }
 
-def_summary!(HeaderSummary, "could not parse HEADER");
+def_summary!(pub HeaderSummary, "could not parse HEADER");
 
-def_summary!(FlatTEXTSummary, "could not parse TEXT segment");
+def_summary!(pub FlatTEXTSummary, "could not parse TEXT segment");
 
-def_summary!(StdTEXTSummary, "could not standardize TEXT segment");
+def_summary!(pub StdTEXTSummary, "could not standardize TEXT segment");
 
 def_summary!(
-    StdDatasetSummary,
+    pub StdDatasetSummary,
     "could not read DATA with standardized TEXT"
 );
 
-def_summary!(FlatDatasetSummary, "could not read DATA with flat TEXT");
+def_summary!(pub FlatDatasetSummary, "could not read DATA with flat TEXT");
 
 def_summary!(
-    FlatDatasetWithKwsSummary,
+    pub FlatDatasetWithKwsSummary,
     "could not read flat dataset from keywords"
 );
 

@@ -1159,7 +1159,7 @@ pub struct EventOverRangeError {
     range: Range,
 }
 
-def_summary!(EventOverRangeSummary, "some events exceed $PnR");
+def_summary!(pub EventOverRangeSummary, "some events exceed $PnR");
 
 pub type EventOverRangeErrors = ErrorGroup<EventOverRangeError, EventOverRangeSummary>;
 
@@ -1435,6 +1435,16 @@ pub enum MeasLayoutMismatchError {
     Scale(ScaleDatatypeMismatchError),
 }
 
+/// Error when measurement vector is not the same length as columns in DATA/dataframe
+#[derive(Debug, Error)]
+#[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct MeasDataMismatchError {
+    meas_n: usize,
+    data_n: usize,
+}
+
 /// Error when scales do not match datatypes in layout.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1461,7 +1471,7 @@ pub type ScaleErrorGroup<M> = ErrorGroup<
 pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
 
 def_summary!(
-    ScaleMismatchSummary,
+    pub ScaleMismatchSummary,
     "mismatch between scale and column datatypes"
 );
 
@@ -1469,7 +1479,7 @@ pub type ScaleTransformMismatchErrors =
     ErrorGroup<ScaleTransformMismatchError, ScaleTransformMismatchSummary>;
 
 def_summary!(
-    ScaleTransformMismatchSummary,
+    pub ScaleTransformMismatchSummary,
     "mismatch between scale transforms and column datatypes"
 );
 
@@ -1730,6 +1740,9 @@ macro_rules! match_map_endian_uint {
 //
 // This is the main trait that public-facing APIs will use.
 
+// TODO add a method/trait to convert Headers -> DataFrame via a primitive
+// dataframe, and also check that this won't fail
+
 /// A version-specific data layout with just headers (no DATA).
 pub trait VersionedDataHeaders
 where
@@ -1739,7 +1752,8 @@ where
         + LayoutDims
         + NormalizableLayout
         + Removable<Range>
-        + OptMeasLayoutKeywords,
+        + OptMeasLayoutKeywords
+        + WithPrimitiveDataFrame,
 {
     type ByteLayout;
     type NumType: IsNumType;
@@ -1773,13 +1787,13 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        DataFrameResult<<Self as IntoDataFrame>::DfTarget>,
         ReadCheckedDataframeWarning,
         ReadCheckedDataframeError,
         (),
     >
     where
-        Self::DfTarget: CheckRanges,
+        <Self as IntoDataFrame>::DfTarget: CheckRanges,
     {
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
@@ -1837,50 +1851,6 @@ where
             .collect();
         self.check_transforms(&xforms[..])?;
         Ok(())
-    }
-
-    fn check_measurement_vector<N, T, O: AsScaleOrTransform>(
-        &self,
-        meas: &Measurements<N, T, O>,
-    ) -> Result<(), MeasLayoutMismatchError>
-    where
-        O::S: CheckedScaleTransform,
-        <O::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<
-            ErrorGroup<
-                <O::S as CheckedScaleTransform>::Err,
-                <O::S as CheckedScaleTransform>::Summary,
-            >,
-        >,
-    {
-        let xforms: Vec<_> = meas
-            .iter_with(&|_, _| O::S::default(), &|_, m| {
-                m.value.specific.as_scale_or_transform()
-            })
-            .collect();
-        self.check_transforms_and_len(&xforms[..])
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn try_new_measurements<M: VersionedMetaroot>(
-        &self,
-        measurements: NamedTemporalsAndOpticals<M>,
-    ) -> Result<Measurements<M::Name, M::Temporal, M::Optical>, MeasurementsWithLayoutError>
-    where
-        M::Optical: AsScaleOrTransform,
-        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<
-            ErrorGroup<
-                <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
-                <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
-            >,
-        >,
-    {
-        let ms = NamedVec::try_new(measurements)?;
-        self.check_measurement_vector(&ms)
-            .map_err(MeasurementsWithLayoutError::from)?;
-        Ok(ms)
     }
 }
 
@@ -2070,6 +2040,8 @@ impl VersionedDataHeaders for DataHeaders3_2 {
 
 // Implement version specific ops for dataframes
 
+// TODO add method to jettison dataframe and make headers again
+
 /// A version-specific dataframe (headers + DATA)
 pub trait VersionedDataFrame
 where
@@ -2080,7 +2052,9 @@ where
         + NormalizableLayout
         + Removable<RangeAndColumn>
         + OptMeasLayoutKeywords
-        + CheckRanges,
+        + CheckRanges
+        + IntoDataHeaders
+        + WithPrimitiveDataFrame,
 {
     fn h_write_df<W>(
         &mut self,
@@ -2188,6 +2162,55 @@ pub trait LayoutDatatype: Sized {
         self.check_transforms(xforms)
             .map_err(ScaleDatatypeMismatchError::from)?;
         Ok(())
+    }
+
+    fn check_measurement_vector<Name, Tmp, Opt: AsScaleOrTransform>(
+        &self,
+        meas: &Measurements<Name, Tmp, Opt>,
+    ) -> Result<(), MeasLayoutMismatchError>
+    where
+        Self: LayoutDims,
+        Opt::S: CheckedScaleTransform,
+        <Opt::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<
+            ErrorGroup<
+                <Opt::S as CheckedScaleTransform>::Err,
+                <Opt::S as CheckedScaleTransform>::Summary,
+            >,
+        >,
+    {
+        let xforms: Vec<_> = meas
+            .iter_with(&|_, _| Opt::S::default(), &|_, m| {
+                m.value.specific.as_scale_or_transform()
+            })
+            .collect();
+        self.check_transforms_and_len(&xforms[..])
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn try_new_measurements<Mroot: VersionedMetaroot>(
+        &self,
+        measurements: NamedTemporalsAndOpticals<Mroot>,
+    ) -> Result<
+        Measurements<Mroot::Name, Mroot::Temporal, Mroot::Optical>,
+        MeasurementsWithLayoutError,
+    >
+    where
+        Self: LayoutDims,
+        Mroot::Optical: AsScaleOrTransform,
+        <Mroot::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<Mroot::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<
+            ErrorGroup<
+                <<Mroot::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
+                <<Mroot::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
+            >,
+        >,
+    {
+        let ms = NamedVec::try_new(measurements)?;
+        self.check_measurement_vector(&ms)
+            .map_err(MeasurementsWithLayoutError::from)?;
+        Ok(ms)
     }
 }
 
@@ -2312,13 +2335,13 @@ where
 
 /// A headers type that can be converted to an empty dataframe.
 #[delegatable_trait]
-pub trait IntoEmptyDataFrame {
+pub trait IntoDataFrame {
     type DfTarget;
 
     fn empty(&self) -> Self::DfTarget;
 }
 
-impl IntoEmptyDataFrame for DataHeaders3_2 {
+impl IntoDataFrame for DataHeaders3_2 {
     type DfTarget = DataFrame3_2;
 
     fn empty(&self) -> Self::DfTarget {
@@ -2326,12 +2349,12 @@ impl IntoEmptyDataFrame for DataHeaders3_2 {
     }
 }
 
-impl<A, I, F32, F64> IntoEmptyDataFrame for AnyDatatype<A, I, F32, F64>
+impl<A, I, F32, F64> IntoDataFrame for AnyDatatype<A, I, F32, F64>
 where
-    A: IntoEmptyDataFrame,
-    I: IntoEmptyDataFrame,
-    F32: IntoEmptyDataFrame,
-    F64: IntoEmptyDataFrame,
+    A: IntoDataFrame,
+    I: IntoDataFrame,
+    F32: IntoDataFrame,
+    F64: IntoDataFrame,
 {
     type DfTarget = AnyDatatype<A::DfTarget, I::DfTarget, F32::DfTarget, F64::DfTarget>;
 
@@ -2340,10 +2363,10 @@ where
     }
 }
 
-impl<W0, W> IntoEmptyDataFrame for AnyEndianUint<W0, W>
+impl<W0, W> IntoDataFrame for AnyEndianUint<W0, W>
 where
-    W0: IntoEmptyDataFrame,
-    W: IntoEmptyDataFrame,
+    W0: IntoDataFrame,
+    W: IntoDataFrame,
 {
     type DfTarget = AnyEndianUint<W0::DfTarget, W::DfTarget>;
 
@@ -2352,10 +2375,10 @@ where
     }
 }
 
-impl<D, F> IntoEmptyDataFrame for AnyAscii<D, F>
+impl<D, F> IntoDataFrame for AnyAscii<D, F>
 where
-    D: IntoEmptyDataFrame,
-    F: IntoEmptyDataFrame,
+    D: IntoDataFrame,
+    F: IntoDataFrame,
 {
     type DfTarget = AnyAscii<D::DfTarget, F::DfTarget>;
 
@@ -2364,17 +2387,17 @@ where
     }
 }
 
-impl<C08, C16, C24, C32, C40, C48, C56, C64> IntoEmptyDataFrame
+impl<C08, C16, C24, C32, C40, C48, C56, C64> IntoDataFrame
     for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
 where
-    C08: IntoEmptyDataFrame,
-    C16: IntoEmptyDataFrame,
-    C24: IntoEmptyDataFrame,
-    C32: IntoEmptyDataFrame,
-    C40: IntoEmptyDataFrame,
-    C48: IntoEmptyDataFrame,
-    C56: IntoEmptyDataFrame,
-    C64: IntoEmptyDataFrame,
+    C08: IntoDataFrame,
+    C16: IntoDataFrame,
+    C24: IntoDataFrame,
+    C32: IntoDataFrame,
+    C40: IntoDataFrame,
+    C48: IntoDataFrame,
+    C56: IntoDataFrame,
+    C64: IntoDataFrame,
 {
     type DfTarget = AnyUint<
         C08::DfTarget,
@@ -2392,20 +2415,277 @@ where
     }
 }
 
-impl<C, const ORD: bool, M> IntoEmptyDataFrame for ColumnGroup_<VecFamily, C, ORD, M>
+impl<C, const ORD: bool, M> IntoDataFrame for ColumnGroup_<VecFamily, C, ORD, M>
 where
     C: IsCol<VecFamily, ORD>
         + IsCol<FFDataFrameFamily, ORD, Layout = <C as IsCol<VecFamily, ORD>>::Layout>,
     <C as IsCol<VecFamily, ORD>>::Inner:
-        IntoEmptyColumn<Target = <C as IsCol<FFDataFrameFamily, ORD>>::Inner>,
+        IntoDataColumn<Target = <C as IsCol<FFDataFrameFamily, ORD>>::Inner>,
     <C as IsCol<FFDataFrameFamily, ORD>>::Inner: HasLen,
     <C as IsCol<VecFamily, ORD>>::Layout: Clone,
 {
     type DfTarget = ColumnGroup_<FFDataFrameFamily, C, ORD, M>;
 
     fn empty(&self) -> Self::DfTarget {
-        let cs = self.container.iter().map(IntoEmptyColumn::empty);
+        let cs = self.container.iter().map(IntoDataColumn::empty);
         ColumnGroup::new(FFDataFrame::try_new(cs).unwrap(), self.byte_layout.clone())
+    }
+}
+
+// Implement dataframe -> headers conversion
+//
+// This can be easily delegated but is more complex than what ambassador can do
+// since it requires an associated type to describe the target.
+
+/// A headers type that can be converted to an empty dataframe.
+#[delegatable_trait]
+pub trait IntoDataHeaders {
+    type DfTarget;
+
+    fn as_headers(&self) -> Self::DfTarget;
+}
+
+impl IntoDataHeaders for DataFrame3_2 {
+    type DfTarget = DataHeaders3_2;
+
+    fn as_headers(&self) -> Self::DfTarget {
+        match_any_3_2!(self, x, Self::DfTarget::from(x.as_headers()))
+    }
+}
+
+impl<A, I, F32, F64> IntoDataHeaders for AnyDatatype<A, I, F32, F64>
+where
+    A: IntoDataHeaders,
+    I: IntoDataHeaders,
+    F32: IntoDataHeaders,
+    F64: IntoDataHeaders,
+{
+    type DfTarget = AnyDatatype<A::DfTarget, I::DfTarget, F32::DfTarget, F64::DfTarget>;
+
+    fn as_headers(&self) -> Self::DfTarget {
+        match_map_datatype!(self, x, x.as_headers())
+    }
+}
+
+impl<W0, W> IntoDataHeaders for AnyEndianUint<W0, W>
+where
+    W0: IntoDataHeaders,
+    W: IntoDataHeaders,
+{
+    type DfTarget = AnyEndianUint<W0::DfTarget, W::DfTarget>;
+
+    fn as_headers(&self) -> Self::DfTarget {
+        match_map_endian_uint!(self, x, x.as_headers())
+    }
+}
+
+impl<D, F> IntoDataHeaders for AnyAscii<D, F>
+where
+    D: IntoDataHeaders,
+    F: IntoDataHeaders,
+{
+    type DfTarget = AnyAscii<D::DfTarget, F::DfTarget>;
+
+    fn as_headers(&self) -> Self::DfTarget {
+        match_map_ascii!(self, x, x.as_headers())
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> IntoDataHeaders
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: IntoDataHeaders,
+    C16: IntoDataHeaders,
+    C24: IntoDataHeaders,
+    C32: IntoDataHeaders,
+    C40: IntoDataHeaders,
+    C48: IntoDataHeaders,
+    C56: IntoDataHeaders,
+    C64: IntoDataHeaders,
+{
+    type DfTarget = AnyUint<
+        C08::DfTarget,
+        C16::DfTarget,
+        C24::DfTarget,
+        C32::DfTarget,
+        C40::DfTarget,
+        C48::DfTarget,
+        C56::DfTarget,
+        C64::DfTarget,
+    >;
+
+    fn as_headers(&self) -> Self::DfTarget {
+        match_map_uint!(self, x, x.as_headers())
+    }
+}
+
+impl<C, const ORD: bool, M> IntoDataHeaders for ColumnGroup_<FFDataFrameFamily, C, ORD, M>
+where
+    C: IsCol<FFDataFrameFamily, ORD>
+        + IsCol<VecFamily, ORD, Layout = <C as IsCol<FFDataFrameFamily, ORD>>::Layout>,
+    <C as IsCol<FFDataFrameFamily, ORD>>::Inner:
+        IntoEmptyHeader<Target = <C as IsCol<VecFamily, ORD>>::Inner>,
+    <C as IsCol<FFDataFrameFamily, ORD>>::Layout: Clone,
+{
+    type DfTarget = ColumnGroup_<VecFamily, C, ORD, M>;
+
+    fn as_headers(&self) -> Self::DfTarget {
+        let cs = self
+            .container
+            .iter()
+            .map(IntoEmptyHeader::as_header)
+            .collect();
+        ColumnGroup::new(cs, self.byte_layout.clone())
+    }
+}
+
+// Implement method to set data to a dataframe
+
+pub trait WithPrimitiveDataFrame {
+    type DfTarget;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError>;
+}
+
+/// Error when converting a primitive dataframe into a versioned dataframe
+#[derive(From, Error, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum HeadersToDataFrameError {
+    ColMismatch(MeasDataMismatchError),
+    Cast(CastColErrors),
+}
+
+// TODO which columns?
+def_summary!(
+    pub CastColSummary,
+    "one or more columns could not be cast into correct type"
+);
+
+pub type CastColErrors = ErrorGroup<CastColError, CastColSummary>;
+
+impl WithPrimitiveDataFrame for DataHeaders3_2 {
+    type DfTarget = DataFrame3_2;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        match_any_3_2!(self, x, Ok(Self::DfTarget::from(x.with_data(df)?)))
+    }
+}
+
+impl WithPrimitiveDataFrame for DataFrame3_2 {
+    type DfTarget = DataFrame3_2;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        match_any_3_2!(self, x, Ok(Self::DfTarget::from(x.with_data(df)?)))
+    }
+}
+
+impl<A, I, F32, F64> WithPrimitiveDataFrame for AnyDatatype<A, I, F32, F64>
+where
+    A: WithPrimitiveDataFrame,
+    I: WithPrimitiveDataFrame,
+    F32: WithPrimitiveDataFrame,
+    F64: WithPrimitiveDataFrame,
+{
+    type DfTarget = AnyDatatype<A::DfTarget, I::DfTarget, F32::DfTarget, F64::DfTarget>;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        Ok(match_map_datatype!(self, x, x.with_data(df)?))
+    }
+}
+
+impl<W0, W> WithPrimitiveDataFrame for AnyEndianUint<W0, W>
+where
+    W0: WithPrimitiveDataFrame,
+    W: WithPrimitiveDataFrame,
+{
+    type DfTarget = AnyEndianUint<W0::DfTarget, W::DfTarget>;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        Ok(match_map_endian_uint!(self, x, x.with_data(df)?))
+    }
+}
+
+impl<D, F> WithPrimitiveDataFrame for AnyAscii<D, F>
+where
+    D: WithPrimitiveDataFrame,
+    F: WithPrimitiveDataFrame,
+{
+    type DfTarget = AnyAscii<D::DfTarget, F::DfTarget>;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        Ok(match_map_ascii!(self, x, x.with_data(df)?))
+    }
+}
+
+impl<C08, C16, C24, C32, C40, C48, C56, C64> WithPrimitiveDataFrame
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: WithPrimitiveDataFrame,
+    C16: WithPrimitiveDataFrame,
+    C24: WithPrimitiveDataFrame,
+    C32: WithPrimitiveDataFrame,
+    C40: WithPrimitiveDataFrame,
+    C48: WithPrimitiveDataFrame,
+    C56: WithPrimitiveDataFrame,
+    C64: WithPrimitiveDataFrame,
+{
+    type DfTarget = AnyUint<
+        C08::DfTarget,
+        C16::DfTarget,
+        C24::DfTarget,
+        C32::DfTarget,
+        C40::DfTarget,
+        C48::DfTarget,
+        C56::DfTarget,
+        C64::DfTarget,
+    >;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        Ok(match_map_uint!(self, x, x.with_data(df)?))
+    }
+}
+
+impl<C, const ORD: bool, M> WithPrimitiveDataFrame for ColumnGroup_<VecFamily, C, ORD, M>
+where
+    Self: IntoDataFrame<DfTarget = ColumnGroup_<FFDataFrameFamily, C, ORD, M>>,
+    ColumnGroup_<FFDataFrameFamily, C, ORD, M>:
+        WithPrimitiveDataFrame<DfTarget = ColumnGroup_<FFDataFrameFamily, C, ORD, M>>,
+    C: IsCol<VecFamily, ORD>
+        + IsCol<FFDataFrameFamily, ORD, Layout = <C as IsCol<VecFamily, ORD>>::Layout>,
+{
+    type DfTarget = ColumnGroup_<FFDataFrameFamily, C, ORD, M>;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        self.empty().with_data(df)
+    }
+}
+
+impl<C, const ORD: bool, M> WithPrimitiveDataFrame for ColumnGroup_<FFDataFrameFamily, C, ORD, M>
+where
+    C: IsCol<FFDataFrameFamily, ORD>,
+    <C as IsCol<FFDataFrameFamily, ORD>>::Inner: WithPrimitiveColumn + HasLen,
+    <C as IsCol<FFDataFrameFamily, ORD>>::Layout: Clone,
+{
+    type DfTarget = Self;
+
+    fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
+        let df_width = df.ncols();
+        let this_width = self.ncols();
+        if df_width != this_width {
+            return Err(MeasDataMismatchError {
+                meas_n: this_width,
+                data_n: df_width,
+            }
+            .into());
+        }
+        let rs = self
+            .container
+            .iter()
+            .zip(Vec::from(df))
+            .map(|(h, c)| h.from_primitive(c));
+        let new_cols = Result::sequence_results(rs).map_err(|e| e.deanonymize())?;
+        let df = FFDataFrame::try_new(new_cols).expect("number of columns was checked already");
+        Ok(ColumnGroup::new(df, self.byte_layout.clone()))
     }
 }
 
@@ -2419,7 +2699,7 @@ where
 
 /// A headers type that can be converted to a dataframe by reading a bytestream.
 #[delegatable_trait]
-pub trait ReadLayoutOps<T>: Sized + IntoEmptyDataFrame {
+pub trait ReadLayoutOps<T>: Sized + IntoDataFrame {
     fn h_read_into<R, X>(
         &self,
         h: &mut BufReader<R>,
@@ -2594,7 +2874,7 @@ where
 impl<Col, I, Layout, const ORD: bool, TotType, Dtype> ReadLayoutOps<TotType>
     for ColumnGroup<Vec<Col>, VecFamily, I, Layout, ColumnMarkers<TotType, Dtype>, ORD>
 where
-    Self: FixedRead + IntoEmptyDataFrame<DfTarget = <Self as FixedRead>::DfTarget>,
+    Self: FixedRead + IntoDataFrame<DfTarget = <Self as FixedRead>::DfTarget>,
     Dtype: IsNumType,
     Col: Clone + IsFixed,
     Layout: Copy,
@@ -4705,16 +4985,17 @@ impl IsCol<FFDataFrameFamily, false> for MixedCol {
 // to another wrapper type.
 
 /// A header which can be converted to an empty column.
-trait IntoEmptyColumn {
+trait IntoDataColumn {
     type Target;
 
     fn empty(&self) -> Self::Target;
 }
 
-impl<T> IntoEmptyColumn for T
+impl<T> IntoDataColumn for T
 where
     T: HasNativeType + Clone,
     T::Native: FCSRepr,
+    AnyPrimitiveColumn: TryInto<NativeInternalColumn<T>, Error = CastColError>,
 {
     type Target = NativeColumn<T>;
 
@@ -4723,7 +5004,7 @@ where
     }
 }
 
-impl IntoEmptyColumn for AnyBitmask {
+impl IntoDataColumn for AnyBitmask {
     type Target = AnyBitmaskColumn;
 
     fn empty(&self) -> Self::Target {
@@ -4731,11 +5012,82 @@ impl IntoEmptyColumn for AnyBitmask {
     }
 }
 
-impl IntoEmptyColumn for MixedRange {
+impl IntoDataColumn for MixedRange {
     type Target = MixedColumn;
 
     fn empty(&self) -> Self::Target {
         match_map_datatype!(self, x, x.empty())
+    }
+}
+
+// Implement data column set method
+
+trait WithPrimitiveColumn: Sized {
+    fn from_primitive(&self, col: AnyPrimitiveColumn) -> Result<Self, CastColError>;
+}
+
+impl<T> WithPrimitiveColumn for NativeColumn<T>
+where
+    T: HasNativeType + Clone,
+    T::Native: FCSRepr,
+    AnyPrimitiveColumn: TryInto<NativeInternalColumn<T>, Error = CastColError>,
+{
+    fn from_primitive(&self, col: AnyPrimitiveColumn) -> Result<Self, CastColError> {
+        Ok(AnnotatedColumn::new(self.header.clone(), col.try_into()?))
+    }
+}
+
+impl WithPrimitiveColumn for AnyBitmaskColumn {
+    fn from_primitive(&self, col: AnyPrimitiveColumn) -> Result<Self, CastColError> {
+        Ok(match_map_uint!(self, x, x.from_primitive(col)?))
+    }
+}
+
+impl WithPrimitiveColumn for MixedColumn {
+    fn from_primitive(&self, col: AnyPrimitiveColumn) -> Result<Self, CastColError> {
+        Ok(match_map_datatype!(self, x, x.from_primitive(col)?))
+    }
+}
+
+// Implement column -> header
+//
+// This is easy for header types that map to exactly one rust type.
+//
+// Variable Uint and PolyType are exceptions since they themselves need to map
+// to another wrapper type.
+
+/// A header which can be converted to an empty column.
+trait IntoEmptyHeader {
+    type Target;
+
+    fn as_header(&self) -> Self::Target;
+}
+
+impl<T> IntoEmptyHeader for NativeColumn<T>
+where
+    T: HasNativeType + Clone,
+    T::Native: FCSRepr,
+{
+    type Target = T;
+
+    fn as_header(&self) -> Self::Target {
+        self.header.clone()
+    }
+}
+
+impl IntoEmptyHeader for AnyBitmaskColumn {
+    type Target = AnyBitmask;
+
+    fn as_header(&self) -> Self::Target {
+        match_map_uint!(self, x, x.header)
+    }
+}
+
+impl IntoEmptyHeader for MixedColumn {
+    type Target = MixedRange;
+
+    fn as_header(&self) -> Self::Target {
+        match_map_datatype!(self, x, x.as_header())
     }
 }
 

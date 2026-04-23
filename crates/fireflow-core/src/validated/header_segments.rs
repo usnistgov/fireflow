@@ -380,7 +380,7 @@ pub enum SegmentValidationError {
 pub type SegmentValidationErrors = ErrorGroup<SegmentValidationError, SegmentValidationSummary>;
 
 def_summary!(
-    SegmentValidationSummary,
+    pub SegmentValidationSummary,
     "Error when making new HEADER segments"
 );
 

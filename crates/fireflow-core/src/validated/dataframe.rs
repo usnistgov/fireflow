@@ -50,10 +50,34 @@ impl From<AnyInternalColumn> for AnyPrimitiveColumn {
     }
 }
 
-#[derive(Clone, PartialEq, AsRef, new)]
+impl<T, R> TryFrom<AnyPrimitiveColumn> for InternalColumn<T, R>
+where
+    Self: FromColumn<U08Column>
+        + FromColumn<U16Column>
+        + FromColumn<U32Column>
+        + FromColumn<U64Column>
+        + FromColumn<F32Column>
+        + FromColumn<F64Column>,
+{
+    type Error = CastColError;
+    fn try_from(value: AnyPrimitiveColumn) -> Result<Self, Self::Error> {
+        let ret = match value {
+            AnyPrimitiveColumn::U08(c) => InternalColumn::from_column(c),
+            AnyPrimitiveColumn::U16(c) => InternalColumn::from_column(c),
+            AnyPrimitiveColumn::U32(c) => InternalColumn::from_column(c),
+            AnyPrimitiveColumn::U64(c) => InternalColumn::from_column(c),
+            AnyPrimitiveColumn::F32(c) => InternalColumn::from_column(c),
+            AnyPrimitiveColumn::F64(c) => InternalColumn::from_column(c),
+        };
+        ret.into_err()
+    }
+}
+
+#[derive(Clone, PartialEq, AsRef, Into, new)]
 #[new(visibility = "")]
 pub struct FFDataFrame<C> {
     #[as_ref([C])]
+    #[into]
     columns: Vec<C>,
     nrows: usize,
 }
@@ -263,7 +287,13 @@ pub(crate) type InternalU64Column = InternalColumn<u64, u64>;
 pub(crate) type InternalF32Column = InternalColumn<f32, f32>;
 pub(crate) type InternalF64Column = InternalColumn<f64, f64>;
 
-#[derive(new)]
+/// Error when casting one column type to another which results in loss.
+#[derive(new, Debug, Error)]
+// TODO make this error actually useful
+#[error("could not cast column to new type, value failed at row {position}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+// TODO there is probably a better error type for this
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[new(visibility(""))]
 pub struct CastColError {
     position: usize,

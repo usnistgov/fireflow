@@ -34,17 +34,11 @@ macro_rules! impl_newtype_try_from {
 pub(crate) use impl_newtype_try_from;
 
 macro_rules! def_summary {
-    ($failname:ident, $msg:expr) => {
-        // make these pub no matter what since they will be in public error
-        // interfaces
-        #[derive(Default, Debug, Clone, Copy)]
-        pub struct $failname;
-
-        impl std::fmt::Display for $failname {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-                write!(f, $msg)
-            }
-        }
+    ($(#[$meta:meta])* $vis:vis $failname:ident, $msg:expr) => {
+        $(#[$meta])*
+        #[derive(Default, Debug, Clone, Copy, derive_more::Display)]
+        #[display($msg)]
+        $vis struct $failname;
     };
 }
 

@@ -2277,7 +2277,7 @@ pub struct ElementMismatchError {
 
 pub type ElementMismatchErrors = ErrorGroup<ElementMismatchError, ElementMismatchSummary>;
 
-def_summary!(ElementMismatchSummary, "could not set new values");
+def_summary!(pub ElementMismatchSummary, "could not set new values");
 
 impl fmt::Display for ElementIndexError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {

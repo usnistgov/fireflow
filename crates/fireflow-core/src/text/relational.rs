@@ -78,7 +78,7 @@ pub struct IndicesToRemove(pub(crate) HashSet<MeasIndex>);
 //
 
 def_summary!(
-    ExistingLinkFailure,
+    pub ExistingLinkFailure,
     "could not continue without breaking existing links"
 );
 

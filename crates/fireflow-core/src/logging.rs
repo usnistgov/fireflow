@@ -30,6 +30,7 @@
 use crate::config::{ErrorFlag, ReadSharedConfig, TriErrorFlag};
 use crate::text::optional::Nothing;
 
+use itertools::Itertools;
 use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
     Sibling1, impl_kind1,
@@ -383,6 +384,10 @@ pub(crate) type IOAnonErrorGroup<E> = IOErrorGroup<E, ()>;
 impl<E> AnonErrorGroup<E> {
     pub(crate) fn deanonymize_as<G>(self, g: G) -> ErrorGroup<E, G> {
         ErrorGroup::new(g, self.errors)
+    }
+
+    pub(crate) fn deanonymize<G: Default>(self) -> ErrorGroup<E, G> {
+        self.deanonymize_as(G::default())
     }
 }
 
@@ -754,6 +759,14 @@ pub(crate) trait ResultExt: Sized {
             Ok(x) => LogResult::new_ok(x),
             Err(g) => Fail(Failure::new_from_many(g.errors, ())),
         }
+    }
+
+    fn sequence_results(
+        rs: impl IntoIterator<Item = Self>,
+    ) -> Result<Vec<Self::Ok>, AnonErrorGroup<Self::Error>> {
+        let (good, bad): (_, Vec<_>) = rs.into_iter().map(Self::into_result).partition_result();
+        ErrorGroup::try_new(bad)?;
+        Ok(good)
     }
 }
 

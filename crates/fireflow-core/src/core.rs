@@ -1,4 +1,4 @@
-//! Data structures representing standardized TEXT segment
+//! Data structures representing standardized TEXTnewsegment
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
@@ -9,14 +9,15 @@ use crate::config::{
     WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    CheckRanges, CheckedScaleTransform, ConvertFromLayout, DataHeaders2_0, DataHeaders3_0,
-    DataHeaders3_1, DataHeaders3_2, EventsDiagnostics, IndexedLossError, InsertRangeError,
-    Insertable, IntoEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype as _, LayoutDims,
+    CheckRanges, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
+    DataFrame3_1, DataFrame3_2, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2,
+    EventsDiagnostics, HeadersToDataFrameError, IndexedLossError, InsertRangeError, Insertable,
+    IntoDataFrame, IntoDataHeaders, IsTot, LayoutConvertError, LayoutDatatype, LayoutDims,
     LayoutKeywords, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataLayoutError, OptMeasLayoutKeywords as _,
+    MeasurementsWithLayoutError, NewDataLayoutError, OptMeasLayoutKeywords,
     ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataframeError,
     ReadDataframeWarning, ReadLayoutOps, Removable, ScaleDatatypeMismatchError, ScaleErrorGroup,
-    VersionedDataHeaders,
+    VersionedDataFrame, VersionedDataHeaders, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -108,6 +109,7 @@ use crate::validated::textdelim::TEXTDelim;
 use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::nonempty_string::{DisplayableNE as _, NEString};
+use num_enum::FromPrimitive;
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -171,22 +173,21 @@ use {
 /// * `T`: version-specific type for temporal measurement keywords
 /// * `P`: version-specific type for optical measurement keywords
 /// * `N`: version-specific type for $PnN
-/// * `L`: version-specific type for layout keywords
+/// * `L`: version-specific type for layout keywords (which may include DATA)
 ///
 /// The types for these parameters and their specific FCS versions are
 /// summarized as follows:
 ///
-/// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L`               |
-/// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|
-/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders2_0`] |
-/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders3_0`] |
-/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_1`] |
-/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_2`] |
+/// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L` (no DATA)     | `L` (with DATA)      |
+/// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|----------------------|
+/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders2_0`] | [`DataDataFrame2_0`] |
+/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders3_0`] | [`DataDataFrame3_0`] |
+/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_1`] | [`DataDataFrame3_1`] |
+/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_2`] | [`DataDataFrame3_2`] |
 ///
 /// # Generic parameters for data
 ///
 /// * `A`: the ANALYSIS segment ([`Analysis`])
-/// * `D`: the DATA segment ([`FCSDataFrame`])
 /// * `O`: the OTHER segments ([`Others`])
 ///
 /// Each of these are either their indicated Rust type above or `()` if not
@@ -209,7 +210,7 @@ use {
 #[new(visibility = "")]
 // NOTE fields are private since metaroot, measurements, and layout are all
 // related to each other and must be kept in sync
-pub struct Core<A, D, O, M, T, P, N, L> {
+pub struct Core<A, L, O, M, T, P, N> {
     /// Metaroot TEXT keywords.
     ///
     /// This includes all keywords that are not part of measurements or the data
@@ -228,9 +229,6 @@ pub struct Core<A, D, O, M, T, P, N, L> {
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
     layout: L,
-
-    /// DATA segment (if applicable)
-    data: D,
 
     /// ANALYSIS segment (if applicable)
     analysis: A,
@@ -436,19 +434,21 @@ pub struct Optical<X> {
 
 /// Standardized FCS dataset for any version
 #[derive(Clone, From)]
-pub enum AnyCore<A, D, O> {
-    #[from(Core2_0<A, D, O>)]
-    FCS2_0(Box<Core2_0<A, D, O>>),
-    #[from(Core3_0<A, D, O>)]
-    FCS3_0(Box<Core3_0<A, D, O>>),
-    #[from(Core3_1<A, D, O>)]
-    FCS3_1(Box<Core3_1<A, D, O>>),
-    #[from(Core3_2<A, D, O>)]
-    FCS3_2(Box<Core3_2<A, D, O>>),
+pub enum AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
+    #[from(Core2_0<A, L2_0, O>)]
+    FCS2_0(Box<Core2_0<A, L2_0, O>>),
+    #[from(Core3_0<A, L3_0, O>)]
+    FCS3_0(Box<Core3_0<A, L3_0, O>>),
+    #[from(Core3_1<A, L3_1, O>)]
+    FCS3_1(Box<Core3_1<A, L3_1, O>>),
+    #[from(Core3_2<A, L3_2, O>)]
+    FCS3_2(Box<Core3_2<A, L3_2, O>>),
 }
 
-pub type AnyCoreTEXT = AnyCore<(), (), ()>;
-pub type AnyCoreDataset = AnyCore<Analysis, PrimitiveDataFrame, Others>;
+pub type AnyCoreTEXT =
+    AnyCore<(), DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2, ()>;
+pub type AnyCoreDataset =
+    AnyCore<Analysis, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2, Others>;
 
 macro_rules! match_anycore {
     ($self:expr, $bind:ident, $stuff:block) => {
@@ -456,7 +456,7 @@ macro_rules! match_anycore {
     };
 }
 
-impl<A, D, O> AnyCore<A, D, O> {
+impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
     #[must_use]
     pub fn version(&self) -> Version {
         match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
@@ -470,7 +470,13 @@ impl<A, D, O> AnyCore<A, D, O> {
     }
 
     #[cfg(feature = "serde")]
-    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: u8) -> io::Result<()> {
+    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: u8) -> io::Result<()>
+    where
+        L2_0: LayoutKeywords + OptMeasLayoutKeywords,
+        L3_0: LayoutKeywords + OptMeasLayoutKeywords,
+        L3_1: LayoutKeywords + OptMeasLayoutKeywords,
+        L3_2: LayoutKeywords + OptMeasLayoutKeywords,
+    {
         match_anycore!(self, x, { x.print_meas_table(w, delim) })
     }
 
@@ -564,8 +570,8 @@ impl AnyCoreTEXT {
 
 impl AnyCoreDataset {
     #[must_use]
-    pub fn as_data(&self) -> &PrimitiveDataFrame {
-        match_anycore!(self, x, { &x.data })
+    pub fn as_data(&self) -> PrimitiveDataFrame {
+        match_anycore!(self, x, { x.layout.clone().into() })
     }
 
     #[must_use]
@@ -1280,61 +1286,32 @@ pub type Metaroot3_1 = Metaroot<InnerMetaroot3_1>;
 pub type Metaroot3_2 = Metaroot<InnerMetaroot3_2>;
 
 /// A standardized TEXT segment
-pub type CoreTEXT<M, T, P, N, L> = Core<(), (), (), M, T, P, N, L>;
+pub type CoreTEXT<M, L, T, P, N> = Core<(), L, (), M, T, P, N>;
 
 /// A standardized FCS dataset (TEXT+DATA+ANALYSIS+OTHER)
-pub type CoreDataset<M, T, P, N, L> = Core<Analysis, PrimitiveDataFrame, Others, M, T, P, N, L>;
+pub type CoreDataset<M, L, T, P, N> = Core<Analysis, L, Others, M, T, P, N>;
 
-pub type Core2_0<A, D, O> = Core<
-    A,
-    D,
-    O,
-    InnerMetaroot2_0,
-    InnerTemporal2_0,
-    InnerOptical2_0,
-    Option<Shortname>,
-    DataHeaders2_0,
->;
-pub type Core3_0<A, D, O> = Core<
-    A,
-    D,
-    O,
-    InnerMetaroot3_0,
-    InnerTemporal3_0,
-    InnerOptical3_0,
-    Option<Shortname>,
-    DataHeaders3_0,
->;
-pub type Core3_1<A, D, O> = Core<
-    A,
-    D,
-    O,
-    InnerMetaroot3_1,
-    InnerTemporal3_1,
-    InnerOptical3_1,
-    Identity<Shortname>,
-    DataHeaders3_1,
->;
-pub type Core3_2<A, D, O> = Core<
-    A,
-    D,
-    O,
-    InnerMetaroot3_2,
-    InnerTemporal3_2,
-    InnerOptical3_2,
-    Identity<Shortname>,
-    DataHeaders3_2,
->;
+pub type Core2_0<A, L, O> =
+    Core<A, L, O, InnerMetaroot2_0, InnerTemporal2_0, InnerOptical2_0, Option<Shortname>>;
 
-pub type CoreTEXT2_0 = Core2_0<(), (), ()>;
-pub type CoreTEXT3_0 = Core3_0<(), (), ()>;
-pub type CoreTEXT3_1 = Core3_1<(), (), ()>;
-pub type CoreTEXT3_2 = Core3_2<(), (), ()>;
+pub type Core3_0<A, L, O> =
+    Core<A, L, O, InnerMetaroot3_0, InnerTemporal3_0, InnerOptical3_0, Option<Shortname>>;
 
-pub type CoreDataset2_0 = Core2_0<Analysis, PrimitiveDataFrame, Others>;
-pub type CoreDataset3_0 = Core3_0<Analysis, PrimitiveDataFrame, Others>;
-pub type CoreDataset3_1 = Core3_1<Analysis, PrimitiveDataFrame, Others>;
-pub type CoreDataset3_2 = Core3_2<Analysis, PrimitiveDataFrame, Others>;
+pub type Core3_1<A, L, O> =
+    Core<A, L, O, InnerMetaroot3_1, InnerTemporal3_1, InnerOptical3_1, Identity<Shortname>>;
+
+pub type Core3_2<A, L, O> =
+    Core<A, L, O, InnerMetaroot3_2, InnerTemporal3_2, InnerOptical3_2, Identity<Shortname>>;
+
+pub type CoreTEXT2_0 = Core2_0<(), DataHeaders2_0, ()>;
+pub type CoreTEXT3_0 = Core3_0<(), DataHeaders3_0, ()>;
+pub type CoreTEXT3_1 = Core3_1<(), DataHeaders3_1, ()>;
+pub type CoreTEXT3_2 = Core3_2<(), DataHeaders3_2, ()>;
+
+pub type CoreDataset2_0 = Core2_0<Analysis, DataFrame2_0, Others>;
+pub type CoreDataset3_0 = Core3_0<Analysis, DataFrame3_0, Others>;
+pub type CoreDataset3_1 = Core3_1<Analysis, DataFrame3_1, Others>;
+pub type CoreDataset3_2 = Core3_2<Analysis, DataFrame3_2, Others>;
 
 /// Reader for ANALYSIS segment
 #[derive(new)]
@@ -1568,8 +1545,9 @@ pub trait AsScaleOrTransform {
 }
 
 pub trait Versioned {
-    type Layout: VersionedDataHeaders;
-    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Layout as VersionedDataHeaders>::Tot>;
+    type Headers: VersionedDataHeaders;
+    type DataFrame: VersionedDataFrame;
+    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Headers as VersionedDataHeaders>::Tot>;
 
     fn fcs_version() -> Version;
 }
@@ -1592,7 +1570,7 @@ pub(crate) trait PrivVersioned: Versioned {
         (),
     >
     where
-        <Self::Layout as IntoEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame> + CheckRanges,
+        <Self::Headers as IntoDataFrame>::DfTarget: Into<PrimitiveDataFrame> + CheckRanges,
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
@@ -1600,7 +1578,7 @@ pub(crate) trait PrivVersioned: Versioned {
             .map_err(LookupAndReadDataAnalysisError::from)
             .into_log()
             .and_then_commutative(|par| {
-                Self::Layout::lookup_ro(kws, par, st.conf.as_ref())
+                Self::Headers::lookup_ro(kws, par, st.conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
             });
@@ -2432,29 +2410,30 @@ pub(crate) type TemporalsAndOpticals3_2 = NamedTemporalsAndOpticals<InnerMetaroo
 
 pub(crate) type Measurements<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
 
-pub(crate) type VersionedCore<A, D, O, M> = Core<
+pub(crate) type VersionedCore<A, L, O, M> = Core<
     A,
-    D,
+    L,
     O,
     M,
     <M as VersionedMetaroot>::Temporal,
     <M as VersionedMetaroot>::Optical,
     <M as VersionedMetaroot>::Name,
-    <<M as VersionedMetaroot>::Ver as Versioned>::Layout,
 >;
 
-pub(crate) type VersionedCoreTEXT<M> = VersionedCore<(), (), (), M>;
+pub(crate) type VersionedCoreTEXT<M> =
+    VersionedCore<(), <<M as VersionedMetaroot>::Ver as Versioned>::Headers, (), M>;
 
-pub(crate) type VersionedCoreDataset<M> = VersionedCore<Analysis, PrimitiveDataFrame, Others, M>;
+pub(crate) type VersionedCoreDataset<M> =
+    VersionedCore<Analysis, <<M as VersionedMetaroot>::Ver as Versioned>::DataFrame, Others, M>;
 
-impl<A, D, O, M, T, P, N, L> Core<A, D, O, M, T, P, N, L> {
+impl<A, L, O, M, T, P, N> Core<A, L, O, M, T, P, N> {
     /// Return $PAR, which is simply the number of measurements in this struct
     pub fn par(&self) -> Par {
         Par(self.measurements.len())
     }
 }
 
-impl<M, A, D, O> VersionedCore<A, D, O, M>
+impl<M, A, L, O> VersionedCore<A, L, O, M>
 where
     M: VersionedMetaroot,
 {
@@ -2473,7 +2452,7 @@ where
     ) -> Result<Option<Nextdata>, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
     {
         let n = cores.len();
         let mut nd = None;
@@ -2495,7 +2474,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
     {
         let opts = conf.multi.append.file_options();
         let f = opts.open(path)?;
@@ -2512,7 +2491,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
     {
         if conf.big_other.is_set() {
             self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
@@ -2529,7 +2508,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError>
             + Copy
             + Zero
@@ -2548,7 +2527,7 @@ where
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError>
             + Copy
             + Zero
@@ -2573,7 +2552,7 @@ where
         root_or_meas: IncludeRootOrMeas,
     ) -> HashMap<NEString, NEString>
     where
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
     {
         fn go(
             xs: impl Iterator<Item = (NEString, NEString)>,
@@ -3401,6 +3380,7 @@ where
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
         M::Optical: HasScale,
+        L: LayoutDatatype + LayoutDims,
     {
         let center_scale_not_linear = || {
             self.measurements
@@ -3446,6 +3426,7 @@ where
     ) -> GroupResult<(), SetTransformsError, SetTransformsSummary>
     where
         M::Optical: HasScaleTransform,
+        L: LayoutDatatype + LayoutDims,
     {
         let center_xform_not_noop = || {
             self.measurements
@@ -3533,7 +3514,7 @@ where
         self,
         allow_loss: AllowLoss,
     ) -> WarningsAndGroupResult<
-        VersionedCore<A, D, O, ToM>,
+        VersionedCore<A, L, O, ToM>,
         MetarootConvertWarning,
         ConvertError,
         ConvertSummary,
@@ -3544,7 +3525,7 @@ where
         ToM::Optical: VersionedOptical + ConvertFromOptical<M::Optical>,
         ToM::Temporal: VersionedTemporal + ConvertFromTemporal<M::Temporal>,
         ToM::Name: MightHave<Shortname> + Clone + ConvertFromShortname<M::Name>,
-        <ToM::Ver as Versioned>::Layout: ConvertFromLayout<<M::Ver as Versioned>::Layout>,
+        <ToM::Ver as Versioned>::Headers: ConvertFromLayout<<M::Ver as Versioned>::Headers>,
     {
         let root_res = self
             .metaroot
@@ -3583,7 +3564,7 @@ where
                     metaroot,
                     measurements,
                     layout,
-                    self.data,
+                    // self.data,
                     self.analysis,
                     self.others,
                 )
@@ -3624,10 +3605,13 @@ where
         t.as_ref().map(|&x| x.0.into())
     }
 
-    fn remove_measurement_by_name_inner(
+    fn remove_measurement_by_name_inner<C>(
         &mut self,
         name: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<M>, Range), RemoveMeasByNameError> {
+    ) -> Result<(MeasIndex, TemporalOrOptical<M>, C), RemoveMeasByNameError>
+    where
+        L: Removable<C>,
+    {
         if let Some(&index) = self.measurement_named_indices().get(name) {
             // NOTE if the meas to be removed is temporal, this name shouldn't
             // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
@@ -3644,10 +3628,13 @@ where
         Ok((i, e, r))
     }
 
-    fn remove_measurement_by_index_inner(
+    fn remove_measurement_by_index_inner<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<M>, Range), RemoveMeasByIndexError> {
+    ) -> Result<(NamedTemporalOrOptical<M>, C), RemoveMeasByIndexError>
+    where
+        L: Removable<C>,
+    {
         if let Some(&name) = self.measurement_indexed_names().get(&index) {
             // NOTE (ditto previous function)
             let ns = HashSet::from([name]).into();
@@ -3674,8 +3661,8 @@ where
         r: C,
     ) -> ErrorsResult<(), (), PushTemporalError>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        PushTemporalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        L: Insertable<C>,
+        PushTemporalError: From<L::Error>,
     {
         self.measurements
             .check_push_center(&n)
@@ -3701,8 +3688,8 @@ where
         r: C,
     ) -> ErrorsResult<(), (), InsertTemporalError>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        InsertTemporalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        L: Insertable<C>,
+        InsertTemporalError: From<L::Error>,
     {
         self.measurements
             .check_insert_center(i, &n)
@@ -3726,8 +3713,8 @@ where
         r: C,
     ) -> ErrorsResult<Shortname, (), PushOpticalError>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        PushOpticalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        L: Insertable<C>,
+        PushOpticalError: From<L::Error>,
     {
         self.measurements
             .check_push(&n)
@@ -3757,8 +3744,8 @@ where
         r: C,
     ) -> ErrorsResult<Shortname, (), InsertOpticalError>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        InsertOpticalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        L: Insertable<C>,
+        InsertOpticalError: From<L::Error>,
     {
         self.measurements
             .check_insert(i, &n)
@@ -3880,6 +3867,7 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        L: LayoutDatatype + LayoutDims,
     {
         self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
     }
@@ -3894,70 +3882,23 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        L: LayoutDims + LayoutDatatype,
     {
         self.set_measurements_inner(measurements)
-    }
-
-    /// Get reference to data layout
-    pub fn layout(&self) -> &<M::Ver as Versioned>::Layout {
-        &self.layout
-    }
-
-    /// Set data layout
-    ///
-    /// Will return error if layout does not have same number of columns as
-    /// measurements.
-    pub fn set_layout(
-        &mut self,
-        layout: <M::Ver as Versioned>::Layout,
-    ) -> Result<(), MeasLayoutMismatchError>
-    where
-        M::Optical: AsScaleOrTransform,
-        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
-    {
-        layout.check_measurement_vector(&self.measurements)?;
-        self.layout = layout;
-        Ok(())
-    }
-
-    /// Set measurements and layout
-    ///
-    /// Return error if measurement names are not unique, there is more
-    /// than one time measurement, or the layout and measurements have
-    /// different lengths.
-    pub fn set_named_measurements_and_layout(
-        &mut self,
-        measurements: NamedTemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
-        allow_shared_names: bool,
-        skip_index_check: bool,
-    ) -> Result<(), SetMeasurementsError>
-    where
-        M::Optical: AsScaleOrTransform,
-        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
-    {
-        let meas = layout.try_new_measurements::<M>(measurements)?;
-        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
-        self.measurements = meas;
-        self.layout = layout;
-        Ok(())
     }
 
     /// Set measurements without $PnN and layout
     pub fn set_measurements_and_layout(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
+        layout: L,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         M::Optical: AsScaleOrTransform,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        L: LayoutDims + LayoutDatatype,
     {
         self.set_measurements_and_layout_inner(measurements, layout)
     }
@@ -3973,6 +3914,7 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        L: LayoutDatatype + LayoutDims,
     {
         let meas = self.layout.try_new_measurements::<M>(measurements)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
@@ -3989,6 +3931,7 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        L: LayoutDims + LayoutDatatype,
     {
         let xforms: Vec<_> = measurements
             .iter()
@@ -4007,13 +3950,14 @@ where
     fn set_measurements_and_layout_inner(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
+        layout: L,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         M::Optical: AsScaleOrTransform,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        L: LayoutDims + LayoutDatatype,
     {
         let xforms: Vec<_> = measurements
             .iter()
@@ -4030,7 +3974,10 @@ where
         Ok(())
     }
 
-    fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors> {
+    fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors>
+    where
+        L: LayoutDims,
+    {
         let p = self.par();
         let (js, ns) = self.all_indices_and_names_to_remove();
         let es = self.metaroot.meas_has_existing_links_with(p, &ns, &js);
@@ -4046,7 +3993,7 @@ where
     ) -> Result<HeaderKeywordsToWrite<T>, WriteTEXTHeaderError>
     where
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + Zero + HeaderString + Into<u64>,
     {
         let req = self
@@ -4066,7 +4013,10 @@ where
         }
     }
 
-    fn opt_meas_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>> {
+    fn opt_meas_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>>
+    where
+        L: OptMeasLayoutKeywords,
+    {
         let ns = (!M::Name::INFALLABLE)
             .then(|| {
                 self.measurements
@@ -4097,7 +4047,7 @@ where
 
     fn req_meas_keywords(&self) -> impl Iterator<Item = ReqMeasKeyword<'_>>
     where
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords,
     {
         let ns = (M::Name::INFALLABLE)
             .then(|| {
@@ -4126,7 +4076,7 @@ where
 
     fn req_root_keywords(&self) -> impl Iterator<Item = ReqRootKeyword<'_>>
     where
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords,
     {
         let lv = self.layout.req_keywords();
         Metaroot::req_keywords(&self.metaroot, self.par()).chain(lv)
@@ -4142,7 +4092,7 @@ where
     where
         M::Temporal: Clone,
         M::Optical: OpticalFromTemporal<M::Temporal> + Clone,
-        <M::Ver as Versioned>::Layout: LayoutKeywords,
+        L: LayoutKeywords + OptMeasLayoutKeywords,
     {
         const INDEX: &str = "index";
 
@@ -4593,7 +4543,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: VersionedDataHeaders,
+        <M::Ver as Versioned>::Headers: VersionedDataHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4634,7 +4584,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M::Temporal: LookupTemporal,
         M::Optical: LookupOptical + AsScaleOrTransform,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: VersionedDataHeaders,
+        <M::Ver as Versioned>::Headers: VersionedDataHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4659,7 +4609,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         M: LookupMetaroot,
         M::Temporal: LookupTemporal,
         Version: From<M::Ver>,
-        <M::Ver as Versioned>::Layout: VersionedDataHeaders,
+        <M::Ver as Versioned>::Headers: VersionedDataHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
         M::Optical: LookupOptical + AsScaleOrTransform,
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4700,7 +4650,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
                     let layout_res =
-                        <M::Ver as Versioned>::Layout::lookup(std, mnsks, conf.as_ref());
+                        <M::Ver as Versioned>::Headers::lookup(std, mnsks, conf.as_ref());
 
                     let root_res =
                         Metaroot::lookup_metaroot(std, &dedup_names[..], kws.nonstd, conf);
@@ -4793,6 +4743,55 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         })
     }
 
+    /// Get reference to data layout
+    pub fn layout(&self) -> &<M::Ver as Versioned>::Headers {
+        &self.layout
+    }
+
+    /// Set data layout
+    ///
+    /// Will return error if layout does not have same number of columns as
+    /// measurements.
+    pub fn set_layout(
+        &mut self,
+        layout: <M::Ver as Versioned>::Headers,
+    ) -> Result<(), MeasLayoutMismatchError>
+    where
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+    {
+        layout.check_measurement_vector(&self.measurements)?;
+        self.layout = layout;
+        Ok(())
+    }
+
+    /// Set measurements and layout
+    ///
+    /// Return error if measurement names are not unique, there is more
+    /// than one time measurement, or the layout and measurements have
+    /// different lengths.
+    pub fn set_named_measurements_and_layout(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<M>,
+        layout: <M::Ver as Versioned>::Headers,
+        allow_shared_names: bool,
+        skip_index_check: bool,
+    ) -> Result<(), SetMeasurementsError>
+    where
+        M::Optical: AsScaleOrTransform,
+        <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+    {
+        let meas = layout.try_new_measurements::<M>(measurements)?;
+        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
+        self.measurements = meas;
+        self.layout = layout;
+        Ok(())
+    }
+
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
@@ -4823,8 +4822,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         r: C,
     ) -> GroupResult<(), PushTemporalError, PushTemporalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        PushTemporalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::Headers: Insertable<C>,
+        PushTemporalError: From<<<M::Ver as Versioned>::Headers as Insertable<C>>::Error>,
     {
         self.push_temporal_inner(n, m, r).group().resolve_nowarn()
     }
@@ -4841,8 +4840,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         r: C,
     ) -> GroupResult<(), InsertTemporalError, InsertTemporalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        InsertTemporalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::Headers: Insertable<C>,
+        InsertTemporalError: From<<<M::Ver as Versioned>::Headers as Insertable<C>>::Error>,
     {
         self.insert_temporal_inner(i, n, m, r)
             .group()
@@ -4859,8 +4858,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         r: C,
     ) -> GroupResult<Shortname, PushOpticalError, PushOpticalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        PushOpticalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::Headers: Insertable<C>,
+        PushOpticalError: From<<<M::Ver as Versioned>::Headers as Insertable<C>>::Error>,
     {
         self.push_optical_inner(n, m, r).group().resolve_nowarn()
     }
@@ -4877,8 +4876,8 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         r: C,
     ) -> GroupResult<Shortname, InsertOpticalError, InsertOpticalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        InsertOpticalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::Headers: Insertable<C>,
+        InsertOpticalError: From<<<M::Ver as Versioned>::Headers as Insertable<C>>::Error>,
     {
         self.insert_optical_inner(i, n, m, r)
             .group()
@@ -4971,29 +4970,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
         df: PrimitiveDataFrame,
         analysis: Analysis,
         others: Others,
-    ) -> Result<VersionedCoreDataset<M>, MeasDataMismatchError> {
-        let data_n = df.ncols();
-        let meas_n = self.par().0;
-        if data_n != meas_n {
-            return Err(MeasDataMismatchError { meas_n, data_n });
-        }
-        Ok(self.into_coredataset_unchecked(df, analysis, others))
-    }
-
-    pub(crate) fn into_coredataset_unchecked(
-        self,
-        data: PrimitiveDataFrame,
-        analysis: Analysis,
-        others: Others,
-    ) -> VersionedCoreDataset<M> {
-        CoreDataset::new(
-            self.metaroot,
-            self.measurements,
-            self.layout,
-            data,
-            analysis,
-            others,
-        )
+    ) -> Result<VersionedCoreDataset<M>, HeadersToDataFrameError>
+    where
+        <M::Ver as Versioned>::Headers:
+            WithPrimitiveDataFrame<DfTarget = <M::Ver as Versioned>::DataFrame>,
+    {
+        let df = self.layout.with_data(df)?;
+        let new = Core::new(self.metaroot, self.measurements, df, analysis, others);
+        Ok(new)
     }
 
     // only meant to be called during lookup when keywords are being read from
@@ -5001,11 +4985,11 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     pub(crate) fn try_new<C>(
         mut metaroot: Metaroot<M>,
         measurements: NamedTemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
+        layout: <M::Ver as Versioned>::Headers,
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        <M::Ver as Versioned>::Layout: LayoutDims,
+        <M::Ver as Versioned>::Headers: LayoutDims,
         Version: From<M::Ver>,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         M::Optical: AsScaleOrTransform,
@@ -5051,14 +5035,14 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                     .switchable_into_commutative()
                     .map_errors(LookupCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), ()))
             })
     }
 
     pub(crate) fn try_new_nodrop(
         mut metaroot: Metaroot<M>,
         measurements: NamedTemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
+        layout: <M::Ver as Versioned>::Headers,
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
         M::Optical: AsScaleOrTransform,
@@ -5080,7 +5064,7 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
                 Self::check_relationships(&mut metaroot, &ms, false)
                     .map_errors(NewCoreWarning::from)
                     .map_errors(NewCoreError::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), ()))
             })
     }
 
@@ -5107,16 +5091,16 @@ impl<M: VersionedMetaroot> VersionedCoreTEXT<M> {
     fn new_unchecked(
         metaroot: Metaroot<M>,
         measurements: Measurements<M::Name, M::Temporal, M::Optical>,
-        layout: <M::Ver as Versioned>::Layout,
+        layout: <M::Ver as Versioned>::Headers,
     ) -> Self {
-        Self::new(metaroot, measurements, layout, (), (), ())
+        Self::new(metaroot, measurements, layout, (), ())
     }
 }
 
 impl<M> VersionedCoreDataset<M>
 where
     M: VersionedMetaroot,
-    <M::Ver as Versioned>::Layout: VersionedDataHeaders,
+    <M::Ver as Versioned>::Headers: VersionedDataHeaders,
 {
     pub fn new_from_keywords<C>(
         p: &PathBuf,
@@ -5143,8 +5127,7 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
-        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget:
-            Into<PrimitiveDataFrame> + CheckRanges,
+        <M::Ver as Versioned>::Headers: IntoDataFrame<DfTarget = <M::Ver as Versioned>::DataFrame>,
     {
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
@@ -5187,8 +5170,7 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
-        <<M::Ver as Versioned>::Layout as IntoEmptyDataFrame>::DfTarget:
-            Into<PrimitiveDataFrame> + CheckRanges,
+        <M::Ver as Versioned>::Headers: IntoDataFrame<DfTarget = <M::Ver as Versioned>::DataFrame>,
     {
         VersionedCoreTEXT::<M>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -5206,9 +5188,10 @@ where
                         ar.h_read(h)
                             .and_then(|analysis| {
                                 let others = or.h_read(h)?;
-                                let c = text.into_coredataset_unchecked(
-                                    // TODO this is wrong
-                                    df_out.dataframe.into(),
+                                let new = Core::new(
+                                    text.metaroot,
+                                    text.measurements,
+                                    df_out.dataframe,
                                     analysis,
                                     others,
                                 );
@@ -5217,7 +5200,7 @@ where
                                     extra,
                                     df_out.diagnostics,
                                 );
-                                Ok((c, out))
+                                Ok((new, out))
                             })
                             .map_err(IOErrorGroup::from)
                             .into_log()
@@ -5309,8 +5292,11 @@ where
     }
 
     /// Return reference to DATA segment as dataframe.
-    pub fn data(&self) -> &PrimitiveDataFrame {
-        &self.data
+    pub fn data(&self) -> PrimitiveDataFrame
+    where
+        <M::Ver as Versioned>::DataFrame: Clone + Into<PrimitiveDataFrame>,
+    {
+        self.layout.clone().into()
     }
 
     /// Return reference to ANALYSIS segment as byte string.
@@ -5337,20 +5323,19 @@ where
     ///
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
-    pub fn set_data(&mut self, df: PrimitiveDataFrame) -> Result<(), ColumnsToDataframeError> {
-        let data_n = df.ncols();
-        let meas_n = self.par().0;
-        if data_n != meas_n {
-            return Err(MeasDataMismatchError { meas_n, data_n }.into());
-        }
-        self.data = df;
+    pub fn set_data(&mut self, df: PrimitiveDataFrame) -> Result<(), HeadersToDataFrameError>
+    where
+        <M::Ver as Versioned>::DataFrame:
+            WithPrimitiveDataFrame<DfTarget = <M::Ver as Versioned>::DataFrame>,
+    {
+        self.layout = self.layout.with_data(df)?;
         Ok(())
     }
 
     /// Remove all measurements and data
     pub fn unset_data(&mut self) -> Result<(), ExistingLinkErrors> {
         self.unset_measurements_inner()?;
-        self.data.clear();
+        self.layout.clear();
         Ok(())
     }
 
@@ -5382,8 +5367,7 @@ where
         n: &Shortname,
     ) -> Result<(MeasIndex, TemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByNameError>
     {
-        let (index, meas, rng) = self.remove_measurement_by_name_inner(n)?;
-        let col = self.data.drop_in_place(index.into()).unwrap();
+        let (index, meas, (rng, col)) = self.remove_measurement_by_name_inner(n)?;
         Ok((index, meas, col, rng))
     }
 
@@ -5395,8 +5379,7 @@ where
         index: MeasIndex,
     ) -> Result<(NamedTemporalOrOptical<M>, AnyPrimitiveColumn, Range), RemoveMeasByIndexError>
     {
-        let (meas, rng) = self.remove_measurement_by_index_inner(index)?;
-        let col = self.data.drop_in_place(index.into()).unwrap();
+        let (meas, (rng, col)) = self.remove_measurement_by_index_inner(index)?;
         Ok((meas, col, rng))
     }
 
@@ -5407,24 +5390,23 @@ where
         &mut self,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        col: AnyPrimitiveColumn,
-        r: C,
+        c: C,
     ) -> GroupResult<(), PushTemporalToDatasetError, PushTemporalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        PushTemporalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::DataFrame: Insertable<C>,
+        PushTemporalError: From<<<M::Ver as Versioned>::DataFrame as Insertable<C>>::Error>,
     {
-        self.data
-            .check_new_column(&col)
-            .map_err(PushTemporalToDatasetError::from)
-            .into_nowarn()
-            .nowarn_and_then(|()| {
-                self.push_temporal_inner(n, m, r)
-                    .map_errors(PushTemporalToDatasetError::from)
-            })
-            .when_ok(|| self.data.push_column_nocheck(col))
+        // self.layout
+        //     .check_new_column(&col)
+        //     .map_err(PushTemporalToDatasetError::from)
+        //     .into_nowarn()
+        //     .nowarn_and_then(|()| {
+        self.push_temporal_inner(n, m, c)
+            .map_errors(PushTemporalToDatasetError::from)
             .group()
             .resolve_nowarn()
+        // })
+        // .when_ok(|| self.layout.push(col))
     }
 
     /// Add time measurement at the given position
@@ -5436,24 +5418,23 @@ where
         i: MeasIndex,
         n: Shortname,
         m: Temporal<M::Temporal>,
-        col: AnyPrimitiveColumn,
-        r: C,
+        c: C,
     ) -> GroupResult<(), InsertTemporalToDatasetError, InsertTemporalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        InsertTemporalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::DataFrame: Insertable<C>,
+        InsertTemporalError: From<<<M::Ver as Versioned>::DataFrame as Insertable<C>>::Error>,
     {
-        self.data
-            .check_new_column(&col)
-            .map_err(InsertTemporalToDatasetError::from)
-            .into_nowarn()
-            .nowarn_and_then(|()| {
-                self.insert_temporal_inner(i, n, m, r)
-                    .map_errors(InsertTemporalToDatasetError::from)
-            })
-            .when_ok(|| {
-                self.data.insert_column_nocheck(i.into(), col);
-            })
+        // self.layout
+        //     .check_new_column(&col)
+        //     .map_err(InsertTemporalToDatasetError::from)
+        //     .into_nowarn()
+        //     .nowarn_and_then(|()| {
+        self.insert_temporal_inner(i, n, m, c)
+            .map_errors(InsertTemporalToDatasetError::from)
+            // })
+            // .when_ok(|| {
+            //     self.layout.insert_nocheck(i.into(), col);
+            // })
             .group()
             .resolve_nowarn()
     }
@@ -5465,22 +5446,21 @@ where
         &mut self,
         n: M::Name,
         m: Optical<M::Optical>,
-        col: AnyPrimitiveColumn,
-        r: C,
+        c: C,
     ) -> GroupResult<Shortname, PushOpticalToDatasetError, PushOpticalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        PushOpticalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::DataFrame: Insertable<C>,
+        PushOpticalError: From<<<M::Ver as Versioned>::DataFrame as Insertable<C>>::Error>,
     {
-        self.data
-            .check_new_column(&col)
-            .map_err(PushOpticalToDatasetError::from)
-            .into_nowarn()
-            .nowarn_and_then(|()| {
-                self.push_optical_inner(n, m, r)
-                    .map_errors(PushOpticalToDatasetError::from)
-            })
-            .when_ok(|| self.data.push_column_nocheck(col))
+        // self.layout
+        //     .check_new_column(&col)
+        //     .map_err(PushOpticalToDatasetError::from)
+        //     .into_nowarn()
+        //     .nowarn_and_then(|()| {
+        self.push_optical_inner(n, m, c)
+            .map_errors(PushOpticalToDatasetError::from)
+            // })
+            // .when_ok(|| self.layout.push_column_nocheck(col))
             .group()
             .resolve_nowarn()
     }
@@ -5493,22 +5473,21 @@ where
         i: MeasIndex,
         n: M::Name,
         m: Optical<M::Optical>,
-        col: AnyPrimitiveColumn,
-        r: C,
+        c: C,
     ) -> GroupResult<Shortname, InsertOpticalInDatasetError, InsertOpticalSummary>
     where
-        <M::Ver as Versioned>::Layout: Insertable<C>,
-        InsertOpticalError: From<<<M::Ver as Versioned>::Layout as Insertable<C>>::Error>,
+        <M::Ver as Versioned>::DataFrame: Insertable<C>,
+        InsertOpticalError: From<<<M::Ver as Versioned>::DataFrame as Insertable<C>>::Error>,
     {
-        self.data
-            .check_new_column(&col)
-            .map_err(InsertOpticalInDatasetError::from)
-            .into_nowarn()
-            .nowarn_and_then(|()| {
-                self.insert_optical_inner(i, n, m, r)
-                    .map_errors(InsertOpticalInDatasetError::from)
-            })
-            .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
+        // self.layout
+        //     .check_new_column(&col)
+        //     .map_err(InsertOpticalInDatasetError::from)
+        //     .into_nowarn()
+        //     .nowarn_and_then(|()| {
+        self.insert_optical_inner(i, n, m, c)
+            .map_errors(InsertOpticalInDatasetError::from)
+            // })
+            // .when_ok(|| self.layout.insert_column_nocheck(i.into(), col))
             .group()
             .resolve_nowarn()
     }
@@ -5633,8 +5612,12 @@ where
     ///
     /// This simply entails taking ownership and dropping the ANALYSIS and DATA
     /// fields.
-    pub fn into_coretext(self) -> VersionedCoreTEXT<M> {
-        CoreTEXT::new_unchecked(self.metaroot, self.measurements, self.layout)
+    pub fn into_coretext(self) -> VersionedCoreTEXT<M>
+    where
+        <M::Ver as Versioned>::DataFrame:
+            IntoDataHeaders<DfTarget = <M::Ver as Versioned>::Headers>,
+    {
+        CoreTEXT::new_unchecked(self.metaroot, self.measurements, self.layout.as_headers())
     }
 
     /// Set measurements and dataframe together
@@ -5652,14 +5635,12 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        <M::Ver as Versioned>::DataFrame:
+            WithPrimitiveDataFrame<DfTarget = <M::Ver as Versioned>::DataFrame>,
     {
-        let meas_n = xs.len();
-        let data_n = df.ncols();
-        if meas_n != data_n {
-            return Err(MeasDataMismatchError { meas_n, data_n }.into());
-        }
+        let new_df = self.layout.with_data(df)?;
         self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)?;
-        self.data = df;
+        self.layout = new_df;
         Ok(())
     }
 
@@ -5676,14 +5657,12 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        <M::Ver as Versioned>::DataFrame:
+            WithPrimitiveDataFrame<DfTarget = <M::Ver as Versioned>::DataFrame>,
     {
-        let meas_n = measurements.len();
-        let data_n = df.ncols();
-        if meas_n != data_n {
-            return Err(MeasDataMismatchError { meas_n, data_n }.into());
-        }
+        let new_df = self.layout.with_data(df)?;
         self.set_measurements_inner(measurements)?;
-        self.data = df;
+        self.layout = new_df;
         Ok(())
     }
 
@@ -5693,7 +5672,7 @@ where
     pub fn set_measurements_layout_and_data(
         &mut self,
         measurements: TemporalsAndOpticals<M>,
-        layout: <M::Ver as Versioned>::Layout,
+        layout: <M::Ver as Versioned>::Headers,
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
@@ -5701,14 +5680,11 @@ where
         <M::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<M::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<M>>,
+        <M::Ver as Versioned>::Headers:
+            WithPrimitiveDataFrame<DfTarget = <M::Ver as Versioned>::DataFrame>,
     {
-        let meas_n = measurements.len();
-        let data_n = df.ncols();
-        if meas_n != data_n {
-            return Err(MeasDataMismatchError { meas_n, data_n }.into());
-        }
-        self.set_measurements_and_layout_inner(measurements, layout)?;
-        self.data = df;
+        let new_df = layout.with_data(df)?;
+        self.set_measurements_and_layout_inner(measurements, new_df)?;
         Ok(())
     }
 }
@@ -7280,9 +7256,10 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
 }
 
 macro_rules! impl_versioned {
-    ($v:ident, $l:ident, $o:ident) => {
+    ($v:ident, $l:ident, $d:ident, $o:ident) => {
         impl Versioned for $v {
-            type Layout = $l;
+            type Headers = $l;
+            type DataFrame = $d;
             type Offsets = $o;
 
             fn fcs_version() -> Version {
@@ -7292,10 +7269,10 @@ macro_rules! impl_versioned {
     };
 }
 
-impl_versioned!(Version2_0, DataHeaders2_0, TEXTOffsets2_0);
-impl_versioned!(Version3_0, DataHeaders3_0, TEXTOffsets3_0);
-impl_versioned!(Version3_1, DataHeaders3_1, TEXTOffsets3_0);
-impl_versioned!(Version3_2, DataHeaders3_2, TEXTOffsets3_2);
+impl_versioned!(Version2_0, DataHeaders2_0, DataFrame2_0, TEXTOffsets2_0);
+impl_versioned!(Version3_0, DataHeaders3_0, DataFrame3_0, TEXTOffsets3_0);
+impl_versioned!(Version3_1, DataHeaders3_1, DataFrame3_1, TEXTOffsets3_0);
+impl_versioned!(Version3_2, DataHeaders3_2, DataFrame3_2, TEXTOffsets3_2);
 
 impl PrivVersioned for Version2_0 {}
 impl PrivVersioned for Version3_0 {}
@@ -9166,7 +9143,7 @@ pub enum SetMeasurementLinkError {
 pub type SetMeasurementLinkErrors = ErrorGroup<SetMeasurementLinkError, SetMeasurementLinkSummary>;
 
 def_summary!(
-    SetMeasurementLinkSummary,
+    pub SetMeasurementLinkSummary,
     "link errors when setting measurements"
 );
 
@@ -9199,7 +9176,7 @@ pub enum SetTransformsError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsAndDataError {
     Meas(SetMeasurementsError),
-    Mismatch(MeasDataMismatchError),
+    Mismatch(HeadersToDataFrameError),
 }
 
 /// Error when setting measurements without $PnN and DATA/dataframe simultaneously
@@ -9207,16 +9184,16 @@ pub enum SetMeasurementsAndDataError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetUnnamdMeasurementsAndDataError {
     Meas(SetUnnamedMeasurementsError),
-    Mismatch(MeasDataMismatchError),
+    Mismatch(HeadersToDataFrameError),
 }
 
-/// Error when setting dataframe/DATA segment in [`CoreDataset`]
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ColumnsToDataframeError {
-    New(df::NewDataframeError),
-    Mismatch(MeasDataMismatchError),
-}
+// /// Error when setting dataframe/DATA segment in [`CoreDataset`]
+// #[derive(From, Display, Debug, Error)]
+// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+// pub enum ColumnsToDataframeError {
+//     New(df::NewDataframeError),
+//     Mismatch(MeasDataMismatchError),
+// }
 
 /// Error when removing measurement by name ($PnN)
 #[derive(From, Display, Debug, Error)]
@@ -9296,16 +9273,6 @@ pub enum PushOpticalToDatasetError {
 pub enum InsertOpticalInDatasetError {
     Measurement(InsertOpticalError),
     Column(df::ColumnLengthError),
-}
-
-/// Error when measurement vector is not the same length as columns in DATA/dataframe
-#[derive(Debug, Error)]
-#[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct MeasDataMismatchError {
-    meas_n: usize,
-    data_n: usize,
 }
 
 /// Error when attempting to set temporal $PnE to log (2.0)
@@ -10023,27 +9990,27 @@ pub struct CompParMismatchError {
 
 type SetSpilloverErrors = ErrorGroup<KeyToNameLinkError<Spillover>, SetSpilloverSummary>;
 
-def_summary!(SetSpilloverSummary, "error when setting $SPILLOVER");
+def_summary!(pub SetSpilloverSummary, "error when setting $SPILLOVER");
 
 type SetUnstainedCentersErrors =
     ErrorGroup<KeyToNameLinkError<UnstainedCenters>, SetUnstainedCentersSummary>;
 
 def_summary!(
-    SetUnstainedCentersSummary,
+    pub SetUnstainedCentersSummary,
     "error when setting $UNSTAINEDCENTERS"
 );
 
 type SetOpticalError = SetElementsError<ErrorGroup<MeasMismatchError, SetOpticalSummary>>;
 
 def_summary!(
-    SetOpticalSummary,
+    pub SetOpticalSummary,
     "attempted to assign incompatible optical measurement values"
 );
 
 type SetAllMeasError = SetElementsError<ErrorGroup<MeasMismatchError, SetAllMeasSummary>>;
 
 def_summary!(
-    SetAllMeasSummary,
+    pub SetAllMeasSummary,
     "attempted to assign incompatible optical and temporal measurement values"
 );
 
@@ -10069,10 +10036,10 @@ impl fmt::Display for MeasMismatchError {
 }
 
 #[cfg(feature = "python")]
-def_summary!(NewCoreTEXTSummary, "could not make new CoreTEXT");
+def_summary!(pub NewCoreTEXTSummary, "could not make new CoreTEXT");
 
 #[cfg(feature = "python")]
-def_summary!(NewCoreDatasetSummary, "could not make new CoreDataset");
+def_summary!(pub NewCoreDatasetSummary, "could not make new CoreDataset");
 
 #[derive(Display, new)]
 #[display("could not convert version from {from} to {to}")]
@@ -10082,42 +10049,42 @@ pub struct ConvertSummary {
 }
 
 def_summary!(
-    SetScalesSummary,
+    pub SetScalesSummary,
     "could not set scales for optical measurements"
 );
 
 def_summary!(
-    SetTransformsSummary,
+    pub SetTransformsSummary,
     "could not set scale transforms for optical measurements"
 );
 
-def_summary!(PushTemporalSummary, "could not push temporal measurement");
+def_summary!(pub PushTemporalSummary, "could not push temporal measurement");
 
 def_summary!(
-    InsertTemporalSummary,
+    pub InsertTemporalSummary,
     "could not insert temporal measurement"
 );
 
-def_summary!(PushOpticalSummary, "could not push optical measurement");
+def_summary!(pub PushOpticalSummary, "could not push optical measurement");
 
-def_summary!(InsertOpticalSummary, "could not insert optical measurement");
+def_summary!(pub InsertOpticalSummary, "could not insert optical measurement");
 
-def_summary!(SetAppliedGatesSummary, "could not set gating keywords");
+def_summary!(pub SetAppliedGatesSummary, "could not set gating keywords");
 
 def_summary!(
-    SetMeasurementsAndLayoutSummary,
+    pub SetMeasurementsAndLayoutSummary,
     "could not set measurements and layout"
 );
 
-def_summary!(WriteDatasetSummary, "could not write FCS file");
+def_summary!(pub WriteDatasetSummary, "could not write FCS file");
 
 def_summary!(
-    CoreTEXTFromKeywordsSummary,
+    pub CoreTEXTFromKeywordsSummary,
     "could not create new CoreTEXT from keywords"
 );
 
 def_summary!(
-    StdDatasetWithKwsSummary,
+    pub StdDatasetWithKwsSummary,
     "could not read standardized dataset from keywords"
 );
 
@@ -10126,10 +10093,13 @@ mod serialize {
     use crate::core::AnyCore;
     use serde::{Serialize, ser::SerializeStruct as _};
 
-    impl<A, D, O> Serialize for AnyCore<A, D, O>
+    impl<A, L2_0, L3_0, L3_1, L3_2, O> Serialize for AnyCore<A, L2_0, L3_0, L3_1, L3_2, O>
     where
         A: Serialize,
-        D: Serialize,
+        L2_0: Serialize,
+        L3_0: Serialize,
+        L3_1: Serialize,
+        L3_2: Serialize,
         O: Serialize,
     {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>

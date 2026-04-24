@@ -31,9 +31,9 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
-    ProcessKeywordFailure, ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize,
-    SpilloverMeasurementMode, TemporalOpticalKey, TriFlag, TrimValueWhitespace,
+    AllowHeaderTEXTOffsetMismatch, CheckEventRanges, DelimEscapeMode, ForceLinearScale,
+    GuessOtherWidth, ProcessKeywordFailure, ProcessTemporalOpticalKeys, ReadStrategy,
+    RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag, TrimValueWhitespace,
     TruncateEventValues, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
     VERSION_STRICT_LEVEL,
 };
@@ -237,21 +237,14 @@ pub struct WriteTEXTInnerConfig {
 pub struct WriteDatasetInnerConfig {
     pub text: WriteTEXTInnerConfig,
 
-    /// If `true`, skip check for conversion losses before writing data.
+    /// Control which measurements will be checked via $PnR upon writing.
+    pub check_event_ranges: CheckEventRanges,
+
+    /// If `true`, forbid event values in DATA to exceed $PnR before writing.
     ///
-    /// Data in each column may be stored in several different types which may
-    /// or may not totally coincide with the measurement type. For example, a
-    /// measurement may be an 8-bit unsigned integer with a 4-bit bitmask, and
-    /// the column may be stored as 32-bit floats within the polars dataframe.
-    /// However, as long as the floats are only 0 to 2^4 - 1, no conversion
-    /// losses will result. This allows the user more flexibility when
-    /// manipulating the data for each measurement.
-    ///
-    /// Skipping this will result in slightly faster writing, as the data need
-    /// to be enumerated once prior to writing in order to perform this check.
-    /// Lossy conversion will be performed regardless, but warnings will be
-    /// emitted if this is `false`.
-    pub skip_conversion_check: SkipConversionCheck,
+    /// This flag only has an effect if the column is checked according to
+    /// [`Self::check_event_values`].
+    pub disallow_over_range: DisallowOverRange,
 
     /// Set the size in bytes for the internal buffer used to write DATA.
     ///

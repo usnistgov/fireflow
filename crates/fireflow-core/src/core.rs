@@ -11,12 +11,13 @@ use crate::config::{
 use crate::data::{
     CheckRanges, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
     DataFrame3_1, DataFrame3_2, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2,
-    EventsDiagnostics, HeadersToDataFrameError, IndexedLossError, InsertRangeError, Insertable,
-    IntoDataFrame, IntoDataHeaders, IsTot, LayoutConvertError, LayoutDatatype, LayoutDims,
-    LayoutKeywords, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataLayoutError, OptMeasLayoutKeywords,
-    ReadCheckedDataframeError, ReadCheckedDataframeWarning, Removable, ScaleDatatypeMismatchError,
-    ScaleErrorGroup, VersionedDataFrame, VersionedDataHeaders, WithPrimitiveDataFrame,
+    EventOverRangeError, EventsDiagnostics, HeadersToDataFrameError, InsertRangeError, Insertable,
+    IntoDataFrame, IntoDataHeaders, IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight,
+    LayoutKeywords, LayoutSize as _, LayoutWidth, LookupLayoutError, LookupLayoutWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError,
+    OptMeasLayoutKeywords, ReadCheckedDataframeError, ReadCheckedDataframeWarning, Removable,
+    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataHeaders,
+    WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -586,10 +587,10 @@ impl AnyCoreDataset {
 
     #[must_use]
     pub fn write_dataset(
-        &self,
+        &mut self,
         path: &PathBuf,
         conf: &WriteMultiDatasetConfig,
-    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
     {
         match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
             x.write_dataset(path, conf)
@@ -3365,7 +3366,7 @@ where
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
         V::Optical: HasScale,
-        L: LayoutDatatype + LayoutDims,
+        L: LayoutDatatype + LayoutWidth,
     {
         let center_scale_not_linear = || {
             self.measurements
@@ -3411,7 +3412,7 @@ where
     ) -> GroupResult<(), SetTransformsError, SetTransformsSummary>
     where
         V::Optical: HasScaleTransform,
-        L: LayoutDatatype + LayoutDims,
+        L: LayoutDatatype + LayoutWidth,
     {
         let center_xform_not_noop = || {
             self.measurements
@@ -3852,7 +3853,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDatatype + LayoutDims,
+        L: LayoutDatatype + LayoutWidth,
     {
         self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
     }
@@ -3867,7 +3868,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDims + LayoutDatatype,
+        L: LayoutWidth + LayoutDatatype,
     {
         self.set_measurements_inner(measurements)
     }
@@ -3883,7 +3884,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDims + LayoutDatatype,
+        L: LayoutWidth + LayoutDatatype,
     {
         self.set_measurements_and_layout_inner(measurements, layout)
     }
@@ -3899,7 +3900,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDatatype + LayoutDims,
+        L: LayoutDatatype + LayoutWidth,
     {
         let meas = self.layout.try_new_measurements::<V>(measurements)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
@@ -3916,7 +3917,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDims + LayoutDatatype,
+        L: LayoutWidth + LayoutDatatype,
     {
         let xforms: Vec<_> = measurements
             .iter()
@@ -3942,7 +3943,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDims + LayoutDatatype,
+        L: LayoutWidth + LayoutDatatype,
     {
         let xforms: Vec<_> = measurements
             .iter()
@@ -3961,7 +3962,7 @@ where
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors>
     where
-        L: LayoutDims,
+        L: LayoutWidth,
     {
         let p = self.par();
         let (js, ns) = self.all_indices_and_names_to_remove();
@@ -4965,7 +4966,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        V::Headers: LayoutDims,
+        V::Headers: LayoutWidth,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -5181,10 +5182,10 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
 
     /// Write this core structure (HEADER+TEXT) to a file path
     pub fn write_dataset(
-        &self,
+        &mut self,
         path: &PathBuf,
         conf: &WriteMultiDatasetConfig,
-    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
     {
         let opts = conf.multi.append.file_options();
         let f = io_to_log!(opts.open(path));
@@ -5194,68 +5195,52 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
     pub fn h_write_dataset<W: Write>(
-        &self,
+        &mut self,
         h: &mut BufWriter<W>,
         conf: &WriteDatasetInnerConfig,
         has_nextdata: AppendableFlag,
-    ) -> WarningsAndIOGroupResult<Nextdata, IndexedLossError, StdWriterError, WriteDatasetSummary>
+    ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
     {
-        unimplemented!()
-        // let df = &self.data;
-        // let layout = &self.layout;
-        // let delim = conf.text.delim;
-        // let tot = Tot(df.nrows());
-        // let analysis_len =
-        //     u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
-        // let others = &self.others.0[..];
+        let delim = conf.text.delim;
+        let tot = Tot(self.layout.nrows());
+        let analysis_len =
+            u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
+        let others = &self.others.0[..];
 
-        // let check_res = if conf.skip_conversion_check.is_set() {
-        //     LogResult::new_ok(())
-        // } else {
-        //     layout.check_writer(df)
-        // };
-
-        // check_res
-        //     .map_errors(StdWriterError::from)
-        //     .nowarn_into_warn()
-        //     .group()
-        //     .map_error(IOErrorGroup::Pure)
-        //     // write HEADER+TEXT+OTHER(s) first
-        //     .and_then_commutative(|()| {
-        //         let data_len = layout.nbytes(df);
-        //         let ht_conf = WriteHeaderAndTextConfig {
-        //             delim,
-        //             tot,
-        //             data_len,
-        //             analysis_len,
-        //             other_segs: others,
-        //             has_nextdata,
-        //         };
-        //         let res = if conf.text.big_other.is_set() {
-        //             self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
-        //         } else {
-        //             self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
-        //         };
-        //         res.map_err(|e| e.fmap_once(StdWriterError::from))
-        //             .map_err(IOErrorGroup::from)
-        //             .into_log()
-        //     })
-        //     // write DATA; conversion check flag is flipped from above since
-        //     // we want to emit warnings as we are writing if we did not run
-        //     // through the data once at the beginning and check for
-        //     // conversion loss.
-        //     //
-        //     // TODO this will be very slow if we know that there are no losses
-        //     .and_commutative(|| {
-        //         let flag = !conf.skip_conversion_check.is_set();
-        //         layout.h_write_df(h, df, flag).map_error(IOErrorGroup::from)
-        //     })
-        //     // write ANALYSIS
-        //     .and_commutative(|| {
-        //         io_to_log!(h.write_all(&self.analysis.0));
-        //         LogResult::new_ok(())
-        //     })
-        //     .deanonymize()
+        self.layout
+            .check_ranges(conf.check_event_ranges, conf.disallow_over_range)
+            .map_errors(StdWriterError::from)
+            .group()
+            .map_error(IOErrorGroup::Pure)
+            // write HEADER+TEXT+OTHER(s) first
+            .and_then_commutative(|_| {
+                let data_len = self.layout.nbytes();
+                let ht_conf = WriteHeaderAndTextConfig {
+                    delim,
+                    tot,
+                    data_len,
+                    analysis_len,
+                    other_segs: others,
+                    has_nextdata,
+                };
+                let res = if conf.text.big_other.is_set() {
+                    self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
+                } else {
+                    self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
+                };
+                res.map_err(|e| e.fmap_once(StdWriterError::from))
+                    .map_err(IOErrorGroup::from)
+                    .into_log()
+            })
+            // write DATA and ANALYSIS
+            .and_commutative(|| {
+                // this requires layout to be mutable since it will try to
+                // normalize before writing
+                io_to_log!(self.layout.h_write_df(h, conf));
+                io_to_log!(h.write_all(&self.analysis.0));
+                LogResult::new_ok(())
+            })
+            .deanonymize()
     }
 
     /// Return reference to DATA segment as dataframe.
@@ -9069,7 +9054,7 @@ pub struct NameConversionError(Key1<Shortname>);
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataLayoutError),
-    Check(IndexedLossError),
+    Check(EventOverRangeError),
     HeaderText(WriteTEXTHeaderError),
 }
 

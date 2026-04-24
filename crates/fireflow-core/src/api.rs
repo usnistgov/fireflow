@@ -13,7 +13,7 @@ use crate::core::{
     StdDatasetFromFlatTextError, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };
-use crate::data::{EventsDiagnostics, IndexedLossError};
+use crate::data::{EventOverRangeError, EventsDiagnostics};
 use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
@@ -354,13 +354,17 @@ pub fn fcs_summarize(
 #[must_use]
 pub fn fcs_write_datasets(
     path: &PathBuf,
-    cores: &[AnyCoreDataset],
+    cores: &mut [AnyCoreDataset],
     conf: &WriteDatasetInnerConfig,
-) -> WarningsAndIOGroupResult<Option<Nextdata>, IndexedLossError, StdWriterError, WriteDatasetSummary>
-{
+) -> WarningsAndIOGroupResult<
+    Option<Nextdata>,
+    EventOverRangeError,
+    StdWriterError,
+    WriteDatasetSummary,
+> {
     let n = cores.len();
     let mut results = vec![];
-    for (i, c) in cores.iter().enumerate() {
+    for (i, c) in cores.iter_mut().enumerate() {
         let appendable = AppendableFlag::from(i + 1 < n);
         let append = AppendFlag(i > 0);
         let multi = WriteMultiConfig::new(appendable, append);
@@ -1863,7 +1867,12 @@ fn kws_to_df_analysis<C, R>(
     hns: &mut HeaderAndSuppOffsets,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
-    (PrimitiveDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
+    (
+        PrimitiveDataFrame,
+        Analysis,
+        DatasetSegments,
+        EventsDiagnostics,
+    ),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     (),

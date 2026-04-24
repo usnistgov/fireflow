@@ -4,7 +4,7 @@ use crate::validated::ascii_range::Chars;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use ambassador::{Delegate, delegatable_trait};
-use fireflow_types::config::TruncateEventValues;
+use fireflow_types::config::{CheckEventRanges, TruncateEventValues};
 use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
 use bytemuck::{AnyBitPattern, NoUninit, cast_vec};
@@ -1060,14 +1060,25 @@ impl<C> FFDataFrame<C> {
         self.columns.iter()
     }
 
-    pub(crate) fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>
+    pub(crate) fn check_ranges(&self, check: CheckEventRanges) -> Vec<TruncatedResult>
+    where
+        C: CheckRange,
+    {
+        self.columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| c.check_range(i.into(), check))
+            .collect()
+    }
+
+    pub(crate) fn check_ranges_mut(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>
     where
         C: CheckRange,
     {
         self.columns
             .iter_mut()
             .enumerate()
-            .map(|(i, c)| c.check_range(i.into(), trunc))
+            .map(|(i, c)| c.check_range_mut(i.into(), trunc))
             .collect()
     }
 
@@ -1161,16 +1172,20 @@ impl<C> FFDataFrame<C> {
     }
 }
 
-// impl PrimitiveDataFrame {
+// impl InternalColumn<u64, u64> {
 //     /// Return number of bytes this will occupy if written as delimited ASCII
 //     pub(crate) fn ascii_nbytes(&self) -> u64 {
-//         let n = self.size();
+//         let n = self.len();
 //         if n == 0 {
 //             return 0;
 //         }
 //         let ndelim = n - 1;
-//         let ndigits: u32 = self.iter_columns().map(AnyFCSColumn::ascii_nbytes).sum();
-//         u64::from(ndigits) + ndelim
+//         let ndigits: u64 = self
+//             .as_ref()
+//             .iter()
+//             .map(|&x| u64::from(u8::from(Chars::from_u64(x))))
+//             .sum();
+//         ndigits + usize_to_u64(ndelim)
 //     }
 // }
 

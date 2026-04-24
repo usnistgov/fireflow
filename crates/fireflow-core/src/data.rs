@@ -52,8 +52,8 @@
 //! can compute $TOT using $PnB and the length of DATA.
 
 use crate::config::{
-    AllowTotMismatch, ConfigFlag as _, DisallowRangeTrunc, ReadDataKeywordsConfig,
-    ReadEventsConfig, WriteDatasetInnerConfig,
+    AllowTotMismatch, ConfigFlag as _, DisallowOverRange, DisallowRangeTrunc,
+    ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionSet,
@@ -85,7 +85,7 @@ use crate::text::lookup::{
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
-    AsciiRangeFromKeywordsError, AsciiRangeValue, DelimAsciiRange, FixedAsciiRange,
+    AsciiRangeFromKeywordsError, AsciiRangeValue, Chars, DelimAsciiRange, FixedAsciiRange,
 };
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
@@ -99,7 +99,7 @@ use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
-use fireflow_types::config::{RowBufferSize, TruncateEventValues};
+use fireflow_types::config::{CheckEventRanges, RowBufferSize, TruncateEventValues};
 use fireflow_types::nonempty_string::DisplayableNE as _;
 use type_families::{
     Functor, FunctorOnce, Kind1, Sibling1, VecFamily, impl_functor_once, impl_kind1,
@@ -125,7 +125,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::num::{NonZeroU8, ParseIntError};
 use std::ops::Shr;
-use std::str;
+use std::str::{self};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -186,10 +186,12 @@ pub type DataFrame3_2 = Any3_2Layout<FFDataFrameFamily>;
 #[allow(clippy::duplicated_attributes)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(LayoutDims)]
+#[delegate(LayoutWidth)]
+#[delegate(LayoutHeight)]
+#[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype, where = "M: LayoutDims, N: LayoutDims")]
-#[delegate(LayoutKeywords, where = "M: LayoutDims, N: LayoutDims")]
+#[delegate(LayoutDatatype, where = "M: LayoutWidth, N: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "M: LayoutWidth, N: LayoutWidth")]
 #[delegate(Removable<R>, generics = "R")]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -240,10 +242,12 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[allow(clippy::duplicated_attributes)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(LayoutDims)]
+#[delegate(LayoutWidth)]
+#[delegate(LayoutHeight)]
+#[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype, where = "Delim: LayoutDims, Fixed: LayoutDims")]
-#[delegate(LayoutKeywords, where = "Delim: LayoutDims, Fixed: LayoutDims")]
+#[delegate(LayoutDatatype, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
 #[delegate(Insertable<R>, generics = "R")]
 #[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
@@ -383,10 +387,12 @@ pub struct ColumnMarkers<T, D> {
 #[allow(clippy::duplicated_attributes)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(LayoutDims)]
+#[delegate(LayoutWidth)]
+#[delegate(LayoutHeight)]
+#[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype, where = "Single: LayoutDims, Multi: LayoutDims")]
-#[delegate(LayoutKeywords, where = "Single: LayoutDims, Multi: LayoutDims")]
+#[delegate(LayoutDatatype, where = "Single: LayoutWidth, Multi: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "Single: LayoutWidth, Multi: LayoutWidth")]
 #[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
@@ -475,21 +481,23 @@ where
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(IsFixed)]
 #[delegate(HasLen)]
-#[delegate(LayoutDims)]
+#[delegate(LayoutWidth)]
+#[delegate(LayoutHeight)]
+#[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
 #[delegate(
     LayoutDatatype,
-    where = "A: LayoutDims, \
-             U: LayoutDims, \
-             F: LayoutDims, \
-             D: LayoutDims"
+    where = "A: LayoutWidth, \
+             U: LayoutWidth, \
+             F: LayoutWidth, \
+             D: LayoutWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "A: LayoutDims, \
-             U: LayoutDims, \
-             F: LayoutDims, \
-             D: LayoutDims"
+    where = "A: LayoutWidth, \
+             U: LayoutWidth, \
+             F: LayoutWidth, \
+             D: LayoutWidth"
 )]
 #[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
@@ -540,30 +548,32 @@ pub type MixedColumn = AnyDatatype<
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasLen)]
 #[delegate(IsBinary)]
-#[delegate(LayoutDims)]
+#[delegate(LayoutWidth)]
+#[delegate(LayoutHeight)]
+#[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
 #[delegate(Insertable<R>, generics = "R")]
 #[delegate(
     LayoutDatatype,
-    where = "C08: LayoutDims, \
-             C16: LayoutDims, \
-             C24: LayoutDims, \
-             C32: LayoutDims, \
-             C40: LayoutDims, \
-             C48: LayoutDims, \
-             C56: LayoutDims, \
-             C64: LayoutDims"
+    where = "C08: LayoutWidth, \
+             C16: LayoutWidth, \
+             C24: LayoutWidth, \
+             C32: LayoutWidth, \
+             C40: LayoutWidth, \
+             C48: LayoutWidth, \
+             C56: LayoutWidth, \
+             C64: LayoutWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "C08: LayoutDims, \
-             C16: LayoutDims, \
-             C24: LayoutDims, \
-             C32: LayoutDims, \
-             C40: LayoutDims, \
-             C48: LayoutDims, \
-             C56: LayoutDims, \
-             C64: LayoutDims"
+    where = "C08: LayoutWidth, \
+             C16: LayoutWidth, \
+             C24: LayoutWidth, \
+             C32: LayoutWidth, \
+             C40: LayoutWidth, \
+             C48: LayoutWidth, \
+             C56: LayoutWidth, \
+             C64: LayoutWidth"
 )]
 #[delegate(Removable<R>, generics = "R")]
 #[delegate(OptMeasLayoutKeywords)]
@@ -1047,20 +1057,20 @@ pub struct ZeroEventWidthError {
     event_width: u64,
 }
 
-/// Error when value is truncated when writing DATA with index
-#[derive(From, Debug, Error)]
-#[error("{e} in column {i}", e = _0.error, i = _0.index)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
-pub struct IndexedLossError(IndexedError<AnyLossError>);
+// /// Error when value is truncated when writing DATA with index
+// #[derive(From, Debug, Error)]
+// #[error("{e} in column {i}", e = _0.error, i = _0.index)]
+// #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+// #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
+// pub struct IndexedLossError(IndexedError<AnyLossError>);
 
-/// Error when value is truncated when writing DATA
-#[derive(From, Display, Debug)]
-pub(crate) enum AnyLossError {
-    // Int(LossError<BitmaskLossError>),
-    // Float(LossError<Infallible>),
-    // Ascii(LossError<AsciiLossError>),
-}
+// /// Error when value is truncated when writing DATA
+// #[derive(From, Display, Debug)]
+// pub(crate) enum AnyLossError {
+//     // Int(LossError<BitmaskLossError>),
+//     // Float(LossError<Infallible>),
+//     // Ascii(LossError<AsciiLossError>),
+// }
 
 // /// Error when ASCII value is truncated to fewer chars when writing DATA
 // #[derive(Clone, Copy, Debug, Error)]
@@ -1749,9 +1759,10 @@ where
     for<'a> Self: Sized
         + ReadLayoutOps<Self::Tot>
         + LayoutDatatype
-        + LayoutDims
+        + LayoutWidth
         + NormalizableLayout
         + Removable<Range>
+        + LayoutKeywords
         + OptMeasLayoutKeywords
         + WithPrimitiveDataFrame,
 {
@@ -1813,18 +1824,18 @@ where
                     .map_commutative_warnings(ReadCheckedDataframeWarning::from)
                     .and_then_commutative(|mut res| {
                         // check dataframe ranges (if configured)
-                        let rs = res.dataframe.check_ranges(conf.truncate_event_values);
-                        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-                        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
-                        res.diagnostics.overrange_columns = overrange;
+                        let trunc = conf.truncate_event_values;
                         let flag = conf.disallow_over_range;
-                        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
-                            .switchable_into_commutative()
+                        res.dataframe
+                            .check_ranges_mut(trunc, flag)
                             .group()
                             .map_error(ReadCheckedDataframeError::from)
                             .map_error(IOErrorGroup::new_pure_one)
                             .map_commutative_warnings(ReadCheckedDataframeWarning::from)
-                            .map_ok_value(|()| res)
+                            .map_ok_value(|overrange| {
+                                res.diagnostics.overrange_columns = overrange;
+                                res
+                            })
                     })
             }
         }
@@ -2048,10 +2059,13 @@ where
     for<'a> Self: Sized
         + WriteLayoutOps
         + LayoutDatatype
-        + LayoutDims
+        + LayoutWidth
+        + LayoutHeight
+        + LayoutSize
+        + LayoutKeywords
+        + OptMeasLayoutKeywords
         + NormalizableLayout
         + Removable<RangeAndColumn>
-        + OptMeasLayoutKeywords
         + CheckRanges
         + IntoDataHeaders
         + WithPrimitiveDataFrame,
@@ -2082,13 +2096,13 @@ impl VersionedDataFrame for DataFrame3_2 {}
 
 /// A layout which has a width (which also means the width can be cleared).
 #[delegatable_trait]
-pub trait LayoutDims: Sized {
+pub trait LayoutWidth: Sized {
     fn ncols(&self) -> usize;
 
     fn clear(&mut self);
 }
 
-impl<C: HasWidth, F, I, L, M, const ORD: bool> LayoutDims for ColumnGroup<C, F, I, L, M, ORD> {
+impl<C: HasWidth, F, I, L, M, const ORD: bool> LayoutWidth for ColumnGroup<C, F, I, L, M, ORD> {
     fn ncols(&self) -> usize {
         self.container.width()
     }
@@ -2148,7 +2162,7 @@ pub trait LayoutDatatype: Sized {
 
     fn check_transforms_and_len<S, G>(&self, xforms: &[S]) -> Result<(), MeasLayoutMismatchError>
     where
-        Self: LayoutDims,
+        Self: LayoutWidth,
         G: Default,
         S: CheckedScaleTransform,
         ScaleDatatypeMismatchError: From<ErrorGroup<S::Err, G>>,
@@ -2169,7 +2183,7 @@ pub trait LayoutDatatype: Sized {
         meas: &Measurements<Name, Tmp, Opt>,
     ) -> Result<(), MeasLayoutMismatchError>
     where
-        Self: LayoutDims,
+        Self: LayoutWidth,
         Opt::S: CheckedScaleTransform,
         <Opt::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<
@@ -2193,7 +2207,7 @@ pub trait LayoutDatatype: Sized {
         measurements: NamedTemporalsAndOpticals<V>,
     ) -> Result<Measurements<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>
     where
-        Self: LayoutDims,
+        Self: LayoutWidth,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -2270,6 +2284,63 @@ where
     }
 }
 
+/// A layout which has a height.
+#[delegatable_trait]
+pub trait LayoutHeight: Sized {
+    fn nrows(&self) -> usize;
+}
+
+impl<C, I, L, M, const ORD: bool> LayoutHeight
+    for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
+{
+    fn nrows(&self) -> usize {
+        self.container.nrows()
+    }
+}
+
+// Implement dataframe size method, used to get length of DATA segment.
+//
+// For fixed layouts, this is event width * number of rows.
+//
+// For delimited ASCII layouts, this is the number of chars required to
+// write each value with one delimiter in between.
+
+/// A layout which has a size in bytes.
+#[delegatable_trait]
+pub trait LayoutSize: Sized {
+    fn nbytes(&self) -> u64;
+}
+
+impl<C, I, L, M, const ORD: bool> LayoutSize
+    for ColumnGroup<FFDataFrame<C>, FFDataFrameFamily, I, L, M, ORD>
+where
+    C: IsFixed,
+{
+    fn nbytes(&self) -> u64 {
+        usize_to_u64(self.event_width() * self.nrows())
+    }
+}
+
+impl<I, L, M, const ORD: bool> LayoutSize
+    for ColumnGroup<FFDataFrame<NativeColumn<DelimAsciiRange>>, FFDataFrameFamily, I, L, M, ORD>
+{
+    fn nbytes(&self) -> u64 {
+        let n = self.nrows() * self.ncols();
+        if n == 0 {
+            return 0;
+        }
+        let ndelim = n - 1;
+        let go = |col: &NativeColumn<DelimAsciiRange>| -> u64 {
+            col.as_ref()
+                .iter()
+                .map(|&x| u64::from(u8::from(Chars::from_u64(x))))
+                .sum()
+        };
+        let ndigits: u64 = self.container.as_ref().iter().map(go).sum();
+        ndigits + usize_to_u64(ndelim)
+    }
+}
+
 // Implement optional measured keywords
 //
 // This will return a vector of `None` in all cases except 3.2 where this will
@@ -2290,7 +2361,7 @@ pub trait OptMeasLayoutKeywords {
 
 impl<C, I, F, S, M, const ORD: bool> OptMeasLayoutKeywords for ColumnGroup<C, F, I, S, M, ORD>
 where
-    Self: LayoutDims,
+    Self: LayoutWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         vec![None; self.ncols()]
@@ -2303,7 +2374,7 @@ where
     C: AsRef<[I::Inner]>,
     I::Inner: HasDatatype,
     Self: LayoutDatatype,
-    N: LayoutDims,
+    N: LayoutWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
@@ -4822,7 +4893,37 @@ where
 /// Return error or warning-like result depending on configuration parameter.
 #[delegatable_trait]
 pub trait CheckRanges {
-    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>;
+    fn check_ranges_inner(&self, check: CheckEventRanges) -> Vec<TruncatedResult>;
+
+    fn check_ranges_inner_mut(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>;
+
+    fn check_ranges(
+        &self,
+        check: CheckEventRanges,
+        disallow: DisallowOverRange,
+    ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
+    {
+        let rs = self.check_ranges_inner(check);
+        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
+        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, disallow)
+            .switchable_into_commutative()
+            .map_ok_value(|_| overrange)
+    }
+
+    fn check_ranges_mut(
+        &mut self,
+        trunc: TruncateEventValues,
+        disallow: DisallowOverRange,
+    ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
+    {
+        let rs = self.check_ranges_inner_mut(trunc);
+        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
+        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, disallow)
+            .switchable_into_commutative()
+            .map_ok_value(|_| overrange)
+    }
 }
 
 impl<C, I, L, M, const ORD: bool> CheckRanges
@@ -4830,8 +4931,12 @@ impl<C, I, L, M, const ORD: bool> CheckRanges
 where
     C: CheckRange,
 {
-    fn check_ranges(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult> {
-        self.container.check_ranges(trunc)
+    fn check_ranges_inner(&self, check: CheckEventRanges) -> Vec<TruncatedResult> {
+        self.container.check_ranges(check)
+    }
+
+    fn check_ranges_inner_mut(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult> {
+        self.container.check_ranges_mut(trunc)
     }
 }
 
@@ -5563,6 +5668,12 @@ impl IntoWidth for DelimAsciiRange {
     }
 }
 
+impl<T, R> IntoWidth for AnnotatedColumn<DelimAsciiRange, T, R> {
+    fn as_width(&self) -> Width {
+        self.header.as_width()
+    }
+}
+
 // Implement header -> header conversions
 
 /// Losslessly convert column type into another column type.
@@ -5840,7 +5951,9 @@ impl IsNumType for Option<NumType> {
 // This is the column-level trait for CheckRanges; see for details.
 
 pub(crate) trait CheckRange {
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult;
+    fn check_range(&self, i: MeasIndex, check: CheckEventRanges) -> TruncatedResult;
+
+    fn check_range_mut(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult;
 }
 
 impl<C> CheckRange for NativeColumn<C>
@@ -5849,10 +5962,28 @@ where
     <<C as HasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd,
     C::Native: FCSRepr + Into<<<C as HasNativeType>::Native as FCSRepr>::Prim>,
 {
+    // TODO not DRY
+    fn check_range(&self, i: MeasIndex, check: CheckEventRanges) -> TruncatedResult {
+        let dt = self.header.col_datatype();
+        let (u, rng) = self.header.as_range();
+        let upper_limit = u.into();
+        if dt.matches_check(check) {
+            self.data
+                .as_ref()
+                .iter()
+                .position(|x| *x > upper_limit)
+                .map_or(TruncatedResult::None, |rowi| {
+                    TruncatedResult::Overrange(i, rowi, rng)
+                })
+        } else {
+            TruncatedResult::None
+        }
+    }
+
     // TODO these errors could be cleaned up; we know that the highest range
     // that can be truncated is u64 or f64 so it isn't necessary to return a
     // rang object. Furthermore it shouldn't be necessary to pass the calling index.
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+    fn check_range_mut(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
         let dt = self.header.col_datatype();
         let (u, rng) = self.header.as_range();
         let upper_limit = u.into();
@@ -5876,14 +6007,22 @@ where
 }
 
 impl CheckRange for AnyBitmaskColumn {
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
-        match_any_uint!(self, x, x.check_range(i, trunc))
+    fn check_range(&self, i: MeasIndex, check: CheckEventRanges) -> TruncatedResult {
+        match_any_uint!(self, x, x.check_range(i, check))
+    }
+
+    fn check_range_mut(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+        match_any_uint!(self, x, x.check_range_mut(i, trunc))
     }
 }
 
 impl CheckRange for MixedColumn {
-    fn check_range(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
-        match_any_datatype!(self, x, x.check_range(i, trunc))
+    fn check_range(&self, i: MeasIndex, check: CheckEventRanges) -> TruncatedResult {
+        match_any_datatype!(self, x, x.check_range(i, check))
+    }
+
+    fn check_range_mut(&mut self, i: MeasIndex, trunc: TruncateEventValues) -> TruncatedResult {
+        match_any_datatype!(self, x, x.check_range_mut(i, trunc))
     }
 }
 
@@ -7911,7 +8050,7 @@ fn u64_to_usize(x: u64) -> usize {
     usize::try_from(x).expect("overflow")
 }
 
-fn usize_to_u64(x: usize) -> u64 {
+pub(crate) fn usize_to_u64(x: usize) -> u64 {
     u64::try_from(x).expect("overflow")
 }
 

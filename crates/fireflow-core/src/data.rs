@@ -56,7 +56,7 @@ use crate::config::{
     ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::core::{
-    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionedMetaroot,
+    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionSet,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -1463,9 +1463,9 @@ pub struct MeasLayoutLengthsError {
     layout_n: usize,
 }
 
-pub type ScaleErrorGroup<M> = ErrorGroup<
-    <<<M as VersionedMetaroot>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
-    <<<M as VersionedMetaroot>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
+pub type ScaleErrorGroup<V> = ErrorGroup<
+    <<<V as VersionSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
+    <<<V as VersionSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
 >;
 
 pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
@@ -2188,22 +2188,19 @@ pub trait LayoutDatatype: Sized {
     }
 
     #[allow(clippy::type_complexity)]
-    fn try_new_measurements<Mroot: VersionedMetaroot>(
+    fn try_new_measurements<V: VersionSet>(
         &self,
-        measurements: NamedTemporalsAndOpticals<Mroot>,
-    ) -> Result<
-        Measurements<Mroot::Name, Mroot::Temporal, Mroot::Optical>,
-        MeasurementsWithLayoutError,
-    >
+        measurements: NamedTemporalsAndOpticals<V>,
+    ) -> Result<Measurements<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>
     where
         Self: LayoutDims,
-        Mroot::Optical: AsScaleOrTransform,
-        <Mroot::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<Mroot::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<
             ErrorGroup<
-                <<Mroot::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
-                <<Mroot::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
+                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
+                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
             >,
         >,
     {

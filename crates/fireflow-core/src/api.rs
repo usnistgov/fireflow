@@ -9,7 +9,7 @@ use crate::config::{
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, Others, PrivVersioned as _, StdDatasetFromFlatTEXTWarning,
+    LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _, StdDatasetFromFlatTEXTWarning,
     StdDatasetFromFlatTextError, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };

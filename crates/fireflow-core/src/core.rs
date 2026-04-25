@@ -9,14 +9,14 @@ use crate::config::{
     WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    CheckRanges, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
+    DataFrameCheckRanges, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
     DataFrame3_1, DataFrame3_2, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2,
-    EventOverRangeError, EventsDiagnostics, HeadersToDataFrameError, InsertRangeError, Insertable,
-    IntoDataFrame, IntoDataHeaders, IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight,
+    EventOverRangeError, EventsDiagnostics, HeadersToDataFrameError, InsertRangeError, LayoutInsert,
+    HeadersToEmptyDataFrame, DataFrameToHeaders, IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight,
     LayoutKeywords, LayoutSize as _, LayoutWidth, LookupLayoutError, LookupLayoutWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, NormalizableLayout,
-    OptMeasLayoutKeywords, ReadCheckedDataframeError, ReadCheckedDataframeWarning, Removable,
-    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataHeaders,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, LayoutNormalize,
+    LayoutOptMeasKeywords, ReadCheckedDataframeError, ReadCheckedDataframeWarning, LayoutRemove,
+    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedHeaders,
     WithPrimitiveDataFrame,
 };
 use crate::header::{
@@ -95,7 +95,7 @@ use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::dataframe as df;
-use crate::validated::dataframe::{AnyPrimitiveColumn, PrimitiveDataFrame};
+use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
     DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key1, NonStdKey, NonStdKeywords,
@@ -478,10 +478,10 @@ impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
     #[cfg(feature = "serde")]
     pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: u8) -> io::Result<()>
     where
-        L2_0: LayoutKeywords + OptMeasLayoutKeywords,
-        L3_0: LayoutKeywords + OptMeasLayoutKeywords,
-        L3_1: LayoutKeywords + OptMeasLayoutKeywords,
-        L3_2: LayoutKeywords + OptMeasLayoutKeywords,
+        L2_0: LayoutKeywords + LayoutOptMeasKeywords,
+        L3_0: LayoutKeywords + LayoutOptMeasKeywords,
+        L3_1: LayoutKeywords + LayoutOptMeasKeywords,
+        L3_2: LayoutKeywords + LayoutOptMeasKeywords,
     {
         match_anycore!(self, x, { x.print_meas_table(w, delim) })
     }
@@ -1592,9 +1592,9 @@ pub trait VersionSet: HasVersion {
     type Optical: VersionedOptical;
     type Temporal: VersionedTemporal;
     type Name: MightHave<Shortname>;
-    type Headers: VersionedDataHeaders;
+    type Headers: VersionedHeaders;
     type DataFrame: VersionedDataFrame;
-    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Headers as VersionedDataHeaders>::Tot>;
+    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Headers as VersionedHeaders>::Tot>;
 }
 
 pub(crate) trait PrivVersionSet: VersionSet {
@@ -1615,7 +1615,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
         (),
     >
     where
-        <Self::Headers as IntoDataFrame>::DfTarget: Into<PrimitiveDataFrame> + CheckRanges,
+        <Self::Headers as HeadersToEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame> + DataFrameCheckRanges,
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
@@ -2440,7 +2440,7 @@ where
         conf: &WriteTEXTInnerConfig,
     ) -> Result<Option<Nextdata>, ImpureError<WriteTEXTHeaderError>>
     where
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
     {
         let n = cores.len();
         let mut nd = None;
@@ -2461,7 +2461,7 @@ where
         conf: &WriteMultiTEXTConfig,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
     {
         let opts = conf.multi.append.file_options();
         let f = opts.open(path)?;
@@ -2477,7 +2477,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
     {
         if conf.big_other.is_set() {
             self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
@@ -2493,7 +2493,7 @@ where
         has_nextdata: AppendableFlag,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError>
             + Copy
             + Zero
@@ -2511,7 +2511,7 @@ where
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError>
             + Copy
             + Zero
@@ -2536,7 +2536,7 @@ where
         root_or_meas: IncludeRootOrMeas,
     ) -> HashMap<NEString, NEString>
     where
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
     {
         fn go(
             xs: impl Iterator<Item = (NEString, NEString)>,
@@ -3610,7 +3610,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype + NormalizableLayout,
+        L: LayoutWidth + LayoutDatatype + LayoutNormalize,
     {
         self.set_measurements_and_layout_inner(measurements, layout)
     }
@@ -3653,7 +3653,7 @@ where
         name: &Shortname,
     ) -> Result<(MeasIndex, TemporalOrOptical<V>, C), RemoveMeasByNameError>
     where
-        L: Removable<C>,
+        L: LayoutRemove<C>,
     {
         if let Some(&index) = self.measurement_named_indices().get(name) {
             // NOTE if the meas to be removed is temporal, this name shouldn't
@@ -3676,7 +3676,7 @@ where
         index: MeasIndex,
     ) -> Result<(NamedTemporalOrOptical<V>, C), RemoveMeasByIndexError>
     where
-        L: Removable<C>,
+        L: LayoutRemove<C>,
     {
         if let Some(&name) = self.measurement_indexed_names().get(&index) {
             // NOTE (ditto previous function)
@@ -3704,7 +3704,7 @@ where
         r: C,
     ) -> ErrorsResult<(), (), PushTemporalError>
     where
-        L: Insertable<C>,
+        L: LayoutInsert<C>,
         PushTemporalError: From<L::Error>,
     {
         self.measurements
@@ -3731,7 +3731,7 @@ where
         r: C,
     ) -> ErrorsResult<(), (), InsertTemporalError>
     where
-        L: Insertable<C>,
+        L: LayoutInsert<C>,
         InsertTemporalError: From<L::Error>,
     {
         self.measurements
@@ -3756,7 +3756,7 @@ where
         r: C,
     ) -> ErrorsResult<Shortname, (), PushOpticalError>
     where
-        L: Insertable<C>,
+        L: LayoutInsert<C>,
         PushOpticalError: From<L::Error>,
     {
         self.measurements
@@ -3787,7 +3787,7 @@ where
         r: C,
     ) -> ErrorsResult<Shortname, (), InsertOpticalError>
     where
-        L: Insertable<C>,
+        L: LayoutInsert<C>,
         InsertOpticalError: From<L::Error>,
     {
         self.measurements
@@ -3862,7 +3862,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype + NormalizableLayout,
+        L: LayoutWidth + LayoutDatatype + LayoutNormalize,
     {
         let xforms: Vec<_> = measurements
             .iter()
@@ -3894,7 +3894,7 @@ where
 
     fn set_layout_inner(&mut self, mut layout: L)
     where
-        L: NormalizableLayout,
+        L: LayoutNormalize,
     {
         layout.normalize();
         self.layout = layout;
@@ -3905,7 +3905,7 @@ where
         conf: &WriteHeaderAndTextConfig<'_>,
     ) -> Result<HeaderKeywordsToWrite<T>, WriteTEXTHeaderError>
     where
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
         T: TryFrom<u64, Error = Uint8DigitOverflowError> + Copy + Zero + HeaderString + Into<u64>,
     {
         let req = self
@@ -3927,7 +3927,7 @@ where
 
     fn opt_meas_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>>
     where
-        L: OptMeasLayoutKeywords,
+        L: LayoutOptMeasKeywords,
     {
         let ns = (!V::Name::INFALLABLE)
             .then(|| {
@@ -4004,7 +4004,7 @@ where
     where
         V::Temporal: Clone,
         V::Optical: OpticalFromTemporal<V::Temporal> + Clone,
-        L: LayoutKeywords + OptMeasLayoutKeywords,
+        L: LayoutKeywords + LayoutOptMeasKeywords,
     {
         const INDEX: &str = "index";
 
@@ -4453,7 +4453,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: VersionedDataHeaders,
+        V::Headers: VersionedHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4493,7 +4493,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: VersionedDataHeaders,
+        V::Headers: VersionedHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4519,7 +4519,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: VersionedDataHeaders,
+        V::Headers: VersionedHeaders,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4727,8 +4727,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         r: C,
     ) -> GroupResult<(), PushTemporalError, PushTemporalSummary>
     where
-        V::Headers: Insertable<C>,
-        PushTemporalError: From<<V::Headers as Insertable<C>>::Error>,
+        V::Headers: LayoutInsert<C>,
+        PushTemporalError: From<<V::Headers as LayoutInsert<C>>::Error>,
     {
         self.push_temporal_inner(n, m, r).group().resolve_nowarn()
     }
@@ -4745,8 +4745,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         r: C,
     ) -> GroupResult<(), InsertTemporalError, InsertTemporalSummary>
     where
-        V::Headers: Insertable<C>,
-        InsertTemporalError: From<<V::Headers as Insertable<C>>::Error>,
+        V::Headers: LayoutInsert<C>,
+        InsertTemporalError: From<<V::Headers as LayoutInsert<C>>::Error>,
     {
         self.insert_temporal_inner(i, n, m, r)
             .group()
@@ -4763,8 +4763,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         r: C,
     ) -> GroupResult<Shortname, PushOpticalError, PushOpticalSummary>
     where
-        V::Headers: Insertable<C>,
-        PushOpticalError: From<<V::Headers as Insertable<C>>::Error>,
+        V::Headers: LayoutInsert<C>,
+        PushOpticalError: From<<V::Headers as LayoutInsert<C>>::Error>,
     {
         self.push_optical_inner(n, m, r).group().resolve_nowarn()
     }
@@ -4781,8 +4781,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         r: C,
     ) -> GroupResult<Shortname, InsertOpticalError, InsertOpticalSummary>
     where
-        V::Headers: Insertable<C>,
-        InsertOpticalError: From<<V::Headers as Insertable<C>>::Error>,
+        V::Headers: LayoutInsert<C>,
+        InsertOpticalError: From<<V::Headers as LayoutInsert<C>>::Error>,
     {
         self.insert_optical_inner(i, n, m, r)
             .group()
@@ -5018,7 +5018,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: IntoDataFrame<DfTarget = V::DataFrame>,
+        V::Headers: HeadersToEmptyDataFrame<DfTarget = V::DataFrame>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -5062,7 +5062,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: IntoDataFrame<DfTarget = V::DataFrame>,
+        V::Headers: HeadersToEmptyDataFrame<DfTarget = V::DataFrame>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -5221,7 +5221,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn remove_measurement_by_name(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<V>, AnyPrimitiveColumn, Range), RemoveMeasByNameError>
+    ) -> Result<(MeasIndex, TemporalOrOptical<V>, AnyPrimitiveSeries, Range), RemoveMeasByNameError>
     {
         let (index, meas, (rng, col)) = self.remove_measurement_by_name_inner(n)?;
         Ok((index, meas, col, rng))
@@ -5233,7 +5233,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn remove_measurement_by_index(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<V>, AnyPrimitiveColumn, Range), RemoveMeasByIndexError>
+    ) -> Result<(NamedTemporalOrOptical<V>, AnyPrimitiveSeries, Range), RemoveMeasByIndexError>
     {
         let (meas, (rng, col)) = self.remove_measurement_by_index_inner(index)?;
         Ok((meas, col, rng))
@@ -5249,8 +5249,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         c: C,
     ) -> GroupResult<(), PushTemporalToDatasetError, PushTemporalSummary>
     where
-        V::DataFrame: Insertable<C>,
-        PushTemporalError: From<<V::DataFrame as Insertable<C>>::Error>,
+        V::DataFrame: LayoutInsert<C>,
+        PushTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
     {
         // self.layout
         //     .check_new_column(&col)
@@ -5277,8 +5277,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         c: C,
     ) -> GroupResult<(), InsertTemporalToDatasetError, InsertTemporalSummary>
     where
-        V::DataFrame: Insertable<C>,
-        InsertTemporalError: From<<V::DataFrame as Insertable<C>>::Error>,
+        V::DataFrame: LayoutInsert<C>,
+        InsertTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
     {
         // self.layout
         //     .check_new_column(&col)
@@ -5305,8 +5305,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         c: C,
     ) -> GroupResult<Shortname, PushOpticalToDatasetError, PushOpticalSummary>
     where
-        V::DataFrame: Insertable<C>,
-        PushOpticalError: From<<V::DataFrame as Insertable<C>>::Error>,
+        V::DataFrame: LayoutInsert<C>,
+        PushOpticalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
     {
         // self.layout
         //     .check_new_column(&col)
@@ -5332,8 +5332,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         c: C,
     ) -> GroupResult<Shortname, InsertOpticalInDatasetError, InsertOpticalSummary>
     where
-        V::DataFrame: Insertable<C>,
-        InsertOpticalError: From<<V::DataFrame as Insertable<C>>::Error>,
+        V::DataFrame: LayoutInsert<C>,
+        InsertOpticalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
     {
         // self.layout
         //     .check_new_column(&col)
@@ -5470,7 +5470,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// fields.
     pub fn into_coretext(self) -> VersionedCoreTEXT<V>
     where
-        V::DataFrame: IntoDataHeaders<DfTarget = V::Headers>,
+        V::DataFrame: DataFrameToHeaders<Headers = V::Headers>,
     {
         CoreTEXT::new_unchecked(self.metaroot, self.measurements, self.layout.as_headers())
     }
@@ -9109,7 +9109,7 @@ pub enum InsertOpticalError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushTemporalToDatasetError {
     Measurement(PushTemporalError),
-    Column(df::ColumnLengthError),
+    Column(df::SeriesLengthError),
 }
 
 /// Error when inserting a temporal measurement into [`CoreDataset`]
@@ -9117,7 +9117,7 @@ pub enum PushTemporalToDatasetError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertTemporalToDatasetError {
     Measurement(InsertTemporalError),
-    Column(df::ColumnLengthError),
+    Column(df::SeriesLengthError),
 }
 
 /// Error when pushing an optical measurement into [`CoreDataset`]
@@ -9125,7 +9125,7 @@ pub enum InsertTemporalToDatasetError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushOpticalToDatasetError {
     Measurement(PushOpticalError),
-    Column(df::ColumnLengthError),
+    Column(df::SeriesLengthError),
 }
 
 /// Error when inserting an optical measurement into [`CoreDataset`]
@@ -9133,7 +9133,7 @@ pub enum PushOpticalToDatasetError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertOpticalInDatasetError {
     Measurement(InsertOpticalError),
-    Column(df::ColumnLengthError),
+    Column(df::SeriesLengthError),
 }
 
 /// Error when attempting to set temporal $PnE to log (2.0)

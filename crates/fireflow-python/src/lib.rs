@@ -76,7 +76,7 @@ use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
 use fireflow_core::validated::dataframe::{
-    AnyPrimitiveColumn, PrimitiveColumn, PrimitiveDataFrame,
+    AnyPrimitiveSeries, PrimitiveSeries, PrimitiveDataFrame,
 };
 use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
@@ -963,7 +963,7 @@ impl From<PyNonMixedHeaders> for NonMixedEndianHeaders<Nothing<kws::NumType>> {
 pub struct PyFCSDataFrame(PrimitiveDataFrame);
 
 #[derive(From, Into)]
-pub struct PyAnyFCSColumn(AnyPrimitiveColumn);
+pub struct PyAnyFCSColumn(AnyPrimitiveSeries);
 
 impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
     type Target = PyAny;
@@ -1034,7 +1034,7 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
         fn column_to_buf<T>(ser: Series) -> Result<PyAnyFCSColumn, SeriesToColumnError>
         where
             T: NumericNative,
-            AnyPrimitiveColumn: From<PrimitiveColumn<T>>,
+            AnyPrimitiveSeries: From<PrimitiveSeries<T>>,
         {
             if ser.null_count() > 0 {
                 Err(SeriesToColumnError::HasNull(ser.name().clone()))
@@ -1050,7 +1050,7 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
                     .unwrap()
                     .values()
                     .clone();
-                Ok(PyAnyFCSColumn(AnyPrimitiveColumn::from(PrimitiveColumn(
+                Ok(PyAnyFCSColumn(AnyPrimitiveSeries::from(PrimitiveSeries(
                     buf,
                 ))))
             }
@@ -1091,24 +1091,24 @@ impl From<SeriesToColumnError> for PyErr {
     }
 }
 
-fn as_array(c: &AnyPrimitiveColumn) -> Box<dyn Array> {
+fn as_array(c: &AnyPrimitiveSeries) -> Box<dyn Array> {
     match c.clone() {
-        AnyPrimitiveColumn::U08(xs) => {
+        AnyPrimitiveSeries::U08(xs) => {
             Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None))
         }
-        AnyPrimitiveColumn::U16(xs) => {
+        AnyPrimitiveSeries::U16(xs) => {
             Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None))
         }
-        AnyPrimitiveColumn::U32(xs) => {
+        AnyPrimitiveSeries::U32(xs) => {
             Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None))
         }
-        AnyPrimitiveColumn::U64(xs) => {
+        AnyPrimitiveSeries::U64(xs) => {
             Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None))
         }
-        AnyPrimitiveColumn::F32(xs) => {
+        AnyPrimitiveSeries::F32(xs) => {
             Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None))
         }
-        AnyPrimitiveColumn::F64(xs) => {
+        AnyPrimitiveSeries::F64(xs) => {
             Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None))
         }
     }
@@ -1121,7 +1121,7 @@ impl PyFCSDataFrame {
     // way to do that is to have a function that takes names since FCSDataFrame
     // does not store then itself.
     fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
-        fn as_polars_column(c: &AnyPrimitiveColumn, name: &Shortname) -> Column {
+        fn as_polars_column(c: &AnyPrimitiveSeries, name: &Shortname) -> Column {
             // ASSUME this will not fail because the we know that any of the 6
             // allowed types will be valid columns and we don't add a NULL array
             // when making the array

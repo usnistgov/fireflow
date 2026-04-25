@@ -354,7 +354,7 @@ pub fn fcs_summarize(
 #[must_use]
 pub fn fcs_write_datasets(
     path: &PathBuf,
-    cores: &mut [AnyCoreDataset],
+    cores: &[AnyCoreDataset],
     conf: &WriteDatasetInnerConfig,
 ) -> WarningsAndIOGroupResult<
     Option<Nextdata>,
@@ -364,7 +364,7 @@ pub fn fcs_write_datasets(
 > {
     let n = cores.len();
     let mut results = vec![];
-    for (i, c) in cores.iter_mut().enumerate() {
+    for (i, c) in cores.iter().enumerate() {
         let appendable = AppendableFlag::from(i + 1 < n);
         let append = AppendFlag(i > 0);
         let multi = WriteMultiConfig::new(appendable, append);

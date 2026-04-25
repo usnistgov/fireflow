@@ -14,7 +14,7 @@ use crate::data::{
     EventOverRangeError, EventsDiagnostics, HeadersToDataFrameError, InsertRangeError, Insertable,
     IntoDataFrame, IntoDataHeaders, IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight,
     LayoutKeywords, LayoutSize as _, LayoutWidth, LookupLayoutError, LookupLayoutWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, NormalizableLayout,
     OptMeasLayoutKeywords, ReadCheckedDataframeError, ReadCheckedDataframeWarning, Removable,
     ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataHeaders,
     WithPrimitiveDataFrame,
@@ -587,7 +587,7 @@ impl AnyCoreDataset {
 
     #[must_use]
     pub fn write_dataset(
-        &mut self,
+        &self,
         path: &PathBuf,
         conf: &WriteMultiDatasetConfig,
     ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
@@ -3558,6 +3558,63 @@ where
             .group_with(summary)
     }
 
+    /// Get reference to measurement vector.
+    pub fn measurements(&self) -> &Measurements<V::Name, V::Temporal, V::Optical> {
+        &self.measurements
+    }
+
+    /// Set measurements.
+    ///
+    /// Return error if names are not unique, if there is more than one
+    /// time measurement, or if the measurement length doesn't match the
+    /// layout length.
+    pub fn set_named_measurements(
+        &mut self,
+        xs: NamedTemporalsAndOpticals<V>,
+        allow_shared_names: bool,
+        skip_index_check: bool,
+    ) -> Result<(), SetMeasurementsError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        L: LayoutDatatype + LayoutWidth,
+    {
+        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
+    }
+
+    /// Set measurements without $PnN.
+    pub fn set_measurements(
+        &mut self,
+        measurements: TemporalsAndOpticals<V>,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        L: LayoutWidth + LayoutDatatype,
+    {
+        self.set_measurements_inner(measurements)
+    }
+
+    /// Set measurements without $PnN and layout
+    pub fn set_measurements_and_layout(
+        &mut self,
+        measurements: TemporalsAndOpticals<V>,
+        layout: L,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        L: LayoutWidth + LayoutDatatype + NormalizableLayout,
+    {
+        self.set_measurements_and_layout_inner(measurements, layout)
+    }
+
     #[cfg(feature = "serde")]
     fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
     where
@@ -3751,144 +3808,6 @@ where
             })
     }
 
-    // // TODO dry this off
-
-    // // versions of the above functions where the range check can never fail
-
-    // fn push_temporal_inner_nofail<C>(
-    //     &mut self,
-    //     n: Shortname,
-    //     m: Temporal<M::Temporal>,
-    //     r: C,
-    // ) -> ErrorsResult<(), (), PushCenterError>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.measurements.check_push_center(&n).when_ok(|| {
-    //         self.layout.push(r);
-    //         self.measurements.push_center_nocheck(n, m);
-    //         let i = self.par().0.into();
-    //         self.metaroot.specific.insert_meas_index_inner(i);
-    //     })
-    // }
-
-    // fn insert_temporal_inner_nofail<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: Shortname,
-    //     m: Temporal<M::Temporal>,
-    //     r: C,
-    // ) -> ErrorsResult<(), (), InsertCenterError>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.measurements.check_insert_center(i, &n).when_ok(|| {
-    //         self.layout.insert_nocheck(i, r);
-    //         self.measurements.insert_center_nocheck(i, n, m);
-    //         self.metaroot.specific.insert_meas_index_inner(i);
-    //     })
-    // }
-
-    // fn push_optical_inner_nofail<C>(
-    //     &mut self,
-    //     n: M::Name,
-    //     m: Optical<M::Optical>,
-    //     r: C,
-    // ) -> ErrorsResult<Shortname, (), NamePresentError>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.measurements
-    //         .check_push(&n)
-    //         .map(Cow::into_owned)
-    //         .into_nowarn()
-    //         .map_ok_value(|ret| {
-    //             self.layout.push(r);
-    //             self.measurements.push_nocheck(n, m);
-    //             let i = self.par().0.into();
-    //             self.metaroot.specific.insert_meas_index_inner(i);
-    //             ret
-    //         })
-    // }
-
-    // fn insert_optical_inner_nofail<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: M::Name,
-    //     m: Optical<M::Optical>,
-    //     r: C,
-    // ) -> ErrorsResult<Shortname, (), InsertError>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.measurements
-    //         .check_insert(i, &n)
-    //         .map_ok_value(Cow::into_owned)
-    //         .map_ok_value(|ret| {
-    //             self.layout.insert_nocheck(i, r);
-    //             self.measurements.insert_nocheck(i, n, m);
-    //             self.metaroot.specific.insert_meas_index_inner(i);
-    //             ret
-    //         })
-    // }
-
-    /// Get reference to measurement vector.
-    pub fn measurements(&self) -> &Measurements<V::Name, V::Temporal, V::Optical> {
-        &self.measurements
-    }
-
-    /// Set measurements.
-    ///
-    /// Return error if names are not unique, if there is more than one
-    /// time measurement, or if the measurement length doesn't match the
-    /// layout length.
-    pub fn set_named_measurements(
-        &mut self,
-        xs: NamedTemporalsAndOpticals<V>,
-        allow_shared_names: bool,
-        skip_index_check: bool,
-    ) -> Result<(), SetMeasurementsError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDatatype + LayoutWidth,
-    {
-        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
-    }
-
-    /// Set measurements without $PnN.
-    pub fn set_measurements(
-        &mut self,
-        measurements: TemporalsAndOpticals<V>,
-    ) -> Result<(), SetUnnamedMeasurementsError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype,
-    {
-        self.set_measurements_inner(measurements)
-    }
-
-    /// Set measurements without $PnN and layout
-    pub fn set_measurements_and_layout(
-        &mut self,
-        measurements: TemporalsAndOpticals<V>,
-        layout: L,
-    ) -> Result<(), SetUnnamedMeasurementsError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype,
-    {
-        self.set_measurements_and_layout_inner(measurements, layout)
-    }
-
     fn set_named_measurements_inner(
         &mut self,
         measurements: NamedTemporalsAndOpticals<V>,
@@ -3943,7 +3862,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype,
+        L: LayoutWidth + LayoutDatatype + NormalizableLayout,
     {
         let xforms: Vec<_> = measurements
             .iter()
@@ -3956,7 +3875,7 @@ where
             .collect();
         layout.check_transforms_and_len(&xforms[..])?;
         self.measurements.set_values(measurements)?;
-        self.layout = layout;
+        self.set_layout_inner(layout);
         Ok(())
     }
 
@@ -3971,6 +3890,14 @@ where
         self.measurements = NamedVec::default();
         self.layout.clear();
         Ok(())
+    }
+
+    fn set_layout_inner(&mut self, mut layout: L)
+    where
+        L: NormalizableLayout,
+    {
+        layout.normalize();
+        self.layout = layout;
     }
 
     fn header_and_flat_keywords<T>(
@@ -4741,7 +4668,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         layout.check_measurement_vector(&self.measurements)?;
-        self.layout = layout;
+        self.set_layout_inner(layout);
         Ok(())
     }
 
@@ -4766,7 +4693,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         let meas = layout.try_new_measurements::<V>(measurements)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
         self.measurements = meas;
-        self.layout = layout;
+        self.set_layout_inner(layout);
         Ok(())
     }
 
@@ -5182,7 +5109,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
 
     /// Write this core structure (HEADER+TEXT) to a file path
     pub fn write_dataset(
-        &mut self,
+        &self,
         path: &PathBuf,
         conf: &WriteMultiDatasetConfig,
     ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
@@ -5195,7 +5122,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
     pub fn h_write_dataset<W: Write>(
-        &mut self,
+        &self,
         h: &mut BufWriter<W>,
         conf: &WriteDatasetInnerConfig,
         has_nextdata: AppendableFlag,
@@ -5234,8 +5161,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             })
             // write DATA and ANALYSIS
             .and_commutative(|| {
-                // this requires layout to be mutable since it will try to
-                // normalize before writing
                 io_to_log!(self.layout.h_write_df(h, conf));
                 io_to_log!(h.write_all(&self.analysis.0));
                 LogResult::new_ok(())

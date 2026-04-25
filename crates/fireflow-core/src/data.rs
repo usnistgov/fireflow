@@ -192,7 +192,7 @@ pub type DataFrame3_2 = Any3_2Layout<FFDataFrameFamily>;
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "M: LayoutWidth, N: LayoutWidth")]
 #[delegate(LayoutKeywords, where = "M: LayoutWidth, N: LayoutWidth")]
-#[delegate(Removable<R>, generics = "R")]
+#[delegate(Removable<R>, generics = "R", where = "Self: NormalizableLayout")]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -249,7 +249,7 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[delegate(LayoutDatatype, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
 #[delegate(LayoutKeywords, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
 #[delegate(Insertable<R>, generics = "R")]
-#[delegate(Removable<R>, generics = "R")]
+#[delegate(Removable<R>, generics = "R", where = "Self: NormalizableLayout")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -393,7 +393,7 @@ pub struct ColumnMarkers<T, D> {
 #[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "Single: LayoutWidth, Multi: LayoutWidth")]
 #[delegate(LayoutKeywords, where = "Single: LayoutWidth, Multi: LayoutWidth")]
-#[delegate(Removable<R>, generics = "R")]
+#[delegate(Removable<R>, generics = "R", where = "Self: NormalizableLayout")]
 #[delegate(OptMeasLayoutKeywords)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
@@ -580,6 +580,7 @@ pub type MixedColumn = AnyDatatype<
 #[delegate(OrderedLayoutOps)]
 #[delegate(WriteLayoutOps)]
 #[delegate(CheckRanges)]
+#[delegate(NormalizableLayout)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
     Uint08(C08),
@@ -2070,16 +2071,19 @@ where
         + IntoDataHeaders
         + WithPrimitiveDataFrame,
 {
-    fn h_write_df<W>(
-        &mut self,
-        h: &mut BufWriter<W>,
-        conf: &WriteDatasetInnerConfig,
-    ) -> io::Result<()>
+    fn h_write_df<W>(&self, h: &mut BufWriter<W>, conf: &WriteDatasetInnerConfig) -> io::Result<()>
     where
         W: Write,
     {
-        // normalize before writing (which is why self must be mut)
-        self.normalize();
+        // Layout should be normalized after updating or creating. This is not
+        // critical to get correct since the layout can still be written but
+        // performance might be slower, so just emit a warning.
+        #[cfg(debug_assertions)]
+        {
+            if !self.is_normalized() {
+                eprintln!("[WARN] layout is not normalized");
+            }
+        }
         self.h_write_df_inner(h, conf)
     }
 }
@@ -2135,6 +2139,8 @@ pub trait LayoutDatatype: Sized {
     fn datatype(&self) -> AlphaNumType;
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
+
+    fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)>;
 
     fn check_transforms<S, G>(&self, xforms: &[S]) -> GroupResult<(), S::Err, G>
     where
@@ -2229,7 +2235,7 @@ impl<C, F, I, L, M, const ORD: bool> LayoutDatatype for ColumnGroup<C, F, I, L, 
 where
     I: IsCol<F, ORD>,
     C: AsRef<[I::Inner]>,
-    I::Inner: HasDatatype,
+    I::Inner: HasDatatype + IntoWidth,
 {
     fn datatype(&self) -> AlphaNumType {
         I::Inner::datatype_from_columns(self.container.as_ref())
@@ -2240,6 +2246,14 @@ where
             .as_ref()
             .iter()
             .map(HasDatatype::col_datatype)
+            .collect()
+    }
+
+    fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)> {
+        self.container
+            .as_ref()
+            .iter()
+            .map(|c| (HasDatatype::col_datatype(c), IntoWidth::as_width(c)))
             .collect()
     }
 }
@@ -4138,7 +4152,7 @@ impl<C, F, I, T, M, const ORD: bool> PhantomInto for ColumnGroup<C, F, I, T, M, 
 
 /// A type which can accept a new column.
 #[delegatable_trait]
-pub trait Insertable<Column> {
+pub trait Insertable<Column>: NormalizableLayout {
     /// Error to emit if new column is not compatible with existing columns.
     type Error;
 
@@ -4146,12 +4160,19 @@ pub trait Insertable<Column> {
     ///
     /// This will panic if index is out of bounds.
     fn insert_nocheck(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error> {
-        self.insert_or_push(Some(index), col)
+        self.insert_or_push(Some(index), col)?;
+        // Normalization is only needed here is we have an empty layout of a
+        // mixed type; inserting one column by definition will have a single
+        // type which is less complex than the initial mixed layout.
+        self.normalize();
+        Ok(())
     }
 
     /// Push new column to the right of the current column vector.
     fn push(&mut self, col: Column) -> Result<(), Self::Error> {
-        self.insert_or_push(None, col)
+        self.insert_or_push(None, col)?;
+        self.normalize();
+        Ok(())
     }
 
     fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Column) -> Result<(), Self::Error>;
@@ -4647,18 +4668,24 @@ impl_functor_once!(
 
 /// A type which can have a column element removed from it.
 #[delegatable_trait]
-pub trait Removable<C>: Sized {
+pub trait Removable<C>: Sized + NormalizableLayout {
     /// Remove a column.
     ///
     /// Will panic if index is out of bounds.
-    fn remove_nocheck(&mut self, index: MeasIndex) -> C;
+    fn remove_nocheck(&mut self, index: MeasIndex) -> C {
+        let ret = self.remove_nocheck_inner(index);
+        self.normalize();
+        ret
+    }
+
+    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> C;
 }
 
 impl<C, I, L, M, const ORD: bool> Removable<Range> for ColumnGroup<Vec<C>, VecFamily, I, L, M, ORD>
 where
     for<'c> Range: From<&'c C>,
 {
-    fn remove_nocheck(&mut self, index: MeasIndex) -> Range {
+    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> Range {
         debug_assert!(
             usize::from(index) <= self.container.len(),
             "Index should be less than/equal to column number"
@@ -4675,7 +4702,7 @@ where
     for<'c> Range: From<&'c C>,
     for<'c> AnyPrimitiveColumn: From<&'c C>,
 {
-    fn remove_nocheck(&mut self, index: MeasIndex) -> RangeAndColumn {
+    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> RangeAndColumn {
         debug_assert!(
             usize::from(index) <= self.container.ncols(),
             "Index should be less than/equal to column number"
@@ -4709,42 +4736,74 @@ where
 
 // Implement NormalizableLayout
 //
+// The concept of "normalization" exists to make conversion and performance
+// optimization easier. By providing a type which represents the simpler case of
+// a more general type, we can make specialized impls for these simpler types.
+//
 // Most layouts will noop since they only have one possibility. The only two
 // exceptions are Endian Integer layouts which can have one or many widths
 // (normalization will try to convert to explicit single layout) and mixed-type
 // layouts (normalization will try to reduce to a single type, with the nuance
 // that these also may have mixed width integer layouts inside them).
 //
-// The concept of "normalization" exists to make conversion and performance
-// optimization easier. By providing a type which represents the simpler case of
-// a more general type, we can make specialized impls for these simpler types
-// which makes calling code simpler.
-//
 // This trait only applies to layouts complicated enough to contain multiple
 // types which can be equivalent to each other.
+//
+// This is used in three places:
+// 1. reading DATA
+// 2. writing DATA
+// 3. converting between layouts
+//
+// For 1. and 2. normalization increases performance. For 3. this makes certain
+// conversions easier (ie if a complex layout cannot be normalized then it might
+// not be downgradable). This is easy to apply for 1. and 3. since in both cases
+// we will have an owned layout which means we can mutate it. For 2., we don't
+// wish to mutably borrow the layout just so it can be normalized, so
+// normalization is applied when modifying the layout in place and mutability is
+// a given (ie remove, insert, push operations as well as setting a new layout
+// from scratch which may not be normalized already). This is the only tricky
+// place to apply normalization since each case must be normalized individually.
 
 /// A layout that can be simplified into another layout of the same type.
+#[delegatable_trait]
 pub trait NormalizableLayout {
+    fn is_normalized(&self) -> bool;
+
     fn normalize(&mut self);
 }
 
-impl NormalizableLayout for DataHeaders2_0 {
+// The base layout itself is trivial since it cannot be reduced to a simpler
+// form and is thus always normalized.
+impl<C, F, I, L, M, const ORD: bool> NormalizableLayout for ColumnGroup<C, F, I, L, M, ORD> {
+    fn is_normalized(&self) -> bool {
+        true
+    }
+
     fn normalize(&mut self) {}
 }
 
-impl NormalizableLayout for DataFrame2_0 {
+// Ditto ascii layouts
+impl<D, F> NormalizableLayout for AnyAscii<D, F> {
+    fn is_normalized(&self) -> bool {
+        true
+    }
+
     fn normalize(&mut self) {}
 }
 
-impl NormalizableLayout for DataHeaders3_0 {
-    fn normalize(&mut self) {}
-}
-
-impl NormalizableLayout for DataFrame3_0 {
-    fn normalize(&mut self) {}
-}
-
+// Any layout that can hold multiple datatype defers to the integer type since
+// this generic might be filled by a variable or single width layout which
+// can be normalized. Ascii, F32, and F64 types are by definition irreducible
+// and cannot be normalized, so noop if these are selected.
 impl<A, I: NormalizableLayout, F32, F64> NormalizableLayout for AnyDatatype<A, I, F32, F64> {
+    fn is_normalized(&self) -> bool {
+        if let Self::Uint(x) = self {
+            x.is_normalized()
+        } else {
+            true
+        }
+    }
+
     fn normalize(&mut self) {
         if let Self::Uint(x) = self {
             x.normalize();
@@ -4752,6 +4811,8 @@ impl<A, I: NormalizableLayout, F32, F64> NormalizableLayout for AnyDatatype<A, I
     }
 }
 
+// A variable width integer layout can be simplified to a single width layout
+// if all columns have the same width.
 impl<F, D> NormalizableLayout for AnyEndianUintGroup<F, D>
 where
     Self: Default,
@@ -4777,6 +4838,16 @@ where
         + ColInto<<U56Col as IsCol<F, false>>::Inner>
         + ColInto<<U64Col as IsCol<F, false>>::Inner>,
 {
+    fn is_normalized(&self) -> bool {
+        if let Self::Multi(x) = self {
+            x.col_bytes()
+                .split_first()
+                .is_some_and(|(c0, cs)| cs.iter().all(|c| c0 == c))
+        } else {
+            true
+        }
+    }
+
     fn normalize(&mut self) {
         *self = match mem::take(self) {
             Self::Single(x) => Self::Single(x),
@@ -4810,6 +4881,10 @@ where
     }
 }
 
+// A mixed or non-mixed layout can be normalized if it is mixed and all types
+// are the same. Note that this may also contain variable width integer layouts
+// so the test for normalization needs to defer to this underlying layout when
+// applicable.
 impl<F> NormalizableLayout for Any3_2Group<F>
 where
     Self: Default,
@@ -4830,14 +4905,32 @@ where
     MixedCol: IsCol<F, false, Layout = Endian>,
     AnyEndianUintGroup<F, Option<NumType>>: NormalizableLayout,
     F::Type<<F32Col as IsCol<F, false>>::Inner>: Default,
-    MixedGroup<F>: LayoutDatatype,
+    MixedGroup<F>: LayoutDatatype + AsRef<[<MixedCol as IsCol<F, false>>::Inner]>,
     F::Type<<MixedCol as IsCol<F, false>>::Inner>: Functor<<MixedCol as IsCol<F, false>>::Inner>,
     F::Type<<UvarCol as IsCol<F, false>>::Inner>: Functor<<UvarCol as IsCol<F, false>>::Inner>,
     <MixedCol as IsCol<F, false>>::Inner: ColInto<<F32Col as IsCol<F, false>>::Inner>
         + ColInto<<F64Col as IsCol<F, false>>::Inner>
         + ColInto<<UvarCol as IsCol<F, false>>::Inner>
-        + ColInto<<FixedAsciiCol as IsCol<F, false>>::Inner>,
+        + ColInto<<FixedAsciiCol as IsCol<F, false>>::Inner>
+        + IntoWidth,
 {
+    fn is_normalized(&self) -> bool {
+        match self {
+            Self::NonMixed(x) => x.is_normalized(),
+            Self::Mixed(x) => {
+                if let Some(((d0, w0), rest)) = x.datatypes_and_width().split_first() {
+                    if *d0 == AlphaNumType::Integer {
+                        rest.iter().all(|(d, w)| d == d0 && w == w0)
+                    } else {
+                        rest.iter().all(|(d, _)| d == d0)
+                    }
+                } else {
+                    true
+                }
+            }
+        }
+    }
+
     fn normalize(&mut self) {
         *self = match mem::take(self) {
             Self::NonMixed(mut x) => {
@@ -4854,6 +4947,8 @@ where
                                 AnyDatatype::Ascii(AnyAscii::Fixed(y))
                             }
                             AlphaNumType::Integer => {
+                                // make a multi-width layout first and then try
+                                // to normalize further
                                 let mut l = AnyEndianUint::Multi(x.map_inner(ColInto::col_into));
                                 l.normalize();
                                 AnyDatatype::Uint(l)

@@ -1,9 +1,8 @@
 use proc_macro::TokenStream;
 use quote::quote;
 use syn::{
-    AngleBracketedGenericArguments, Attribute, Data, DeriveInput, Fields, GenericArgument,
-    GenericParam, Generics, Ident, Path, PathArguments, Token, Type, Visibility, WherePredicate,
-    parenthesized,
+    Data, DeriveInput, Fields, GenericArgument, GenericParam, Generics, Ident, Path, PathArguments,
+    Token, Type, Visibility, WherePredicate, parenthesized,
     parse::{Parse, ParseStream},
     parse_macro_input, parse_quote,
     punctuated::Punctuated,

@@ -2152,6 +2152,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #doc
+            #[allow(clippy::too_many_arguments)]
             fn write_dataset(&self, #fun_args) -> #ret_path {
                 let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
                     delim,
@@ -2660,7 +2661,6 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
     let rng = DocArg::new_range_param(version);
-    let rng_path = rng.pytype.as_rust_type();
 
     let push_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
@@ -2674,8 +2674,8 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         DocString::new_method(summary)
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
-            .args(col_param)
             .arg(rng.clone())
+            .args(col_param)
     };
 
     let opt_doc = push_meas_doc(true, is_dataset);
@@ -2684,23 +2684,48 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
     let opt_fun_args = opt_doc.fun_args();
     let tmp_fun_args = tmp_doc.fun_args();
 
-    let opt_inner_args = opt_doc.idents_into();
-    let tmp_inner_args = tmp_doc.idents_into();
+    let range_series_method = match version {
+        Version::FCS2_0 | Version::FCS3_0 => quote!(col.with_range(range)),
+        Version::FCS3_1 => quote!(col.with_bitmask_range(range)?),
+        Version::FCS3_2 => quote!(col.with_mixed_range(range)?),
+    };
 
-    quote! {
-        #[pymethods]
-        impl #i {
+    let inner_q = if is_dataset {
+        quote! {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
-                let _ = self.0.push_optical::<#rng_path>(#opt_inner_args)?;
+                let rng_col = #range_series_method;
+                let _ = self.0.push_optical(name.into(), meas.into(), rng_col)?;
                 Ok(())
             }
 
             #tmp_doc
             fn push_temporal(&mut self, #tmp_fun_args) -> PyResult<()> {
-                self.0.push_temporal::<#rng_path>(#tmp_inner_args)?;
+                let rng_col = #range_series_method;
+                self.0.push_temporal(name.into(), meas.into(), rng_col)?;
                 Ok(())
             }
+        }
+    } else {
+        quote! {
+            #opt_doc
+            fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
+                let _ = self.0.push_optical(name.into(), meas.into(), range)?;
+                Ok(())
+            }
+
+            #tmp_doc
+            fn push_temporal(&mut self, #tmp_fun_args) -> PyResult<()> {
+                self.0.push_temporal(name.into(), meas.into(), range)?;
+                Ok(())
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #inner_q
         }
     }
     .into()
@@ -2814,7 +2839,6 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
     let rng = DocArg::new_range_param(version);
-    let rng_path = rng.pytype.as_rust_type();
 
     // TODO not DRY
     let insert_meas_doc = |is_optical: bool, hasdata: bool| {
@@ -2842,18 +2866,21 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     let opt_fun_args = opt_doc.fun_args();
     let tmp_fun_args = tmp_doc.fun_args();
 
-    let opt_inner_args = opt_doc.idents_into();
-    let tmp_inner_args = tmp_doc.idents_into();
+    let range_series_method = match version {
+        Version::FCS2_0 | Version::FCS3_0 => quote!(col.with_range(range)),
+        Version::FCS3_1 => quote!(col.with_bitmask_range(range)?),
+        Version::FCS3_2 => quote!(col.with_mixed_range(range)?),
+    };
 
-    quote! {
-        #[pymethods]
-        impl #i {
+    let inner_q = if is_dataset {
+        quote! {
             #opt_doc
             fn insert_optical(
                 &mut self,
                 #opt_fun_args
             ) -> PyResult<()> {
-                let _ = self.0.insert_optical::<#rng_path>(#opt_inner_args)?;
+                let rng_col = #range_series_method;
+                let _ = self.0.insert_optical(index.into(), name.into(), meas.into(), rng_col)?;
                 Ok(())
             }
 
@@ -2862,9 +2889,37 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #tmp_fun_args
             ) -> PyResult<()> {
-                self.0.insert_temporal::<#rng_path>(#tmp_inner_args)?;
+                let rng_col = #range_series_method;
+                self.0.insert_temporal(index.into(), name.into(), meas.into(), rng_col)?;
                 Ok(())
             }
+        }
+    } else {
+        quote! {
+            #opt_doc
+            fn insert_optical(
+                &mut self,
+                #opt_fun_args
+            ) -> PyResult<()> {
+                let _ = self.0.insert_optical(index.into(), name.into(), meas.into(), range)?;
+                Ok(())
+            }
+
+            #tmp_doc
+            fn insert_temporal(
+                &mut self,
+                #tmp_fun_args
+            ) -> PyResult<()> {
+                self.0.insert_temporal(index.into(), name.into(), meas.into(), range)?;
+                Ok(())
+            }
+        }
+    };
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #inner_q
         }
     }
     .into()
@@ -7952,20 +8007,6 @@ impl DocArgParam {
     fn new_big_other_param() -> Self {
         let desc = format!("If {TRUE} use 20 chars for {OTHER} segment offsets, and 8 otherwise.");
         Self::new_bool_param(BIG_OTHER, desc)
-    }
-
-    fn new_skip_conversion_check_param() -> Self {
-        let conv_exc = PyreflowError::DataLoss.fmt_ref();
-        let d = format!(
-            "Skip check to ensure that types of the dataframe match the \
-             columns ({PNB}, {DATATYPE}, etc). If this is {FALSE}, \
-             perform this check before writing, and raise {conv_exc} on \
-             failure. If {TRUE}, raise warnings as file is being \
-             written. Skipping this is faster since the data needs to be \
-             traversed twice to perform the conversion check, but may \
-             result in loss of precision and/or truncation.",
-        );
-        Self::new_bool_param(SKIP_CONVERSION_CHECK, d)
     }
 
     fn new_appendable_param() -> Self {

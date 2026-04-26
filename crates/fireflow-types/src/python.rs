@@ -1,4 +1,4 @@
-use crate::config::EnumStrIter;
+use crate::config::EnumStrIter as _;
 use crate::nonempty_string::NEStr;
 use crate::{impl_str_enum, ne_str};
 

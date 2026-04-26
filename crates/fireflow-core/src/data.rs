@@ -113,7 +113,7 @@ use crate::config::{
 };
 use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, TemporalOrOptical,
-    TemporalsAndOpticals, VersionSet,
+    VersionSet,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -274,7 +274,7 @@ pub type AnyOrderedLayout<Fam, T> =
 
 pub type AnyOrderedHeaders<T> = AnyOrderedLayout<VecFamily, T>;
 
-type AnyOrderedDataFrame<T> = AnyOrderedLayout<DataFrameFamily, T>;
+// type AnyOrderedDataFrame<T> = AnyOrderedLayout<DataFrameFamily, T>;
 
 pub type AnyOrderedLayout2_0<Fam> = AnyOrderedLayout<Fam, Option<Tot>>;
 
@@ -288,7 +288,7 @@ type NonMixedEndianDataFrame<D> = NonMixedEndianLayout<DataFrameFamily, D>;
 
 type VariableUintLayout<F, D> = FamilyLayout<F, UvarCol, false, ColumnMarkers<Identity<Tot>, D>>;
 
-type VariableUintHeaders<D> = VariableUintLayout<VecFamily, D>;
+// type VariableUintHeaders<D> = VariableUintLayout<VecFamily, D>;
 
 type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
 
@@ -324,7 +324,7 @@ type AnyAsciiLayout3_1<F, D> = AnyAsciiLayout<F, false, ColumnMarkers<Identity<T
 
 pub type AnyAsciiHeaders<const ORD: bool, M> = AnyAsciiLayout<VecFamily, ORD, M>;
 
-type AnyAsciiDataFrame<const ORD: bool, M> = AnyAsciiLayout<DataFrameFamily, ORD, M>;
+// type AnyAsciiDataFrame<const ORD: bool, M> = AnyAsciiLayout<DataFrameFamily, ORD, M>;
 
 type DelimAsciiLayout<Fam, const ORD: bool, M> = FamilyLayout<Fam, DelimAsciiCol, ORD, M>;
 
@@ -334,7 +334,7 @@ type FixedAsciiLayout<Fam, const ORD: bool, M> = FamilyLayout<Fam, FixedAsciiCol
 
 pub type FixedAsciiHeaders<const ORD: bool, M> = FixedAsciiLayout<VecFamily, ORD, M>;
 
-type FixedAsciiDataFrame<const ORD: bool, M> = FixedAsciiLayout<DataFrameFamily, ORD, M>;
+// type FixedAsciiDataFrame<const ORD: bool, M> = FixedAsciiLayout<DataFrameFamily, ORD, M>;
 
 /// An 8-bit unsigned integer column.
 #[derive(Clone, Copy, PartialEq)]
@@ -401,21 +401,20 @@ type FamilyLayout<Fam, Col, const ORD: bool, M> = Layout<
     ORD,
 >;
 
-type ColumnHeaders<C, const ORD: bool, M> = FamilyLayout<VecFamily, C, ORD, M>;
+type Headers_<C, const ORD: bool, M> = FamilyLayout<VecFamily, C, ORD, M>;
 
-type ColumnDataFrame<C, const ORD: bool, M> = FamilyLayout<VecFamily, C, ORD, M>;
+type DataFrame_<C, const ORD: bool, M> = FamilyLayout<DataFrameFamily, C, ORD, M>;
 
 /// DATA layout where each column has a fixed width.
 #[derive(Clone, AsRef, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
-pub struct Layout<Cols, CFam, Inner, ByteLayout, Markers, const ORD: bool> {
+pub struct Layout<Cols, CFam, Inner, ByteOrder, Markers, const ORD: bool> {
     /// Thing holding the columns.
     container: Cols,
-    // TODO this shouldn't be necessary anymore since ORD implies it
     /// The byte layout of a value in a column.
-    #[as_ref(ByteLayout)]
-    byte_layout: ByteLayout,
+    #[as_ref(ByteOrder)]
+    byteord: ByteOrder,
     /// The type family for the container.
     #[cfg_attr(feature = "serde", serde(skip))]
     _container_family: PhantomData<CFam>,
@@ -459,16 +458,14 @@ pub enum AnyEndianUint<Single, Multi> {
     Multi(Multi),
 }
 
-type AnyEndianUintLayout<Fam, D> = AnyEndianUint<
-    AnyUintLayout<Fam, false, ColumnMarkers<Identity<Tot>, D>>,
-    VariableUintLayout<Fam, D>,
->;
+type AnyEndianUintLayout<Fam, D> =
+    AnyEndianUint<AnyFixedUintLayout<Fam, D>, VariableUintLayout<Fam, D>>;
 
 type AnyFixedUintLayout<Fam, D> = AnyUintLayout<Fam, false, ColumnMarkers<Identity<Tot>, D>>;
 
-type AnyFixedUintHeaders<D> = AnyFixedUintLayout<VecFamily, D>;
+// type AnyFixedUintHeaders<D> = AnyFixedUintLayout<VecFamily, D>;
 
-type AnyFixedUintDataFrame<D> = AnyFixedUintLayout<DataFrameFamily, D>;
+// type AnyFixedUintDataFrame<D> = AnyFixedUintLayout<DataFrameFamily, D>;
 
 pub type AnyEndianUintHeaders<D> = AnyEndianUintLayout<VecFamily, D>;
 
@@ -479,6 +476,7 @@ type AnyEndianUintDataFrame<D> = AnyEndianUintLayout<DataFrameFamily, D>;
 /// This is used internally to represent the data in DATA with its associated
 /// keywords.
 #[derive(Clone, PartialEq, Into, new)]
+#[new(visibility = "")]
 pub struct HeaderAndSeries<M, T, R> {
     header: M,
     #[into(PrimitiveSeries<T>)]
@@ -486,6 +484,16 @@ pub struct HeaderAndSeries<M, T, R> {
 }
 
 impl<M, T, R> HeaderAndSeries<M, T, R> {
+    pub fn from_prim(
+        metadata: M,
+        series: AnyPrimitiveSeries,
+    ) -> Result<Self, <AnyPrimitiveSeries as TryInto<InternalSeries<T, R>>>::Error>
+    where
+        AnyPrimitiveSeries: TryInto<InternalSeries<T, R>>,
+    {
+        Ok(Self::new(metadata, series.try_into()?))
+    }
+
     fn empty(metadata: M) -> Self {
         Self::new(metadata, InternalSeries::default())
     }
@@ -665,7 +673,7 @@ type AnyOrderedUintLayout<F, T> = AnyUintLayout<F, true, ColumnMarkers<T, Nothin
 
 pub type AnyOrderedUintHeaders<T> = AnyOrderedUintLayout<VecFamily, T>;
 
-type AnyOrderedUintDataFrame<T> = AnyOrderedUintLayout<DataFrameFamily, T>;
+// type AnyOrderedUintDataFrame<T> = AnyOrderedUintLayout<DataFrameFamily, T>;
 
 pub type VariableBitmask =
     AnyUint<Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56, Bitmask64>;
@@ -1442,6 +1450,27 @@ pub enum InsertRangeError {
     MismatchTypes(MismatchTypeRangeError),
 }
 
+/// Error when attempting to insert new [`Range`] with a series into a layout.
+#[derive(Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(PyErr: From<E>))]
+pub enum InsertRangeAndSeriesError<E> {
+    Range(E),
+    Series(CastSeriesError),
+}
+
+impl_kind1!(pub InsertRangeAndSeriesErrorFamily, InsertRangeAndSeriesError);
+
+impl_functor_once!(
+    InsertRangeAndSeriesError,
+    self,
+    mut f,
+    match self {
+        Self::Range(x) => InsertRangeAndSeriesError::Range(f(x)),
+        Self::Series(x) => InsertRangeAndSeriesError::Series(x),
+    }
+);
+
 /// Error when insert range with concrete type which mismatches layout.
 #[derive(Debug, Error)]
 // TODO make this say something useful
@@ -1829,7 +1858,7 @@ where
         + LayoutOptMeasKeywords
         + WithPrimitiveDataFrame,
 {
-    type ByteLayout;
+    type ByteOrder;
     type NumType: IsNumType;
     type Tot: IsTot;
 
@@ -1849,7 +1878,7 @@ where
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
+        byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Self::NumType>>,
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError>;
@@ -1929,7 +1958,7 @@ where
 }
 
 impl VersionedHeaders for DataHeaders2_0 {
-    type ByteLayout = ByteOrd2_0;
+    type ByteOrder = ByteOrd2_0;
     type NumType = Nothing<NumType>;
     type Tot = Option<Tot>;
 
@@ -1955,7 +1984,7 @@ impl VersionedHeaders for DataHeaders2_0 {
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
+        byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Self::NumType>>,
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
@@ -1965,7 +1994,7 @@ impl VersionedHeaders for DataHeaders2_0 {
 }
 
 impl VersionedHeaders for DataHeaders3_0 {
-    type ByteLayout = ByteOrd2_0;
+    type ByteOrder = ByteOrd2_0;
     type NumType = Nothing<NumType>;
     type Tot = Identity<Tot>;
 
@@ -1991,7 +2020,7 @@ impl VersionedHeaders for DataHeaders3_0 {
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
+        byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Nothing<NumType>>>,
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
@@ -2001,7 +2030,7 @@ impl VersionedHeaders for DataHeaders3_0 {
 }
 
 impl VersionedHeaders for DataHeaders3_1 {
-    type ByteLayout = Endian;
+    type ByteOrder = Endian;
     type NumType = Nothing<NumType>;
     type Tot = Identity<Tot>;
 
@@ -2028,7 +2057,7 @@ impl VersionedHeaders for DataHeaders3_1 {
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
+        byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Nothing<NumType>>>,
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
@@ -2038,7 +2067,7 @@ impl VersionedHeaders for DataHeaders3_1 {
 }
 
 impl VersionedHeaders for DataHeaders3_2 {
-    type ByteLayout = ByteOrd3_1;
+    type ByteOrder = ByteOrd3_1;
     type NumType = Option<NumType>;
     type Tot = Identity<Tot>;
 
@@ -2070,7 +2099,7 @@ impl VersionedHeaders for DataHeaders3_2 {
 
     fn try_new(
         datatype: AlphaNumType,
-        byteord: Self::ByteLayout,
+        byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Option<NumType>>>,
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
@@ -2366,7 +2395,7 @@ where
     for<'c> Range: From<&'c I::Inner>,
 {
     fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
-        ReqRootKeyword::from_value(self.byte_layout.into())
+        ReqRootKeyword::from_value(self.byteord.into())
     }
 
     fn req_meas_keywords(&self) -> Vec<[ReqMeasKeyword<'_>; 2]> {
@@ -2581,7 +2610,7 @@ where
     }
 }
 
-impl<C, const ORD: bool, M> HeadersToEmptyDataFrame for FamilyLayout<VecFamily, C, ORD, M>
+impl<C, const ORD: bool, M> HeadersToEmptyDataFrame for Headers_<C, ORD, M>
 where
     C: IsCol<VecFamily, ORD>
         + IsCol<DataFrameFamily, ORD, Layout = <C as IsCol<VecFamily, ORD>>::Layout>,
@@ -2590,11 +2619,11 @@ where
     <C as IsCol<DataFrameFamily, ORD>>::Inner: HasLen,
     <C as IsCol<VecFamily, ORD>>::Layout: Clone,
 {
-    type DfTarget = FamilyLayout<DataFrameFamily, C, ORD, M>;
+    type DfTarget = DataFrame_<C, ORD, M>;
 
     fn empty(&self) -> Self::DfTarget {
         let cs = self.container.iter().map(HeaderToEmptySeries::empty);
-        Layout::new(DataFrame::try_new(cs).unwrap(), self.byte_layout.clone())
+        Layout::new(DataFrame::try_new(cs).unwrap(), self.byteord.clone())
     }
 }
 
@@ -2685,7 +2714,7 @@ where
     }
 }
 
-impl<C, const ORD: bool, M> DataFrameAsHeaders for FamilyLayout<DataFrameFamily, C, ORD, M>
+impl<C, const ORD: bool, M> DataFrameAsHeaders for DataFrame_<C, ORD, M>
 where
     C: IsCol<DataFrameFamily, ORD>
         + IsCol<VecFamily, ORD, Layout = <C as IsCol<DataFrameFamily, ORD>>::Layout>,
@@ -2693,7 +2722,7 @@ where
         SeriesAsHeader<Target = <C as IsCol<VecFamily, ORD>>::Inner>,
     <C as IsCol<DataFrameFamily, ORD>>::Layout: Clone,
 {
-    type Headers = FamilyLayout<VecFamily, C, ORD, M>;
+    type Headers = Headers_<C, ORD, M>;
 
     fn as_headers(&self) -> Self::Headers {
         let cs = self
@@ -2701,7 +2730,7 @@ where
             .iter()
             .map(SeriesAsHeader::as_header)
             .collect();
-        Layout::new(cs, self.byte_layout.clone())
+        Layout::new(cs, self.byteord.clone())
     }
 }
 
@@ -2730,8 +2759,7 @@ pub trait WithPrimitiveDataFrame {
             return Err(MeasDataMismatchError {
                 meas_n: this_width,
                 data_n: df_width,
-            }
-            .into());
+            });
         }
         Ok(())
     }
@@ -2859,15 +2887,14 @@ where
     }
 }
 
-impl<C, const ORD: bool, M> WithPrimitiveDataFrame for FamilyLayout<VecFamily, C, ORD, M>
+impl<C, const ORD: bool, M> WithPrimitiveDataFrame for Headers_<C, ORD, M>
 where
-    Self: HeadersToEmptyDataFrame<DfTarget = FamilyLayout<DataFrameFamily, C, ORD, M>>,
-    FamilyLayout<DataFrameFamily, C, ORD, M>:
-        WithPrimitiveDataFrame<DfTarget = FamilyLayout<DataFrameFamily, C, ORD, M>>,
+    Self: HeadersToEmptyDataFrame<DfTarget = DataFrame_<C, ORD, M>>,
+    DataFrame_<C, ORD, M>: WithPrimitiveDataFrame<DfTarget = DataFrame_<C, ORD, M>>,
     C: IsCol<VecFamily, ORD>
         + IsCol<DataFrameFamily, ORD, Layout = <C as IsCol<VecFamily, ORD>>::Layout>,
 {
-    type DfTarget = FamilyLayout<DataFrameFamily, C, ORD, M>;
+    type DfTarget = DataFrame_<C, ORD, M>;
 
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         self.empty().with_data(df)
@@ -2878,7 +2905,7 @@ where
     }
 }
 
-impl<C, const ORD: bool, M> WithPrimitiveDataFrame for FamilyLayout<DataFrameFamily, C, ORD, M>
+impl<C, const ORD: bool, M> WithPrimitiveDataFrame for DataFrame_<C, ORD, M>
 where
     C: IsCol<DataFrameFamily, ORD>,
     <C as IsCol<DataFrameFamily, ORD>>::Inner: ColumnWithSeries + HasLen,
@@ -2895,7 +2922,7 @@ where
             .map(|(h, c)| h.with_series(c));
         let new_cols = Result::sequence_results(rs).map_err(ErrorGroup::deanonymize)?;
         let new_df = DataFrame::try_new(new_cols).expect("number of columns was checked already");
-        Ok(Layout::new(new_df, self.byte_layout.clone()))
+        Ok(Layout::new(new_df, self.byteord.clone()))
     }
 
     fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
@@ -3091,14 +3118,14 @@ where
     }
 }
 
-impl<Col, I, ByteLayout, const ORD: bool, TotType, Dtype> HeadersReadOps<TotType>
-    for Layout<Vec<Col>, VecFamily, I, ByteLayout, ColumnMarkers<TotType, Dtype>, ORD>
+impl<Col, I, ByteOrder, const ORD: bool, TotType, Dtype> HeadersReadOps<TotType>
+    for Layout<Vec<Col>, VecFamily, I, ByteOrder, ColumnMarkers<TotType, Dtype>, ORD>
 where
     Self:
         FixedHeadersRead + HeadersToEmptyDataFrame<DfTarget = <Self as FixedHeadersRead>::DfTarget>,
     Dtype: IsNumType,
     Col: Clone + ColumnIsFixed,
-    ByteLayout: Copy,
+    ByteOrder: Copy,
 {
     fn h_read_df_inner<R: Read>(
         &self,
@@ -3493,7 +3520,7 @@ trait FixedHeadersRead {
 // basic read loop for most use cases
 impl<C, L, I, M, const ORD: bool> FixedHeadersRead for Layout<Vec<C>, VecFamily, I, L, M, ORD>
 where
-    L: ByteLayoutIO<C> + Copy,
+    L: ByteOrderIO<C> + Copy,
     C: ColumnHasNativeType + ColumnIsFixed + Clone,
     C::Native: FCSRepr,
     NativeInternalSeries<C>: From<Vec<C::Native>>,
@@ -3510,8 +3537,7 @@ where
         let ncols = self.columns().len();
         let mut columns = vec![vec![C::Native::default(); nrows]; ncols];
 
-        self.byte_layout
-            .read_matrix(h, &mut row_buf, &mut columns)?;
+        self.byteord.read_matrix(h, &mut row_buf, &mut columns)?;
 
         let data = columns
             .into_iter()
@@ -3520,7 +3546,7 @@ where
             .map(|(data, range)| NativeSeries::new(range, data));
         let df = DataFrame::try_new(data).expect("column lengths are the same");
 
-        Ok(Layout::new(df, self.byte_layout))
+        Ok(Layout::new(df, self.byteord))
     }
 }
 
@@ -3562,7 +3588,7 @@ impl<M, const ORD: bool> FixedHeadersRead
 
         let data = columns.into_iter().map(NativeSeries::from);
         let df = DataFrame::try_new(data).unwrap();
-        Ok(Layout::new(df, self.byte_layout))
+        Ok(Layout::new(df, self.byteord))
     }
 }
 
@@ -3585,12 +3611,12 @@ impl<M> FixedHeadersRead for Layout<Vec<VariableBitmask>, VecFamily, UvarCol, En
             .map(|c| c.init_column(nrows))
             .collect();
 
-        row_buf.read_any_uint_df(h, &mut columns, self.byte_layout)?;
+        row_buf.read_any_uint_df(h, &mut columns, self.byteord)?;
 
         let data = columns.into_iter().map(VariableUintSeries::from);
         let df = DataFrame::try_new(data).unwrap();
 
-        Ok(Layout::new(df, self.byte_layout))
+        Ok(Layout::new(df, self.byteord))
     }
 }
 
@@ -3608,7 +3634,7 @@ impl<M> FixedHeadersRead for Layout<Vec<MixedRange>, VecFamily, MixedCol, Endian
         conf: &ReadEventsConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let en = self.byte_layout;
+        let en = self.byteord;
         let cs = &self.container[..];
 
         let columns = if let Some(ret) =
@@ -3632,7 +3658,7 @@ impl<M> FixedHeadersRead for Layout<Vec<MixedRange>, VecFamily, MixedCol, Endian
                 .iter()
                 .map(|c| c.init_column(nrows))
                 .collect();
-            buf.read_mixed_df(h, &mut columns, self.byte_layout)
+            buf.read_mixed_df(h, &mut columns, self.byteord)
                 .map_err(|e| {
                     e.fmap_once(ReadFixedAsciiError::from)
                         .fmap_once(ReadAsciiError::from)
@@ -3644,7 +3670,7 @@ impl<M> FixedHeadersRead for Layout<Vec<MixedRange>, VecFamily, MixedCol, Endian
         let data = columns.into_iter().map(MixedSeries::from);
         let df = DataFrame::try_new(data).unwrap();
 
-        Ok(Layout::new(df, self.byte_layout))
+        Ok(Layout::new(df, self.byteord))
     }
 }
 
@@ -3693,7 +3719,7 @@ fn try_read_single<R, W, C>(
 ) -> io::Result<Option<Vec<MixedVec>>>
 where
     R: Read,
-    Endian: ByteLayoutIO<C>,
+    Endian: ByteOrderIO<C>,
     W: TryFrom<MixedRange>,
     (Vec<C::Native>, W): Into<MixedVec>,
     C: ColumnHasNativeType,
@@ -3707,7 +3733,7 @@ where
     {
         let zero = <C as ColumnHasNativeType>::Native::default();
         let mut columns = vec![vec![zero; nrows]; cs.len()];
-        ByteLayoutIO::<C>::read_matrix(&endian, h, row_buf, &mut columns)?;
+        ByteOrderIO::<C>::read_matrix(&endian, h, row_buf, &mut columns)?;
         let ret = columns
             .into_iter()
             .zip(cs)
@@ -3737,7 +3763,7 @@ trait DataFrameFixedWrite {
 impl<C, L, I, M, const ORD: bool> DataFrameFixedWrite
     for Layout<DataFrame<NativeSeries<C>>, DataFrameFamily, I, L, M, ORD>
 where
-    L: ByteLayoutIO<C> + Copy,
+    L: ByteOrderIO<C> + Copy,
     C: ColumnHasNativeType + ColumnIsBinary + Clone,
     C::Native: FCSRepr + PartialOrd,
     NativeSeries<C>: AsRef<[C::Native]>,
@@ -3750,7 +3776,7 @@ where
         let nrows = self.container.nrows();
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         let cols: Vec<_> = self.container.iter().map(AsRef::as_ref).collect();
-        self.byte_layout.write_matrix(h, &mut row_buf, &cols[..])
+        self.byteord.write_matrix(h, &mut row_buf, &cols[..])
     }
 }
 
@@ -3789,7 +3815,7 @@ impl<M> DataFrameFixedWrite
         let nrows = self.container.nrows();
         let mut row_buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
         let cols = self.container.as_ref();
-        row_buf.write_any_uint_df(h, cols, self.byte_layout)
+        row_buf.write_any_uint_df(h, cols, self.byteord)
     }
 }
 
@@ -3804,14 +3830,14 @@ impl<M> DataFrameFixedWrite
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
         let mut buf = RowBuffer::init(conf.row_buffer_size, nrows, self.event_width());
-        let en = self.byte_layout;
+        let en = self.byteord;
         let cols = self.container.as_ref();
         if try_write_single::<_, Any4ByteColumn, F32Range>(h, cols, en, &mut buf)?
             || try_write_single::<_, Any8ByteColumn, F64Range>(h, cols, en, &mut buf)?
         {
             Ok(())
         } else {
-            buf.write_mixed_df(h, cols, self.byte_layout)
+            buf.write_mixed_df(h, cols, self.byteord)
         }
     }
 }
@@ -3856,7 +3882,7 @@ fn try_write_single<W, T, C>(
 ) -> io::Result<bool>
 where
     W: Write,
-    Endian: ByteLayoutIO<C>,
+    Endian: ByteOrderIO<C>,
     T: TryFrom<MixedSeries> + AsRef<[C::Native]>,
     C: ColumnHasNativeType,
     C::Native: FCSRepr,
@@ -3868,7 +3894,7 @@ where
         .collect::<Result<Vec<_>, _>>()
     {
         let columns: Vec<_> = cs.iter().map(AsRef::as_ref).collect();
-        ByteLayoutIO::<C>::write_matrix(&endian, h, write_buf, &columns[..])?;
+        ByteOrderIO::<C>::write_matrix(&endian, h, write_buf, &columns[..])?;
         Ok(true)
     } else {
         Ok(false)
@@ -4260,7 +4286,7 @@ impl<C, F, I, T, M, const ORD: bool> PhantomInto for Layout<C, F, I, T, M, ORD> 
     type Target<Mf> = Layout<C, F, I, T, Mf, ORD>;
 
     fn phantom_into<Mf>(self) -> Self::Target<Mf> {
-        Layout::new(self.container, self.byte_layout)
+        Layout::new(self.container, self.byteord)
     }
 }
 
@@ -4769,23 +4795,6 @@ where
     }
 }
 
-pub enum InsertRangeAndSeriesError<E> {
-    Range(E),
-    Series(CastSeriesError),
-}
-
-impl_kind1!(pub InsertRangeAndSeriesErrorFamily, InsertRangeAndSeriesError);
-
-impl_functor_once!(
-    InsertRangeAndSeriesError,
-    self,
-    mut f,
-    match self {
-        Self::Range(x) => InsertRangeAndSeriesError::Range(f(x)),
-        Self::Series(x) => InsertRangeAndSeriesError::Series(x),
-    }
-);
-
 // Implement removable operations for layouts.
 //
 // Unlike insertions, this cannot fail which makes this trait simpler.
@@ -4857,7 +4866,7 @@ where
     ByteOrd2_0: From<L>,
 {
     fn byte_order(&self) -> ByteOrd2_0 {
-        self.byte_layout.into()
+        self.byteord.into()
     }
 }
 
@@ -5130,7 +5139,7 @@ pub trait DataFrameCheckRanges {
         let es = rs.into_iter().filter_map(TruncatedResult::into_err);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, disallow)
             .switchable_into_commutative()
-            .map_ok_value(|_| overrange)
+            .map_ok_value(|()| overrange)
     }
 
     fn check_ranges_mut(
@@ -5144,7 +5153,7 @@ pub trait DataFrameCheckRanges {
         let es = rs.into_iter().filter_map(TruncatedResult::into_err);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, disallow)
             .switchable_into_commutative()
-            .map_ok_value(|_| overrange)
+            .map_ok_value(|()| overrange)
     }
 }
 
@@ -5365,7 +5374,7 @@ where
     AnyPrimitiveSeries: TryInto<NativeInternalSeries<T>, Error = CastSeriesError>,
 {
     fn with_series(&self, ser: AnyPrimitiveSeries) -> Result<Self, CastSeriesError> {
-        Ok(HeaderAndSeries::new(self.header.clone(), ser.try_into()?))
+        Ok(Self::new(self.header.clone(), ser.try_into()?))
     }
 
     fn is_lossless(&self, ser: &AnyPrimitiveSeries) -> Result<(), CastSeriesError> {
@@ -6247,7 +6256,7 @@ impl CheckRange for MixedSeries {
 // type and then cast to other types), each byte layout can be mapped to a
 // specialized loop which reads all bytes as a matrix.
 
-trait ByteLayoutIO<C: ColumnHasNativeType>
+trait ByteOrderIO<C: ColumnHasNativeType>
 where
     C::Native: FCSRepr,
 {
@@ -6268,7 +6277,7 @@ where
 
 macro_rules! impl_byte_layout_io {
     ($inner:path, $layout:path, $read_fun:ident, $write_fun:ident) => {
-        impl ByteLayoutIO<$inner> for $layout {
+        impl ByteOrderIO<$inner> for $layout {
             fn read_matrix<R: Read>(
                 &self,
                 h: &mut BufReader<R>,
@@ -6762,7 +6771,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
     where
         L: Into<Lf>,
     {
-        Layout::new(self.container, self.byte_layout.into())
+        Layout::new(self.container, self.byteord.into())
     }
 
     pub fn new_empty(byte_layout: L) -> Self
@@ -6892,7 +6901,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
         Fun: FnMut(I::Inner) -> If::Inner,
         C: Functor<I::Inner>,
     {
-        Layout::new(self.container.fmap(f), self.byte_layout)
+        Layout::new(self.container.fmap(f), self.byteord)
     }
 
     fn set_byte_layout<Lf, const ORD_F: bool>(
@@ -6908,7 +6917,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
     where
         L: TryInto<Lf>,
     {
-        let b = self.byte_layout.try_into()?;
+        let b = self.byteord.try_into()?;
         Ok(Layout::new(self.container, b))
     }
 }
@@ -7150,7 +7159,7 @@ impl<T> AnyOrderedHeaders<T> {
         I: IsCol<VecFamily, true>,
         I::Inner: ColumnHasNativeType,
         <I::Inner as ColumnHasNativeType>::Native: FCSRepr,
-        AnyOrderedUintHeaders<T>: From<ColumnHeaders<I, true, ColumnMarkers<T, Nothing<NumType>>>>,
+        AnyOrderedUintHeaders<T>: From<Headers_<I, true, ColumnMarkers<T, Nothing<NumType>>>>,
     {
         Self::Uint(Layout::new(columns, byte_layout).into())
     }

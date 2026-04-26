@@ -12,12 +12,12 @@ use crate::data::{
     CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
     DataFrame3_1, DataFrame3_2, DataFrameAsHeaders, DataFrameCheckRanges, DataHeaders2_0,
     DataHeaders3_0, DataHeaders3_1, DataHeaders3_2, EventOverRangeError, EventsDiagnostics,
-    HeadersToDataFrameError, HeadersToEmptyDataFrame, InsertRangeError, IsTot, LayoutConvertError,
-    LayoutDatatype, LayoutHeight, LayoutInsert, LayoutKeywords, LayoutNormalize,
-    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupLayoutError, LookupLayoutWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError,
-    ReadCheckedDataframeError, ReadCheckedDataframeWarning, ScaleDatatypeMismatchError,
-    ScaleErrorGroup, VersionedDataFrame, VersionedHeaders, WithPrimitiveDataFrame,
+    HeadersToDataFrameError, HeadersToEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype,
+    LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
+    LayoutRemove, LayoutSize as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
+    MeasurementsWithLayoutError, NewDataLayoutError, ReadCheckedDataframeError,
+    ReadCheckedDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame,
+    VersionedHeaders, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -72,13 +72,12 @@ use crate::text::lookup::{
     ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
-    CenterPresentError, EitherPair, Eithers, Element, ElementIndexError, IndexedElement,
-    InputLengthError, InsertCenterError, InsertError, NameMapping, NameNotFoundError,
-    NamePresentError, NamedSet, NamedVec, NewNamedVecError, NonCenterElement, PushCenterError,
-    RenameError, SetCenterError, SetElementsError, SetKeysError, SetNamesError, SetValuesError,
-    uniquify_names,
+    EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
+    InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedSet,
+    NamedVec, NewNamedVecError, NonCenterElement, PushCenterError, RenameError, SetCenterError,
+    SetElementsError, SetKeysError, SetNamesError, SetValuesError, uniquify_names,
 };
-use crate::text::optional::{CheckMaybe, Identity, MightHave, Nothing};
+use crate::text::optional::{CheckMaybe as _, Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
     AnyExistingIndexLinkError, AnyExistingNamedLinkError, BrokenIndexedLinkError,
@@ -94,7 +93,6 @@ use crate::text::timestamps::{
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
-use crate::validated::dataframe as df;
 use crate::validated::dataframe::{AnyPrimitiveSeries, HasWidth, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
@@ -110,7 +108,6 @@ use fireflow_types::keywords::{
     HasVersion, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use fireflow_types::nonempty_string::{DisplayableNE as _, NEString};
-use num_enum::FromPrimitive;
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -2721,6 +2718,78 @@ where
         })
     }
 
+    /// Add time measurement to the end of the measurement vector.
+    ///
+    /// Return error if time measurement already exists or name is non-unique.
+    pub fn push_temporal<C>(
+        &mut self,
+        n: Shortname,
+        m: Temporal<V::Temporal>,
+        r: C,
+    ) -> GroupResult<(), PushTemporalError<<L as LayoutInsert<C>>::Error>, PushTemporalSummary>
+    where
+        L: LayoutInsert<C>,
+    {
+        self.push_temporal_inner(n, m, r).group().resolve_nowarn()
+    }
+
+    /// Add time measurement at the given position
+    ///
+    /// Return error if time measurement already exists, range is incompatible,
+    /// name is non-unique, or index is out of bounds.
+    pub fn insert_temporal<C>(
+        &mut self,
+        i: MeasIndex,
+        n: Shortname,
+        m: Temporal<V::Temporal>,
+        r: C,
+    ) -> GroupResult<(), InsertTemporalError<<L as LayoutInsert<C>>::Error>, InsertTemporalSummary>
+    where
+        L: LayoutInsert<C>,
+    {
+        self.insert_temporal_inner(i, n, m, r)
+            .group()
+            .resolve_nowarn()
+    }
+
+    /// Add optical measurement to the end of the measurement vector
+    ///
+    /// Return error if name is non-unique or range is incompatible.
+    pub fn push_optical<C>(
+        &mut self,
+        n: V::Name,
+        m: Optical<V::Optical>,
+        r: C,
+    ) -> GroupResult<Shortname, PushOpticalError<<L as LayoutInsert<C>>::Error>, PushOpticalSummary>
+    where
+        L: LayoutInsert<C>,
+    {
+        self.push_optical_inner(n, m, r).group().resolve_nowarn()
+    }
+
+    /// Add optical measurement at a given position
+    ///
+    /// Return error if name is non-unique, range is incompatible, or index is
+    /// out of bounds.
+    pub fn insert_optical<C>(
+        &mut self,
+        i: MeasIndex,
+        n: V::Name,
+        m: Optical<V::Optical>,
+        r: C,
+    ) -> GroupResult<
+        Shortname,
+        InsertOpticalError<<L as LayoutInsert<C>>::Error>,
+        InsertOpticalSummary,
+    >
+    where
+        L: LayoutInsert<C>,
+    {
+        self.insert_optical_inner(i, n, m, r)
+            .group()
+            .resolve_nowarn()
+    }
+
     /// Read nonstandard key/value pairs for each measurement.
     ///
     /// This includes the time measurement if present.
@@ -3687,10 +3756,9 @@ where
         n: Shortname,
         m: Temporal<V::Temporal>,
         r: C,
-    ) -> ErrorsResult<(), (), PushTemporalError>
+    ) -> ErrorsResult<(), (), PushTemporalError<L::Error>>
     where
         L: LayoutInsert<C>,
-        PushTemporalError: From<L::Error>,
     {
         self.measurements
             .check_push_center(&n)
@@ -3698,7 +3766,7 @@ where
             .nowarn_and_then(|()| {
                 self.layout
                     .push(r)
-                    .map_err(PushTemporalError::from)
+                    .map_err(PushTemporalError::Layout)
                     .into_log()
             })
             .when_ok(|| {
@@ -3714,10 +3782,9 @@ where
         n: Shortname,
         m: Temporal<V::Temporal>,
         r: C,
-    ) -> ErrorsResult<(), (), InsertTemporalError>
+    ) -> ErrorsResult<(), (), InsertTemporalError<L::Error>>
     where
         L: LayoutInsert<C>,
-        InsertTemporalError: From<L::Error>,
     {
         self.measurements
             .check_insert_center(i, &n)
@@ -3725,7 +3792,7 @@ where
             .nowarn_and_then(|()| {
                 self.layout
                     .insert_nocheck(i, r)
-                    .map_err(InsertTemporalError::from)
+                    .map_err(InsertTemporalError::Layout)
                     .into_log()
             })
             .when_ok(|| {
@@ -3739,10 +3806,9 @@ where
         n: V::Name,
         m: Optical<V::Optical>,
         r: C,
-    ) -> ErrorsResult<Shortname, (), PushOpticalError>
+    ) -> ErrorsResult<Shortname, (), PushOpticalError<L::Error>>
     where
         L: LayoutInsert<C>,
-        PushOpticalError: From<L::Error>,
     {
         self.measurements
             .check_push(&n)
@@ -3752,7 +3818,7 @@ where
             .nowarn_and_then(|ret| {
                 self.layout
                     .push(r)
-                    .map_err(PushOpticalError::from)
+                    .map_err(PushOpticalError::Layout)
                     .into_log()
                     .set_ok_value(ret)
             })
@@ -3770,10 +3836,9 @@ where
         n: V::Name,
         m: Optical<V::Optical>,
         r: C,
-    ) -> ErrorsResult<Shortname, (), InsertOpticalError>
+    ) -> ErrorsResult<Shortname, (), InsertOpticalError<L::Error>>
     where
         L: LayoutInsert<C>,
-        InsertOpticalError: From<L::Error>,
     {
         self.measurements
             .check_insert(i, &n)
@@ -3782,7 +3847,7 @@ where
             .nowarn_and_then(|ret| {
                 self.layout
                     .insert_nocheck(i, r)
-                    .map_err(InsertOpticalError::from)
+                    .map_err(InsertOpticalError::Layout)
                     .into_log()
                     .set_ok_value(ret)
             })
@@ -4700,78 +4765,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         self.remove_measurement_by_index_inner(index)
     }
 
-    /// Add time measurement to the end of the measurement vector.
-    ///
-    /// Return error if time measurement already exists or name is non-unique.
-    pub fn push_temporal<C>(
-        &mut self,
-        n: Shortname,
-        m: Temporal<V::Temporal>,
-        r: C,
-    ) -> GroupResult<(), PushTemporalError, PushTemporalSummary>
-    where
-        V::Headers: LayoutInsert<C>,
-        PushTemporalError: From<<V::Headers as LayoutInsert<C>>::Error>,
-    {
-        self.push_temporal_inner(n, m, r).group().resolve_nowarn()
-    }
-
-    /// Add time measurement at the given position
-    ///
-    /// Return error if time measurement already exists, range is incompatible,
-    /// name is non-unique, or index is out of bounds.
-    pub fn insert_temporal<C>(
-        &mut self,
-        i: MeasIndex,
-        n: Shortname,
-        m: Temporal<V::Temporal>,
-        r: C,
-    ) -> GroupResult<(), InsertTemporalError, InsertTemporalSummary>
-    where
-        V::Headers: LayoutInsert<C>,
-        InsertTemporalError: From<<V::Headers as LayoutInsert<C>>::Error>,
-    {
-        self.insert_temporal_inner(i, n, m, r)
-            .group()
-            .resolve_nowarn()
-    }
-
-    /// Add optical measurement to the end of the measurement vector
-    ///
-    /// Return error if name is non-unique or range is incompatible.
-    pub fn push_optical<C>(
-        &mut self,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
-    ) -> GroupResult<Shortname, PushOpticalError, PushOpticalSummary>
-    where
-        V::Headers: LayoutInsert<C>,
-        PushOpticalError: From<<V::Headers as LayoutInsert<C>>::Error>,
-    {
-        self.push_optical_inner(n, m, r).group().resolve_nowarn()
-    }
-
-    /// Add optical measurement at a given position
-    ///
-    /// Return error if name is non-unique, range is incompatible, or index is
-    /// out of bounds.
-    pub fn insert_optical<C>(
-        &mut self,
-        i: MeasIndex,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
-    ) -> GroupResult<Shortname, InsertOpticalError, InsertOpticalSummary>
-    where
-        V::Headers: LayoutInsert<C>,
-        InsertOpticalError: From<<V::Headers as LayoutInsert<C>>::Error>,
-    {
-        self.insert_optical_inner(i, n, m, r)
-            .group()
-            .resolve_nowarn()
-    }
-
     // /// Add time measurement to the end of the measurement vector.
     // ///
     // /// Return error if time measurement already exists, range is incompatible,
@@ -5319,114 +5312,109 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         Ok((meas, col, rng))
     }
 
-    /// Add time measurement to the end of the measurement vector.
-    ///
-    /// Return error if time measurement already exists or name is non-unique.
-    pub fn push_temporal<C>(
-        &mut self,
-        n: Shortname,
-        m: Temporal<V::Temporal>,
-        c: C,
-    ) -> GroupResult<(), PushTemporalToDatasetError, PushTemporalSummary>
-    where
-        V::DataFrame: LayoutInsert<C>,
-        PushTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
-    {
-        // self.layout
-        //     .check_new_column(&col)
-        //     .map_err(PushTemporalToDatasetError::from)
-        //     .into_nowarn()
-        //     .nowarn_and_then(|()| {
-        self.push_temporal_inner(n, m, c)
-            .map_errors(PushTemporalToDatasetError::from)
-            .group()
-            .resolve_nowarn()
-        // })
-        // .when_ok(|| self.layout.push(col))
-    }
+    // /// Add time measurement to the end of the measurement vector.
+    // ///
+    // /// Return error if time measurement already exists or name is non-unique.
+    // pub fn push_temporal<C>(
+    //     &mut self,
+    //     n: Shortname,
+    //     m: Temporal<V::Temporal>,
+    //     c: C,
+    // ) -> GroupResult<(), PushTemporalToDatasetError, PushTemporalSummary>
+    // where
+    //     V::DataFrame: LayoutInsert<C>,
+    //     PushTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
+    // {
+    //     self.push_temporal_inner(n, m, c)
+    //         .map_errors(PushTemporalToDatasetError::from)
+    //         .group()
+    //         .resolve_nowarn()
+    // }
 
-    /// Add time measurement at the given position
-    ///
-    /// Return error if time measurement already exists, name is non-unique, or
-    /// index is out of bounds.
-    pub fn insert_temporal<C>(
-        &mut self,
-        i: MeasIndex,
-        n: Shortname,
-        m: Temporal<V::Temporal>,
-        c: C,
-    ) -> GroupResult<(), InsertTemporalToDatasetError, InsertTemporalSummary>
-    where
-        V::DataFrame: LayoutInsert<C>,
-        InsertTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
-    {
-        // self.layout
-        //     .check_new_column(&col)
-        //     .map_err(InsertTemporalToDatasetError::from)
-        //     .into_nowarn()
-        //     .nowarn_and_then(|()| {
-        self.insert_temporal_inner(i, n, m, c)
-            .map_errors(InsertTemporalToDatasetError::from)
-            // })
-            // .when_ok(|| {
-            //     self.layout.insert_nocheck(i.into(), col);
-            // })
-            .group()
-            .resolve_nowarn()
-    }
+    // /// Add time measurement at the given position
+    // ///
+    // /// Return error if time measurement already exists, name is non-unique, or
+    // /// index is out of bounds.
+    // pub fn insert_temporal<C>(
+    //     &mut self,
+    //     i: MeasIndex,
+    //     n: Shortname,
+    //     m: Temporal<V::Temporal>,
+    //     c: C,
+    // ) -> GroupResult<(), InsertTemporalToDatasetError, InsertTemporalSummary>
+    // where
+    //     V::DataFrame: LayoutInsert<C>,
+    //     InsertTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
+    // {
+    //     // self.layout
+    //     //     .check_new_column(&col)
+    //     //     .map_err(InsertTemporalToDatasetError::from)
+    //     //     .into_nowarn()
+    //     //     .nowarn_and_then(|()| {
+    //     self.insert_temporal_inner(i, n, m, c)
+    //         .map_errors(InsertTemporalToDatasetError::from)
+    //         // })
+    //         // .when_ok(|| {
+    //         //     self.layout.insert_nocheck(i.into(), col);
+    //         // })
+    //         .group()
+    //         .resolve_nowarn()
+    // }
 
-    /// Add measurement to the end of the measurement vector
-    ///
-    /// Return error if name is non-unique.
-    pub fn push_optical<C>(
-        &mut self,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        c: C,
-    ) -> GroupResult<Shortname, PushOpticalToDatasetError, PushOpticalSummary>
-    where
-        V::DataFrame: LayoutInsert<C>,
-        PushOpticalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
-    {
-        // self.layout
-        //     .check_new_column(&col)
-        //     .map_err(PushOpticalToDatasetError::from)
-        //     .into_nowarn()
-        //     .nowarn_and_then(|()| {
-        self.push_optical_inner(n, m, c)
-            .map_errors(PushOpticalToDatasetError::from)
-            // })
-            // .when_ok(|| self.layout.push_column_nocheck(col))
-            .group()
-            .resolve_nowarn()
-    }
+    // /// Add measurement to the end of the measurement vector
+    // ///
+    // /// Return error if name is non-unique.
+    // pub fn push_optical<C>(
+    //     &mut self,
+    //     n: V::Name,
+    //     m: Optical<V::Optical>,
+    //     c: C,
+    // ) -> GroupResult<
+    //     Shortname,
+    //     PushOpticalError<<V::DataFrame as LayoutInsert<C>>::Error>,
+    //     PushOpticalSummary,
+    // >
+    // where
+    //     V::DataFrame: LayoutInsert<C>,
+    // {
+    //     // self.layout
+    //     //     .check_new_column(&col)
+    //     //     .map_err(PushOpticalToDatasetError::from)
+    //     //     .into_nowarn()
+    //     //     .nowarn_and_then(|()| {
+    //     self.push_optical_inner(n, m, c)
+    //         // })
+    //         // .when_ok(|| self.layout.push_column_nocheck(col))
+    //         .group()
+    //         .resolve_nowarn()
+    // }
 
-    /// Add measurement at a given position
-    ///
-    /// Return error if name is non-unique, or index is out of bounds.
-    pub fn insert_optical<C>(
-        &mut self,
-        i: MeasIndex,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        c: C,
-    ) -> GroupResult<Shortname, InsertOpticalInDatasetError, InsertOpticalSummary>
-    where
-        V::DataFrame: LayoutInsert<C>,
-        InsertOpticalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
-    {
-        // self.layout
-        //     .check_new_column(&col)
-        //     .map_err(InsertOpticalInDatasetError::from)
-        //     .into_nowarn()
-        //     .nowarn_and_then(|()| {
-        self.insert_optical_inner(i, n, m, c)
-            .map_errors(InsertOpticalInDatasetError::from)
-            // })
-            // .when_ok(|| self.layout.insert_column_nocheck(i.into(), col))
-            .group()
-            .resolve_nowarn()
-    }
+    // /// Add measurement at a given position
+    // ///
+    // /// Return error if name is non-unique, or index is out of bounds.
+    // pub fn insert_optical<C>(
+    //     &mut self,
+    //     i: MeasIndex,
+    //     n: V::Name,
+    //     m: Optical<V::Optical>,
+    //     c: C,
+    // ) -> GroupResult<Shortname, InsertOpticalInDatasetError, InsertOpticalSummary>
+    // where
+    //     V::DataFrame: LayoutInsert<C>,
+    //     InsertOpticalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
+    // {
+    //     // self.layout
+    //     //     .check_new_column(&col)
+    //     //     .map_err(InsertOpticalInDatasetError::from)
+    //     //     .into_nowarn()
+    //     //     .nowarn_and_then(|()| {
+    //     self.insert_optical_inner(i, n, m, c)
+    //         .map_errors(InsertOpticalInDatasetError::from)
+    //         // })
+    //         // .when_ok(|| self.layout.insert_column_nocheck(i.into(), col))
+    //         .group()
+    //         .resolve_nowarn()
+    // }
 
     // TODO very wet
 
@@ -5602,6 +5590,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// Set measurements without $PnN, layout, and dataframe together
     ///
     /// Length of measurements must match the width of the input dataframe.
+    #[allow(clippy::needless_pass_by_value)]
     pub fn set_measurements_layout_and_data(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
@@ -9177,67 +9166,39 @@ pub enum RemoveMeasByIndexError {
 }
 
 /// Error when pushing a temporal measurement into [`CoreTEXT`]
-#[derive(From, Display, Debug, Error)]
+#[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum PushTemporalError {
+#[cfg_attr(feature = "python", bound(PyErr: From<E>))]
+pub enum PushTemporalError<E> {
     Center(PushCenterError),
-    Layout(InsertRangeError),
+    Layout(E),
 }
 
 /// Error when inserting a temporal measurement into [`CoreTEXT`]
-#[derive(From, Display, Debug, Error)]
+#[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum InsertTemporalError {
+#[cfg_attr(feature = "python", bound(PyErr: From<E>))]
+pub enum InsertTemporalError<E> {
     Center(InsertCenterError),
-    Layout(InsertRangeError),
+    Layout(E),
 }
 
 /// Error when pushing an optical measurement into [`CoreTEXT`]
-#[derive(From, Display, Debug, Error)]
+#[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum PushOpticalError {
+#[cfg_attr(feature = "python", bound(PyErr: From<E>))]
+pub enum PushOpticalError<E> {
     Unique(NamePresentError),
-    Layout(InsertRangeError),
+    Layout(E),
 }
 
 /// Error when inserting an optical measurement into [`CoreTEXT`]
-#[derive(From, Display, Debug, Error)]
+#[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum InsertOpticalError {
+#[cfg_attr(feature = "python", bound(PyErr: From<E>))]
+pub enum InsertOpticalError<E> {
     Insert(InsertError),
-    Layout(InsertRangeError),
-}
-
-/// Error when pushing a temporal measurement into [`CoreDataset`]
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum PushTemporalToDatasetError {
-    Measurement(PushTemporalError),
-    Column(df::SeriesLengthError),
-}
-
-/// Error when inserting a temporal measurement into [`CoreDataset`]
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum InsertTemporalToDatasetError {
-    Measurement(InsertTemporalError),
-    Column(df::SeriesLengthError),
-}
-
-/// Error when pushing an optical measurement into [`CoreDataset`]
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum PushOpticalToDatasetError {
-    Measurement(PushOpticalError),
-    Column(df::SeriesLengthError),
-}
-
-/// Error when inserting an optical measurement into [`CoreDataset`]
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum InsertOpticalInDatasetError {
-    Measurement(InsertOpticalError),
-    Column(df::SeriesLengthError),
+    Layout(E),
 }
 
 /// Error when attempting to set temporal $PnE to log (2.0)

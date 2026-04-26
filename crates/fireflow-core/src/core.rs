@@ -3840,7 +3840,7 @@ where
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
-        self.layout.check_meas_vec::<V>(&measurements[..])?;
+        layout.check_meas_vec::<V>(&measurements[..])?;
         self.measurements.set_values(measurements)?;
         self.set_layout_inner(layout);
         Ok(())
@@ -5231,6 +5231,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     }
 
     /// Set measurements without $PnN and layout
+    #[allow(clippy::needless_pass_by_value)]
+    // pass by value here to keep api consistent b/t coretext and coredataset
     pub fn set_measurements_and_layout(
         &mut self,
         measurements: TemporalsAndOpticals<V>,

@@ -101,7 +101,7 @@ impl<C> Default for DataFrame<C> {
 }
 
 /// Any valid series from [`FCSDataFrame`]
-#[derive(Clone, From, Delegate)]
+#[derive(Clone, From, Delegate, PartialEq)]
 #[delegate(HasLen)]
 pub enum AnyPrimitiveSeries {
     U08(U08Series),
@@ -232,47 +232,10 @@ impl<T, Raw> InternalSeries<T, Raw> {
 
     fn truncate_from_samesize_int(buf: Buffer<T>) -> CastSeriesResult<Self>
     where
-        T: Copy + PartialOrd + From<Raw>,
-        Raw: Bounded,
+        Raw: FromValue<T> + Into<T>,
+        T: Copy,
     {
-        let go = |x: T| {
-            let upper = T::from(Raw::max_value());
-            let has_err = x > upper;
-            let new = if has_err { upper } else { x };
-            (new, has_err)
-        };
-        map_buffer_iso(buf, go).fmap_once(Self::new)
-    }
-
-    fn truncate_from_int<I0>(buf: &Buffer<I0>) -> CastSeriesResult<Self>
-    where
-        I0: Clone,
-        T: Copy + PartialOrd + From<Raw> + Bounded + TryFrom<I0>,
-        Raw: Bounded,
-    {
-        let res0: CastSeriesResult<Buffer<T>> = buffer_int_to_int(buf);
-        let res1 = Self::truncate_from_samesize_int(res0.inner);
-        let err = res0
-            .loss_position
-            .zip(res1.loss_position)
-            .map(|(x, y)| x.min(y));
-        CastSeriesResult::new(res1.inner, err)
-    }
-
-    fn truncate_from_float<F>(buf: &Buffer<F>) -> CastSeriesResult<Self>
-    where
-        F: AsPrimitive<T> + Float,
-        T: Copy + PartialOrd + From<Raw> + Bounded + AsPrimitive<F>,
-        Raw: Bounded,
-    {
-        let res0: CastSeriesResult<Buffer<T>> = buffer_float_to_int(buf);
-        let res1 = Self::truncate_from_samesize_int(res0.inner);
-        // TODO this is an applicative
-        let err = res0
-            .loss_position
-            .zip(res1.loss_position)
-            .map(|(x, y)| x.min(y));
-        CastSeriesResult::new(res1.inner, err)
+        cast_buffer_samesize::<_, Raw>(buf).fmap_once(Self::new)
     }
 }
 
@@ -328,6 +291,273 @@ pub(crate) trait FromSeries<From>: Sized {
     fn from_series(col: From) -> CastSeriesResult<Self>;
 }
 
+pub(crate) trait FromValue<From>: Sized {
+    const LOSSLESS: bool;
+
+    fn from_value(value: &From) -> CastValueResult<Self>;
+
+    fn is_lossy(value: &From) -> bool {
+        Self::from_value(value).lossy
+    }
+}
+
+#[derive(new)]
+struct CastValueResult<T> {
+    inner: T,
+    lossy: bool,
+}
+
+impl<T> CastValueResult<T> {
+    fn new1(x: T) -> Self {
+        Self::new(x, false)
+    }
+}
+
+impl<F> CastValueResult<F> {
+    fn int_to_float<I>(x: I) -> Self
+    where
+        I: PartialEq + AsPrimitive<F>,
+        F: Float + AsPrimitive<I>,
+    {
+        let new_value: F = x.as_();
+        let old_value: I = new_value.as_();
+        Self::new(new_value, x != old_value)
+    }
+}
+
+impl CastValueResult<f32> {
+    fn f64_to_f32(x: f64) -> Self {
+        let new_value: f32 = x.as_();
+        let old_value = f64::from(new_value);
+        Self::new(new_value, x != old_value)
+    }
+}
+
+impl<I> CastValueResult<I> {
+    fn float_to_int<F>(x: F) -> Self
+    where
+        I: Bounded + AsPrimitive<F>,
+        F: Float + AsPrimitive<I>,
+    {
+        Self::new(x.as_(), !float_is_uint::<F, I>(x))
+    }
+}
+
+macro_rules! impl_from_val_into {
+    ($from:ident, $to:ident) => {
+        impl FromValue<$from> for $to {
+            const LOSSLESS: bool = true;
+            fn from_value(value: &$from) -> CastValueResult<Self> {
+                CastValueResult::new1((*value).into())
+            }
+        }
+    };
+}
+
+macro_rules! impl_from_val_try_into {
+    ($from:ident, $to:ident) => {
+        impl FromValue<$from> for $to {
+            const LOSSLESS: bool = false;
+            fn from_value(value: &$from) -> CastValueResult<Self> {
+                match (*value).try_into() {
+                    Ok(x) => CastValueResult::new1(x),
+                    Err(_) => CastValueResult::new($to::max_value(), false),
+                }
+            }
+        }
+    };
+}
+
+macro_rules! impl_from_val_int_to_float {
+    ($from:ident, $inter:ident, $to:ident) => {
+        impl FromValue<$from> for $to {
+            const LOSSLESS: bool = false;
+            fn from_value(value: &$from) -> CastValueResult<Self> {
+                CastValueResult::int_to_float($inter::from(*value))
+            }
+        }
+    };
+}
+
+macro_rules! impl_from_val_float_to_int {
+    ($from:ident, $to:ident) => {
+        impl FromValue<$from> for $to {
+            const LOSSLESS: bool = false;
+            fn from_value(value: &$from) -> CastValueResult<Self> {
+                CastValueResult::float_to_int(*value)
+            }
+        }
+    };
+}
+
+// U08; all targets are larger, so all conversions are lossless and don't
+// require checks
+
+impl_from_val_into!(u8, u8);
+impl_from_val_into!(u8, u16);
+impl_from_val_into!(u8, U24);
+impl_from_val_into!(u8, u32);
+impl_from_val_into!(u8, U40);
+impl_from_val_into!(u8, U48);
+impl_from_val_into!(u8, U56);
+impl_from_val_into!(u8, u64);
+impl_from_val_into!(u8, f32);
+impl_from_val_into!(u8, f64);
+
+// U16; all except u8 are larger, so no conversions require checks except for
+// u16 -> u8
+
+impl_from_val_try_into!(u16, u8);
+impl_from_val_into!(u16, u16);
+impl_from_val_into!(u16, U24);
+impl_from_val_into!(u16, u32);
+impl_from_val_into!(u16, U40);
+impl_from_val_into!(u16, U48);
+impl_from_val_into!(u16, U56);
+impl_from_val_into!(u16, u64);
+impl_from_val_into!(u16, f32);
+impl_from_val_into!(u16, f64);
+
+// U24; all except u8 and u16 are larger, so no conversion require checks except
+// for u24 (really a u32) -> u8 or u16. u24 is actually a u32 internally and
+// also a subset of u32, so u24 -> u32 is a noop. Also, u24 can perfectly fit
+// within an f32 so this is also lossless and requires no checks.
+
+impl_from_val_try_into!(U24, u8);
+impl_from_val_try_into!(U24, u16);
+impl_from_val_into!(U24, U24);
+impl_from_val_into!(U24, u32); // target is larger
+impl_from_val_into!(U24, U40);
+impl_from_val_into!(U24, U48);
+impl_from_val_into!(U24, U56);
+impl_from_val_into!(U24, u64);
+impl_from_val_into!(U24, f32);
+impl_from_val_int_to_float!(U24, u32, f64);
+
+// U32; requires the following special conversion logic:
+//
+// 1. -> u8/u16: these are smaller so check for loss
+// 2. -> u24: this is the same type with a reduced range, so check for anything
+//    over range and mutate in place without allocating new memory.
+// 3. -> f32: anything larger than 2^24 will lose precision, so need to check
+//
+// u32 can perfectly fit in an f64 so this is lossless
+
+impl_from_val_try_into!(u32, u8);
+impl_from_val_try_into!(u32, u16);
+impl_from_val_try_into!(u32, U24);
+impl_from_val_into!(u32, u32);
+impl_from_val_into!(u32, U40);
+impl_from_val_into!(u32, U48);
+impl_from_val_into!(u32, U56);
+impl_from_val_into!(u32, u64);
+impl_from_val_int_to_float!(u32, u32, f32);
+impl_from_val_into!(u32, f64);
+
+// U40; in general this is treated as a u64 when going to smaller types.
+//
+// Any of the larger integer types (48, 56, 64) are the same primitive type and
+// have larger ranges, so these conversions are noops.
+//
+// f32 conversion requires similar checks to u32.
+//
+// f64 conversion is lossless since the upper integer limit of an f64 is 2^53.
+
+impl_from_val_try_into!(U40, u8);
+impl_from_val_try_into!(U40, u16);
+impl_from_val_try_into!(U40, U24);
+impl_from_val_try_into!(U40, u32);
+impl_from_val_into!(U40, U40);
+impl_from_val_into!(U40, U48); // target is larger
+impl_from_val_into!(U40, U56); // target is larger
+impl_from_val_into!(U40, u64); // target is larger
+impl_from_val_int_to_float!(U40, u64, f32);
+impl_from_val_into!(U40, f64);
+
+// U48; This is the same as u40 except that u48 -> u40 is an in-place truncation
+// and check since u40 is the same underlying type as u48 except with a smaller
+// range.
+
+impl_from_val_try_into!(U48, u8);
+impl_from_val_try_into!(U48, u16);
+impl_from_val_try_into!(U48, U24);
+impl_from_val_try_into!(U48, u32);
+impl_from_val_try_into!(U48, U40);
+impl_from_val_into!(U48, U48);
+impl_from_val_into!(U48, U56); // target is larger
+impl_from_val_into!(U48, u64); // target is larger
+impl_from_val_int_to_float!(U48, u64, f32);
+impl_from_val_into!(U48, f64);
+
+// U56; This is the same as u48 and u40, continuing the same pattern.
+//
+// The only other difference between this and u48 is that f64 conversion is no
+// longer totally lossless, so this needs a precision check.
+
+impl_from_val_try_into!(U56, u8);
+impl_from_val_try_into!(U56, u16);
+impl_from_val_try_into!(U56, U24);
+impl_from_val_try_into!(U56, u32);
+impl_from_val_try_into!(U56, U40);
+impl_from_val_try_into!(U56, U48);
+impl_from_val_into!(U56, U56);
+impl_from_val_into!(U56, u64);
+impl_from_val_int_to_float!(U56, u64, f32);
+impl_from_val_int_to_float!(U56, u64, f64);
+
+// U64; Generally the same as u56, continuing the same pattern
+
+impl_from_val_try_into!(u64, u8);
+impl_from_val_try_into!(u64, u16);
+impl_from_val_try_into!(u64, U24);
+impl_from_val_try_into!(u64, u32);
+impl_from_val_try_into!(u64, U40);
+impl_from_val_try_into!(u64, U48);
+impl_from_val_try_into!(u64, U56);
+impl_from_val_into!(u64, u64);
+impl_from_val_int_to_float!(u64, u64, f32);
+impl_from_val_int_to_float!(u64, u64, f64);
+
+// F32; When converting to a primitive integer, this conversion requires a
+// loss of precision check. When converting to an unaligned integer (u24, etc)
+// this additionally requires a range check to ensure the integer value is not
+// out of range.
+//
+// f32 -> f64 is lossless, see
+// https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
+
+impl_from_val_float_to_int!(f32, u8);
+impl_from_val_float_to_int!(f32, u16);
+impl_from_val_float_to_int!(f32, U24);
+impl_from_val_float_to_int!(f32, u32);
+impl_from_val_float_to_int!(f32, U40);
+impl_from_val_float_to_int!(f32, U48);
+impl_from_val_float_to_int!(f32, U56);
+impl_from_val_float_to_int!(f32, u64);
+impl_from_val_into!(f32, f32);
+impl_from_val_into!(f32, f64);
+
+// F64; same as f32 except going from f64 to f32 requires a loss of precision
+// check
+
+impl_from_val_float_to_int!(f64, u8);
+impl_from_val_float_to_int!(f64, u16);
+impl_from_val_float_to_int!(f64, U24);
+impl_from_val_float_to_int!(f64, u32);
+impl_from_val_float_to_int!(f64, U40);
+impl_from_val_float_to_int!(f64, U48);
+impl_from_val_float_to_int!(f64, U56);
+impl_from_val_float_to_int!(f64, u64);
+
+impl FromValue<f64> for f32 {
+    const LOSSLESS: bool = false;
+    fn from_value(value: &f64) -> CastValueResult<Self> {
+        CastValueResult::f64_to_f32(*value)
+    }
+}
+
+impl_from_val_into!(f64, f64);
+
 impl<T> FromSeries<AnyPrimitiveSeries> for T
 where
     T: FromSeries<U08Series>
@@ -363,6 +593,17 @@ where
 // Note that going from Internal to Primitive does not result in loss since we
 // don't care what primitive type we end up with in this case and each internal
 // series can map perfectly to one primitive colume.
+//
+// There are only three cases that need to be covered here since the logic of
+// how to convert the values themselves is handled one layer down with another
+// trait. For this layer, the main concern is performance. With that, the three
+// cases are:
+// 1. no-op: series' primitive types are the same and conversion is lossless
+// 2. samesize mutation: primitive types are the same but conversion is lossy
+// 3. different primitives: may/may not be lossy but target type is different
+//
+// 1. is zero-cost since it is a noop. 2. reuses the original vector since the
+// primitives are the same. 3. requires a reallocation.
 
 /// Cast one series into another when underlying types are exactly the same.
 macro_rules! impl_cast_col_noop {
@@ -380,40 +621,7 @@ macro_rules! impl_cast_col_into {
     ($from:ident, $to:ident) => {
         impl FromSeries<$from> for $to {
             fn from_series(col: $from) -> CastSeriesResult<Self> {
-                map_buffer(&col.into(), |x| (x.into(), false)).fmap_once(Self::new)
-            }
-        }
-    };
-}
-
-/// Cast one int series into another where conversion might fail.
-macro_rules! impl_cast_col_int_to_int {
-    ($from:ident, $to:ident) => {
-        impl FromSeries<$from> for $to {
-            fn from_series(col: $from) -> CastSeriesResult<Self> {
-                buffer_int_to_int(&col.into()).fmap_once(Self::new)
-            }
-        }
-    };
-}
-
-/// Cast one int series into float series where conversion might fail.
-macro_rules! impl_cast_col_int_to_float {
-    ($from:ident, $to:ident) => {
-        impl FromSeries<$from> for $to {
-            fn from_series(col: $from) -> CastSeriesResult<Self> {
-                buffer_int_to_float(&col.into()).fmap_once(Self::new)
-            }
-        }
-    };
-}
-
-/// Cast one float series to into series where conversion might fail.
-macro_rules! impl_cast_col_float_to_int {
-    ($from:ident, $to:ident) => {
-        impl FromSeries<$from> for $to {
-            fn from_series(col: $from) -> CastSeriesResult<Self> {
-                buffer_float_to_int(&col.into()).fmap_once(Self::new)
+                cast_buffer(&col.into()).fmap_once(Self::new)
             }
         }
     };
@@ -434,62 +642,7 @@ macro_rules! impl_truncate_from_samesize_int {
     };
 }
 
-/// Cast an integer series to a truncated series with different internal type.
-///
-/// This might fail for two reasons. First, the starting value is bigger than
-/// the target type can hold. Second, the value might be higher than the maximum
-/// range of the target type, which is not the same as the maximum bitwise value
-/// of the target type because it is truncated.
-macro_rules! impl_truncate_from_int {
-    ($from:ident, $to:ident) => {
-        impl FromSeries<$from> for $to {
-            fn from_series(col: $from) -> CastSeriesResult<Self> {
-                Self::truncate_from_int(&col.into())
-            }
-        }
-    };
-}
-
-/// Cast an float series to a truncated int series.
-macro_rules! impl_truncate_from_float {
-    ($from:ident, $to:ident) => {
-        impl FromSeries<$from> for $to {
-            fn from_series(col: $from) -> CastSeriesResult<Self> {
-                Self::truncate_from_float(&col.into())
-            }
-        }
-    };
-}
-
-/// Cast an int series to a float when int is validated to be within float range.
-macro_rules! impl_int_to_float_lossless {
-    ($from:ident, $to:ident) => {
-        impl FromSeries<$from> for $to {
-            fn from_series(col: $from) -> CastSeriesResult<Self> {
-                map_buffer(&col.into(), |x| (x.as_(), false)).fmap_once(Self::new)
-            }
-        }
-    };
-}
-
-/// Cast an f64 to f32 series.
-macro_rules! impl_f64_to_f32 {
-    ($from:ident, $to:ident) => {
-        impl FromSeries<$from> for $to {
-            fn from_series(col: $from) -> CastSeriesResult<Self> {
-                let go = |x: f64| {
-                    let new_value: f32 = x.as_();
-                    let old_value = f64::from(new_value);
-                    (new_value, x != old_value)
-                };
-                map_buffer(&col.into(), go).fmap_once(Self::new)
-            }
-        }
-    };
-}
-
-// U08; all targets are larger, so all conversions are lossless and don't
-// require checks
+// U08
 
 impl_cast_col_noop!(InternalU08Series, InternalU08Series);
 impl_cast_col_into!(InternalU08Series, InternalU16Series);
@@ -513,10 +666,9 @@ impl_cast_col_into!(U08Series, InternalU64Series);
 impl_cast_col_into!(U08Series, InternalF32Series);
 impl_cast_col_into!(U08Series, InternalF64Series);
 
-// U16; all except u8 are larger, so no conversions require checks except for
-// u16 -> u8
+// U16
 
-impl_cast_col_int_to_int!(InternalU16Series, InternalU08Series);
+impl_cast_col_into!(InternalU16Series, InternalU08Series);
 impl_cast_col_noop!(InternalU16Series, InternalU16Series);
 impl_cast_col_into!(InternalU16Series, InternalU24Series);
 impl_cast_col_into!(InternalU16Series, InternalU32Series);
@@ -527,7 +679,7 @@ impl_cast_col_into!(InternalU16Series, InternalU64Series);
 impl_cast_col_into!(InternalU16Series, InternalF32Series);
 impl_cast_col_into!(InternalU16Series, InternalF64Series);
 
-impl_cast_col_int_to_int!(U16Series, InternalU08Series);
+impl_cast_col_into!(U16Series, InternalU08Series);
 impl_cast_col_noop!(U16Series, InternalU16Series);
 impl_cast_col_into!(U16Series, InternalU24Series);
 impl_cast_col_into!(U16Series, InternalU32Series);
@@ -538,259 +690,188 @@ impl_cast_col_into!(U16Series, InternalU64Series);
 impl_cast_col_into!(U16Series, InternalF32Series);
 impl_cast_col_into!(U16Series, InternalF64Series);
 
-// U24; all except u8 and u16 are larger, so no conversion require checks except
-// for u24 (really a u32) -> u8 or u16. u24 is actually a u32 internally and
-// also a subset of u32, so u24 -> u32 is a noop. Also, u24 can perfectly fit
-// within an f32 so this is also lossless and requires no checks.
+// U24
 
-impl_cast_col_int_to_int!(InternalU24Series, InternalU08Series);
-impl_cast_col_int_to_int!(InternalU24Series, InternalU16Series);
+impl_cast_col_into!(InternalU24Series, InternalU08Series);
+impl_cast_col_into!(InternalU24Series, InternalU16Series);
 impl_cast_col_noop!(InternalU24Series, InternalU24Series);
-impl_cast_col_noop!(InternalU24Series, InternalU32Series); // target is larger
+impl_cast_col_noop!(InternalU24Series, InternalU32Series);
 impl_cast_col_into!(InternalU24Series, InternalU40Series);
 impl_cast_col_into!(InternalU24Series, InternalU48Series);
 impl_cast_col_into!(InternalU24Series, InternalU56Series);
 impl_cast_col_into!(InternalU24Series, InternalU64Series);
-impl_int_to_float_lossless!(InternalU24Series, InternalF32Series);
+impl_cast_col_into!(InternalU24Series, InternalF32Series);
 impl_cast_col_into!(InternalU24Series, InternalF64Series);
 
-// U32; requires the following special conversion logic:
-//
-// 1. -> u8/u16: these are smaller so check for loss
-// 2. -> u24: this is the same type with a reduced range, so check for anything
-//    over range and mutate in place without allocating new memory.
-// 3. -> f32: anything larger than 2^24 will lose precision, so need to check
-//
-// u32 can perfectly fit in an f64 so this is lossless
+// U32
 
-impl_cast_col_int_to_int!(InternalU32Series, InternalU08Series);
-impl_cast_col_int_to_int!(InternalU32Series, InternalU16Series);
+impl_cast_col_into!(InternalU32Series, InternalU08Series);
+impl_cast_col_into!(InternalU32Series, InternalU16Series);
 impl_truncate_from_samesize_int!(InternalU32Series, InternalU24Series);
 impl_cast_col_noop!(InternalU32Series, InternalU32Series);
 impl_cast_col_into!(InternalU32Series, InternalU40Series);
 impl_cast_col_into!(InternalU32Series, InternalU48Series);
 impl_cast_col_into!(InternalU32Series, InternalU56Series);
 impl_cast_col_into!(InternalU32Series, InternalU64Series);
-impl_cast_col_int_to_float!(InternalU32Series, InternalF32Series);
+impl_cast_col_into!(InternalU32Series, InternalF32Series);
 impl_cast_col_into!(InternalU32Series, InternalF64Series);
 
-impl_cast_col_int_to_int!(U32Series, InternalU08Series);
-impl_cast_col_int_to_int!(U32Series, InternalU16Series);
+impl_cast_col_into!(U32Series, InternalU08Series);
+impl_cast_col_into!(U32Series, InternalU16Series);
 impl_truncate_from_samesize_int!(U32Series, InternalU24Series);
 impl_cast_col_noop!(U32Series, InternalU32Series);
 impl_cast_col_into!(U32Series, InternalU40Series);
 impl_cast_col_into!(U32Series, InternalU48Series);
 impl_cast_col_into!(U32Series, InternalU56Series);
 impl_cast_col_into!(U32Series, InternalU64Series);
-impl_cast_col_int_to_float!(U32Series, InternalF32Series);
+impl_cast_col_into!(U32Series, InternalF32Series);
 impl_cast_col_into!(U32Series, InternalF64Series);
 
-// U40; in general this is treated as a u64 when going to smaller types. The
-// only special thing we need to add is an additional range check for u24
-// conversion since simply converting to u32 using TryFrom won't be enough.
-//
-// Anything of the larger integer types (48, 56, 64) are the same underlying type
-// and have larger ranges, so these conversions are noops.
-//
-// f32 conversion requires similar checks to u32.
-//
-// f64 conversion is lossless since the upper integer limit of an f64 is 2^53.
+// U40
 
-impl_cast_col_int_to_int!(InternalU40Series, InternalU08Series);
-impl_cast_col_int_to_int!(InternalU40Series, InternalU16Series);
-impl_truncate_from_int!(InternalU40Series, InternalU24Series);
-impl_cast_col_int_to_int!(InternalU40Series, InternalU32Series);
+impl_cast_col_into!(InternalU40Series, InternalU08Series);
+impl_cast_col_into!(InternalU40Series, InternalU16Series);
+impl_cast_col_into!(InternalU40Series, InternalU24Series);
+impl_cast_col_into!(InternalU40Series, InternalU32Series);
 impl_cast_col_noop!(InternalU40Series, InternalU40Series);
-impl_cast_col_noop!(InternalU40Series, InternalU48Series); // target is larger
-impl_cast_col_noop!(InternalU40Series, InternalU56Series); // target is larger
-impl_cast_col_noop!(InternalU40Series, InternalU64Series); // target is larger
-impl_cast_col_int_to_float!(InternalU40Series, InternalF32Series);
-impl_int_to_float_lossless!(InternalU40Series, InternalF64Series);
+impl_cast_col_noop!(InternalU40Series, InternalU48Series);
+impl_cast_col_noop!(InternalU40Series, InternalU56Series);
+impl_cast_col_noop!(InternalU40Series, InternalU64Series);
+impl_cast_col_into!(InternalU40Series, InternalF32Series);
+impl_cast_col_into!(InternalU40Series, InternalF64Series);
 
-// U48; This is the same as u40 except that u48 -> u40 is an in-place truncation
-// and check since u40 is the same underlying type as u48 except with a smaller
-// range.
+// U48
 
-impl_cast_col_int_to_int!(InternalU48Series, InternalU08Series);
-impl_cast_col_int_to_int!(InternalU48Series, InternalU16Series);
-impl_truncate_from_int!(InternalU48Series, InternalU24Series);
-impl_cast_col_int_to_int!(InternalU48Series, InternalU32Series);
+impl_cast_col_into!(InternalU48Series, InternalU08Series);
+impl_cast_col_into!(InternalU48Series, InternalU16Series);
+impl_cast_col_into!(InternalU48Series, InternalU24Series);
+impl_cast_col_into!(InternalU48Series, InternalU32Series);
 impl_truncate_from_samesize_int!(InternalU48Series, InternalU40Series);
 impl_cast_col_noop!(InternalU48Series, InternalU48Series);
-impl_cast_col_noop!(InternalU48Series, InternalU56Series); // target is larger
-impl_cast_col_noop!(InternalU48Series, InternalU64Series); // target is larger
-impl_cast_col_int_to_float!(InternalU48Series, InternalF32Series);
-impl_int_to_float_lossless!(InternalU48Series, InternalF64Series);
+impl_cast_col_noop!(InternalU48Series, InternalU56Series);
+impl_cast_col_noop!(InternalU48Series, InternalU64Series);
+impl_cast_col_into!(InternalU48Series, InternalF32Series);
+impl_cast_col_into!(InternalU48Series, InternalF64Series);
 
-// U56; This is the same as u48 and u40, continuing the same pattern.
-//
-// The only other difference between this and u48 is that f64 conversion is no
-// longer totally lossless, so this needs a precision check.
+// U56
 
-impl_cast_col_int_to_int!(InternalU56Series, InternalU08Series);
-impl_cast_col_int_to_int!(InternalU56Series, InternalU16Series);
-impl_truncate_from_int!(InternalU56Series, InternalU24Series);
-impl_cast_col_int_to_int!(InternalU56Series, InternalU32Series);
+impl_cast_col_into!(InternalU56Series, InternalU08Series);
+impl_cast_col_into!(InternalU56Series, InternalU16Series);
+impl_cast_col_into!(InternalU56Series, InternalU24Series);
+impl_cast_col_into!(InternalU56Series, InternalU32Series);
 impl_truncate_from_samesize_int!(InternalU56Series, InternalU40Series);
 impl_truncate_from_samesize_int!(InternalU56Series, InternalU48Series);
-impl_cast_col_noop!(InternalU56Series, InternalU56Series); // target is larger
+impl_cast_col_noop!(InternalU56Series, InternalU56Series);
 impl_cast_col_noop!(InternalU56Series, InternalU64Series);
-impl_cast_col_int_to_float!(InternalU56Series, InternalF32Series);
-impl_cast_col_int_to_float!(InternalU56Series, InternalF64Series);
+impl_cast_col_into!(InternalU56Series, InternalF32Series);
+impl_cast_col_into!(InternalU56Series, InternalF64Series);
 
-// U64; Generally the same as u56, continuing the same pattern
+// U64
 
-impl_cast_col_int_to_int!(InternalU64Series, InternalU08Series);
-impl_cast_col_int_to_int!(InternalU64Series, InternalU16Series);
-impl_truncate_from_int!(InternalU64Series, InternalU24Series);
-impl_cast_col_int_to_int!(InternalU64Series, InternalU32Series);
+impl_cast_col_into!(InternalU64Series, InternalU08Series);
+impl_cast_col_into!(InternalU64Series, InternalU16Series);
+impl_cast_col_into!(InternalU64Series, InternalU24Series);
+impl_cast_col_into!(InternalU64Series, InternalU32Series);
 impl_truncate_from_samesize_int!(InternalU64Series, InternalU40Series);
 impl_truncate_from_samesize_int!(InternalU64Series, InternalU48Series);
 impl_truncate_from_samesize_int!(InternalU64Series, InternalU56Series);
 impl_cast_col_noop!(InternalU64Series, InternalU64Series);
-impl_cast_col_int_to_float!(InternalU64Series, InternalF32Series);
-impl_cast_col_int_to_float!(InternalU64Series, InternalF64Series);
+impl_cast_col_into!(InternalU64Series, InternalF32Series);
+impl_cast_col_into!(InternalU64Series, InternalF64Series);
 
-impl_cast_col_int_to_int!(U64Series, InternalU08Series);
-impl_cast_col_int_to_int!(U64Series, InternalU16Series);
-impl_truncate_from_int!(U64Series, InternalU24Series);
-impl_cast_col_int_to_int!(U64Series, InternalU32Series);
+impl_cast_col_into!(U64Series, InternalU08Series);
+impl_cast_col_into!(U64Series, InternalU16Series);
+impl_cast_col_into!(U64Series, InternalU24Series);
+impl_cast_col_into!(U64Series, InternalU32Series);
 impl_truncate_from_samesize_int!(U64Series, InternalU40Series);
 impl_truncate_from_samesize_int!(U64Series, InternalU48Series);
 impl_truncate_from_samesize_int!(U64Series, InternalU56Series);
 impl_cast_col_noop!(U64Series, InternalU64Series);
-impl_cast_col_int_to_float!(U64Series, InternalF32Series);
-impl_cast_col_int_to_float!(U64Series, InternalF64Series);
+impl_cast_col_into!(U64Series, InternalF32Series);
+impl_cast_col_into!(U64Series, InternalF64Series);
 
-// F32; When converting to a primitive integer, this conversion requires a
-// loss of precision check. When converting to an unaligned integer (u24, etc)
-// this additionally requires a range check to ensure the integer value is not
-// out of range.
-//
-// f32 -> f64 is lossless, see
-// https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
+// F32
 
-impl_cast_col_float_to_int!(InternalF32Series, InternalU08Series);
-impl_cast_col_float_to_int!(InternalF32Series, InternalU16Series);
-impl_truncate_from_float!(InternalF32Series, InternalU24Series);
-impl_cast_col_float_to_int!(InternalF32Series, InternalU32Series);
-impl_truncate_from_float!(InternalF32Series, InternalU40Series);
-impl_truncate_from_float!(InternalF32Series, InternalU48Series);
-impl_truncate_from_float!(InternalF32Series, InternalU56Series);
-impl_cast_col_float_to_int!(InternalF32Series, InternalU64Series);
+impl_cast_col_into!(InternalF32Series, InternalU08Series);
+impl_cast_col_into!(InternalF32Series, InternalU16Series);
+impl_cast_col_into!(InternalF32Series, InternalU24Series);
+impl_cast_col_into!(InternalF32Series, InternalU32Series);
+impl_cast_col_into!(InternalF32Series, InternalU40Series);
+impl_cast_col_into!(InternalF32Series, InternalU48Series);
+impl_cast_col_into!(InternalF32Series, InternalU56Series);
+impl_cast_col_into!(InternalF32Series, InternalU64Series);
 impl_cast_col_noop!(InternalF32Series, InternalF32Series);
 impl_cast_col_into!(InternalF32Series, InternalF64Series);
 
-impl_cast_col_float_to_int!(F32Series, InternalU08Series);
-impl_cast_col_float_to_int!(F32Series, InternalU16Series);
-impl_truncate_from_float!(F32Series, InternalU24Series);
-impl_cast_col_float_to_int!(F32Series, InternalU32Series);
-impl_truncate_from_float!(F32Series, InternalU40Series);
-impl_truncate_from_float!(F32Series, InternalU48Series);
-impl_truncate_from_float!(F32Series, InternalU56Series);
-impl_cast_col_float_to_int!(F32Series, InternalU64Series);
+impl_cast_col_into!(F32Series, InternalU08Series);
+impl_cast_col_into!(F32Series, InternalU16Series);
+impl_cast_col_into!(F32Series, InternalU24Series);
+impl_cast_col_into!(F32Series, InternalU32Series);
+impl_cast_col_into!(F32Series, InternalU40Series);
+impl_cast_col_into!(F32Series, InternalU48Series);
+impl_cast_col_into!(F32Series, InternalU56Series);
+impl_cast_col_into!(F32Series, InternalU64Series);
 impl_cast_col_noop!(F32Series, InternalF32Series);
 impl_cast_col_into!(F32Series, InternalF64Series);
 
-// F64; same as f32 except going from f64 to f32 requires a loss of precision
-// check
+// F64
 
-impl_cast_col_float_to_int!(InternalF64Series, InternalU08Series);
-impl_cast_col_float_to_int!(InternalF64Series, InternalU16Series);
-impl_truncate_from_float!(InternalF64Series, InternalU24Series);
-impl_cast_col_float_to_int!(InternalF64Series, InternalU32Series);
-impl_truncate_from_float!(InternalF64Series, InternalU40Series);
-impl_truncate_from_float!(InternalF64Series, InternalU48Series);
-impl_truncate_from_float!(InternalF64Series, InternalU56Series);
-impl_cast_col_float_to_int!(InternalF64Series, InternalU64Series);
-impl_f64_to_f32!(InternalF64Series, InternalF32Series);
+impl_cast_col_into!(InternalF64Series, InternalU08Series);
+impl_cast_col_into!(InternalF64Series, InternalU16Series);
+impl_cast_col_into!(InternalF64Series, InternalU24Series);
+impl_cast_col_into!(InternalF64Series, InternalU32Series);
+impl_cast_col_into!(InternalF64Series, InternalU40Series);
+impl_cast_col_into!(InternalF64Series, InternalU48Series);
+impl_cast_col_into!(InternalF64Series, InternalU56Series);
+impl_cast_col_into!(InternalF64Series, InternalU64Series);
+impl_cast_col_into!(InternalF64Series, InternalF32Series);
 impl_cast_col_noop!(InternalF64Series, InternalF64Series);
 
-impl_cast_col_float_to_int!(F64Series, InternalU08Series);
-impl_cast_col_float_to_int!(F64Series, InternalU16Series);
-impl_truncate_from_float!(F64Series, InternalU24Series);
-impl_cast_col_float_to_int!(F64Series, InternalU32Series);
-impl_truncate_from_float!(F64Series, InternalU40Series);
-impl_truncate_from_float!(F64Series, InternalU48Series);
-impl_truncate_from_float!(F64Series, InternalU56Series);
-impl_cast_col_float_to_int!(F64Series, InternalU64Series);
-impl_f64_to_f32!(F64Series, InternalF32Series);
+impl_cast_col_into!(F64Series, InternalU08Series);
+impl_cast_col_into!(F64Series, InternalU16Series);
+impl_cast_col_into!(F64Series, InternalU24Series);
+impl_cast_col_into!(F64Series, InternalU32Series);
+impl_cast_col_into!(F64Series, InternalU40Series);
+impl_cast_col_into!(F64Series, InternalU48Series);
+impl_cast_col_into!(F64Series, InternalU56Series);
+impl_cast_col_into!(F64Series, InternalU64Series);
+impl_cast_col_into!(F64Series, InternalF32Series);
 impl_cast_col_noop!(F64Series, InternalF64Series);
 
-fn buffer_int_to_float<I, F>(buf: &Buffer<I>) -> CastSeriesResult<Buffer<F>>
+fn cast_buffer<X, Y>(buf: &Buffer<X>) -> CastSeriesResult<Buffer<Y>>
 where
-    I: Bounded + PartialEq + AsPrimitive<F>,
-    F: Float + AsPrimitive<I>,
-    Buffer<F>: From<Vec<F>>,
-{
-    let go = |x: I| {
-        let new_value: F = x.as_();
-        let old_value: I = new_value.as_();
-        (new_value, x != old_value)
-    };
-    map_buffer(buf, go)
-}
-
-fn buffer_int_to_int<I0, I1>(buf: &Buffer<I0>) -> CastSeriesResult<Buffer<I1>>
-where
-    I1: Bounded,
-    I0: TryInto<I1> + Clone,
-{
-    let go = |x: I0| {
-        if let Ok(y) = x.try_into() {
-            (y, false)
-        } else {
-            (I1::max_value(), true)
-        }
-    };
-    map_buffer(buf, go)
-}
-
-fn buffer_float_to_int<I, F>(buf: &Buffer<F>) -> CastSeriesResult<Buffer<I>>
-where
-    I: Bounded + AsPrimitive<F>,
-    F: Float + AsPrimitive<I>,
-    Buffer<I>: From<Vec<I>>,
-{
-    map_buffer(buf, |x: F| (x.as_(), !float_is_uint::<F, I>(x)))
-}
-
-fn map_buffer<F, X, Y>(buf: &Buffer<X>, mut f: F) -> CastSeriesResult<Buffer<Y>>
-where
-    X: Clone,
     Buffer<Y>: From<Vec<Y>>,
-    F: FnMut(X) -> (Y, bool),
+    Y: FromValue<X>,
 {
     let mut err = None;
     let new = buf
         .iter()
-        .cloned()
         .enumerate()
         .map(|(i, x)| {
-            let (y, has_loss) = f(x);
-            if has_loss {
+            let res = FromValue::from_value(x);
+            if res.lossy {
                 err = Some(i);
             }
-            y
+            res.inner
         })
         .collect();
     CastSeriesResult::new(Buffer::from(new), err)
 }
 
-fn map_buffer_iso<F, X>(buf: Buffer<X>, mut f: F) -> CastSeriesResult<Buffer<X>>
+fn cast_buffer_samesize<X, Y>(buf: Buffer<X>) -> CastSeriesResult<Buffer<X>>
 where
     X: Copy,
     Buffer<X>: From<Vec<X>>,
-    F: FnMut(X) -> (X, bool),
+    Y: FromValue<X> + Into<X>,
 {
     let mut err = None;
     let mut inner = buf.make_mut();
     for (i, x) in inner.iter_mut().enumerate() {
-        let (y, has_loss) = f(*x);
-        if has_loss {
+        let res = Y::from_value(x);
+        if res.lossy {
             err = Some(i);
         }
-        *x = y;
+        *x = res.inner.into();
     }
     CastSeriesResult::new(Buffer::from(inner), err)
 }
@@ -817,89 +898,89 @@ pub enum FCSDatatype {
     F64,
 }
 
-impl PartialEq for AnyPrimitiveSeries {
-    /// Test for numeric equality between two series.
-    ///
-    /// This will attempt to convert b/t datatypes when testing equality; for
-    /// example, a `1` / `1.0` will be equal regardless of datatype because
-    /// it can be losslessly converted between all possible types for a series
-    /// (u8-64 and f32/f64).
-    fn eq(&self, other: &Self) -> bool {
-        fn go_try_into<XS, YS, X, Y>(xs: &XS, ys: &YS) -> bool
-        where
-            XS: AsRef<[X]>,
-            YS: AsRef<[Y]>,
-            X: PartialEq,
-            Y: TryInto<X> + Copy,
-        {
-            xs.as_ref()
-                .iter()
-                .zip(ys.as_ref().iter())
-                .all(|(x, y)| (*y).try_into().is_ok_and(|yx| &yx == x))
-        }
+// impl PartialEq for AnyPrimitiveSeries {
+//     /// Test for numeric equality between two series.
+//     ///
+//     /// This will attempt to convert b/t datatypes when testing equality; for
+//     /// example, a `1` / `1.0` will be equal regardless of datatype because
+//     /// it can be losslessly converted between all possible types for a series
+//     /// (u8-64 and f32/f64).
+//     fn eq(&self, other: &Self) -> bool {
+//         fn go_try_into<XS, YS, X, Y>(xs: &XS, ys: &YS) -> bool
+//         where
+//             XS: AsRef<[X]>,
+//             YS: AsRef<[Y]>,
+//             X: PartialEq,
+//             Y: TryInto<X> + Copy,
+//         {
+//             xs.as_ref()
+//                 .iter()
+//                 .zip(ys.as_ref().iter())
+//                 .all(|(x, y)| (*y).try_into().is_ok_and(|yx| &yx == x))
+//         }
 
-        fn go_int_float<IS, FS, I, F>(xs: &IS, ys: &FS) -> bool
-        where
-            IS: AsRef<[I]>,
-            FS: AsRef<[F]>,
-            I: Bounded + AsPrimitive<F>,
-            F: Float + 'static,
-        {
-            xs.as_ref()
-                .iter()
-                .zip(ys.as_ref().iter())
-                .all(|(x, y)| float_is_uint::<F, I>(*y) && (*x).as_() == *y)
-        }
+//         fn go_int_float<IS, FS, I, F>(xs: &IS, ys: &FS) -> bool
+//         where
+//             IS: AsRef<[I]>,
+//             FS: AsRef<[F]>,
+//             I: Bounded + AsPrimitive<F>,
+//             F: Float + 'static,
+//         {
+//             xs.as_ref()
+//                 .iter()
+//                 .zip(ys.as_ref().iter())
+//                 .all(|(x, y)| float_is_uint::<F, I>(*y) && (*x).as_() == *y)
+//         }
 
-        if self.len() != other.len() {
-            return false;
-        }
+//         if self.len() != other.len() {
+//             return false;
+//         }
 
-        match (self, other) {
-            (Self::U08(xs), Self::U08(ys)) => go_try_into(xs, ys),
-            (Self::U08(xs), Self::U16(ys)) => go_try_into(xs, ys),
-            (Self::U08(xs), Self::U32(ys)) => go_try_into(xs, ys),
-            (Self::U08(xs), Self::U64(ys)) => go_try_into(xs, ys),
-            (Self::U08(xs), Self::F32(ys)) => go_int_float(xs, ys),
-            (Self::U08(xs), Self::F64(ys)) => go_int_float(xs, ys),
+//         match (self, other) {
+//             (Self::U08(xs), Self::U08(ys)) => go_try_into(xs, ys),
+//             (Self::U08(xs), Self::U16(ys)) => go_try_into(xs, ys),
+//             (Self::U08(xs), Self::U32(ys)) => go_try_into(xs, ys),
+//             (Self::U08(xs), Self::U64(ys)) => go_try_into(xs, ys),
+//             (Self::U08(xs), Self::F32(ys)) => go_int_float(xs, ys),
+//             (Self::U08(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::U16(xs), Self::U08(ys)) => go_try_into(xs, ys),
-            (Self::U16(xs), Self::U16(ys)) => go_try_into(xs, ys),
-            (Self::U16(xs), Self::U32(ys)) => go_try_into(xs, ys),
-            (Self::U16(xs), Self::U64(ys)) => go_try_into(xs, ys),
-            (Self::U16(xs), Self::F32(ys)) => go_int_float(xs, ys),
-            (Self::U16(xs), Self::F64(ys)) => go_int_float(xs, ys),
+//             (Self::U16(xs), Self::U08(ys)) => go_try_into(xs, ys),
+//             (Self::U16(xs), Self::U16(ys)) => go_try_into(xs, ys),
+//             (Self::U16(xs), Self::U32(ys)) => go_try_into(xs, ys),
+//             (Self::U16(xs), Self::U64(ys)) => go_try_into(xs, ys),
+//             (Self::U16(xs), Self::F32(ys)) => go_int_float(xs, ys),
+//             (Self::U16(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::U32(xs), Self::U08(ys)) => go_try_into(xs, ys),
-            (Self::U32(xs), Self::U16(ys)) => go_try_into(xs, ys),
-            (Self::U32(xs), Self::U32(ys)) => go_try_into(xs, ys),
-            (Self::U32(xs), Self::U64(ys)) => go_try_into(xs, ys),
-            (Self::U32(xs), Self::F32(ys)) => go_int_float(xs, ys),
-            (Self::U32(xs), Self::F64(ys)) => go_int_float(xs, ys),
+//             (Self::U32(xs), Self::U08(ys)) => go_try_into(xs, ys),
+//             (Self::U32(xs), Self::U16(ys)) => go_try_into(xs, ys),
+//             (Self::U32(xs), Self::U32(ys)) => go_try_into(xs, ys),
+//             (Self::U32(xs), Self::U64(ys)) => go_try_into(xs, ys),
+//             (Self::U32(xs), Self::F32(ys)) => go_int_float(xs, ys),
+//             (Self::U32(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::U64(xs), Self::U08(ys)) => go_try_into(xs, ys),
-            (Self::U64(xs), Self::U16(ys)) => go_try_into(xs, ys),
-            (Self::U64(xs), Self::U32(ys)) => go_try_into(xs, ys),
-            (Self::U64(xs), Self::U64(ys)) => go_try_into(xs, ys),
-            (Self::U64(xs), Self::F32(ys)) => go_int_float(xs, ys),
-            (Self::U64(xs), Self::F64(ys)) => go_int_float(xs, ys),
+//             (Self::U64(xs), Self::U08(ys)) => go_try_into(xs, ys),
+//             (Self::U64(xs), Self::U16(ys)) => go_try_into(xs, ys),
+//             (Self::U64(xs), Self::U32(ys)) => go_try_into(xs, ys),
+//             (Self::U64(xs), Self::U64(ys)) => go_try_into(xs, ys),
+//             (Self::U64(xs), Self::F32(ys)) => go_int_float(xs, ys),
+//             (Self::U64(xs), Self::F64(ys)) => go_int_float(xs, ys),
 
-            (Self::F32(xs), Self::U08(ys)) => go_int_float(ys, xs),
-            (Self::F32(xs), Self::U16(ys)) => go_int_float(ys, xs),
-            (Self::F32(xs), Self::U32(ys)) => go_int_float(ys, xs),
-            (Self::F32(xs), Self::U64(ys)) => go_int_float(ys, xs),
-            (Self::F32(xs), Self::F32(ys)) => go_try_into(xs, ys),
-            (Self::F32(xs), Self::F64(ys)) => go_try_into(ys, xs),
+//             (Self::F32(xs), Self::U08(ys)) => go_int_float(ys, xs),
+//             (Self::F32(xs), Self::U16(ys)) => go_int_float(ys, xs),
+//             (Self::F32(xs), Self::U32(ys)) => go_int_float(ys, xs),
+//             (Self::F32(xs), Self::U64(ys)) => go_int_float(ys, xs),
+//             (Self::F32(xs), Self::F32(ys)) => go_try_into(xs, ys),
+//             (Self::F32(xs), Self::F64(ys)) => go_try_into(ys, xs),
 
-            (Self::F64(xs), Self::U08(ys)) => go_int_float(ys, xs),
-            (Self::F64(xs), Self::U16(ys)) => go_int_float(ys, xs),
-            (Self::F64(xs), Self::U32(ys)) => go_int_float(ys, xs),
-            (Self::F64(xs), Self::U64(ys)) => go_int_float(ys, xs),
-            (Self::F64(xs), Self::F32(ys)) => go_try_into(xs, ys),
-            (Self::F64(xs), Self::F64(ys)) => go_try_into(xs, ys),
-        }
-    }
-}
+//             (Self::F64(xs), Self::U08(ys)) => go_int_float(ys, xs),
+//             (Self::F64(xs), Self::U16(ys)) => go_int_float(ys, xs),
+//             (Self::F64(xs), Self::U32(ys)) => go_int_float(ys, xs),
+//             (Self::F64(xs), Self::U64(ys)) => go_int_float(ys, xs),
+//             (Self::F64(xs), Self::F32(ys)) => go_try_into(xs, ys),
+//             (Self::F64(xs), Self::F64(ys)) => go_try_into(xs, ys),
+//         }
+//     }
+// }
 
 impl<T> From<Vec<T>> for PrimitiveSeries<T> {
     fn from(value: Vec<T>) -> Self {
@@ -953,6 +1034,41 @@ impl AnyPrimitiveSeries {
     //         Self::F64(xs) => f64::as_col_iter::<u64>(xs).map(|x| cast_nbytes(&x)).sum(),
     //     }
     // }
+
+    pub(crate) fn will_be_lossy<X>(&self) -> Result<(), CastSeriesError>
+    where
+        X: FromValue<u8>
+            + FromValue<u16>
+            + FromValue<u32>
+            + FromValue<u64>
+            + FromValue<f32>
+            + FromValue<f64>,
+    {
+        match self {
+            Self::U08(x) => x.will_be_lossy::<X>(),
+            Self::U16(x) => x.will_be_lossy::<X>(),
+            Self::U32(x) => x.will_be_lossy::<X>(),
+            Self::U64(x) => x.will_be_lossy::<X>(),
+            Self::F32(x) => x.will_be_lossy::<X>(),
+            Self::F64(x) => x.will_be_lossy::<X>(),
+        }
+    }
+}
+
+impl<T> PrimitiveSeries<T> {
+    pub(crate) fn will_be_lossy<X>(&self) -> Result<(), CastSeriesError>
+    where
+        X: FromValue<T>,
+    {
+        if <X as FromValue<T>>::LOSSLESS {
+            Ok(())
+        } else {
+            self.as_ref()
+                .iter()
+                .position(|x| X::from_value(x).lossy)
+                .map_or(Ok(()), |i| Err(CastSeriesError::new(i)))
+        }
+    }
 }
 
 /// Error when building [`FCSDataFrame`] from individual series

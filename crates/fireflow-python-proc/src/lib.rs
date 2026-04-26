@@ -1,8 +1,8 @@
 extern crate proc_macro;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP,
-    DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0,
+    AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CheckEventRanges,
+    DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0,
     DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
     DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, DelimEscapeMode,
     EnumStrIter as _, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
@@ -636,7 +636,8 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(cores_arg)
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_skip_conversion_check_param())
+        .arg(DocArg::new_check_event_ranges())
+        .arg(DocArg::new_disallow_over_range(false))
         .arg(DocArg::new_row_buffer_size(false))
         .returns(ret);
 
@@ -653,7 +654,8 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
             );
             let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                 tconf,
-                skip_conversion_check.into(),
+                check_event_ranges.into(),
+                disallow_over_range.into(),
                 row_buffer_size,
             );
             let cs = datasets.fmap(|c| c.into());
@@ -2136,7 +2138,8 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_skip_conversion_check_param())
+        .arg(DocArg::new_check_event_ranges())
+        .arg(DocArg::new_disallow_over_range(false))
         .arg(DocArg::new_row_buffer_size(false))
         .arg(DocArg::new_appendable_param())
         .arg(DocArg::new_append_param())
@@ -2156,7 +2159,8 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 );
                 let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                     tconf,
-                    skip_conversion_check.into(),
+                    check_event_ranges.into(),
+                    disallow_over_range.into(),
                     row_buffer_size,
                 );
                 let mconf = fireflow_core::config::WriteMultiConfig::new(
@@ -4426,7 +4430,7 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let fixed = quote!(fireflow_core::data::Layout);
     let coltype = quote!(fireflow_core::data::UvarCol);
-    let anybitmask = quote!(fireflow_core::data::AnyBitmask);
+    let anybitmask = quote!(fireflow_core::data::VariableBitmask);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
     let endian_layout = quote!(fireflow_core::data::EndianHeaders);
@@ -6943,7 +6947,7 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_range_or_bitmask_range() -> Self {
-        let path = quote!(fireflow_core::data::RangeOrBitmaskRange);
+        let path = quote!(fireflow_core::data::RangeOrVariableBitmask);
         let ints = PyTuple::new1(PyLiteral::new1(IntegerWidth::iter_str()))
             .add(RsInt::U64)
             .into();
@@ -8265,7 +8269,7 @@ impl DocArgParam {
             Self::new_allow_uneven_event_width_param(),
             Self::new_allow_tot_mismatch_param(),
             Self::new_truncate_event_values(),
-            Self::new_disallow_over_range(),
+            Self::new_disallow_over_range(true),
             Self::new_row_buffer_size(true),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
@@ -9088,13 +9092,34 @@ impl DocArgParam {
         Self::new_param(TRUNCATE_EVENT_VALUES, pt, d).def_auto()
     }
 
-    fn new_disallow_over_range() -> Self {
+    fn new_check_event_ranges() -> Self {
+        let path = types_config_path("CheckEventRanges");
+        let exc = PyreflowError::EventData.fmt_ref();
+        let d = format!(
+            "Check which types of events will be checked via {PNR} before \
+             writing. If {int}, check integer measurements only. If {all}, \
+             check all measurements. If {none}, check nothing. Any measurements \
+             over {PNR} will trigger {exc}.",
+            int = code_str(TRUNCATE_INT_ONLY_LEVEL),
+            all = code_str(TRUNCATE_ALL_LEVEL),
+            none = code_str(TRUNCATE_NONE_LEVEL),
+        );
+        let pt = PyLiteral::new2(CheckEventRanges::iter_str(), path);
+        Self::new_param(CHECK_EVENT_RANGES, pt, d).def_auto()
+    }
+
+    fn new_disallow_over_range(is_read: bool) -> Self {
         let n = "disallow_over_range";
+        let check_arg = if is_read {
+            TRUNCATE_EVENT_VALUES
+        } else {
+            CHECK_EVENT_RANGES
+        };
         let d = format!(
             "Choose how to handle event values in {DATA} which exceed {PNR}. \
              This only has an effect if the column is not truncated \
-             according to {truncate_event_values}.",
-            truncate_event_values = arg(TRUNCATE_EVENT_VALUES)
+             according to {arg}.",
+            arg = arg(check_arg),
         );
         let e = PyreflowError::EventData;
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
@@ -10323,6 +10348,7 @@ const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
 const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";
+const CHECK_EVENT_RANGES: &str = "check_event_ranges";
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
 const OTHER_WIDTH: &str = "other_width";
 

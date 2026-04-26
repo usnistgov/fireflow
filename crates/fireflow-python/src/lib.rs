@@ -57,16 +57,16 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
-use fireflow_core::data::ColumnMarkers;
-use fireflow_core::data::F32Col;
-use fireflow_core::data::F64Col;
 use fireflow_core::data::{
-    self, AnyAsciiHeaders, AnyEndianUintHeaders, AnyOrderedHeaders, AnyOrderedUintHeaders,
-    DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2, DelimAsciiHeaders,
-    EndianHeaders, EndianUintHeaders, F32Range, F64Range, FixedAsciiHeaders, LayoutDatatype as _,
-    NonMixedEndianHeaders, PhantomInto as _,
+    self, AnyAsciiHeaders, AnyDatatype, AnyEndianUintHeaders, AnyOrderedHeaders,
+    AnyOrderedUintHeaders, AnyUint, ColumnMarkers, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1,
+    DataHeaders3_2, DelimAsciiHeaders, EndianHeaders, EndianUintHeaders, F32Col, F32Range, F64Col,
+    F64Range, FixedAsciiHeaders, HeaderAndSeries, LayoutDatatype as _, NonMixedEndianHeaders,
+    PhantomInto as _, RangeOrMixedRange, RangeOrMixedSeries, RangeOrVariableBitmask,
+    RangeOrVariableUintSeries, ToInsert, VariableUintSeries,
 };
 use fireflow_core::header;
+use fireflow_core::match_map_uint;
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -76,13 +76,13 @@ use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
 use fireflow_core::validated::dataframe::{
-    AnyPrimitiveSeries, PrimitiveSeries, PrimitiveDataFrame,
+    AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries,
 };
 use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname::Shortname;
 
-use fireflow_types::python::EventDataError;
+use fireflow_types::python::{EventDataError, IntegerWidth};
 
 use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _};
 
@@ -965,6 +965,9 @@ pub struct PyFCSDataFrame(PrimitiveDataFrame);
 #[derive(From, Into)]
 pub struct PyAnyFCSColumn(AnyPrimitiveSeries);
 
+#[derive(From, Into)]
+pub struct PyVariableUintSeries(VariableUintSeries);
+
 impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
     type Target = PyAny;
     type Output = Bound<'py, PyAny>;
@@ -1071,6 +1074,127 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
         }
     }
 }
+
+impl PyAnyFCSColumn {
+    fn with_bitmask_range(
+        self,
+        range: RangeOrVariableBitmask,
+    ) -> PyResult<RangeOrVariableUintSeries> {
+        match range {
+            ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
+            ToInsert::Specific(r) => {
+                let c = match_map_uint!(r, x, HeaderAndSeries::new(x, self.0.try_into()?));
+                Ok(ToInsert::Specific(c))
+            }
+        }
+    }
+
+    fn with_mixed_range(self, range: RangeOrMixedRange) -> PyResult<RangeOrMixedSeries> {
+        match range {
+            ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
+            ToInsert::Specific(r) => {
+                let c = match r {
+                    AnyDatatype::Ascii(x) => {
+                        AnyDatatype::Ascii(HeaderAndSeries::new(x, self.0.try_into()?))
+                    }
+                    AnyDatatype::Uint(x) => {
+                        let z = match_map_uint!(x, y, HeaderAndSeries::new(y, self.0.try_into()?));
+                        AnyDatatype::Uint(z)
+                    }
+                    AnyDatatype::F32(x) => {
+                        AnyDatatype::F32(HeaderAndSeries::new(x, self.0.try_into()?))
+                    }
+                    AnyDatatype::F64(x) => {
+                        AnyDatatype::F64(HeaderAndSeries::new(x, self.0.try_into()?))
+                    }
+                };
+                Ok(ToInsert::Specific(c))
+            }
+        }
+    }
+}
+
+// impl<'py> FromPyObject<'py> for PyVariableUintSeries {
+//     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+//         let (width, range, series): (IntegerWidth, Decimal, PyAnyFCSColumn) = ob.extract()?;
+//         let ret = match width {
+//             IntegerWidth::I08 => {
+//                 let r = range.try_into()?;
+//                 let s = series.0.try_into()?;
+//                 let c = HeaderAndSeries::new(r, s);
+//                 AnyUint::Uint08(c)
+//             } // IntegerWidth::I16 => AnyUint::Uint16(value.extract()?),
+//               // IntegerWidth::I24 => AnyUint::Uint24(value.extract()?),
+//               // IntegerWidth::I32 => AnyUint::Uint32(value.extract()?),
+//               // IntegerWidth::I40 => AnyUint::Uint40(value.extract()?),
+//               // IntegerWidth::I48 => AnyUint::Uint48(value.extract()?),
+//               // IntegerWidth::I56 => AnyUint::Uint56(value.extract()?),
+//               // IntegerWidth::I64 => AnyUint::Uint64(value.extract()?),
+//         };
+//         Ok(Self(ret))
+//     }
+// }
+
+// impl<'py> IntoPyObject<'py> for PyVariableUintSeries {
+//     type Target = PyTuple;
+//     type Output = Bound<'py, PyTuple>;
+//     type Error = PyErr;
+
+//     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+//         match self.0 {
+//             AnyUint::Uint08(x) => (IntegerWidth::I08, x).into_pyobject(py),
+//             AnyUint::Uint16(x) => (IntegerWidth::I16, x).into_pyobject(py),
+//             AnyUint::Uint24(x) => (IntegerWidth::I24, x).into_pyobject(py),
+//             AnyUint::Uint32(x) => (IntegerWidth::I32, x).into_pyobject(py),
+//             AnyUint::Uint40(x) => (IntegerWidth::I40, x).into_pyobject(py),
+//             AnyUint::Uint48(x) => (IntegerWidth::I48, x).into_pyobject(py),
+//             AnyUint::Uint56(x) => (IntegerWidth::I56, x).into_pyobject(py),
+//             AnyUint::Uint64(x) => (IntegerWidth::I64, x).into_pyobject(py),
+//         }
+//     }
+// }
+
+// impl<'py> FromPyObject<'py> for MixedColumn {
+//     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+//         let (ctype, value): (ColumnType, Bound<'py, PyAny>) = ob.extract()?;
+//         let ret = match ctype {
+//             ColumnType::A => Self::Ascii(value.extract()?),
+//             ColumnType::F => Self::F32(value.extract()?),
+//             ColumnType::D => Self::F64(value.extract()?),
+//             ColumnType::I08 => Self::Uint(AnyUint::Uint08(value.extract()?)),
+//             ColumnType::I16 => Self::Uint(AnyUint::Uint16(value.extract()?)),
+//             ColumnType::I24 => Self::Uint(AnyUint::Uint24(value.extract()?)),
+//             ColumnType::I32 => Self::Uint(AnyUint::Uint32(value.extract()?)),
+//             ColumnType::I40 => Self::Uint(AnyUint::Uint40(value.extract()?)),
+//             ColumnType::I48 => Self::Uint(AnyUint::Uint48(value.extract()?)),
+//             ColumnType::I56 => Self::Uint(AnyUint::Uint56(value.extract()?)),
+//             ColumnType::I64 => Self::Uint(AnyUint::Uint64(value.extract()?)),
+//         };
+//         Ok(ret)
+//     }
+// }
+
+// impl<'py> IntoPyObject<'py> for MixedColumn {
+//     type Target = PyTuple;
+//     type Output = Bound<'py, PyTuple>;
+//     type Error = PyErr;
+
+//     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+//         match self {
+//             Self::Ascii(x) => (ColumnType::A, x).into_pyobject(py),
+//             Self::F32(x) => (ColumnType::F, x).into_pyobject(py),
+//             Self::F64(x) => (ColumnType::D, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint08(x)) => (ColumnType::I08, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint16(x)) => (ColumnType::I16, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint24(x)) => (ColumnType::I24, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint32(x)) => (ColumnType::I32, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint40(x)) => (ColumnType::I40, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint48(x)) => (ColumnType::I48, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint56(x)) => (ColumnType::I56, x).into_pyobject(py),
+//             Self::Uint(AnyUint::Uint64(x)) => (ColumnType::I64, x).into_pyobject(py),
+//         }
+//     }
+// }
 
 pub enum SeriesToColumnError {
     InvalidDatatype(PlSmallStr, DataType),

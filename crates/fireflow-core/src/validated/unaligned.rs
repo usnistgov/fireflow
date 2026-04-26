@@ -3,7 +3,7 @@ use crate::text::byteord::{Bytes, PrivBytes};
 use bigdecimal::BigDecimal;
 use bytemuck::NoUninit;
 use derive_more::{Display, From, Into, Shr};
-use num_traits::{Bounded, FromBytes, ToBytes};
+use num_traits::{AsPrimitive, Bounded, FromBytes, ToBytes};
 use std::ptr::copy_nonoverlapping;
 use thiserror::Error;
 
@@ -314,13 +314,13 @@ macro_rules! impl_unaligned {
     };
 }
 
-impl TryFrom<u64> for U24 {
-    type Error = TryFromUnalignedIntError;
-    fn try_from(value: u64) -> Result<Self, Self::Error> {
-        let inner = u32::try_from(value).map_err(|_| TryFromUnalignedIntError)?;
-        Self::try_from(inner)
-    }
-}
+// impl TryFrom<u64> for U24 {
+//     type Error = TryFromUnalignedIntError;
+//     fn try_from(value: u64) -> Result<Self, Self::Error> {
+//         let inner = u32::try_from(value).map_err(|_| TryFromUnalignedIntError)?;
+//         Self::try_from(inner)
+//     }
+// }
 
 impl_unaligned!(u32, U24, 24);
 impl_unaligned!(u64, U40, 40);
@@ -377,6 +377,20 @@ fn to_unaligned_le_bytes<
     buf
 }
 
+// impl AsPrimitive<U24> for f32 {
+//     fn as_(self) -> U24 {
+//         let x: u32 = self.as_();
+//         x.try_into().ok().unwrap_or(U24::max_value())
+//     }
+// }
+
+// impl AsPrimitive<U40> for f32 {
+//     fn as_(self) -> U40 {
+//         let x: u32 = self.as_();
+//         x.try_into().ok().unwrap_or(U40::max_value())
+//     }
+// }
+
 // macro_rules! impl_castable_vec_unaligned {
 //     ($from:ident, $inner:ident, $to:ident) => {
 //         impl CastableVec<$from> for $to {
@@ -416,138 +430,138 @@ fn to_unaligned_le_bytes<
 // impl_castable_small_to_big!(U40, U56);
 // impl_castable_small_to_big!(U48, U56);
 
-// /// Make conversion from smaller number to bigger type (which will never fail).
-// macro_rules! impl_small_to_big {
-//     ($from:ident, $to:ident) => {
-//         impl From<$from> for $to {
-//             fn from(value: $from) -> Self {
-//                 Self(value.0.into())
-//             }
-//         }
-//     };
-// }
+/// Make conversion from smaller number to bigger type (which will never fail).
+macro_rules! impl_small_to_big {
+    ($from:ident, $to:ident) => {
+        impl From<$from> for $to {
+            fn from(value: $from) -> Self {
+                Self(value.0.into())
+            }
+        }
+    };
+}
 
-// impl_small_to_big!(U24, U40);
-// impl_small_to_big!(U24, U48);
-// impl_small_to_big!(U24, U56);
-// impl_small_to_big!(U40, U48);
-// impl_small_to_big!(U40, U56);
-// impl_small_to_big!(U48, U56);
+impl_small_to_big!(U24, U40);
+impl_small_to_big!(U24, U48);
+impl_small_to_big!(U24, U56);
+impl_small_to_big!(U40, U48);
+impl_small_to_big!(U40, U56);
+impl_small_to_big!(U48, U56);
 
-// // special case since this is a primitive type that can be converted to a
-// // smaller type which has a corresponding unaligned type
-// impl TryFrom<u64> for U24 {
-//     type Error = TryFromIntError;
-//     fn try_from(value: u64) -> Result<Self, Self::Error> {
-//         value.try_into()
-//     }
-// }
+// special case since this is a primitive type that can be converted to a
+// smaller type which has a corresponding unaligned type
+impl TryFrom<u64> for U24 {
+    type Error = TryFromUnalignedIntError;
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        value.try_into()
+    }
+}
 
-// /// Make fallible conversion from bigger type to smaller primitive type
-// macro_rules! impl_big_to_small_prim {
-//     ($from:ident, $to:ident) => {
-//         impl TryFrom<$from> for $to {
-//             type Error = TryFromIntError;
-//             fn try_from(value: $from) -> Result<Self, Self::Error> {
-//                 value.0.try_into()
-//             }
-//         }
-//     };
-// }
+/// Make fallible conversion from bigger type to smaller primitive type
+macro_rules! impl_big_to_small_prim {
+    ($from:ident, $to:ident) => {
+        impl TryFrom<$from> for $to {
+            type Error = TryFromUnalignedIntError;
+            fn try_from(value: $from) -> Result<Self, Self::Error> {
+                value.0.try_into().map_err(|_| TryFromUnalignedIntError)
+            }
+        }
+    };
+}
 
-// impl_big_to_small_prim!(U24, u8);
-// impl_big_to_small_prim!(U24, u16);
-// impl_big_to_small_prim!(U40, u8);
-// impl_big_to_small_prim!(U40, u16);
-// impl_big_to_small_prim!(U40, u32);
-// impl_big_to_small_prim!(U48, u8);
-// impl_big_to_small_prim!(U48, u16);
-// impl_big_to_small_prim!(U48, u32);
-// impl_big_to_small_prim!(U56, u8);
-// impl_big_to_small_prim!(U56, u16);
-// impl_big_to_small_prim!(U56, u32);
+impl_big_to_small_prim!(U24, u8);
+impl_big_to_small_prim!(U24, u16);
+impl_big_to_small_prim!(U40, u8);
+impl_big_to_small_prim!(U40, u16);
+impl_big_to_small_prim!(U40, u32);
+impl_big_to_small_prim!(U48, u8);
+impl_big_to_small_prim!(U48, u16);
+impl_big_to_small_prim!(U48, u32);
+impl_big_to_small_prim!(U56, u8);
+impl_big_to_small_prim!(U56, u16);
+impl_big_to_small_prim!(U56, u32);
 
-// /// Make fallible conversion from bigger type to smaller unaligned type
-// macro_rules! impl_big_to_small_unalign {
-//     ($from:ident, $inner:ident, $to:ident) => {
-//         impl TryFrom<$from> for $to {
-//             type Error = TryFromUnalignedIntError;
-//             fn try_from(value: $from) -> Result<Self, Self::Error> {
-//                 let inner = $inner::try_from(value.0).map_err(|_| TryFromUnalignedIntError)?;
-//                 inner.try_into()
-//             }
-//         }
-//     };
-// }
+/// Make fallible conversion from bigger type to smaller unaligned type
+macro_rules! impl_big_to_small_unalign {
+    ($from:ident, $inner:ident, $to:ident) => {
+        impl TryFrom<$from> for $to {
+            type Error = TryFromUnalignedIntError;
+            fn try_from(value: $from) -> Result<Self, Self::Error> {
+                let inner = $inner::try_from(value.0).map_err(|_| TryFromUnalignedIntError)?;
+                inner.try_into()
+            }
+        }
+    };
+}
 
-// impl_big_to_small_unalign!(U40, u32, U24);
-// impl_big_to_small_unalign!(U48, u32, U24);
-// impl_big_to_small_unalign!(U56, u32, U24);
-// impl_big_to_small_unalign!(U48, u64, U40);
-// impl_big_to_small_unalign!(U56, u64, U40);
-// impl_big_to_small_unalign!(U56, u64, U48);
+impl_big_to_small_unalign!(U40, u32, U24);
+impl_big_to_small_unalign!(U48, u32, U24);
+impl_big_to_small_unalign!(U56, u32, U24);
+impl_big_to_small_unalign!(U48, u64, U40);
+impl_big_to_small_unalign!(U56, u64, U40);
+impl_big_to_small_unalign!(U56, u64, U48);
 
-// // these are guaranteed to always work given the integer limits of f32/f64
+// these are guaranteed to always work given the integer limits of f32/f64
 
-// impl From<U24> for f32 {
-//     fn from(value: U24) -> Self {
-//         value.0.as_()
-//     }
-// }
+impl From<U24> for f32 {
+    fn from(value: U24) -> Self {
+        value.0.as_()
+    }
+}
 
-// impl From<U24> for f64 {
-//     fn from(value: U24) -> Self {
-//         value.0.as_()
-//     }
-// }
+impl From<U24> for f64 {
+    fn from(value: U24) -> Self {
+        value.0.as_()
+    }
+}
 
-// impl From<U40> for f64 {
-//     fn from(value: U40) -> Self {
-//         value.0.as_()
-//     }
-// }
+impl From<U40> for f64 {
+    fn from(value: U40) -> Self {
+        value.0.as_()
+    }
+}
 
-// impl From<U48> for f64 {
-//     fn from(value: U48) -> Self {
-//         value.0.as_()
-//     }
-// }
+impl From<U48> for f64 {
+    fn from(value: U48) -> Self {
+        value.0.as_()
+    }
+}
 
-// macro_rules! impl_unalign_as_float {
-//     ($from:ident, $to:ident) => {
-//         impl AsPrimitive<$to> for $from {
-//             fn as_(self) -> $to {
-//                 self.0.as_()
-//             }
-//         }
-//     };
-// }
+macro_rules! impl_unalign_as_float {
+    ($from:ident, $to:ident) => {
+        impl AsPrimitive<$to> for $from {
+            fn as_(self) -> $to {
+                self.0.as_()
+            }
+        }
+    };
+}
 
-// impl_unalign_as_float!(U24, f32);
-// impl_unalign_as_float!(U40, f32);
-// impl_unalign_as_float!(U48, f32);
-// impl_unalign_as_float!(U56, f32);
-// impl_unalign_as_float!(U24, f64);
-// impl_unalign_as_float!(U40, f64);
-// impl_unalign_as_float!(U48, f64);
-// impl_unalign_as_float!(U56, f64);
+impl_unalign_as_float!(U24, f32);
+impl_unalign_as_float!(U40, f32);
+impl_unalign_as_float!(U48, f32);
+impl_unalign_as_float!(U56, f32);
+impl_unalign_as_float!(U24, f64);
+impl_unalign_as_float!(U40, f64);
+impl_unalign_as_float!(U48, f64);
+impl_unalign_as_float!(U56, f64);
 
-// macro_rules! impl_float_as_unalign {
-//     ($from:ident, $inner:ident, $to:ident) => {
-//         impl AsPrimitive<$to> for $from {
-//             fn as_(self) -> $to {
-//                 let prim: $inner = self.as_();
-//                 $to($inner::from($to::max_value()).min(prim))
-//             }
-//         }
-//     };
-// }
+macro_rules! impl_float_as_unalign {
+    ($from:ident, $inner:ident, $to:ident) => {
+        impl AsPrimitive<$to> for $from {
+            fn as_(self) -> $to {
+                let prim: $inner = self.as_();
+                $to($inner::from($to::max_value()).min(prim))
+            }
+        }
+    };
+}
 
-// impl_float_as_unalign!(f32, u32, U24);
-// impl_float_as_unalign!(f32, u64, U40);
-// impl_float_as_unalign!(f32, u64, U48);
-// impl_float_as_unalign!(f32, u64, U56);
-// impl_float_as_unalign!(f64, u32, U24);
-// impl_float_as_unalign!(f64, u64, U40);
-// impl_float_as_unalign!(f64, u64, U48);
-// impl_float_as_unalign!(f64, u64, U56);
+impl_float_as_unalign!(f32, u32, U24);
+impl_float_as_unalign!(f32, u64, U40);
+impl_float_as_unalign!(f32, u64, U48);
+impl_float_as_unalign!(f32, u64, U56);
+impl_float_as_unalign!(f64, u32, U24);
+impl_float_as_unalign!(f64, u64, U40);
+impl_float_as_unalign!(f64, u64, U48);
+impl_float_as_unalign!(f64, u64, U56);

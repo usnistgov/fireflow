@@ -9,15 +9,15 @@ use crate::config::{
     WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
-    DataFrameCheckRanges, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
-    DataFrame3_1, DataFrame3_2, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2,
-    EventOverRangeError, EventsDiagnostics, HeadersToDataFrameError, InsertRangeError, LayoutInsert,
-    HeadersToEmptyDataFrame, DataFrameToHeaders, IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight,
-    LayoutKeywords, LayoutSize as _, LayoutWidth, LookupLayoutError, LookupLayoutWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError, LayoutNormalize,
-    LayoutOptMeasKeywords, ReadCheckedDataframeError, ReadCheckedDataframeWarning, LayoutRemove,
-    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedHeaders,
-    WithPrimitiveDataFrame,
+    CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
+    DataFrame3_1, DataFrame3_2, DataFrameAsHeaders, DataFrameCheckRanges, DataHeaders2_0,
+    DataHeaders3_0, DataHeaders3_1, DataHeaders3_2, EventOverRangeError, EventsDiagnostics,
+    HeadersToDataFrameError, HeadersToEmptyDataFrame, InsertRangeError, IsTot, LayoutConvertError,
+    LayoutDatatype, LayoutHeight, LayoutInsert, LayoutKeywords, LayoutNormalize,
+    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupLayoutError, LookupLayoutWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataLayoutError,
+    ReadCheckedDataframeError, ReadCheckedDataframeWarning, ScaleDatatypeMismatchError,
+    ScaleErrorGroup, VersionedDataFrame, VersionedHeaders, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -95,7 +95,7 @@ use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::dataframe as df;
-use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
+use crate::validated::dataframe::{AnyPrimitiveSeries, HasWidth, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
     DKey0, DKey1, DKey2, IndexedKey as _, Key as _, Key1, NonStdKey, NonStdKeywords,
@@ -1615,7 +1615,8 @@ pub(crate) trait PrivVersionSet: VersionSet {
         (),
     >
     where
-        <Self::Headers as HeadersToEmptyDataFrame>::DfTarget: Into<PrimitiveDataFrame> + DataFrameCheckRanges,
+        <Self::Headers as HeadersToEmptyDataFrame>::DfTarget:
+            Into<PrimitiveDataFrame> + DataFrameCheckRanges,
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
     {
@@ -3366,7 +3367,7 @@ where
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
         V::Optical: HasScale,
-        L: LayoutDatatype + LayoutWidth,
+        L: LayoutDatatype + HasWidth,
     {
         let center_scale_not_linear = || {
             self.measurements
@@ -3412,7 +3413,7 @@ where
     ) -> GroupResult<(), SetTransformsError, SetTransformsSummary>
     where
         V::Optical: HasScaleTransform,
-        L: LayoutDatatype + LayoutWidth,
+        L: LayoutDatatype + HasWidth,
     {
         let center_xform_not_noop = || {
             self.measurements
@@ -3573,13 +3574,13 @@ where
         xs: NamedTemporalsAndOpticals<V>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Result<(), SetMeasurementsError>
+    ) -> Result<(), SetNamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDatatype + LayoutWidth,
+        L: LayoutDatatype + HasWidth,
     {
         self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
     }
@@ -3594,25 +3595,9 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype,
+        L: HasWidth + LayoutDatatype,
     {
         self.set_measurements_inner(measurements)
-    }
-
-    /// Set measurements without $PnN and layout
-    pub fn set_measurements_and_layout(
-        &mut self,
-        measurements: TemporalsAndOpticals<V>,
-        layout: L,
-    ) -> Result<(), SetUnnamedMeasurementsError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype + LayoutNormalize,
-    {
-        self.set_measurements_and_layout_inner(measurements, layout)
     }
 
     #[cfg(feature = "serde")]
@@ -3813,13 +3798,13 @@ where
         measurements: NamedTemporalsAndOpticals<V>,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Result<(), SetMeasurementsError>
+    ) -> Result<(), SetNamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDatatype + LayoutWidth,
+        L: LayoutDatatype + HasWidth,
     {
         let meas = self.layout.try_new_measurements::<V>(measurements)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
@@ -3836,18 +3821,9 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype,
+        L: HasWidth + LayoutDatatype,
     {
-        let xforms: Vec<_> = measurements
-            .iter()
-            .map(|m| {
-                m.as_ref().both(
-                    |_| <V::Optical as AsScaleOrTransform>::S::default(),
-                    |r| r.specific.as_scale_or_transform(),
-                )
-            })
-            .collect();
-        self.layout.check_transforms_and_len(&xforms[..])?;
+        self.layout.check_meas_vec::<V>(&measurements[..])?;
         self.measurements.set_values(measurements)?;
         Ok(())
     }
@@ -3862,18 +3838,9 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutWidth + LayoutDatatype + LayoutNormalize,
+        L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
-        let xforms: Vec<_> = measurements
-            .iter()
-            .map(|m| {
-                m.as_ref().both(
-                    |_| <V::Optical as AsScaleOrTransform>::S::default(),
-                    |r| r.specific.as_scale_or_transform(),
-                )
-            })
-            .collect();
-        layout.check_transforms_and_len(&xforms[..])?;
+        self.layout.check_meas_vec::<V>(&measurements[..])?;
         self.measurements.set_values(measurements)?;
         self.set_layout_inner(layout);
         Ok(())
@@ -3881,7 +3848,7 @@ where
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors>
     where
-        L: LayoutWidth,
+        L: HasWidth,
     {
         let p = self.par();
         let (js, ns) = self.all_indices_and_names_to_remove();
@@ -4667,9 +4634,25 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        layout.check_measurement_vector(&self.measurements)?;
+        layout.check_meas_named_vec(&self.measurements)?;
         self.set_layout_inner(layout);
         Ok(())
+    }
+
+    /// Set measurements without $PnN and layout
+    pub fn set_measurements_and_layout(
+        &mut self,
+        measurements: TemporalsAndOpticals<V>,
+        layout: V::Headers,
+    ) -> Result<(), SetUnnamedMeasurementsError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        V::Headers: HasWidth + LayoutDatatype + LayoutNormalize,
+    {
+        self.set_measurements_and_layout_inner(measurements, layout)
     }
 
     /// Set measurements and layout
@@ -4683,7 +4666,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         layout: V::Headers,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Result<(), SetMeasurementsError>
+    ) -> Result<(), SetNamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4893,7 +4876,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        V::Headers: LayoutWidth,
+        V::Headers: HasWidth,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4902,7 +4885,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     {
         // this should be true since the length of both is derived from $PAR
         debug_assert!(
-            measurements.len() == layout.ncols(),
+            measurements.len() == layout.width(),
             "measurements and layout should be same length"
         );
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
@@ -4958,7 +4941,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .into_nowarn()
             .and_then_commutative(|ms| {
                 layout
-                    .check_measurement_vector(&ms)
+                    .check_meas_named_vec(&ms)
                     .map_err(NewCoreError::from)
                     .into_nowarn()
                     .set_ok_value(ms)
@@ -5212,6 +5195,101 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn unset_data(&mut self) -> Result<(), ExistingLinkErrors> {
         self.unset_measurements_inner()?;
         self.layout.clear();
+        Ok(())
+    }
+
+    /// Get data layout.
+    pub fn layout(&self) -> V::Headers
+    where
+        V::DataFrame: DataFrameAsHeaders<Headers = V::Headers>,
+    {
+        self.layout.as_headers()
+    }
+
+    /// Set data layout
+    ///
+    /// Will return error if layout does not have same number of columns as
+    /// measurements.
+    // pass by value here to keep api consistent b/t coretext and coredataset
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn set_layout(&mut self, layout: V::Headers) -> Result<(), DatasetSetLayoutError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
+        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+    {
+        layout.check_meas_named_vec(&self.measurements)?;
+        layout.check_data_loss_generic(&self.layout)?;
+        let new_layout = layout
+            .with_data_generic(mem::take(&mut self.layout))
+            .expect("data loss and dimensions were checked above");
+        self.set_layout_inner(new_layout);
+        Ok(())
+    }
+
+    /// Set measurements without $PnN and layout
+    pub fn set_measurements_and_layout(
+        &mut self,
+        measurements: TemporalsAndOpticals<V>,
+        layout: V::Headers,
+    ) -> Result<(), DatasetSetUnnamedMeasAndLayoutError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
+        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+    {
+        // ensures length of new layout == length of new measurements
+        layout
+            .check_meas_vec::<V>(&measurements[..])
+            .map_err(SetUnnamedMeasurementsError::from)?;
+        // length is not checked here, just data loss
+        layout.check_data_loss_generic(&self.layout)?;
+        // ensures length of new measurements == length of old measurements
+        self.measurements
+            .set_values(measurements)
+            .map_err(SetUnnamedMeasurementsError::from)?;
+        let new_layout = layout
+            .with_data(mem::take(&mut self.layout).into())
+            .expect("data loss and dimensions were checked above");
+        self.set_layout_inner(new_layout);
+        Ok(())
+    }
+
+    /// Set measurements and layout
+    ///
+    /// Return error if measurement names are not unique, there is more
+    /// than one time measurement, or the layout and measurements have
+    /// different lengths.
+    // pass by value here to keep api consistent b/t coretext and coredataset
+    #[allow(clippy::needless_pass_by_value)]
+    pub fn set_named_measurements_and_layout(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<V>,
+        layout: V::Headers,
+        allow_shared_names: bool,
+        skip_index_check: bool,
+    ) -> Result<(), DatasetSetNamedMeasAndLayoutError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
+        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+    {
+        let meas = layout
+            .try_new_measurements::<V>(measurements)
+            .map_err(SetNamedMeasurementsError::from)?;
+        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)
+            .map_err(SetNamedMeasurementsError::from)?;
+        self.set_layout(layout)?;
+        self.measurements = meas;
         Ok(())
     }
 
@@ -5470,7 +5548,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// fields.
     pub fn into_coretext(self) -> VersionedCoreTEXT<V>
     where
-        V::DataFrame: DataFrameToHeaders<Headers = V::Headers>,
+        V::DataFrame: DataFrameAsHeaders<Headers = V::Headers>,
     {
         CoreTEXT::new_unchecked(self.metaroot, self.measurements, self.layout.as_headers())
     }
@@ -8986,7 +9064,7 @@ pub enum StdWriterError {
 /// Error when setting measurements vector
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetMeasurementsError {
+pub enum SetNamedMeasurementsError {
     New(MeasurementsWithLayoutError),
     Link(SetMeasurementLinkErrors),
 }
@@ -9036,7 +9114,7 @@ pub enum SetTransformsError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsAndDataError {
-    Meas(SetMeasurementsError),
+    Meas(SetNamedMeasurementsError),
     Mismatch(HeadersToDataFrameError),
 }
 
@@ -9046,6 +9124,30 @@ pub enum SetMeasurementsAndDataError {
 pub enum SetUnnamdMeasurementsAndDataError {
     Meas(SetUnnamedMeasurementsError),
     Mismatch(HeadersToDataFrameError),
+}
+
+/// Error when setting layout for a dataset.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum DatasetSetLayoutError {
+    Layout(MeasLayoutMismatchError),
+    Cast(CastSeriesErrors),
+}
+
+/// Error when setting named measurements and layout for a dataset.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum DatasetSetUnnamedMeasAndLayoutError {
+    Cast(CastSeriesErrors),
+    Meas(SetUnnamedMeasurementsError),
+}
+
+/// Error when setting named measurements and layout for a dataset.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum DatasetSetNamedMeasAndLayoutError {
+    Layout(DatasetSetLayoutError),
+    Meas(SetNamedMeasurementsError),
 }
 
 // /// Error when setting dataframe/DATA segment in [`CoreDataset`]

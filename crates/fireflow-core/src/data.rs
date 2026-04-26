@@ -51,6 +51,24 @@
 //! DATA, hoping that all columns have the same length. For *fixed* layouts, we
 //! can compute $TOT using $PnB and the length of DATA.
 //!
+//! ### Conceptual model
+//!
+//! For a given FCS dataset, the $PnB, $PnR, $BYTEORD, $DATATYPE, and optionally
+//! $PnDATATYPE keywords form the *headers* for a given data layout which
+//! describe how data is arranged in the DATA segment. "Headers" can be thought
+//! of here as the metadata for a dataframe.
+//!
+//! These headers can then be given a stream of bytes corresponding to DATA that
+//! are used to fill in the *series* for each given column in the layout. The
+//! resulting type is a "dataframe" which can be manipulated in memory and
+//! written to disc. Each series inside the *dataframe* is internally validated
+//! to fit based on the values of $PnR and $PnB.
+//!
+//! *Dataframe*s can be accessed either as the *headers* used to create them or
+//! via their underlying series. This separation is important because it is
+//! easier to think about the contents of the DATA segment and the metadata
+//! used to describe it separately.
+//!
 //! ### Performance
 //!
 //! This module includes several performance optimizations:
@@ -68,6 +86,9 @@
 //!   same width. These are read/written using intermediate columns of all one
 //!   type which are cast to the final type by reinterpreting bits (a zero-cost
 //!   operation).
+//! * Data itself is stored in a Polars buffers, which are effectively act like
+//!   `Arc<Vec<T>>`. This means cloning is very fast and easy as is passing
+//!   data between language boundaries.
 //!
 //! ### Terminology
 //!
@@ -79,6 +100,8 @@
 //! * fixed: Describes layouts whose columns are all a set width in bytes.
 //! * header: The collective value of $PnR and $PnB for a given measurement.
 //!   For all column types, this will be represented as one rust type.
+//! * headers: The header values for all columns with the values of $DATATYPE
+//!   and $BYTEORD which collectively describe the layout for DATA.
 //! * layout: Refers to either the headers or dataframe for all measurements.
 //! * range: The value of $PnR
 //! * series: The data for a measurement.
@@ -89,7 +112,8 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::core::{
-    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, VersionSet,
+    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, TemporalOrOptical,
+    TemporalsAndOpticals, VersionSet,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -125,8 +149,9 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskTruncationError, BitmaskValue,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, HasLen, HasWidth,
-    InternalSeries, PrimitiveDataFrame, PrimitiveSeries, ambassador_impl_HasLen,
+    AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue, HasLen,
+    HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries, ambassador_impl_HasLen,
+    ambassador_impl_HasWidth,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -219,12 +244,12 @@ pub type DataFrame3_2 = Any3_2Layout<DataFrameFamily>;
 #[allow(clippy::duplicated_attributes)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(LayoutWidth)]
+#[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype, where = "M: LayoutWidth, N: LayoutWidth")]
-#[delegate(LayoutKeywords, where = "M: LayoutWidth, N: LayoutWidth")]
+#[delegate(LayoutDatatype, where = "M: HasWidth, N: HasWidth")]
+#[delegate(LayoutKeywords, where = "M: HasWidth, N: HasWidth")]
 #[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
@@ -273,12 +298,12 @@ pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 #[allow(clippy::duplicated_attributes)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(LayoutWidth)]
+#[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
-#[delegate(LayoutKeywords, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
+#[delegate(LayoutDatatype, where = "Delim: HasWidth, Fixed: HasWidth")]
+#[delegate(LayoutKeywords, where = "Delim: HasWidth, Fixed: HasWidth")]
 #[delegate(LayoutInsert<R>, generics = "R")]
 #[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -418,12 +443,12 @@ pub struct ColumnMarkers<T, D> {
 #[allow(clippy::duplicated_attributes)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(LayoutWidth)]
+#[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
-#[delegate(LayoutDatatype, where = "Single: LayoutWidth, Multi: LayoutWidth")]
-#[delegate(LayoutKeywords, where = "Single: LayoutWidth, Multi: LayoutWidth")]
+#[delegate(LayoutDatatype, where = "Single: HasWidth, Multi: HasWidth")]
+#[delegate(LayoutKeywords, where = "Single: HasWidth, Multi: HasWidth")]
 #[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -454,7 +479,6 @@ type AnyEndianUintDataFrame<D> = AnyEndianUintLayout<DataFrameFamily, D>;
 /// This is used internally to represent the data in DATA with its associated
 /// keywords.
 #[derive(Clone, PartialEq, Into, new)]
-#[new(visibility = "")]
 pub struct HeaderAndSeries<M, T, R> {
     header: M,
     #[into(PrimitiveSeries<T>)]
@@ -514,23 +538,23 @@ where
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(ColumnIsFixed)]
 #[delegate(HasLen)]
-#[delegate(LayoutWidth)]
+#[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
 #[delegate(
     LayoutDatatype,
-    where = "A: LayoutWidth, \
-             U: LayoutWidth, \
-             F: LayoutWidth, \
-             D: LayoutWidth"
+    where = "A: HasWidth, \
+             U: HasWidth, \
+             F: HasWidth, \
+             D: HasWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "A: LayoutWidth, \
-             U: LayoutWidth, \
-             F: LayoutWidth, \
-             D: LayoutWidth"
+    where = "A: HasWidth, \
+             U: HasWidth, \
+             F: HasWidth, \
+             D: HasWidth"
 )]
 #[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -581,32 +605,32 @@ pub type MixedSeries = AnyDatatype<
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasLen)]
 #[delegate(ColumnIsBinary)]
-#[delegate(LayoutWidth)]
+#[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(LayoutRanges)]
 #[delegate(LayoutInsert<R>, generics = "R")]
 #[delegate(
     LayoutDatatype,
-    where = "C08: LayoutWidth, \
-             C16: LayoutWidth, \
-             C24: LayoutWidth, \
-             C32: LayoutWidth, \
-             C40: LayoutWidth, \
-             C48: LayoutWidth, \
-             C56: LayoutWidth, \
-             C64: LayoutWidth"
+    where = "C08: HasWidth, \
+             C16: HasWidth, \
+             C24: HasWidth, \
+             C32: HasWidth, \
+             C40: HasWidth, \
+             C48: HasWidth, \
+             C56: HasWidth, \
+             C64: HasWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "C08: LayoutWidth, \
-             C16: LayoutWidth, \
-             C24: LayoutWidth, \
-             C32: LayoutWidth, \
-             C40: LayoutWidth, \
-             C48: LayoutWidth, \
-             C56: LayoutWidth, \
-             C64: LayoutWidth"
+    where = "C08: HasWidth, \
+             C16: HasWidth, \
+             C24: HasWidth, \
+             C32: HasWidth, \
+             C40: HasWidth, \
+             C48: HasWidth, \
+             C56: HasWidth, \
+             C64: HasWidth"
 )]
 #[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -1566,6 +1590,22 @@ impl fmt::Display for ScaleTransformMismatchError {
     }
 }
 
+/// Error when converting a primitive dataframe into a versioned dataframe
+#[derive(From, Error, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum HeadersToDataFrameError {
+    ColMismatch(MeasDataMismatchError),
+    Cast(CastSeriesErrors),
+}
+
+// TODO which columns?
+def_summary!(
+    pub CastSeriesSummary,
+    "one or more series could not be cast into correct type"
+);
+
+pub type CastSeriesErrors = ErrorGroup<CastSeriesError, CastSeriesSummary>;
+
 /// Inner helper type to add index data to an error message.
 ///
 /// This does not implement any error-specific functions on its own because
@@ -1672,6 +1712,7 @@ enum Any8ByteType<F64, I64> {
 // - match_any_* - apply syntax to each variant
 // - match_map_* - apply syntax to each variant and enclose in the same variant
 
+#[macro_export]
 macro_rules! match_any_uint {
     ($value:expr, $inner:ident, $action:expr) => {
         match_many_to_one!(
@@ -1686,6 +1727,7 @@ macro_rules! match_any_uint {
     };
 }
 
+#[macro_export]
 macro_rules! match_any_datatype {
     ($value:expr, $inner:ident, $action:expr ) => {
         match_many_to_one!(
@@ -1698,24 +1740,28 @@ macro_rules! match_any_datatype {
     };
 }
 
+#[macro_export]
 macro_rules! match_any_ascii {
     ($value:expr, $inner:ident, $action:expr) => {
         match_many_to_one!($value, AnyAscii, [Delimited, Fixed], $inner, $action)
     };
 }
 
+#[macro_export]
 macro_rules! match_any_endian_uint {
     ($value:expr, $inner:ident, $action:expr) => {
         match_many_to_one!($value, AnyEndianUint, [Single, Multi], $inner, $action)
     };
 }
 
+#[macro_export]
 macro_rules! match_any_3_2 {
     ($value:expr, $inner:ident, $action:expr) => {
         match_many_to_one!($value, Any3_2, [Mixed, NonMixed], $inner, $action)
     };
 }
 
+#[macro_export]
 macro_rules! match_map_uint {
     ($value:expr, $inner:ident, $action:expr) => {
         match $value {
@@ -1731,6 +1777,7 @@ macro_rules! match_map_uint {
     };
 }
 
+#[macro_export]
 macro_rules! match_map_datatype {
     ($value:expr, $inner:ident, $action:expr) => {
         match $value {
@@ -1742,6 +1789,7 @@ macro_rules! match_map_datatype {
     };
 }
 
+#[macro_export]
 macro_rules! match_map_ascii {
     ($value:expr, $inner:ident, $action:expr) => {
         match $value {
@@ -1751,6 +1799,7 @@ macro_rules! match_map_ascii {
     };
 }
 
+#[macro_export]
 macro_rules! match_map_endian_uint {
     ($value:expr, $inner:ident, $action:expr) => {
         match $value {
@@ -1773,7 +1822,7 @@ where
     for<'a> Self: Sized
         + HeadersReadOps<Self::Tot>
         + LayoutDatatype
-        + LayoutWidth
+        + HasWidth
         + LayoutNormalize
         + LayoutRemove<Range>
         + LayoutKeywords
@@ -2065,15 +2114,13 @@ impl VersionedHeaders for DataHeaders3_2 {
 
 // Implement version specific ops for dataframes
 
-// TODO add method to jettison dataframe and make headers again
-
 /// A version-specific dataframe (headers + DATA)
 pub trait VersionedDataFrame
 where
     for<'a> Self: Sized
         + DataFrameWriteOps
         + LayoutDatatype
-        + LayoutWidth
+        + HasWidth
         + LayoutHeight
         + LayoutSize
         + LayoutKeywords
@@ -2081,7 +2128,7 @@ where
         + LayoutNormalize
         + LayoutRemove<RangeAndSeries>
         + DataFrameCheckRanges
-        + DataFrameToHeaders
+        + DataFrameAsHeaders
         + WithPrimitiveDataFrame,
 {
     fn h_write_df<W>(&self, h: &mut BufWriter<W>, conf: &WriteDatasetInnerConfig) -> io::Result<()>
@@ -2111,16 +2158,8 @@ impl VersionedDataFrame for DataFrame3_2 {}
 // These traits are simple because they can be fractally delegated to inner
 // types without any special tricks.
 
-/// A layout which has a width (which also means the width can be cleared).
-#[delegatable_trait]
-pub trait LayoutWidth: Sized {
-    fn ncols(&self) -> usize;
-
-    fn clear(&mut self);
-}
-
-impl<C: HasWidth, F, I, L, M, const ORD: bool> LayoutWidth for Layout<C, F, I, L, M, ORD> {
-    fn ncols(&self) -> usize {
+impl<C: HasWidth, F, I, L, M, const ORD: bool> HasWidth for Layout<C, F, I, L, M, ORD> {
+    fn width(&self) -> usize {
         self.container.width()
     }
 
@@ -2181,13 +2220,13 @@ pub trait LayoutDatatype: Sized {
 
     fn check_transforms_and_len<S, G>(&self, xforms: &[S]) -> Result<(), MeasLayoutMismatchError>
     where
-        Self: LayoutWidth,
+        Self: HasWidth,
         G: Default,
         S: CheckedScaleTransform,
         ScaleDatatypeMismatchError: From<ErrorGroup<S::Err, G>>,
     {
         let meas_n = xforms.len();
-        let layout_n = self.ncols();
+        let layout_n = self.width();
         if meas_n != layout_n {
             let e = MeasLayoutLengthsError { meas_n, layout_n };
             return Err(e.into());
@@ -2197,12 +2236,40 @@ pub trait LayoutDatatype: Sized {
         Ok(())
     }
 
-    fn check_measurement_vector<Name, Tmp, Opt: AsScaleOrTransform>(
+    fn check_meas_vec<V: VersionSet>(
+        &self,
+        meas: &[TemporalOrOptical<V>],
+    ) -> Result<(), MeasLayoutMismatchError>
+    where
+        Self: HasWidth,
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<
+            ErrorGroup<
+                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
+                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
+            >,
+        >,
+    {
+        let xforms: Vec<_> = meas
+            .iter()
+            .map(|m| {
+                m.as_ref().both(
+                    |_| <V::Optical as AsScaleOrTransform>::S::default(),
+                    |r| r.specific.as_scale_or_transform(),
+                )
+            })
+            .collect();
+        self.check_transforms_and_len(&xforms[..])
+    }
+
+    fn check_meas_named_vec<Name, Tmp, Opt: AsScaleOrTransform>(
         &self,
         meas: &Measurements<Name, Tmp, Opt>,
     ) -> Result<(), MeasLayoutMismatchError>
     where
-        Self: LayoutWidth,
+        Self: HasWidth,
         Opt::S: CheckedScaleTransform,
         <Opt::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<
@@ -2226,7 +2293,7 @@ pub trait LayoutDatatype: Sized {
         measurements: NamedTemporalsAndOpticals<V>,
     ) -> Result<Measurements<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>
     where
-        Self: LayoutWidth,
+        Self: HasWidth,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -2238,7 +2305,7 @@ pub trait LayoutDatatype: Sized {
         >,
     {
         let ms = NamedVec::try_new(measurements)?;
-        self.check_measurement_vector(&ms)
+        self.check_meas_named_vec(&ms)
             .map_err(MeasurementsWithLayoutError::from)?;
         Ok(ms)
     }
@@ -2356,7 +2423,7 @@ impl<I, L, M, const ORD: bool> LayoutSize
     for Layout<DataFrame<NativeSeries<DelimAsciiRange>>, DataFrameFamily, I, L, M, ORD>
 {
     fn nbytes(&self) -> u64 {
-        let n = self.nrows() * self.ncols();
+        let n = self.nrows() * self.width();
         if n == 0 {
             return 0;
         }
@@ -2392,10 +2459,10 @@ pub trait LayoutOptMeasKeywords {
 
 impl<C, I, F, S, M, const ORD: bool> LayoutOptMeasKeywords for Layout<C, F, I, S, M, ORD>
 where
-    Self: LayoutWidth,
+    Self: HasWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
-        vec![None; self.ncols()]
+        vec![None; self.width()]
     }
 }
 
@@ -2405,12 +2472,12 @@ where
     C: AsRef<[I::Inner]>,
     I::Inner: ColumnHasDatatype,
     Self: LayoutDatatype,
-    N: LayoutWidth,
+    N: HasWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
         match self {
-            Self::NonMixed(x) => vec![None; x.ncols()],
+            Self::NonMixed(x) => vec![None; x.width()],
             Self::Mixed(x) => x
                 .container
                 .as_ref()
@@ -2538,13 +2605,13 @@ where
 
 /// A headers type that can be converted to an empty dataframe.
 #[delegatable_trait]
-pub trait DataFrameToHeaders {
+pub trait DataFrameAsHeaders {
     type Headers;
 
     fn as_headers(&self) -> Self::Headers;
 }
 
-impl DataFrameToHeaders for DataFrame3_2 {
+impl DataFrameAsHeaders for DataFrame3_2 {
     type Headers = DataHeaders3_2;
 
     fn as_headers(&self) -> Self::Headers {
@@ -2552,12 +2619,12 @@ impl DataFrameToHeaders for DataFrame3_2 {
     }
 }
 
-impl<A, I, F32, F64> DataFrameToHeaders for AnyDatatype<A, I, F32, F64>
+impl<A, I, F32, F64> DataFrameAsHeaders for AnyDatatype<A, I, F32, F64>
 where
-    A: DataFrameToHeaders,
-    I: DataFrameToHeaders,
-    F32: DataFrameToHeaders,
-    F64: DataFrameToHeaders,
+    A: DataFrameAsHeaders,
+    I: DataFrameAsHeaders,
+    F32: DataFrameAsHeaders,
+    F64: DataFrameAsHeaders,
 {
     type Headers = AnyDatatype<A::Headers, I::Headers, F32::Headers, F64::Headers>;
 
@@ -2566,10 +2633,10 @@ where
     }
 }
 
-impl<W0, W> DataFrameToHeaders for AnyEndianUint<W0, W>
+impl<W0, W> DataFrameAsHeaders for AnyEndianUint<W0, W>
 where
-    W0: DataFrameToHeaders,
-    W: DataFrameToHeaders,
+    W0: DataFrameAsHeaders,
+    W: DataFrameAsHeaders,
 {
     type Headers = AnyEndianUint<W0::Headers, W::Headers>;
 
@@ -2578,10 +2645,10 @@ where
     }
 }
 
-impl<D, F> DataFrameToHeaders for AnyAscii<D, F>
+impl<D, F> DataFrameAsHeaders for AnyAscii<D, F>
 where
-    D: DataFrameToHeaders,
-    F: DataFrameToHeaders,
+    D: DataFrameAsHeaders,
+    F: DataFrameAsHeaders,
 {
     type Headers = AnyAscii<D::Headers, F::Headers>;
 
@@ -2590,17 +2657,17 @@ where
     }
 }
 
-impl<C08, C16, C24, C32, C40, C48, C56, C64> DataFrameToHeaders
+impl<C08, C16, C24, C32, C40, C48, C56, C64> DataFrameAsHeaders
     for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
 where
-    C08: DataFrameToHeaders,
-    C16: DataFrameToHeaders,
-    C24: DataFrameToHeaders,
-    C32: DataFrameToHeaders,
-    C40: DataFrameToHeaders,
-    C48: DataFrameToHeaders,
-    C56: DataFrameToHeaders,
-    C64: DataFrameToHeaders,
+    C08: DataFrameAsHeaders,
+    C16: DataFrameAsHeaders,
+    C24: DataFrameAsHeaders,
+    C32: DataFrameAsHeaders,
+    C40: DataFrameAsHeaders,
+    C48: DataFrameAsHeaders,
+    C56: DataFrameAsHeaders,
+    C64: DataFrameAsHeaders,
 {
     type Headers = AnyUint<
         C08::Headers,
@@ -2618,7 +2685,7 @@ where
     }
 }
 
-impl<C, const ORD: bool, M> DataFrameToHeaders for FamilyLayout<DataFrameFamily, C, ORD, M>
+impl<C, const ORD: bool, M> DataFrameAsHeaders for FamilyLayout<DataFrameFamily, C, ORD, M>
 where
     C: IsCol<DataFrameFamily, ORD>
         + IsCol<VecFamily, ORD, Layout = <C as IsCol<DataFrameFamily, ORD>>::Layout>,
@@ -2638,29 +2705,211 @@ where
     }
 }
 
+// Implement method to set headers
+
+// pub trait LayoutWithHeaders {
+//     type Headers;
+
+//     fn with_headers(&mut self, headers: Self::Headers) -> Result<(), HeadersToDataFrameError>;
+// }
+
+// // impl WithHeaders for DataHeaders3_2 {
+// //     type Headers = DataFrame3_2;
+
+// //     fn with_headers(&self, headers: Self::Headers) -> Result<Self, HeadersToDataFrameError> {
+// //         match_any_3_2!(self, x, Ok(Self::from(x.with_headers(headers)?)))
+// //     }
+// // }
+
+// // impl WithHeaders for DataFrame3_2 {
+// //     type Headers = DataFrame3_2;
+
+// //     fn with_headers(&self, headers: Self::Headers) -> Result<Self, HeadersToDataFrameError> {
+// //         match_any_3_2!(self, x, Ok(Self::from(x.with_headers(headers)?)))
+// //     }
+// // }
+
+// // impl<A, I, F32, F64> WithHeaders for AnyDatatype<A, I, F32, F64>
+// // where
+// //     A: WithHeaders,
+// //     I: WithHeaders,
+// //     F32: WithHeaders,
+// //     F64: WithHeaders,
+// // {
+// //     type Headers = AnyDatatype<A, I, F32, F64>;
+
+// //     fn with_headers(&self, headers: Self::Headers) -> Result<Self, HeadersToDataFrameError> {
+// //         Ok(match_map_datatype!(self, x, x.with_headers(headers)?))
+// //     }
+// // }
+
+// // impl<W0, W> WithHeaders for AnyEndianUint<W0, W>
+// // where
+// //     W0: WithHeaders,
+// //     W: WithHeaders,
+// // {
+// //     type Headers = AnyEndianUint<W0, W>;
+
+// //     fn with_headers(&self, headers: Self::Headers) -> Result<Self, HeadersToDataFrameError> {
+// //         Ok(match_map_endian_uint!(self, x, x.with_headers(headers)?))
+// //     }
+// // }
+
+// // impl<D, F> WithHeaders for AnyAscii<D, F>
+// // where
+// //     D: WithHeaders,
+// //     F: WithHeaders,
+// // {
+// //     type Headers = AnyAscii<D::DfTarget, F::DfTarget>;
+
+// //     fn with_headers(&self, headers: Self::Headers) -> Result<Self, HeadersToDataFrameError> {
+// //         Ok(match_map_ascii!(self, x, x.with_headers(headers)?))
+// //     }
+// // }
+
+// impl<C08, C16, C24, C32, C40, C48, C56, C64> LayoutWithHeaders
+//     for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+// where
+//     C08: LayoutWithHeaders,
+//     C16: LayoutWithHeaders,
+//     C24: LayoutWithHeaders,
+//     C32: LayoutWithHeaders,
+//     C40: LayoutWithHeaders,
+//     C48: LayoutWithHeaders,
+//     C56: LayoutWithHeaders,
+//     C64: LayoutWithHeaders,
+// {
+//     type Headers = AnyUint<
+//         C08::Headers,
+//         C16::Headers,
+//         C24::Headers,
+//         C32::Headers,
+//         C40::Headers,
+//         C48::Headers,
+//         C56::Headers,
+//         C64::Headers,
+//     >;
+
+//     fn with_headers(&mut self, headers: Self::Headers) -> Result<(), HeadersToDataFrameError> {
+//         match_any_uint!(self, x, x.with_headers(headers))
+//     }
+// }
+
+// impl<C, const ORD: bool, M> LayoutWithHeaders for FamilyLayout<VecFamily, C, ORD, M>
+// where
+//     Self: LayoutNormalize,
+//     C: IsCol<VecFamily, ORD>,
+// {
+//     type Headers = Self;
+
+//     fn with_headers(&mut self, mut headers: Self::Headers) -> Result<(), HeadersToDataFrameError> {
+//         headers.normalize();
+//         *self = headers;
+//         Ok(())
+//     }
+// }
+
+// impl<C, const ORD: bool, M> LayoutWithHeaders for FamilyLayout<DataFrameFamily, C, ORD, M>
+// where
+//     Self: Default,
+//     FamilyLayout<VecFamily, C, ORD, M>: LayoutNormalize,
+//     C: IsCol<VecFamily, ORD>
+//         + IsCol<DataFrameFamily, ORD, Layout = <C as IsCol<VecFamily, ORD>>::Layout>,
+//     <C as IsCol<VecFamily, ORD>>::Inner:
+//         HeaderToEmptySeries<Target = <C as IsCol<DataFrameFamily, ORD>>::Inner>,
+//     <C as IsCol<DataFrameFamily, ORD>>::Inner:
+//         ColumnWithSeries + HasLen + Into<AnyPrimitiveSeries> + Clone,
+//     <C as IsCol<DataFrameFamily, ORD>>::Layout: Clone,
+// {
+//     type Headers = FamilyLayout<VecFamily, C, ORD, M>;
+
+//     fn with_headers(&mut self, mut headers: Self::Headers) -> Result<(), HeadersToDataFrameError> {
+//         headers.normalize();
+//         let df_width = self.ncols();
+//         let this_width = self.ncols();
+//         if df_width != this_width {
+//             return Err(MeasDataMismatchError {
+//                 meas_n: this_width,
+//                 data_n: df_width,
+//             }
+//             .into());
+//         }
+//         let hs: Vec<_> = headers.container.into_iter().map(|h| h.empty()).collect();
+//         // Test all columns for data loss before trying to convert. If we try to
+//         // convert and check for loss after, any series conversion that is in
+//         // place will copy the original buffer since the original dataframe will
+//         // still point to it. Each of these clones below should be dropped after
+//         // the closure goes out of scope since it captures the owned value of
+//         // each clone.
+//         let es = self
+//             .container
+//             .iter()
+//             .map(|c| c.clone().into())
+//             .zip(&hs)
+//             .filter_map(|(c, h): (AnyPrimitiveSeries, _)| h.is_lossless(&c).err());
+//         CastSeriesErrors::try_new(es)?;
+//         // Now take owned data out of self and mutate in place since we are
+//         // now confident failure will not happen.
+//         let new_cols = Vec::from(mem::take(self).container)
+//             .into_iter()
+//             .map(Into::into)
+//             .zip(hs)
+//             .map(|(c, h): (AnyPrimitiveSeries, _)| {
+//                 h.with_series(c).expect("loss error was already checked")
+//             });
+//         let new_df = DataFrame::try_new(new_cols).expect("number of columns was checked already");
+//         *self = Layout::new(new_df, headers.byte_layout);
+//         Ok(())
+//     }
+// }
+
 // Implement method to set data to a dataframe
 
 pub trait WithPrimitiveDataFrame {
     type DfTarget;
 
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError>;
+
+    fn with_data_generic<T>(&self, df: T) -> Result<Self::DfTarget, HeadersToDataFrameError>
+    where
+        T: Into<PrimitiveDataFrame>,
+    {
+        self.with_data(df.into())
+    }
+
+    fn check_width<T>(&self, df: &T) -> Result<(), MeasDataMismatchError>
+    where
+        Self: HasWidth,
+        T: HasWidth,
+    {
+        let df_width = df.width();
+        let this_width = self.width();
+        if df_width != this_width {
+            return Err(MeasDataMismatchError {
+                meas_n: this_width,
+                data_n: df_width,
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors>;
+
+    // Check that generic dataframe won't cause data loss errors with a new
+    // layout. Cloning is the easy way to do this and it is cheap because the
+    // data itself is behind a reference counter. The only caveat is that we
+    // need to ensure this is dropped, since any conversions that happen later
+    // might be in place, and this will trigger a copy if there are any dangling
+    // references.
+
+    fn check_data_loss_generic<T>(&self, df: &T) -> Result<(), CastSeriesErrors>
+    where
+        T: Clone + Into<PrimitiveDataFrame>,
+    {
+        self.check_data_loss(&df.clone().into())
+    }
 }
-
-/// Error when converting a primitive dataframe into a versioned dataframe
-#[derive(From, Error, Display, Debug)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum HeadersToDataFrameError {
-    ColMismatch(MeasDataMismatchError),
-    Cast(CastColErrors),
-}
-
-// TODO which columns?
-def_summary!(
-    pub CastColSummary,
-    "one or more columns could not be cast into correct type"
-);
-
-pub type CastColErrors = ErrorGroup<CastSeriesError, CastColSummary>;
 
 impl WithPrimitiveDataFrame for DataHeaders3_2 {
     type DfTarget = DataFrame3_2;
@@ -2668,13 +2917,21 @@ impl WithPrimitiveDataFrame for DataHeaders3_2 {
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         match_any_3_2!(self, x, Ok(Self::DfTarget::from(x.with_data(df)?)))
     }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        match_any_3_2!(self, x, x.check_data_loss(df))
+    }
 }
 
 impl WithPrimitiveDataFrame for DataFrame3_2 {
-    type DfTarget = DataFrame3_2;
+    type DfTarget = Self;
 
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         match_any_3_2!(self, x, Ok(Self::DfTarget::from(x.with_data(df)?)))
+    }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        match_any_3_2!(self, x, x.check_data_loss(df))
     }
 }
 
@@ -2690,6 +2947,10 @@ where
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         Ok(match_map_datatype!(self, x, x.with_data(df)?))
     }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        match_any_datatype!(self, x, x.check_data_loss(df))
+    }
 }
 
 impl<W0, W> WithPrimitiveDataFrame for AnyEndianUint<W0, W>
@@ -2702,6 +2963,10 @@ where
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         Ok(match_map_endian_uint!(self, x, x.with_data(df)?))
     }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        match_any_endian_uint!(self, x, x.check_data_loss(df))
+    }
 }
 
 impl<D, F> WithPrimitiveDataFrame for AnyAscii<D, F>
@@ -2713,6 +2978,10 @@ where
 
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         Ok(match_map_ascii!(self, x, x.with_data(df)?))
+    }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        match_any_ascii!(self, x, x.check_data_loss(df))
     }
 }
 
@@ -2742,6 +3011,10 @@ where
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         Ok(match_map_uint!(self, x, x.with_data(df)?))
     }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        match_any_uint!(self, x, x.check_data_loss(df))
+    }
 }
 
 impl<C, const ORD: bool, M> WithPrimitiveDataFrame for FamilyLayout<VecFamily, C, ORD, M>
@@ -2757,34 +3030,40 @@ where
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
         self.empty().with_data(df)
     }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        self.empty().check_data_loss(df)
+    }
 }
 
 impl<C, const ORD: bool, M> WithPrimitiveDataFrame for FamilyLayout<DataFrameFamily, C, ORD, M>
 where
     C: IsCol<DataFrameFamily, ORD>,
-    <C as IsCol<DataFrameFamily, ORD>>::Inner: WithPrimitiveSeries + HasLen,
+    <C as IsCol<DataFrameFamily, ORD>>::Inner: ColumnWithSeries + HasLen,
     <C as IsCol<DataFrameFamily, ORD>>::Layout: Clone,
 {
     type DfTarget = Self;
 
     fn with_data(&self, df: PrimitiveDataFrame) -> Result<Self::DfTarget, HeadersToDataFrameError> {
-        let df_width = df.ncols();
-        let this_width = self.ncols();
-        if df_width != this_width {
-            return Err(MeasDataMismatchError {
-                meas_n: this_width,
-                data_n: df_width,
-            }
-            .into());
-        }
+        self.check_width(&df)?;
         let rs = self
             .container
             .iter()
             .zip(Vec::from(df))
             .map(|(h, c)| h.with_series(c));
-        let new_cols = Result::sequence_results(rs).map_err(|e| e.deanonymize())?;
-        let df = DataFrame::try_new(new_cols).expect("number of columns was checked already");
-        Ok(Layout::new(df, self.byte_layout.clone()))
+        let new_cols = Result::sequence_results(rs).map_err(ErrorGroup::deanonymize)?;
+        let new_df = DataFrame::try_new(new_cols).expect("number of columns was checked already");
+        Ok(Layout::new(new_df, self.byte_layout.clone()))
+    }
+
+    fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors> {
+        let es = self
+            .container
+            .iter()
+            .zip(df.iter())
+            .filter_map(|(h, c)| h.is_lossless(c).err());
+        ErrorGroup::try_new(es)?;
+        Ok(())
     }
 }
 
@@ -5225,30 +5504,50 @@ impl HeaderToEmptySeries for MixedRange {
 
 // Implement data column set method
 
-trait WithPrimitiveSeries: Sized {
+trait ColumnWithSeries: Sized {
     fn with_series(&self, ser: AnyPrimitiveSeries) -> Result<Self, CastSeriesError>;
+
+    fn is_lossless(&self, ser: &AnyPrimitiveSeries) -> Result<(), CastSeriesError>;
 }
 
-impl<T> WithPrimitiveSeries for NativeSeries<T>
+impl<T> ColumnWithSeries for NativeSeries<T>
 where
     T: ColumnHasNativeType + Clone,
-    T::Native: FCSRepr,
+    T::Native: FCSRepr
+        + FromValue<u8>
+        + FromValue<u16>
+        + FromValue<u32>
+        + FromValue<u64>
+        + FromValue<f32>
+        + FromValue<f64>,
     AnyPrimitiveSeries: TryInto<NativeInternalSeries<T>, Error = CastSeriesError>,
 {
     fn with_series(&self, ser: AnyPrimitiveSeries) -> Result<Self, CastSeriesError> {
         Ok(HeaderAndSeries::new(self.header.clone(), ser.try_into()?))
     }
-}
 
-impl WithPrimitiveSeries for VariableUintSeries {
-    fn with_series(&self, ser: AnyPrimitiveSeries) -> Result<Self, CastSeriesError> {
-        Ok(match_map_uint!(self, x, x.with_series(ser)?))
+    fn is_lossless(&self, ser: &AnyPrimitiveSeries) -> Result<(), CastSeriesError> {
+        ser.will_be_lossy::<T::Native>()
     }
 }
 
-impl WithPrimitiveSeries for MixedSeries {
+impl ColumnWithSeries for VariableUintSeries {
+    fn with_series(&self, ser: AnyPrimitiveSeries) -> Result<Self, CastSeriesError> {
+        Ok(match_map_uint!(self, x, x.with_series(ser)?))
+    }
+
+    fn is_lossless(&self, ser: &AnyPrimitiveSeries) -> Result<(), CastSeriesError> {
+        match_any_uint!(self, x, x.is_lossless(ser))
+    }
+}
+
+impl ColumnWithSeries for MixedSeries {
     fn with_series(&self, ser: AnyPrimitiveSeries) -> Result<Self, CastSeriesError> {
         Ok(match_map_datatype!(self, x, x.with_series(ser)?))
+    }
+
+    fn is_lossless(&self, ser: &AnyPrimitiveSeries) -> Result<(), CastSeriesError> {
+        match_any_datatype!(self, x, x.is_lossless(ser))
     }
 }
 

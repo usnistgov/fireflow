@@ -11,8 +11,9 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 use bigdecimal::BigDecimal;
 use derive_more::Display;
 use derive_new::new;
-use num_traits::Bounded;
-use num_traits::identities::One as _;
+use num_traits::{Bounded, One as _};
+use thiserror::Error;
+
 use std::ops::Shr;
 
 #[cfg(feature = "serde")]
@@ -21,7 +22,11 @@ use serde::Serialize;
 use super::unaligned::FCSRepr;
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::FromInnerPyObject, pyo3::prelude::*};
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject},
+    fireflow_types::python as py,
+    pyo3::prelude::*,
+};
 
 /// The type of an integer column for all versions.
 #[derive(PartialEq, Clone, Copy, PartialOrd, Debug, new)]
@@ -88,6 +93,22 @@ where
     }
 }
 
+impl<T> TryFrom<u64> for Bitmask<T>
+where
+    T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + TryFrom<u64> + FCSRepr,
+{
+    type Error = NewBitmaskError;
+    fn try_from(value: u64) -> Result<Self, Self::Error> {
+        let (new, trunc) = Self::from_u64(value);
+        if trunc {
+            let bytes = T::FILE_BYTES.0;
+            let e = NewBitmaskError { bytes, value };
+            return Err(e);
+        }
+        Ok(new)
+    }
+}
+
 impl<T> Bitmask<T> {
     pub(crate) fn bitmask(&self) -> T
     where
@@ -96,16 +117,16 @@ impl<T> Bitmask<T> {
         self.bitmask
     }
 
-    pub(crate) fn apply(&self, value: T) -> (Option<BitmaskLossError>, T)
-    where
-        T: Ord + Copy,
-        u64: From<T>,
-    {
-        let b = self.bitmask;
-        let trunc = value > b;
-        let e = trunc.then(|| BitmaskLossError(u64::from(b)));
-        (e, b.min(value))
-    }
+    // pub(crate) fn apply(&self, value: T) -> (Option<BitmaskLossError>, T)
+    // where
+    //     T: Ord + Copy,
+    //     u64: From<T>,
+    // {
+    //     let b = self.bitmask;
+    //     let trunc = value > b;
+    //     let e = trunc.then(|| BitmaskLossError(u64::from(b)));
+    //     (e, b.min(value))
+    // }
 
     pub(crate) fn try_from_native(
         value: BitmaskValue<T>,
@@ -171,23 +192,23 @@ impl<T> Bitmask<T> {
         Self::new(BitmaskValue(T::max_value()), T::max_value())
     }
 
-    pub(crate) fn try_from_many<E, X>(
-        xs: impl IntoIterator<Item = X>,
-        starting_index: usize,
-    ) -> ErrorsResult<Vec<Self>, (), (MeasIndex, E)>
-    where
-        Self: TryFrom<X, Error = E>,
-    {
-        xs.into_iter()
-            .enumerate()
-            .map(|(i, c)| {
-                Self::try_from(c)
-                    .map_err(|e| ((i + starting_index).into(), e))
-                    .into_nowarn1()
-                    .repack()
-            })
-            .sequence_commutative()
-    }
+    // pub(crate) fn try_from_many<E, X>(
+    //     xs: impl IntoIterator<Item = X>,
+    //     starting_index: usize,
+    // ) -> ErrorsResult<Vec<Self>, (), (MeasIndex, E)>
+    // where
+    //     Self: TryFrom<X, Error = E>,
+    // {
+    //     xs.into_iter()
+    //         .enumerate()
+    //         .map(|(i, c)| {
+    //             Self::try_from(c)
+    //                 .map_err(|e| ((i + starting_index).into(), e))
+    //                 .into_nowarn1()
+    //                 .repack()
+    //         })
+    //         .sequence_commutative()
+    // }
 }
 
 /// Error when integer from $PnR must be truncated to fit into desired byte width.
@@ -204,10 +225,20 @@ pub(crate) struct BitmaskTruncationError {
     pub(crate) value: u64,
 }
 
-/// Error when integer is truncated using a bitmask which results in data loss
-#[derive(Clone, Copy, Debug, Display)]
-#[display("integer value truncated to {_0}")]
-pub(crate) struct BitmaskLossError(pub u64);
+/// Error when making a new [`Bitmask`] from a [`u64`].
+#[derive(Error, Debug)]
+#[error("Could not make a new {bytes}-byte bitmask from {value}, out of range")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct NewBitmaskError {
+    bytes: PrivBytes,
+    value: u64,
+}
+
+// /// Error when integer is truncated using a bitmask which results in data loss
+// #[derive(Clone, Copy, Debug, Display)]
+// #[display("integer value truncated to {_0}")]
+// pub(crate) struct BitmaskLossError(pub u64);
 
 #[cfg(test)]
 mod tests {

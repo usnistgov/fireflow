@@ -20,7 +20,7 @@ use std::str::FromStr;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
+use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py, pyo3::prelude::*};
 
 // TODO it might be easier and simpler just to store and array and check if
 // needed if it is big/little. The enum was only necessary when I was checking
@@ -534,13 +534,15 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ArrayByteOrd, Endian, NewByteOrdError};
+    use super::{ArrayByteOrd, Bytes, Endian, NewByteOrdError, PrivBytes};
 
     use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
     use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
     use fireflow_types::python::{self as py, InvalidKeywordValueError};
 
     use derive_more::{Display, From};
+    use num_enum::TryFromPrimitiveError;
+    use pyo3::exceptions::PyValueError;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyString};
     use thiserror::Error;
 
@@ -588,6 +590,20 @@ mod python {
     impl_vec_to_sized!(6);
     impl_vec_to_sized!(7);
     impl_vec_to_sized!(8);
+
+    // This is just a python integer 1-8. Thus far this is only used when
+    // making data layouts.
+    impl<'py> FromPyObject<'py> for Bytes {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            let x = ob.extract::<u8>()?;
+            let y = x
+                .try_into()
+                .map_err(|e: TryFromPrimitiveError<PrivBytes>| {
+                    PyValueError::new_err(e.to_string())
+                })?;
+            Ok(Self(y))
+        }
+    }
 
     // on the python side, represent big and little endian with string literals
     // "big" and "little" (to avoid using a boolean for which the direction

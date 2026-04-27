@@ -57,14 +57,15 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
+use fireflow_core::data::AnyFixedUintHeaders;
 use fireflow_core::data::RangeAndSeries;
 use fireflow_core::data::{
     self, AnyAsciiHeaders, AnyDatatype, AnyEndianUintHeaders, AnyOrderedHeaders,
     AnyOrderedUintHeaders, AnyUint, ColumnMarkers, DataHeaders2_0, DataHeaders3_0, DataHeaders3_1,
-    DataHeaders3_2, DelimAsciiHeaders, EndianHeaders, EndianUintHeaders, F32Col, F64Col,
-    FixedAsciiHeaders, HeaderAndSeries, LayoutDatatype as _, NonMixedEndianHeaders,
+    DataHeaders3_2, DelimAsciiHeaders, EndianHeaders, F32Col, F64Col, FixedAsciiHeaders,
+    HeaderAndSeries, LayoutByteOrder as _, LayoutDatatype as _, NonMixedEndianHeaders,
     PhantomInto as _, RangeOrMixedRange, RangeOrMixedSeries, RangeOrVariableBitmask,
-    RangeOrVariableUintSeries, ToInsert, VariableUintSeries,
+    RangeOrVariableUintSeries, ToInsert, VariableUintHeaders, VariableUintSeries,
 };
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
@@ -112,9 +113,10 @@ use fireflow_python_proc::{
     impl_new_core, impl_new_delim_ascii_layout, impl_new_endian_float_layout,
     impl_new_endian_uint_layout, impl_new_fixed_ascii_layout, impl_new_gate_bi_regions,
     impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
-    impl_py_dataset_segments, impl_py_dataset_summary, impl_py_flat_dataset_output,
-    impl_py_flat_dataset_with_kws_output, impl_py_flat_text_diagnostics, impl_py_flat_text_output,
-    impl_py_header, impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
+    impl_new_single_uint_layout, impl_py_dataset_segments, impl_py_dataset_summary,
+    impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
+    impl_py_flat_text_diagnostics, impl_py_flat_text_output, impl_py_header,
+    impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
     impl_py_new_flat_dataset_with_kws_output, impl_py_new_std_dataset_with_kws_output,
     impl_py_read_events_diagnostics, impl_py_split_text_diagnostics, impl_py_std_dataset_output,
     impl_py_std_dataset_with_kws_output, impl_py_std_diagnostics, impl_py_std_text_output,
@@ -690,14 +692,17 @@ impl_new_ordered_layout!(8, true);
 impl_new_endian_float_layout!(4);
 impl_new_endian_float_layout!(8);
 
-// Implement __new__ and attributes for PyEndianUintHeaders
+// Implement __new__ and attributes for PySingleUintHeaders
+impl_new_single_uint_layout!();
+
+// Implement __new__ and attributes for PyVariableUintHeaders
 impl_new_endian_uint_layout!();
 
 // Implement __new__ and attributes for PyMixedHeaders
 impl_new_mixed_layout!();
 
 // Implement method to return the byte widths of variable-widths layouts
-impl_layout_byte_widths!(PyEndianUintHeaders);
+impl_layout_byte_widths!(PyVariableUintHeaders);
 impl_layout_byte_widths!(PyMixedHeaders);
 
 #[derive(IntoPyObject, From)]
@@ -761,6 +766,7 @@ impl From<PyAnyCoreDataset> for core::AnyCoreDataset {
 pub enum PyOrderedHeaders {
     AsciiFixed(PyFixedAsciiHeaders),
     AsciiDelim(PyDelimAsciiHeaders),
+    // TODO combine all of these
     Uint08(PyOrderedUint08Headers),
     Uint16(PyOrderedUint16Headers),
     Uint24(PyOrderedUint24Headers),
@@ -787,8 +793,11 @@ pub enum PyNonMixedHeaders {
     )]
     AsciiDelim(PyDelimAsciiHeaders),
 
-    #[from(PyEndianUintHeaders, EndianUintHeaders<Nothing<kws::NumType>>)]
-    Uint(PyEndianUintHeaders),
+    #[from(PyVariableUintHeaders, VariableUintHeaders<Nothing<kws::NumType>>)]
+    VariableUint(PyVariableUintHeaders),
+
+    #[from(PySingleUintHeaders, AnyFixedUintHeaders<Nothing<kws::NumType>>)]
+    SingleUint(PySingleUintHeaders),
 
     #[from(PyEndianF32Headers, EndianHeaders<F32Col, Nothing<kws::NumType>>)]
     F32(PyEndianF32Headers),
@@ -917,7 +926,7 @@ impl From<NonMixedEndianHeaders<Nothing<kws::NumType>>> for PyNonMixedHeaders {
                 AnyAsciiHeaders::Delimited(y) => y.into(),
             },
             NonMixedEndianHeaders::Uint(x) => match x {
-                AnyEndianUintHeaders::Single(y) => unimplemented!(),
+                AnyEndianUintHeaders::Single(y) => y.into(),
                 AnyEndianUintHeaders::Multi(y) => y.into(),
             },
             NonMixedEndianHeaders::F32(x) => x.into(),
@@ -931,7 +940,8 @@ impl From<PyNonMixedHeaders> for NonMixedEndianHeaders<Nothing<kws::NumType>> {
         match value {
             PyNonMixedHeaders::AsciiFixed(x) => Self::Ascii(x.0.into()),
             PyNonMixedHeaders::AsciiDelim(x) => Self::Ascii(x.0.into()),
-            PyNonMixedHeaders::Uint(x) => Self::Uint(AnyEndianUintHeaders::Multi(x.into())),
+            PyNonMixedHeaders::SingleUint(x) => Self::Uint(AnyEndianUintHeaders::Single(x.into())),
+            PyNonMixedHeaders::VariableUint(x) => Self::Uint(AnyEndianUintHeaders::Multi(x.into())),
             PyNonMixedHeaders::F32(x) => Self::F32(x.into()),
             PyNonMixedHeaders::F64(x) => Self::F64(x.into()),
         }

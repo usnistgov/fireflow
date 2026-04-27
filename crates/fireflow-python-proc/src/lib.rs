@@ -4480,8 +4480,66 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("SingleUintHeaders");
+
+    let layout_path = quote!(fireflow_core::data::AnyFixedUintHeaders);
+    let bytes_path = parse_quote!(fireflow_core::text::byteord::Bytes);
+    let numtype_path = keyword_path("NumType");
+    let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
+    let full_layout_path = parse_quote!(#layout_path<#nomeasdt>);
+
+    let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
+        "ranges",
+        PyList::new1(RsInt::U64),
+        format!(
+            "The range of each measurement. Corresponds to the {PNR} \
+             keyword less one. The number of bytes used to encode each \
+             measurement ({PNB}) will be the minimum required to express this \
+             value. For instance, a value of {v1023} will set {PNB} to {v16}, \
+             will set {PNR} to {v1024}, and encode values for this measurement as \
+             16-bit integers. The values of a measurement will be less than or \
+             equal to this value.",
+            v16 = code(16_u8),
+            v1023 = code(1023_u32),
+            v1024 = code(1024_u32),
+        ),
+        |_, _| quote!(self.0.uint_ranges()),
+    );
+
+    let width_param = DocArg::new_param(
+        "width",
+        PyInt::from(RsInt::U32).rstype(bytes_path),
+        format!(
+            "The width of the layout in bytes. Must be an integer 1 through 8. \
+             All in {ranges_arg} must be able to fit within the allotted bytes.",
+            ranges_arg = arg("ranges"),
+        ),
+    );
+
+    let is_big_param = DocArgROIvar::new_endian_param(4, false);
+
+    let doc = DocString::new_class("A mixed-width integer layout.")
+        .arg(ranges_param)
+        .arg(width_param)
+        .arg(is_big_param);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> PyResult<Self> {
+                Ok(#layout_path::new_single_uint(ranges, &width, endian)?.into())
+            }
+        }
+    };
+
+    let (pyname, class) = doc.into_impl_class(name, &full_layout_path, new);
+    let datatype = make_layout_datatype(&pyname, "I");
+    quote!(#class #datatype).into()
+}
+
+#[proc_macro]
 pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("EndianUintHeaders");
+    let name = format_ident!("VariableUintHeaders");
 
     let fixed = quote!(fireflow_core::data::Layout);
     let coltype = quote!(fireflow_core::data::UvarCol);
@@ -7747,7 +7805,7 @@ impl DocArgROIvar {
                 m.endian()
             }
         } else {
-            quote!(*self.0.as_ref())
+            quote!(self.0.byte_order())
         };
         let d = format!(
             "If {BYTEORD_BIG_STR} use big endian ({bigval}) for encoding values; \

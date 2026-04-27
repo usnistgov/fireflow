@@ -146,7 +146,7 @@ use crate::validated::ascii_range::{
 };
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskTruncationError, BitmaskValue,
+    Bitmask64, BitmaskTruncationError, BitmaskValue, NewBitmaskError,
 };
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue, HasLen,
@@ -288,11 +288,9 @@ type NonMixedEndianDataFrame<D> = NonMixedEndianLayout<DataFrameFamily, D>;
 
 type VariableUintLayout<F, D> = FamilyLayout<F, UvarCol, false, ColumnMarkers<Identity<Tot>, D>>;
 
-// type VariableUintHeaders<D> = VariableUintLayout<VecFamily, D>;
+pub type VariableUintHeaders<D> = VariableUintLayout<VecFamily, D>;
 
 type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
-
-pub type EndianUintHeaders<D> = EndianHeaders<UvarCol, D>;
 
 // TODO false positive lint
 #[allow(clippy::duplicated_attributes)]
@@ -463,7 +461,7 @@ type AnyEndianUintLayout<Fam, D> =
 
 type AnyFixedUintLayout<Fam, D> = AnyUintLayout<Fam, false, ColumnMarkers<Identity<Tot>, D>>;
 
-// type AnyFixedUintHeaders<D> = AnyFixedUintLayout<VecFamily, D>;
+pub type AnyFixedUintHeaders<D> = AnyFixedUintLayout<VecFamily, D>;
 
 // type AnyFixedUintDataFrame<D> = AnyFixedUintLayout<DataFrameFamily, D>;
 
@@ -642,7 +640,7 @@ pub type MixedSeries = AnyDatatype<
 )]
 #[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
-#[delegate(LayoutOrderedOps)]
+// #[delegate(LayoutOrderedOps)]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
 #[delegate(LayoutNormalize)]
@@ -868,6 +866,14 @@ pub enum NewDataLayoutError {
 pub enum NewFixedIntLayoutError {
     Width(SingleFixedWidthError),
     Column(IndexedBitmaskError),
+}
+
+/// Error when making a new 2.0/3.0 integer layout.
+#[derive(From, Error, Debug, Display)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NewOrderedUintLayoutError {
+    Bitmask(NewBitmaskError),
+    ByteOrd(ByteOrdToSizedError),
 }
 
 /// Error when $PnB cannot be used for an ordered integer layout (2.0/3.0 only)
@@ -4848,27 +4854,76 @@ where
     }
 }
 
-// Implement operations specific to 2.0/3.0 layouts.
+// Implement byte layout access method
+//
+// Only used for non-ascii layouts, which also means these are not implemented
+// for composite layouts that include ASCII.
 
-/// Standardized operations on ordered layouts
-#[delegatable_trait]
-pub trait LayoutOrderedOps: Sized {
-    fn byte_order(&self) -> ByteOrd2_0;
+// TODO these are only used for python interface
 
-    fn endianness(&self) -> Option<Endian> {
-        self.byte_order().try_into().ok()
+pub trait LayoutByteOrder {
+    type ByteOrder;
+
+    fn byte_order(&self) -> Self::ByteOrder;
+}
+
+impl<D> LayoutByteOrder for AnyOrderedUintHeaders<D> {
+    type ByteOrder = ByteOrd2_0;
+
+    fn byte_order(&self) -> Self::ByteOrder {
+        match self {
+            AnyUint::Uint08(x) => ByteOrd2_0::O1(x.byte_order()),
+            AnyUint::Uint16(x) => ByteOrd2_0::O2(x.byte_order()),
+            AnyUint::Uint24(x) => ByteOrd2_0::O3(x.byte_order()),
+            AnyUint::Uint32(x) => ByteOrd2_0::O4(x.byte_order()),
+            AnyUint::Uint40(x) => ByteOrd2_0::O5(x.byte_order()),
+            AnyUint::Uint48(x) => ByteOrd2_0::O6(x.byte_order()),
+            AnyUint::Uint56(x) => ByteOrd2_0::O7(x.byte_order()),
+            AnyUint::Uint64(x) => ByteOrd2_0::O8(x.byte_order()),
+        }
     }
 }
 
-impl<C, F, I, L, M, const ORD: bool> LayoutOrderedOps for Layout<C, F, I, L, M, ORD>
+impl<D> LayoutByteOrder for AnyFixedUintHeaders<D> {
+    type ByteOrder = Endian;
+
+    fn byte_order(&self) -> Self::ByteOrder {
+        match_any_uint!(self, x, x.byte_order())
+    }
+}
+
+impl<C, F, I, L, M, const ORD: bool> LayoutByteOrder for Layout<C, F, I, L, M, ORD>
 where
-    L: Copy,
-    ByteOrd2_0: From<L>,
+    L: Clone,
 {
-    fn byte_order(&self) -> ByteOrd2_0 {
-        self.byteord.into()
+    type ByteOrder = L;
+
+    fn byte_order(&self) -> L {
+        self.byteord.clone()
     }
 }
+
+// // Implement operations specific to 2.0/3.0 layouts.
+
+// /// Standardized operations on ordered layouts
+// #[delegatable_trait]
+// pub trait LayoutOrderedOps: Sized {
+//     fn byte_order(&self) -> ByteOrd2_0;
+
+//     fn endianness(&self) -> Option<Endian> {
+//         self.byte_order().try_into().ok()
+//     }
+// }
+
+// impl<C, F, I, L, M, const ORD: bool> LayoutOrderedOps for Layout<C, F, I, L, M, ORD>
+// where
+//     L: Copy,
+//     ByteOrd2_0: From<L>,
+// {
+//     fn byte_order(&self) -> ByteOrd2_0 {
+//         self.byteord.into()
+//     }
+// }
 
 // Implement NormalizableLayout
 //
@@ -6716,16 +6771,91 @@ impl<C, F, I, M, const ORD: bool> Layout<C, F, I, NoByteOrd<ORD>, M, ORD> {
     }
 }
 
-impl<T, I, A, M, const ORD: bool> Layout<Vec<Bitmask<T>>, VecFamily, I, ArrayByteOrd<A>, M, ORD>
-where
-    T: FCSRepr,
-    Bitmask<T>: ColumnHasNativeType<Native = T>,
-{
-    #[must_use]
-    pub fn new_endian_uint(ranges: Vec<Bitmask<T>>, endian: Endian) -> Self {
-        Self::new(ranges, ArrayByteOrd::Endian(endian))
+// TODO these could be used internally when parsing from keywords
+impl<D> AnyOrderedUintHeaders<D> {
+    /// Make a new uint layout with a given byte order and width in bytes
+    ///
+    /// Throw error if any of the provided ranges cannot fit within the allotted
+    /// width.
+    ///
+    /// Only applicable to FCS 2.0/3.0.
+    pub fn new_ordered_uint(
+        ranges: Vec<u64>,
+        width: &Bytes,
+        byte_order: ByteOrd2_0,
+    ) -> Result<Self, NewOrderedUintLayoutError> {
+        macro_rules! go {
+            ($var:ident) => {{
+                let rs = ranges
+                    .into_iter()
+                    .map(Bitmask::try_from)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let b = byte_order.try_into()?;
+                Ok(AnyUint::$var(Layout::new(rs, b)))
+            }};
+        }
+        match width.0 {
+            PrivBytes::B1 => go!(Uint08),
+            PrivBytes::B2 => go!(Uint16),
+            PrivBytes::B3 => go!(Uint24),
+            PrivBytes::B4 => go!(Uint32),
+            PrivBytes::B5 => go!(Uint40),
+            PrivBytes::B6 => go!(Uint48),
+            PrivBytes::B7 => go!(Uint56),
+            PrivBytes::B8 => go!(Uint64),
+        }
     }
 }
+
+impl<D> AnyFixedUintHeaders<D> {
+    /// Make a new big/little endian uint layout with a given width in bytes.
+    ///
+    /// Throw error if any of the provided ranges cannot fit within the allotted
+    /// width.
+    ///
+    /// Only applicable to FCS 3.1/3.2.
+    pub fn new_single_uint(
+        ranges: Vec<u64>,
+        width: &Bytes,
+        endian: Endian,
+    ) -> Result<Self, NewBitmaskError> {
+        macro_rules! go {
+            ($var:ident) => {{
+                let rs = ranges
+                    .into_iter()
+                    .map(Bitmask::try_from)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(AnyUint::$var(Layout::new(rs, endian)))
+            }};
+        }
+        match width.0 {
+            PrivBytes::B1 => go!(Uint08),
+            PrivBytes::B2 => go!(Uint16),
+            PrivBytes::B3 => go!(Uint24),
+            PrivBytes::B4 => go!(Uint32),
+            PrivBytes::B5 => go!(Uint40),
+            PrivBytes::B6 => go!(Uint48),
+            PrivBytes::B7 => go!(Uint56),
+            PrivBytes::B8 => go!(Uint64),
+        }
+    }
+
+    #[must_use]
+    pub fn uint_ranges(&self) -> Vec<u64> {
+        match_any_uint!(self, x, x.columns().iter().map(|c| (*c).into()).collect())
+    }
+}
+
+// impl<T, I, A, M, const ORD: bool> Layout<Vec<Bitmask<T>>, VecFamily, I, ArrayByteOrd<A>, M, ORD>
+// where
+//     T: FCSRepr,
+//     Bitmask<T>: ColumnHasNativeType<Native = T>,
+// {
+//     #[must_use]
+//     pub fn new_endian_uint(ranges: Vec<Bitmask<T>>, endian: Endian) -> Self {
+//         Self::new(ranges, ArrayByteOrd::Endian(endian))
+//     }
+// }
 
 impl<T, I, A, M, const ORD: bool> Layout<Vec<FloatRange<T>>, VecFamily, I, ArrayByteOrd<A>, M, ORD>
 where
@@ -7049,33 +7179,33 @@ where
 }
 
 impl DataHeaders3_2 {
-    #[must_use]
-    pub fn new_mixed(rs: Vec<MixedRange>, endian: Endian) -> Self {
-        // Check if the mixed types are all the same, in which case we can use a
-        // simpler layout. This clone thing is not ideal but it will only be
-        // cloning big-decimals for floats and will use Copy for everything else
-        // (not a huge deal).
-        macro_rules! go {
-            ($t:ident) => {
-                rs.iter()
-                    .map(|x| $t::try_from(x.clone()))
-                    .collect::<Result<Vec<_>, _>>()
-            };
-        }
-        let mut ret: Self = if let Ok(xs) = go!(FixedAsciiRange) {
-            NonMixedEndianHeaders::new_ascii_fixed(xs).into()
-        } else if let Ok(xs) = go!(VariableBitmask) {
-            NonMixedEndianHeaders::new_uint(xs, endian).into()
-        } else if let Ok(xs) = go!(F32Range) {
-            NonMixedEndianHeaders::new_f32(xs, endian).into()
-        } else if let Ok(xs) = go!(F64Range) {
-            NonMixedEndianHeaders::new_f64(xs, endian).into()
-        } else {
-            Layout::new(rs, endian).into()
-        };
-        ret.normalize();
-        ret
-    }
+    // #[must_use]
+    // pub fn new_mixed(rs: Vec<MixedRange>, endian: Endian) -> Self {
+    //     // Check if the mixed types are all the same, in which case we can use a
+    //     // simpler layout. This clone thing is not ideal but it will only be
+    //     // cloning big-decimals for floats and will use Copy for everything else
+    //     // (not a huge deal).
+    //     macro_rules! go {
+    //         ($t:ident) => {
+    //             rs.iter()
+    //                 .map(|x| $t::try_from(x.clone()))
+    //                 .collect::<Result<Vec<_>, _>>()
+    //         };
+    //     }
+    //     let mut ret: Self = if let Ok(xs) = go!(FixedAsciiRange) {
+    //         NonMixedEndianHeaders::new_ascii_fixed(xs).into()
+    //     } else if let Ok(xs) = go!(VariableBitmask) {
+    //         NonMixedEndianHeaders::new_uint(xs, endian).into()
+    //     } else if let Ok(xs) = go!(F32Range) {
+    //         NonMixedEndianHeaders::new_f32(xs, endian).into()
+    //     } else if let Ok(xs) = go!(F64Range) {
+    //         NonMixedEndianHeaders::new_f64(xs, endian).into()
+    //     } else {
+    //         Layout::new(rs, endian).into()
+    //     };
+    //     ret.normalize();
+    //     ret
+    // }
 
     fn lookup_inner(
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,

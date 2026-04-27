@@ -9,7 +9,7 @@ use fireflow_types::nonempty_string::{NEDelim, NEStr, ToDisplayNE};
 use derive_more::{Display, From, Into};
 use derive_new::new;
 use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
-use num_enum::{IntoPrimitive, TryFromPrimitive};
+use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 
 use std::fmt;
@@ -133,6 +133,29 @@ impl From<ByteOrd2_0> for AnyByteOrder {
 #[derive(Into, Debug, Display)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]
 pub struct Bytes(pub(crate) PrivBytes);
+
+/// The number of bytes for a numeric measurement; used for method arguments.
+pub struct ArgBytes(pub(crate) PrivBytes);
+
+impl Default for ArgBytes {
+    fn default() -> Self {
+        Self(PrivBytes::B4)
+    }
+}
+
+impl TryFrom<u8> for ArgBytes {
+    type Error = NewArgBytesError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(Self(PrivBytes::try_from(value)?))
+    }
+}
+
+/// Error when making new [`ArgBytes`] from [`u8`].
+#[derive(Debug, Error, From)]
+#[error("must be integer 1-8")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct NewArgBytesError(TryFromPrimitiveError<PrivBytes>);
 
 /// Private version of `Bytes`
 #[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display)]
@@ -620,13 +643,12 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ArrayByteOrd, Bytes, Endian, NewByteOrdError, PrivBytes, VecToSizedError};
+    use super::{ArgBytes, ArrayByteOrd, Endian, NewArgBytesError, VecToSizedError};
 
     use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
     use fireflow_types::python::InvalidKeywordValueError;
 
-    use num_enum::TryFromPrimitiveError;
-    use pyo3::exceptions::PyValueError;
+    use pyo3::types::PyInt;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyString};
 
     use std::convert::Infallible;
@@ -634,15 +656,20 @@ mod python {
 
     // This is just a python integer 1-8. Thus far this is only used when
     // making data layouts.
-    impl<'py> FromPyObject<'py> for Bytes {
+    impl<'py> FromPyObject<'py> for ArgBytes {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x = ob.extract::<u8>()?;
-            let y = x
-                .try_into()
-                .map_err(|e: TryFromPrimitiveError<PrivBytes>| {
-                    PyValueError::new_err(e.to_string())
-                })?;
-            Ok(Self(y))
+            Ok(Self(x.try_into().map_err(NewArgBytesError)?))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for ArgBytes {
+        type Target = PyInt;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            u8::from(self.0).into_pyobject(py)
         }
     }
 

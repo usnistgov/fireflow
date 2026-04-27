@@ -125,8 +125,8 @@ use crate::logging::{
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
-    AnyByteOrder, ArrayByteOrd, BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd,
-    NoByteOrd, OrderedToEndianError, PrivBytes, VecToSizedError, WidthToBytesError,
+    AnyByteOrder, ArgBytes, ArrayByteOrd, BitsOrChars, ByteOrdToSizedError, Bytes, Endian,
+    HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBytes, VecToSizedError, WidthToBytesError,
     WidthToFixedError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -6782,7 +6782,7 @@ impl<T> AnyOrderedUintHeaders<T> {
     /// Only applicable to FCS 2.0/3.0.
     pub fn new_ordered_uint(
         ranges: Vec<u64>,
-        width: &Bytes,
+        width: &ArgBytes,
         byte_order: AnyByteOrder,
     ) -> Result<Self, NewOrderedUintLayoutError> {
         macro_rules! go {
@@ -6811,6 +6811,21 @@ impl<T> AnyOrderedUintHeaders<T> {
     pub fn uint_ranges(&self) -> Vec<u64> {
         match_any_uint!(self, x, x.columns().iter().map(|c| (*c).into()).collect())
     }
+
+    #[must_use]
+    pub fn width(&self) -> ArgBytes {
+        let b = match self {
+            AnyUint::Uint08(_) => PrivBytes::B1,
+            AnyUint::Uint16(_) => PrivBytes::B2,
+            AnyUint::Uint24(_) => PrivBytes::B3,
+            AnyUint::Uint32(_) => PrivBytes::B4,
+            AnyUint::Uint40(_) => PrivBytes::B5,
+            AnyUint::Uint48(_) => PrivBytes::B6,
+            AnyUint::Uint56(_) => PrivBytes::B7,
+            AnyUint::Uint64(_) => PrivBytes::B8,
+        };
+        ArgBytes(b)
+    }
 }
 
 impl<D> AnyFixedUintHeaders<D> {
@@ -6822,7 +6837,7 @@ impl<D> AnyFixedUintHeaders<D> {
     /// Only applicable to FCS 3.1/3.2.
     pub fn new_single_uint(
         ranges: Vec<u64>,
-        width: &Bytes,
+        width: &ArgBytes,
         endian: Endian,
     ) -> Result<Self, NewBitmaskError> {
         macro_rules! go {
@@ -6846,9 +6861,25 @@ impl<D> AnyFixedUintHeaders<D> {
         }
     }
 
+    // TODO not DRY
     #[must_use]
     pub fn uint_ranges(&self) -> Vec<u64> {
         match_any_uint!(self, x, x.columns().iter().map(|c| (*c).into()).collect())
+    }
+
+    #[must_use]
+    pub fn width(&self) -> ArgBytes {
+        let b = match self {
+            AnyUint::Uint08(_) => PrivBytes::B1,
+            AnyUint::Uint16(_) => PrivBytes::B2,
+            AnyUint::Uint24(_) => PrivBytes::B3,
+            AnyUint::Uint32(_) => PrivBytes::B4,
+            AnyUint::Uint40(_) => PrivBytes::B5,
+            AnyUint::Uint48(_) => PrivBytes::B6,
+            AnyUint::Uint56(_) => PrivBytes::B7,
+            AnyUint::Uint64(_) => PrivBytes::B8,
+        };
+        ArgBytes(b)
     }
 }
 

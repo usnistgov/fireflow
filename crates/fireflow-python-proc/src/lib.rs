@@ -4484,7 +4484,7 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("OrderedUintHeaders");
 
     let layout_path = quote!(fireflow_core::data::AnyOrderedUintHeaders);
-    let bytes_path = parse_quote!(fireflow_core::text::byteord::Bytes);
+    let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
     let tot_path = keyword_path("Tot");
     let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
     let full_layout_path = parse_quote!(#layout_path<#known_tot_path>);
@@ -4507,8 +4507,7 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.uint_ranges()),
     );
 
-    // TODO add default
-    let width_param = DocArg::new_param(
+    let width_param = DocArg::new_ivar_ro(
         "width",
         PyInt::from(RsInt::U32).rstype(bytes_path),
         format!(
@@ -4516,7 +4515,9 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
              All in {ranges_arg} must be able to fit within the allotted bytes.",
             ranges_arg = arg("ranges"),
         ),
-    );
+        |_, _| quote!(self.0.width()),
+    )
+    .def_auto();
 
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
@@ -4526,7 +4527,7 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
     )
     .def_auto();
 
-    let doc = DocString::new_class("A mixed-width integer layout.")
+    let doc = DocString::new_class("An integer layout with any byte order and a single width.")
         .arg(ranges_param)
         .arg(width_param)
         .arg(byteord_param);
@@ -4549,7 +4550,7 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
     let name = format_ident!("SingleUintHeaders");
 
     let layout_path = quote!(fireflow_core::data::AnyFixedUintHeaders);
-    let bytes_path = parse_quote!(fireflow_core::text::byteord::Bytes);
+    let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
     let full_layout_path = parse_quote!(#layout_path<#nomeasdt>);
@@ -4572,7 +4573,7 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.uint_ranges()),
     );
 
-    let width_param = DocArg::new_param(
+    let width_param = DocArg::new_ivar_ro(
         "width",
         PyInt::from(RsInt::U32).rstype(bytes_path),
         format!(
@@ -4580,7 +4581,9 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
              All in {ranges_arg} must be able to fit within the allotted bytes.",
             ranges_arg = arg("ranges"),
         ),
-    );
+        |_, _| quote!(self.0.width()),
+    )
+    .def_auto();
 
     let is_big_param = DocArgROIvar::new_endian_param(4, false);
 

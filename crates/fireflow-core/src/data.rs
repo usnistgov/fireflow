@@ -125,8 +125,9 @@ use crate::logging::{
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
-    ArrayByteOrd, BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd, NoByteOrd,
-    OrderedToEndianError, PrivBytes, WidthToBytesError, WidthToFixedError,
+    AnyByteOrder, ArrayByteOrd, BitsOrChars, ByteOrdToSizedError, Bytes, Endian, HasByteOrd,
+    NoByteOrd, OrderedToEndianError, PrivBytes, VecToSizedError, WidthToBytesError,
+    WidthToFixedError,
 };
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -873,7 +874,7 @@ pub enum NewFixedIntLayoutError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewOrderedUintLayoutError {
     Bitmask(NewBitmaskError),
-    ByteOrd(ByteOrdToSizedError),
+    ByteOrd(VecToSizedError),
 }
 
 /// Error when $PnB cannot be used for an ordered integer layout (2.0/3.0 only)
@@ -4867,7 +4868,7 @@ pub trait LayoutByteOrder {
     fn byte_order(&self) -> Self::ByteOrder;
 }
 
-impl<D> LayoutByteOrder for AnyOrderedUintHeaders<D> {
+impl<T> LayoutByteOrder for AnyOrderedUintHeaders<T> {
     type ByteOrder = ByteOrd2_0;
 
     fn byte_order(&self) -> Self::ByteOrder {
@@ -6772,7 +6773,7 @@ impl<C, F, I, M, const ORD: bool> Layout<C, F, I, NoByteOrd<ORD>, M, ORD> {
 }
 
 // TODO these could be used internally when parsing from keywords
-impl<D> AnyOrderedUintHeaders<D> {
+impl<T> AnyOrderedUintHeaders<T> {
     /// Make a new uint layout with a given byte order and width in bytes
     ///
     /// Throw error if any of the provided ranges cannot fit within the allotted
@@ -6782,7 +6783,7 @@ impl<D> AnyOrderedUintHeaders<D> {
     pub fn new_ordered_uint(
         ranges: Vec<u64>,
         width: &Bytes,
-        byte_order: ByteOrd2_0,
+        byte_order: AnyByteOrder,
     ) -> Result<Self, NewOrderedUintLayoutError> {
         macro_rules! go {
             ($var:ident) => {{
@@ -6804,6 +6805,11 @@ impl<D> AnyOrderedUintHeaders<D> {
             PrivBytes::B7 => go!(Uint56),
             PrivBytes::B8 => go!(Uint64),
         }
+    }
+
+    #[must_use]
+    pub fn uint_ranges(&self) -> Vec<u64> {
+        match_any_uint!(self, x, x.columns().iter().map(|c| (*c).into()).collect())
     }
 }
 

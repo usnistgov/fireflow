@@ -58,14 +58,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<ff::PyFixedAsciiHeaders>()?;
     m.add_class::<ff::PyDelimAsciiHeaders>()?;
-    m.add_class::<ff::PyOrderedUint08Headers>()?;
-    m.add_class::<ff::PyOrderedUint16Headers>()?;
-    m.add_class::<ff::PyOrderedUint24Headers>()?;
-    m.add_class::<ff::PyOrderedUint32Headers>()?;
-    m.add_class::<ff::PyOrderedUint40Headers>()?;
-    m.add_class::<ff::PyOrderedUint48Headers>()?;
-    m.add_class::<ff::PyOrderedUint56Headers>()?;
-    m.add_class::<ff::PyOrderedUint64Headers>()?;
+    m.add_class::<ff::PyOrderedUintHeaders>()?;
     m.add_class::<ff::PyOrderedF32Headers>()?;
     m.add_class::<ff::PyOrderedF64Headers>()?;
     m.add_class::<ff::PyEndianF32Headers>()?;

@@ -20,7 +20,11 @@ use std::str::FromStr;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py, pyo3::prelude::*};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
+    pyo3::prelude::*,
+};
 
 // TODO it might be easier and simpler just to store and array and check if
 // needed if it is big/little. The enum was only necessary when I was checking
@@ -81,6 +85,47 @@ impl From<NoByteOrd2_0> for NoByteOrd3_1 {
 impl From<NoByteOrd3_1> for NoByteOrd2_0 {
     fn from(_: NoByteOrd3_1) -> Self {
         Self
+    }
+}
+
+/// Any byte order that can be used in a 2.0/3.0 layout.
+///
+/// Meant for arguments to functions. Must be validated after consumed.
+#[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+pub enum AnyByteOrder {
+    Endian(Endian),
+    Ordered(Vec<NonZeroU8>),
+}
+
+impl Default for AnyByteOrder {
+    fn default() -> Self {
+        Self::Endian(Endian::default())
+    }
+}
+
+impl<const LEN: usize> From<ArrayByteOrd<[u8; LEN]>> for AnyByteOrder {
+    fn from(value: ArrayByteOrd<[u8; LEN]>) -> Self {
+        match value {
+            ArrayByteOrd::Endian(e) => Self::Endian(e),
+            ArrayByteOrd::Order(o) => {
+                Self::Ordered(o.map(|x| NonZeroU8::MIN.saturating_add(x)).to_vec())
+            }
+        }
+    }
+}
+
+impl From<ByteOrd2_0> for AnyByteOrder {
+    fn from(value: ByteOrd2_0) -> Self {
+        match value {
+            ByteOrd2_0::O1(x) => x.into(),
+            ByteOrd2_0::O2(x) => x.into(),
+            ByteOrd2_0::O3(x) => x.into(),
+            ByteOrd2_0::O4(x) => x.into(),
+            ByteOrd2_0::O5(x) => x.into(),
+            ByteOrd2_0::O6(x) => x.into(),
+            ByteOrd2_0::O7(x) => x.into(),
+            ByteOrd2_0::O8(x) => x.into(),
+        }
     }
 }
 
@@ -164,6 +209,29 @@ macro_rules! byteord_from_sized {
                     Ok(sized)
                 } else {
                     Err(ByteOrdToSizedError::new(value.nbytes(), $len))
+                }
+            }
+        }
+
+        impl TryFrom<Vec<NonZeroU8>> for ArrayByteOrd<[u8; $len]> {
+            type Error = VecToSizedError;
+            fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
+                let xs: [NonZeroU8; $len] =
+                    value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
+                        vec_len: ys.len(),
+                        req_len: $len,
+                    })?;
+                let ret = xs.try_into()?;
+                Ok(ret)
+            }
+        }
+
+        impl TryFrom<AnyByteOrder> for ArrayByteOrd<[u8; $len]> {
+            type Error = VecToSizedError;
+            fn try_from(value: AnyByteOrder) -> Result<Self, Self::Error> {
+                match value {
+                    AnyByteOrder::Endian(e) => Ok(Self::Endian(e)),
+                    AnyByteOrder::Ordered(xs) => xs.try_into(),
                 }
             }
         }
@@ -497,6 +565,24 @@ pub(crate) struct VariableWidthError;
 #[display("bits must be multiple of 8 and between 8 and 64, got {_0}")]
 pub(crate) struct WidthToBytesError(u8);
 
+/// Error when converting [`Vec<NonzeroU8>`] to [`ArrayByteOrd`].
+#[derive(From, Error, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum VecToSizedError {
+    Vec(VecToArrayError),
+    New(NewByteOrdError),
+}
+
+/// Error when converting [`Vec<NonzeroU8>`] to [`ArrayByteOrd`] when former is wrong size.
+#[derive(Debug, Error)]
+#[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
+pub struct VecToArrayError {
+    vec_len: usize,
+    req_len: usize,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -534,62 +620,17 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ArrayByteOrd, Bytes, Endian, NewByteOrdError, PrivBytes};
+    use super::{ArrayByteOrd, Bytes, Endian, NewByteOrdError, PrivBytes, VecToSizedError};
 
-    use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr};
     use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
-    use fireflow_types::python::{self as py, InvalidKeywordValueError};
+    use fireflow_types::python::InvalidKeywordValueError;
 
-    use derive_more::{Display, From};
     use num_enum::TryFromPrimitiveError;
     use pyo3::exceptions::PyValueError;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyString};
-    use thiserror::Error;
 
     use std::convert::Infallible;
     use std::num::NonZeroU8;
-
-    #[derive(From, Display)]
-    #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-    pub enum VecToSizedError {
-        Vec(VecToArrayError),
-        New(NewByteOrdError),
-    }
-
-    #[derive(Debug, Error)]
-    #[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
-    pub struct VecToArrayError {
-        vec_len: usize,
-        req_len: usize,
-    }
-
-    macro_rules! impl_vec_to_sized {
-        ($len:expr) => {
-            impl TryFrom<Vec<NonZeroU8>> for ArrayByteOrd<[u8; $len]> {
-                type Error = VecToSizedError;
-                fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
-                    let xs: [NonZeroU8; $len] =
-                        value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
-                            vec_len: ys.len(),
-                            req_len: $len,
-                        })?;
-                    let ret = xs.try_into()?;
-                    Ok(ret)
-                }
-            }
-        };
-    }
-
-    impl_vec_to_sized!(1);
-    impl_vec_to_sized!(2);
-    impl_vec_to_sized!(3);
-    impl_vec_to_sized!(4);
-    impl_vec_to_sized!(5);
-    impl_vec_to_sized!(6);
-    impl_vec_to_sized!(7);
-    impl_vec_to_sized!(8);
 
     // This is just a python integer 1-8. Thus far this is only used when
     // making data layouts.

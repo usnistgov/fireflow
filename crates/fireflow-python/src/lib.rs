@@ -113,8 +113,8 @@ use fireflow_python_proc::{
     impl_new_core, impl_new_delim_ascii_layout, impl_new_endian_float_layout,
     impl_new_endian_uint_layout, impl_new_fixed_ascii_layout, impl_new_gate_bi_regions,
     impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
-    impl_new_single_uint_layout, impl_py_dataset_segments, impl_py_dataset_summary,
-    impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
+    impl_new_ordered_uint_layout, impl_new_single_uint_layout, impl_py_dataset_segments,
+    impl_py_dataset_summary, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
     impl_py_flat_text_diagnostics, impl_py_flat_text_output, impl_py_header,
     impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
     impl_py_new_flat_dataset_with_kws_output, impl_py_new_std_dataset_with_kws_output,
@@ -675,14 +675,14 @@ impl_new_delim_ascii_layout!(
 );
 
 // Implement __new__ and attributes for all PyOrderedUint*Headers structs
-impl_new_ordered_layout!(1, false);
-impl_new_ordered_layout!(2, false);
-impl_new_ordered_layout!(3, false);
-impl_new_ordered_layout!(4, false);
-impl_new_ordered_layout!(5, false);
-impl_new_ordered_layout!(6, false);
-impl_new_ordered_layout!(7, false);
-impl_new_ordered_layout!(8, false);
+// impl_new_ordered_layout!(1, false);
+// impl_new_ordered_layout!(2, false);
+// impl_new_ordered_layout!(3, false);
+// impl_new_ordered_layout!(4, false);
+// impl_new_ordered_layout!(5, false);
+// impl_new_ordered_layout!(6, false);
+// impl_new_ordered_layout!(7, false);
+// impl_new_ordered_layout!(8, false);
 
 // Implement __new__ and attributes for all PyOrderedF*Headers structs
 impl_new_ordered_layout!(4, true);
@@ -691,6 +691,9 @@ impl_new_ordered_layout!(8, true);
 // Implement __new__ and attributes for all PyEndianF*Headers structs
 impl_new_endian_float_layout!(4);
 impl_new_endian_float_layout!(8);
+
+// Implement __new__ and attributes for PyOrderedUintHeaders
+impl_new_ordered_uint_layout!();
 
 // Implement __new__ and attributes for PySingleUintHeaders
 impl_new_single_uint_layout!();
@@ -767,14 +770,15 @@ pub enum PyOrderedHeaders {
     AsciiFixed(PyFixedAsciiHeaders),
     AsciiDelim(PyDelimAsciiHeaders),
     // TODO combine all of these
-    Uint08(PyOrderedUint08Headers),
-    Uint16(PyOrderedUint16Headers),
-    Uint24(PyOrderedUint24Headers),
-    Uint32(PyOrderedUint32Headers),
-    Uint40(PyOrderedUint40Headers),
-    Uint48(PyOrderedUint48Headers),
-    Uint56(PyOrderedUint56Headers),
-    Uint64(PyOrderedUint64Headers),
+    Uint(PyOrderedUintHeaders),
+    // Uint08(PyOrderedUint08Headers),
+    // Uint16(PyOrderedUint16Headers),
+    // Uint24(PyOrderedUint24Headers),
+    // Uint32(PyOrderedUint32Headers),
+    // Uint40(PyOrderedUint40Headers),
+    // Uint48(PyOrderedUint48Headers),
+    // Uint56(PyOrderedUint56Headers),
+    // Uint64(PyOrderedUint64Headers),
     F32(PyOrderedF32Headers),
     F64(PyOrderedF64Headers),
 }
@@ -881,14 +885,15 @@ impl From<PyOrderedHeaders> for AnyOrderedHeaders<Identity<kws::Tot>> {
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
-            PyOrderedHeaders::Uint08(x) => AnyOrderedUintHeaders::from(x.0).into(),
-            PyOrderedHeaders::Uint16(x) => AnyOrderedUintHeaders::from(x.0).into(),
-            PyOrderedHeaders::Uint24(x) => AnyOrderedUintHeaders::from(x.0).into(),
-            PyOrderedHeaders::Uint32(x) => AnyOrderedUintHeaders::from(x.0).into(),
-            PyOrderedHeaders::Uint40(x) => AnyOrderedUintHeaders::from(x.0).into(),
-            PyOrderedHeaders::Uint48(x) => AnyOrderedUintHeaders::from(x.0).into(),
-            PyOrderedHeaders::Uint56(x) => AnyOrderedUintHeaders::from(x.0).into(),
-            PyOrderedHeaders::Uint64(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            PyOrderedHeaders::Uint(x) => x.0.into(),
+            // PyOrderedHeaders::Uint08(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            // PyOrderedHeaders::Uint16(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            // PyOrderedHeaders::Uint24(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            // PyOrderedHeaders::Uint32(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            // PyOrderedHeaders::Uint40(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            // PyOrderedHeaders::Uint48(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            // PyOrderedHeaders::Uint56(x) => AnyOrderedUintHeaders::from(x.0).into(),
+            // PyOrderedHeaders::Uint64(x) => AnyOrderedUintHeaders::from(x.0).into(),
             PyOrderedHeaders::F32(x) => x.0.into(),
             PyOrderedHeaders::F64(x) => x.0.into(),
         }
@@ -902,16 +907,17 @@ impl From<AnyOrderedHeaders<Identity<kws::Tot>>> for PyOrderedHeaders {
                 AnyAsciiHeaders::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
                 AnyAsciiHeaders::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
             },
-            AnyOrderedHeaders::Uint(x) => match x {
-                AnyOrderedUintHeaders::Uint08(y) => Self::Uint08(y.into()),
-                AnyOrderedUintHeaders::Uint16(y) => Self::Uint16(y.into()),
-                AnyOrderedUintHeaders::Uint24(y) => Self::Uint24(y.into()),
-                AnyOrderedUintHeaders::Uint32(y) => Self::Uint32(y.into()),
-                AnyOrderedUintHeaders::Uint40(y) => Self::Uint40(y.into()),
-                AnyOrderedUintHeaders::Uint48(y) => Self::Uint48(y.into()),
-                AnyOrderedUintHeaders::Uint56(y) => Self::Uint56(y.into()),
-                AnyOrderedUintHeaders::Uint64(y) => Self::Uint64(y.into()),
-            },
+            AnyOrderedHeaders::Uint(x) => Self::Uint(x.into()),
+            // AnyOrderedHeaders::Uint(x) => match x {
+            //     AnyOrderedUintHeaders::Uint08(y) => Self::Uint08(y.into()),
+            //     AnyOrderedUintHeaders::Uint16(y) => Self::Uint16(y.into()),
+            //     AnyOrderedUintHeaders::Uint24(y) => Self::Uint24(y.into()),
+            //     AnyOrderedUintHeaders::Uint32(y) => Self::Uint32(y.into()),
+            //     AnyOrderedUintHeaders::Uint40(y) => Self::Uint40(y.into()),
+            //     AnyOrderedUintHeaders::Uint48(y) => Self::Uint48(y.into()),
+            //     AnyOrderedUintHeaders::Uint56(y) => Self::Uint56(y.into()),
+            //     AnyOrderedUintHeaders::Uint64(y) => Self::Uint64(y.into()),
+            // },
             AnyOrderedHeaders::F32(x) => Self::F32(x.into()),
             AnyOrderedHeaders::F64(x) => Self::F64(x.into()),
         }

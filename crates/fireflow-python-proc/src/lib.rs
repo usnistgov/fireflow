@@ -4369,7 +4369,7 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
 
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
-        PyUnion::new_byteord(nbytes),
+        PyUnion::new_byteord(Some(nbytes)),
         "The byte order to use when encoding values.",
         |_, _| quote!(*self.0.as_ref()),
     )
@@ -4477,6 +4477,71 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
     let datatype = make_layout_datatype(&pyname, if nbytes == 4 { "F" } else { "D" });
 
     quote!(#class #widths #datatype).into()
+}
+
+#[proc_macro]
+pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
+    let name = format_ident!("OrderedUintHeaders");
+
+    let layout_path = quote!(fireflow_core::data::AnyOrderedUintHeaders);
+    let bytes_path = parse_quote!(fireflow_core::text::byteord::Bytes);
+    let tot_path = keyword_path("Tot");
+    let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
+    let full_layout_path = parse_quote!(#layout_path<#known_tot_path>);
+
+    let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
+        "ranges",
+        PyList::new1(RsInt::U64),
+        format!(
+            "The range of each measurement. Corresponds to the {PNR} \
+             keyword less one. The number of bytes used to encode each \
+             measurement ({PNB}) will be the minimum required to express this \
+             value. For instance, a value of {v1023} will set {PNB} to {v16}, \
+             will set {PNR} to {v1024}, and encode values for this measurement as \
+             16-bit integers. The values of a measurement will be less than or \
+             equal to this value.",
+            v16 = code(16_u8),
+            v1023 = code(1023_u32),
+            v1024 = code(1024_u32),
+        ),
+        |_, _| quote!(self.0.uint_ranges()),
+    );
+
+    // TODO add default
+    let width_param = DocArg::new_param(
+        "width",
+        PyInt::from(RsInt::U32).rstype(bytes_path),
+        format!(
+            "The width of the layout in bytes. Must be an integer 1 through 8. \
+             All in {ranges_arg} must be able to fit within the allotted bytes.",
+            ranges_arg = arg("ranges"),
+        ),
+    );
+
+    let byteord_param = DocArg::new_ivar_ro(
+        "byteord",
+        PyUnion::new_byteord(None),
+        "The byte order to use when encoding values.",
+        |_, _| quote!(self.0.byte_order().into()),
+    )
+    .def_auto();
+
+    let doc = DocString::new_class("A mixed-width integer layout.")
+        .arg(ranges_param)
+        .arg(width_param)
+        .arg(byteord_param);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> PyResult<Self> {
+                Ok(#layout_path::new_ordered_uint(ranges, &width, byteord)?.into())
+            }
+        }
+    };
+
+    let (pyname, class) = doc.into_impl_class(name, &full_layout_path, new);
+    let datatype = make_layout_datatype(&pyname, "I");
+    quote!(#class #datatype).into()
 }
 
 #[proc_macro]
@@ -6998,14 +7063,24 @@ impl<E: From<PyException>> PyUnion<E> {
         Self::new2(RsFloat::F32, PyTuple::new2(vec![RsFloat::F32; 2]), path).exc(exc)
     }
 
-    fn new_byteord(nbytes: usize) -> Self {
-        let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
-        let d = format!(
-            "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
-             or a list of all integers from 1 to {nbytes} in any order"
-        );
-        let exc = PyException::new_invalid_keyword().desc(d);
-        let path = parse_quote!(#sizedbyteord_path<[u8; #nbytes]>);
+    fn new_byteord(nbytes: Option<usize>) -> Self {
+        let (path, exc_desc) = if let Some(n) = nbytes {
+            let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
+            let p = parse_quote!(#sizedbyteord_path<[u8; #n]>);
+            let d = format!(
+                "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
+                 or a list of all integers from 1 to {n} in any order"
+            );
+            (p, d)
+        } else {
+            let p = parse_quote!(fireflow_core::text::byteord::AnyByteOrder);
+            let d = format!(
+                "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
+                 or a list of unique integers in any order"
+            );
+            (p, d)
+        };
+        let exc = PyException::new_invalid_keyword().desc(exc_desc);
         Self::new2(PyLiteral::new_endian(), PyList::new1(RsInt::U32), path).exc(exc)
     }
 

@@ -80,10 +80,13 @@ FloatType = Literal["F"]
 DoubleType = Literal["D"]
 IntegerType = Literal["I"]
 AsciiType = Literal["A"]
+IntegerWidth = Literal["I08", "I16", "I24", "I32", "I40", "I48", "I56", "I64"]
 
 Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
-MixedType: TypeAlias = (
-    tuple[FloatType | DoubleType, FloatRange] | tuple[AsciiType | IntegerType, IntRange]
+VariableBitmask: TypeAlias = tuple[IntegerWidth, IntRange]
+MixedRange: TypeAlias = (
+    tuple[FloatType | DoubleType, FloatRange]
+    | tuple[AsciiType | IntegerWidth, IntRange]
 )
 
 TemporalOpticalKey = Literal[

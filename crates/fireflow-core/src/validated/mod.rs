@@ -10,6 +10,7 @@ pub mod header_segments;
 pub mod keys;
 pub mod keystring_pairs;
 pub mod nonstd_meas_pattern;
+pub mod row_buffer;
 pub mod shortname;
 pub mod sub_pattern;
 pub mod textdelim;

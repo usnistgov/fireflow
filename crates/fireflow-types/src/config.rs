@@ -2,11 +2,14 @@ use crate::ne_str;
 use crate::nonempty_string::NEStr;
 
 use const_format::formatcp;
-use derive_more::{Display, From, FromStr, Into};
+use derive_more::{Display, Into};
+use thiserror::Error;
+
+use std::str::FromStr;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString, TryFromPyObject},
     pyo3::prelude::*,
 };
 
@@ -587,9 +590,11 @@ impl_str_enum!(
 );
 
 /// The size of the row buffer used to read DATA.
-#[derive(Clone, Copy, From, Into, FromStr, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
-pub struct RowBufferSize(pub usize);
+///
+/// The minimum size is 4k.
+#[derive(Clone, Copy, Into, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
+pub struct RowBufferSize(usize);
 
 impl Default for RowBufferSize {
     fn default() -> Self {
@@ -597,6 +602,34 @@ impl Default for RowBufferSize {
         Self(28_000)
     }
 }
+
+/// Error when making new [`RowBufferSize`].
+#[derive(Error, Debug)]
+#[error("Row buffer size must be greater than {MIN_ROW_BUFFER_SIZE} bytes")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct RowBufferSizeError;
+
+impl FromStr for RowBufferSize {
+    type Err = RowBufferSizeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.parse::<usize>().map_err(|_| RowBufferSizeError)?)
+    }
+}
+
+impl TryFrom<usize> for RowBufferSize {
+    type Error = RowBufferSizeError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        if value < MIN_ROW_BUFFER_SIZE {
+            Err(RowBufferSizeError)
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+
+const MIN_ROW_BUFFER_SIZE: usize = 4096;
 
 // internal constants, many are shared between enums to keep the API simpler
 

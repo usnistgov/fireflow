@@ -4509,7 +4509,7 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
 
     let width_param = DocArg::new_ivar_ro(
         "byte_width",
-        PyInt::from(RsInt::U32).rstype(bytes_path),
+        PyInt::from(RsInt::U8).rstype(bytes_path),
         format!(
             "The width of the layout in bytes. Must be an integer 1 through 8. \
              All in {ranges_arg} must be able to fit within the allotted bytes.",
@@ -9308,7 +9308,7 @@ impl DocArgParam {
         );
         let path = parse_quote!(fireflow_types::config::RowBufferSize);
         let pt = PyInt::new_int(RsInt::Usize).rstype(path);
-        let def = RowBufferSize::default().0;
+        let def = RowBufferSize::default().into();
         Self::new_param("row_buffer_size", pt, d).def(DocDefault::Int(def))
     }
 

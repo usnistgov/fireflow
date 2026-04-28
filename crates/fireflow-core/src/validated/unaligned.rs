@@ -386,7 +386,9 @@ impl_small_to_big!(U48, U56);
 impl TryFrom<u64> for U24 {
     type Error = TryFromUnalignedIntError;
     fn try_from(value: u64) -> Result<Self, Self::Error> {
-        value.try_into()
+        u32::try_from(value)
+            .map_err(|_| TryFromUnalignedIntError)?
+            .try_into()
     }
 }
 

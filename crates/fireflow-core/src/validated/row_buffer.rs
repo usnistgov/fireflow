@@ -63,18 +63,22 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
         // these will produce some lovely cache miss fireworks on most CPUs :/
         let rows_per_buffer = (usize::from(max_size) / row_width).max(1);
         let buf_size = rows_per_buffer * row_width;
-        let mut new = Self {
+        // When reading we will be pulling a stream from disk and clearing it
+        // repeatedly, so it needs to start empty. When writing, we need to fill
+        // the buffer with 0's up to capacity and then copy data to it, so it
+        // needs to remain a fixed size.
+        let bytes = if IS_READ {
+            Vec::with_capacity(buf_size)
+        } else {
+            vec![0; buf_size]
+        };
+        let new = Self {
             nrows,
             rows_per_buffer,
             buf_size: usize_to_u64(buf_size),
             row_width,
-            bytes: Vec::with_capacity(buf_size),
+            bytes,
         };
-        if !IS_READ {
-            // When writing, we need to fill the buffer with 0's up to capacity
-            // and then copy data to it.
-            new.bytes.fill(0);
-        }
         Some(new)
     }
 
@@ -398,8 +402,8 @@ impl WriteBuffer {
                 // indexing consecutively in the current column
                 let src_width = fwidth(ci);
                 for row in 0..self.rows_per_buffer {
-                    let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                     let src_idx = SrcIndex(src_row_offset + row);
+                    let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                     fpush(c, src_idx, &mut self.bytes, dst_idx);
                 }
                 dst_col_offset += src_width;
@@ -413,8 +417,8 @@ impl WriteBuffer {
         dst_col_offset = 0;
         for (ci, c) in columns.iter().enumerate() {
             for row in 0..remainder_rows {
-                let src_idx = SrcIndex(dst_col_offset + self.row_width * row);
-                let dst_idx = DstIndex(src_row_offset + row);
+                let src_idx = SrcIndex(src_row_offset + row);
+                let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                 fpush(c, src_idx, &mut self.bytes, dst_idx);
             }
             dst_col_offset += fwidth(ci);

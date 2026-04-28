@@ -13,7 +13,6 @@ use derive_new::new;
 use thiserror::Error;
 
 use std::fmt;
-use std::io::{self, BufWriter, Write};
 use std::num::{NonZero, NonZeroU8, NonZeroUsize};
 
 #[cfg(feature = "serde")]
@@ -48,7 +47,7 @@ pub struct FixedAsciiRange {
 
 /// Wrapper type for $PnR for delimited ASCII columns.
 ///
-/// This is like [`AsciiRange`] except it doesn't include width (ie $PnB).
+/// This is like [`FixedAsciiRange`] except it doesn't include width (ie $PnB).
 #[derive(Clone, Copy, PartialEq, Into, From)]
 #[into(u64, AsciiRangeValue)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -213,15 +212,15 @@ impl FixedAsciiRange {
         self.chars
     }
 
-    pub(crate) fn to_slice_unchecked(&self, value: u64, dst: &mut [u8], dst_index: DstIndex) {
+    pub(crate) fn as_slice_unchecked(&self, value: u64, dst: &mut [u8], dst_index: &DstIndex) {
         let i = dst_index.0;
         let width = usize::from(u8::from(self.chars()));
         let str_value = value.to_string();
         debug_assert!(i + width <= dst.len(), "new value will overflow");
         debug_assert!(str_value.len() <= width, "ASCII value will be truncated");
         let n_zero = width - str_value.len();
-        for j in i..i + n_zero {
-            dst[j] = b'0';
+        for d in &mut dst[i..i + n_zero] {
+            *d = b'0';
         }
         dst[i + n_zero..i + width].copy_from_slice(str_value.as_bytes());
     }
@@ -290,7 +289,7 @@ impl TryFrom<u8> for OtherWidth {
     }
 }
 
-/// Error when creating [`AsciiRange`] ($PnB and $PnR for one index)
+/// Error when creating [`FixedAsciiRange`] ($PnB and $PnR for one index)
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AsciiRangeFromKeywordsError {

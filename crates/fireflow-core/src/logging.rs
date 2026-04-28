@@ -30,21 +30,24 @@
 use crate::config::{ErrorFlag, ReadSharedConfig, TriErrorFlag};
 use crate::text::optional::Nothing;
 
-use itertools::Itertools;
 use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,
     Sibling1, impl_kind1,
 };
 
 use derive_new::new;
-use nonempty_collections::{FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator};
+use itertools::Itertools as _;
+use nonempty_collections::{
+    FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _,
+};
+use thiserror::Error;
+
 use std::convert::Infallible;
 use std::fmt;
 use std::io::Error as IOError;
 use std::iter;
 use std::marker::PhantomData;
 use std::vec;
-use thiserror::Error;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::AllIntoPyErr;
@@ -593,9 +596,9 @@ pub(crate) trait ResultExt: Sized {
 
     fn into_result(self) -> Result<Self::Ok, Self::Error>;
 
-    fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
-        self.into_log()
-    }
+    // fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
+    //     self.into_log()
+    // }
 
     fn into_nowarn(self) -> NowarnResult<Self::Ok, (), Self::Error, Vec<Self::Error>> {
         self.into_log()
@@ -917,13 +920,13 @@ pub(crate) trait DeferredIter<T, WC, E, EC>:
         }
     }
 
-    fn sequence_def_void(self) -> Deferred<(), WC, E, EC>
-    where
-        WC: Monoid,
-        EC: Extend<E> + IntoIterator<Item = E>,
-    {
-        self.sequence_def().set_deferred_value(())
-    }
+    // fn sequence_def_void(self) -> Deferred<(), WC, E, EC>
+    // where
+    //     WC: Monoid,
+    //     EC: Extend<E> + IntoIterator<Item = E>,
+    // {
+    //     self.sequence_def().set_deferred_value(())
+    // }
 }
 
 impl<I, V, WC, E, EC> DeferredIter<V, WC, E, EC> for I where
@@ -2368,37 +2371,37 @@ impl<V, E, EC> NowarnResult<V, V, E, EC> {
     }
 }
 
-//
-// Nowarn/Deferred/Single error
-//
-impl<V, E> DeferredError<V, E> {
-    /// Monadically chain nowarn results and replace previous error if it exists.
-    ///
-    /// This is a very specialized case meant to be used where a deferred result
-    /// produces an error and a value, the latter of which needs to be used
-    /// by another operation which produces a new deferred value with an error,
-    /// where this error implies the first error.
-    ///
-    /// The last phrase is key because this function will throw away the first
-    /// error for the case when both results are errors. In this case, this is
-    /// correct because the latter error implies the first, and it is redundant
-    /// to return both.
-    pub(crate) fn and_then_replace<F, Vf>(self, f: F) -> DeferredError<Vf, E>
-    where
-        F: FnOnce(V) -> DeferredError<Vf, E>,
-    {
-        match self {
-            Succ(x) => f(x.value),
-            Fail(x) => {
-                let (es, v) = match f(x.value) {
-                    Succ(y) => (x.errors, y.value),
-                    Fail(y) => (y.errors, y.value),
-                };
-                Fail(Failure::new(Nothing::default(), es, v))
-            }
-        }
-    }
-}
+// //
+// // Nowarn/Deferred/Single error
+// //
+// impl<V, E> DeferredError<V, E> {
+//     /// Monadically chain nowarn results and replace previous error if it exists.
+//     ///
+//     /// This is a very specialized case meant to be used where a deferred result
+//     /// produces an error and a value, the latter of which needs to be used
+//     /// by another operation which produces a new deferred value with an error,
+//     /// where this error implies the first error.
+//     ///
+//     /// The last phrase is key because this function will throw away the first
+//     /// error for the case when both results are errors. In this case, this is
+//     /// correct because the latter error implies the first, and it is redundant
+//     /// to return both.
+//     pub(crate) fn and_then_replace<F, Vf>(self, f: F) -> DeferredError<Vf, E>
+//     where
+//         F: FnOnce(V) -> DeferredError<Vf, E>,
+//     {
+//         match self {
+//             Succ(x) => f(x.value),
+//             Fail(x) => {
+//                 let (es, v) = match f(x.value) {
+//                     Succ(y) => (x.errors, y.value),
+//                     Fail(y) => (y.errors, y.value),
+//                 };
+//                 Fail(Failure::new(Nothing::default(), es, v))
+//             }
+//         }
+//     }
+// }
 
 //
 // Nowarn/Deferred/Infallible LogResult

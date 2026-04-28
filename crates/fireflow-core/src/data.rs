@@ -147,12 +147,12 @@ use crate::validated::ascii_range::{
 };
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskTruncationError, BitmaskValue, NewBitmaskError,
+    Bitmask64, BitmaskValue, NewBitmaskError,
 };
 use crate::validated::dataframe::{
-    AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue, HasLen,
-    HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries, ambassador_impl_HasLen,
-    ambassador_impl_HasWidth,
+    AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
+    HasFCSType, HasLen, HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries,
+    ambassador_impl_HasLen, ambassador_impl_HasWidth,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -275,8 +275,6 @@ pub type AnyOrderedLayout<Fam, T> =
 
 pub type AnyOrderedHeaders<T> = AnyOrderedLayout<VecFamily, T>;
 
-// type AnyOrderedDataFrame<T> = AnyOrderedLayout<DataFrameFamily, T>;
-
 pub type AnyOrderedLayout2_0<Fam> = AnyOrderedLayout<Fam, Option<Tot>>;
 
 pub type AnyOrderedLayout3_0<Fam> = AnyOrderedLayout<Fam, Identity<Tot>>;
@@ -322,8 +320,6 @@ type AnyAsciiLayout2_0<F, T> = AnyAsciiLayout<F, true, ColumnMarkers<T, Nothing<
 type AnyAsciiLayout3_1<F, D> = AnyAsciiLayout<F, false, ColumnMarkers<Identity<Tot>, D>>;
 
 pub type AnyAsciiHeaders<const ORD: bool, M> = AnyAsciiLayout<VecFamily, ORD, M>;
-
-// type AnyAsciiDataFrame<const ORD: bool, M> = AnyAsciiLayout<DataFrameFamily, ORD, M>;
 
 type DelimAsciiLayout<Fam, const ORD: bool, M> = FamilyLayout<Fam, DelimAsciiCol, ORD, M>;
 
@@ -463,8 +459,6 @@ type AnyEndianUintLayout<Fam, D> =
 type AnyFixedUintLayout<Fam, D> = AnyUintLayout<Fam, false, ColumnMarkers<Identity<Tot>, D>>;
 
 pub type AnyFixedUintHeaders<D> = AnyFixedUintLayout<VecFamily, D>;
-
-// type AnyFixedUintDataFrame<D> = AnyFixedUintLayout<DataFrameFamily, D>;
 
 pub type AnyEndianUintHeaders<D> = AnyEndianUintLayout<VecFamily, D>;
 
@@ -641,7 +635,6 @@ pub type MixedSeries = AnyDatatype<
 )]
 #[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
-// #[delegate(LayoutOrderedOps)]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
 #[delegate(LayoutNormalize)]
@@ -729,11 +722,11 @@ pub struct HeaderKeywordValues<D> {
 type HeaderKeywordValues2_0 = HeaderKeywordValues<Nothing<NumType>>;
 type HeaderKeywordValues3_2 = HeaderKeywordValues<Option<NumType>>;
 
-/// Diagnostic output when making new data layout from keywords
+/// Diagnostic output when making new data headers from keywords
 #[derive(new)]
-pub struct NewLayout<T> {
-    /// The layout itself
-    pub layout: T,
+pub struct NewHeaders<T> {
+    /// The headers itself.
+    pub headers: T,
 
     /// Original values of $PnR that were truncated.
     ///
@@ -743,13 +736,13 @@ pub struct NewLayout<T> {
     pub truncated_columns: Vec<Option<Range>>,
 }
 
-impl_kind1!(pub NewLayoutFamily, NewLayout);
+impl_kind1!(pub NewHeadersFamily, NewHeaders);
 
 impl_functor_once!(
-    NewLayout,
+    NewHeaders,
     self,
     mut f,
-    NewLayout::new(f(self.layout), self.truncated_columns)
+    NewHeaders::new(f(self.headers), self.truncated_columns)
 );
 
 /// Diagnostic output from reading DATA segment
@@ -843,25 +836,25 @@ impl_functor_once!(
     DataFrameResult::new(f(self.dataframe), self.diagnostics)
 );
 
-/// Error when keywords cannot be used to make a new layout.
+/// Error when keywords cannot be used to make new headers.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NewDataLayoutError {
-    /// $PnB and $PnR could not be used to make ASCII column
+pub enum NewHeadersError {
+    /// $PnB and $PnR could not be used to make ASCII header
     Ascii(AsciiRangeFromKeywordsError),
-    /// $PnB and $PnR could not be used to make integer column (2.0/3.0)
+    /// $PnB and $PnR could not be used to make integer header (2.0/3.0)
     FixedInt(NewFixedIntLayoutError),
-    /// $PnB and $PnR could not be used to make integer column (3.1/3.2)
+    /// $PnB and $PnR could not be used to make integer header (3.1/3.2)
     VariableInt(NewUintTypeError),
-    /// $PnB and $PnR could not be used to make float column
+    /// $PnB and $PnR could not be used to make float header
     Float(FloatWidthError),
-    /// $PnB and $PnR could not be used to make mixed column (3.2)
-    Mixed(NewMixedTypeError),
-    /// $BYTEORD does not match width allowed via $DATATYPE for float layout (2.0/3.0)
+    /// $PnB and $PnR could not be used to make mixed header (3.2)
+    Mixed(NewMixedRangeError),
+    /// $BYTEORD does not match width allowed via $DATATYPE for float header (2.0/3.0)
     ByteOrd(ByteOrdToSizedError),
 }
 
-/// Error when $PnB or $PnR cannot be used for an [`AnyOrderedUintLayout`] (2.0/3.0)
+/// Error when $PnB or $PnR cannot be used for an [`AnyOrderedUintHeaders`] (2.0/3.0)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewFixedIntLayoutError {
@@ -915,22 +908,22 @@ impl fmt::Display for WidthMismatchError {
     }
 }
 
-/// Error when using $PnB and $PnR to make a new [`MixedType`].
+/// Error when using $PnB and $PnR to make a new [`MixedRange`].
 ///
 /// This only applies to FCS 3.2 and the value of $PnDATATYPE is implied by
 /// the variant of this enum.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NewMixedTypeError {
+pub enum NewMixedRangeError {
     Ascii(AsciiRangeFromKeywordsError),
     Uint(NewUintTypeError),
     Float(FloatWidthError),
 }
 
-/// Warning when failing to truncate $PnR for use in a [`DataLayout3_2`].
+/// Warning when failing to truncate $PnR for use in a [`DataHeaders3_2`].
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum NewMixedTypeWarning {
+pub enum NewMixedRangeWarning {
     Ascii(IndexedRangeToAsciiError),
     Uint(IndexedBitmaskError),
     Float(IndexedFloatRangeError),
@@ -1022,12 +1015,6 @@ pub enum RangeToBitmaskError {
     Over(BigDecimal, Bytes),
     Under(BigDecimal),
     Float(BigDecimal),
-}
-
-impl From<BitmaskTruncationError> for RangeToBitmaskError {
-    fn from(value: BitmaskTruncationError) -> Self {
-        Self::Over(BigDecimal::from(value.value), Bytes(value.bytes))
-    }
 }
 
 impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
@@ -1136,7 +1123,7 @@ type LookupLayoutResult<T> = WarningsAndErrorsResult<T, (), LookupLayoutWarning,
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutError {
-    New(NewDataLayoutError),
+    New(NewHeadersError),
     AlphaNumType(ReqKeyError<AlphaNumType>),
     ByteOrd2_0(ReqKeyError<ByteOrd2_0>),
     ByteOrd3_1(ReqKeyError<ByteOrd3_1>),
@@ -1147,7 +1134,7 @@ pub enum LookupLayoutError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupLayoutWarning {
-    New(NewMixedTypeWarning),
+    New(NewMixedRangeWarning),
     Datatype(ReqKeyError<AlphaNumType>),
     Meas(OptIndexedKeyError<NumType>),
 }
@@ -1226,7 +1213,7 @@ def_summary!(pub EventOverRangeSummary, "some events exceed $PnR");
 
 pub type EventOverRangeErrors = ErrorGroup<EventOverRangeError, EventOverRangeSummary>;
 
-/// Error when reading [`AnyAsciiLayout`]
+/// Error when reading [`AnyAsciiHeaders`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadAsciiError {
@@ -1234,7 +1221,7 @@ pub enum ReadAsciiError {
     Fixed(ReadFixedAsciiError),
 }
 
-/// Error when reading [`FixedAsciiLayout`]
+/// Error when reading [`FixedAsciiHeaders`]
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadFixedAsciiError {
@@ -1273,7 +1260,7 @@ pub struct TotEventMismatchError {
     total_events: u64,
 }
 
-/// Error when reading [`DelimAsciiLayout`] (with or without $TOT)
+/// Error when reading [`DelimAsciiHeaders`] (with or without $TOT)
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiError {
@@ -1289,7 +1276,7 @@ pub enum ReadDelimAsciiError {
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct ReadDelimNoColumnError;
 
-/// Error when reading [`DelimAsciiLayout`] with $TOT.
+/// Error when reading [`DelimAsciiHeaders`] with $TOT.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimWithRowsAsciiError {
@@ -1298,7 +1285,7 @@ pub enum ReadDelimWithRowsAsciiError {
     Parse(AsciiToUintError),
 }
 
-/// Error when reading [`DelimAsciiLayout`] where DATA is exhausted.
+/// Error when reading [`DelimAsciiHeaders`] where DATA is exhausted.
 ///
 /// This happens if $TOT is greater than the true number of values in DATA.
 #[derive(Debug, Error)]
@@ -1307,7 +1294,7 @@ pub enum ReadDelimWithRowsAsciiError {
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct RowsExceededError(usize);
 
-/// Error when reading [`DelimAsciiLayout`] where parsing ends unexpectedly.
+/// Error when reading [`DelimAsciiHeaders`] where parsing ends unexpectedly.
 ///
 /// This happens if $TOT is less than the true number of values in DATA.
 #[derive(Debug, Error)]
@@ -1326,7 +1313,7 @@ pub struct DelimIncompleteError {
     nrows: usize,
 }
 
-/// Error when reading [`DelimAsciiLayout`] without $TOT
+/// Error when reading [`DelimAsciiHeaders`] without $TOT
 #[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiWithoutRowsError {
@@ -1334,7 +1321,7 @@ pub enum ReadDelimAsciiWithoutRowsError {
     Unequal(ReadDelimAsciiUnequalColumnsError),
 }
 
-/// Error when reading [`DelimAsciiLayout`] where columns are not equal length
+/// Error when reading [`DelimAsciiHeaders`] where columns are not equal length
 #[derive(Debug, Error)]
 #[error("parsing delimited ASCII without $TOT resulted in columns with unequal length")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1363,7 +1350,7 @@ pub enum LayoutConvertError {
     MixedToNonMixed(MixedToNonMixedLayoutError),
 }
 
-/// Error when converting a [`NonMixedEndianLayout`] to [`AnyOrderedUintLayout`]
+/// Error when converting a [`NonMixedEndianHeaders`] to [`AnyOrderedUintHeaders`]
 ///
 /// This arises due to 3.1+ layouts being allowed to support any width and
 /// 2.0/3.0 layouts only supporting one width due to the $BYTEORD constraint.
@@ -1379,7 +1366,7 @@ pub enum LayoutConvertError {
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 
-/// Error when converting a [`DataLayout3_2`] to a [`NonMixedEndianLayout`]
+/// Error when converting a [`DataHeaders3_2`] to a [`NonMixedEndianHeaders`]
 ///
 /// This will fail due to type mismatches (A, I, F, or D), since the width for
 /// integer layouts is allowed to vary.
@@ -1396,7 +1383,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
 
-/// Error when converting [`DataLayout3_2`] to [`AnyOrderedLayout`]
+/// Error when converting [`DataHeaders3_2`] to [`AnyOrderedHeaders`]
 ///
 /// This can fail either because of a type mismatch (ie Float vs Integer) or
 /// because the width is incorrect if the mixed layout has integer columns.
@@ -1873,13 +1860,13 @@ where
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>>;
+    ) -> LookupLayoutResult<NewHeaders<Self>>;
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>>;
+    ) -> LookupLayoutResult<NewHeaders<Self>>;
 
     fn new_empty(datatype: AlphaNumType) -> Self;
 
@@ -1888,7 +1875,7 @@ where
         byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Self::NumType>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError>;
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), NewMixedRangeWarning, NewHeadersError>;
 
     fn h_read_df<R: Read + Seek>(
         &mut self,
@@ -1973,7 +1960,7 @@ impl VersionedHeaders for DataHeaders2_0 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         AnyOrderedHeaders::lookup(std, meas_nonstd, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -1981,7 +1968,7 @@ impl VersionedHeaders for DataHeaders2_0 {
         kws: &StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         AnyOrderedHeaders::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -1994,7 +1981,7 @@ impl VersionedHeaders for DataHeaders2_0 {
         byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Self::NumType>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), NewMixedRangeWarning, NewHeadersError> {
         AnyOrderedHeaders::try_new(datatype, byteord, columns, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
@@ -2009,7 +1996,7 @@ impl VersionedHeaders for DataHeaders3_0 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         AnyOrderedHeaders::lookup(std, meas_nonstd, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -2017,7 +2004,7 @@ impl VersionedHeaders for DataHeaders3_0 {
         kws: &StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         AnyOrderedHeaders::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -2030,7 +2017,7 @@ impl VersionedHeaders for DataHeaders3_0 {
         byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Nothing<NumType>>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), NewMixedRangeWarning, NewHeadersError> {
         AnyOrderedHeaders::try_new(datatype, byteord, columns, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
@@ -2045,7 +2032,7 @@ impl VersionedHeaders for DataHeaders3_1 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         NonMixedEndianHeaders::lookup(std, meas_nonstd, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
@@ -2054,7 +2041,7 @@ impl VersionedHeaders for DataHeaders3_1 {
         kws: &StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         NonMixedEndianHeaders::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -2067,7 +2054,7 @@ impl VersionedHeaders for DataHeaders3_1 {
         byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Nothing<NumType>>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), NewMixedRangeWarning, NewHeadersError> {
         NonMixedEndianHeaders::try_new(datatype, byteord, columns, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
@@ -2082,7 +2069,7 @@ impl VersionedHeaders for DataHeaders3_2 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
         let columns = Option::lookup_all(std, meas_nonstd, conf);
@@ -2093,7 +2080,7 @@ impl VersionedHeaders for DataHeaders3_2 {
         kws: &StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Option::<NumType>::lookup_ro_all(kws, par, conf);
@@ -2109,7 +2096,7 @@ impl VersionedHeaders for DataHeaders3_2 {
         byteord: Self::ByteOrder,
         columns: Vec<HeaderKeywordValues<Option<NumType>>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), NewMixedRangeWarning, NewHeadersError> {
         let notrunc = conf.disallow_range_truncation;
         let unique_dt: Vec<_> = columns
             .iter()
@@ -2121,14 +2108,14 @@ impl VersionedHeaders for DataHeaders3_2 {
             // default layout is
             [] => {
                 let l = NonMixedEndianHeaders::new_empty1(datatype, byteord.0).into();
-                LogResult::new_ok(NewLayout::new(l, vec![]))
+                LogResult::new_ok(NewHeaders::new(l, vec![]))
             }
             // has columns with one datatype, use nonmixed layout
             [dt] => {
                 let ds = columns
                     .fmap(|c| HeaderKeywordValues::new(c.width, c.range, Nothing::default()));
                 NonMixedEndianHeaders::try_new(dt, byteord.0, ds, conf).map_ok_value(
-                    |x: NewLayout<_>| {
+                    |x: NewHeaders<_>| {
                         x.fmap_once(|y: NonMixedEndianHeaders<_>| Self::NonMixed(y.phantom_into()))
                     },
                 )
@@ -2141,7 +2128,7 @@ impl VersionedHeaders for DataHeaders3_2 {
                     )
                 };
                 Layout::try_new(columns, byteord.0, go)
-                    .map_errors(NewDataLayoutError::from)
+                    .map_errors(NewHeadersError::from)
                     .map_ok_value(FunctorOnce::fmap_into_once)
             }
         }
@@ -4796,7 +4783,7 @@ where
             .map_err(InsertRangeAndSeriesError::Range)?
             .native;
         let data = InternalSeries::from_series(c)
-            .into_err()
+            .into_result()
             .map_err(InsertRangeAndSeriesError::Series)?;
         Ok(Self::new(header, data))
     }
@@ -4903,28 +4890,6 @@ where
         self.byteord.clone()
     }
 }
-
-// // Implement operations specific to 2.0/3.0 layouts.
-
-// /// Standardized operations on ordered layouts
-// #[delegatable_trait]
-// pub trait LayoutOrderedOps: Sized {
-//     fn byte_order(&self) -> ByteOrd2_0;
-
-//     fn endianness(&self) -> Option<Endian> {
-//         self.byte_order().try_into().ok()
-//     }
-// }
-
-// impl<C, F, I, L, M, const ORD: bool> LayoutOrderedOps for Layout<C, F, I, L, M, ORD>
-// where
-//     L: Copy,
-//     ByteOrd2_0: From<L>,
-// {
-//     fn byte_order(&self) -> ByteOrd2_0 {
-//         self.byteord.into()
-//     }
-// }
 
 // Implement NormalizableLayout
 //
@@ -5426,7 +5391,8 @@ where
         + FromValue<u32>
         + FromValue<u64>
         + FromValue<f32>
-        + FromValue<f64>,
+        + FromValue<f64>
+        + HasFCSType,
     AnyPrimitiveSeries: TryInto<NativeInternalSeries<T>, Error = CastSeriesError>,
 {
     fn with_series(&self, ser: AnyPrimitiveSeries) -> Result<Self, CastSeriesError> {
@@ -5891,12 +5857,9 @@ where
             .clone()
             .into_uint()
             .map_error(RangeToBitmaskError::from)
-            .and_then_replace(|x| {
-                Self::try_from_native(x)
-                    .map_error(RangeToBitmaskError::from)
-                    .map_ok_value(|n| ConvertedRange::new(n, None))
-                    .map_err_value(|n| ConvertedRange::new(n, Some(range)))
-            })
+            .map_deferred_value(Self::from_native)
+            .map_ok_value(|n| ConvertedRange::new(n, None))
+            .map_err_value(|n| ConvertedRange::new(n, Some(range)))
     }
 }
 
@@ -6910,7 +6873,7 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
         cs: Vec<HeaderKeywordValues<D>>,
         byte_layout: L,
         new_col_f: F,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), W, E>
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), W, E>
     where
         D: IsNumType,
         F: Fn(
@@ -6928,7 +6891,7 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
                     .map(|cr| (cr.native, cr.non_truncated))
                     .unzip();
                 let new_layout = Self::new(new_columns, byte_layout);
-                NewLayout::new(new_layout, truncated)
+                NewHeaders::new(new_layout, truncated)
             })
     }
 }
@@ -7096,7 +7059,7 @@ impl<T> AnyOrderedUintHeaders<T> {
         cs: Vec<HeaderKeywordValues<Nothing<NumType>>>,
         bo: ByteOrd2_0,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), IndexedBitmaskError, NewFixedIntLayoutError>
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), IndexedBitmaskError, NewFixedIntLayoutError>
     {
         let notrunc = conf.disallow_range_truncation;
         let real_bo = conf.integer_byteord_override.unwrap_or(bo);
@@ -7168,7 +7131,7 @@ where
         cs: Vec<HeaderKeywordValues<D>>,
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<
-        NewLayout<Self>,
+        NewHeaders<Self>,
         (),
         IndexedRangeToAsciiError,
         AsciiRangeFromKeywordsError,
@@ -7185,7 +7148,7 @@ where
                     let ranges = rs.iter().map(|r| r.native.value().into()).collect();
                     let non_truncated = rs.into_iter().map(|r| r.non_truncated).collect();
                     let l = Layout::new_ascii(ranges);
-                    NewLayout::new(Self::Delimited(l), non_truncated)
+                    NewHeaders::new(Self::Delimited(l), non_truncated)
                 })
                 .map_err_value(|_| ())
         } else {
@@ -7249,7 +7212,7 @@ impl DataHeaders3_2 {
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Option<NumType>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let endian_ = endian.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
             .map_commutative_warnings(LookupLayoutWarning::from)
@@ -7271,7 +7234,7 @@ impl<T> AnyOrderedHeaders<T> {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let byteord = ByteOrd2_0::remove_metaroot_req(std);
         let columns = Nothing::lookup_all(std, meas_nonstd, conf);
@@ -7282,7 +7245,7 @@ impl<T> AnyOrderedHeaders<T> {
         kws: &StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let byteord = ByteOrd2_0::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
@@ -7294,7 +7257,7 @@ impl<T> AnyOrderedHeaders<T> {
         byteord: Result<ByteOrd2_0, ReqKeyError<ByteOrd2_0>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let byteord_ = byteord.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
             .map_commutative_warnings(LookupLayoutWarning::from)
@@ -7355,11 +7318,11 @@ impl<T> AnyOrderedHeaders<T> {
         byteord: ByteOrd2_0,
         columns: Vec<HeaderKeywordValues2_0>,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), NewMixedRangeWarning, NewHeadersError> {
         macro_rules! from {
             ($i:expr) => {
-                $i.map_errors(NewDataLayoutError::from)
-                    .map_commutative_warnings(NewMixedTypeWarning::from)
+                $i.map_errors(NewHeadersError::from)
+                    .map_commutative_warnings(NewMixedRangeWarning::from)
                     .map_ok_value(FunctorOnce::fmap_into_once)
             };
         }
@@ -7368,7 +7331,7 @@ impl<T> AnyOrderedHeaders<T> {
             ($t:ident, $notrunc:expr) => {
                 byteord
                     .try_into()
-                    .map_err(NewDataLayoutError::from)
+                    .map_err(NewHeadersError::from)
                     .into_log()
                     .and_then_commutative(|b| {
                         from! {Layout::try_new(columns, b, |i, c| {
@@ -7395,7 +7358,7 @@ impl NonMixedEndianHeaders<Nothing<NumType>> {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
         let columns = Nothing::<NumType>::lookup_all(std, meas_nonstd, conf);
@@ -7406,7 +7369,7 @@ impl NonMixedEndianHeaders<Nothing<NumType>> {
         kws: &StdKeywords,
         par: Par,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
@@ -7418,7 +7381,7 @@ impl NonMixedEndianHeaders<Nothing<NumType>> {
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> LookupLayoutResult<NewLayout<Self>> {
+    ) -> LookupLayoutResult<NewHeaders<Self>> {
         let endian_ = endian.map_err(LookupLayoutError::from).into_log();
         let columns_ = columns
             .map_commutative_warnings(LookupLayoutWarning::from)
@@ -7439,7 +7402,7 @@ impl NonMixedEndianHeaders<Nothing<NumType>> {
         endian: Endian,
         columns: Vec<HeaderKeywordValues<Nothing<NumType>>>,
         conf: &ReadDataKeywordsConfig,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), NewMixedTypeWarning, NewDataLayoutError> {
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), NewMixedRangeWarning, NewHeadersError> {
         let notrunc = conf.disallow_range_truncation;
 
         let go_f32 = |i: MeasIndex, c: HeaderKeywordValues<_>| {
@@ -7452,8 +7415,8 @@ impl NonMixedEndianHeaders<Nothing<NumType>> {
 
         macro_rules! from {
             ($x:expr) => {
-                $x.map_errors(NewDataLayoutError::from)
-                    .map_commutative_warnings(NewMixedTypeWarning::from)
+                $x.map_errors(NewHeadersError::from)
+                    .map_commutative_warnings(NewMixedRangeWarning::from)
                     .map_ok_value(FunctorOnce::fmap_into_once)
             };
         }
@@ -7533,7 +7496,7 @@ impl<D> AnyEndianUintHeaders<D> {
         cs: Vec<HeaderKeywordValues<D>>,
         e: Endian,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<NewLayout<Self>, (), IndexedBitmaskError, NewUintTypeError>
+    ) -> WarningsAndErrorsResult<NewHeaders<Self>, (), IndexedBitmaskError, NewUintTypeError>
     where
         D: IsNumType,
     {
@@ -7606,7 +7569,7 @@ macro_rules! decl_mixed_write {
             match self {
                 Self::Ascii(xs) => {
                     let v = xs.as_ref()[src_index.0];
-                    xs.header.to_slice_unchecked(v, dst, dst_index);
+                    xs.header.as_slice_unchecked(v, dst, &dst_index);
                 }
                 Self::Uint(xs) => xs.$int_fun(src_index, dst, dst_index),
                 Self::F32(xs) => xs.as_ref()[src_index.0].$float_fun(dst, dst_index),
@@ -7749,14 +7712,14 @@ impl MixedRange {
         global_datatype: AlphaNumType,
         i: MeasIndex,
         flag: DisallowRangeTrunc,
-    ) -> WarningsAndErrorsResult<ConvertedRange<Self>, (), NewMixedTypeWarning, NewMixedTypeError>
+    ) -> WarningsAndErrorsResult<ConvertedRange<Self>, (), NewMixedRangeWarning, NewMixedRangeError>
     {
         macro_rules! from {
             ($t:ident, $width:expr, $range:expr, $i:expr, $flag:expr) => {
                 $t::from_width_and_range($width, $range, $i, $flag)
                     .map_ok_value(|x| x.fmap_once(Self::from))
-                    .map_commutative_warnings(NewMixedTypeWarning::from)
-                    .map_errors(NewMixedTypeError::from)
+                    .map_commutative_warnings(NewMixedRangeWarning::from)
+                    .map_errors(NewMixedRangeError::from)
                     .repack_errors()
             };
         }
@@ -8031,7 +7994,7 @@ impl ReadBuffer {
                     // - 1) + (column_number - 1) * LEN. Adding LEN to the end
                     // of this exactly equals the size of the buffer itself in
                     // bytes, which means what follows can never overflow.
-                    let buf = unsafe { T::array_from_slice(&self.bytes, src_idx) };
+                    let buf = unsafe { T::array_from_slice(&self.bytes, &src_idx) };
                     *value = from_buf(&buf);
                 }
             }
@@ -8051,7 +8014,7 @@ impl ReadBuffer {
                     "out of bounds"
                 );
                 // SAFETY: see above
-                let buf = unsafe { T::array_from_slice(&self.bytes, src_idx) };
+                let buf = unsafe { T::array_from_slice(&self.bytes, &src_idx) };
                 *value = from_buf(&buf);
             }
         }
@@ -8294,7 +8257,7 @@ impl WriteBuffer {
                     // of this exactly equals the size of the buffer itself in
                     // bytes, which means what follows can never overflow.
                     unsafe {
-                        T::array_to_slice(&buf, &mut self.bytes, dst_idx);
+                        T::array_to_slice(&buf, &mut self.bytes, &dst_idx);
                     };
                 }
             }
@@ -8316,7 +8279,7 @@ impl WriteBuffer {
                 let buf = to_buf(value);
                 // SAFETY: see above
                 unsafe {
-                    T::array_to_slice(&buf, &mut self.bytes, dst_idx);
+                    T::array_to_slice(&buf, &mut self.bytes, &dst_idx);
                 };
             }
         }
@@ -8377,7 +8340,7 @@ impl WriteBuffer {
             cols,
             |src, src_index, dst, dst_index| {
                 let v = src.as_ref()[src_index.0];
-                src.header.to_slice_unchecked(v, dst, dst_index);
+                src.header.as_slice_unchecked(v, dst, &dst_index);
             },
             |i| ranges[i],
         )
@@ -8443,923 +8406,6 @@ fn u64_to_usize(x: u64) -> usize {
 pub(crate) fn usize_to_u64(x: usize) -> u64 {
     u64::try_from(x).expect("overflow")
 }
-
-// type AnyWriterBitmask<'a> = AnyBitmask<
-//     UintColumnWriter<'a, Bitmask08>,
-//     UintColumnWriter<'a, Bitmask16>,
-//     UintColumnWriter<'a, Bitmask24>,
-//     UintColumnWriter<'a, Bitmask32>,
-//     UintColumnWriter<'a, Bitmask40>,
-//     UintColumnWriter<'a, Bitmask48>,
-//     UintColumnWriter<'a, Bitmask56>,
-//     UintColumnWriter<'a, Bitmask64>,
-// >;
-
-// type UintColumnWriter<'a, C> = ColumnWriter<'a, C, <C as HasNativeType>::Native, Endian>;
-
-// /// Instructions to write one column using an iterator
-// #[derive(new)]
-// struct ColumnWriter<'a, C, T, S> {
-//     column_type: C,
-//     data: AnySource<'a, T>,
-//     loss: Option<AnyLossError>,
-//     byte_layout: PhantomData<S>,
-// }
-
-// impl<C, T, S> ColumnWriter<'_, C, T, S> {
-//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-//         self.loss
-//             .map(|error| IndexedError::new(i, error))
-//             .map(IndexedLossError)
-//     }
-// }
-
-// /// A column which may be transformed into a writer for a rust numeric type
-// trait ToNativeWriter
-// where
-//     Self: HasNativeType,
-// {
-//     type Error;
-
-//     fn into_native_writer<'a, S>(
-//         self,
-//         c: &'a AnyFCSColumn,
-//     ) -> ColumnWriter<'a, Self, Self::Native, S>
-//     where
-//         Self::Native: Default + Copy + AllFCSCast,
-//         AnySource<'a, Self::Native>: From<FCSColIter<'a, u8, Self::Native>>
-//             + From<FCSColIter<'a, u16, Self::Native>>
-//             + From<FCSColIter<'a, u32, Self::Native>>
-//             + From<FCSColIter<'a, u64, Self::Native>>
-//             + From<FCSColIter<'a, f32, Self::Native>>
-//             + From<FCSColIter<'a, f64, Self::Native>>,
-//     {
-//         ColumnWriter::new(self, AnySource::new(c), None)
-//     }
-
-//     fn check_native_writer(&self, col: &AnyFCSColumn) -> Result<(), LossError<Self::Error>>
-//     where
-//         Self::Native: Default + Copy + AllFCSCast,
-//     {
-//         col.check_writer(|x| Self::check_other_loss(self, x))
-//     }
-
-//     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>;
-// }
-
-// trait NativeWritable<S>: HasNativeType {
-//     fn h_write<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         x: CastResult<Self::Native>,
-//         byte_layout: S,
-//     ) -> io::Result<Option<AnyLossError>>;
-// }
-
-// trait IntoWriter<'a, S> {
-//     type Target: Writable<'a, S>;
-
-//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target;
-
-//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError>;
-// }
-
-// trait Writable<'a, S> {
-//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()>;
-
-//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>);
-
-//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError>;
-// }
-
-// trait Castable: Sized + HasNativeType {
-//     fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>);
-// }
-
-// /// General methods for each numeric type.
-// ///
-// /// This is mostly for converting to/from bytes with various endian-ness.
-// // TODO clean this up with https://github.com/rust-lang/rust/issues/76560 once
-// // it lands in a stable compiler, in theory there is no reason to put the length
-// // of the type as a parameter, but the current compiler is not smart enough
-// trait NumProps: Sized + Copy {
-//     const LEN: usize;
-//     type BUF: AsRef<[u8]> + AsMut<[u8]> + Default;
-
-//     fn from_big(buf: &Self::BUF) -> Self;
-
-//     fn from_little(buf: &Self::BUF) -> Self;
-
-//     fn slice_from_little(bytes: &[u8], i: usize) -> Self {
-//         let mut tmp = Self::BUF::default();
-//         tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
-//         Self::from_little(&tmp)
-//     }
-
-//     fn slice_from_big(bytes: &[u8], i: usize) -> Self {
-//         let mut tmp = Self::BUF::default();
-//         tmp.as_mut().copy_from_slice(&bytes[i..i + Self::LEN]);
-//         Self::from_big(&tmp)
-//     }
-
-//     fn to_big(&self) -> Self::BUF;
-
-//     fn to_little(&self) -> Self::BUF;
-
-//     // fn to_endian(&self, endian: Endian) -> Self::BUF {
-//     //     match endian {
-//     //         Endian::Big => self.to_big(),
-//     //         Endian::Little => self.to_little(),
-//     //     }
-//     // }
-// }
-
-// trait OrderedFromBytes0<const SRC_LEN: usize, const DST_LEN: usize>:
-//     FromBytes<Bytes = [u8; DST_LEN]>
-// where
-//     [u8; DST_LEN]: Default,
-// {
-//     fn from_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; DST_LEN]) -> Self {
-//         let mut buf = Self::Bytes::default();
-//         for (i, j) in order.iter().enumerate() {
-//             buf.as_mut()[i] = bytes[usize::from(*j)];
-//         }
-//         Self::from_le_bytes(&buf)
-//     }
-// }
-
-// trait OrderedFromBytes1: FromBytes<Bytes = Self::FileBuf> + FCSRepr
-// where
-//     Self::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
-//     Self::ByteOrd: AsRef<[u8]>,
-// {
-//     fn from_ordered_bytes(bytes: &Self::FileBuf, order: Self::ByteOrd) -> Self {
-//         let mut buf = Self::Bytes::default();
-//         for (i, j) in order.as_ref().iter().enumerate() {
-//             buf.as_mut()[i] = bytes.as_ref()[usize::from(*j)];
-//         }
-//         Self::from_le_bytes(&buf)
-//     }
-// }
-
-// /// Methods for reading numbers which may be in arbitrary byte orders.
-// trait OrderedFromBytes<const OLEN: usize>: NumProps {
-//     fn h_write_from_ordered<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         order: [u8; OLEN],
-//     ) -> io::Result<()> {
-//         let tmp = Self::to_little(&self);
-//         let mut buf = [0; OLEN];
-//         for (i, j) in order.iter().enumerate() {
-//             buf[usize::from(*j)] = tmp.as_ref()[i];
-//         }
-//         h.write_all(buf.as_ref())
-//     }
-// }
-
-// /// Methods for reading/writing integers (1-8 bytes) from FCS files.
-// trait UnalignedIntFromBytes<const SRC_LEN: usize, const DST_LEN: usize>:
-//     FromBytes<Bytes = [u8; DST_LEN]>
-// where
-//     [u8; DST_LEN]: Default,
-// {
-//     fn from_unaligned_be_bytes(bytes: &[u8; SRC_LEN]) -> Self {
-//         let mut buf = Self::Bytes::default();
-//         let b = DST_LEN - SRC_LEN;
-//         buf.as_mut()[b..].copy_from_slice(bytes);
-//         Self::from_be_bytes(&buf)
-//     }
-
-//     fn from_unaligned_le_bytes(bytes: &[u8; SRC_LEN]) -> Self {
-//         let mut buf = Self::Bytes::default();
-//         buf.as_mut()[..SRC_LEN].copy_from_slice(bytes);
-//         Self::from_le_bytes(&buf)
-//     }
-
-//     fn from_unaligned_ordered_bytes(bytes: &[u8; SRC_LEN], order: [u8; SRC_LEN]) -> Self {
-//         let mut buf = Self::Bytes::default();
-//         for (i, j) in order.iter().enumerate() {
-//             buf.as_mut()[i] = bytes[usize::from(*j)];
-//         }
-//         Self::from_le_bytes(&buf)
-//     }
-// }
-
-// /// Methods for reading/writing integers (1-8 bytes) from FCS files.
-// trait IntFromBytes<const INTLEN: usize>: NumProps + OrderedFromBytes<INTLEN> {
-//     // fn slice_unaligned_big(bytes: &[u8], index: usize) -> Self {
-//     //     if Self::LEN == INTLEN {
-//     //         Self::slice_from_big(bytes, index)
-//     //     } else {
-//     //         let tmp = &bytes[index..index + INTLEN];
-//     //         let mut buf = Self::BUF::default();
-//     //         let b = Self::LEN - INTLEN;
-//     //         buf.as_mut()[b..].copy_from_slice(tmp);
-//     //         Self::from_big(&buf)
-//     //     }
-//     // }
-
-//     // fn slice_unaligned_little(bytes: &[u8], index: usize) -> Self {
-//     //     if Self::LEN == INTLEN {
-//     //         Self::slice_from_little(bytes, index)
-//     //     } else {
-//     //         let tmp = &bytes[index..index + INTLEN];
-//     //         let mut buf = Self::BUF::default();
-//     //         buf.as_mut()[..INTLEN].copy_from_slice(tmp);
-//     //         Self::from_little(&buf)
-//     //     }
-//     // }
-
-//     fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
-//         let mut buf = [0; INTLEN];
-//         let (start, end, tmp) = if endian == Endian::Big {
-//             ((Self::LEN - INTLEN), Self::LEN, Self::to_big(&self))
-//         } else {
-//             (0, INTLEN, Self::to_little(self))
-//         };
-//         buf[..].copy_from_slice(&tmp.as_ref()[start..end]);
-//         h.write_all(&buf)
-//     }
-
-//     fn h_write_ordered<W: Write>(
-//         self,
-//         h: &mut BufWriter<W>,
-//         byteord: ArrayByteOrd<[u8; INTLEN]>,
-//     ) -> io::Result<()> {
-//         match byteord {
-//             ArrayByteOrd::Endian(e) => self.h_write_endian(h, e),
-//             ArrayByteOrd::Order(o) => self.h_write_from_ordered(h, o),
-//         }
-//     }
-// }
-
-// /// Methods for reading/writing floats (32 and 64 bit) from FCS files.
-// trait FloatFromBytes<const LEN: usize>: NumProps + OrderedFromBytes<LEN> {
-//     fn h_write_endian<W: Write>(&self, h: &mut BufWriter<W>, endian: Endian) -> io::Result<()> {
-//         let buf = Self::to_endian(&self, endian);
-//         h.write_all(buf.as_ref())
-//     }
-
-//     fn h_write_ordered<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         byteord: ArrayByteOrd<[u8; LEN]>,
-//     ) -> io::Result<()> {
-//         match byteord {
-//             ArrayByteOrd::Endian(endian) => self.h_write_endian(h, endian),
-//             ArrayByteOrd::Order(order) => self.h_write_from_ordered(h, order),
-//         }
-//     }
-// }
-
-// impl<'a> From<ColumnWriter<'a, AsciiRange, u64, NoByteOrd<false>>> for WriterMixedType<'a> {
-//     fn from(value: ColumnWriter<'a, AsciiRange, u64, NoByteOrd<false>>) -> Self {
-//         Self::Ascii(value)
-//     }
-// }
-
-// impl<'a> From<AnyWriterBitmask<'a>> for WriterMixedType<'a> {
-//     fn from(value: AnyWriterBitmask<'a>) -> Self {
-//         Self::Uint(value)
-//     }
-// }
-
-// impl<'a> From<ColumnWriter<'a, F32Range, f32, Endian>> for WriterMixedType<'a> {
-//     fn from(value: ColumnWriter<'a, F32Range, f32, Endian>) -> Self {
-//         Self::F32(value)
-//     }
-// }
-
-// impl<'a> From<ColumnWriter<'a, F64Range, f64, Endian>> for WriterMixedType<'a> {
-//     fn from(value: ColumnWriter<'a, F64Range, f64, Endian>) -> Self {
-//         Self::F64(value)
-//     }
-// }
-
-// impl<T, const LEN: usize> Castable for Bitmask<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-//     T: Copy + Ord + IsFCSDataType,
-//     u64: From<T>,
-// {
-//     fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
-//         let (trunc, y) = self.apply(x.new);
-//         let t = trunc
-//             .map(LossError::Other)
-//             .or(x.as_err().map(LossError::Cast))
-//             .map(AnyLossError::Int);
-//         (y, t)
-//     }
-// }
-
-// impl<T, const LEN: usize> Castable for FloatRange<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-//     T: Copy + IsFCSDataType,
-// {
-//     fn with_cast(&self, x: CastResult<T>) -> (T, Option<AnyLossError>) {
-//         let t = x.as_err().map(LossError::Cast).map(AnyLossError::Float);
-//         (x.new, t)
-//     }
-// }
-
-// impl Castable for AsciiRange {
-//     fn with_cast(&self, x: CastResult<Self::Native>) -> (Self::Native, Option<AnyLossError>) {
-//         let t = x.as_err().map(LossError::Cast).map(AnyLossError::Ascii);
-//         (x.new, t)
-//     }
-// }
-
-// impl<T, const LEN: usize> NativeWritable<Endian> for Bitmask<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-//     T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
-//     u64: From<T>,
-// {
-//     fn h_write<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         x: CastResult<T>,
-//         byte_layout: Endian,
-//     ) -> io::Result<Option<AnyLossError>> {
-//         let (y, trunc) = self.with_cast(x);
-//         y.h_write_endian(h, byte_layout)?;
-//         Ok(trunc)
-//     }
-// }
-
-// impl<T, const LEN: usize> NativeWritable<ArrayByteOrd<[u8; LEN]>> for Bitmask<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-//     T: Ord + Copy + IntFromBytes<LEN> + IsFCSDataType,
-//     u64: From<T>,
-// {
-//     fn h_write<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         x: CastResult<T>,
-//         byte_layout: ArrayByteOrd<[u8; LEN]>,
-//     ) -> io::Result<Option<AnyLossError>> {
-//         let (y, trunc) = self.with_cast(x);
-//         y.h_write_ordered(h, byte_layout)?;
-//         Ok(trunc)
-//     }
-// }
-
-// impl<T, const LEN: usize> NativeWritable<Endian> for FloatRange<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-//     T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
-// {
-//     fn h_write<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         x: CastResult<T>,
-//         byte_layout: Endian,
-//     ) -> io::Result<Option<AnyLossError>> {
-//         let (y, trunc) = self.with_cast(x);
-//         y.h_write_endian(h, byte_layout)?;
-//         Ok(trunc)
-//     }
-// }
-
-// impl<T, const LEN: usize> NativeWritable<ArrayByteOrd<[u8; LEN]>> for FloatRange<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-//     T: Copy + FloatFromBytes<LEN> + IsFCSDataType,
-// {
-//     fn h_write<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         x: CastResult<T>,
-//         byte_layout: ArrayByteOrd<[u8; LEN]>,
-//     ) -> io::Result<Option<AnyLossError>> {
-//         let (y, trunc) = self.with_cast(x);
-//         y.h_write_ordered(h, byte_layout)?;
-//         Ok(trunc)
-//     }
-// }
-
-// impl<const ORD: bool> NativeWritable<NoByteOrd<ORD>> for AsciiRange {
-//     fn h_write<W: Write>(
-//         &self,
-//         h: &mut BufWriter<W>,
-//         x: CastResult<Self::Native>,
-//         _: NoByteOrd<ORD>,
-//     ) -> io::Result<Option<AnyLossError>> {
-//         let (value, trunc) = self.with_cast(x);
-//         let str_value = value.to_string();
-//         let width: usize = u8::from(self.chars()).into();
-//         let err = if str_value.len() > width {
-//             // if string is greater than allocated chars, only write a fraction
-//             // starting from the left
-//             let offset = str_value.len() - width;
-//             h.write_all(&str_value.as_bytes()[offset..])?;
-//             Some(LossError::Other(AsciiLossError(self.chars())))
-//         } else {
-//             // if string less than allocated chars, pad left side with zero before
-//             // writing number
-//             for _ in 0..(width - str_value.len()) {
-//                 h.write_all(&[48])?;
-//             }
-//             h.write_all(str_value.as_bytes())?;
-//             None
-//         };
-//         Ok(err.map(AnyLossError::Ascii).or(trunc))
-//     }
-// }
-
-// impl<'a, C, S> IntoWriter<'a, S> for C
-// where
-//     C: ToNativeWriter,
-//     ColumnWriter<'a, C, C::Native, S>: Writable<'a, S>,
-//     C::Native: Default + Copy + AllFCSCast,
-//     AnySource<'a, C::Native>: From<FCSColIter<'a, u8, C::Native>>
-//         + From<FCSColIter<'a, u16, C::Native>>
-//         + From<FCSColIter<'a, u32, C::Native>>
-//         + From<FCSColIter<'a, u64, C::Native>>
-//         + From<FCSColIter<'a, f32, C::Native>>
-//         + From<FCSColIter<'a, f64, C::Native>>,
-//     AnyLossError: From<LossError<C::Error>>,
-// {
-//     type Target = ColumnWriter<'a, C, C::Native, S>;
-
-//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
-//         self.into_native_writer(col)
-//     }
-
-//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-//         self.check_native_writer(col).map_err(Into::into)
-//     }
-// }
-
-// impl<'a> IntoWriter<'a, Endian> for AnyBitmask {
-//     type Target = AnyWriterBitmask<'a>;
-
-//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
-//         match_any_uint!(self, Self, c, { c.into_native_writer(col).into() })
-//     }
-
-//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-//         match_any_uint!(self, Self, c, {
-//             c.check_native_writer(col).map_err(Into::into)
-//         })
-//     }
-// }
-
-// impl<'a> IntoWriter<'a, Endian> for MixedRange {
-//     type Target = WriterMixedType<'a>;
-
-//     fn into_writer(self, col: &'a AnyFCSColumn) -> Self::Target {
-//         match_any_mixed!(self, c, { c.into_writer(col).into() })
-//     }
-
-//     fn check_writer(&self, col: &'a AnyFCSColumn) -> Result<(), AnyLossError> {
-//         match self {
-//             Self::Ascii(c) => IntoWriter::<NoByteOrd3_1>::check_writer(c, col),
-//             Self::Uint(c) => c.check_writer(col),
-//             Self::F32(c) => c.check_native_writer(col).map_err(Into::into),
-//             Self::F64(c) => c.check_native_writer(col).map_err(Into::into),
-//         }
-//     }
-// }
-
-// impl<'a, C, T, S> Writable<'a, S> for ColumnWriter<'a, C, T, S>
-// where
-//     C: NativeWritable<S> + HasNativeType<Native = T> + ToNativeWriter + Castable,
-//     AnyFCSColumn: From<FCSColumn<T>>,
-// {
-//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: S) -> io::Result<()> {
-//         let x = self.data.next().unwrap();
-//         // TODO this might not be optimal since this loss storage logic will
-//         // (probably) fire for every written value even if we don't use it
-//         let loss = self.column_type.h_write(h, x, byte_layout)?;
-//         self.loss = mem::take(&mut self.loss).or(loss);
-//         Ok(())
-//     }
-
-//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
-//         let mut warn = None;
-//         // TODO not optimal at all
-//         let mut xs = vec![];
-//         for x in self.data {
-//             let (y, w) = self.column_type.with_cast(x);
-//             if skip_conv_check {
-//                 warn = mem::take(&mut warn).or(w);
-//             }
-//             xs.push(y);
-//         }
-//         (FCSColumn::from(xs).into(), warn)
-//     }
-
-//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-//         self.into_err(i)
-//     }
-// }
-
-// impl<'a> Writable<'a, Endian> for WriterMixedType<'a> {
-//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
-//         match self {
-//             Self::Ascii(c) => c.h_write(h, NoByteOrd),
-//             Self::Uint(c) => c.h_write(h, byte_layout),
-//             Self::F32(c) => c.h_write(h, byte_layout),
-//             Self::F64(c) => c.h_write(h, byte_layout),
-//         }
-//     }
-
-//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
-//         match_any_mixed!(self, x, { x.truncate(skip_conv_check) })
-//     }
-
-//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-//         match_any_mixed!(self, x, { x.into_err(i) })
-//     }
-// }
-
-// impl<'a> Writable<'a, Endian> for AnyWriterBitmask<'a> {
-//     fn h_write<W: Write>(&mut self, h: &mut BufWriter<W>, byte_layout: Endian) -> io::Result<()> {
-//         match_any_uint!(self, Self, c, { c.h_write(h, byte_layout) })
-//     }
-
-//     fn truncate(self, skip_conv_check: bool) -> (AnyFCSColumn, Option<AnyLossError>) {
-//         match_any_uint!(self, Self, x, { x.truncate(skip_conv_check) })
-//     }
-
-//     fn into_err(self, i: MeasIndex) -> Option<IndexedLossError> {
-//         match_any_uint!(self, Self, x, { x.into_err(i) })
-//     }
-// }
-
-// impl<T, const LEN: usize> ToNativeWriter for Bitmask<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-//     u64: From<T>,
-//     T: Ord + Copy,
-// {
-//     type Error = BitmaskLossError;
-
-//     fn check_other_loss(&self, x: T) -> Option<Self::Error> {
-//         (x > self.bitmask()).then(|| BitmaskLossError(u64::from(self.bitmask())))
-//     }
-// }
-
-// impl<T, const LEN: usize> ToNativeWriter for FloatRange<T, LEN>
-// where
-//     Self: HasNativeType<Native = T>,
-// {
-//     type Error = Infallible;
-
-//     fn check_other_loss(&self, _: T) -> Option<Self::Error> {
-//         None
-//     }
-// }
-
-// impl ToNativeWriter for AsciiRange {
-//     type Error = AsciiLossError;
-
-//     fn check_other_loss(&self, x: Self::Native) -> Option<Self::Error>
-//     where
-//         u64: From<Self::Native>,
-//     {
-//         (Chars::from_u64(x) > self.chars()).then(|| AsciiLossError(self.chars()))
-//     }
-// }
-
-// /// A wrapper for any of the 6 source types that can be written.
-// ///
-// /// Each inner type is an iterator from a different source type which emit
-// /// the given target type.
-// enum AnySource<'a, TargetType> {
-//     FromU08(FCSColIter<'a, u8, TargetType>),
-//     FromU16(FCSColIter<'a, u16, TargetType>),
-//     FromU32(FCSColIter<'a, u32, TargetType>),
-//     FromU64(FCSColIter<'a, u64, TargetType>),
-//     FromF32(FCSColIter<'a, f32, TargetType>),
-//     FromF64(FCSColIter<'a, f64, TargetType>),
-// }
-
-// impl<'a, T> AnySource<'a, T> {
-//     fn new(c: &'a AnyFCSColumn) -> Self
-//     where
-//         T: AllFCSCast,
-//         Self: From<FCSColIter<'a, u8, T>>
-//             + From<FCSColIter<'a, u16, T>>
-//             + From<FCSColIter<'a, u32, T>>
-//             + From<FCSColIter<'a, u64, T>>
-//             + From<FCSColIter<'a, f32, T>>
-//             + From<FCSColIter<'a, f64, T>>,
-//     {
-//         match_many_to_one!(c, AnyFCSColumn, [U08, U16, U32, U64, F32, F64], xs, {
-//             IsFCSDataType::as_col_iter(xs).into()
-//         })
-//     }
-// }
-
-// impl<T> Iterator for AnySource<'_, T> {
-//     type Item = CastResult<T>;
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         match_many_to_one!(
-//             self,
-//             Self,
-//             [FromU08, FromU16, FromU32, FromU64, FromF32, FromF64],
-//             c,
-//             { c.next() }
-//         )
-//     }
-// }
-
-// impl<D> EndianLayout<AnyBitmask, D> {
-//     // pub(crate) fn endian_uint_try_new(
-//     //     cs: Vec<ColumnLayoutValues<D>>,
-//     //     e: Endian,
-//     //     flag: DisallowRangeTrunc,
-//     // ) -> WarningsAndErrorsResult<NewLayout<Self>, (), IndexedBitmaskError, NewUintTypeError>
-//     // where
-//     //     D: IsNumType,
-//     // {
-//     //     Self::try_new(cs, e, |i, c| {
-//     //         AnyUint::from_width_and_range(c.width, c.range, i, flag).repack_errors()
-//     //     })
-//     // }
-
-//     // pub(crate) fn uint_try_into_ordered<T>(
-//     //     self,
-//     // ) -> ErrorsResult<AnyOrderedUintLayout<T>, (), UintEndianToOrderedLayoutError> {
-//     //     let mut it = self.columns.into_iter().peekable();
-//     //     if let Some(head) = it.next() {
-//     //         head.try_into_one_size(it, self.byte_layout, 1)
-//     //             .map_errors(|(index, error)| IndexedError::new(index, error).into())
-//     //     } else {
-//     //         let b: ArrayByteOrd<[u8; 4]> = self.byte_layout.into();
-//     //         LogResult::new_ok(FixedLayout::new(vec![], b).into())
-//     //     }
-//     // }
-// }
-
-// impl<D> EndianLayout<MixedRange, D> {
-//     // pub(crate) fn try_into_ordered<T>(
-//     //     self,
-//     // ) -> ErrorsResult<AnyOrderedLayout<T>, (), MixedToOrderedLayoutError> {
-//     //     macro_rules! from_columns {
-//     //         ($i:expr) => {
-//     //             $i.enumerate()
-//     //                 .map(|(i, c)| {
-//     //                     c.try_into()
-//     //                         .map_err(|e| IndexedError::new(i + 1, e))
-//     //                         .map_err(MixedToNonMixedLayoutError)
-//     //                         .map_err(MixedToOrderedLayoutError::from)
-//     //                         .into_log()
-//     //                 })
-//     //                 .sequence_commutative()
-//     //         };
-//     //     }
-
-//     //     let mut it = self.columns.into_iter().peekable();
-//     //     if let Some(head) = it.next() {
-//     //         let endian = self.byte_layout;
-//     //         match head {
-//     //             AnyDatatype::Uint(x) => x
-//     //                 .try_into_one_size(it, endian, 1)
-//     //                 .map_ok_value(AnyOrderedLayout::Integer)
-//     //                 .map_errors(|(index, error)| error.into_col_error(index)),
-//     //             AnyDatatype::Ascii(x) => from_columns!(it)
-//     //                 .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
-//     //                 .map_ok_value(AnyAsciiLayout::from)
-//     //                 .map_ok_value(AnyOrderedLayout::Ascii),
-//     //             AnyDatatype::F32(x) => from_columns!(it)
-//     //                 .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
-//     //                 .map_ok_value(AnyOrderedLayout::F32),
-//     //             AnyDatatype::F64(x) => from_columns!(it)
-//     //                 .map_ok_value(|xs| FixedLayout::new1(x, xs, endian.into()))
-//     //                 .map_ok_value(AnyOrderedLayout::F64),
-//     //         }
-//     //     } else {
-//     //         let b: ArrayByteOrd<[u8; 4]> = self.byte_layout.into();
-//     //         LogResult::new_ok(AnyOrderedLayout::F32(FixedLayout::new(vec![], b)))
-//     //     }
-//     // }
-
-//     // pub(crate) fn try_into_non_mixed(
-//     //     self,
-//     // ) -> ErrorsResult<NonMixedEndianLayout<Nothing<NumType>>, (), MixedToNonMixedLayoutError> {
-//     //     let mut it = self.columns.into_iter().peekable().enumerate();
-//     //     if let Some((_, c0)) = it.next() {
-//     //         macro_rules! from_iter {
-//     //             ($iter:expr, $head:expr, $byte_layout:expr) => {
-//     //                 $iter
-//     //                     .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log())
-//     //                     .sequence_commutative()
-//     //                     .map_ok_value(|xs| FixedLayout::new1($head, xs, $byte_layout))
-//     //                     .map_ok_value(NonMixedEndianLayout::from)
-//     //             };
-//     //         }
-
-//     //         let byte_layout = self.byte_layout;
-//     //         match c0 {
-//     //             AnyDatatype::Ascii(x) => it
-//     //                 .map(|(i, c)| c.try_into().map_err(|e| (i, e)).into_log::<_, _, Vec<_>>())
-//     //                 .sequence_commutative()
-//     //                 .map_ok_value(|xs| FixedLayout::new1(x, xs, NoByteOrd))
-//     //                 .map_ok_value(|l| AnyAsciiLayout::Fixed(l).into()),
-//     //             AnyDatatype::Uint(x) => from_iter!(it, x, byte_layout),
-//     //             AnyDatatype::F32(x) => from_iter!(it, x, byte_layout),
-//     //             AnyDatatype::F64(x) => from_iter!(it, x, byte_layout),
-//     //         }
-//     //         .map_errors(|(i, error)| IndexedError::new(i + 1, error).into())
-//     //     } else {
-//     //         let l = FixedLayout::new(vec![], self.byte_layout);
-//     //         LogResult::new_ok(NonMixedEndianLayout::Uint(l))
-//     //     }
-//     // }
-// }
-
-// // NOTE num_traits has this but it doesn't have a nice way to init a default
-// // buffer, this will probably be easier and cleaner anyways once we can use
-// // const expressions
-// macro_rules! impl_num_props {
-//     ($size:expr, $t:ty) => {
-//         impl NumProps for $t {
-//             const LEN: usize = $size;
-//             type BUF = [u8; $size];
-
-//             fn to_big(&self) -> Self::BUF {
-//                 self.to_be_bytes()
-//             }
-
-//             fn to_little(&self) -> Self::BUF {
-//                 self.to_le_bytes()
-//             }
-
-//             fn from_big(buf: &Self::BUF) -> Self {
-//                 <$t>::from_be_bytes(*buf)
-//             }
-
-//             fn from_little(buf: &Self::BUF) -> Self {
-//                 <$t>::from_le_bytes(*buf)
-//             }
-//         }
-//     };
-// }
-
-// // TODO silly
-// macro_rules! impl_num_props0 {
-//     ($size:expr, $t:ty) => {
-//         impl NumProps for $t {
-//             const LEN: usize = $size;
-//             type BUF = [u8; $size];
-
-//             fn to_big(&self) -> Self::BUF {
-//                 self.to_be_bytes()
-//             }
-
-//             fn to_little(&self) -> Self::BUF {
-//                 self.to_le_bytes()
-//             }
-
-//             fn from_big(buf: &Self::BUF) -> Self {
-//                 <$t>::from_be_bytes(buf)
-//             }
-
-//             fn from_little(buf: &Self::BUF) -> Self {
-//                 <$t>::from_le_bytes(buf)
-//             }
-//         }
-//     };
-// }
-
-// impl_num_props!(1, u8);
-// impl_num_props!(2, u16);
-// impl_num_props0!(3, U24);
-// impl_num_props!(4, u32);
-// impl_num_props0!(5, U40);
-// impl_num_props0!(6, U48);
-// impl_num_props0!(7, U56);
-// impl_num_props!(8, u64);
-// impl_num_props!(4, f32);
-// impl_num_props!(8, f64);
-
-// impl OrderedFromBytes<1> for u8 {}
-// impl OrderedFromBytes<2> for u16 {}
-// impl OrderedFromBytes<3> for u32 {}
-// impl OrderedFromBytes<4> for u32 {}
-// impl OrderedFromBytes<5> for u64 {}
-// impl OrderedFromBytes<6> for u64 {}
-// impl OrderedFromBytes<7> for u64 {}
-// impl OrderedFromBytes<8> for u64 {}
-// impl OrderedFromBytes<4> for f32 {}
-// impl OrderedFromBytes<8> for f64 {}
-
-// impl OrderedFromBytes0<1, 1> for u8 {}
-// impl OrderedFromBytes0<2, 2> for u16 {}
-// impl OrderedFromBytes0<3, 4> for u32 {}
-// impl OrderedFromBytes0<4, 4> for u32 {}
-// impl OrderedFromBytes0<5, 8> for u64 {}
-// impl OrderedFromBytes0<6, 8> for u64 {}
-// impl OrderedFromBytes0<7, 8> for u64 {}
-// impl OrderedFromBytes0<8, 8> for u64 {}
-// impl OrderedFromBytes0<4, 4> for f32 {}
-// impl OrderedFromBytes0<8, 8> for f64 {}
-
-// impl FloatFromBytes<4> for f32 {}
-// impl FloatFromBytes<8> for f64 {}
-
-// impl IntFromBytes<1> for u8 {}
-// impl IntFromBytes<2> for u16 {}
-// impl IntFromBytes<3> for u32 {}
-// impl IntFromBytes<4> for u32 {}
-// impl IntFromBytes<5> for u64 {}
-// impl IntFromBytes<6> for u64 {}
-// impl IntFromBytes<7> for u64 {}
-// impl IntFromBytes<8> for u64 {}
-
-// impl IntFromBytes<3> for U24 {}
-// impl IntFromBytes<5> for U40 {}
-// impl IntFromBytes<6> for U48 {}
-// impl IntFromBytes<7> for U56 {}
-
-// impl OrderedFromBytes<3> for U24 {}
-// impl OrderedFromBytes<5> for U40 {}
-// impl OrderedFromBytes<6> for U48 {}
-// impl OrderedFromBytes<7> for U56 {}
-
-// impl UnalignedIntFromBytes<3, 4> for u32 {}
-// impl UnalignedIntFromBytes<5, 8> for u64 {}
-// impl UnalignedIntFromBytes<6, 8> for u64 {}
-// impl UnalignedIntFromBytes<7, 8> for u64 {}
-
-// impl<C, S, T, D> DataLayout<C, S, T, D> {
-//     // fn new1(head: C, tail: impl IntoIterator<Item = C>, byte_layout: S) -> Self {
-//     //     let mut cs = vec![head];
-//     //     cs.extend(tail);
-//     //     Self::new(cs, byte_layout)
-//     // }
-
-//     // fn insert_column_nocheck(&mut self, index: MeasIndex, col: C) {
-//     //     debug_assert!(
-//     //         usize::from(index) <= self.inner.len(),
-//     //         "Index should be less than/equal to number of columns"
-//     //     );
-//     //     self.inner.insert(index.into(), col);
-//     // }
-
-//     // fn push_column(&mut self, col: C) {
-//     //     self.inner.push(col);
-//     // }
-// }
-
-// macro_rules! source_from_iter {
-//     ($from:ident, $to:ident, $wrap:ident) => {
-//         impl<'a> From<FCSColIter<'a, $from, $to>> for AnySource<'a, $to> {
-//             fn from(value: FCSColIter<'a, $from, $to>) -> Self {
-//                 Self::$wrap(value)
-//             }
-//         }
-//     };
-// }
-
-// source_from_iter!(u8, u8, FromU08);
-// source_from_iter!(u8, u16, FromU08);
-// source_from_iter!(u8, u32, FromU08);
-// source_from_iter!(u8, u64, FromU08);
-// source_from_iter!(u8, f32, FromU08);
-// source_from_iter!(u8, f64, FromU08);
-
-// source_from_iter!(u16, u8, FromU16);
-// source_from_iter!(u16, u16, FromU16);
-// source_from_iter!(u16, u32, FromU16);
-// source_from_iter!(u16, u64, FromU16);
-// source_from_iter!(u16, f32, FromU16);
-// source_from_iter!(u16, f64, FromU16);
-
-// source_from_iter!(u32, u8, FromU32);
-// source_from_iter!(u32, u16, FromU32);
-// source_from_iter!(u32, u32, FromU32);
-// source_from_iter!(u32, u64, FromU32);
-// source_from_iter!(u32, f32, FromU32);
-// source_from_iter!(u32, f64, FromU32);
-
-// source_from_iter!(u64, u8, FromU64);
-// source_from_iter!(u64, u16, FromU64);
-// source_from_iter!(u64, u32, FromU64);
-// source_from_iter!(u64, u64, FromU64);
-// source_from_iter!(u64, f32, FromU64);
-// source_from_iter!(u64, f64, FromU64);
-
-// source_from_iter!(f32, u8, FromF32);
-// source_from_iter!(f32, u16, FromF32);
-// source_from_iter!(f32, u32, FromF32);
-// source_from_iter!(f32, u64, FromF32);
-// source_from_iter!(f32, f32, FromF32);
-// source_from_iter!(f32, f64, FromF32);
-
-// source_from_iter!(f64, u8, FromF64);
-// source_from_iter!(f64, u16, FromF64);
-// source_from_iter!(f64, u32, FromF64);
-// source_from_iter!(f64, u64, FromF64);
-// source_from_iter!(f64, f32, FromF64);
-// source_from_iter!(f64, f64, FromF64);
 
 #[cfg(feature = "python")]
 mod python {

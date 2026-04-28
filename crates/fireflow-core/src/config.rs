@@ -243,7 +243,7 @@ pub struct WriteDatasetInnerConfig {
     /// If `true`, forbid event values in DATA to exceed $PnR before writing.
     ///
     /// This flag only has an effect if the column is checked according to
-    /// [`Self::check_event_values`].
+    /// [`Self::check_event_ranges`].
     pub disallow_over_range: DisallowOverRange,
 
     /// Set the size in bytes for the internal buffer used to write DATA.

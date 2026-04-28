@@ -15,7 +15,7 @@ use crate::data::{
     HeadersToDataFrameError, HeadersToEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype,
     LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
     LayoutRemove, LayoutSize as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataLayoutError, ReadCheckedDataframeError,
+    MeasurementsWithLayoutError, NewHeadersError, ReadCheckedDataframeError,
     ReadCheckedDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame,
     VersionedHeaders, WithPrimitiveDataFrame,
 };
@@ -179,10 +179,10 @@ use {
 ///
 /// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L` (no DATA)     | `L` (with DATA)      |
 /// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|----------------------|
-/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders2_0`] | [`DataDataFrame2_0`] |
-/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders3_0`] | [`DataDataFrame3_0`] |
-/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_1`] | [`DataDataFrame3_1`] |
-/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_2`] | [`DataDataFrame3_2`] |
+/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders2_0`] | [`DataFrame2_0`] |
+/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders3_0`] | [`DataFrame3_0`] |
+/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_1`] | [`DataFrame3_1`] |
+/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_2`] | [`DataFrame3_2`] |
 ///
 /// # Generic parameters for data
 ///
@@ -1635,7 +1635,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .and_then_commutative(|(mut layout_out, mut offsets)| {
                 let ar = AnalysisReader::new(offsets.segs.analysis);
                 layout_out
-                    .layout
+                    .headers
                     .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -4602,7 +4602,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 // Lookup measure which depends on global datatype
                 .and_then_commutative(
                     |((metaroot_out, layout_out), meas_nonstd, dedup_names, original_names)| {
-                        let dts = &layout_out.layout.datatypes()[..];
+                        let dts = &layout_out.headers.datatypes()[..];
                         let ret =
                             Self::lookup_measurements(std, dedup_names, meas_nonstd, dts, conf);
                         go_err!(ret).map_ok_value(|x| (metaroot_out, layout_out, x, original_names))
@@ -4612,7 +4612,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     |(metaroot_out, layout_out, (meas, mut meas_diag), original_names)| {
                         meas_diag.trimmed.extend(metaroot_out.trimmed);
                         let fixes = metaroot_out.fixed_gate_scales;
-                        let ret = Self::try_new(metaroot_out.this, meas, layout_out.layout, conf)
+                        let ret = Self::try_new(metaroot_out.this, meas, layout_out.headers, conf)
                             .map_ok_value(|ret| (ret, original_names, fixes, meas_diag));
                         go_err!(ret)
                     },
@@ -9047,7 +9047,7 @@ pub struct NameConversionError(Key1<Shortname>);
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
-    Layout(NewDataLayoutError),
+    Layout(NewHeadersError),
     Check(EventOverRangeError),
     HeaderText(WriteTEXTHeaderError),
 }

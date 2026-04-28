@@ -71,12 +71,9 @@ use hashbrown::HashMap;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty_collections::{
-    IntoIteratorExt as _, NEVec,
-    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _, once},
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _, iter::once,
 };
-use num_traits::Bounded;
-use num_traits::cast::ToPrimitive as _;
-use num_traits::identities::{One as _, Zero as _};
+use num_traits::{Bounded, One as _, ToPrimitive as _, Zero as _};
 use thiserror::Error;
 use unicase::Ascii;
 
@@ -3285,13 +3282,13 @@ macro_rules! try_from_range_int {
                     error_kind,
                 };
                 if let Some(y) = x.$to().and_then(|y| y.try_into().ok()) {
-                    if x.fractional_digit_count() <= 0 && y <= $inttype::max_value() {
+                    if x.fractional_digit_count() <= 0 && y <= <$inttype as Bounded>::max_value() {
                         Ok(y)
                     } else {
                         Err(err(RangeToIntErrorKind::PrecisionLoss(y)))
                     }
                 } else {
-                    if BigDecimal::from($inttype::max_value()) < *x {
+                    if BigDecimal::from(<$inttype as Bounded>::max_value()) < *x {
                         Err(err(RangeToIntErrorKind::Overrange))
                     } else {
                         Err(err(RangeToIntErrorKind::Underrange))

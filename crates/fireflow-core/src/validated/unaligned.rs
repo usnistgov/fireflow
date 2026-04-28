@@ -63,15 +63,10 @@ pub struct U56(u64);
 pub struct TryFromUnalignedIntError;
 
 /// Index in a slice from which bytes are to be copied.
-pub(crate) struct SrcIndex(pub(crate) usize);
+pub struct SrcIndex(pub(crate) usize);
 
 /// Index in a slice into which bytes are to be copied.
-pub(crate) struct DstIndex(pub(crate) usize);
-
-// /// A Vec with an inner type which may be lossily converted to an unaligned type.
-// pub(crate) trait CastableVec<Inner>: Sized {
-//     fn cast_from_vec(xs: Vec<Inner>) -> (Vec<Self>, Option<usize>);
-// }
+pub struct DstIndex(pub(crate) usize);
 
 /// A type that can be converted from an FCS value to a memory value.
 ///
@@ -144,7 +139,7 @@ pub trait FCSRepr {
     {
         let tmp = self.to_be_bytes();
         let n = Self::file_len();
-        dst.as_mut()[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
+        dst[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
     }
 
     fn to_le_slice(&self, dst: &mut [u8], index: DstIndex)
@@ -154,7 +149,7 @@ pub trait FCSRepr {
     {
         let tmp = self.to_le_bytes();
         let n = Self::file_len();
-        dst.as_mut()[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
+        dst[index.0..index.0 + n].copy_from_slice(tmp.as_ref());
     }
 
     fn from_ordered_bytes(bytes: &Self::FileBuf, order: &Self::ByteOrd) -> Self
@@ -194,7 +189,7 @@ pub trait FCSRepr {
     /// in very fast loops where performance is critical and adding a bounds
     /// check would insert a jump op which would in tern prevent nice compiler
     /// optimizations (unrolling, possibly vectorization, etc).
-    unsafe fn array_from_slice(src: &[u8], i: SrcIndex) -> Self::FileBuf;
+    unsafe fn array_from_slice(src: &[u8], i: &SrcIndex) -> Self::FileBuf;
 
     /// Write an FCS value to a byte stream.
     ///
@@ -206,7 +201,7 @@ pub trait FCSRepr {
     /// used in very fast loops where performance is critical and adding a
     /// bounds check would insert a jump op which would in tern prevent nice
     /// compiler optimizations (unrolling, possibly vectorization, etc).
-    unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: DstIndex);
+    unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: &DstIndex);
 }
 
 macro_rules! impl_file_bytes {
@@ -219,12 +214,12 @@ macro_rules! impl_file_bytes {
             type ByteOrd = Self::FileBuf;
             type Prim = $prim;
 
-            unsafe fn array_from_slice(src: &[u8], i: SrcIndex) -> Self::FileBuf {
+            unsafe fn array_from_slice(src: &[u8], i: &SrcIndex) -> Self::FileBuf {
                 // SAFETY: caller must ensure this is not out of bounds
                 unsafe { array_from_slice(src, i) }
             }
 
-            unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: DstIndex) {
+            unsafe fn array_to_slice(src: &Self::FileBuf, dst: &mut [u8], i: &DstIndex) {
                 // SAFETY: caller must ensure this is not out of bounds
                 unsafe { array_to_slice(src, dst, i) }
             }
@@ -232,19 +227,18 @@ macro_rules! impl_file_bytes {
     };
 }
 
-unsafe fn array_from_slice<const LEN: usize>(src: &[u8], i: SrcIndex) -> [u8; LEN] {
+unsafe fn array_from_slice<const LEN: usize>(src: &[u8], i: &SrcIndex) -> [u8; LEN] {
     // SAFETY: caller should ensure this is not out of bounds
     let xs = unsafe { src.get_unchecked(i.0..i.0 + LEN) };
     // SAFETY: length of slice should match returned array
     unsafe { *(xs.as_ptr().cast()) }
 }
 
-unsafe fn array_to_slice<const LEN: usize>(src: &[u8; LEN], dst: &mut [u8], i: DstIndex) {
+unsafe fn array_to_slice<const LEN: usize>(src: &[u8; LEN], dst: &mut [u8], i: &DstIndex) {
     // SAFETY: caller should ensure this is not out of bounds
-    unsafe {
-        let p = dst.as_mut_ptr().add(i.0);
-        copy_nonoverlapping(src.as_ptr(), p, LEN)
-    }
+    let p = unsafe { dst.as_mut_ptr().add(i.0) };
+    // SAFETY: length of slice should match returned array
+    unsafe { copy_nonoverlapping(src.as_ptr(), p, LEN) }
 }
 
 impl_file_bytes!(u8, u8, B1, B1, 1, 1);
@@ -314,14 +308,6 @@ macro_rules! impl_unaligned {
     };
 }
 
-// impl TryFrom<u64> for U24 {
-//     type Error = TryFromUnalignedIntError;
-//     fn try_from(value: u64) -> Result<Self, Self::Error> {
-//         let inner = u32::try_from(value).map_err(|_| TryFromUnalignedIntError)?;
-//         Self::try_from(inner)
-//     }
-// }
-
 impl_unaligned!(u32, U24, 24);
 impl_unaligned!(u64, U40, 40);
 impl_unaligned!(u64, U48, 48);
@@ -376,59 +362,6 @@ fn to_unaligned_le_bytes<
     buf.copy_from_slice(&x.to_le_bytes()[..INNER_LEN]);
     buf
 }
-
-// impl AsPrimitive<U24> for f32 {
-//     fn as_(self) -> U24 {
-//         let x: u32 = self.as_();
-//         x.try_into().ok().unwrap_or(U24::max_value())
-//     }
-// }
-
-// impl AsPrimitive<U40> for f32 {
-//     fn as_(self) -> U40 {
-//         let x: u32 = self.as_();
-//         x.try_into().ok().unwrap_or(U40::max_value())
-//     }
-// }
-
-// macro_rules! impl_castable_vec_unaligned {
-//     ($from:ident, $inner:ident, $to:ident) => {
-//         impl CastableVec<$from> for $to {
-//             fn cast_from_vec(xs: Vec<$from>) -> (Vec<Self>, Option<usize>) {
-//                 let prim: Vec<$inner> = cast_vec(xs);
-//                 Self::cast_from_vec(prim)
-//             }
-//         }
-//     };
-// }
-
-// impl_castable_vec_unaligned!(U48, u64, U40);
-// impl_castable_vec_unaligned!(U56, u64, U40);
-// impl_castable_vec_unaligned!(U56, u64, U48);
-
-// macro_rules! impl_castable_small_to_big {
-//     ($from:ident, $to:ident) => {
-//         impl CastableVec<$from> for $to {
-//             fn cast_from_vec(mut xs: Vec<$from>) -> (Vec<Self>, Option<usize>) {
-//                 let n = xs.len();
-//                 let cap = xs.capacity();
-//                 let ptr = xs.as_mut_ptr().cast::<Self>();
-//                 forget(xs);
-//                 // SAFETY: input type should be a subset of target type, so cast
-//                 // will never result in an invalid bit patter. Also they should
-//                 // have the same layout since they should have the same inner
-//                 // type. Both of these are assumed to be true and bad stuff
-//                 // happens if they are not.
-//                 let new = unsafe { Vec::from_raw_parts(ptr, n, cap) };
-//                 (new, None)
-//             }
-//         }
-//     };
-// }
-
-// impl_castable_small_to_big!(U40, U48);
-// impl_castable_small_to_big!(U40, U56);
-// impl_castable_small_to_big!(U48, U56);
 
 /// Make conversion from smaller number to bigger type (which will never fail).
 macro_rules! impl_small_to_big {
@@ -501,32 +434,26 @@ impl_big_to_small_unalign!(U48, u64, U40);
 impl_big_to_small_unalign!(U56, u64, U40);
 impl_big_to_small_unalign!(U56, u64, U48);
 
-// these are guaranteed to always work given the integer limits of f32/f64
-
-impl From<U24> for f32 {
-    fn from(value: U24) -> Self {
-        value.0.as_()
-    }
+/// Convert integer to float losslessly.
+///
+/// This only works if the int is totally with the range of the float which
+/// perfectly expresses integers without any gaps.
+macro_rules! impl_unaligned_to_float_lossless {
+    ($i:ident, $f:ident) => {
+        impl From<$i> for $f {
+            fn from(value: $i) -> Self {
+                value.0.as_()
+            }
+        }
+    };
 }
 
-impl From<U24> for f64 {
-    fn from(value: U24) -> Self {
-        value.0.as_()
-    }
-}
+impl_unaligned_to_float_lossless!(U24, f32);
+impl_unaligned_to_float_lossless!(U24, f64);
+impl_unaligned_to_float_lossless!(U40, f64);
+impl_unaligned_to_float_lossless!(U48, f64);
 
-impl From<U40> for f64 {
-    fn from(value: U40) -> Self {
-        value.0.as_()
-    }
-}
-
-impl From<U48> for f64 {
-    fn from(value: U48) -> Self {
-        value.0.as_()
-    }
-}
-
+/// Convert int to float with possible loss.
 macro_rules! impl_unalign_as_float {
     ($from:ident, $to:ident) => {
         impl AsPrimitive<$to> for $from {
@@ -546,6 +473,7 @@ impl_unalign_as_float!(U40, f64);
 impl_unalign_as_float!(U48, f64);
 impl_unalign_as_float!(U56, f64);
 
+/// Convert float to integer.
 macro_rules! impl_float_as_unalign {
     ($from:ident, $inner:ident, $to:ident) => {
         impl AsPrimitive<$to> for $from {

@@ -4611,7 +4611,6 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let fixed = quote!(fireflow_core::data::Layout);
     let coltype = quote!(fireflow_core::data::UvarCol);
-    let anybitmask = quote!(fireflow_core::data::VariableBitmask);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
     let endian_layout = quote!(fireflow_core::data::EndianHeaders);
@@ -4619,18 +4618,12 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyInt::new_bitmask_value64()),
+        PyList::new1(PyTuple::new_variable_bitmask()),
         format!(
-            "The range of each measurement. Corresponds to the {PNR} \
-             keyword less one. The number of bytes used to encode each \
-             measurement ({PNB}) will be the minimum required to express this \
-             value. For instance, a value of {v1023} will set {PNB} to {v16}, \
-             will set {PNR} to {v1024}, and encode values for this measurement as \
-             16-bit integers. The values of a measurement will be less than or \
-             equal to this value.",
-            v16 = code(16_u8),
-            v1023 = code(1023_u32),
-            v1024 = code(1024_u32),
+            "The range of each measurement. The first member of each tuple \
+             indicates the number of bytes ({PNB}) to encode the {PNR} value \
+             and data in the column. The second member corresponds to the {PNR} \
+             keyword less one."
         ),
         |_, _| quote!(self.0.columns().iter().map(|c| (*c).into()).collect()),
     );
@@ -4640,12 +4633,10 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
     let doc =
         DocString::new_class("A mixed-width integer layout.").args([ranges_param, is_big_param]);
 
-    // TODO hide this in the library
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                let rs = ranges.fmap(#anybitmask::from);
-                #fixed::new(rs, endian).into()
+                #fixed::new(ranges, endian).into()
             }
         }
     };
@@ -6447,10 +6438,10 @@ impl<E: From<PyException>> PyInt<E> {
         Self::new_int(RsInt::U64).rstype(p)
     }
 
-    fn new_bitmask_value64() -> Self {
-        let p = parse_quote!(fireflow_core::validated::bitmask::BitmaskValue<u64>);
-        Self::new_int(RsInt::U64).rstype(p)
-    }
+    // fn new_bitmask_value64() -> Self {
+    //     let p = parse_quote!(fireflow_core::validated::bitmask::BitmaskValue<u64>);
+    //     Self::new_int(RsInt::U64).rstype(p)
+    // }
 
     fn new_bitmask(nbytes: usize) -> Self {
         let i = format_ident!("Bitmask{:02}", nbytes * 8);
@@ -6992,6 +6983,13 @@ impl<E: From<PyException>> PyTuple<E> {
 
     fn new_unigate() -> Self {
         Self::new2([PyDecimal::default(), PyDecimal::default()]).rstype(keyword_path("UniGate"))
+    }
+
+    fn new_variable_bitmask() -> Self {
+        let path = quote!(fireflow_core::data::VariableBitmask);
+        Self::new1(PyLiteral::new1(IntegerWidth::iter_str()))
+            .add(RsInt::U64)
+            .rstype(parse_quote!(#path))
     }
 }
 

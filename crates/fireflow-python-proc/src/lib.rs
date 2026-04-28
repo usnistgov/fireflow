@@ -2856,8 +2856,8 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             ))
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
-            .args(col_param)
             .arg(rng.clone())
+            .args(col_param)
     };
 
     let opt_doc = insert_meas_doc(true, is_dataset);
@@ -4508,16 +4508,16 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
     );
 
     let width_param = DocArg::new_ivar_ro(
-        "width",
+        "byte_width",
         PyInt::from(RsInt::U32).rstype(bytes_path),
         format!(
             "The width of the layout in bytes. Must be an integer 1 through 8. \
              All in {ranges_arg} must be able to fit within the allotted bytes.",
             ranges_arg = arg("ranges"),
         ),
-        |_, _| quote!(self.0.width()),
+        |_, _| quote!(self.0.byte_width()),
     )
-    .def_auto();
+    .def(DocDefault::Int(4));
 
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
@@ -4535,7 +4535,7 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                Ok(#layout_path::new_ordered_uint(ranges, &width, byteord)?.into())
+                Ok(#layout_path::new_ordered_uint(ranges, &byte_width, byteord)?.into())
             }
         }
     };
@@ -4574,16 +4574,16 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
     );
 
     let width_param = DocArg::new_ivar_ro(
-        "width",
+        "byte_width",
         PyInt::from(RsInt::U32).rstype(bytes_path),
         format!(
             "The width of the layout in bytes. Must be an integer 1 through 8. \
              All in {ranges_arg} must be able to fit within the allotted bytes.",
             ranges_arg = arg("ranges"),
         ),
-        |_, _| quote!(self.0.width()),
+        |_, _| quote!(self.0.byte_width()),
     )
-    .def_auto();
+    .def(DocDefault::Int(4));
 
     let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
@@ -4595,7 +4595,7 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                Ok(#layout_path::new_single_uint(ranges, &width, endian)?.into())
+                Ok(#layout_path::new_single_uint(ranges, &byte_width, endian)?.into())
             }
         }
     };
@@ -7470,16 +7470,14 @@ impl DocArgRWIvar {
 
     fn new_layout_ivar(version: Version) -> Self {
         let ascii_layouts = ["FixedAsciiHeaders", "DelimAsciiHeaders"];
-        let non_mixed_layouts = ["EndianUintHeaders", "EndianF32Headers", "EndianF64Headers"];
+        let non_mixed_layouts = [
+            "VariableUintHeaders",
+            "SingleUintHeaders",
+            "EndianF32Headers",
+            "EndianF64Headers",
+        ];
         let ordered_layouts = [
-            "OrderedUint08Headers",
-            "OrderedUint16Headers",
-            "OrderedUint24Headers",
-            "OrderedUint32Headers",
-            "OrderedUint40Headers",
-            "OrderedUint48Headers",
-            "OrderedUint56Headers",
-            "OrderedUint64Headers",
+            "OrderedUintHeaders",
             "OrderedF32Headers",
             "OrderedF64Headers",
         ];

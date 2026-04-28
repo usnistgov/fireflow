@@ -154,6 +154,8 @@ DelimEscapeMode: TypeAlias = Literal[
 
 TruncateEventValues: TypeAlias = Literal["int_only", "all", "none"]
 
+CheckEventRanges: TypeAlias = TruncateEventValues
+
 ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 
 RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]

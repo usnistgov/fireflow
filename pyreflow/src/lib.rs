@@ -63,6 +63,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyOrderedF64Headers>()?;
     m.add_class::<ff::PyEndianF32Headers>()?;
     m.add_class::<ff::PyEndianF64Headers>()?;
+    m.add_class::<ff::PySingleUintHeaders>()?;
     m.add_class::<ff::PyVariableUintHeaders>()?;
     m.add_class::<ff::PyMixedHeaders>()?;
 

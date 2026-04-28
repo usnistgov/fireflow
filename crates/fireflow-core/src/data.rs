@@ -6745,7 +6745,7 @@ impl<T> AnyOrderedUintHeaders<T> {
     /// Only applicable to FCS 2.0/3.0.
     pub fn new_ordered_uint(
         ranges: Vec<u64>,
-        width: &ArgBytes,
+        byte_width: &ArgBytes,
         byte_order: AnyByteOrder,
     ) -> Result<Self, NewOrderedUintLayoutError> {
         macro_rules! go {
@@ -6758,7 +6758,7 @@ impl<T> AnyOrderedUintHeaders<T> {
                 Ok(AnyUint::$var(Layout::new(rs, b)))
             }};
         }
-        match width.0 {
+        match byte_width.0 {
             PrivBytes::B1 => go!(Uint08),
             PrivBytes::B2 => go!(Uint16),
             PrivBytes::B3 => go!(Uint24),
@@ -6776,7 +6776,7 @@ impl<T> AnyOrderedUintHeaders<T> {
     }
 
     #[must_use]
-    pub fn width(&self) -> ArgBytes {
+    pub fn byte_width(&self) -> ArgBytes {
         let b = match self {
             AnyUint::Uint08(_) => PrivBytes::B1,
             AnyUint::Uint16(_) => PrivBytes::B2,
@@ -6800,7 +6800,7 @@ impl<D> AnyFixedUintHeaders<D> {
     /// Only applicable to FCS 3.1/3.2.
     pub fn new_single_uint(
         ranges: Vec<u64>,
-        width: &ArgBytes,
+        byte_width: &ArgBytes,
         endian: Endian,
     ) -> Result<Self, NewBitmaskError> {
         macro_rules! go {
@@ -6812,7 +6812,7 @@ impl<D> AnyFixedUintHeaders<D> {
                 Ok(AnyUint::$var(Layout::new(rs, endian)))
             }};
         }
-        match width.0 {
+        match byte_width.0 {
             PrivBytes::B1 => go!(Uint08),
             PrivBytes::B2 => go!(Uint16),
             PrivBytes::B3 => go!(Uint24),
@@ -6831,7 +6831,7 @@ impl<D> AnyFixedUintHeaders<D> {
     }
 
     #[must_use]
-    pub fn width(&self) -> ArgBytes {
+    pub fn byte_width(&self) -> ArgBytes {
         let b = match self {
             AnyUint::Uint08(_) => PrivBytes::B1,
             AnyUint::Uint16(_) => PrivBytes::B2,

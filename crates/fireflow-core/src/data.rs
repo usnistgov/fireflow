@@ -2190,7 +2190,7 @@ pub trait LayoutDatatype: Sized {
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
 
-    fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)>;
+    // fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)>;
 
     fn check_transforms<S, G>(&self, xforms: &[S]) -> GroupResult<(), S::Err, G>
     where
@@ -2313,7 +2313,7 @@ impl<C, F, I, L, M, const ORD: bool> LayoutDatatype for Layout<C, F, I, L, M, OR
 where
     I: IsCol<F, ORD>,
     C: AsRef<[I::Inner]>,
-    I::Inner: ColumnHasDatatype + ColumnSchemaAsWidth,
+    I::Inner: ColumnHasDatatype,
 {
     fn datatype(&self) -> AlphaNumType {
         I::Inner::datatype_from_columns(self.container.as_ref())
@@ -2327,18 +2327,18 @@ where
             .collect()
     }
 
-    fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)> {
-        self.container
-            .as_ref()
-            .iter()
-            .map(|c| {
-                (
-                    ColumnHasDatatype::col_datatype(c),
-                    ColumnSchemaAsWidth::as_width(c),
-                )
-            })
-            .collect()
-    }
+    // fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)> {
+    //     self.container
+    //         .as_ref()
+    //         .iter()
+    //         .map(|c| {
+    //             (
+    //                 ColumnHasDatatype::col_datatype(c),
+    //                 ColumnSchemaAsWidth::as_width(c),
+    //             )
+    //         })
+    //         .collect()
+    // }
 }
 
 /// A layout which has FCS keywords.
@@ -5027,7 +5027,9 @@ where
 {
     fn is_normalized(&self) -> bool {
         if let Self::Multi(x) = self {
-            x.col_bytes()
+            // if multi-width, layout is normalized if all columns are not
+            // all the same size (which means it can't be simplified further)
+            !x.col_bytes()
                 .split_first()
                 .is_some_and(|(c0, cs)| cs.iter().all(|c| c0 == c))
         } else {
@@ -5105,12 +5107,14 @@ where
         match self {
             Self::NonMixed(x) => x.is_normalized(),
             Self::Mixed(x) => {
-                if let Some(((d0, w0), rest)) = x.datatypes_and_width().split_first() {
-                    if *d0 == AlphaNumType::Integer {
-                        rest.iter().all(|(d, w)| d == d0 && w == w0)
-                    } else {
-                        rest.iter().all(|(d, _)| d == d0)
-                    }
+                if let Some((d0, ds)) = x.datatypes().split_first() {
+                    // If Mixed, layout is normalized if all are not the same
+                    // datatype, which means it cannot be simplified further.
+                    // Note that we don't need to test the integer width, since
+                    // it is possible to simplify a mixed layout even if the
+                    // integer widths are different. This is further captured in
+                    // the other match branch above.
+                    !ds.iter().all(|d| d == d0)
                 } else {
                     true
                 }

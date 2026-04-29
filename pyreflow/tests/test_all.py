@@ -4899,206 +4899,205 @@ class TestReadWrite:
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    def test_dataset_non_empty_1(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset1.fcs"
+        core.write_dataset(p)
+        nu_core, un_core = pf.api.fcs_read_std_dataset(
+            p, time_meas_pattern=None, warnings_are_errors=True
+        )
+        self._assert_uncore_dataset_empty(un_core)
+        assert core == nu_core
 
-#     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-#     def test_dataset_non_empty_1(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p = d / "dataset1.fcs"
-#         core.write_dataset(p)
-#         nu_core, un_core = pf.api.fcs_read_std_dataset(
-#             p, time_meas_pattern=None, warnings_are_errors=True
-#         )
-#         self._assert_uncore_dataset_empty(un_core)
-#         assert core == nu_core
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_dataset_non_empty_2(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset2.fcs"
+        core.write_dataset(p)
+        nu_core, un_core = pf.api.fcs_read_std_dataset(
+            p,
+            time_meas_pattern=LINK_NAME2,
+            warnings_are_errors=True,
+        )
+        self._assert_uncore_dataset_empty(un_core)
+        assert core == nu_core
 
-#     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-#     def test_dataset_non_empty_2(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p = d / "dataset2.fcs"
-#         core.write_dataset(p)
-#         nu_core, un_core = pf.api.fcs_read_std_dataset(
-#             p,
-#             time_meas_pattern=LINK_NAME2,
-#             warnings_are_errors=True,
-#         )
-#         self._assert_uncore_dataset_empty(un_core)
-#         assert core == nu_core
+    #     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    #     def test_dataset_truncated(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    #         assert False, "fixme"
+    #         # d = tmp_path
+    #         # d.mkdir(exist_ok=True)
+    #         # p = d / "dataset_trunc.fcs"
+    #         # core.data = pl.DataFrame([[0.5, 0.5]], {LINK_NAME1: pl.Float32})
+    #         # assert not isinstance(core.layout, pf.MixedHeaders)
+    #         # assert core.layout.datatype == "I"
+    #         # # this will attempt to write a float as an int
+    #         # with pytest.RaisesGroup(pf.DataLossError):
+    #         #     core.write_dataset(p)
+    #         # # this will force the float to int with a warning
+    #         # with pytest.warns(pf.PyreflowWarning):
+    #         #     core.write_dataset(p)
 
-#     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-#     def test_dataset_truncated(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-#         assert False, "fixme"
-#         # d = tmp_path
-#         # d.mkdir(exist_ok=True)
-#         # p = d / "dataset_trunc.fcs"
-#         # core.data = pl.DataFrame([[0.5, 0.5]], {LINK_NAME1: pl.Float32})
-#         # assert not isinstance(core.layout, pf.MixedHeaders)
-#         # assert core.layout.datatype == "I"
-#         # # this will attempt to write a float as an int
-#         # with pytest.RaisesGroup(pf.DataLossError):
-#         #     core.write_dataset(p)
-#         # # this will force the float to int with a warning
-#         # with pytest.warns(pf.PyreflowWarning):
-#         #     core.write_dataset(p)
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    def test_dataset_different_type(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_trunc.fcs"
+        core.data = pl.DataFrame([[1.0, 1.0]], {LINK_NAME1: pl.Float32})
+        assert not isinstance(core.layout, pf.MixedHeaders)
+        assert core.layout.datatype == "I"
+        # this should convert 1.0 to 1 losslessly despite the underlying type
+        # being U32
+        core.write_dataset(p)
 
-#     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-#     def test_dataset_different_type(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p = d / "dataset_trunc.fcs"
-#         core.data = pl.DataFrame([[1.0, 1.0]], {LINK_NAME1: pl.Float32})
-#         assert not isinstance(core.layout, pf.MixedHeaders)
-#         assert core.layout.datatype == "I"
-#         # this should convert 1.0 to 1 losslessly despite the underlying type
-#         # being U32
-#         core.write_dataset(p)
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
+    def test_texts_non_empty(self, tmp_path: Path, core0: AnyCoreTEXT) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "texts.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        core1.sys = "Windows i^2"
+        core2.sys = "Windows 9"
+        type(core0).write_texts(p, [core0, core1, core2])  # type: ignore
+        datasets = pf.api.fcs_read_std_texts(p, time_meas_pattern=LINK_NAME2)
+        assert len(datasets) == 3
+        nu_core0, un_core0 = datasets[0]
+        nu_core1, un_core1 = datasets[1]
+        nu_core2, un_core2 = datasets[2]
+        self._assert_uncore_text_empty(un_core0)
+        self._assert_uncore_text_empty(un_core1)
+        self._assert_uncore_text_empty(un_core2)
+        assert core0 == nu_core0
+        assert core1 == nu_core1
+        assert core2 == nu_core2
 
-#     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
-#     def test_texts_non_empty(self, tmp_path: Path, core0: AnyCoreTEXT) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p = d / "texts.fcs"
-#         core1 = deepcopy(core0)
-#         core2 = deepcopy(core0)
-#         core1.sys = "Windows i^2"
-#         core2.sys = "Windows 9"
-#         type(core0).write_texts(p, [core0, core1, core2])  # type: ignore
-#         datasets = pf.api.fcs_read_std_texts(p, time_meas_pattern=LINK_NAME2)
-#         assert len(datasets) == 3
-#         nu_core0, un_core0 = datasets[0]
-#         nu_core1, un_core1 = datasets[1]
-#         nu_core2, un_core2 = datasets[2]
-#         self._assert_uncore_text_empty(un_core0)
-#         self._assert_uncore_text_empty(un_core1)
-#         self._assert_uncore_text_empty(un_core2)
-#         assert core0 == nu_core0
-#         assert core1 == nu_core1
-#         assert core2 == nu_core2
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_datasets_non_empty(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "datasets.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        core1.sys = "Windows i^2"
+        core2.sys = "Windows 9"
+        pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
+        datasets = pf.api.fcs_read_std_datasets(p, time_meas_pattern=LINK_NAME2)
+        assert len(datasets) == 3
+        nu_core0, un_core0 = datasets[0]
+        nu_core1, un_core1 = datasets[1]
+        nu_core2, un_core2 = datasets[2]
+        self._assert_uncore_dataset_empty(un_core0)
+        self._assert_uncore_dataset_empty(un_core1)
+        self._assert_uncore_dataset_empty(un_core2)
+        assert core0 == nu_core0
+        assert core1 == nu_core1
+        assert core2 == nu_core2
+        smry = pf.api.fcs_summarize(p)
+        assert len(smry) == 3
 
-#     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-#     def test_datasets_non_empty(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p = d / "datasets.fcs"
-#         core1 = deepcopy(core0)
-#         core2 = deepcopy(core0)
-#         core1.sys = "Windows i^2"
-#         core2.sys = "Windows 9"
-#         pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
-#         datasets = pf.api.fcs_read_std_datasets(p, time_meas_pattern=LINK_NAME2)
-#         assert len(datasets) == 3
-#         nu_core0, un_core0 = datasets[0]
-#         nu_core1, un_core1 = datasets[1]
-#         nu_core2, un_core2 = datasets[2]
-#         self._assert_uncore_dataset_empty(un_core0)
-#         self._assert_uncore_dataset_empty(un_core1)
-#         self._assert_uncore_dataset_empty(un_core2)
-#         assert core0 == nu_core0
-#         assert core1 == nu_core1
-#         assert core2 == nu_core2
-#         smry = pf.api.fcs_summarize(p)
-#         assert len(smry) == 3
+    @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    def test_summarize_pd(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "datasets.fcs"
+        core1 = deepcopy(core0)
+        core2 = deepcopy(core0)
+        core1.sys = "Windows i^2"
+        core2.sys = "Windows 9"
+        pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        smry = conf.summarize(p)
+        assert len(smry) == 3
 
-#     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-#     def test_summarize_pd(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p = d / "datasets.fcs"
-#         core1 = deepcopy(core0)
-#         core2 = deepcopy(core0)
-#         core1.sys = "Windows i^2"
-#         core2.sys = "Windows 9"
-#         pf.api.fcs_write_datasets(p, [core0, core1, core2])  # type: ignore
-#         conf = pfp.PyreflowReadFlatDatasetConfig()
-#         smry = conf.summarize(p)
-#         assert len(smry) == 3
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
+    @pytest.mark.parametrize(
+        "layout",
+        [pf.FixedAsciiHeaders([1000, 1000]), pf.DelimAsciiHeaders([1000, 1000])],
+    )
+    def test_ascii(
+        self,
+        tmp_path: Path,
+        core: AnyCoreDataset,
+        layout: pf.FixedAsciiHeaders | pf.DelimAsciiHeaders,
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p0 = d / "dataset_ascii_wrong.fcs"
+        p1 = d / "dataset_ascii_right.fcs"
+        core.write_dataset(p0)
+        core.layout = layout
+        core.write_dataset(p1)
+        new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
+        if core.version in ["FCS3.1", "FCS3.2"]:
+            new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+        else:
+            new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+        assert new_core0 != core
+        assert new_core1 == core
 
-#     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
-#     @pytest.mark.parametrize(
-#         "layout",
-#         [pf.FixedAsciiHeaders([1000, 1000]), pf.DelimAsciiHeaders([1000, 1000])],
-#     )
-#     def test_ascii(
-#         self,
-#         tmp_path: Path,
-#         core: AnyCoreDataset,
-#         layout: pf.FixedAsciiHeaders | pf.DelimAsciiHeaders,
-#     ) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p0 = d / "dataset_ascii_wrong.fcs"
-#         p1 = d / "dataset_ascii_right.fcs"
-#         core.write_dataset(p0)
-#         core.layout = layout
-#         core.write_dataset(p1)
-#         new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
-#         if core.version in ["FCS3.1", "FCS3.2"]:
-#             new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
-#         else:
-#             new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
-#         assert new_core0 != core
-#         assert new_core1 == core
+    @parameterize_versions("core", ["2_0", "3_0"], ["dataset2"])
+    # make sure we can store and read a totally scrambled byteord (note the
+    # first byte in the middle to make it extra weird)
+    @pytest.mark.parametrize(
+        "byteord", ["little", "big", [1, 2, 3, 4], [4, 3, 2, 1], [2, 4, 1, 3]]
+    )
+    def test_mixed_byteord(
+        self,
+        tmp_path: Path,
+        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
+        byteord: ByteOrd,
+    ) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p0 = d / "dataset_mixed_wrong.fcs"
+        p1 = d / "dataset_mixed_right.fcs"
+        core.write_dataset(p0)
+        core.layout = pf.OrderedUintHeaders([1023, 1023], byteord=byteord)
+        core.write_dataset(p1)
+        new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
+        new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
+        assert new_core0.data.equals(core.data)
+        assert new_core1.data.equals(core.data)
 
-#     @parameterize_versions("core", ["2_0", "3_0"], ["dataset2"])
-#     # make sure we can store and read a totally scrambled byteord (note the
-#     # first byte in the middle to make it extra weird)
-#     @pytest.mark.parametrize(
-#         "byteord", ["little", "big", [1, 2, 3, 4], [4, 3, 2, 1], [2, 4, 1, 3]]
-#     )
-#     def test_mixed_byteord(
-#         self,
-#         tmp_path: Path,
-#         core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
-#         byteord: ByteOrd,
-#     ) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p0 = d / "dataset_mixed_wrong.fcs"
-#         p1 = d / "dataset_mixed_right.fcs"
-#         core.write_dataset(p0)
-#         core.layout = pf.OrderedUintHeaders([1023, 1023], byteord=byteord)
-#         core.write_dataset(p1)
-#         new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
-#         new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)
-#         assert new_core0 != core
-#         assert new_core1 == core
+    #     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    #     def test_dataset_conversion(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    #         assert False, "FIXME"
+    #         # d = tmp_path
+    #         # d.mkdir(exist_ok=True)
+    #         # p = d / "dataset_conversion.fcs"
+    #         # ser = pl.Series("blub", [1.5, 2.5, 3.5], dtype=pl.Float32)
+    #         # core.data = pl.DataFrame([ser])
+    #         # # this should fail because we are trying to write a non-integer float
+    #         # # as an integer
+    #         # with pytest.RaisesGroup(pf.PyreflowError):
+    #         #     core.write_dataset(p)
+    #         # with pytest.warns(pf.PyreflowWarning):
+    #         #     core.write_dataset(p, skip_conversion_check=True)
 
-#     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-#     def test_dataset_conversion(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-#         assert False, "FIXME"
-#         # d = tmp_path
-#         # d.mkdir(exist_ok=True)
-#         # p = d / "dataset_conversion.fcs"
-#         # ser = pl.Series("blub", [1.5, 2.5, 3.5], dtype=pl.Float32)
-#         # core.data = pl.DataFrame([ser])
-#         # # this should fail because we are trying to write a non-integer float
-#         # # as an integer
-#         # with pytest.RaisesGroup(pf.PyreflowError):
-#         #     core.write_dataset(p)
-#         # with pytest.warns(pf.PyreflowWarning):
-#         #     core.write_dataset(p, skip_conversion_check=True)
-
-#     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
-#     def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-#         d = tmp_path
-#         d.mkdir(exist_ok=True)
-#         p = d / "dataset_supp_text.fcs"
-#         # store an absurdly large value in primary TEXT to force the file to
-#         # be written with STEXT
-#         k = "info_dump"
-#         v = "I am a puppet." * 7500000
-#         core.nonstandard_keywords = {k: v}
-#         core.write_dataset(p)
-#         nu_core, un_core = pf.api.fcs_read_std_dataset(
-#             p,
-#             time_meas_pattern=LINK_NAME2,
-#             warnings_are_errors=True,
-#         )
-#         self._assert_uncore_dataset_empty(un_core)
-#         assert core == nu_core
-#         # supp text should have non-zero offsets in new file
-#         assert un_core.flat_diagnostics.header_supp.supp_text is not None
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
+    def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        d = tmp_path
+        d.mkdir(exist_ok=True)
+        p = d / "dataset_supp_text.fcs"
+        # store an absurdly large value in primary TEXT to force the file to
+        # be written with STEXT
+        k = "info_dump"
+        v = "I am a puppet." * 7500000
+        core.nonstandard_keywords = {k: v}
+        core.write_dataset(p)
+        nu_core, un_core = pf.api.fcs_read_std_dataset(
+            p,
+            time_meas_pattern=LINK_NAME2,
+            warnings_are_errors=True,
+        )
+        self._assert_uncore_dataset_empty(un_core)
+        assert core == nu_core
+        # supp text should have non-zero offsets in new file
+        assert un_core.flat_diagnostics.header_supp.supp_text is not None
 
 
 # Ensure pydantic classes match their corresponding API functions. This is

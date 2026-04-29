@@ -2935,7 +2935,7 @@ where
 // Implement data schema -> dataframe read traits
 //
 // For the base column layout, there are only two types of impls: fixed and
-// delimited. Only delimited ASCII layouts use the later.
+// delimited. Only delimited ASCII layouts use the latter.
 //
 // Aside from the base type, all enums and wrappers simply delegate downward to
 // the base type and wrap the return type.

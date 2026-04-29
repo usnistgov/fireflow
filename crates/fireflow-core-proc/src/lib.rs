@@ -101,11 +101,7 @@ impl Parse for ImplFrom {
 impl Parse for FromType {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let var = input.parse()?;
-        let link = if input.peek(Paren) {
-            Some(input.parse()?)
-        } else {
-            None
-        };
+        let link = input.peek(Paren).then(|| input.parse()).transpose()?;
         let ret = Self {
             var,
             link,

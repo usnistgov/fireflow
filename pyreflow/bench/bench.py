@@ -222,7 +222,7 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
         data_nbytes = 8 * n_values
         bit_widths = "64"
     elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
-        data_nbytes = lt.byte_width
+        data_nbytes = lt.byte_width * n_values
         bit_widths = str(lt.byte_width * 8)
     else:
         assert False, "invalid layout"
@@ -545,36 +545,36 @@ def make_bench_files(root: Path) -> None:
         )
         bench_files.append(core_to_benchfile(name, core))
 
-    # # Make three different sizes of this to demonstrate how time changes with
-    # # width and height. We expect that for a given datatype, normalized DATA
-    # # throughput should not depend on width or height. TEXT throughput should
-    # # not depend on height but should depend on width. Standardization overhead
-    # # should depend on FCS version and width.
-    # print_files("i32_10000x25", core_3_1_int(10000, 25, 4, False))
-    # print_files("i32_10000x75", core_3_1_int(10000, 75, 4, False))
-    # print_files("i32_100000x25", core_3_1_int(100000, 25, 4, False))
+    # Make three different sizes of this to demonstrate how time changes with
+    # width and height. We expect that for a given datatype, normalized DATA
+    # throughput should not depend on width or height. TEXT throughput should
+    # not depend on height but should depend on width. Standardization overhead
+    # should depend on FCS version and width.
+    print_files("i32_10000x25", core_3_1_int(10000, 25, 4, False))
+    print_files("i32_10000x75", core_3_1_int(10000, 75, 4, False))
+    print_files("i32_100000x25", core_3_1_int(100000, 25, 4, False))
 
-    # # Make a mixed byteord file just for fun, it should be way slower. This
-    # # also helps test a 3.0 file vs other 3.1 files
-    # print_files("mx_i32_10000x25", core_3_0_pdp11(10000, 25))
+    # Make a mixed byteord file just for fun, it should be way slower. This
+    # also helps test a 3.0 file vs other 3.1 files
+    print_files("mx_i32_10000x25", core_3_0_pdp11(10000, 25))
 
-    # # make a big endian file just for fun (it should be the same as le)
-    # print_files("be_i32_10000x25", core_3_1_int(10000, 25, 4, True))
+    # make a big endian file just for fun (it should be the same as le)
+    print_files("be_i32_10000x25", core_3_1_int(10000, 25, 4, True))
 
-    # # make some other int sizes
-    # print_files("i16_10000x25", core_3_1_int(10000, 25, 2, False))
-    # print_files("i24_10000x25", core_3_1_int(10000, 25, 3, False))
-    # print_files("i64_10000x25", core_3_1_int(10000, 25, 8, False))
+    # make some other int sizes
+    print_files("i16_10000x25", core_3_1_int(10000, 25, 2, False))
+    print_files("i24_10000x25", core_3_1_int(10000, 25, 3, False))
+    print_files("i64_10000x25", core_3_1_int(10000, 25, 8, False))
 
-    # # make float layouts
-    # print_files("f32_10000x25", core_3_1_float(10000, 25, False))
-    # print_files("f64_10000x25", core_3_1_float(10000, 25, True))
+    # make float layouts
+    print_files("f32_10000x25", core_3_1_float(10000, 25, False))
+    print_files("f64_10000x25", core_3_1_float(10000, 25, True))
 
     # add cyflow cube's infamous mixed width layout
-    # print_files("cube_10000x6", core_3_1_cube(10000, False))
+    print_files("cube_10000x6", core_3_1_cube(10000, False))
 
-    # # add BD S8/A8's mixed 32bit layout
-    # print_files("s8_1000x400", core_3_2_a8(1000, False))
+    # add BD S8/A8's mixed 32bit layout
+    print_files("s8_1000x400", core_3_2_a8(1000, False))
 
     # layout with random mixed-width/type data, nobody uses this but it is a
     # good test since it should be the hardest to process
@@ -809,8 +809,8 @@ def run_bench(
 
     WRITE_TEXT_PER_KW = "TEXT write (ns/kw)"
     WRITE_TEXT_PER_KB = "TEXT write (ns/kB)"
-    WRITE_DATA_PER_KB = "DATA write (ns/kB)"
     WRITE_DATA_PER_VAL = "DATA write (ns/val)"
+    WRITE_DATA_PER_KB = "DATA write (ns/kB)"
 
     df_analyzed_full = df_analyzed.sort(by=sort_cols).select(
         [
@@ -850,14 +850,14 @@ def run_bench(
             ),
             # write data
             fmt_value(
-                "mean_w_data_diff_ns_per_kB",
-                "serr_w_data_diff_ns_per_kB",
-                WRITE_DATA_PER_KB,
-            ),
-            fmt_value(
                 "mean_w_data_diff_ns_per_value",
                 "serr_w_data_diff_ns_per_value",
                 WRITE_DATA_PER_VAL,
+            ),
+            fmt_value(
+                "mean_w_data_diff_ns_per_kB",
+                "serr_w_data_diff_ns_per_kB",
+                WRITE_DATA_PER_KB,
             ),
             # read vs write
             pl.col("text_rw_ratio").round(1).alias("TEXT R:W Ratio (%)"),

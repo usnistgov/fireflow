@@ -9,6 +9,6 @@ API Reference
    core
    measurement
    gating
-   layout
+   data_schema
    exceptions
    pydantic

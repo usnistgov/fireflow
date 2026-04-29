@@ -9,11 +9,11 @@ use crate::config::{
 };
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, DatasetSegments, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, Others, PrivVersioned as _, StdDatasetFromFlatTEXTWarning,
+    LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _, StdDatasetFromFlatTEXTWarning,
     StdDatasetFromFlatTextError, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };
-use crate::data::{EventsDiagnostics, IndexedLossError};
+use crate::data::{EventOverRangeError, EventsDiagnostics};
 use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
@@ -34,7 +34,7 @@ use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadNextdataError, Tot,
 };
 use crate::text::lookup::ReqMetarootKey as _;
-use crate::validated::dataframe::FCSDataFrame;
+use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_segments::{
     NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
 };
@@ -356,8 +356,12 @@ pub fn fcs_write_datasets(
     path: &PathBuf,
     cores: &[AnyCoreDataset],
     conf: &WriteDatasetInnerConfig,
-) -> WarningsAndIOGroupResult<Option<Nextdata>, IndexedLossError, StdWriterError, WriteDatasetSummary>
-{
+) -> WarningsAndIOGroupResult<
+    Option<Nextdata>,
+    EventOverRangeError,
+    StdWriterError,
+    WriteDatasetSummary,
+> {
     let n = cores.len();
     let mut results = vec![];
     for (i, c) in cores.iter().enumerate() {
@@ -451,7 +455,7 @@ pub struct NewFlatDatasetFromKwsOutput {
 #[derive(Clone, PartialEq, new)]
 pub struct FlatDatasetFromKwsOutput {
     /// DATA output
-    pub data: FCSDataFrame,
+    pub data: PrimitiveDataFrame,
 
     /// ANALYSIS output
     pub analysis: Analysis,
@@ -1863,7 +1867,12 @@ fn kws_to_df_analysis<C, R>(
     hns: &mut HeaderAndSuppOffsets,
     st: &ReadState<C>,
 ) -> WarningsAndIOGroupResult<
-    (FCSDataFrame, Analysis, DatasetSegments, EventsDiagnostics),
+    (
+        PrimitiveDataFrame,
+        Analysis,
+        DatasetSegments,
+        EventsDiagnostics,
+    ),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     (),
@@ -2035,21 +2044,21 @@ where
     })
 }
 
-def_summary!(HeaderSummary, "could not parse HEADER");
+def_summary!(pub HeaderSummary, "could not parse HEADER");
 
-def_summary!(FlatTEXTSummary, "could not parse TEXT segment");
+def_summary!(pub FlatTEXTSummary, "could not parse TEXT segment");
 
-def_summary!(StdTEXTSummary, "could not standardize TEXT segment");
+def_summary!(pub StdTEXTSummary, "could not standardize TEXT segment");
 
 def_summary!(
-    StdDatasetSummary,
+    pub StdDatasetSummary,
     "could not read DATA with standardized TEXT"
 );
 
-def_summary!(FlatDatasetSummary, "could not read DATA with flat TEXT");
+def_summary!(pub FlatDatasetSummary, "could not read DATA with flat TEXT");
 
 def_summary!(
-    FlatDatasetWithKwsSummary,
+    pub FlatDatasetWithKwsSummary,
     "could not read flat dataset from keywords"
 );
 

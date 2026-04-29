@@ -57,12 +57,20 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
+use fireflow_core::data::AnySingleUintDataSchema;
+use fireflow_core::data::DataSchema3_0;
+use fireflow_core::data::DataSchema3_1;
+use fireflow_core::data::RangeAndSeries;
 use fireflow_core::data::{
-    self, AnyAsciiLayout, AnyNullBitmask, AnyOrderedLayout, AnyOrderedUintLayout, DataLayout2_0,
-    DataLayout3_0, DataLayout3_1, DataLayout3_2, DelimAsciiLayout, EndianLayout, F32Range,
-    F64Range, FixedAsciiLayout, LayoutOps as _, NonMixedEndianLayout,
+    self, AnyAsciiDataSchema, AnyBigLittleUintDataSchema, AnyDatatype, AnyOrderedDataSchema,
+    AnyUint, BigLittleDataSchema, ColumnMarkers, DataSchema2_0, DataSchema3_2,
+    DelimAsciiDataSchema, F32Col, F64Col, FixedAsciiDataSchema, LayoutByteOrder as _,
+    LayoutDatatype as _, NonMixedDataSchema, PhantomInto as _, RangeOrMixedRange,
+    RangeOrMixedSeries, RangeOrVariableBitmask, RangeOrVariableUintSeries, Series, ToInsert,
+    VariableUintDataSchema, VariableUintSeries,
 };
 use fireflow_core::header;
+use fireflow_core::match_map_uint;
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -71,7 +79,9 @@ use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
 use fireflow_core::text::optional::{Identity, Nothing};
-use fireflow_core::validated::dataframe::{AnyFCSColumn, FCSColumn, FCSDataFrame};
+use fireflow_core::validated::dataframe::{
+    AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries,
+};
 use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname::Shortname;
@@ -94,19 +104,20 @@ use fireflow_python_proc::{
     impl_core_get_named_measurement, impl_core_get_set_timestep, impl_core_get_temporal,
     impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
     impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
-    impl_core_replace_temporal, impl_core_set_measurements_and_layout,
+    impl_core_replace_temporal, impl_core_set_measurements_and_data_schema,
     impl_core_set_named_measurements, impl_core_set_temporal, impl_core_set_tr_threshold,
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
-    impl_coredataset_set_measurements_layout_and_data,
-    impl_coredataset_set_named_measurements_and_data, impl_coredataset_truncate_data,
-    impl_coredataset_unset_data, impl_coretext_from_kws, impl_coretext_to_dataset,
-    impl_coretext_unset_measurements, impl_coretext_write_multi, impl_gated_meas,
-    impl_layout_byte_widths, impl_meas_awh_pnfeature, impl_new_core, impl_new_delim_ascii_layout,
-    impl_new_endian_float_layout, impl_new_endian_uint_layout, impl_new_fixed_ascii_layout,
-    impl_new_gate_bi_regions, impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout,
-    impl_new_ordered_layout, impl_py_dataset_segments, impl_py_dataset_summary,
-    impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
+    impl_coredataset_set_measurements_data_schema_and_data,
+    impl_coredataset_set_named_measurements_and_data, impl_coredataset_unset_data,
+    impl_coretext_from_kws, impl_coretext_to_dataset, impl_coretext_unset_measurements,
+    impl_coretext_write_multi, impl_data_schema_byte_widths, impl_gated_meas,
+    impl_meas_awh_pnfeature, impl_new_core, impl_new_delim_ascii_data_schema,
+    impl_new_endian_float_data_schema, impl_new_endian_uint_data_schema,
+    impl_new_fixed_ascii_data_schema, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
+    impl_new_meas, impl_new_mixed_data_schema, impl_new_ordered_data_schema,
+    impl_new_ordered_uint_data_schema, impl_new_single_uint_data_schema, impl_py_dataset_segments,
+    impl_py_dataset_summary, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
     impl_py_flat_text_diagnostics, impl_py_flat_text_output, impl_py_header,
     impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
     impl_py_new_flat_dataset_with_kws_output, impl_py_new_std_dataset_with_kws_output,
@@ -116,7 +127,7 @@ use fireflow_python_proc::{
 };
 
 use derive_more::{From, Into};
-use polars::prelude::*;
+use polars::prelude as pl;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::datatypes::ArrowDataType;
 use pyo3::prelude::*;
@@ -249,8 +260,8 @@ macro_rules! impl_common {
         // method to get temporal measurement if it exists
         impl_core_get_temporal!($pytype);
 
-        // method to set all measurements and layout at once
-        impl_core_set_measurements_and_layout!($pytype);
+        // method to set all measurements and data_schema at once
+        impl_core_set_measurements_and_data_schema!($pytype);
 
         // methods to add optical or temporal measurement at last index
         impl_core_push_measurement!($pytype);
@@ -346,10 +357,10 @@ impl_coretext_common!(PyCoreTEXT3_2);
 macro_rules! impl_coredataset_common {
     ($pytype:ident) => {
         impl_coredataset_set_named_measurements_and_data!($pytype);
-        impl_coredataset_set_measurements_layout_and_data!($pytype);
+        impl_coredataset_set_measurements_data_schema_and_data!($pytype);
         impl_core_write_dataset!($pytype);
         impl_coredataset_unset_data!($pytype);
-        impl_coredataset_truncate_data!($pytype);
+        // impl_coredataset_truncate_data!($pytype);
     };
 }
 
@@ -656,39 +667,45 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
-// Implement __new__ and attributes for PyFixedAsciiLayout
-impl_new_fixed_ascii_layout!(FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
+// Implement __new__ and attributes for PyFixedAsciiDataSchema
+impl_new_fixed_ascii_data_schema!(
+    FixedAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+);
 
-// Implement __new__ and attributes for PyFixedDelimLayout
-impl_new_delim_ascii_layout!(DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>);
+// Implement __new__ and attributes for PyFixedDelimDataSchema
+impl_new_delim_ascii_data_schema!(
+    DelimAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+);
 
-// Implement __new__ and attributes for all PyOrderedUint*Layout structs
-impl_new_ordered_layout!(1, false);
-impl_new_ordered_layout!(2, false);
-impl_new_ordered_layout!(3, false);
-impl_new_ordered_layout!(4, false);
-impl_new_ordered_layout!(5, false);
-impl_new_ordered_layout!(6, false);
-impl_new_ordered_layout!(7, false);
-impl_new_ordered_layout!(8, false);
+// TODO these can probably be combined
 
-// Implement __new__ and attributes for all PyOrderedF*Layout structs
-impl_new_ordered_layout!(4, true);
-impl_new_ordered_layout!(8, true);
+// Implement __new__ and attributes for all PyOrderedF*DataSchema structs
+impl_new_ordered_data_schema!(4, true);
+impl_new_ordered_data_schema!(8, true);
 
-// Implement __new__ and attributes for all PyEndianF*Layout structs
-impl_new_endian_float_layout!(4);
-impl_new_endian_float_layout!(8);
+// Implement __new__ and attributes for all PyEndianF*DataSchema structs
+impl_new_endian_float_data_schema!(4);
+impl_new_endian_float_data_schema!(8);
 
-// Implement __new__ and attributes for PyEndianUintLayout
-impl_new_endian_uint_layout!();
+// TODO these can probably be combined
 
-// Implement __new__ and attributes for PyMixedLayout
-impl_new_mixed_layout!();
+// Implement __new__ and attributes for PyOrderedUintDataSchema
+impl_new_ordered_uint_data_schema!();
 
-// Implement method to return the byte widths of variable-widths layouts
-impl_layout_byte_widths!(PyEndianUintLayout);
-impl_layout_byte_widths!(PyMixedLayout);
+// Implement __new__ and attributes for PySingleUintDataSchema
+impl_new_single_uint_data_schema!();
+
+// TODO update docs to reflect new range parameters
+
+// Implement __new__ and attributes for PyVariableUintDataSchema
+impl_new_endian_uint_data_schema!();
+
+// Implement __new__ and attributes for PyMixedDataSchema
+impl_new_mixed_data_schema!();
+
+// Implement method to return the byte widths of variable-widths data_schema
+impl_data_schema_byte_widths!(PyVariableUintDataSchema);
+impl_data_schema_byte_widths!(PyMixedDataSchema);
 
 #[derive(IntoPyObject, From)]
 pub enum PyAnyCoreTEXT {
@@ -747,172 +764,147 @@ impl From<PyAnyCoreDataset> for core::AnyCoreDataset {
     }
 }
 
+/// All data_schema used for 2.0/3.0 in Python.
 #[derive(FromPyObject, IntoPyObject)]
-pub enum PyOrderedLayout {
-    AsciiFixed(PyFixedAsciiLayout),
-    AsciiDelim(PyDelimAsciiLayout),
-    Uint08(PyOrderedUint08Layout),
-    Uint16(PyOrderedUint16Layout),
-    Uint24(PyOrderedUint24Layout),
-    Uint32(PyOrderedUint32Layout),
-    Uint40(PyOrderedUint40Layout),
-    Uint48(PyOrderedUint48Layout),
-    Uint56(PyOrderedUint56Layout),
-    Uint64(PyOrderedUint64Layout),
-    F32(PyOrderedF32Layout),
-    F64(PyOrderedF64Layout),
+pub enum PyOrderedDataSchema {
+    AsciiFixed(PyFixedAsciiDataSchema),
+    AsciiDelim(PyDelimAsciiDataSchema),
+    Uint(PyOrderedUintDataSchema),
+    F32(PyOrderedF32DataSchema),
+    F64(PyOrderedF64DataSchema),
 }
 
+/// All data_schema used for 3.1 in Python.
 #[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyNonMixedLayout {
+pub enum PyNonMixedDataSchema {
     #[from(
-        PyFixedAsciiLayout,
-        FixedAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
+        PyFixedAsciiDataSchema,
+        FixedAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
     )]
-    AsciiFixed(PyFixedAsciiLayout),
+    AsciiFixed(PyFixedAsciiDataSchema),
 
     #[from(
-        PyDelimAsciiLayout,
-        DelimAsciiLayout<Identity<kws::Tot>, Nothing<kws::NumType>, false>
+        PyDelimAsciiDataSchema,
+        DelimAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
     )]
-    AsciiDelim(PyDelimAsciiLayout),
+    AsciiDelim(PyDelimAsciiDataSchema),
 
-    #[from(PyEndianUintLayout, EndianLayout<AnyNullBitmask, Nothing<kws::NumType>>)]
-    Uint(PyEndianUintLayout),
+    #[from(PyVariableUintDataSchema, VariableUintDataSchema<Nothing<kws::NumType>>)]
+    VariableUint(PyVariableUintDataSchema),
 
-    #[from(PyEndianF32Layout, EndianLayout<F32Range, Nothing<kws::NumType>>)]
-    F32(PyEndianF32Layout),
+    #[from(PySingleUintDataSchema, AnySingleUintDataSchema<Nothing<kws::NumType>>)]
+    SingleUint(PySingleUintDataSchema),
 
-    #[from(PyEndianF64Layout, EndianLayout<F64Range, Nothing<kws::NumType>>)]
-    F64(PyEndianF64Layout),
+    #[from(PyBigLittleF32DataSchema, BigLittleDataSchema<F32Col, Nothing<kws::NumType>>)]
+    F32(PyBigLittleF32DataSchema),
+
+    #[from(PyBigLittleF64DataSchema, BigLittleDataSchema<F64Col, Nothing<kws::NumType>>)]
+    F64(PyBigLittleF64DataSchema),
 }
 
+/// All data_schema used for 3.2 in Python.
 #[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyLayout3_2 {
-    NonMixed(PyNonMixedLayout),
-    Mixed(PyMixedLayout),
+pub enum PyDataSchema3_2 {
+    NonMixed(PyNonMixedDataSchema),
+    Mixed(PyMixedDataSchema),
 }
 
-impl From<PyOrderedLayout> for DataLayout2_0 {
-    fn from(value: PyOrderedLayout) -> Self {
-        Self(AnyOrderedLayout::from(value).phantom_into())
+impl From<PyOrderedDataSchema> for DataSchema2_0 {
+    fn from(value: PyOrderedDataSchema) -> Self {
+        AnyOrderedDataSchema::<Identity<kws::Tot>>::from(value).phantom_into()
     }
 }
 
-impl From<PyOrderedLayout> for DataLayout3_0 {
-    fn from(value: PyOrderedLayout) -> Self {
-        Self(AnyOrderedLayout::from(value))
+impl From<DataSchema2_0> for PyOrderedDataSchema {
+    fn from(value: DataSchema2_0) -> Self {
+        value
+            .phantom_into::<ColumnMarkers<Identity<kws::Tot>, _>>()
+            .into()
     }
 }
 
-impl From<PyNonMixedLayout> for DataLayout3_1 {
-    fn from(value: PyNonMixedLayout) -> Self {
-        Self(NonMixedEndianLayout::from(value))
-    }
-}
-
-impl From<PyLayout3_2> for DataLayout3_2 {
-    fn from(value: PyLayout3_2) -> Self {
+impl From<PyOrderedDataSchema> for DataSchema3_0 {
+    fn from(value: PyOrderedDataSchema) -> Self {
         match value {
-            PyLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            PyLayout3_2::NonMixed(x) => {
-                Self::NonMixed(NonMixedEndianLayout::from(x).phantom_into())
+            PyOrderedDataSchema::AsciiFixed(x) => AnyAsciiDataSchema::from(x.0)
+                .phantom_into()
+                .byte_layout_into()
+                .into(),
+            PyOrderedDataSchema::AsciiDelim(x) => AnyAsciiDataSchema::from(x.0)
+                .phantom_into()
+                .byte_layout_into()
+                .into(),
+            PyOrderedDataSchema::Uint(x) => x.0.into(),
+            PyOrderedDataSchema::F32(x) => x.0.into(),
+            PyOrderedDataSchema::F64(x) => x.0.into(),
+        }
+    }
+}
+
+impl From<DataSchema3_0> for PyOrderedDataSchema {
+    fn from(value: AnyOrderedDataSchema<Identity<kws::Tot>>) -> Self {
+        match value {
+            AnyOrderedDataSchema::Ascii(x) => match x.phantom_into() {
+                AnyAsciiDataSchema::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
+                AnyAsciiDataSchema::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
+            },
+            AnyOrderedDataSchema::Uint(x) => Self::Uint(x.into()),
+            AnyOrderedDataSchema::F32(x) => Self::F32(x.into()),
+            AnyOrderedDataSchema::F64(x) => Self::F64(x.into()),
+        }
+    }
+}
+
+impl From<DataSchema3_1> for PyNonMixedDataSchema {
+    fn from(value: NonMixedDataSchema<Nothing<kws::NumType>>) -> Self {
+        match value {
+            NonMixedDataSchema::Ascii(x) => match x {
+                AnyAsciiDataSchema::Fixed(y) => y.into(),
+                AnyAsciiDataSchema::Delimited(y) => y.into(),
+            },
+            NonMixedDataSchema::Uint(x) => match x {
+                AnyBigLittleUintDataSchema::Single(y) => y.into(),
+                AnyBigLittleUintDataSchema::Multi(y) => y.into(),
+            },
+            NonMixedDataSchema::F32(x) => x.into(),
+            NonMixedDataSchema::F64(x) => x.into(),
+        }
+    }
+}
+
+impl From<PyNonMixedDataSchema> for DataSchema3_1 {
+    fn from(value: PyNonMixedDataSchema) -> Self {
+        match value {
+            PyNonMixedDataSchema::AsciiFixed(x) => Self::Ascii(x.0.into()),
+            PyNonMixedDataSchema::AsciiDelim(x) => Self::Ascii(x.0.into()),
+            PyNonMixedDataSchema::SingleUint(x) => {
+                Self::Uint(AnyBigLittleUintDataSchema::Single(x.into()))
+            }
+            PyNonMixedDataSchema::VariableUint(x) => {
+                Self::Uint(AnyBigLittleUintDataSchema::Multi(x.into()))
+            }
+            PyNonMixedDataSchema::F32(x) => Self::F32(x.into()),
+            PyNonMixedDataSchema::F64(x) => Self::F64(x.into()),
+        }
+    }
+}
+
+impl From<PyDataSchema3_2> for DataSchema3_2 {
+    fn from(value: PyDataSchema3_2) -> Self {
+        match value {
+            PyDataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
+            PyDataSchema3_2::NonMixed(x) => {
+                Self::NonMixed(NonMixedDataSchema::from(x).phantom_into())
             }
         }
     }
 }
 
-impl From<DataLayout2_0> for PyOrderedLayout {
-    fn from(value: DataLayout2_0) -> Self {
-        value.0.phantom_into().into()
-    }
-}
-
-impl From<DataLayout3_0> for PyOrderedLayout {
-    fn from(value: DataLayout3_0) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<DataLayout3_1> for PyNonMixedLayout {
-    fn from(value: DataLayout3_1) -> Self {
-        value.0.into()
-    }
-}
-
-impl From<DataLayout3_2> for PyLayout3_2 {
-    fn from(value: DataLayout3_2) -> Self {
+impl From<DataSchema3_2> for PyDataSchema3_2 {
+    fn from(value: DataSchema3_2) -> Self {
         match value {
-            DataLayout3_2::Mixed(x) => Self::Mixed(x.into()),
-            DataLayout3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
-        }
-    }
-}
-
-impl From<PyOrderedLayout> for AnyOrderedLayout<Identity<kws::Tot>> {
-    fn from(value: PyOrderedLayout) -> Self {
-        match value {
-            PyOrderedLayout::AsciiFixed(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
-            PyOrderedLayout::AsciiDelim(x) => AnyAsciiLayout::from(x.0).phantom_into().into(),
-            PyOrderedLayout::Uint08(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint16(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint24(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint32(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint40(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint48(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint56(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::Uint64(x) => AnyOrderedUintLayout::from(x.0).into(),
-            PyOrderedLayout::F32(x) => x.0.into(),
-            PyOrderedLayout::F64(x) => x.0.into(),
-        }
-    }
-}
-
-impl From<AnyOrderedLayout<Identity<kws::Tot>>> for PyOrderedLayout {
-    fn from(value: AnyOrderedLayout<Identity<kws::Tot>>) -> Self {
-        match value {
-            AnyOrderedLayout::Ascii(x) => match x.phantom_into() {
-                AnyAsciiLayout::Delimited(y) => Self::AsciiDelim(y.into()),
-                AnyAsciiLayout::Fixed(y) => Self::AsciiFixed(y.into()),
-            },
-            AnyOrderedLayout::Integer(x) => match x {
-                AnyOrderedUintLayout::Uint08(y) => Self::Uint08(y.into()),
-                AnyOrderedUintLayout::Uint16(y) => Self::Uint16(y.into()),
-                AnyOrderedUintLayout::Uint24(y) => Self::Uint24(y.into()),
-                AnyOrderedUintLayout::Uint32(y) => Self::Uint32(y.into()),
-                AnyOrderedUintLayout::Uint40(y) => Self::Uint40(y.into()),
-                AnyOrderedUintLayout::Uint48(y) => Self::Uint48(y.into()),
-                AnyOrderedUintLayout::Uint56(y) => Self::Uint56(y.into()),
-                AnyOrderedUintLayout::Uint64(y) => Self::Uint64(y.into()),
-            },
-            AnyOrderedLayout::F32(x) => Self::F32(x.into()),
-            AnyOrderedLayout::F64(x) => Self::F64(x.into()),
-        }
-    }
-}
-
-impl From<NonMixedEndianLayout<Nothing<kws::NumType>>> for PyNonMixedLayout {
-    fn from(value: NonMixedEndianLayout<Nothing<kws::NumType>>) -> Self {
-        match value {
-            NonMixedEndianLayout::Ascii(x) => match x {
-                AnyAsciiLayout::Fixed(y) => y.into(),
-                AnyAsciiLayout::Delimited(y) => y.into(),
-            },
-            NonMixedEndianLayout::Integer(x) => x.into(),
-            NonMixedEndianLayout::F32(x) => x.into(),
-            NonMixedEndianLayout::F64(x) => x.into(),
-        }
-    }
-}
-
-impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
-    fn from(value: PyNonMixedLayout) -> Self {
-        match value {
-            PyNonMixedLayout::AsciiFixed(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::AsciiDelim(x) => Self::Ascii(x.0.into()),
-            PyNonMixedLayout::Uint(x) => Self::Integer(x.into()),
-            PyNonMixedLayout::F32(x) => Self::F32(x.into()),
-            PyNonMixedLayout::F64(x) => Self::F64(x.into()),
+            DataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
+            DataSchema3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
         }
     }
 }
@@ -940,10 +932,13 @@ impl From<PyNonMixedLayout> for NonMixedEndianLayout<Nothing<kws::NumType>> {
 // times because polars is massive.
 
 #[derive(From, Into)]
-pub struct PyFCSDataFrame(FCSDataFrame);
+pub struct PyFCSDataFrame(PrimitiveDataFrame);
 
 #[derive(From, Into)]
-pub struct PyAnyFCSColumn(AnyFCSColumn);
+pub struct PyAnyFCSColumn(AnyPrimitiveSeries);
+
+#[derive(From, Into)]
+pub struct PyVariableUintSeries(VariableUintSeries);
 
 impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
     type Target = PyAny;
@@ -953,17 +948,17 @@ impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
         let columns = self
             .0
-            .iter_columns()
+            .iter()
             .enumerate()
             .map(|(i, c)| {
-                Series::from_arrow(PlSmallStr::from(format!("X{i}")), as_array(c))
+                pl::Series::from_arrow(pl::PlSmallStr::from(format!("X{i}")), as_array(c))
                     .unwrap()
                     .into()
             })
             .collect();
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
-        PyDataFrame(DataFrame::new(columns).unwrap()).into_pyobject(py)
+        PyDataFrame(pl::DataFrame::new(columns).unwrap()).into_pyobject(py)
     }
 }
 
@@ -973,7 +968,8 @@ impl<'py> IntoPyObject<'py> for PyAnyFCSColumn {
     type Error = PyErr;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let ser = Series::from_arrow(PlSmallStr::from("unnamed"), as_array(&self.0)).unwrap();
+        let ser =
+            pl::Series::from_arrow(pl::PlSmallStr::from("unnamed"), as_array(&self.0)).unwrap();
         PySeries(ser).into_pyobject(py)
     }
 }
@@ -1002,7 +998,7 @@ impl TryFrom<PyDataFrame> for PyFCSDataFrame {
         // ASSUME this won't fail because all columns will have the same
         // length after pulling from a valid polars dataframe
         Ok(Self(
-            FCSDataFrame::try_new(cs.into_iter().map(|c| c.0)).unwrap(),
+            PrimitiveDataFrame::try_new(cs.into_iter().map(|c| c.0)).unwrap(),
         ))
     }
 }
@@ -1011,10 +1007,10 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
     type Error = SeriesToColumnError;
 
     fn try_from(pyser: PySeries) -> Result<Self, Self::Error> {
-        fn column_to_buf<T>(ser: Series) -> Result<PyAnyFCSColumn, SeriesToColumnError>
+        fn column_to_buf<T>(ser: pl::Series) -> Result<PyAnyFCSColumn, SeriesToColumnError>
         where
-            T: NumericNative,
-            AnyFCSColumn: From<FCSColumn<T>>,
+            T: pl::NumericNative,
+            AnyPrimitiveSeries: From<PrimitiveSeries<T>>,
         {
             if ser.null_count() > 0 {
                 Err(SeriesToColumnError::HasNull(ser.name().clone()))
@@ -1030,18 +1026,20 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
                     .unwrap()
                     .values()
                     .clone();
-                Ok(PyAnyFCSColumn(AnyFCSColumn::from(FCSColumn(buf))))
+                Ok(PyAnyFCSColumn(AnyPrimitiveSeries::from(PrimitiveSeries(
+                    buf,
+                ))))
             }
         }
 
         let ser = pyser.0;
         match ser.dtype() {
-            DataType::UInt8 => column_to_buf::<u8>(ser),
-            DataType::UInt16 => column_to_buf::<u16>(ser),
-            DataType::UInt32 => column_to_buf::<u32>(ser),
-            DataType::UInt64 => column_to_buf::<u64>(ser),
-            DataType::Float32 => column_to_buf::<f32>(ser),
-            DataType::Float64 => column_to_buf::<f64>(ser),
+            pl::DataType::UInt8 => column_to_buf::<u8>(ser),
+            pl::DataType::UInt16 => column_to_buf::<u16>(ser),
+            pl::DataType::UInt32 => column_to_buf::<u32>(ser),
+            pl::DataType::UInt64 => column_to_buf::<u64>(ser),
+            pl::DataType::Float32 => column_to_buf::<f32>(ser),
+            pl::DataType::Float64 => column_to_buf::<f64>(ser),
             t => Err(SeriesToColumnError::InvalidDatatype(
                 ser.name().clone(),
                 t.clone(),
@@ -1050,9 +1048,46 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
     }
 }
 
+impl PyAnyFCSColumn {
+    fn with_range(self, range: kws::Range) -> RangeAndSeries {
+        (range, self.0)
+    }
+
+    fn with_bitmask_range(
+        self,
+        range: RangeOrVariableBitmask,
+    ) -> PyResult<RangeOrVariableUintSeries> {
+        match range {
+            ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
+            ToInsert::Specific(r) => {
+                let c = match_map_uint!(r, x, Series::from_prim(x, self.0)?);
+                Ok(ToInsert::Specific(c))
+            }
+        }
+    }
+
+    fn with_mixed_range(self, range: RangeOrMixedRange) -> PyResult<RangeOrMixedSeries> {
+        match range {
+            ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
+            ToInsert::Specific(r) => {
+                let c = match r {
+                    AnyDatatype::Ascii(x) => AnyDatatype::Ascii(Series::from_prim(x, self.0)?),
+                    AnyDatatype::Uint(x) => {
+                        let z = match_map_uint!(x, y, Series::from_prim(y, self.0)?);
+                        AnyDatatype::Uint(z)
+                    }
+                    AnyDatatype::F32(x) => AnyDatatype::F32(Series::from_prim(x, self.0)?),
+                    AnyDatatype::F64(x) => AnyDatatype::F64(Series::from_prim(x, self.0)?),
+                };
+                Ok(ToInsert::Specific(c))
+            }
+        }
+    }
+}
+
 pub enum SeriesToColumnError {
-    InvalidDatatype(PlSmallStr, DataType),
-    HasNull(PlSmallStr),
+    InvalidDatatype(pl::PlSmallStr, pl::DataType),
+    HasNull(pl::PlSmallStr),
 }
 
 impl From<SeriesToColumnError> for PyErr {
@@ -1069,14 +1104,26 @@ impl From<SeriesToColumnError> for PyErr {
     }
 }
 
-fn as_array(c: &AnyFCSColumn) -> Box<dyn Array> {
+fn as_array(c: &AnyPrimitiveSeries) -> Box<dyn Array> {
     match c.clone() {
-        AnyFCSColumn::U08(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None)),
-        AnyFCSColumn::U16(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None)),
-        AnyFCSColumn::U32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None)),
-        AnyFCSColumn::U64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None)),
-        AnyFCSColumn::F32(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None)),
-        AnyFCSColumn::F64(xs) => Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None)),
+        AnyPrimitiveSeries::U08(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt8, xs.0, None))
+        }
+        AnyPrimitiveSeries::U16(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt16, xs.0, None))
+        }
+        AnyPrimitiveSeries::U32(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt32, xs.0, None))
+        }
+        AnyPrimitiveSeries::U64(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::UInt64, xs.0, None))
+        }
+        AnyPrimitiveSeries::F32(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::Float32, xs.0, None))
+        }
+        AnyPrimitiveSeries::F64(xs) => {
+            Box::new(PrimitiveArray::new(ArrowDataType::Float64, xs.0, None))
+        }
     }
 }
 
@@ -1086,12 +1133,12 @@ impl PyFCSDataFrame {
     // reason is that we want to encode the names in the dataframe, and the only
     // way to do that is to have a function that takes names since FCSDataFrame
     // does not store then itself.
-    fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
-        fn as_polars_column(c: &AnyFCSColumn, name: &Shortname) -> Column {
+    fn as_polars_dataframe(&self, names: &[Shortname]) -> pl::DataFrame {
+        fn as_polars_column(c: &AnyPrimitiveSeries, name: &Shortname) -> pl::Column {
             // ASSUME this will not fail because the we know that any of the 6
             // allowed types will be valid columns and we don't add a NULL array
             // when making the array
-            Series::from_arrow(name.as_ref().into(), as_array(c))
+            pl::Series::from_arrow(name.as_ref().into(), as_array(c))
                 .unwrap()
                 .into()
         }
@@ -1105,12 +1152,12 @@ impl PyFCSDataFrame {
         );
         let columns = self
             .0
-            .iter_columns()
+            .iter()
             .zip(names)
             .map(|(c, n)| as_polars_column(c, n))
             .collect();
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
-        DataFrame::new(columns).unwrap()
+        pl::DataFrame::new(columns).unwrap()
     }
 }

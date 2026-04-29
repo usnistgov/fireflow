@@ -1,8 +1,16 @@
 macro_rules! match_many_to_one {
-    ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:block) => {
+    ($value:expr, $root:ident, [$($variant:ident),*], $inner:ident, $action:expr) => {
         match $value {
             $(
-                $root::$variant($inner) => {
+                $root::$variant($inner) => $action,
+            )*
+        }
+    };
+
+    ($value:expr, $root:ident, [$($variant:ident),*], mut $inner:ident, $action:block) => {
+        match $value {
+            $(
+                $root::$variant(mut $inner) => {
                     $action
                 },
             )*
@@ -26,17 +34,11 @@ macro_rules! impl_newtype_try_from {
 pub(crate) use impl_newtype_try_from;
 
 macro_rules! def_summary {
-    ($failname:ident, $msg:expr) => {
-        // make these pub no matter what since they will be in public error
-        // interfaces
-        #[derive(Default, Debug, Clone, Copy)]
-        pub struct $failname;
-
-        impl std::fmt::Display for $failname {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-                write!(f, $msg)
-            }
-        }
+    ($(#[$meta:meta])* $vis:vis $failname:ident, $msg:expr) => {
+        $(#[$meta])*
+        #[derive(Default, Debug, Clone, Copy, derive_more::Display)]
+        #[display($msg)]
+        $vis struct $failname;
     };
 }
 

@@ -1,7 +1,9 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
 use crate::config::DisallowRangeTrunc;
-use crate::data::{ConvertedRange, FromRange as _, IndexedError, IndexedRangeToAsciiError};
+use crate::data::{
+    ColumnSchemaFromRange as _, ConvertedRange, IndexedError, IndexedRangeToAsciiError,
+};
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
 use crate::text::index::MeasIndex;
@@ -10,12 +12,15 @@ use crate::validated::keys::IndexedKey as _;
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
+use thiserror::Error;
+
 use std::fmt;
 use std::num::{NonZero, NonZeroU8, NonZeroUsize};
-use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::unaligned::DstIndex;
 
 #[cfg(feature = "python")]
 use {
@@ -24,7 +29,7 @@ use {
     pyo3::prelude::*,
 };
 
-/// The type of an ASCII column in all versions
+/// The type of an ASCII column in all versions where width is fixed.
 ///
 /// This represents the value of $PnB and $PnR for one measurement.
 ///
@@ -32,7 +37,7 @@ use {
 #[derive(PartialEq, Clone, Copy, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility = "")]
-pub struct AsciiRange {
+pub struct FixedAsciiRange {
     /// The maximum value of the ASCII column
     value: AsciiRangeValue,
 
@@ -42,8 +47,17 @@ pub struct AsciiRange {
     chars: Chars,
 }
 
+/// Wrapper type for $PnR for delimited ASCII columns.
+///
+/// This is like [`FixedAsciiRange`] except it doesn't include width (ie $PnB).
+#[derive(Clone, Copy, PartialEq, Into, From)]
+#[into(u64, AsciiRangeValue)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
+pub struct DelimAsciiRange(pub AsciiRangeValue);
+
 /// Integer value for [`Range`] for an ASCII measurement
-#[derive(PartialEq, Clone, Copy, Debug, Display)]
+#[derive(PartialEq, Clone, Copy, Debug, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
 pub struct AsciiRangeValue(pub u64);
@@ -77,20 +91,55 @@ impl TryFrom<Range> for Chars {
     }
 }
 
-impl From<AsciiRangeValue> for AsciiRange {
+impl From<AsciiRangeValue> for FixedAsciiRange {
     fn from(value: AsciiRangeValue) -> Self {
         let chars = Chars::from_u64(value.0);
         Self::new(value, chars)
     }
 }
 
-impl From<&AsciiRange> for Range {
-    fn from(value: &AsciiRange) -> Self {
+impl From<DelimAsciiRange> for FixedAsciiRange {
+    fn from(value: DelimAsciiRange) -> Self {
+        value.0.into()
+    }
+}
+
+impl From<FixedAsciiRange> for DelimAsciiRange {
+    fn from(value: FixedAsciiRange) -> Self {
+        value.value.into()
+    }
+}
+
+impl From<FixedAsciiRange> for Range {
+    fn from(value: FixedAsciiRange) -> Self {
         value.value.0.into()
     }
 }
 
-impl AsciiRange {
+impl From<DelimAsciiRange> for Range {
+    fn from(value: DelimAsciiRange) -> Self {
+        value.0.0.into()
+    }
+}
+
+impl From<&FixedAsciiRange> for Range {
+    fn from(value: &FixedAsciiRange) -> Self {
+        value.value.0.into()
+    }
+}
+
+impl From<&DelimAsciiRange> for Range {
+    fn from(value: &DelimAsciiRange) -> Self {
+        value.0.0.into()
+    }
+}
+
+impl FixedAsciiRange {
+    #[must_use]
+    pub fn value(&self) -> AsciiRangeValue {
+        self.value
+    }
+
     pub(crate) fn try_new_from_chars(
         value: AsciiRangeValue,
         chars: Chars,
@@ -153,7 +202,7 @@ impl AsciiRange {
         IndexedRangeToAsciiError,
         AsciiRangeFromKeywordsError,
     > {
-        Self::from_range(range, flag)
+        Self::from_range_switch(range, flag)
             .map_switchable_errors(|e| IndexedError::new(i, e))
             .map_switchable_errors(IndexedRangeToAsciiError)
             .switchable_into_commutative()
@@ -165,9 +214,17 @@ impl AsciiRange {
         self.chars
     }
 
-    #[must_use]
-    pub fn value(&self) -> AsciiRangeValue {
-        self.value
+    pub(crate) fn as_slice_unchecked(&self, value: u64, dst: &mut [u8], dst_index: &DstIndex) {
+        let i = dst_index.0;
+        let width = usize::from(u8::from(self.chars()));
+        let str_value = value.to_string();
+        debug_assert!(i + width <= dst.len(), "new value will overflow");
+        debug_assert!(str_value.len() <= width, "ASCII value will be truncated");
+        let n_zero = width - str_value.len();
+        for d in &mut dst[i..i + n_zero] {
+            *d = b'0';
+        }
+        dst[i + n_zero..i + width].copy_from_slice(str_value.as_bytes());
     }
 }
 
@@ -234,7 +291,7 @@ impl TryFrom<u8> for OtherWidth {
     }
 }
 
-/// Error when creating [`AsciiRange`] ($PnB and $PnR for one index)
+/// Error when creating [`FixedAsciiRange`] ($PnB and $PnR for one index)
 #[derive(From, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AsciiRangeFromKeywordsError {
@@ -315,14 +372,33 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::OtherWidth;
-    use pyo3::prelude::*;
+    use super::{AsciiRangeValue, FixedAsciiRange, OtherWidth};
+
+    use pyo3::{prelude::*, types::PyInt};
+
+    use std::convert::Infallible;
 
     impl<'py> FromPyObject<'py> for OtherWidth {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x: u8 = ob.extract()?;
             let y = x.try_into()?;
             Ok(y)
+        }
+    }
+
+    impl<'py> FromPyObject<'py> for FixedAsciiRange {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            Ok(ob.extract::<AsciiRangeValue>()?.into())
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for FixedAsciiRange {
+        type Target = PyInt;
+        type Output = Bound<'py, PyInt>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.value().into_pyobject(py)
         }
     }
 }

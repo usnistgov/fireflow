@@ -7,65 +7,7 @@ from polars import Series, DataFrame
 import numpy as np
 import numpy.typing as npt
 
-from pyreflow.typing import (
-    MeasIndex,
-    Range,
-    ByteOrd,
-    Endian,
-    IntRange,
-    FloatRange,
-    Timestep,
-    Display,
-    Scale,
-    ScaleTransform,
-    Mode,
-    Mode3_2,
-    Trigger,
-    Shortname,
-    StdKeywords,
-    NonStdKeywords,
-    AnalysisBytes,
-    OtherBytes,
-    Datatype,
-    MixedType,
-    Originality,
-    Feature,
-    Calibration3_1,
-    Calibration3_2,
-    AppliedGates2_0,
-    AppliedGates3_0,
-    AppliedGates3_2,
-    Unicode,
-    CsvFlags,
-    Compensation,
-    Spillover,
-    UnstainedCenters,
-    FCSVersion,
-    TemporalOpticalKey,
-    Segment,
-    OffsetCorrection,
-    KeyPatterns,
-    AnyCoreTEXT,
-    AnyCoreDataset,
-    SubPatterns,
-    ReqOrOpt,
-    RootOrMeas,
-    TruncateEventValues,
-    DelimEscapeMode,
-    VersionOverride,
-    ProcessKeywordFailure,
-    TriFlag,
-    ForceLinearScale,
-    MeasScaleDiagnostic,
-    GateScaleDiagnostic,
-    TrimValueWhitespace,
-    SpilloverMeasurementMode,
-    ProcessTimeOpticalKeys,
-    KeywordVersionScores,
-    GuessOtherWidth,
-    OtherSegments,
-    AllowHeaderTextOffsetMismatch,
-)
+import pyreflow.typing as pft
 
 _X = TypeVar("_X")
 _Y = TypeVar("_Y")
@@ -75,167 +17,154 @@ _L = TypeVar("_L")
 
 _OpticalKeyVals = list[_X | tuple[()] | None]
 
-class _LayoutUnmixedCommon:
+class _DataSchemaUnmixedCommon:
     @property
-    def datatype(self) -> Datatype: ...
+    def datatype(self) -> pft.Datatype: ...
+    @property
+    def byte_width(self) -> int: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
 
-class _LayoutEndianCommon:
+class _DataSchemaEndianCommon:
     @property
-    def endian(self) -> Endian: ...
+    def endian(self) -> pft.Endian: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
 
-class _LayoutAsciiCommon(_LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[IntRange]) -> Self: ...
+class _DataSchemaAsciiCommon(_DataSchemaUnmixedCommon):
+    def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
 
-class _LayoutOrderedUintCommon(_LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[IntRange], byteord: ByteOrd = "little") -> Self: ...
+class _DataSchemaOrderedUintCommon(_DataSchemaUnmixedCommon):
+    def __new__(
+        cls, ranges: list[pft.IntRange], byteord: pft.ByteOrd = "little"
+    ) -> Self: ...
     @property
-    def ranges(self) -> list[IntRange]: ...
+    def ranges(self) -> list[pft.IntRange]: ...
     @property
-    def byteord(self) -> ByteOrd: ...
-    @property
-    def byte_width(self) -> int: ...
+    def byteord(self) -> pft.ByteOrd: ...
 
-class _LayoutOrderedFloatCommon(_LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[FloatRange], byteord: ByteOrd = "little") -> Self: ...
+class _DataSchemaOrderedFloatCommon(_DataSchemaUnmixedCommon):
+    def __new__(
+        cls, ranges: list[pft.FloatRange], byteord: pft.ByteOrd = "little"
+    ) -> Self: ...
     @property
-    def ranges(self) -> list[FloatRange]: ...
+    def ranges(self) -> list[pft.FloatRange]: ...
     @property
-    def byteord(self) -> ByteOrd: ...
-    @property
-    def byte_width(self) -> int: ...
+    def byteord(self) -> pft.ByteOrd: ...
 
-class _LayoutEndianFloatCommon(_LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[FloatRange], endian: Endian = "little") -> Self: ...
+class _DataSchemaEndianFloatCommon(_DataSchemaUnmixedCommon):
+    def __new__(
+        cls, ranges: list[pft.FloatRange], endian: pft.Endian = "little"
+    ) -> Self: ...
     @property
-    def ranges(self) -> list[FloatRange]: ...
+    def ranges(self) -> list[pft.FloatRange]: ...
     @property
-    def endian(self) -> Endian: ...
-    @property
-    def byte_width(self) -> int: ...
+    def endian(self) -> pft.Endian: ...
 
 @final
-class FixedAsciiLayout(
-    _LayoutAsciiCommon,
-    _LayoutUnmixedCommon,
+class FixedAsciiDataSchema(
+    _DataSchemaAsciiCommon,
+    _DataSchemaUnmixedCommon,
 ):
-    def __new__(cls, ranges: list[IntRange]) -> Self: ...
+    def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
     @property
-    def ranges(self) -> list[FloatRange]: ...
+    def ranges(self) -> list[pft.FloatRange]: ...
     @property
     def char_widths(self) -> list[int | float]: ...
 
 @final
-class DelimAsciiLayout(_LayoutAsciiCommon, _LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[IntRange]) -> Self: ...
+class DelimAsciiDataSchema(_DataSchemaAsciiCommon, _DataSchemaUnmixedCommon):
+    def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
     @property
-    def ranges(self) -> list[IntRange]: ...
+    def ranges(self) -> list[pft.IntRange]: ...
 
 @final
-class OrderedUint08Layout(_LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[IntRange]) -> Self: ...
-    @property
-    def ranges(self) -> list[FloatRange]: ...
-    @property
-    def byte_width(self) -> int: ...
-
-@final
-class OrderedUint16Layout(_LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[IntRange], endian: Endian = "little") -> Self: ...
-    @property
-    def ranges(self) -> list[FloatRange]: ...
-    @property
-    def endian(self) -> Endian: ...
-    @property
-    def byte_width(self) -> int: ...
-
-@final
-class OrderedUint24Layout(_LayoutOrderedUintCommon): ...
-
-@final
-class OrderedUint32Layout(_LayoutOrderedUintCommon): ...
-
-@final
-class OrderedUint40Layout(_LayoutOrderedUintCommon): ...
-
-@final
-class OrderedUint48Layout(_LayoutOrderedUintCommon): ...
-
-@final
-class OrderedUint56Layout(_LayoutOrderedUintCommon): ...
-
-@final
-class OrderedUint64Layout(_LayoutOrderedUintCommon): ...
-
-@final
-class OrderedF32Layout(_LayoutOrderedFloatCommon): ...
-
-@final
-class OrderedF64Layout(_LayoutOrderedFloatCommon): ...
-
-@final
-class EndianF32Layout(_LayoutEndianCommon, _LayoutEndianFloatCommon): ...
-
-@final
-class EndianF64Layout(_LayoutEndianCommon, _LayoutEndianFloatCommon): ...
-
-@final
-class EndianUintLayout(_LayoutEndianCommon, _LayoutUnmixedCommon):
-    def __new__(cls, ranges: list[IntRange], endian: Endian = "little") -> Self: ...
-    @property
-    def ranges(self) -> list[IntRange]: ...
-    @property
-    def endian(self) -> Endian: ...
-    @property
-    def byte_widths(self) -> list[int]: ...
-
-@final
-class MixedLayout(_LayoutEndianCommon):
+class OrderedUintDataSchema(_DataSchemaUnmixedCommon):
     def __new__(
-        cls, typed_ranges: list[MixedType], endian: Endian = "little"
+        cls,
+        ranges: list[pft.IntRange],
+        byte_width: int = 4,
+        byteord: pft.ByteOrd = "little",
     ) -> Self: ...
     @property
-    def typed_ranges(self) -> list[MixedType]: ...
+    def ranges(self) -> list[pft.FloatRange]: ...
     @property
-    def endian(self) -> Endian: ...
+    def byteord(self) -> pft.ByteOrd: ...
+
+@final
+class OrderedF32DataSchema(_DataSchemaOrderedFloatCommon): ...
+
+@final
+class OrderedF64DataSchema(_DataSchemaOrderedFloatCommon): ...
+
+@final
+class BigLittleF32DataSchema(_DataSchemaEndianCommon, _DataSchemaEndianFloatCommon): ...
+
+@final
+class BigLittleF64DataSchema(_DataSchemaEndianCommon, _DataSchemaEndianFloatCommon): ...
+
+@final
+class SingleUintDataSchema(_DataSchemaEndianCommon, _DataSchemaUnmixedCommon):
+    def __new__(
+        cls,
+        ranges: list[pft.IntRange],
+        byte_width: int = 4,
+        endian: pft.Endian = "little",
+    ) -> Self: ...
+    @property
+    def ranges(self) -> list[pft.IntRange]: ...
+
+@final
+class VariableUintDataSchema(_DataSchemaEndianCommon, _DataSchemaUnmixedCommon):
+    def __new__(
+        cls, ranges: list[pft.VariableBitmask], endian: pft.Endian = "little"
+    ) -> Self: ...
+    @property
+    def ranges(self) -> list[pft.VariableBitmask]: ...
+    @property
+    def endian(self) -> pft.Endian: ...
     @property
     def byte_widths(self) -> list[int]: ...
 
-_AnyOrderedLayout = Union[
-    FixedAsciiLayout
-    | DelimAsciiLayout
-    | OrderedUint08Layout
-    | OrderedUint16Layout
-    | OrderedUint24Layout
-    | OrderedUint32Layout
-    | OrderedUint40Layout
-    | OrderedUint48Layout
-    | OrderedUint56Layout
-    | OrderedUint64Layout
-    | OrderedF32Layout
-    | OrderedF64Layout
+@final
+class MixedDataSchema(_DataSchemaEndianCommon):
+    def __new__(
+        cls, typed_ranges: list[pft.MixedRange], endian: pft.Endian = "little"
+    ) -> Self: ...
+    @property
+    def typed_ranges(self) -> list[pft.MixedRange]: ...
+    @property
+    def endian(self) -> pft.Endian: ...
+    @property
+    def byte_widths(self) -> list[int]: ...
+
+_AnyOrderedDataSchema = Union[
+    FixedAsciiDataSchema
+    | DelimAsciiDataSchema
+    | OrderedUintDataSchema
+    | OrderedF32DataSchema
+    | OrderedF64DataSchema
 ]
 
-_AnyNonMixedLayout = Union[
-    FixedAsciiLayout
-    | DelimAsciiLayout
-    | EndianF32Layout
-    | EndianF64Layout
-    | EndianUintLayout
+_AnyNonMixedDataSchema = Union[
+    FixedAsciiDataSchema
+    | DelimAsciiDataSchema
+    | BigLittleF32DataSchema
+    | BigLittleF64DataSchema
+    | SingleUintDataSchema
+    | VariableUintDataSchema
 ]
 
-_AnyMixedLayout = Union[
-    FixedAsciiLayout
-    | DelimAsciiLayout
-    | EndianF32Layout
-    | EndianF64Layout
-    | EndianUintLayout
-    | MixedLayout
+_AnyMixedDataSchema = Union[
+    FixedAsciiDataSchema
+    | DelimAsciiDataSchema
+    | BigLittleF32DataSchema
+    | BigLittleF64DataSchema
+    | SingleUintDataSchema
+    | VariableUintDataSchema
+    | MixedDataSchema
 ]
 
 class _MeasCommon:
-    nonstandard_keywords: NonStdKeywords
+    nonstandard_keywords: pft.NonStdKeywords
     longname: str
 
     def __deepcopy__(self, memo: Any) -> Self: ...
@@ -247,7 +176,7 @@ class _OpticalWavelengths:
     wavelengths: list[float]
 
 class _MeasDisplay:
-    display: Display
+    display: pft.Display
 
 class _PeakCommon:
     size: int
@@ -261,18 +190,18 @@ class _OpticalCommon:
     percent_emitted: float | None
 
 class _OpticalScaleTransform:
-    transform: ScaleTransform
+    transform: pft.ScaleTransform
 
 class _TemporalTimestep:
-    timestep: Timestep
+    timestep: pft.Timestep
 
 @final
 class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
-    scale: Scale | None
+    scale: pft.Scale | None
 
     def __new__(
         cls,
-        scale: Scale | None = None,
+        scale: pft.Scale | None = None,
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
@@ -282,7 +211,7 @@ class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -291,7 +220,7 @@ class Optical3_0(
 ):
     def __new__(
         cls,
-        transform: ScaleTransform,
+        transform: pft.ScaleTransform,
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
@@ -301,7 +230,7 @@ class Optical3_0(
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -313,14 +242,14 @@ class Optical3_1(
     _MeasDisplay,
     _PeakCommon,
 ):
-    calibration: Calibration3_1 | None
+    calibration: pft.Calibration3_1 | None
 
     def __new__(
         cls,
-        transform: ScaleTransform,
+        transform: pft.ScaleTransform,
         wavelengths: list[float] = [],
-        calibration: Calibration3_1 | None = None,
-        display: Display | None = None,
+        calibration: pft.Calibration3_1 | None = None,
+        display: pft.Display | None = None,
         bin: int | None = None,
         size: int | None = None,
         filter: str = "",
@@ -329,7 +258,7 @@ class Optical3_1(
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -340,20 +269,20 @@ class Optical3_2(
     _OpticalWavelengths,
     _MeasDisplay,
 ):
-    calibration: Calibration3_2 | None
+    calibration: pft.Calibration3_2 | None
     detector_name: str | None
     tag: str | None
     measurement_type: str
     feature: str | None
-    awh_feature: Feature | None
+    awh_feature: pft.Feature | None
     analyte: str | None
 
     def __new__(
         cls,
-        transform: ScaleTransform,
+        transform: pft.ScaleTransform,
         wavelengths: list[float] = [],
-        calibration: Calibration3_2 | None = None,
-        display: Display | None = None,
+        calibration: pft.Calibration3_2 | None = None,
+        display: pft.Display | None = None,
         analyte: str = "",
         feature: str | None = None,
         tag: str = "",
@@ -365,7 +294,7 @@ class Optical3_2(
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -376,7 +305,7 @@ class Temporal2_0(_MeasCommon, _PeakCommon):
         bin: int | None = None,
         size: int | None = None,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
     has_scale: bool
@@ -389,7 +318,7 @@ class Temporal3_0(_MeasCommon, _TemporalTimestep, _PeakCommon):
         bin: int | None = None,
         size: int | None = None,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -397,11 +326,11 @@ class Temporal3_1(_MeasCommon, _MeasDisplay, _TemporalTimestep, _PeakCommon):
     def __new__(
         cls,
         timestep: float,
-        display: Display | None = None,
+        display: pft.Display | None = None,
         bin: int | None = None,
         size: int | None = None,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -411,16 +340,16 @@ class Temporal3_2(_MeasCommon, _MeasDisplay, _TemporalTimestep):
     def __new__(
         cls,
         timestep: float,
-        display: Display | None = None,
+        display: pft.Display | None = None,
         has_type: bool = False,
         longname: str = "",
-        nonstandard_keywords: NonStdKeywords = {},
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 _T = TypeVar("_T", bound=Temporal2_0 | Temporal3_0 | Temporal3_1 | Temporal3_2)
 _O = TypeVar("_O", bound=Optical2_0 | Optical3_0 | Optical3_1 | Optical3_2)
 
-_FlatInput = list[tuple[_N, _O] | tuple[Shortname, _T]]
+_FlatInput = list[tuple[_N, _O] | tuple[pft.Shortname, _T]]
 
 @final
 class GatedMeasurement:
@@ -509,9 +438,9 @@ class _CoreCommon:
     btim: time | None
     etim: time | None
     date: date | None
-    tr: Trigger | None
+    tr: pft.Trigger | None
 
-    all_shortnames: list[Shortname]
+    all_shortnames: list[pft.Shortname]
     all_longnames: list[str | None]
 
     all_filters: _OpticalKeyVals[str]
@@ -519,13 +448,13 @@ class _CoreCommon:
     all_percents_emitted: _OpticalKeyVals[int]
     all_detector_types: _OpticalKeyVals[str]
     all_detector_voltages: _OpticalKeyVals[float]
-    all_meas_nonstandard_keywords: list[NonStdKeywords]
+    all_meas_nonstandard_keywords: list[pft.NonStdKeywords]
 
-    nonstandard_keywords: NonStdKeywords
+    nonstandard_keywords: pft.NonStdKeywords
     def standard_keywords(
         self,
-        req_or_opt: ReqOrOpt,
-        root_or_meas: RootOrMeas,
+        req_or_opt: pft.ReqOrOpt,
+        root_or_meas: pft.RootOrMeas,
     ) -> dict[str, str]: ...
     @property
     def par(self) -> int: ...
@@ -547,7 +476,7 @@ class _CoreCommon:
         big_other: bool = False,
     ) -> None: ...
     @property
-    def version(self) -> FCSVersion: ...
+    def version(self) -> pft.FCSVersion: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
 
 class _CoreDatasetCommon:
@@ -556,159 +485,166 @@ class _CoreDatasetCommon:
         path: Path,
         delim: int = 30,
         big_other: bool = False,
-        skip_conversion_check: bool = False,
+        check_event_ranges: pft.CheckEventRanges = "int_only",
+        disallow_over_range: pft.TriFlag = "false",
+        row_buffer_size: int = 28000,
         appendable: bool = False,
         append: bool = False,
     ) -> None: ...
 
 class _CoreShortnamesMaybe:
-    all_shortnames_maybe: list[Shortname | None]
+    all_shortnames_maybe: list[pft.Shortname | None]
 
 class _CoreTemporal2_0:
-    def set_temporal(self, name: Shortname, allow_loss: TriFlag = "false") -> bool: ...
+    def set_temporal(
+        self, name: pft.Shortname, allow_loss: pft.TriFlag = "false"
+    ) -> bool: ...
     def set_temporal_at(
-        self, index: MeasIndex, allow_loss: TriFlag = "false"
+        self, index: pft.MeasIndex, allow_loss: pft.TriFlag = "false"
     ) -> bool: ...
     def unset_temporal(self) -> bool: ...
 
 class _CoreTemporal3_0:
     def set_temporal(
         self,
-        name: Shortname,
-        timestep: Timestep,
-        allow_loss: TriFlag = "false",
+        name: pft.Shortname,
+        timestep: pft.Timestep,
+        allow_loss: pft.TriFlag = "false",
     ) -> bool: ...
     def set_temporal_at(
         self,
-        index: MeasIndex,
-        timestep: Timestep,
-        allow_loss: TriFlag = "false",
+        index: pft.MeasIndex,
+        timestep: pft.Timestep,
+        allow_loss: pft.TriFlag = "false",
     ) -> bool: ...
     def unset_temporal(self) -> float | None: ...
 
 class _CoreTemporal3_2:
     def set_temporal(
         self,
-        name: Shortname,
-        timestep: Timestep,
-        allow_loss: TriFlag = "false",
+        name: pft.Shortname,
+        timestep: pft.Timestep,
+        allow_loss: pft.TriFlag = "false",
     ) -> bool: ...
     def set_temporal_at(
-        self, index: MeasIndex, timestep: Timestep, allow_loss: TriFlag = "false"
+        self,
+        index: pft.MeasIndex,
+        timestep: pft.Timestep,
+        allow_loss: pft.TriFlag = "false",
     ) -> bool: ...
-    def unset_temporal(self, allow_loss: TriFlag = "false") -> float | None: ...
+    def unset_temporal(self, allow_loss: pft.TriFlag = "false") -> float | None: ...
 
 class _CoreGetSetMeas(Generic[_N, _O, _T]):
     @property
-    def temporal(self) -> tuple[MeasIndex, Shortname, _T] | None: ...
+    def temporal(self) -> tuple[pft.MeasIndex, pft.Shortname, _T] | None: ...
     @property
     def measurements(self) -> list[_O | _T]: ...
-    def measurement_at(self, index: MeasIndex) -> _O | _T: ...
-    def measurement_named(self, name: Shortname) -> _O | _T: ...
-    def replace_optical_at(self, index: MeasIndex, meas: _O) -> _O | _T: ...
-    def replace_optical_named(self, name: Shortname, meas: _O) -> _O | _T | None: ...
-    def rename_temporal(self, name: Shortname) -> Shortname | None: ...
+    def measurement_at(self, index: pft.MeasIndex) -> _O | _T: ...
+    def measurement_named(self, name: pft.Shortname) -> _O | _T: ...
+    def replace_optical_at(self, index: pft.MeasIndex, meas: _O) -> _O | _T: ...
+    def replace_optical_named(
+        self, name: pft.Shortname, meas: _O
+    ) -> _O | _T | None: ...
+    def rename_temporal(self, name: pft.Shortname) -> pft.Shortname | None: ...
 
 class _CoreTEXTRemove(Generic[_N, _O, _T]):
     def remove_measurement_by_name(
-        self, name: Shortname
-    ) -> tuple[MeasIndex, _O | _T, Range]: ...
+        self, name: pft.Shortname
+    ) -> tuple[pft.MeasIndex, _O | _T, pft.Range]: ...
     def remove_measurement_by_index(
-        self, index: MeasIndex
-    ) -> tuple[_N, _O | _T, Range]: ...
+        self, index: pft.MeasIndex
+    ) -> tuple[_N, _O | _T, pft.Range]: ...
 
 class _CoreDatasetRemove(Generic[_N, _O, _T]):
     def remove_measurement_by_name(
-        self, name: Shortname
-    ) -> tuple[MeasIndex, _O | _T, Series, Range]: ...
+        self, name: pft.Shortname
+    ) -> tuple[pft.MeasIndex, _O | _T, Series, pft.Range]: ...
     def remove_measurement_by_index(
-        self, index: MeasIndex
-    ) -> tuple[_N, _O | _T, Series, Range]: ...
+        self, index: pft.MeasIndex
+    ) -> tuple[_N, _O | _T, Series, pft.Range]: ...
 
 class _CoreReplaceTemporal2_0(Generic[_N, _O, _T]):
-    def replace_temporal_at(self, index: MeasIndex, meas: _T) -> _O | _T: ...
-    def replace_temporal_named(self, name: Shortname, meas: _T) -> _O | _T | None: ...
+    def replace_temporal_at(self, index: pft.MeasIndex, meas: _T) -> _O | _T: ...
+    def replace_temporal_named(
+        self, name: pft.Shortname, meas: _T
+    ) -> _O | _T | None: ...
 
 class _CoreReplaceTemporal3_2:
     def replace_temporal_at(
         self,
-        index: MeasIndex,
+        index: pft.MeasIndex,
         meas: Temporal3_2,
-        allow_loss: TriFlag = "false",
+        allow_loss: pft.TriFlag = "false",
     ) -> Optical3_2 | Temporal3_2: ...
     def replace_temporal_named(
         self,
-        name: Shortname,
+        name: pft.Shortname,
         meas: Temporal3_2,
-        allow_loss: TriFlag = "false",
+        allow_loss: pft.TriFlag = "false",
     ) -> Optical3_2 | Temporal3_2 | None: ...
 
 class _CoreTEXTGetSetMeas(Generic[_N, _T, _O]):
     def push_optical(
-        self, name: _N, meas: _O, range: Range, disallow_trunc: TriFlag = "false"
+        self,
+        name: _N,
+        meas: _O,
+        range: pft.Range,
     ) -> None: ...
     def insert_optical(
         self,
-        index: MeasIndex,
+        index: pft.MeasIndex,
         name: _N,
         meas: _O,
-        range: Range,
-        disallow_trunc: TriFlag = "false",
+        range: pft.Range,
     ) -> None: ...
     def push_temporal(
         self,
-        name: Shortname,
+        name: pft.Shortname,
         meas: _T,
-        range: Range,
-        disallow_trunc: TriFlag = "false",
+        range: pft.Range,
     ) -> None: ...
     def insert_temporal(
         self,
-        index: MeasIndex,
-        name: Shortname,
+        index: pft.MeasIndex,
+        name: pft.Shortname,
         meas: _T,
-        range: Range,
-        disallow_trunc: TriFlag = "false",
+        range: pft.Range,
     ) -> None: ...
     def unset_measurements(self) -> None: ...
 
 class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
-    analysis: AnalysisBytes
-    others: list[OtherBytes]
+    analysis: pft.AnalysisBytes
+    others: list[pft.OtherBytes]
 
     def push_optical(
         self,
         name: _N,
         meas: _O,
+        range: pft.Range,
         col: Series,
-        range: Range,
-        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def insert_optical(
         self,
-        index: MeasIndex,
+        index: pft.MeasIndex,
         name: _N,
         meas: _O,
+        range: pft.Range,
         col: Series,
-        range: Range,
-        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def push_temporal(
         self,
-        name: Shortname,
+        name: pft.Shortname,
         meas: _T,
+        range: pft.Range,
         col: Series,
-        range: Range,
-        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def insert_temporal(
         self,
-        index: MeasIndex,
-        name: Shortname,
+        index: pft.MeasIndex,
+        name: pft.Shortname,
         meas: _T,
+        range: pft.Range,
         col: Series,
-        range: Range,
-        disallow_trunc: TriFlag = "false",
     ) -> None: ...
     def unset_data(self) -> None: ...
     def truncate_data(self, skip_conv_check: bool = False) -> None: ...
@@ -720,94 +656,94 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     ) -> None: ...
 
 class _CoreGetSetMeasOrdered(Generic[_O, _T]):
-    layout: _AnyOrderedLayout
+    data_schema: _AnyOrderedDataSchema
 
     def set_named_measurements(
         self,
-        measurements: _FlatInput[Shortname | None, _O, _T],
+        measurements: _FlatInput[pft.Shortname | None, _O, _T],
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_named_measurements_and_layout(
+    def set_named_measurements_and_data_schema(
         self,
-        measurements: _FlatInput[Shortname | None, _O, _T],
-        layout: _AnyOrderedLayout,
+        measurements: _FlatInput[pft.Shortname | None, _O, _T],
+        data_schema: _AnyOrderedDataSchema,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_and_layout(
+    def set_measurements_and_data_schema(
         self,
         measurements: list[_O | _T],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
     ) -> None: ...
 
 class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
-    layout: _L
+    data_schema: _L
 
     def set_named_measurements(
         self,
-        measurements: _FlatInput[Shortname, _O, _T],
+        measurements: _FlatInput[pft.Shortname, _O, _T],
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_named_measurements_and_layout(
+    def set_named_measurements_and_data_schema(
         self,
-        measurements: _FlatInput[Shortname, _O, _T],
-        layout: _L,
+        measurements: _FlatInput[pft.Shortname, _O, _T],
+        data_schema: _L,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_and_layout(
+    def set_measurements_and_data_schema(
         self,
         measurements: list[_O | _T],
-        layout: _L,
+        data_schema: _L,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
     def set_named_measurements_and_data(
         self,
-        measurements: _FlatInput[Shortname | None, _O, _T],
+        measurements: _FlatInput[pft.Shortname | None, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_layout_and_data(
+    def set_measurements_data_schema_and_data(
         self,
         measurements: list[_O | _T],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
         data: DataFrame,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasEndian(Generic[_O, _T, _L]):
     def set_named_measurements_and_data(
         self,
-        measurements: _FlatInput[Shortname, _O, _T],
+        measurements: _FlatInput[pft.Shortname, _O, _T],
         data: DataFrame,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_layout_and_data(
+    def set_measurements_data_schema_and_data(
         self,
         measurements: list[_O | _T],
-        layout: _L,
+        data_schema: _L,
         data: DataFrame,
     ) -> None: ...
 
 class _CoreSetShortnamesMaybe:
     def set_measurement_shortnames_maybe(
-        self, names: list[Shortname | None]
+        self, names: list[pft.Shortname | None]
     ) -> None: ...
 
 class _CoreScaleMethods:
-    all_scales: list[Scale | None]
+    all_scales: list[pft.Scale | None]
 
 class _CoreScaleTransformMethods:
-    all_scale_transforms: list[ScaleTransform]
+    all_scale_transforms: list[pft.ScaleTransform]
 
 class _CoreTimestepMethods:
     @property
-    def timestep(self) -> Timestep | None: ...
-    def set_timestep(self, timestep: Timestep) -> Timestep | None: ...
+    def timestep(self) -> pft.Timestep | None: ...
+    def set_timestep(self, timestep: pft.Timestep) -> pft.Timestep | None: ...
 
 class _CoreGates(Generic[_X]):
     applied_gates: _X
@@ -818,10 +754,10 @@ class _CoreSubset:
     @property
     def csvbits(self) -> int: ...
     @property
-    def csvflags(self) -> CsvFlags: ...
+    def csvflags(self) -> pft.CsvFlags: ...
 
 class _CoreModified:
-    originality: Originality | None
+    originality: pft.Originality | None
     last_modified: datetime | None
     last_modifier: str | None
 
@@ -834,10 +770,10 @@ class _CoreCompensation:
     compensation: npt.NDArray[np.float32] | None
 
 class _CoreSpillover:
-    spillover: Spillover | None
+    spillover: pft.Spillover | None
 
 class _CoreUnicode:
-    unicode: Unicode | None
+    unicode: pft.Unicode | None
 
 class _CoreVol:
     vol: float | None
@@ -856,21 +792,21 @@ class _CoreMeasWavelengths:
     all_wavelengths: _OpticalKeyVals[list[float]]
 
 class _CoreMeasDisplay:
-    all_displays: list[Display | None]
+    all_displays: list[pft.Display | None]
 
 class _CorePre3_1:
     comp: npt.NDArray[np.float32] | None
 
 class _CorePre3_2:
-    mode: Mode
+    mode: pft.Mode
     cyt: str | None
 
 class _Core3_2:
-    mode: Mode3_2 | None
+    mode: pft.Mode3_2 | None
     flowrate: str | None
     cyt: str
     unstainedinfo: str | None
-    unstainedcenters: dict[Shortname, float]
+    unstainedcenters: dict[pft.Shortname, float]
     carriertype: str | None
     carrierid: str | None
     locationid: str | None
@@ -880,7 +816,7 @@ class _Core3_2:
     all_detector_names: _OpticalKeyVals[str]
     all_tags: _OpticalKeyVals[str]
     all_features: _OpticalKeyVals[str]
-    all_awh_features: _OpticalKeyVals[Feature]
+    all_awh_features: _OpticalKeyVals[pft.Feature]
     all_other_features: _OpticalKeyVals[str]
     all_analytes: _OpticalKeyVals[str]
     all_measurement_types: list[str | bool]
@@ -892,21 +828,21 @@ class _CoreToDataset(Generic[_X]):
     def to_dataset(
         self,
         data: DataFrame,
-        analysis: AnalysisBytes = b"",
-        others: list[OtherBytes] = [],
+        analysis: pft.AnalysisBytes = b"",
+        others: list[pft.OtherBytes] = [],
     ) -> _X: ...
 
 class _CoreTo2_0(Generic[_X]):
-    def to_version_2_0(self, allow_loss: TriFlag = "false") -> _X: ...
+    def to_version_2_0(self, allow_loss: pft.TriFlag = "false") -> _X: ...
 
 class _CoreTo3_0(Generic[_X]):
-    def to_version_3_0(self, allow_loss: TriFlag = "false") -> _X: ...
+    def to_version_3_0(self, allow_loss: pft.TriFlag = "false") -> _X: ...
 
 class _CoreTo3_1(Generic[_X]):
-    def to_version_3_1(self, allow_loss: TriFlag = "false") -> _X: ...
+    def to_version_3_1(self, allow_loss: pft.TriFlag = "false") -> _X: ...
 
 class _CoreTo3_2(Generic[_X]):
-    def to_version_3_2(self, allow_loss: TriFlag = "false") -> _X: ...
+    def to_version_3_2(self, allow_loss: pft.TriFlag = "false") -> _X: ...
 
 @final
 class CoreTEXT2_0(
@@ -915,10 +851,10 @@ class CoreTEXT2_0(
     _CorePre3_2,
     _CoreTemporal2_0,
     _CoreShortnamesMaybe,
-    _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTRemove[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
+    _CoreGetSetMeas[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreTEXTRemove[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreTEXTGetSetMeas[pft.Shortname | None, Temporal2_0, Optical2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreSetShortnamesMaybe,
     _CoreScaleMethods,
@@ -926,16 +862,16 @@ class CoreTEXT2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
-    _CoreGates[AppliedGates2_0],
+    _CoreGates[pft.AppliedGates2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname | None, Optical2_0 | Temporal2_0]],
-        layout: _AnyOrderedLayout,
-        mode: Mode = "L",
+        measurements: list[tuple[pft.Shortname | None, Optical2_0 | Temporal2_0]],
+        data_schema: _AnyOrderedDataSchema,
+        mode: pft.Mode = "L",
         cyt: str = "",
         comp: npt.NDArray[np.float32] | None = None,
         btim: time | None = None,
@@ -953,37 +889,37 @@ class CoreTEXT2_0(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates2_0 = ([], {}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates2_0 = ([], {}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
-        process_optional_failure: ProcessKeywordFailure = "error",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: TriFlag = "false",
+        disallow_range_truncation: pft.TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -995,10 +931,10 @@ class CoreTEXT3_0(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreShortnamesMaybe,
-    _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
-    _CoreTEXTRemove[Shortname | None, Optical3_0, Temporal3_0],
-    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
+    _CoreGetSetMeas[pft.Shortname | None, Optical3_0, Temporal3_0],
+    _CoreTEXTRemove[pft.Shortname | None, Optical3_0, Temporal3_0],
+    _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreTEXTGetSetMeas[pft.Shortname | None, Temporal3_0, Optical3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreSetShortnamesMaybe,
     _CoreScaleTransformMethods,
@@ -1010,26 +946,26 @@ class CoreTEXT3_0(
     _CoreMeasWavelength,
     _CorePeak,
     _CoreSubset,
-    _CoreGates[AppliedGates3_0],
+    _CoreGates[pft.AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_1[CoreTEXT3_1],
     _CoreTo3_2[CoreTEXT3_2],
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname | None, Optical3_0 | Temporal3_0]],
-        layout: _AnyOrderedLayout,
-        mode: Mode = "L",
+        measurements: list[tuple[pft.Shortname | None, Optical3_0 | Temporal3_0]],
+        data_schema: _AnyOrderedDataSchema,
+        mode: pft.Mode = "L",
         cyt: str = "",
-        comp: Compensation | None = None,
+        comp: pft.Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         cytsn: str = "",
-        unicode: Unicode | None = None,
+        unicode: pft.Unicode | None = None,
         csvbits: int = 0,
         cstot: int = 0,
-        csvflags: CsvFlags = [],
+        csvflags: pft.CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",
@@ -1042,44 +978,44 @@ class CoreTEXT3_0(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates3_0 = ([], {}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
-        text_data_correction: OffsetCorrection = (0, 0),
-        text_analysis_correction: OffsetCorrection = (0, 0),
+        text_data_correction: pft.OffsetCorrection = (0, 0),
+        text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-        allow_missing_required_offsets: TriFlag = "false",
-        process_optional_failure: ProcessKeywordFailure = "error",
+        allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+        allow_missing_required_offsets: pft.TriFlag = "false",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: TriFlag = "false",
+        disallow_range_truncation: pft.TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1089,11 +1025,11 @@ class CoreTEXT3_1(
     _CoreCommon,
     _CorePre3_2,
     _CoreTemporal3_0,
-    _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
-    _CoreTEXTRemove[Shortname | None, Optical3_1, Temporal3_1],
-    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTGetSetMeas[Shortname, Temporal3_1, Optical3_1],
-    _CoreGetSetMeasEndian[_AnyNonMixedLayout, Optical3_1, Temporal3_1],
+    _CoreGetSetMeas[pft.Shortname, Optical3_1, Temporal3_1],
+    _CoreTEXTRemove[pft.Shortname | None, Optical3_1, Temporal3_1],
+    _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreTEXTGetSetMeas[pft.Shortname, Temporal3_1, Optical3_1],
+    _CoreGetSetMeasEndian[_AnyNonMixedDataSchema, Optical3_1, Temporal3_1],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreToDataset[CoreDataset3_1],
@@ -1106,33 +1042,33 @@ class CoreTEXT3_1(
     _CoreMeasWavelengths,
     _CorePeak,
     _CoreMeasDisplay,
-    _CoreMeasCalibration[Calibration3_1],
-    _CoreGates[AppliedGates3_0],
+    _CoreMeasCalibration[pft.Calibration3_1],
+    _CoreGates[pft.AppliedGates3_0],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_2[CoreTEXT3_2],
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname, Optical3_1 | Temporal3_1]],
-        layout: _AnyNonMixedLayout,
-        mode: Mode = "L",
+        measurements: list[tuple[pft.Shortname, Optical3_1 | Temporal3_1]],
+        data_schema: _AnyNonMixedDataSchema,
+        mode: pft.Mode = "L",
         cyt: str = "",
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         cytsn: str = "",
-        spillover: Spillover | None = None,
+        spillover: pft.Spillover | None = None,
         last_modifier: str = "",
         last_modified: datetime | None = None,
-        originality: Originality | None = None,
+        originality: pft.Originality | None = None,
         plateid: str = "",
         platename: str = "",
         wellid: str = "",
         vol: float | None = None,
         csvbits: int = 0,
         cstot: int = 0,
-        csvflags: CsvFlags = [],
+        csvflags: pft.CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",
@@ -1145,43 +1081,43 @@ class CoreTEXT3_1(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates3_0 = ([], {}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
-        spillover_measurement_mode: SpilloverMeasurementMode = "named",
-        text_data_correction: OffsetCorrection = (0, 0),
-        text_analysis_correction: OffsetCorrection = (0, 0),
+        spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
+        text_data_correction: pft.OffsetCorrection = (0, 0),
+        text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-        allow_missing_required_offsets: TriFlag = "false",
-        process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: TriFlag = "false",
+        allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+        allow_missing_required_offsets: pft.TriFlag = "false",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
+        disallow_range_truncation: pft.TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1191,11 +1127,11 @@ class CoreTEXT3_2(
     _CoreCommon,
     _Core3_2,
     _CoreTemporal3_2,
-    _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
-    _CoreTEXTRemove[Shortname | None, Optical3_2, Temporal3_2],
+    _CoreGetSetMeas[pft.Shortname, Optical3_2, Temporal3_2],
+    _CoreTEXTRemove[pft.Shortname | None, Optical3_2, Temporal3_2],
     _CoreReplaceTemporal3_2,
-    _CoreTEXTGetSetMeas[Shortname, Temporal3_2, Optical3_2],
-    _CoreGetSetMeasEndian[_AnyMixedLayout, Optical3_2, Temporal3_2],
+    _CoreTEXTGetSetMeas[pft.Shortname, Temporal3_2, Optical3_2],
+    _CoreGetSetMeasEndian[_AnyMixedDataSchema, Optical3_2, Temporal3_2],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreToDataset[CoreDataset3_2],
@@ -1206,28 +1142,28 @@ class CoreTEXT3_2(
     _CoreCytsn,
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
-    _CoreMeasCalibration[Calibration3_2],
-    _CoreGates[AppliedGates3_2],
+    _CoreMeasCalibration[pft.Calibration3_2],
+    _CoreGates[pft.AppliedGates3_2],
     _CoreTo2_0[CoreTEXT2_0],
     _CoreTo3_0[CoreTEXT3_0],
     _CoreTo3_1[CoreTEXT3_1],
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname, Optical3_2 | Temporal3_2]],
-        layout: _AnyMixedLayout,
+        measurements: list[tuple[pft.Shortname, Optical3_2 | Temporal3_2]],
+        data_schema: _AnyMixedDataSchema,
         cyt: str,
-        mode: Mode3_2 | None = None,
+        mode: pft.Mode3_2 | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         begindatetime: datetime | None = None,
         enddatetime: datetime | None = None,
         cytsn: str = "",
-        spillover: Spillover | None = None,
+        spillover: pft.Spillover | None = None,
         last_modifier: str = "",
         last_modified: datetime | None = None,
-        originality: Originality | None = None,
+        originality: pft.Originality | None = None,
         plateid: str = "",
         platename: str = "",
         wellid: str = "",
@@ -1236,7 +1172,7 @@ class CoreTEXT3_2(
         carriertype: str = "",
         locationid: str = "",
         unstainedinfo: str = "",
-        unstainedcenters: UnstainedCenters = {},
+        unstainedcenters: pft.UnstainedCenters = {},
         flowrate: str = "",
         abrt: int | None = None,
         com: str = "",
@@ -1250,44 +1186,44 @@ class CoreTEXT3_2(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates3_2 = ({}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates3_2 = ({}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
     @classmethod
     def from_kws(
         cls,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
-        spillover_measurement_mode: SpilloverMeasurementMode = "named",
+        spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
-        text_data_correction: OffsetCorrection = (0, 0),
-        text_analysis_correction: OffsetCorrection = (0, 0),
+        text_data_correction: pft.OffsetCorrection = (0, 0),
+        text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-        allow_missing_required_offsets: TriFlag = "false",
-        process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: TriFlag = "false",
+        allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+        allow_missing_required_offsets: pft.TriFlag = "false",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
+        disallow_range_truncation: pft.TriFlag = "false",
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1299,10 +1235,10 @@ class CoreDataset2_0(
     _CorePre3_2,
     _CoreTemporal2_0,
     _CoreShortnamesMaybe,
-    _CoreGetSetMeas[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetRemove[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetGetSetMeas[Shortname | None, Temporal2_0, Optical2_0],
+    _CoreGetSetMeas[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreDatasetRemove[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreDatasetGetSetMeas[pft.Shortname | None, Temporal2_0, Optical2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreScaleMethods,
@@ -1310,7 +1246,7 @@ class CoreDataset2_0(
     _CoreCompensation,
     _CoreMeasWavelength,
     _CorePeak,
-    _CoreGates[AppliedGates2_0],
+    _CoreGates[pft.AppliedGates2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -1318,10 +1254,10 @@ class CoreDataset2_0(
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname | None, Optical2_0 | Temporal2_0]],
-        layout: _AnyOrderedLayout,
+        measurements: list[tuple[pft.Shortname | None, Optical2_0 | Temporal2_0]],
+        data_schema: _AnyOrderedDataSchema,
         data: DataFrame,
-        mode: Mode = "L",
+        mode: pft.Mode = "L",
         cyt: str = "",
         comp: npt.NDArray[np.float32] | None = None,
         btim: time | None = None,
@@ -1339,9 +1275,9 @@ class CoreDataset2_0(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates2_0 = ([], {}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates2_0 = ([], {}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: bytes = b"",
         others: list[bytes] = [],
     ) -> Self: ...
@@ -1350,36 +1286,36 @@ class CoreDataset2_0(
         cls,
         path: Path,
         header: Header,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
-        process_optional_failure: ProcessKeywordFailure = "error",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: TriFlag = "false",
+        disallow_range_truncation: pft.TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
-        allow_uneven_event_width: TriFlag = "false",
-        allow_tot_mismatch: TriFlag = "false",
-        truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = "false",
+        allow_uneven_event_width: pft.TriFlag = "false",
+        allow_tot_mismatch: pft.TriFlag = "false",
+        truncate_event_values: pft.TruncateEventValues = "int_only",
+        disallow_over_range: pft.TriFlag = "false",
         row_buffer_size: int = 28000,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1393,10 +1329,10 @@ class CoreDataset3_0(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreShortnamesMaybe,
-    _CoreGetSetMeas[Shortname | None, Optical3_0, Temporal3_0],
-    _CoreDatasetRemove[Shortname | None, Optical3_0, Temporal3_0],
-    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetGetSetMeas[Shortname | None, Temporal3_0, Optical3_0],
+    _CoreGetSetMeas[pft.Shortname | None, Optical3_0, Temporal3_0],
+    _CoreDatasetRemove[pft.Shortname | None, Optical3_0, Temporal3_0],
+    _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreDatasetGetSetMeas[pft.Shortname | None, Temporal3_0, Optical3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreDatasetGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreSetShortnamesMaybe,
@@ -1408,7 +1344,7 @@ class CoreDataset3_0(
     _CoreMeasWavelength,
     _CorePeak,
     _CoreSubset,
-    _CoreGates[AppliedGates3_0],
+    _CoreGates[pft.AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
@@ -1416,20 +1352,20 @@ class CoreDataset3_0(
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname | None, Optical3_0 | Temporal3_0]],
-        layout: _AnyOrderedLayout,
+        measurements: list[tuple[pft.Shortname | None, Optical3_0 | Temporal3_0]],
+        data_schema: _AnyOrderedDataSchema,
         data: DataFrame,
-        mode: Mode = "L",
+        mode: pft.Mode = "L",
         cyt: str = "",
-        comp: Compensation | None = None,
+        comp: pft.Compensation | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         cytsn: str = "",
-        unicode: Unicode | None = None,
+        unicode: pft.Unicode | None = None,
         csvbits: int = 0,
         cstot: int = 0,
-        csvflags: CsvFlags = [],
+        csvflags: pft.CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",
@@ -1442,9 +1378,9 @@ class CoreDataset3_0(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates3_0 = ([], {}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: bytes = b"",
         others: list[bytes] = [],
     ) -> Self: ...
@@ -1453,8 +1389,8 @@ class CoreDataset3_0(
         cls,
         path: Path,
         header: Header,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1463,39 +1399,39 @@ class CoreDataset3_0(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
         # layout args
-        text_data_correction: OffsetCorrection = (0, 0),
-        text_analysis_correction: OffsetCorrection = (0, 0),
+        text_data_correction: pft.OffsetCorrection = (0, 0),
+        text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-        allow_missing_required_offsets: TriFlag = "false",
-        process_optional_failure: ProcessKeywordFailure = "error",
+        allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+        allow_missing_required_offsets: pft.TriFlag = "false",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
         integer_widths_from_byteord: bool = False,
         integer_byteord_override: list[int] | None = None,
-        disallow_range_truncation: TriFlag = "false",
+        disallow_range_truncation: pft.TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
-        allow_uneven_event_width: TriFlag = "false",
-        allow_tot_mismatch: TriFlag = "false",
-        truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = "false",
+        allow_uneven_event_width: pft.TriFlag = "false",
+        allow_tot_mismatch: pft.TriFlag = "false",
+        truncate_event_values: pft.TruncateEventValues = "int_only",
+        disallow_over_range: pft.TriFlag = "false",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1508,12 +1444,12 @@ class CoreDataset3_1(
     _CoreCommon,
     _CorePre3_2,
     _CoreTemporal3_0,
-    _CoreGetSetMeas[Shortname, Optical3_1, Temporal3_1],
-    _CoreDatasetRemove[Shortname | None, Optical3_1, Temporal3_1],
-    _CoreReplaceTemporal2_0[Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetGetSetMeas[Shortname, Temporal3_1, Optical3_1],
-    _CoreGetSetMeasEndian[_AnyNonMixedLayout, Optical3_1, Temporal3_1],
-    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1, _AnyNonMixedLayout],
+    _CoreGetSetMeas[pft.Shortname, Optical3_1, Temporal3_1],
+    _CoreDatasetRemove[pft.Shortname | None, Optical3_1, Temporal3_1],
+    _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
+    _CoreDatasetGetSetMeas[pft.Shortname, Temporal3_1, Optical3_1],
+    _CoreGetSetMeasEndian[_AnyNonMixedDataSchema, Optical3_1, Temporal3_1],
+    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1, _AnyNonMixedDataSchema],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreSubset,
@@ -1525,8 +1461,8 @@ class CoreDataset3_1(
     _CoreMeasWavelengths,
     _CorePeak,
     _CoreMeasDisplay,
-    _CoreMeasCalibration[Calibration3_1],
-    _CoreGates[AppliedGates3_0],
+    _CoreMeasCalibration[pft.Calibration3_1],
+    _CoreGates[pft.AppliedGates3_0],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_2[CoreDataset3_2],
@@ -1534,26 +1470,26 @@ class CoreDataset3_1(
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname, Optical3_1 | Temporal3_1]],
-        layout: _AnyNonMixedLayout,
+        measurements: list[tuple[pft.Shortname, Optical3_1 | Temporal3_1]],
+        data_schema: _AnyNonMixedDataSchema,
         data: DataFrame,
-        mode: Mode = "L",
+        mode: pft.Mode = "L",
         cyt: str = "",
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         cytsn: str = "",
-        spillover: Spillover | None = None,
+        spillover: pft.Spillover | None = None,
         last_modifier: str = "",
         last_modified: datetime | None = None,
-        originality: Originality | None = None,
+        originality: pft.Originality | None = None,
         plateid: str = "",
         platename: str = "",
         wellid: str = "",
         vol: float | None = None,
         csvbits: int = 0,
         cstot: int = 0,
-        csvflags: CsvFlags = [],
+        csvflags: pft.CsvFlags = [],
         abrt: int | None = None,
         com: str = "",
         cells: str = "",
@@ -1566,9 +1502,9 @@ class CoreDataset3_1(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates3_0 = ([], {}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates3_0 = ([], {}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: bytes = b"",
         others: list[bytes] = [],
     ) -> Self: ...
@@ -1577,8 +1513,8 @@ class CoreDataset3_1(
         cls,
         path: Path,
         header: Header,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1587,38 +1523,38 @@ class CoreDataset3_1(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
-        spillover_measurement_mode: SpilloverMeasurementMode = "named",
+        spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         # layout args
-        text_data_correction: OffsetCorrection = (0, 0),
-        text_analysis_correction: OffsetCorrection = (0, 0),
+        text_data_correction: pft.OffsetCorrection = (0, 0),
+        text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-        allow_missing_required_offsets: TriFlag = "false",
-        process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: TriFlag = "false",
+        allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+        allow_missing_required_offsets: pft.TriFlag = "false",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
+        disallow_range_truncation: pft.TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
-        allow_uneven_event_width: TriFlag = "false",
-        allow_tot_mismatch: TriFlag = "false",
-        truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = "false",
+        allow_uneven_event_width: pft.TriFlag = "false",
+        allow_tot_mismatch: pft.TriFlag = "false",
+        truncate_event_values: pft.TruncateEventValues = "int_only",
+        disallow_over_range: pft.TriFlag = "false",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1631,12 +1567,12 @@ class CoreDataset3_2(
     _CoreCommon,
     _Core3_2,
     _CoreTemporal3_2,
-    _CoreGetSetMeas[Shortname, Optical3_2, Temporal3_2],
-    _CoreDatasetRemove[Shortname | None, Optical3_2, Temporal3_2],
+    _CoreGetSetMeas[pft.Shortname, Optical3_2, Temporal3_2],
+    _CoreDatasetRemove[pft.Shortname | None, Optical3_2, Temporal3_2],
     _CoreReplaceTemporal3_2,
-    _CoreDatasetGetSetMeas[Shortname, Temporal3_2, Optical3_2],
-    _CoreGetSetMeasEndian[_AnyMixedLayout, Optical3_2, Temporal3_2],
-    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2, _AnyMixedLayout],
+    _CoreDatasetGetSetMeas[pft.Shortname, Temporal3_2, Optical3_2],
+    _CoreGetSetMeasEndian[_AnyMixedDataSchema, Optical3_2, Temporal3_2],
+    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2, _AnyMixedDataSchema],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreModified,
@@ -1646,8 +1582,8 @@ class CoreDataset3_2(
     _CoreCytsn,
     _CoreMeasWavelengths,
     _CoreMeasDisplay,
-    _CoreMeasCalibration[Calibration3_2],
-    _CoreGates[AppliedGates3_2],
+    _CoreMeasCalibration[pft.Calibration3_2],
+    _CoreGates[pft.AppliedGates3_2],
     _CoreTo2_0[CoreDataset2_0],
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
@@ -1655,21 +1591,21 @@ class CoreDataset3_2(
 ):
     def __new__(
         cls,
-        measurements: list[tuple[Shortname, Optical3_2 | Temporal3_2]],
-        layout: _AnyMixedLayout,
+        measurements: list[tuple[pft.Shortname, Optical3_2 | Temporal3_2]],
+        data_schema: _AnyMixedDataSchema,
         data: DataFrame,
         cyt: str,
-        mode: Mode3_2 | None = None,
+        mode: pft.Mode3_2 | None = None,
         btim: time | None = None,
         etim: time | None = None,
         date: date | None = None,
         begindatetime: datetime | None = None,
         enddatetime: datetime | None = None,
         cytsn: str = "",
-        spillover: Spillover | None = None,
+        spillover: pft.Spillover | None = None,
         last_modifier: str = "",
         last_modified: datetime | None = None,
-        originality: Originality | None = None,
+        originality: pft.Originality | None = None,
         plateid: str = "",
         platename: str = "",
         wellid: str = "",
@@ -1678,7 +1614,7 @@ class CoreDataset3_2(
         carriertype: str = "",
         locationid: str = "",
         unstainedinfo: str = "",
-        unstainedcenters: UnstainedCenters = {},
+        unstainedcenters: pft.UnstainedCenters = {},
         flowrate: str = "",
         abrt: int | None = None,
         com: str = "",
@@ -1692,9 +1628,9 @@ class CoreDataset3_2(
         smno: str = "",
         src: str = "",
         sys: str = "",
-        tr: Trigger | None = None,
-        applied_gates: AppliedGates3_2 = ({}, None),
-        nonstandard_keywords: NonStdKeywords = {},
+        tr: pft.Trigger | None = None,
+        applied_gates: pft.AppliedGates3_2 = ({}, None),
+        nonstandard_keywords: pft.NonStdKeywords = {},
         analysis: bytes = b"",
         others: list[bytes] = [],
     ) -> Self: ...
@@ -1703,8 +1639,8 @@ class CoreDataset3_2(
         cls,
         path: Path,
         header: Header,
-        std: StdKeywords,
-        nonstd: NonStdKeywords,
+        std: pft.StdKeywords,
+        nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
         truncate_offset_limit: int = 0,
@@ -1713,39 +1649,39 @@ class CoreDataset3_2(
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: str | None = "^(TIME|Time)$",
-        allow_missing_time: TriFlag = "false",
-        force_linear_scale: ForceLinearScale = "none",
-        ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-        process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+        allow_missing_time: pft.TriFlag = "false",
+        force_linear_scale: pft.ForceLinearScale = "none",
+        ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+        process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
         date_pattern: str | None = None,
         time_pattern: str | None = None,
         datetime_pattern: str | None = None,
         last_modified_pattern: str | None = None,
         allow_other_feature: bool = False,
-        process_pseudostandard: ProcessKeywordFailure = "error",
-        process_hyper_par: ProcessKeywordFailure = "error",
-        process_other_version: ProcessKeywordFailure = "error",
-        process_extra_timestep: ProcessKeywordFailure = "error",
+        process_pseudostandard: pft.ProcessKeywordFailure = "error",
+        process_hyper_par: pft.ProcessKeywordFailure = "error",
+        process_other_version: pft.ProcessKeywordFailure = "error",
+        process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: str | None = "P%n",
         add_missing_timestep: float | None = None,
-        spillover_measurement_mode: SpilloverMeasurementMode = "named",
+        spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         # layout args
-        text_data_correction: OffsetCorrection = (0, 0),
-        text_analysis_correction: OffsetCorrection = (0, 0),
+        text_data_correction: pft.OffsetCorrection = (0, 0),
+        text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
         ignore_text_analysis_offsets: bool = False,
-        allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-        allow_missing_required_offsets: TriFlag = "false",
-        process_optional_failure: ProcessKeywordFailure = "error",
-        disallow_range_truncation: TriFlag = "false",
+        allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+        allow_missing_required_offsets: pft.TriFlag = "false",
+        process_optional_failure: pft.ProcessKeywordFailure = "error",
+        disallow_range_truncation: pft.TriFlag = "false",
         # data args
         data_remainder_limit: int = 0,
-        allow_uneven_event_width: TriFlag = "false",
-        allow_tot_mismatch: TriFlag = "false",
-        truncate_event_values: TruncateEventValues = "int_only",
-        disallow_over_range: TriFlag = "false",
+        allow_uneven_event_width: pft.TriFlag = "false",
+        allow_tot_mismatch: pft.TriFlag = "false",
+        truncate_event_values: pft.TruncateEventValues = "int_only",
+        disallow_over_range: pft.TriFlag = "false",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1771,51 +1707,51 @@ class PyreflowWarning(Warning): ...
 class ParsedHeaderSegments:
     def __new__(
         cls,
-        text_seg: Segment,
-        data_seg: Segment,
-        analysis_seg: Segment,
-        other_segs: OtherSegments,
+        text_seg: pft.Segment,
+        data_seg: pft.Segment,
+        analysis_seg: pft.Segment,
+        other_segs: pft.OtherSegments,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text_seg(self) -> Segment: ...
+    def text_seg(self) -> pft.Segment: ...
     @property
-    def data_seg(self) -> Segment: ...
+    def data_seg(self) -> pft.Segment: ...
     @property
-    def analysis_seg(self) -> Segment: ...
+    def analysis_seg(self) -> pft.Segment: ...
     @property
-    def other_segs(self) -> OtherSegments: ...
+    def other_segs(self) -> pft.OtherSegments: ...
 
 @final
 class UncorrectedHeaderSegments:
     def __new__(
         cls,
-        text_seg: Segment,
-        data_seg: Segment,
-        analysis_seg: Segment,
-        other_segs: list[Segment],
+        text_seg: pft.Segment,
+        data_seg: pft.Segment,
+        analysis_seg: pft.Segment,
+        other_segs: list[pft.Segment],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text_seg(self) -> Segment: ...
+    def text_seg(self) -> pft.Segment: ...
     @property
-    def data_seg(self) -> Segment: ...
+    def data_seg(self) -> pft.Segment: ...
     @property
-    def analysis_seg(self) -> Segment: ...
+    def analysis_seg(self) -> pft.Segment: ...
     @property
-    def other_segs(self) -> list[Segment]: ...
+    def other_segs(self) -> list[pft.Segment]: ...
 
 @final
 class Header:
     def __new__(
         cls,
-        version: FCSVersion,
+        version: pft.FCSVersion,
         segments: ParsedHeaderSegments,
         uncorrected_segments: UncorrectedHeaderSegments,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def version(self) -> FCSVersion: ...
+    def version(self) -> pft.FCSVersion: ...
     @property
     def segments(self) -> ParsedHeaderSegments: ...
     @property
@@ -1823,46 +1759,46 @@ class Header:
 
 @final
 class ValidKeywords:
-    def __new__(cls, std: StdKeywords, nonstd: NonStdKeywords) -> Self: ...
+    def __new__(cls, std: pft.StdKeywords, nonstd: pft.NonStdKeywords) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def std(self) -> StdKeywords: ...
+    def std(self) -> pft.StdKeywords: ...
     @property
-    def nonstd(self) -> NonStdKeywords: ...
+    def nonstd(self) -> pft.NonStdKeywords: ...
 
 @final
 class StdTEXTDiagnostics:
     def __new__(
         cls,
-        pseudostandard: StdKeywords,
-        hyper_par: StdKeywords,
-        hyper_gate: StdKeywords,
-        other_version: StdKeywords,
+        pseudostandard: pft.StdKeywords,
+        hyper_par: pft.StdKeywords,
+        hyper_gate: pft.StdKeywords,
+        other_version: pft.StdKeywords,
         timestep: str | None,
-        original_names: list[Shortname | None],
-        scale: list[MeasScaleDiagnostic],
-        gate_scale: list[GateScaleDiagnostic],
+        original_names: list[pft.Shortname | None],
+        scale: list[pft.MeasScaleDiagnostic],
+        gate_scale: list[pft.GateScaleDiagnostic],
         trimmed: list[tuple[str, str]],
         temporal_optical_pairs: list[tuple[str, str]],
         timestep_added: bool,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def pseudostandard(self) -> StdKeywords: ...
+    def pseudostandard(self) -> pft.StdKeywords: ...
     @property
-    def hyper_par(self) -> StdKeywords: ...
+    def hyper_par(self) -> pft.StdKeywords: ...
     @property
-    def hyper_gate(self) -> StdKeywords: ...
+    def hyper_gate(self) -> pft.StdKeywords: ...
     @property
-    def other_version(self) -> StdKeywords: ...
+    def other_version(self) -> pft.StdKeywords: ...
     @property
     def timestep(self) -> str | None: ...
     @property
-    def original_names(self) -> list[Shortname | None]: ...
+    def original_names(self) -> list[pft.Shortname | None]: ...
     @property
-    def scale(self) -> list[MeasScaleDiagnostic]: ...
+    def scale(self) -> list[pft.MeasScaleDiagnostic]: ...
     @property
-    def gate_scale(self) -> list[GateScaleDiagnostic]: ...
+    def gate_scale(self) -> list[pft.GateScaleDiagnostic]: ...
     @property
     def trimmed(self) -> list[tuple[str, str]]: ...
     @property
@@ -1874,20 +1810,20 @@ class StdTEXTDiagnostics:
 class DatasetSegments:
     def __new__(
         cls,
-        data_seg: Segment,
-        analysis_seg: Segment,
-        data_seg_uncorrected: Segment | None,
-        analysis_seg_uncorrected: Segment | None,
+        data_seg: pft.Segment,
+        analysis_seg: pft.Segment,
+        data_seg_uncorrected: pft.Segment | None,
+        analysis_seg_uncorrected: pft.Segment | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def data_seg(self) -> Segment: ...
+    def data_seg(self) -> pft.Segment: ...
     @property
-    def analysis_seg(self) -> Segment: ...
+    def analysis_seg(self) -> pft.Segment: ...
     @property
-    def data_seg_uncorrected(self) -> Segment | None: ...
+    def data_seg_uncorrected(self) -> pft.Segment | None: ...
     @property
-    def analysis_seg_uncorrected(self) -> Segment | None: ...
+    def analysis_seg_uncorrected(self) -> pft.Segment | None: ...
 
 @final
 class SplitTEXTDiagnostics:
@@ -1928,14 +1864,14 @@ class HeaderAndSuppOffsets:
     def __new__(
         cls,
         header: Header,
-        supp_text: tuple[Segment | None, Segment] | None,
+        supp_text: tuple[pft.Segment | None, pft.Segment] | None,
         nextdata: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header(self) -> Header: ...
     @property
-    def supp_text(self) -> tuple[Segment | None, Segment] | None: ...
+    def supp_text(self) -> tuple[pft.Segment | None, pft.Segment] | None: ...
     @property
     def nextdata(self) -> int | None: ...
 
@@ -2071,7 +2007,7 @@ class FlatDatasetOutput:
         cls,
         text: FlatTEXTOutput,
         dataset: FlatDatasetFromKwsOutput,
-        version_scores: KeywordVersionScores | None,
+        version_scores: pft.KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2079,7 +2015,7 @@ class FlatDatasetOutput:
     @property
     def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
-    def version_scores(self) -> KeywordVersionScores | None: ...
+    def version_scores(self) -> pft.KeywordVersionScores | None: ...
 
 @final
 class StdTEXTOutput:
@@ -2089,7 +2025,7 @@ class StdTEXTOutput:
         dataset_segs: DatasetSegments,
         std_diagnostics: StdTEXTDiagnostics,
         flat_diagnostics: FlatTEXTDiagnostics,
-        version_scores: KeywordVersionScores | None,
+        version_scores: pft.KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2101,7 +2037,7 @@ class StdTEXTOutput:
     @property
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
-    def version_scores(self) -> KeywordVersionScores | None: ...
+    def version_scores(self) -> pft.KeywordVersionScores | None: ...
 
 @final
 class StdDatasetFromKwsOutput:
@@ -2138,7 +2074,7 @@ class StdDatasetOutput:
         cls,
         dataset: StdDatasetFromKwsOutput,
         flat_diagnostics: FlatTEXTDiagnostics,
-        version_scores: KeywordVersionScores | None,
+        version_scores: pft.KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2146,13 +2082,13 @@ class StdDatasetOutput:
     @property
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
-    def version_scores(self) -> KeywordVersionScores | None: ...
+    def version_scores(self) -> pft.KeywordVersionScores | None: ...
 
 @final
 class DatasetSummary:
     def __new__(
         cls,
-        version: FCSVersion,
+        version: pft.FCSVersion,
         text_len: int,
         data_len: int,
         analysis_len: int,
@@ -2160,11 +2096,11 @@ class DatasetSummary:
         n_measurements: int,
         n_other: int,
         others_len: int,
-        datatype: Datatype,
+        datatype: pft.Datatype,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def version(self) -> FCSVersion: ...
+    def version(self) -> pft.FCSVersion: ...
     @property
     def text_len(self) -> int: ...
     @property
@@ -2180,7 +2116,7 @@ class DatasetSummary:
     @property
     def others_len(self) -> int: ...
     @property
-    def datatype(self) -> Datatype: ...
+    def datatype(self) -> pft.Datatype: ...
 
 class _ConfigCommon:
     @classmethod
@@ -2225,13 +2161,13 @@ class NewCoreDatasetConfig(_ConfigCommon):
 def fcs_read_header(
     path: Path,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     allow_pseudoempty: bool = False,
     # offset args
@@ -2244,45 +2180,45 @@ def fcs_read_header(
 def fcs_read_flat_text(
     path: Path,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2293,144 +2229,144 @@ def fcs_read_flat_text(
 def fcs_read_std_text(
     path: Path,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = "^(TIME|Time)$",
-    allow_missing_time: TriFlag = "false",
-    force_linear_scale: ForceLinearScale = "none",
-    ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-    process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+    allow_missing_time: pft.TriFlag = "false",
+    force_linear_scale: pft.ForceLinearScale = "none",
+    ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+    process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
-    process_pseudostandard: ProcessKeywordFailure = "error",
-    process_hyper_par: ProcessKeywordFailure = "error",
-    process_other_version: ProcessKeywordFailure = "error",
-    process_extra_timestep: ProcessKeywordFailure = "error",
+    process_pseudostandard: pft.ProcessKeywordFailure = "error",
+    process_hyper_par: pft.ProcessKeywordFailure = "error",
+    process_other_version: pft.ProcessKeywordFailure = "error",
+    process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
-    spillover_measurement_mode: SpilloverMeasurementMode = "named",
+    spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
-) -> tuple[AnyCoreTEXT, StdTEXTOutput]: ...
+) -> tuple[pft.AnyCoreTEXT, StdTEXTOutput]: ...
 
 #
 def fcs_read_flat_dataset(
     path: Path,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
-    allow_uneven_event_width: TriFlag = "false",
-    allow_tot_mismatch: TriFlag = "false",
-    truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = "false",
+    allow_uneven_event_width: pft.TriFlag = "false",
+    allow_tot_mismatch: pft.TriFlag = "false",
+    truncate_event_values: pft.TruncateEventValues = "int_only",
+    disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2442,90 +2378,90 @@ def fcs_read_flat_dataset(
 def fcs_read_std_dataset(
     path: Path,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = "^(TIME|Time)$",
-    allow_missing_time: TriFlag = "false",
-    force_linear_scale: ForceLinearScale = "none",
-    ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-    process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+    allow_missing_time: pft.TriFlag = "false",
+    force_linear_scale: pft.ForceLinearScale = "none",
+    ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+    process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
-    process_pseudostandard: ProcessKeywordFailure = "error",
-    process_hyper_par: ProcessKeywordFailure = "error",
-    process_other_version: ProcessKeywordFailure = "error",
-    process_extra_timestep: ProcessKeywordFailure = "error",
+    process_pseudostandard: pft.ProcessKeywordFailure = "error",
+    process_hyper_par: pft.ProcessKeywordFailure = "error",
+    process_other_version: pft.ProcessKeywordFailure = "error",
+    process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
-    spillover_measurement_mode: SpilloverMeasurementMode = "named",
+    spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
-    allow_uneven_event_width: TriFlag = "false",
-    allow_tot_mismatch: TriFlag = "false",
-    truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = "false",
+    allow_uneven_event_width: pft.TriFlag = "false",
+    allow_tot_mismatch: pft.TriFlag = "false",
+    truncate_event_values: pft.TruncateEventValues = "int_only",
+    disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
-) -> tuple[AnyCoreDataset, StdDatasetOutput]: ...
+) -> tuple[pft.AnyCoreDataset, StdDatasetOutput]: ...
 
 #
 def fcs_read_flat_texts(
@@ -2533,45 +2469,45 @@ def fcs_read_flat_texts(
     skip: int | None = None,
     limit: int | None = None,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2583,82 +2519,82 @@ def fcs_read_std_texts(
     skip: int | None = None,
     limit: int | None = None,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = "^(TIME|Time)$",
-    allow_missing_time: TriFlag = "false",
-    force_linear_scale: ForceLinearScale = "none",
-    ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-    process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+    allow_missing_time: pft.TriFlag = "false",
+    force_linear_scale: pft.ForceLinearScale = "none",
+    ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+    process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
-    process_pseudostandard: ProcessKeywordFailure = "error",
-    process_hyper_par: ProcessKeywordFailure = "error",
-    process_other_version: ProcessKeywordFailure = "error",
-    process_extra_timestep: ProcessKeywordFailure = "error",
+    process_pseudostandard: pft.ProcessKeywordFailure = "error",
+    process_hyper_par: pft.ProcessKeywordFailure = "error",
+    process_other_version: pft.ProcessKeywordFailure = "error",
+    process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
-    spillover_measurement_mode: SpilloverMeasurementMode = "named",
+    spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> list[tuple[AnyCoreTEXT, StdTEXTOutput]]: ...
+) -> list[tuple[pft.AnyCoreTEXT, StdTEXTOutput]]: ...
 
 #
 def fcs_read_flat_datasets(
@@ -2666,62 +2602,62 @@ def fcs_read_flat_datasets(
     skip: int | None = None,
     limit: int | None = None,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
-    allow_uneven_event_width: TriFlag = "false",
-    allow_tot_mismatch: TriFlag = "false",
-    truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = "false",
+    allow_uneven_event_width: pft.TriFlag = "false",
+    allow_tot_mismatch: pft.TriFlag = "false",
+    truncate_event_values: pft.TruncateEventValues = "int_only",
+    disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2734,89 +2670,89 @@ def fcs_read_std_datasets(
     skip: int | None = None,
     limit: int | None = None,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
     time_meas_pattern: str | None = "^(TIME|Time)$",
-    allow_missing_time: TriFlag = "false",
-    force_linear_scale: ForceLinearScale = "none",
-    ignore_time_optical_keys: list[TemporalOpticalKey] = [],
-    process_time_optical_keys: ProcessTimeOpticalKeys = "demote_warn",
+    allow_missing_time: pft.TriFlag = "false",
+    force_linear_scale: pft.ForceLinearScale = "none",
+    ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
+    process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
     date_pattern: str | None = None,
     time_pattern: str | None = None,
     datetime_pattern: str | None = None,
     last_modified_pattern: str | None = None,
     allow_other_feature: bool = False,
-    process_pseudostandard: ProcessKeywordFailure = "error",
-    process_hyper_par: ProcessKeywordFailure = "error",
-    process_other_version: ProcessKeywordFailure = "error",
-    process_extra_timestep: ProcessKeywordFailure = "error",
+    process_pseudostandard: pft.ProcessKeywordFailure = "error",
+    process_hyper_par: pft.ProcessKeywordFailure = "error",
+    process_other_version: pft.ProcessKeywordFailure = "error",
+    process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
     nonstandard_measurement_pattern: str | None = "P%n",
     add_missing_timestep: float | None = None,
-    spillover_measurement_mode: SpilloverMeasurementMode = "named",
+    spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
-    allow_uneven_event_width: TriFlag = "false",
-    allow_tot_mismatch: TriFlag = "false",
-    truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = "false",
+    allow_uneven_event_width: pft.TriFlag = "false",
+    allow_tot_mismatch: pft.TriFlag = "false",
+    truncate_event_values: pft.TruncateEventValues = "int_only",
+    disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
-) -> list[tuple[AnyCoreDataset, StdDatasetOutput]]: ...
+) -> list[tuple[pft.AnyCoreDataset, StdDatasetOutput]]: ...
 
 #
 def fcs_read_flat_dataset_with_keywords(
@@ -2828,22 +2764,22 @@ def fcs_read_flat_dataset_with_keywords(
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
-    allow_uneven_event_width: TriFlag = "false",
-    allow_tot_mismatch: TriFlag = "false",
-    truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = "false",
+    allow_uneven_event_width: pft.TriFlag = "false",
+    allow_tot_mismatch: pft.TriFlag = "false",
+    truncate_event_values: pft.TruncateEventValues = "int_only",
+    disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2857,62 +2793,62 @@ def fcs_summarize(
     skip: int | None = None,
     limit: int | None = None,
     # header args
-    text_correction: OffsetCorrection = (0, 0),
-    data_correction: OffsetCorrection = (0, 0),
-    analysis_correction: OffsetCorrection = (0, 0),
-    other_corrections: list[OffsetCorrection] = [],
+    text_correction: pft.OffsetCorrection = (0, 0),
+    data_correction: pft.OffsetCorrection = (0, 0),
+    analysis_correction: pft.OffsetCorrection = (0, 0),
+    other_corrections: list[pft.OffsetCorrection] = [],
     max_other: int | None = None,
     other_width: int = 8,
-    guess_other_width: GuessOtherWidth = "none",
+    guess_other_width: pft.GuessOtherWidth = "none",
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
     truncate_offset_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
-    version_override: VersionOverride | None = None,
-    supp_text_correction: OffsetCorrection = (0, 0),
+    version_override: pft.VersionOverride | None = None,
+    supp_text_correction: pft.OffsetCorrection = (0, 0),
     nextdata_correction: int = 0,
-    allow_duplicated_supp_text: TriFlag = "false",
+    allow_duplicated_supp_text: pft.TriFlag = "false",
     ignore_supp_text: bool = False,
-    delim_escape_mode: DelimEscapeMode = "escaped",
-    allow_non_ascii_delim: TriFlag = "false",
-    allow_nonunique: TriFlag = "false",
-    allow_even_delims: TriFlag = "false",
-    allow_odd_tokens: TriFlag = "false",
-    allow_empty_keys: TriFlag = "false",
-    allow_delim_at_boundary: TriFlag = "false",
+    delim_escape_mode: pft.DelimEscapeMode = "escaped",
+    allow_non_ascii_delim: pft.TriFlag = "false",
+    allow_nonunique: pft.TriFlag = "false",
+    allow_even_delims: pft.TriFlag = "false",
+    allow_odd_tokens: pft.TriFlag = "false",
+    allow_empty_keys: pft.TriFlag = "false",
+    allow_delim_at_boundary: pft.TriFlag = "false",
     use_latin1: bool = False,
-    allow_non_ascii_keys: TriFlag = "false",
-    allow_non_utf8_values: TriFlag = "false",
-    allow_missing_supp_text: TriFlag = "false",
-    allow_supp_text_own_delim: TriFlag = "false",
-    allow_missing_nextdata: TriFlag = "false",
-    trim_value_whitespace: TrimValueWhitespace = "notrim",
-    ignore_standard_keys: KeyPatterns = [],
-    promote_to_standard: KeyPatterns = [],
-    demote_from_standard: KeyPatterns = [],
+    allow_non_ascii_keys: pft.TriFlag = "false",
+    allow_non_utf8_values: pft.TriFlag = "false",
+    allow_missing_supp_text: pft.TriFlag = "false",
+    allow_supp_text_own_delim: pft.TriFlag = "false",
+    allow_missing_nextdata: pft.TriFlag = "false",
+    trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
     rename_standard_keys: dict[str, str] = {},
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: SubPatterns = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
     # layout args
-    text_data_correction: OffsetCorrection = (0, 0),
-    text_analysis_correction: OffsetCorrection = (0, 0),
+    text_data_correction: pft.OffsetCorrection = (0, 0),
+    text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
     ignore_text_analysis_offsets: bool = False,
-    allow_header_text_offset_mismatch: AllowHeaderTextOffsetMismatch = "error",
-    allow_missing_required_offsets: TriFlag = "false",
-    process_optional_failure: ProcessKeywordFailure = "error",
+    allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
+    allow_missing_required_offsets: pft.TriFlag = "false",
+    process_optional_failure: pft.ProcessKeywordFailure = "error",
     integer_widths_from_byteord: bool = False,
-    integer_byteord_override: ByteOrd | None = None,
-    disallow_range_truncation: TriFlag = "false",
+    integer_byteord_override: pft.ByteOrd | None = None,
+    disallow_range_truncation: pft.TriFlag = "false",
     # data args
     data_remainder_limit: int = 0,
-    allow_uneven_event_width: TriFlag = "false",
-    allow_tot_mismatch: TriFlag = "false",
-    truncate_event_values: TruncateEventValues = "int_only",
-    disallow_over_range: TriFlag = "false",
+    allow_uneven_event_width: pft.TriFlag = "false",
+    allow_tot_mismatch: pft.TriFlag = "false",
+    truncate_event_values: pft.TruncateEventValues = "int_only",
+    disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2922,10 +2858,12 @@ def fcs_summarize(
 #
 def fcs_write_datasets(
     path: Path,
-    datasets: list[AnyCoreDataset],
+    datasets: list[pft.AnyCoreDataset],
     delim: int = 30,
     big_other: bool = False,
-    skip_conversion_check: bool = False,
+    check_event_ranges: pft.CheckEventRanges = "int_only",
+    disallow_over_range: pft.TriFlag = "false",
+    row_buffer_size: int = 28000,
 ) -> int | None: ...
 
 __version__: str
@@ -2968,22 +2906,16 @@ __all__ = [
     "BivariateRegion3_0",
     "BivariateRegion3_2",
     "GatedMeasurement",
-    "FixedAsciiLayout",
-    "DelimAsciiLayout",
-    "OrderedUint08Layout",
-    "OrderedUint16Layout",
-    "OrderedUint24Layout",
-    "OrderedUint32Layout",
-    "OrderedUint40Layout",
-    "OrderedUint48Layout",
-    "OrderedUint56Layout",
-    "OrderedUint64Layout",
-    "OrderedF32Layout",
-    "OrderedF64Layout",
-    "EndianF32Layout",
-    "EndianF64Layout",
-    "EndianUintLayout",
-    "MixedLayout",
+    "FixedAsciiDataSchema",
+    "DelimAsciiDataSchema",
+    "OrderedUintDataSchema",
+    "OrderedF32DataSchema",
+    "OrderedF64DataSchema",
+    "BigLittleF32DataSchema",
+    "BigLittleF64DataSchema",
+    "SingleUintDataSchema",
+    "VariableUintDataSchema",
+    "MixedDataSchema",
     "Header",
     "ParsedHeaderSegments",
     "HeaderAndSuppOffsets",

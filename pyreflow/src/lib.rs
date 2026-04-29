@@ -56,22 +56,16 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<ff::PyGatedMeasurement>()?;
 
-    m.add_class::<ff::PyFixedAsciiLayout>()?;
-    m.add_class::<ff::PyDelimAsciiLayout>()?;
-    m.add_class::<ff::PyOrderedUint08Layout>()?;
-    m.add_class::<ff::PyOrderedUint16Layout>()?;
-    m.add_class::<ff::PyOrderedUint24Layout>()?;
-    m.add_class::<ff::PyOrderedUint32Layout>()?;
-    m.add_class::<ff::PyOrderedUint40Layout>()?;
-    m.add_class::<ff::PyOrderedUint48Layout>()?;
-    m.add_class::<ff::PyOrderedUint56Layout>()?;
-    m.add_class::<ff::PyOrderedUint64Layout>()?;
-    m.add_class::<ff::PyOrderedF32Layout>()?;
-    m.add_class::<ff::PyOrderedF64Layout>()?;
-    m.add_class::<ff::PyEndianF32Layout>()?;
-    m.add_class::<ff::PyEndianF64Layout>()?;
-    m.add_class::<ff::PyEndianUintLayout>()?;
-    m.add_class::<ff::PyMixedLayout>()?;
+    m.add_class::<ff::PyFixedAsciiDataSchema>()?;
+    m.add_class::<ff::PyDelimAsciiDataSchema>()?;
+    m.add_class::<ff::PyOrderedUintDataSchema>()?;
+    m.add_class::<ff::PyOrderedF32DataSchema>()?;
+    m.add_class::<ff::PyOrderedF64DataSchema>()?;
+    m.add_class::<ff::PyBigLittleF32DataSchema>()?;
+    m.add_class::<ff::PyBigLittleF64DataSchema>()?;
+    m.add_class::<ff::PySingleUintDataSchema>()?;
+    m.add_class::<ff::PyVariableUintDataSchema>()?;
+    m.add_class::<ff::PyMixedDataSchema>()?;
 
     m.add_class::<ff::PyHeader>()?;
     m.add_class::<ff::PyParsedHeaderSegments>()?;

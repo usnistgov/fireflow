@@ -12,9 +12,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::{HasRegion, TEXTSegment};
-use crate::text::byteord::{
-    BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes, SizedByteOrd,
-};
+use crate::text::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes};
 use crate::text::compensation::{Compensation, NewCompError};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
@@ -47,11 +45,14 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{
     DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
 };
+use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use nonempty_collections::{NEMap, NESlice};
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
-use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey, TruncateEventValues};
+use fireflow_types::config::{
+    CheckEventRanges, ForceLinearScale, TemporalOpticalKey, TruncateEventValues,
+};
 use fireflow_types::keywords::{
     self as tk, MeasKeywordClass, RootKeywordClass, Version, VersionMembership,
 };
@@ -70,12 +71,9 @@ use hashbrown::HashMap;
 use itertools::Itertools as _;
 use nalgebra::DMatrix;
 use nonempty_collections::{
-    IntoIteratorExt as _, NEVec,
-    iter::{IntoNonEmptyIterator as _, NonEmptyIterator as _, once},
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _, iter::once,
 };
-use num_traits::PrimInt;
-use num_traits::cast::ToPrimitive as _;
-use num_traits::identities::{One as _, Zero as _};
+use num_traits::{Bounded, One as _, ToPrimitive as _, Zero as _};
 use thiserror::Error;
 use unicase::Ascii;
 
@@ -87,6 +85,7 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use super::byteord::ArrayByteOrd;
 use super::index::IndexFromOne;
 use super::lookup::{
     DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed, TrimmedKeyword,
@@ -1675,14 +1674,14 @@ impl_str_enum_kw!(
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum ByteOrd2_0 {
-    O1(SizedByteOrd<1>),
-    O2(SizedByteOrd<2>),
-    O3(SizedByteOrd<3>),
-    O4(SizedByteOrd<4>),
-    O5(SizedByteOrd<5>),
-    O6(SizedByteOrd<6>),
-    O7(SizedByteOrd<7>),
-    O8(SizedByteOrd<8>),
+    O1(ArrayByteOrd<[u8; 1]>),
+    O2(ArrayByteOrd<[u8; 2]>),
+    O3(ArrayByteOrd<[u8; 3]>),
+    O4(ArrayByteOrd<[u8; 4]>),
+    O5(ArrayByteOrd<[u8; 5]>),
+    O6(ArrayByteOrd<[u8; 6]>),
+    O7(ArrayByteOrd<[u8; 7]>),
+    O8(ArrayByteOrd<[u8; 8]>),
 }
 
 impl FromStr for ByteOrd2_0 {
@@ -1714,7 +1713,7 @@ pub struct ByteordDigitError;
 impl Default for ByteOrd2_0 {
     fn default() -> Self {
         // Default $BYTEORD for FCS 2.0 is simply 32-bit little endian
-        Self::O4(SizedByteOrd::default())
+        Self::O4(ArrayByteOrd::default())
     }
 }
 
@@ -1728,14 +1727,14 @@ impl ByteOrd2_0 {
     #[must_use]
     pub(crate) fn nbytes(&self) -> PrivBytes {
         match self {
-            Self::O1(_) => SizedByteOrd::<1>::nbytes(),
-            Self::O2(_) => SizedByteOrd::<2>::nbytes(),
-            Self::O3(_) => SizedByteOrd::<3>::nbytes(),
-            Self::O4(_) => SizedByteOrd::<4>::nbytes(),
-            Self::O5(_) => SizedByteOrd::<5>::nbytes(),
-            Self::O6(_) => SizedByteOrd::<6>::nbytes(),
-            Self::O7(_) => SizedByteOrd::<7>::nbytes(),
-            Self::O8(_) => SizedByteOrd::<8>::nbytes(),
+            Self::O1(_) => PrivBytes::B1,
+            Self::O2(_) => PrivBytes::B2,
+            Self::O3(_) => PrivBytes::B3,
+            Self::O4(_) => PrivBytes::B4,
+            Self::O5(_) => PrivBytes::B5,
+            Self::O6(_) => PrivBytes::B6,
+            Self::O7(_) => PrivBytes::B7,
+            Self::O8(_) => PrivBytes::B8,
         }
     }
 
@@ -1756,14 +1755,14 @@ impl ByteOrd2_0 {
     fn is_endian(&self) -> bool {
         matches!(
             self,
-            Self::O1(SizedByteOrd::Endian(_))
-                | Self::O2(SizedByteOrd::Endian(_))
-                | Self::O3(SizedByteOrd::Endian(_))
-                | Self::O4(SizedByteOrd::Endian(_))
-                | Self::O5(SizedByteOrd::Endian(_))
-                | Self::O6(SizedByteOrd::Endian(_))
-                | Self::O7(SizedByteOrd::Endian(_))
-                | Self::O8(SizedByteOrd::Endian(_))
+            Self::O1(ArrayByteOrd::Endian(_))
+                | Self::O2(ArrayByteOrd::Endian(_))
+                | Self::O3(ArrayByteOrd::Endian(_))
+                | Self::O4(ArrayByteOrd::Endian(_))
+                | Self::O5(ArrayByteOrd::Endian(_))
+                | Self::O6(ArrayByteOrd::Endian(_))
+                | Self::O7(ArrayByteOrd::Endian(_))
+                | Self::O8(ArrayByteOrd::Endian(_))
         )
     }
 }
@@ -1801,6 +1800,13 @@ impl AlphaNumType {
         matches!(
             (trunc, self),
             (TruncateEventValues::IntOnly, Self::Integer) | (TruncateEventValues::All, _)
+        )
+    }
+
+    pub(crate) fn matches_check(self, trunc: CheckEventRanges) -> bool {
+        matches!(
+            (trunc, self),
+            (CheckEventRanges::IntOnly, Self::Integer) | (CheckEventRanges::All, _)
         )
     }
 }
@@ -3198,10 +3204,25 @@ impl ToDisplayNE<'_> for Width {
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Range(pub BigDecimal);
 
+macro_rules! impl_from_unaligned {
+    ($t:ident) => {
+        impl From<$t> for Range {
+            fn from(value: $t) -> Self {
+                u64::from(value).into()
+            }
+        }
+    };
+}
+
+impl_from_unaligned!(U24);
+impl_from_unaligned!(U40);
+impl_from_unaligned!(U48);
+impl_from_unaligned!(U56);
+
 impl Range {
     pub(crate) fn into_uint<T>(self) -> DeferredError<BitmaskValue<T>, RangeToIntError<()>>
     where
-        T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
+        T: TryFrom<Self, Error = RangeToIntError<T>> + Bounded + Copy,
     {
         (self - Self::from(1_u8))
             .into_uint_inner()
@@ -3215,12 +3236,12 @@ impl Range {
 
     fn into_uint_inner<T>(self) -> DeferredError<T, RangeToIntError<()>>
     where
-        T: TryFrom<Self, Error = RangeToIntError<T>> + PrimInt,
+        T: TryFrom<Self, Error = RangeToIntError<T>> + Bounded + Copy,
     {
         let (b, err) = self.try_into().map_or_else(
             |e: RangeToIntError<T>| match e.error_kind {
                 RangeToIntErrorKind::Overrange => (T::max_value(), Some(e.void())),
-                RangeToIntErrorKind::Underrange => (T::zero(), Some(e.void())),
+                RangeToIntErrorKind::Underrange => (T::min_value(), Some(e.void())),
                 RangeToIntErrorKind::PrecisionLoss(y) => (y, Some(e.void())),
             },
             |x| (x, None),
@@ -3256,18 +3277,18 @@ macro_rules! try_from_range_int {
             fn try_from(value: Range) -> Result<Self, Self::Error> {
                 let x = &value.0;
                 let err = |error_kind| RangeToIntError {
-                    dest_type: UintType::$ut,
+                    dest_type: PrivBytes::$ut,
                     src_value: x.clone(),
                     error_kind,
                 };
-                if let Some(y) = x.$to() {
-                    if x.fractional_digit_count() <= 0 {
+                if let Some(y) = x.$to().and_then(|y| y.try_into().ok()) {
+                    if x.fractional_digit_count() <= 0 && y <= <$inttype as Bounded>::max_value() {
                         Ok(y)
                     } else {
                         Err(err(RangeToIntErrorKind::PrecisionLoss(y)))
                     }
                 } else {
-                    if BigDecimal::from($inttype::MAX) < *x {
+                    if BigDecimal::from(<$inttype as Bounded>::max_value()) < *x {
                         Err(err(RangeToIntErrorKind::Overrange))
                     } else {
                         Err(err(RangeToIntErrorKind::Underrange))
@@ -3278,10 +3299,14 @@ macro_rules! try_from_range_int {
     };
 }
 
-try_from_range_int!(u8, to_u8, U8);
-try_from_range_int!(u16, to_u16, U16);
-try_from_range_int!(u32, to_u32, U32);
-try_from_range_int!(u64, to_u64, U64);
+try_from_range_int!(u8, to_u8, B1);
+try_from_range_int!(u16, to_u16, B2);
+try_from_range_int!(U24, to_u32, B3);
+try_from_range_int!(u32, to_u32, B4);
+try_from_range_int!(U40, to_u64, B5);
+try_from_range_int!(U48, to_u64, B6);
+try_from_range_int!(U56, to_u64, B7);
+try_from_range_int!(u64, to_u64, B8);
 
 /// Error when converting [`Range`] to integer.
 ///
@@ -3289,29 +3314,21 @@ try_from_range_int!(u64, to_u64, U64);
 /// external use.
 #[derive(Debug)]
 pub struct RangeToIntError<T> {
-    pub(crate) dest_type: UintType,
+    pub(crate) dest_type: PrivBytes,
     pub(crate) src_value: BigDecimal,
     pub(crate) error_kind: RangeToIntErrorKind<T>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(crate) enum UintType {
-    U8,
-    U16,
-    U32,
-    U64,
-}
-
-impl From<UintType> for PrivBytes {
-    fn from(value: UintType) -> Self {
-        match value {
-            UintType::U8 => Self::B1,
-            UintType::U16 => Self::B2,
-            UintType::U32 => Self::B4,
-            UintType::U64 => Self::B8,
-        }
-    }
-}
+// impl From<UintType> for PrivBytes {
+//     fn from(value: UintType) -> Self {
+//         match value {
+//             UintType::U8 => Self::B1,
+//             UintType::U16 => Self::B2,
+//             UintType::U32 => Self::B4,
+//             UintType::U64 => Self::B8,
+//         }
+//     }
+// }
 
 #[derive(Debug)]
 pub(crate) enum RangeToIntErrorKind<T> {

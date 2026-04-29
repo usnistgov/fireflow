@@ -10,7 +10,7 @@ Simple types and constants used throughout other fireflow crates.
 derive_more = { workspace = true, features = ["from", "into", "display"] }
 thiserror = { workspace = true }
 const_format = { workspace = true }
-pyo3 = { workspace = true, optional = true }
+pyo3 = { workspace = true, optional = true, features = ["macros"] }
 phf = { workspace = true, features = ["macros", "unicase"] }
 unicase = { workspace = true }
 bigdecimal = { workspace = true }

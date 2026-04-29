@@ -52,6 +52,10 @@ impl_str_enum!(
     FCS3_2 => ne_str!("FCS3.2")
 );
 
+pub trait HasVersion {
+    fn as_version() -> Version;
+}
+
 // marker traits that denote a single version
 macro_rules! impl_version {
     ($name:ident, $var:ident) => {
@@ -59,9 +63,9 @@ macro_rules! impl_version {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $name;
 
-        impl From<$name> for Version {
-            fn from(_: $name) -> Self {
-                Self::$var
+        impl HasVersion for $name {
+            fn as_version() -> Version {
+                Version::$var
             }
         }
     };

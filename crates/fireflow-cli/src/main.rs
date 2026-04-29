@@ -23,9 +23,9 @@ use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_core::validated::timepattern::TimePattern;
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
-    ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
-    TrimValueWhitespace, TruncateEventValues,
+    AllowHeaderTEXTOffsetMismatch, CheckEventRanges, DelimEscapeMode, ForceLinearScale,
+    GuessOtherWidth, ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey,
+    TriFlag, TrimValueWhitespace, TruncateEventValues,
 };
 use fireflow_types::config::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
@@ -1517,12 +1517,9 @@ fn get_write_std_dataset_config(sargs: &ArgMatches) -> config::WriteDatasetInner
 
     get_opt(sargs, PRINT_DELIM, |x| conf.text.delim = x);
     get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
-    // ASSUME data will be read into columns that match their appropriate data
-    // type and thus checking for conversion loss is not necessary.
-    //
-    // TODO this can be totally bypasses for reasons noted above which will
-    // save cycles.
-    conf.skip_conversion_check = true.into();
+    // ranges are checked once when reading the dataframe so no need to check
+    // them again; if anything they might be fixed
+    conf.check_event_ranges = CheckEventRanges::None;
     conf
 }
 
@@ -1678,7 +1675,7 @@ pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) 
 
     let df = core.as_data();
     let nrows = df.nrows();
-    let cols: Vec<_> = df.iter_columns().collect();
+    let cols: Vec<_> = df.iter().collect();
     let ncols = cols.len();
     let dtypes = core.datatypes();
     debug_assert!(dtypes.len() == ncols, "datatypes are wrong length");

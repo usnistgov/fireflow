@@ -31,15 +31,16 @@ bigdecimal = { workspace = true }
 ambassador = { workspace = true }
 unicase = { workspace = true }
 hashbrown = { workspace = true }
+bytemuck = { workspace = true }
 fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
 nalgebra = { workspace = true, features = ["std"] }
 polars-arrow = { workspace = true }
 nonempty-collections = { workspace = true }
 type_families = { path = "../type_families" }
+fireflow-core-proc = { path = "../fireflow-core-proc" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, features = ["nalgebra"], optional = true }
-fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 
 [features]
 serde = [
@@ -54,7 +55,6 @@ serde = [
 python = [
     "dep:pyo3",
     "dep:numpy",
-    "dep:fireflow-core-proc",
     "fireflow-types/python",
 ]
 

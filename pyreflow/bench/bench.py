@@ -259,7 +259,7 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
         byteord = endian_to_order(lt.endian)
     else:
         byteord = (
-            ",".join(str(x + 1) for x in lt.byteord)
+            ",".join(map(str, lt.byteord))
             if isinstance(lt.byteord, list)
             else endian_to_order(lt.byteord)
         )

@@ -198,8 +198,11 @@ impl_internal_as_ref_unaligned!(u64, U56);
 impl<T, Raw> InternalSeries<T, Raw> {
     fn as_raw_slice(&self) -> &[Raw] {
         debug_assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
+        let xs = self.inner.as_ref();
+        let p = xs.as_ptr().cast::<Raw>();
+        let n = xs.len();
         // SAFETY: T and Raw are assumed to have the same layout and size
-        unsafe { &*self.inner.as_ref().as_ptr().cast::<&[Raw]>() }
+        unsafe { from_raw_parts(p, n) }
     }
 
     pub(crate) fn truncate(&mut self, upper: Raw) -> Option<usize>

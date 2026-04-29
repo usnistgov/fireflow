@@ -10,10 +10,13 @@ use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex};
 use fireflow_types::config::RowBufferSize;
 
 use derive_new::new;
+use itertools::Itertools as _;
 use num_traits::{FromBytes, ToBytes};
 
 use std::convert::Infallible;
 use std::io::{self, BufReader, BufWriter, Read, Write};
+
+use super::dataframe::HasLen;
 
 /// A cache-friendly buffer for reading and writing DATA.
 ///
@@ -93,6 +96,56 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
     fn remainder_bytes(&self) -> usize {
         let remainder_rows = self.remainder_row_number();
         remainder_rows * self.row_width
+    }
+
+    /// Test the input geometry to ensure that we won't read out of bounds.
+    ///
+    /// This is important because we don't want to use range checks in the
+    /// main loop.
+    fn assert_matrix_assumptions<C: HasLen>(&self, columns: &[C], value_bytes: usize) {
+        let mismatch_col_lengths: Vec<_> = columns
+            .iter()
+            .map(HasLen::len)
+            .enumerate()
+            .filter(|(_, l)| *l != self.nrows)
+            .map(|(i, l)| format!("({i},{l})"))
+            .collect();
+        assert!(
+            mismatch_col_lengths.is_empty(),
+            "All column lengths should be equal to given row number ({}), \
+             non-equal column lengths were [{}] (index, length)",
+            self.nrows,
+            mismatch_col_lengths.into_iter().join(",")
+        );
+
+        let computed_row_width = columns.len() * value_bytes;
+        assert!(
+            computed_row_width == self.row_width,
+            "Computed row bytes ({computed_row_width}) not equal to assumed row bytes ({})",
+            self.row_width,
+        );
+
+        let whole_buffer_rows = self.rows_per_buffer * self.whole_row_number();
+        assert!(
+            whole_buffer_rows <= self.nrows,
+            "number of rows in complete reads ({whole_buffer_rows}) \
+             must be less than total rows ({})",
+            self.nrows
+        );
+    }
+
+    /// Check that we won't read out of bounds.
+    ///
+    /// This must be a debug assert so that there are no bounds checks (and
+    /// therefore no jmp ops) in the main loop in release code.
+    fn debug_assert_in_bounds(&self, idx: usize, len: usize) {
+        debug_assert!(
+            idx + len <= u64_to_usize(self.buf_size),
+            "need to read [{}..{}] but buffer is only {} bytes long",
+            idx,
+            idx + len,
+            self.buf_size,
+        );
     }
 }
 
@@ -182,18 +235,7 @@ impl ReadBuffer {
         // 1-3 above mean that that two inner loops have no jumps, which means
         // the compiler can unroll the loops and possibly autovectorize.
         let src_len = T::file_len();
-        assert!(
-            columns.iter().all(|c| c.len() == self.nrows),
-            "all column lengths should be equal to given row number"
-        );
-        assert!(
-            columns.len() * src_len == self.row_width,
-            "incorrect column number size"
-        );
-        assert!(
-            self.rows_per_buffer * self.whole_row_number() <= self.nrows,
-            "invalid whole reads number"
-        );
+        self.assert_matrix_assumptions(columns, src_len);
 
         // Read groups of rows in outer loop
         for buf_idx in 0..self.whole_row_number() {
@@ -208,10 +250,7 @@ impl ReadBuffer {
                 let local_c = &mut c[start_row..end_row];
                 for (row, value) in local_c.iter_mut().enumerate() {
                     let src_idx = SrcIndex(src_col_offset + self.row_width * row);
-                    debug_assert!(
-                        src_idx.0 + src_len < u64_to_usize(self.buf_size),
-                        "out of bounds"
-                    );
+                    self.debug_assert_in_bounds(src_idx.0, src_len);
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
                     // is row index (within the buffer) and C is column index.
                     // Both R and C must be less than the number of rows per
@@ -236,10 +275,7 @@ impl ReadBuffer {
             let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter_mut().enumerate() {
                 let src_idx = SrcIndex(src_col_offset + self.row_width * row);
-                debug_assert!(
-                    src_idx.0 + src_len < u64_to_usize(self.buf_size),
-                    "out of bounds"
-                );
+                self.debug_assert_in_bounds(src_idx.0, src_len);
                 // SAFETY: see above
                 let buf = unsafe { T::array_from_slice(&self.bytes, &src_idx) };
                 *value = from_buf(&buf);
@@ -444,18 +480,7 @@ impl WriteBuffer {
         // This has similar analogous optimizations and assumptions as
         // ReadBuffer::read_matrix
         let dst_len = T::file_len();
-        assert!(
-            columns.iter().all(|c| c.len() == self.nrows),
-            "all column lengths should be equal to given row number"
-        );
-        assert!(
-            columns.len() * dst_len == self.row_width,
-            "incorrect column number size"
-        );
-        assert!(
-            self.rows_per_buffer * self.whole_row_number() <= self.nrows,
-            "invalid whole reads number"
-        );
+        self.assert_matrix_assumptions(columns, dst_len);
 
         // Write groups of rows in outer loop
         for buf_idx in 0..self.whole_row_number() {
@@ -469,10 +494,7 @@ impl WriteBuffer {
                 let local_c = &c[start_row..end_row];
                 for (row, value) in local_c.iter().enumerate() {
                     let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
-                    debug_assert!(
-                        dst_idx.0 + dst_len < u64_to_usize(self.buf_size),
-                        "out of bounds"
-                    );
+                    self.debug_assert_in_bounds(dst_idx.0, dst_len);
                     let buf = to_buf(value);
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
                     // is row index (within the buffer) and C is column index.
@@ -499,10 +521,7 @@ impl WriteBuffer {
             let local_c = &c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter().enumerate() {
                 let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
-                debug_assert!(
-                    dst_idx.0 + dst_len < u64_to_usize(self.buf_size),
-                    "out of bounds"
-                );
+                self.debug_assert_in_bounds(dst_idx.0, dst_len);
                 let buf = to_buf(value);
                 // SAFETY: see above
                 unsafe {

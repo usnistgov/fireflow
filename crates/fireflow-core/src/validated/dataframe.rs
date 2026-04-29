@@ -1131,6 +1131,19 @@ impl<T, R> HasLen for InternalSeries<T, R> {
     }
 }
 
+impl<T> HasLen for Vec<T> {
+    #[allow(clippy::use_self)]
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+}
+
+impl<T> HasLen for &[T] {
+    fn len(&self) -> usize {
+        self[..].len()
+    }
+}
+
 impl<C> DataFrame<C> {
     pub fn try_new(series: impl IntoIterator<Item = C>) -> Result<Self, NewDataframeError>
     where

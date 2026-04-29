@@ -160,7 +160,7 @@ pub trait FCSRepr {
     {
         let mut buf = Self::FileBuf::default();
         for (i, j) in order.as_ref().iter().enumerate() {
-            buf.as_mut()[i] = bytes.as_ref()[usize::from(*j)];
+            buf.as_mut()[usize::from(*j)] = bytes.as_ref()[i];
         }
         Self::from_le_bytes(&buf)
     }

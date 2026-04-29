@@ -1,7 +1,9 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
 use crate::config::DisallowRangeTrunc;
-use crate::data::{ConvertedRange, HeaderFromRange as _, IndexedError, IndexedRangeToAsciiError};
+use crate::data::{
+    ColumnSchemaFromRange as _, ConvertedRange, IndexedError, IndexedRangeToAsciiError,
+};
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
 use crate::text::index::MeasIndex;

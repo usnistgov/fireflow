@@ -560,14 +560,14 @@ impl WriteBuffer {
     ) -> io::Result<()> {
         let ranges: Vec<_> = cols
             .iter()
-            .map(|c| usize::from(u8::from(c.header().chars())))
+            .map(|c| usize::from(u8::from(c.column_schema().chars())))
             .collect();
         self.write_columns(
             h,
             cols,
             |src, src_index, dst, dst_index| {
                 let v = src.as_ref()[src_index.0];
-                src.header().as_slice_unchecked(v, dst, &dst_index);
+                src.column_schema().as_slice_unchecked(v, dst, &dst_index);
             },
             |i| ranges[i],
         )
@@ -600,7 +600,7 @@ impl WriteBuffer {
         let src_widths: Vec<_> = cols
             .iter()
             .map(|c| match c {
-                AnyDatatype::Ascii(x) => usize::from(u8::from(x.header().chars())),
+                AnyDatatype::Ascii(x) => usize::from(u8::from(x.column_schema().chars())),
                 AnyDatatype::Uint(x) => usize::from(u8::from(x.bytes())),
                 AnyDatatype::F32(_) => 4,
                 AnyDatatype::F64(_) => 8,

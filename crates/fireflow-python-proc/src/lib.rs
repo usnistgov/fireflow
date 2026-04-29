@@ -244,7 +244,8 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_read_data_schema_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
@@ -342,7 +343,8 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let (header_conf, header_args, header_recs) = DocArgParam::new_read_header_config_params();
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
@@ -368,7 +370,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     // value is A for 3.1+
     let exc1 = PyException::new_parse_keyval();
     let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
-        "If keywords are incompatible with indicated layout of {DATA}"
+        "If keywords are incompatible with indicated data schema for {DATA}"
     ));
     let exc3 = PyException::new_event_data();
 
@@ -457,7 +459,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
@@ -556,7 +559,8 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(None);
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
@@ -566,7 +570,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     // value is A for 3.1+
     let exc1 = PyException::new_parse_keyval();
     let exc2 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
-        "If keywords are incompatible with indicated layout of {DATA}"
+        "If keywords are incompatible with indicated data schema for {DATA}"
     ));
     let exc3 = PyException::new_event_data();
 
@@ -1761,7 +1765,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let fun: Path = parse_quote!(#coretext_rstype::#fun_name);
 
     let meas: AnyDocArg = DocArg::new_paired_measurements_param(version).into();
-    let layout: AnyDocArg = DocArg::new_layout_ivar(version).into();
+    let layout: AnyDocArg = DocArg::new_data_schema_ivar(version).into();
     let data: AnyDocArg = DocArg::new_df_ivar().into();
     let analysis: AnyDocArg = DocArg::new_analysis_ivar().into();
     let others = DocArg::new_others_ivar().into();
@@ -2621,9 +2625,9 @@ pub fn impl_core_set_named_measurements(input: TokenStream) -> TokenStream {
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
     let s = if is_dataset {
-        "layout and dataframe"
+        "data schema and dataframe"
     } else {
-        "layout"
+        "data schema"
     };
     let ps = [format!(
         "Length of {measurements} must match number of columns in existing {s}.",
@@ -3093,7 +3097,8 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
 
     let v = Some(version);
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(v);
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_read_data_schema_config_params(v);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let other_kws = if version == Version::FCS2_0 {
@@ -3186,7 +3191,8 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let v = Some(version);
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(v);
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
-    let (layout_conf, layout_args, layout_recs) = DocArgParam::new_read_layout_config_params(v);
+    let (layout_conf, layout_args, layout_recs) =
+        DocArgParam::new_read_data_schema_config_params(v);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
@@ -3210,7 +3216,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let exc0 = PyException::new_parse_keyval();
     let exc1 = PyException::new_pyreflow(PyreflowError::Relational).desc(format!(
-        "If keywords are incompatible with indicated layout of {DATA} or \
+        "If keywords are incompatible with indicated data schema for {DATA} or \
          if keywords that are referenced by other keywords do not exist",
     ));
     let exc2 = PyException::new_event_data();
@@ -3342,7 +3348,7 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
 pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_checked("PyCoreTEXT", &i);
-    let s = "Remove measurements and clear the layout.";
+    let s = "Remove measurements and clear data.";
     let p0 = format!(
         "This is equivalent to deleting all {PN_ANY} keywords and setting \
          {PAR} to {zero}.",
@@ -3386,51 +3392,54 @@ pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
     .into()
 }
 
+// TODO adapt this for truncating just PnR
+
+// #[proc_macro]
+// pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
+//     let i: Ident = syn::parse(input).unwrap();
+//     let _ = split_ident_version_checked("PyCoreDataset", &i);
+
+//     let p = DocArg::new_bool_param(
+//         "skip_conv_check",
+//         format!(
+//             "If {TRUE}, silently truncate data; otherwise return warnings when \
+//              truncation is performed."
+//         ),
+//     );
+
+//     let exc = PyException::new_data_loss();
+
+//     let doc =
+//         DocString::new_method("Coerce all values in DATA to fit within types specified in layout.")
+//             .para("This will always create a new copy of DATA in-place.")
+//             .arg(p)
+//             .returns(DocReturn::new(PyTuple::default()).exc([exc]));
+
+//     let fun_arg = doc.fun_args();
+//     let inner_arg = doc.idents();
+
+//     quote! {
+//         #[pymethods]
+//         impl #i {
+//             #doc
+//             fn truncate_data(&mut self, #fun_arg) -> PyResult<()> {
+//                 self.0.truncate_data(#inner_arg).py_resolve_warnings()
+//             }
+//         }
+//     }
+//     .into()
+// }
+
 #[proc_macro]
-pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
-    let i: Ident = syn::parse(input).unwrap();
-    let _ = split_ident_version_checked("PyCoreDataset", &i);
-
-    let p = DocArg::new_bool_param(
-        "skip_conv_check",
-        format!(
-            "If {TRUE}, silently truncate data; otherwise return warnings when \
-             truncation is performed."
-        ),
-    );
-
-    let exc = PyException::new_data_loss();
-
-    let doc =
-        DocString::new_method("Coerce all values in DATA to fit within types specified in layout.")
-            .para("This will always create a new copy of DATA in-place.")
-            .arg(p)
-            .returns(DocReturn::new(PyTuple::default()).exc([exc]));
-
-    let fun_arg = doc.fun_args();
-    let inner_arg = doc.idents();
-
-    quote! {
-        #[pymethods]
-        impl #i {
-            #doc
-            fn truncate_data(&mut self, #fun_arg) -> PyResult<()> {
-                self.0.truncate_data(#inner_arg).py_resolve_warnings()
-            }
-        }
-    }
-    .into()
-}
-
-#[proc_macro]
-pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream {
+pub fn impl_core_set_measurements_and_data_schema(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let layout = DocArg::new_layout_ivar(version);
+    let data_schema = DocArg::new_data_schema_ivar(version);
     let measurements = DocArg::new_measurements_param(version);
 
-    let param_type_set_layout = DocArg::new_param("layout", layout.pytype, "The new layout.");
+    let param_type_set_data_schema =
+        DocArg::new_param("data_schema", data_schema.pytype, "The new data schema.");
 
     let s = if is_dataset {
         " and both must match number of columns in existing dataframe"
@@ -3438,22 +3447,22 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
         ""
     };
     let length_para = format!(
-        "Length of {measurements_arg} must match number of columns in {layout_arg} {s}.",
+        "Length of {measurements_arg} must match number of columns in {data_schema_arg} {s}.",
         measurements_arg = arg(&measurements.argname),
-        layout_arg = arg(&layout.argname)
+        data_schema_arg = arg(&data_schema.argname)
     );
 
-    let named_doc = DocString::new_method("Set all measurements, names, and layout at once.")
+    let named_doc = DocString::new_method("Set all measurements, names, and data schema at once.")
         .para(length_para.clone())
         .arg(DocArg::new_set_meas_param(version))
-        .arg(param_type_set_layout.clone())
+        .arg(param_type_set_data_schema.clone())
         .arg(DocArg::new_allow_shared_names_param())
         .arg(DocArg::new_skip_index_check_param());
 
-    let unnamed_doc = DocString::new_method("Set all measurements and layout at once.")
+    let unnamed_doc = DocString::new_method("Set all measurements and data schema at once.")
         .para(length_para)
         .arg(measurements)
-        .arg(param_type_set_layout);
+        .arg(param_type_set_data_schema);
 
     let named_fun_args = named_doc.fun_args();
     let unnamed_fun_args = unnamed_doc.fun_args();
@@ -3462,11 +3471,11 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
         #[pymethods]
         impl #i {
             #named_doc
-            fn set_named_measurements_and_layout(&mut self, #named_fun_args) -> PyResult<()> {
+            fn set_named_measurements_and_data_schema(&mut self, #named_fun_args) -> PyResult<()> {
                 let ret = self.0
-                    .set_named_measurements_and_layout(
+                    .set_named_measurements_and_data_schema(
                         measurements.into(),
-                        layout.into(),
+                        data_schema.into(),
                         allow_shared_names,
                         skip_index_check,
                     )?;
@@ -3474,9 +3483,9 @@ pub fn impl_core_set_measurements_and_layout(input: TokenStream) -> TokenStream 
             }
 
             #unnamed_doc
-            fn set_measurements_and_layout(&mut self, #unnamed_fun_args) -> PyResult<()> {
+            fn set_measurements_and_data_schema(&mut self, #unnamed_fun_args) -> PyResult<()> {
                 let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
-                let ret = self.0.set_measurements_and_layout(ms, layout.into())?;
+                let ret = self.0.set_measurements_and_data_schema(ms, data_schema.into())?;
                 Ok(ret)
             }
         }
@@ -3541,29 +3550,30 @@ pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> T
 }
 
 #[proc_macro]
-pub fn impl_coredataset_set_measurements_layout_and_data(input: TokenStream) -> TokenStream {
+pub fn impl_coredataset_set_measurements_data_schema_and_data(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let version = split_ident_version_checked("PyCoreDataset", &i);
 
     let measurements = DocArg::new_measurements_param(version);
-    let layout = DocArg::new_layout_ivar(version);
+    let data_schema = DocArg::new_data_schema_ivar(version);
 
-    let param_type_set_layout = DocArg::new_param("layout", layout.pytype, "The new layout.");
+    let param_type_set_data_schema =
+        DocArg::new_param("data_schema", data_schema.pytype, "The new data schema.");
 
     let param_type_set_df =
         DocArg::new_param("data", PyClass::new_dataframe(false), "The new data.");
 
     let len_para = format!(
-        "Length of {measurements_arg} and {layout_arg} must match number of columns in {data_arg}.",
+        "Length of {measurements_arg} and {data_schema_arg} must match number of columns in {data_arg}.",
         measurements_arg = arg(&measurements.argname),
-        layout_arg = arg(&layout.argname),
+        data_schema_arg = arg(&data_schema.argname),
         data_arg = arg(&param_type_set_df.argname),
     );
 
-    let doc = DocString::new_method("Set measurements, layout, and data at once.")
+    let doc = DocString::new_method("Set measurements, data schema, and data at once.")
         .para(len_para)
         .arg(measurements)
-        .arg(param_type_set_layout)
+        .arg(param_type_set_data_schema)
         .arg(param_type_set_df);
 
     let fun_args = doc.fun_args();
@@ -3572,9 +3582,9 @@ pub fn impl_coredataset_set_measurements_layout_and_data(input: TokenStream) -> 
         #[pymethods]
         impl #i {
             #doc
-            fn set_measurements_layout_and_data(&mut self, #fun_args) -> PyResult<()> {
+            fn set_measurements_data_schema_and_data(&mut self, #fun_args) -> PyResult<()> {
                 let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
-                Ok(self.0.set_measurements_layout_and_data(ms, layout.into(), data.into())?)
+                Ok(self.0.set_measurements_data_schema_and_data(ms, data_schema.into(), data.into())?)
             }
         }
     }
@@ -4221,7 +4231,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
+pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
     let path: Path = syn::parse(input).unwrap();
     let name = path.segments.last().unwrap().ident.clone();
     let bare_path = path_strip_args(path.clone());
@@ -4237,7 +4247,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.columns().iter().map(|c| c.value()).collect()),
     );
 
-    let doc = DocString::new_class("A fixed-width ASCII layout.").arg(chars_param);
+    let doc = DocString::new_class("A fixed-width ASCII data schema.").arg(chars_param);
 
     let new = |fun_args| {
         quote! {
@@ -4261,7 +4271,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
         quote!(self.0.widths().fmap(|x| u64::from(u8::from(x))))
     });
 
-    let datatype = make_layout_datatype(&pyname, "A");
+    let datatype = make_data_schema_datatype(&pyname, "A");
 
     quote! {
         #class
@@ -4272,7 +4282,7 @@ pub fn impl_new_fixed_ascii_layout(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
+pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
     let path: Path = syn::parse(input).unwrap();
     let name = path.segments.last().unwrap().ident.clone();
     let bare_path = path_strip_args(path.clone());
@@ -4292,7 +4302,7 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
         },
     );
 
-    let doc = DocString::new_class("A delimited ASCII layout.").arg(ranges_param);
+    let doc = DocString::new_class("A delimited ASCII data schema.").arg(ranges_param);
 
     let new = |fun_args| {
         quote! {
@@ -4303,15 +4313,15 @@ pub fn impl_new_delim_ascii_layout(input: TokenStream) -> TokenStream {
     };
 
     let (pyname, class) = doc.into_impl_class(name, &path, new);
-    let datatype = make_layout_datatype(&pyname, "A");
+    let datatype = make_data_schema_datatype(&pyname, "A");
     quote!(#class #datatype).into()
 }
 
 #[proc_macro]
 #[allow(clippy::too_many_lines)]
-pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
+pub fn impl_new_ordered_data_schema(input: TokenStream) -> TokenStream {
     const RANGES: &str = "ranges";
-    let info = parse_macro_input!(input as OrderedLayoutInfo);
+    let info = parse_macro_input!(input as OrderedDataSchemaInfo);
     let nbytes = info.nbytes;
     let is_float = info.is_float;
     let nbits = nbytes * 8;
@@ -4352,15 +4362,16 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
     };
     let tot_path = keyword_path("Tot");
     let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
-    let ordered_layout_path = quote!(fireflow_core::data::OrderedHeaders);
-    let fixed_layout_path = quote!(fireflow_core::data::Layout);
+    let ordered_data_schema_path = quote!(fireflow_core::data::OrderedDataSchema);
+    let fixed_data_schema_path = quote!(fireflow_core::data::Layout);
     let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
 
-    let full_layout_path: Path = parse_quote!(#ordered_layout_path<#range_path, #known_tot_path>);
+    let full_data_schema_path: Path =
+        parse_quote!(#ordered_data_schema_path<#range_path, #known_tot_path>);
 
-    let layout_name = format!("Ordered{base}{nbits:02}Headers");
+    let data_schema_name = format!("Ordered{base}{nbits:02}DataSchema");
 
-    let summary = format!("{nbits}-bit ordered {what} layout.");
+    let summary = format!("{nbits}-bit ordered {what} data schema.");
 
     let range_param =
         DocArg::new_ivar_ro(RANGES, PyList::new1(range_pytype), range_desc, |_, _| {
@@ -4388,11 +4399,11 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             let new = |fun_args| {
                 quote! {
                     fn new(#fun_args) -> Self {
-                        #fixed_layout_path::new(ranges, #sizedbyteord_path::default()).into()
+                        #fixed_data_schema_path::new(ranges, #sizedbyteord_path::default()).into()
                     }
                 }
             };
-            doc.into_impl_class(layout_name, &full_layout_path, new)
+            doc.into_impl_class(data_schema_name, &full_data_schema_path, new)
         }
 
         // u16 only has two combinations (big and little) so don't allow a list
@@ -4403,11 +4414,11 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
                 quote! {
                     fn new(#fun_args) -> Self {
                         let b = #sizedbyteord_path::Endian(endian);
-                        #fixed_layout_path::new(ranges, b).into()
+                        #fixed_data_schema_path::new(ranges, b).into()
                     }
                 }
             };
-            doc.into_impl_class(layout_name, &full_layout_path, new)
+            doc.into_impl_class(data_schema_name, &full_data_schema_path, new)
         }
 
         // everything else needs the "full" version of byteord, which is big,
@@ -4417,21 +4428,21 @@ pub fn impl_new_ordered_layout(input: TokenStream) -> TokenStream {
             let new = |fun_args| {
                 quote! {
                     fn new(#fun_args) -> Self {
-                        #fixed_layout_path::new(ranges, byteord).into()
+                        #fixed_data_schema_path::new(ranges, byteord).into()
                     }
                 }
             };
-            doc.into_impl_class(layout_name, &full_layout_path, new)
+            doc.into_impl_class(data_schema_name, &full_data_schema_path, new)
         }
     };
 
     let widths = make_byte_width(&pyname, nbytes);
-    let datatype = make_layout_datatype(&pyname, dt);
+    let datatype = make_data_schema_datatype(&pyname, dt);
     quote!(#class #widths #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
+pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
     let nbytes = parse_macro_input!(input as LitInt)
         .base10_parse::<usize>()
         .expect("Must be an integer");
@@ -4441,12 +4452,13 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
     let numtype_path = keyword_path("NumType");
     let nomeasdt_path = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let endian_layout_path = quote!(fireflow_core::data::EndianHeaders);
-    let fixed_layout_path = quote!(fireflow_core::data::Layout);
+    let big_little_data_schema_path = quote!(fireflow_core::data::BigLittleDataSchema);
+    let fixed_data_schema_path = quote!(fireflow_core::data::Layout);
 
-    let full_layout_path = parse_quote!(#endian_layout_path<#coltype_path, #nomeasdt_path>);
+    let full_data_schema_path =
+        parse_quote!(#big_little_data_schema_path<#coltype_path, #nomeasdt_path>);
 
-    let layout_name = format!("EndianF{nbits:02}Headers");
+    let data_schema_name = format!("BigLittleF{nbits:02}DataSchema");
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
@@ -4460,34 +4472,34 @@ pub fn impl_new_endian_float_layout(input: TokenStream) -> TokenStream {
 
     let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
-    let doc = DocString::new_class(format!("{nbits}-bit endian float layout"))
+    let doc = DocString::new_class(format!("{nbits}-bit endian float data schema"))
         .args([range_param, is_big_param]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #fixed_layout_path::new(ranges, endian).into()
+                #fixed_data_schema_path::new(ranges, endian).into()
             }
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(layout_name, &full_layout_path, new);
+    let (pyname, class) = doc.into_impl_class(data_schema_name, &full_data_schema_path, new);
 
     let widths = make_byte_width(&pyname, nbytes);
-    let datatype = make_layout_datatype(&pyname, if nbytes == 4 { "F" } else { "D" });
+    let datatype = make_data_schema_datatype(&pyname, if nbytes == 4 { "F" } else { "D" });
 
     quote!(#class #widths #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("OrderedUintHeaders");
+pub fn impl_new_ordered_uint_data_schema(_: TokenStream) -> TokenStream {
+    let name = format_ident!("OrderedUintDataSchema");
 
-    let layout_path = quote!(fireflow_core::data::AnyOrderedUintHeaders);
+    let data_schema_path = quote!(fireflow_core::data::AnyOrderedUintDataSchema);
     let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
     let tot_path = keyword_path("Tot");
     let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
-    let full_layout_path = parse_quote!(#layout_path<#known_tot_path>);
+    let full_data_schema_path = parse_quote!(#data_schema_path<#known_tot_path>);
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
@@ -4511,7 +4523,7 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
         "byte_width",
         PyInt::from(RsInt::U8).rstype(bytes_path),
         format!(
-            "The width of the layout in bytes. Must be an integer 1 through 8. \
+            "The width of the data schema in bytes. Must be an integer 1 to 8. \
              All in {ranges_arg} must be able to fit within the allotted bytes.",
             ranges_arg = arg("ranges"),
         ),
@@ -4527,33 +4539,34 @@ pub fn impl_new_ordered_uint_layout(_: TokenStream) -> TokenStream {
     )
     .def_auto();
 
-    let doc = DocString::new_class("An integer layout with any byte order and a single width.")
-        .arg(ranges_param)
-        .arg(width_param)
-        .arg(byteord_param);
+    let doc =
+        DocString::new_class("An integer data schema with any byte order and a single width.")
+            .arg(ranges_param)
+            .arg(width_param)
+            .arg(byteord_param);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                Ok(#layout_path::new_ordered_uint(ranges, &byte_width, byteord)?.into())
+                Ok(#data_schema_path::new_ordered_uint(ranges, &byte_width, byteord)?.into())
             }
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &full_layout_path, new);
-    let datatype = make_layout_datatype(&pyname, "I");
+    let (pyname, class) = doc.into_impl_class(name, &full_data_schema_path, new);
+    let datatype = make_data_schema_datatype(&pyname, "I");
     quote!(#class #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("SingleUintHeaders");
+pub fn impl_new_single_uint_data_schema(_: TokenStream) -> TokenStream {
+    let name = format_ident!("SingleUintDataSchema");
 
-    let layout_path = quote!(fireflow_core::data::AnyFixedUintHeaders);
+    let data_schema_path = quote!(fireflow_core::data::AnySingleUintDataSchema);
     let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let full_layout_path = parse_quote!(#layout_path<#nomeasdt>);
+    let full_data_schema_path = parse_quote!(#data_schema_path<#nomeasdt>);
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
@@ -4577,7 +4590,7 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
         "byte_width",
         PyInt::from(RsInt::U32).rstype(bytes_path),
         format!(
-            "The width of the layout in bytes. Must be an integer 1 through 8. \
+            "The width of the data schema in bytes. Must be an integer 1 through 8. \
              All in {ranges_arg} must be able to fit within the allotted bytes.",
             ranges_arg = arg("ranges"),
         ),
@@ -4587,7 +4600,7 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
 
     let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
-    let doc = DocString::new_class("A mixed-width integer layout.")
+    let doc = DocString::new_class("A mixed-width integer data schema.")
         .arg(ranges_param)
         .arg(width_param)
         .arg(is_big_param);
@@ -4595,26 +4608,26 @@ pub fn impl_new_single_uint_layout(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                Ok(#layout_path::new_single_uint(ranges, &byte_width, endian)?.into())
+                Ok(#data_schema_path::new_single_uint(ranges, &byte_width, endian)?.into())
             }
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &full_layout_path, new);
-    let datatype = make_layout_datatype(&pyname, "I");
+    let (pyname, class) = doc.into_impl_class(name, &full_data_schema_path, new);
+    let datatype = make_data_schema_datatype(&pyname, "I");
     quote!(#class #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("VariableUintHeaders");
+pub fn impl_new_endian_uint_data_schema(_: TokenStream) -> TokenStream {
+    let name = format_ident!("VariableUintDataSchema");
 
     let fixed = quote!(fireflow_core::data::Layout);
     let coltype = quote!(fireflow_core::data::UvarCol);
     let numtype_path = keyword_path("NumType");
     let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let endian_layout = quote!(fireflow_core::data::EndianHeaders);
-    let layout_path = parse_quote!(#endian_layout<#coltype, #nomeasdt>);
+    let big_little_data_schema = quote!(fireflow_core::data::BigLittleDataSchema);
+    let full_data_schema_path = parse_quote!(#big_little_data_schema<#coltype, #nomeasdt>);
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
@@ -4630,8 +4643,8 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
 
     let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
-    let doc =
-        DocString::new_class("A mixed-width integer layout.").args([ranges_param, is_big_param]);
+    let doc = DocString::new_class("A mixed-width integer data schema.")
+        .args([ranges_param, is_big_param]);
 
     let new = |fun_args| {
         quote! {
@@ -4641,15 +4654,15 @@ pub fn impl_new_endian_uint_layout(_: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &layout_path, new);
-    let datatype = make_layout_datatype(&pyname, "I");
+    let (pyname, class) = doc.into_impl_class(name, &full_data_schema_path, new);
+    let datatype = make_data_schema_datatype(&pyname, "I");
     quote!(#class #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
-    let name = format_ident!("MixedHeaders");
-    let layout_path = parse_quote!(fireflow_core::data::#name);
+pub fn impl_new_mixed_data_schema(_: TokenStream) -> TokenStream {
+    let name = format_ident!("MixedDataSchema");
+    let data_schema_path = parse_quote!(fireflow_core::data::#name);
 
     let fixed = quote!(fireflow_core::data::Layout);
 
@@ -4676,7 +4689,7 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
 
     let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
-    let doc = DocString::new_class("A mixed-type layout.").args([types_param, is_big_param]);
+    let doc = DocString::new_class("A mixed-type data schema.").args([types_param, is_big_param]);
 
     let new = |fun_args| {
         quote! {
@@ -4686,11 +4699,11 @@ pub fn impl_new_mixed_layout(_: TokenStream) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name, &layout_path, new).1.into()
+    doc.into_impl_class(name, &data_schema_path, new).1.into()
 }
 
 #[proc_macro]
-pub fn impl_layout_byte_widths(input: TokenStream) -> TokenStream {
+pub fn impl_data_schema_byte_widths(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
 
     let doc = DocString::new_ivar(
@@ -4902,13 +4915,13 @@ impl Parse for NewCoreInfo {
     }
 }
 
-/// Macro args for implementing new ordered layout
-struct OrderedLayoutInfo {
+/// Macro args for implementing new ordered data schema
+struct OrderedDataSchemaInfo {
     nbytes: usize,
     is_float: bool,
 }
 
-impl Parse for OrderedLayoutInfo {
+impl Parse for OrderedDataSchemaInfo {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let nbytes = input
             .parse::<LitInt>()?
@@ -5057,8 +5070,8 @@ enum PyreflowError {
     Relational,
     #[display("EventDataError")]
     EventData,
-    #[display("DataLossError")]
-    DataLoss,
+    // #[display("DataLossError")]
+    // DataLoss,
     #[display("ConfigError")]
     Config,
 }
@@ -6140,13 +6153,13 @@ impl PyException {
         Self::new_overflow().desc(d)
     }
 
-    fn new_data_loss() -> Self {
-        Self::new_pyreflow(PyreflowError::DataLoss).desc(format!(
-            "If any values in {DATA} segment need to be truncated to \
-             fit layout and {skip_conversion_check} is {FALSE}",
-            skip_conversion_check = arg(SKIP_CONVERSION_CHECK)
-        ))
-    }
+    // fn new_data_loss() -> Self {
+    //     Self::new_pyreflow(PyreflowError::DataLoss).desc(format!(
+    //         "If any values in {DATA} segment need to be truncated to \
+    //          fit layout and {skip_conversion_check} is {FALSE}",
+    //         skip_conversion_check = arg(SKIP_CONVERSION_CHECK)
+    //     ))
+    // }
 
     fn new_pyreflow(p: PyreflowError) -> Self {
         Self::new(format!("~pyreflow.{p}"))
@@ -7466,63 +7479,63 @@ impl DocArgRWIvar {
         Self::new_meas_kw_ivar(kw, None)
     }
 
-    fn new_layout_ivar(version: Version) -> Self {
-        let ascii_layouts = ["FixedAsciiHeaders", "DelimAsciiHeaders"];
-        let non_mixed_layouts = [
-            "VariableUintHeaders",
-            "SingleUintHeaders",
-            "EndianF32Headers",
-            "EndianF64Headers",
+    fn new_data_schema_ivar(version: Version) -> Self {
+        let ascii_schema = ["FixedAsciiDataSchema", "DelimAsciiHeaders"];
+        let non_mixed_schema = [
+            "VariableUintDataSchema",
+            "SingleUintDataSchema",
+            "EndianF32DataSchema",
+            "EndianF64DataSchema",
         ];
-        let ordered_layouts = [
-            "OrderedUintHeaders",
-            "OrderedF32Headers",
-            "OrderedF64Headers",
+        let ordered_schema = [
+            "OrderedUintDataSchema",
+            "OrderedF32DataSchema",
+            "OrderedF64DataSchema",
         ];
 
-        let layout_pytype = match version {
+        let data_schema_pytype = match version {
             Version::FCS3_2 => {
-                let ys = ascii_layouts
+                let ys = ascii_schema
                     .into_iter()
-                    .chain(non_mixed_layouts)
-                    .chain(["MixedLayout"])
+                    .chain(non_mixed_schema)
+                    .chain(["MixedDataSchema"])
                     .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyHeaders3_2))
+                PyUnion::new1(ys, parse_quote!(PyDataSchema3_2))
             }
             Version::FCS3_1 => {
-                let ys = ascii_layouts
+                let ys = ascii_schema
                     .into_iter()
-                    .chain(non_mixed_layouts)
+                    .chain(non_mixed_schema)
                     .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyNonMixedHeaders))
+                PyUnion::new1(ys, parse_quote!(PyNonMixedDataSchema))
             }
             _ => {
-                let ys = ascii_layouts
+                let ys = ascii_schema
                     .into_iter()
-                    .chain(ordered_layouts)
+                    .chain(ordered_schema)
                     .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyOrderedHeaders))
+                PyUnion::new1(ys, parse_quote!(PyOrderedDataSchema))
             }
         };
-        let layout_desc = if version == Version::FCS3_2 {
+        let data_schema_desc = if version == Version::FCS3_2 {
             format!(
-                "Layout to describe data encoding. Represents {PNB}, {PNR}, {BYTEORD}, \
+                "Schema to describe data encoding. Represents {PNB}, {PNR}, {BYTEORD}, \
                  {DATATYPE}, and {PNDATATYPE}"
             )
         } else {
             format!(
-                "Layout to describe data encoding. Represents {PNB}, {PNR}, {BYTEORD}, \
+                "Schema to describe data encoding. Represents {PNB}, {PNR}, {BYTEORD}, \
                  and {DATATYPE}."
             )
         };
 
         Self::new_ivar_rw(
-            "layout",
-            layout_pytype,
-            layout_desc,
+            "data_schema",
+            data_schema_pytype,
+            data_schema_desc,
             true,
-            |_, _| quote!(self.0.layout().clone().into()),
-            |_, _| quote!(Ok(self.0.set_layout(layout.into())?)),
+            |_, _| quote!(self.0.data_schema().clone().into()),
+            |_, _| quote!(Ok(self.0.set_data_schema(data_schema.into())?)),
         )
     }
 
@@ -8252,7 +8265,7 @@ impl DocArgParam {
             "A dataframe encoding the contents of {DATA}. Number of \
              columns must match number of measurements. May be empty. \
              Types do not necessarily need to correspond to those in the \
-             data layout but mismatches may result in truncation."
+             data schema but mismatches may result in truncation."
         );
         let d = format!(
             "If {ARG_TOKEN} contains columns which are not \
@@ -8392,7 +8405,7 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_read_layout_config_params(
+    fn new_read_data_schema_config_params(
         version: Option<Version>,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let offset_ps: Vec<_> = match version {
@@ -8413,7 +8426,7 @@ impl DocArgParam {
         let integer_byteord_override = Self::new_integer_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
-        let layout_ps: Vec<_> = match version {
+        let data_schema_ps: Vec<_> = match version {
             Some(Version::FCS3_1 | Version::FCS3_2) => {
                 [process_optional_failure, disallow_range_truncation]
                     .into_iter()
@@ -8430,7 +8443,7 @@ impl DocArgParam {
         };
 
         let conf = config_path("ReadDataKeywordsConfig");
-        let ps: Vec<_> = offset_ps.into_iter().chain(layout_ps).collect();
+        let ps: Vec<_> = offset_ps.into_iter().chain(data_schema_ps).collect();
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
@@ -8780,7 +8793,7 @@ impl DocArgParam {
         Self::new_opt_param(
             "integer_byteord_override",
             PyList::new(RsInt::U32, Some(path), Some(exc.into())),
-            format!("Override {BYTEORD} for integer layouts."),
+            format!("Override {BYTEORD} for integer data schemas."),
         )
     }
 
@@ -9235,7 +9248,7 @@ impl DocArgParam {
         let n = "allow_uneven_event_width";
         let d = format!(
             "Choose what to do when event width does not perfectly divide length \
-             of {DATA}. Does not apply to delimited ASCII layouts."
+             of {DATA}. Does not apply to delimited ASCII data schema."
         );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowUnevenEventWidth", d, e)
@@ -9245,7 +9258,7 @@ impl DocArgParam {
         let d = format!(
             "Choose what happens when {TOT} does not match number of events as \
              computed by the event width and length of {DATA}. \
-             Does not apply to delimited ASCII layouts."
+             Does not apply to delimited ASCII data schema."
         );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
@@ -10081,7 +10094,7 @@ fn pytemporal(version: Version) -> Ident {
     format_ident!("PyTemporal{}", version.short_underscore())
 }
 
-fn make_layout_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
+fn make_data_schema_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
     let d = format!("The value of {DATATYPE}.");
     let doc = DocString::new_ivar(d, PyLiteral::new_datatype())
         .paras([format!("Will always return {dt}.", dt = code_str(dt))]);
@@ -10092,7 +10105,7 @@ fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
     let s0 = format!("Will always return {}.", code(nbytes));
     let s1 = format!(
         "This corresponds to the value of {PNB} divided by 8, which are \
-         all equal for this layout.",
+         all equal for this data schema.",
     );
     let doc = DocString::new_ivar("The width of each measurement in bytes.", RsInt::Usize)
         .paras([s0, s1]);
@@ -10517,7 +10530,7 @@ const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 // argument names that are referenced in doc strings
 
 const BIG_OTHER: &str = "big_other";
-const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
+// const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
 const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";

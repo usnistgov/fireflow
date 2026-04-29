@@ -57,17 +57,17 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
-use fireflow_core::data::AnyFixedUintHeaders;
-use fireflow_core::data::DataHeaders3_0;
-use fireflow_core::data::DataHeaders3_1;
+use fireflow_core::data::AnySingleUintDataSchema;
+use fireflow_core::data::DataSchema3_0;
+use fireflow_core::data::DataSchema3_1;
 use fireflow_core::data::RangeAndSeries;
 use fireflow_core::data::{
-    self, AnyAsciiHeaders, AnyDatatype, AnyEndianUintHeaders, AnyOrderedHeaders, AnyUint,
-    ColumnMarkers, DataHeaders2_0, DataHeaders3_2, DelimAsciiHeaders, EndianHeaders, F32Col,
-    F64Col, FixedAsciiHeaders, HeaderAndSeries, LayoutByteOrder as _, LayoutDatatype as _,
-    NonMixedEndianHeaders, PhantomInto as _, RangeOrMixedRange, RangeOrMixedSeries,
-    RangeOrVariableBitmask, RangeOrVariableUintSeries, ToInsert, VariableUintHeaders,
-    VariableUintSeries,
+    self, AnyAsciiDataSchema, AnyBigLittleUintDataSchema, AnyDatatype, AnyOrderedDataSchema,
+    AnyUint, BigLittleDataSchema, ColumnMarkers, DataSchema2_0, DataSchema3_2,
+    DelimAsciiDataSchema, F32Col, F64Col, FixedAsciiDataSchema, LayoutByteOrder as _,
+    LayoutDatatype as _, NonMixedDataSchema, PhantomInto as _, RangeOrMixedRange,
+    RangeOrMixedSeries, RangeOrVariableBitmask, RangeOrVariableUintSeries, Series, ToInsert,
+    VariableUintDataSchema, VariableUintSeries,
 };
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
@@ -104,18 +104,19 @@ use fireflow_python_proc::{
     impl_core_get_named_measurement, impl_core_get_set_timestep, impl_core_get_temporal,
     impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
     impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
-    impl_core_replace_temporal, impl_core_set_measurements_and_layout,
+    impl_core_replace_temporal, impl_core_set_measurements_and_data_schema,
     impl_core_set_named_measurements, impl_core_set_temporal, impl_core_set_tr_threshold,
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
     impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
-    impl_coredataset_set_measurements_layout_and_data,
+    impl_coredataset_set_measurements_data_schema_and_data,
     impl_coredataset_set_named_measurements_and_data, impl_coredataset_unset_data,
     impl_coretext_from_kws, impl_coretext_to_dataset, impl_coretext_unset_measurements,
-    impl_coretext_write_multi, impl_gated_meas, impl_layout_byte_widths, impl_meas_awh_pnfeature,
-    impl_new_core, impl_new_delim_ascii_layout, impl_new_endian_float_layout,
-    impl_new_endian_uint_layout, impl_new_fixed_ascii_layout, impl_new_gate_bi_regions,
-    impl_new_gate_uni_regions, impl_new_meas, impl_new_mixed_layout, impl_new_ordered_layout,
-    impl_new_ordered_uint_layout, impl_new_single_uint_layout, impl_py_dataset_segments,
+    impl_coretext_write_multi, impl_data_schema_byte_widths, impl_gated_meas,
+    impl_meas_awh_pnfeature, impl_new_core, impl_new_delim_ascii_data_schema,
+    impl_new_endian_float_data_schema, impl_new_endian_uint_data_schema,
+    impl_new_fixed_ascii_data_schema, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
+    impl_new_meas, impl_new_mixed_data_schema, impl_new_ordered_data_schema,
+    impl_new_ordered_uint_data_schema, impl_new_single_uint_data_schema, impl_py_dataset_segments,
     impl_py_dataset_summary, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
     impl_py_flat_text_diagnostics, impl_py_flat_text_output, impl_py_header,
     impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
@@ -126,7 +127,7 @@ use fireflow_python_proc::{
 };
 
 use derive_more::{From, Into};
-use polars::prelude::*;
+use polars::prelude as pl;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::datatypes::ArrowDataType;
 use pyo3::prelude::*;
@@ -259,8 +260,8 @@ macro_rules! impl_common {
         // method to get temporal measurement if it exists
         impl_core_get_temporal!($pytype);
 
-        // method to set all measurements and layout at once
-        impl_core_set_measurements_and_layout!($pytype);
+        // method to set all measurements and data_schema at once
+        impl_core_set_measurements_and_data_schema!($pytype);
 
         // methods to add optical or temporal measurement at last index
         impl_core_push_measurement!($pytype);
@@ -356,7 +357,7 @@ impl_coretext_common!(PyCoreTEXT3_2);
 macro_rules! impl_coredataset_common {
     ($pytype:ident) => {
         impl_coredataset_set_named_measurements_and_data!($pytype);
-        impl_coredataset_set_measurements_layout_and_data!($pytype);
+        impl_coredataset_set_measurements_data_schema_and_data!($pytype);
         impl_core_write_dataset!($pytype);
         impl_coredataset_unset_data!($pytype);
         // impl_coredataset_truncate_data!($pytype);
@@ -666,45 +667,45 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
-// Implement __new__ and attributes for PyFixedAsciiHeaders
-impl_new_fixed_ascii_layout!(
-    FixedAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+// Implement __new__ and attributes for PyFixedAsciiDataSchema
+impl_new_fixed_ascii_data_schema!(
+    FixedAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
 );
 
-// Implement __new__ and attributes for PyFixedDelimHeaders
-impl_new_delim_ascii_layout!(
-    DelimAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+// Implement __new__ and attributes for PyFixedDelimDataSchema
+impl_new_delim_ascii_data_schema!(
+    DelimAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
 );
 
 // TODO these can probably be combined
 
-// Implement __new__ and attributes for all PyOrderedF*Headers structs
-impl_new_ordered_layout!(4, true);
-impl_new_ordered_layout!(8, true);
+// Implement __new__ and attributes for all PyOrderedF*DataSchema structs
+impl_new_ordered_data_schema!(4, true);
+impl_new_ordered_data_schema!(8, true);
 
-// Implement __new__ and attributes for all PyEndianF*Headers structs
-impl_new_endian_float_layout!(4);
-impl_new_endian_float_layout!(8);
+// Implement __new__ and attributes for all PyEndianF*DataSchema structs
+impl_new_endian_float_data_schema!(4);
+impl_new_endian_float_data_schema!(8);
 
 // TODO these can probably be combined
 
-// Implement __new__ and attributes for PyOrderedUintHeaders
-impl_new_ordered_uint_layout!();
+// Implement __new__ and attributes for PyOrderedUintDataSchema
+impl_new_ordered_uint_data_schema!();
 
-// Implement __new__ and attributes for PySingleUintHeaders
-impl_new_single_uint_layout!();
+// Implement __new__ and attributes for PySingleUintDataSchema
+impl_new_single_uint_data_schema!();
 
 // TODO update docs to reflect new range parameters
 
-// Implement __new__ and attributes for PyVariableUintHeaders
-impl_new_endian_uint_layout!();
+// Implement __new__ and attributes for PyVariableUintDataSchema
+impl_new_endian_uint_data_schema!();
 
-// Implement __new__ and attributes for PyMixedHeaders
-impl_new_mixed_layout!();
+// Implement __new__ and attributes for PyMixedDataSchema
+impl_new_mixed_data_schema!();
 
-// Implement method to return the byte widths of variable-widths layouts
-impl_layout_byte_widths!(PyVariableUintHeaders);
-impl_layout_byte_widths!(PyMixedHeaders);
+// Implement method to return the byte widths of variable-widths data_schema
+impl_data_schema_byte_widths!(PyVariableUintDataSchema);
+impl_data_schema_byte_widths!(PyMixedDataSchema);
 
 #[derive(IntoPyObject, From)]
 pub enum PyAnyCoreTEXT {
@@ -763,143 +764,147 @@ impl From<PyAnyCoreDataset> for core::AnyCoreDataset {
     }
 }
 
-/// All layouts used for 2.0/3.0 in Python.
+/// All data_schema used for 2.0/3.0 in Python.
 #[derive(FromPyObject, IntoPyObject)]
-pub enum PyOrderedHeaders {
-    AsciiFixed(PyFixedAsciiHeaders),
-    AsciiDelim(PyDelimAsciiHeaders),
-    Uint(PyOrderedUintHeaders),
-    F32(PyOrderedF32Headers),
-    F64(PyOrderedF64Headers),
+pub enum PyOrderedDataSchema {
+    AsciiFixed(PyFixedAsciiDataSchema),
+    AsciiDelim(PyDelimAsciiDataSchema),
+    Uint(PyOrderedUintDataSchema),
+    F32(PyOrderedF32DataSchema),
+    F64(PyOrderedF64DataSchema),
 }
 
-/// All layouts used for 3.1 in Python.
+/// All data_schema used for 3.1 in Python.
 #[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyNonMixedHeaders {
+pub enum PyNonMixedDataSchema {
     #[from(
-        PyFixedAsciiHeaders,
-        FixedAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+        PyFixedAsciiDataSchema,
+        FixedAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
     )]
-    AsciiFixed(PyFixedAsciiHeaders),
+    AsciiFixed(PyFixedAsciiDataSchema),
 
     #[from(
-        PyDelimAsciiHeaders,
-        DelimAsciiHeaders<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
+        PyDelimAsciiDataSchema,
+        DelimAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
     )]
-    AsciiDelim(PyDelimAsciiHeaders),
+    AsciiDelim(PyDelimAsciiDataSchema),
 
-    #[from(PyVariableUintHeaders, VariableUintHeaders<Nothing<kws::NumType>>)]
-    VariableUint(PyVariableUintHeaders),
+    #[from(PyVariableUintDataSchema, VariableUintDataSchema<Nothing<kws::NumType>>)]
+    VariableUint(PyVariableUintDataSchema),
 
-    #[from(PySingleUintHeaders, AnyFixedUintHeaders<Nothing<kws::NumType>>)]
-    SingleUint(PySingleUintHeaders),
+    #[from(PySingleUintDataSchema, AnySingleUintDataSchema<Nothing<kws::NumType>>)]
+    SingleUint(PySingleUintDataSchema),
 
-    #[from(PyEndianF32Headers, EndianHeaders<F32Col, Nothing<kws::NumType>>)]
-    F32(PyEndianF32Headers),
+    #[from(PyBigLittleF32DataSchema, BigLittleDataSchema<F32Col, Nothing<kws::NumType>>)]
+    F32(PyBigLittleF32DataSchema),
 
-    #[from(PyEndianF64Headers, EndianHeaders<F64Col, Nothing<kws::NumType>>)]
-    F64(PyEndianF64Headers),
+    #[from(PyBigLittleF64DataSchema, BigLittleDataSchema<F64Col, Nothing<kws::NumType>>)]
+    F64(PyBigLittleF64DataSchema),
 }
 
-/// All layouts used for 3.2 in Python.
+/// All data_schema used for 3.2 in Python.
 #[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyHeaders3_2 {
-    NonMixed(PyNonMixedHeaders),
-    Mixed(PyMixedHeaders),
+pub enum PyDataSchema3_2 {
+    NonMixed(PyNonMixedDataSchema),
+    Mixed(PyMixedDataSchema),
 }
 
-impl From<PyOrderedHeaders> for DataHeaders2_0 {
-    fn from(value: PyOrderedHeaders) -> Self {
-        AnyOrderedHeaders::<Identity<kws::Tot>>::from(value).phantom_into()
+impl From<PyOrderedDataSchema> for DataSchema2_0 {
+    fn from(value: PyOrderedDataSchema) -> Self {
+        AnyOrderedDataSchema::<Identity<kws::Tot>>::from(value).phantom_into()
     }
 }
 
-impl From<DataHeaders2_0> for PyOrderedHeaders {
-    fn from(value: DataHeaders2_0) -> Self {
+impl From<DataSchema2_0> for PyOrderedDataSchema {
+    fn from(value: DataSchema2_0) -> Self {
         value
             .phantom_into::<ColumnMarkers<Identity<kws::Tot>, _>>()
             .into()
     }
 }
 
-impl From<PyOrderedHeaders> for DataHeaders3_0 {
-    fn from(value: PyOrderedHeaders) -> Self {
+impl From<PyOrderedDataSchema> for DataSchema3_0 {
+    fn from(value: PyOrderedDataSchema) -> Self {
         match value {
-            PyOrderedHeaders::AsciiFixed(x) => AnyAsciiHeaders::from(x.0)
+            PyOrderedDataSchema::AsciiFixed(x) => AnyAsciiDataSchema::from(x.0)
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
-            PyOrderedHeaders::AsciiDelim(x) => AnyAsciiHeaders::from(x.0)
+            PyOrderedDataSchema::AsciiDelim(x) => AnyAsciiDataSchema::from(x.0)
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
-            PyOrderedHeaders::Uint(x) => x.0.into(),
-            PyOrderedHeaders::F32(x) => x.0.into(),
-            PyOrderedHeaders::F64(x) => x.0.into(),
+            PyOrderedDataSchema::Uint(x) => x.0.into(),
+            PyOrderedDataSchema::F32(x) => x.0.into(),
+            PyOrderedDataSchema::F64(x) => x.0.into(),
         }
     }
 }
 
-impl From<DataHeaders3_0> for PyOrderedHeaders {
-    fn from(value: AnyOrderedHeaders<Identity<kws::Tot>>) -> Self {
+impl From<DataSchema3_0> for PyOrderedDataSchema {
+    fn from(value: AnyOrderedDataSchema<Identity<kws::Tot>>) -> Self {
         match value {
-            AnyOrderedHeaders::Ascii(x) => match x.phantom_into() {
-                AnyAsciiHeaders::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
-                AnyAsciiHeaders::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
+            AnyOrderedDataSchema::Ascii(x) => match x.phantom_into() {
+                AnyAsciiDataSchema::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
+                AnyAsciiDataSchema::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
             },
-            AnyOrderedHeaders::Uint(x) => Self::Uint(x.into()),
-            AnyOrderedHeaders::F32(x) => Self::F32(x.into()),
-            AnyOrderedHeaders::F64(x) => Self::F64(x.into()),
+            AnyOrderedDataSchema::Uint(x) => Self::Uint(x.into()),
+            AnyOrderedDataSchema::F32(x) => Self::F32(x.into()),
+            AnyOrderedDataSchema::F64(x) => Self::F64(x.into()),
         }
     }
 }
 
-impl From<DataHeaders3_1> for PyNonMixedHeaders {
-    fn from(value: NonMixedEndianHeaders<Nothing<kws::NumType>>) -> Self {
+impl From<DataSchema3_1> for PyNonMixedDataSchema {
+    fn from(value: NonMixedDataSchema<Nothing<kws::NumType>>) -> Self {
         match value {
-            NonMixedEndianHeaders::Ascii(x) => match x {
-                AnyAsciiHeaders::Fixed(y) => y.into(),
-                AnyAsciiHeaders::Delimited(y) => y.into(),
+            NonMixedDataSchema::Ascii(x) => match x {
+                AnyAsciiDataSchema::Fixed(y) => y.into(),
+                AnyAsciiDataSchema::Delimited(y) => y.into(),
             },
-            NonMixedEndianHeaders::Uint(x) => match x {
-                AnyEndianUintHeaders::Single(y) => y.into(),
-                AnyEndianUintHeaders::Multi(y) => y.into(),
+            NonMixedDataSchema::Uint(x) => match x {
+                AnyBigLittleUintDataSchema::Single(y) => y.into(),
+                AnyBigLittleUintDataSchema::Multi(y) => y.into(),
             },
-            NonMixedEndianHeaders::F32(x) => x.into(),
-            NonMixedEndianHeaders::F64(x) => x.into(),
+            NonMixedDataSchema::F32(x) => x.into(),
+            NonMixedDataSchema::F64(x) => x.into(),
         }
     }
 }
 
-impl From<PyNonMixedHeaders> for DataHeaders3_1 {
-    fn from(value: PyNonMixedHeaders) -> Self {
+impl From<PyNonMixedDataSchema> for DataSchema3_1 {
+    fn from(value: PyNonMixedDataSchema) -> Self {
         match value {
-            PyNonMixedHeaders::AsciiFixed(x) => Self::Ascii(x.0.into()),
-            PyNonMixedHeaders::AsciiDelim(x) => Self::Ascii(x.0.into()),
-            PyNonMixedHeaders::SingleUint(x) => Self::Uint(AnyEndianUintHeaders::Single(x.into())),
-            PyNonMixedHeaders::VariableUint(x) => Self::Uint(AnyEndianUintHeaders::Multi(x.into())),
-            PyNonMixedHeaders::F32(x) => Self::F32(x.into()),
-            PyNonMixedHeaders::F64(x) => Self::F64(x.into()),
+            PyNonMixedDataSchema::AsciiFixed(x) => Self::Ascii(x.0.into()),
+            PyNonMixedDataSchema::AsciiDelim(x) => Self::Ascii(x.0.into()),
+            PyNonMixedDataSchema::SingleUint(x) => {
+                Self::Uint(AnyBigLittleUintDataSchema::Single(x.into()))
+            }
+            PyNonMixedDataSchema::VariableUint(x) => {
+                Self::Uint(AnyBigLittleUintDataSchema::Multi(x.into()))
+            }
+            PyNonMixedDataSchema::F32(x) => Self::F32(x.into()),
+            PyNonMixedDataSchema::F64(x) => Self::F64(x.into()),
         }
     }
 }
 
-impl From<PyHeaders3_2> for DataHeaders3_2 {
-    fn from(value: PyHeaders3_2) -> Self {
+impl From<PyDataSchema3_2> for DataSchema3_2 {
+    fn from(value: PyDataSchema3_2) -> Self {
         match value {
-            PyHeaders3_2::Mixed(x) => Self::Mixed(x.into()),
-            PyHeaders3_2::NonMixed(x) => {
-                Self::NonMixed(NonMixedEndianHeaders::from(x).phantom_into())
+            PyDataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
+            PyDataSchema3_2::NonMixed(x) => {
+                Self::NonMixed(NonMixedDataSchema::from(x).phantom_into())
             }
         }
     }
 }
 
-impl From<DataHeaders3_2> for PyHeaders3_2 {
-    fn from(value: DataHeaders3_2) -> Self {
+impl From<DataSchema3_2> for PyDataSchema3_2 {
+    fn from(value: DataSchema3_2) -> Self {
         match value {
-            DataHeaders3_2::Mixed(x) => Self::Mixed(x.into()),
-            DataHeaders3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
+            DataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
+            DataSchema3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
         }
     }
 }
@@ -946,14 +951,14 @@ impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                Series::from_arrow(PlSmallStr::from(format!("X{i}")), as_array(c))
+                pl::Series::from_arrow(pl::PlSmallStr::from(format!("X{i}")), as_array(c))
                     .unwrap()
                     .into()
             })
             .collect();
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
-        PyDataFrame(DataFrame::new(columns).unwrap()).into_pyobject(py)
+        PyDataFrame(pl::DataFrame::new(columns).unwrap()).into_pyobject(py)
     }
 }
 
@@ -963,7 +968,8 @@ impl<'py> IntoPyObject<'py> for PyAnyFCSColumn {
     type Error = PyErr;
 
     fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let ser = Series::from_arrow(PlSmallStr::from("unnamed"), as_array(&self.0)).unwrap();
+        let ser =
+            pl::Series::from_arrow(pl::PlSmallStr::from("unnamed"), as_array(&self.0)).unwrap();
         PySeries(ser).into_pyobject(py)
     }
 }
@@ -1001,9 +1007,9 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
     type Error = SeriesToColumnError;
 
     fn try_from(pyser: PySeries) -> Result<Self, Self::Error> {
-        fn column_to_buf<T>(ser: Series) -> Result<PyAnyFCSColumn, SeriesToColumnError>
+        fn column_to_buf<T>(ser: pl::Series) -> Result<PyAnyFCSColumn, SeriesToColumnError>
         where
-            T: NumericNative,
+            T: pl::NumericNative,
             AnyPrimitiveSeries: From<PrimitiveSeries<T>>,
         {
             if ser.null_count() > 0 {
@@ -1028,12 +1034,12 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
 
         let ser = pyser.0;
         match ser.dtype() {
-            DataType::UInt8 => column_to_buf::<u8>(ser),
-            DataType::UInt16 => column_to_buf::<u16>(ser),
-            DataType::UInt32 => column_to_buf::<u32>(ser),
-            DataType::UInt64 => column_to_buf::<u64>(ser),
-            DataType::Float32 => column_to_buf::<f32>(ser),
-            DataType::Float64 => column_to_buf::<f64>(ser),
+            pl::DataType::UInt8 => column_to_buf::<u8>(ser),
+            pl::DataType::UInt16 => column_to_buf::<u16>(ser),
+            pl::DataType::UInt32 => column_to_buf::<u32>(ser),
+            pl::DataType::UInt64 => column_to_buf::<u64>(ser),
+            pl::DataType::Float32 => column_to_buf::<f32>(ser),
+            pl::DataType::Float64 => column_to_buf::<f64>(ser),
             t => Err(SeriesToColumnError::InvalidDatatype(
                 ser.name().clone(),
                 t.clone(),
@@ -1054,7 +1060,7 @@ impl PyAnyFCSColumn {
         match range {
             ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
             ToInsert::Specific(r) => {
-                let c = match_map_uint!(r, x, HeaderAndSeries::from_prim(x, self.0)?);
+                let c = match_map_uint!(r, x, Series::from_prim(x, self.0)?);
                 Ok(ToInsert::Specific(c))
             }
         }
@@ -1065,15 +1071,13 @@ impl PyAnyFCSColumn {
             ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
             ToInsert::Specific(r) => {
                 let c = match r {
-                    AnyDatatype::Ascii(x) => {
-                        AnyDatatype::Ascii(HeaderAndSeries::from_prim(x, self.0)?)
-                    }
+                    AnyDatatype::Ascii(x) => AnyDatatype::Ascii(Series::from_prim(x, self.0)?),
                     AnyDatatype::Uint(x) => {
-                        let z = match_map_uint!(x, y, HeaderAndSeries::from_prim(y, self.0)?);
+                        let z = match_map_uint!(x, y, Series::from_prim(y, self.0)?);
                         AnyDatatype::Uint(z)
                     }
-                    AnyDatatype::F32(x) => AnyDatatype::F32(HeaderAndSeries::from_prim(x, self.0)?),
-                    AnyDatatype::F64(x) => AnyDatatype::F64(HeaderAndSeries::from_prim(x, self.0)?),
+                    AnyDatatype::F32(x) => AnyDatatype::F32(Series::from_prim(x, self.0)?),
+                    AnyDatatype::F64(x) => AnyDatatype::F64(Series::from_prim(x, self.0)?),
                 };
                 Ok(ToInsert::Specific(c))
             }
@@ -1082,8 +1086,8 @@ impl PyAnyFCSColumn {
 }
 
 pub enum SeriesToColumnError {
-    InvalidDatatype(PlSmallStr, DataType),
-    HasNull(PlSmallStr),
+    InvalidDatatype(pl::PlSmallStr, pl::DataType),
+    HasNull(pl::PlSmallStr),
 }
 
 impl From<SeriesToColumnError> for PyErr {
@@ -1129,12 +1133,12 @@ impl PyFCSDataFrame {
     // reason is that we want to encode the names in the dataframe, and the only
     // way to do that is to have a function that takes names since FCSDataFrame
     // does not store then itself.
-    fn as_polars_dataframe(&self, names: &[Shortname]) -> DataFrame {
-        fn as_polars_column(c: &AnyPrimitiveSeries, name: &Shortname) -> Column {
+    fn as_polars_dataframe(&self, names: &[Shortname]) -> pl::DataFrame {
+        fn as_polars_column(c: &AnyPrimitiveSeries, name: &Shortname) -> pl::Column {
             // ASSUME this will not fail because the we know that any of the 6
             // allowed types will be valid columns and we don't add a NULL array
             // when making the array
-            Series::from_arrow(name.as_ref().into(), as_array(c))
+            pl::Series::from_arrow(name.as_ref().into(), as_array(c))
                 .unwrap()
                 .into()
         }
@@ -1154,6 +1158,6 @@ impl PyFCSDataFrame {
             .collect();
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
-        DataFrame::new(columns).unwrap()
+        pl::DataFrame::new(columns).unwrap()
     }
 }

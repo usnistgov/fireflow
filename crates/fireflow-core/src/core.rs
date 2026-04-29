@@ -10,14 +10,15 @@ use crate::config::{
 };
 use crate::data::{
     CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
-    DataFrame3_1, DataFrame3_2, DataFrameAsHeaders, DataFrameCheckRanges, DataHeaders2_0,
-    DataHeaders3_0, DataHeaders3_1, DataHeaders3_2, EventOverRangeError, EventsDiagnostics,
-    HeadersToDataFrameError, HeadersToEmptyDataFrame, IsTot, LayoutConvertError, LayoutDatatype,
-    LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
-    LayoutRemove, LayoutSize as _, LookupLayoutError, LookupLayoutWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewHeadersError, ReadCheckedDataframeError,
-    ReadCheckedDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame,
-    VersionedHeaders, WithPrimitiveDataFrame,
+    DataFrame3_1, DataFrame3_2, DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0,
+    DataSchema3_0, DataSchema3_1, DataSchema3_2, DataSchemaToDataFrameError,
+    DataSchemaToEmptyDataFrame, EventOverRangeError, EventsDiagnostics, IsTot, LayoutConvertError,
+    LayoutDatatype, LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize,
+    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
+    LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
+    NewDataSchemaError, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
+    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataSchema,
+    WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -172,17 +173,17 @@ use {
 /// * `T`: version-specific type for temporal measurement keywords
 /// * `P`: version-specific type for optical measurement keywords
 /// * `N`: version-specific type for $PnN
-/// * `L`: version-specific type for layout keywords (which may include DATA)
+/// * `L`: version-specific type for data schema keywords (which may include DATA)
 ///
 /// The types for these parameters and their specific FCS versions are
 /// summarized as follows:
 ///
 /// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L` (no DATA)     | `L` (with DATA)      |
 /// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|----------------------|
-/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders2_0`] | [`DataFrame2_0`] |
-/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataHeaders3_0`] | [`DataFrame3_0`] |
-/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_1`] | [`DataFrame3_1`] |
-/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataHeaders3_2`] | [`DataFrame3_2`] |
+/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataSchema2_0`] | [`DataFrame2_0`] |
+/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataSchema3_0`] | [`DataFrame3_0`] |
+/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataSchema3_1`] | [`DataFrame3_1`] |
+/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataSchema3_2`] | [`DataFrame3_2`] |
 ///
 /// # Generic parameters for data
 ///
@@ -207,13 +208,13 @@ use {
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility = "")]
-// NOTE fields are private since metaroot, measurements, and layout are all
+// NOTE fields are private since metaroot, measurements, and data schema are all
 // related to each other and must be kept in sync
 pub struct Core<A, L, O, M, T, P, N, V> {
     /// Metaroot TEXT keywords.
     ///
     /// This includes all keywords that are not part of measurements or the data
-    /// layout (ie the "root" of the metadata if thought of as a hierarchy)
+    /// schema (ie the "root" of the metadata if thought of as a hierarchy)
     metaroot: Metaroot<M>,
 
     /// All measurement TEXT keywords.
@@ -223,7 +224,7 @@ pub struct Core<A, L, O, M, T, P, N, V> {
     /// segment. The index of each measurement in this vector is n - 1.
     measurements: NamedVec<N, Temporal<T>, Optical<P>>,
 
-    /// The byte layout of the DATA segment
+    /// The DATA segment
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
@@ -448,8 +449,7 @@ pub enum AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
     FCS3_2(Box<Core3_2<A, L3_2, O>>),
 }
 
-pub type AnyCoreTEXT =
-    AnyCore<(), DataHeaders2_0, DataHeaders3_0, DataHeaders3_1, DataHeaders3_2, ()>;
+pub type AnyCoreTEXT = AnyCore<(), DataSchema2_0, DataSchema3_0, DataSchema3_1, DataSchema3_2, ()>;
 pub type AnyCoreDataset =
     AnyCore<Analysis, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2, Others>;
 
@@ -963,8 +963,8 @@ pub struct InnerOptical2_0 {
     ///
     /// This does not accessible via [`AsMut`] since this would expose this
     /// value to modification via [`Core::set_optical`] which we do not want
-    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
-    /// the measurement array in `Core` is also private.
+    /// since [`ScaleTransform`] needs to be synced with [`Core::data_schema`].
+    /// Consequently, the measurement array in `Core` is also private.
     ///
     /// There is no harm in modifying `scale` when this struct is on its own,
     /// however, so it is still public.
@@ -994,8 +994,8 @@ pub struct InnerOptical3_0 {
     ///
     /// This does not accessible via [`AsMut`] since this would expose this
     /// value to modification via [`Core::set_optical`] which we do not want
-    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
-    /// the measurement array in `Core` is also private.
+    /// since [`ScaleTransform`] needs to be synced with [`Core::data_schema`].
+    /// Consequently, the measurement array in `Core` is also private.
     ///
     /// There is no harm in modifying `scale` when this struct is on its own,
     /// however, so it is still public.
@@ -1025,8 +1025,8 @@ pub struct InnerOptical3_1 {
     ///
     /// This does not accessible via [`AsMut`] since this would expose this
     /// value to modification via [`Core::set_optical`] which we do not want
-    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
-    /// the measurement array in `Core` is also private.
+    /// since [`ScaleTransform`] needs to be synced with [`Core::data_schema`].
+    /// Consequently, the measurement array in `Core` is also private.
     ///
     /// There is no harm in modifying `scale` when this struct is on its own,
     /// however, so it is still public.
@@ -1069,8 +1069,8 @@ pub struct InnerOptical3_2 {
     ///
     /// This does not accessible via [`AsMut`] since this would expose this
     /// value to modification via [`Core::set_optical`] which we do not want
-    /// since [`ScaleTransform`] needs to be synced with [`Core::layout`]. Consequently,
-    /// the measurement array in `Core` is also private.
+    /// since [`ScaleTransform`] needs to be synced with [`Core::data_schema`].
+    /// Consequently, the measurement array in `Core` is also private.
     ///
     /// There is no harm in modifying `scale` when this struct is on its own,
     /// however, so it is still public.
@@ -1344,7 +1344,7 @@ pub(crate) type VersionedCore<A, L, O, V> = Core<
     V,
 >;
 
-pub(crate) type VersionedCoreTEXT<V> = VersionedCore<(), <V as VersionSet>::Headers, (), V>;
+pub(crate) type VersionedCoreTEXT<V> = VersionedCore<(), <V as VersionSet>::DataSchema, (), V>;
 
 pub(crate) type VersionedCoreDataset<V> =
     VersionedCore<Analysis, <V as VersionSet>::DataFrame, Others, V>;
@@ -1589,9 +1589,9 @@ pub trait VersionSet: HasVersion {
     type Optical: VersionedOptical;
     type Temporal: VersionedTemporal;
     type Name: MightHave<Shortname>;
-    type Headers: VersionedHeaders;
+    type DataSchema: VersionedDataSchema;
     type DataFrame: VersionedDataFrame;
-    type Offsets: VersionedTEXTOffsets<TotDef = <Self::Headers as VersionedHeaders>::Tot>;
+    type Offsets: VersionedTEXTOffsets<TotDef = <Self::DataSchema as VersionedDataSchema>::Tot>;
 }
 
 pub(crate) trait PrivVersionSet: VersionSet {
@@ -1612,7 +1612,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
         (),
     >
     where
-        <Self::Headers as HeadersToEmptyDataFrame>::DfTarget:
+        <Self::DataSchema as DataSchemaToEmptyDataFrame>::DfTarget:
             Into<PrimitiveDataFrame> + DataFrameCheckRanges,
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
@@ -1621,7 +1621,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_err(LookupAndReadDataAnalysisError::from)
             .into_log()
             .and_then_commutative(|par| {
-                Self::Headers::lookup_ro(kws, par, st.conf.as_ref())
+                Self::DataSchema::lookup_ro(kws, par, st.conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
             });
@@ -1635,7 +1635,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .and_then_commutative(|(mut layout_out, mut offsets)| {
                 let ar = AnalysisReader::new(offsets.segs.analysis);
                 layout_out
-                    .headers
+                    .data_schema
                     .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -3637,7 +3637,7 @@ where
     ///
     /// Return error if names are not unique, if there is more than one
     /// time measurement, or if the measurement length doesn't match the
-    /// layout length.
+    /// data schema length.
     pub fn set_named_measurements(
         &mut self,
         xs: NamedTemporalsAndOpticals<V>,
@@ -4485,7 +4485,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: VersionedHeaders,
+        V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4525,7 +4525,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: VersionedHeaders,
+        V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4551,7 +4551,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: VersionedHeaders,
+        V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
@@ -4581,16 +4581,16 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             let nonstd_succ = Self::split_nonstandard(par, nonstd, conf.as_ref());
             let mut core_res = WarningsAndErrorsResult::Succ(nonstd_succ.repack())
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                // Lookup $PnN and layout (which are independent of each other)
+                // Lookup $PnN and data schema (which are independent of each other)
                 .and_then_commutative(|mut meas_nonstd| {
                     let ret = Self::lookup_names(std, &mut meas_nonstd[..], conf)
                         .map_ok_value(|n| (n, meas_nonstd));
                     go_err!(ret)
                 })
-                // Lookup root (which depends on $PnN) and layout
+                // Lookup root (which depends on $PnN) and data schema
                 .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
-                    let layout_res = V::Headers::lookup(std, mnsks, conf.as_ref());
+                    let layout_res = V::DataSchema::lookup(std, mnsks, conf.as_ref());
 
                     let root_res =
                         Metaroot::lookup_metaroot(std, &dedup_names[..], kws.nonstd, conf);
@@ -4602,7 +4602,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 // Lookup measure which depends on global datatype
                 .and_then_commutative(
                     |((metaroot_out, layout_out), meas_nonstd, dedup_names, original_names)| {
-                        let dts = &layout_out.headers.datatypes()[..];
+                        let dts = &layout_out.data_schema.datatypes()[..];
                         let ret =
                             Self::lookup_measurements(std, dedup_names, meas_nonstd, dts, conf);
                         go_err!(ret).map_ok_value(|x| (metaroot_out, layout_out, x, original_names))
@@ -4612,8 +4612,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     |(metaroot_out, layout_out, (meas, mut meas_diag), original_names)| {
                         meas_diag.trimmed.extend(metaroot_out.trimmed);
                         let fixes = metaroot_out.fixed_gate_scales;
-                        let ret = Self::try_new(metaroot_out.this, meas, layout_out.headers, conf)
-                            .map_ok_value(|ret| (ret, original_names, fixes, meas_diag));
+                        let ret =
+                            Self::try_new(metaroot_out.this, meas, layout_out.data_schema, conf)
+                                .map_ok_value(|ret| (ret, original_names, fixes, meas_diag));
                         go_err!(ret)
                     },
                 );
@@ -4683,52 +4684,55 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         })
     }
 
-    /// Get reference to data layout
-    pub fn layout(&self) -> &V::Headers {
+    /// Get reference to data schema
+    pub fn data_schema(&self) -> &V::DataSchema {
         &self.layout
     }
 
-    /// Set data layout
+    /// Set data schema.
     ///
-    /// Will return error if layout does not have same number of columns as
+    /// Will return error if data schema does not have same number of columns as
     /// measurements.
-    pub fn set_layout(&mut self, layout: V::Headers) -> Result<(), MeasLayoutMismatchError>
+    pub fn set_data_schema(
+        &mut self,
+        data_schema: V::DataSchema,
+    ) -> Result<(), MeasLayoutMismatchError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        layout.check_meas_named_vec(&self.measurements)?;
-        self.set_layout_inner(layout);
+        data_schema.check_meas_named_vec(&self.measurements)?;
+        self.set_layout_inner(data_schema);
         Ok(())
     }
 
-    /// Set measurements without $PnN and layout
-    pub fn set_measurements_and_layout(
+    /// Set measurements without $PnN and data schema
+    pub fn set_measurements_and_data_schema(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
-        layout: V::Headers,
+        data_schema: V::DataSchema,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        V::Headers: HasWidth + LayoutDatatype + LayoutNormalize,
+        V::DataSchema: HasWidth + LayoutDatatype + LayoutNormalize,
     {
-        self.set_measurements_and_layout_inner(measurements, layout)
+        self.set_measurements_and_layout_inner(measurements, data_schema)
     }
 
-    /// Set measurements and layout
+    /// Set measurements and data schema
     ///
-    /// Return error if measurement names are not unique, there is more
-    /// than one time measurement, or the layout and measurements have
-    /// different lengths.
-    pub fn set_named_measurements_and_layout(
+    /// Return error if measurement names are not unique, there is more than one
+    /// time measurement, or the data schema and measurements have different
+    /// lengths.
+    pub fn set_named_measurements_and_data_schema(
         &mut self,
         measurements: NamedTemporalsAndOpticals<V>,
-        layout: V::Headers,
+        data_schema: V::DataSchema,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetNamedMeasurementsError>
@@ -4738,10 +4742,10 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        let meas = layout.try_new_measurements::<V>(measurements)?;
+        let meas = data_schema.try_new_measurements::<V>(measurements)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
         self.measurements = meas;
-        self.set_layout_inner(layout);
+        self.set_layout_inner(data_schema);
         Ok(())
     }
 
@@ -4765,78 +4769,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         self.remove_measurement_by_index_inner(index)
     }
 
-    // /// Add time measurement to the end of the measurement vector.
-    // ///
-    // /// Return error if time measurement already exists, range is incompatible,
-    // /// or name is non-unique.
-    // pub fn push_temporal_nofail<C>(
-    //     &mut self,
-    //     n: Shortname,
-    //     m: Temporal<M::Temporal>,
-    //     r: C,
-    // ) -> GroupResult<(), PushCenterError, PushTemporalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.push_temporal_inner_nofail(n, m, r)
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add time measurement at the given position.
-    // ///
-    // /// Return error if time measurement already exists, name is non-unique, or
-    // /// index is out of bounds.
-    // pub fn insert_temporal_nofail<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: Shortname,
-    //     m: Temporal<M::Temporal>,
-    //     r: C,
-    // ) -> GroupResult<(), InsertCenterError, InsertTemporalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.insert_temporal_inner_nofail(i, n, m, r)
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add optical measurement to the end of the measurement vector.
-    // ///
-    // /// Return error if name is non-unique.
-    // pub fn push_optical_nofail<C>(
-    //     &mut self,
-    //     n: M::Name,
-    //     m: Optical<M::Optical>,
-    //     r: C,
-    // ) -> GroupResult<Shortname, NamePresentError, PushOpticalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.push_optical_inner_nofail(n, m, r)
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add optical measurement at a given position
-    // ///
-    // /// Return error if name is non-unique, or index is out of bounds.
-    // pub fn insert_optical_nofail<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: M::Name,
-    //     m: Optical<M::Optical>,
-    //     r: C,
-    // ) -> GroupResult<Shortname, InsertError, InsertOpticalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.insert_optical_inner_nofail(i, n, m, r)
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
     /// Remove measurements
     pub fn unset_measurements(&mut self) -> Result<(), ExistingLinkErrors> {
         self.unset_measurements_inner()
@@ -4851,9 +4783,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         df: PrimitiveDataFrame,
         analysis: Analysis,
         others: Others,
-    ) -> Result<VersionedCoreDataset<V>, HeadersToDataFrameError>
+    ) -> Result<VersionedCoreDataset<V>, DataSchemaToDataFrameError>
     where
-        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         let typed_df = self.layout.with_data(df)?;
         let new = Core::new(self.metaroot, self.measurements, typed_df, analysis, others);
@@ -4865,11 +4797,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     pub(crate) fn try_new<C>(
         mut metaroot: Metaroot<V::Metaroot>,
         measurements: NamedTemporalsAndOpticals<V>,
-        layout: V::Headers,
+        data_schema: V::DataSchema,
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        V::Headers: HasWidth,
+        V::DataSchema: HasWidth,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
@@ -4878,8 +4810,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     {
         // this should be true since the length of both is derived from $PAR
         debug_assert!(
-            measurements.len() == layout.width(),
-            "measurements and layout should be same length"
+            measurements.len() == data_schema.width(),
+            "measurements and data schema should be same length"
         );
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
@@ -4901,7 +4833,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .into_log()
             .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|ms| {
-                layout
+                data_schema
                     .check_measurement_vector_nolen(&ms)
                     .map_err(LookupCoreError::from)
                     .into_log()
@@ -4914,14 +4846,14 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     .switchable_into_commutative()
                     .map_errors(LookupCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ms, data_schema, (), ()))
             })
     }
 
     pub(crate) fn try_new_nodrop(
         mut metaroot: Metaroot<V::Metaroot>,
         measurements: NamedTemporalsAndOpticals<V>,
-        layout: V::Headers,
+        data_schema: V::DataSchema,
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
         V::Optical: AsScaleOrTransform,
@@ -4933,7 +4865,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_err(NewCoreError::from)
             .into_nowarn()
             .and_then_commutative(|ms| {
-                layout
+                data_schema
                     .check_meas_named_vec(&ms)
                     .map_err(NewCoreError::from)
                     .into_nowarn()
@@ -4943,7 +4875,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 Self::check_relationships(&mut metaroot, &ms, false)
                     .map_errors(NewCoreWarning::from)
                     .map_errors(NewCoreError::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, layout, (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ms, data_schema, (), ()))
             })
     }
 
@@ -4970,9 +4902,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     fn new_unchecked(
         metaroot: Metaroot<V::Metaroot>,
         measurements: Measurements<V::Name, V::Temporal, V::Optical>,
-        layout: V::Headers,
+        data_schema: V::DataSchema,
     ) -> Self {
-        Self::new(metaroot, measurements, layout, (), ())
+        Self::new(metaroot, measurements, data_schema, (), ())
     }
 }
 
@@ -4994,7 +4926,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: HeadersToEmptyDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -5038,7 +4970,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical + AsScaleOrTransform,
         V::Name: LookupShortname,
-        V::Headers: HeadersToEmptyDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
@@ -5176,7 +5108,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     ///
     /// Return error if columns are not all the same length or number of columns
     /// doesn't match the number of measurement.
-    pub fn set_data(&mut self, df: PrimitiveDataFrame) -> Result<(), HeadersToDataFrameError>
+    pub fn set_data(&mut self, df: PrimitiveDataFrame) -> Result<(), DataSchemaToDataFrameError>
     where
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -5191,99 +5123,102 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         Ok(())
     }
 
-    /// Get data layout.
-    pub fn layout(&self) -> V::Headers
+    /// Get data schema.
+    pub fn data_schema(&self) -> V::DataSchema
     where
-        V::DataFrame: DataFrameAsHeaders<Headers = V::Headers>,
+        V::DataFrame: DataFrameAsDataSchema<DataSchema = V::DataSchema>,
     {
-        self.layout.as_headers()
+        self.layout.as_data_schema()
     }
 
-    /// Set data layout
+    /// Set data schema.
     ///
-    /// Will return error if layout does not have same number of columns as
+    /// Will return error if data schema does not have same number of columns as
     /// measurements.
     // pass by value here to keep api consistent b/t coretext and coredataset
     #[allow(clippy::needless_pass_by_value)]
-    pub fn set_layout(&mut self, layout: V::Headers) -> Result<(), DatasetSetLayoutError>
+    pub fn set_data_schema(
+        &mut self,
+        data_schema: V::DataSchema,
+    ) -> Result<(), DatasetSetDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
-        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        layout.check_meas_named_vec(&self.measurements)?;
-        layout.check_data_loss_generic(&self.layout)?;
-        let new_layout = layout
+        data_schema.check_meas_named_vec(&self.measurements)?;
+        data_schema.check_data_loss_generic(&self.layout)?;
+        let new_data_schema = data_schema
             .with_data_generic(mem::take(&mut self.layout))
             .expect("data loss and dimensions were checked above");
-        self.set_layout_inner(new_layout);
+        self.set_layout_inner(new_data_schema);
         Ok(())
     }
 
-    /// Set measurements without $PnN and layout
+    /// Set measurements without $PnN and data_schema
     #[allow(clippy::needless_pass_by_value)]
     // pass by value here to keep api consistent b/t coretext and coredataset
-    pub fn set_measurements_and_layout(
+    pub fn set_measurements_and_data_schema(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
-        layout: V::Headers,
-    ) -> Result<(), DatasetSetUnnamedMeasAndLayoutError>
+        data_schema: V::DataSchema,
+    ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
-        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        // ensures length of new layout == length of new measurements
-        layout
+        // ensures length of new data schema == length of new measurements
+        data_schema
             .check_meas_vec::<V>(&measurements[..])
             .map_err(SetUnnamedMeasurementsError::from)?;
         // length is not checked here, just data loss
-        layout.check_data_loss_generic(&self.layout)?;
+        data_schema.check_data_loss_generic(&self.layout)?;
         // ensures length of new measurements == length of old measurements
         self.measurements
             .set_values(measurements)
             .map_err(SetUnnamedMeasurementsError::from)?;
-        let new_layout = layout
+        let new_data_schema = data_schema
             .with_data(mem::take(&mut self.layout).into())
             .expect("data loss and dimensions were checked above");
-        self.set_layout_inner(new_layout);
+        self.set_layout_inner(new_data_schema);
         Ok(())
     }
 
-    /// Set measurements and layout
+    /// Set measurements and data schema
     ///
-    /// Return error if measurement names are not unique, there is more
-    /// than one time measurement, or the layout and measurements have
-    /// different lengths.
+    /// Return error if measurement names are not unique, there is more than one
+    /// time measurement, or the data schema and measurements have different
+    /// lengths.
     // pass by value here to keep api consistent b/t coretext and coredataset
     #[allow(clippy::needless_pass_by_value)]
-    pub fn set_named_measurements_and_layout(
+    pub fn set_named_measurements_and_data_schema(
         &mut self,
         measurements: NamedTemporalsAndOpticals<V>,
-        layout: V::Headers,
+        data_schema: V::DataSchema,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Result<(), DatasetSetNamedMeasAndLayoutError>
+    ) -> Result<(), DatasetSetNamedMeasAndDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
-        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        let meas = layout
+        let meas = data_schema
             .try_new_measurements::<V>(measurements)
             .map_err(SetNamedMeasurementsError::from)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)
             .map_err(SetNamedMeasurementsError::from)?;
-        self.set_layout(layout)?;
+        self.set_data_schema(data_schema)?;
         self.measurements = meas;
         Ok(())
     }
@@ -5312,235 +5247,19 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         Ok((meas, col, rng))
     }
 
-    // /// Add time measurement to the end of the measurement vector.
-    // ///
-    // /// Return error if time measurement already exists or name is non-unique.
-    // pub fn push_temporal<C>(
-    //     &mut self,
-    //     n: Shortname,
-    //     m: Temporal<V::Temporal>,
-    //     c: C,
-    // ) -> GroupResult<(), PushTemporalToDatasetError, PushTemporalSummary>
-    // where
-    //     V::DataFrame: LayoutInsert<C>,
-    //     PushTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
-    // {
-    //     self.push_temporal_inner(n, m, c)
-    //         .map_errors(PushTemporalToDatasetError::from)
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add time measurement at the given position
-    // ///
-    // /// Return error if time measurement already exists, name is non-unique, or
-    // /// index is out of bounds.
-    // pub fn insert_temporal<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: Shortname,
-    //     m: Temporal<V::Temporal>,
-    //     c: C,
-    // ) -> GroupResult<(), InsertTemporalToDatasetError, InsertTemporalSummary>
-    // where
-    //     V::DataFrame: LayoutInsert<C>,
-    //     InsertTemporalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
-    // {
-    //     // self.layout
-    //     //     .check_new_column(&col)
-    //     //     .map_err(InsertTemporalToDatasetError::from)
-    //     //     .into_nowarn()
-    //     //     .nowarn_and_then(|()| {
-    //     self.insert_temporal_inner(i, n, m, c)
-    //         .map_errors(InsertTemporalToDatasetError::from)
-    //         // })
-    //         // .when_ok(|| {
-    //         //     self.layout.insert_nocheck(i.into(), col);
-    //         // })
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add measurement to the end of the measurement vector
-    // ///
-    // /// Return error if name is non-unique.
-    // pub fn push_optical<C>(
-    //     &mut self,
-    //     n: V::Name,
-    //     m: Optical<V::Optical>,
-    //     c: C,
-    // ) -> GroupResult<
-    //     Shortname,
-    //     PushOpticalError<<V::DataFrame as LayoutInsert<C>>::Error>,
-    //     PushOpticalSummary,
-    // >
-    // where
-    //     V::DataFrame: LayoutInsert<C>,
-    // {
-    //     // self.layout
-    //     //     .check_new_column(&col)
-    //     //     .map_err(PushOpticalToDatasetError::from)
-    //     //     .into_nowarn()
-    //     //     .nowarn_and_then(|()| {
-    //     self.push_optical_inner(n, m, c)
-    //         // })
-    //         // .when_ok(|| self.layout.push_column_nocheck(col))
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add measurement at a given position
-    // ///
-    // /// Return error if name is non-unique, or index is out of bounds.
-    // pub fn insert_optical<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: V::Name,
-    //     m: Optical<V::Optical>,
-    //     c: C,
-    // ) -> GroupResult<Shortname, InsertOpticalInDatasetError, InsertOpticalSummary>
-    // where
-    //     V::DataFrame: LayoutInsert<C>,
-    //     InsertOpticalError: From<<V::DataFrame as LayoutInsert<C>>::Error>,
-    // {
-    //     // self.layout
-    //     //     .check_new_column(&col)
-    //     //     .map_err(InsertOpticalInDatasetError::from)
-    //     //     .into_nowarn()
-    //     //     .nowarn_and_then(|()| {
-    //     self.insert_optical_inner(i, n, m, c)
-    //         .map_errors(InsertOpticalInDatasetError::from)
-    //         // })
-    //         // .when_ok(|| self.layout.insert_column_nocheck(i.into(), col))
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // TODO very wet
-
-    // /// Add time measurement to the end of the measurement vector.
-    // ///
-    // /// Return error if time measurement already exists or name is non-unique.
-    // pub fn push_temporal_nofail<C>(
-    //     &mut self,
-    //     n: Shortname,
-    //     m: Temporal<M::Temporal>,
-    //     col: AnyPrimitiveColumn,
-    //     r: C,
-    // ) -> GroupResult<(), PushTemporalToDatasetError, PushTemporalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.data
-    //         .check_new_column(&col)
-    //         .map_err(PushTemporalToDatasetError::from)
-    //         .into_nowarn()
-    //         .nowarn_and_then(|()| {
-    //             self.push_temporal_inner_nofail(n, m, r)
-    //                 // TODO this is silly
-    //                 .map_errors(PushTemporalError::from)
-    //                 .map_errors(PushTemporalToDatasetError::from)
-    //         })
-    //         .when_ok(|| self.data.push_column_nocheck(col))
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add time measurement at the given position
-    // ///
-    // /// Return error if time measurement already exists, name is non-unique, or
-    // /// index is out of bounds.
-    // pub fn insert_temporal_nofail<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: Shortname,
-    //     m: Temporal<M::Temporal>,
-    //     col: AnyPrimitiveColumn,
-    //     r: C,
-    // ) -> GroupResult<(), InsertTemporalToDatasetError, InsertTemporalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.data
-    //         .check_new_column(&col)
-    //         .map_err(InsertTemporalToDatasetError::from)
-    //         .into_nowarn()
-    //         .nowarn_and_then(|()| {
-    //             self.insert_temporal_inner_nofail(i, n, m, r)
-    //                 .map_errors(InsertTemporalError::from)
-    //                 .map_errors(InsertTemporalToDatasetError::from)
-    //         })
-    //         .when_ok(|| {
-    //             self.data.insert_column_nocheck(i.into(), col);
-    //         })
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add measurement to the end of the measurement vector
-    // ///
-    // /// Return error if name is non-unique.
-    // pub fn push_optical_nofail<C>(
-    //     &mut self,
-    //     n: M::Name,
-    //     m: Optical<M::Optical>,
-    //     col: AnyPrimitiveColumn,
-    //     r: C,
-    // ) -> GroupResult<Shortname, PushOpticalToDatasetError, PushOpticalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.data
-    //         .check_new_column(&col)
-    //         .map_err(PushOpticalToDatasetError::from)
-    //         .into_nowarn()
-    //         .nowarn_and_then(|()| {
-    //             self.push_optical_inner_nofail(n, m, r)
-    //                 .map_errors(PushOpticalError::from)
-    //                 .map_errors(PushOpticalToDatasetError::from)
-    //         })
-    //         .when_ok(|| self.data.push_column_nocheck(col))
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
-    // /// Add measurement at a given position
-    // ///
-    // /// Return error if name is non-unique, or index is out of bounds.
-    // pub fn insert_optical_nofail<C>(
-    //     &mut self,
-    //     i: MeasIndex,
-    //     n: M::Name,
-    //     m: Optical<M::Optical>,
-    //     col: AnyPrimitiveColumn,
-    //     r: C,
-    // ) -> GroupResult<Shortname, InsertOpticalInDatasetError, InsertOpticalSummary>
-    // where
-    //     <M::Ver as Versioned>::Layout: Insertable<C, Error = Infallible>,
-    // {
-    //     self.data
-    //         .check_new_column(&col)
-    //         .map_err(InsertOpticalInDatasetError::from)
-    //         .into_nowarn()
-    //         .nowarn_and_then(|()| {
-    //             self.insert_optical_inner_nofail(i, n, m, r)
-    //                 .map_errors(InsertOpticalError::from)
-    //                 .map_errors(InsertOpticalInDatasetError::from)
-    //         })
-    //         .when_ok(|| self.data.insert_column_nocheck(i.into(), col))
-    //         .group()
-    //         .resolve_nowarn()
-    // }
-
     /// Convert this struct into [`CoreTEXT`].
     ///
     /// This simply entails taking ownership and dropping the ANALYSIS and DATA
     /// fields.
     pub fn into_coretext(self) -> VersionedCoreTEXT<V>
     where
-        V::DataFrame: DataFrameAsHeaders<Headers = V::Headers>,
+        V::DataFrame: DataFrameAsDataSchema<DataSchema = V::DataSchema>,
     {
-        CoreTEXT::new_unchecked(self.metaroot, self.measurements, self.layout.as_headers())
+        CoreTEXT::new_unchecked(
+            self.metaroot,
+            self.measurements,
+            self.layout.as_data_schema(),
+        )
     }
 
     /// Set measurements and dataframe together
@@ -5587,14 +5306,14 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         Ok(())
     }
 
-    /// Set measurements without $PnN, layout, and dataframe together
+    /// Set measurements without $PnN, data schema, and data itself together
     ///
-    /// Length of measurements must match the width of the input dataframe.
+    /// Each input must represent the same number of columns.
     #[allow(clippy::needless_pass_by_value)]
-    pub fn set_measurements_layout_and_data(
+    pub fn set_measurements_data_schema_and_data(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
-        layout: V::Headers,
+        data_schema: V::DataSchema,
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
@@ -5602,9 +5321,9 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        V::Headers: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        let new_df = layout.with_data(df)?;
+        let new_df = data_schema.with_data(df)?;
         self.set_measurements_and_layout_inner(measurements, new_df)?;
         Ok(())
     }
@@ -5706,7 +5425,7 @@ impl CoreTEXT2_0 {
     #[must_use]
     pub fn try_new_2_0(
         measurements: TemporalsAndOpticals2_0,
-        layout: DataHeaders2_0,
+        data_schema: DataSchema2_0,
         mode: Mode,
         cyt: Cyt,
         comp: Option<Compensation>,
@@ -5753,7 +5472,7 @@ impl CoreTEXT2_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new_nodrop(metaroot, measurements, layout)
+                Self::try_new_nodrop(metaroot, measurements, data_schema)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -5764,7 +5483,7 @@ impl CoreTEXT3_0 {
     #[must_use]
     pub fn try_new_3_0(
         measurements: TemporalsAndOpticals3_0,
-        layout: DataHeaders3_0,
+        data_schema: DataSchema3_0,
         mode: Mode,
         cyt: Cyt,
         comp: Option<Compensation>,
@@ -5825,7 +5544,7 @@ impl CoreTEXT3_0 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new_nodrop(metaroot, measurements, layout)
+                Self::try_new_nodrop(metaroot, measurements, data_schema)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -5836,7 +5555,7 @@ impl CoreTEXT3_1 {
     #[must_use]
     pub fn try_new_3_1(
         measurements: TemporalsAndOpticals3_1,
-        layout: DataHeaders3_1,
+        data_schema: DataSchema3_1,
         mode: Mode,
         cyt: Cyt,
         btim: Option<Btim<FCSTime100>>,
@@ -5905,7 +5624,7 @@ impl CoreTEXT3_1 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new_nodrop(metaroot, measurements, layout)
+                Self::try_new_nodrop(metaroot, measurements, data_schema)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -5916,7 +5635,7 @@ impl CoreTEXT3_2 {
     #[must_use]
     pub fn try_new_3_2(
         measurements: TemporalsAndOpticals3_2,
-        layout: DataHeaders3_2,
+        data_schema: DataSchema3_2,
         cyt: Cyt3_2,
         mode: Option<Mode3_2>,
         btim: Option<Btim<FCSTime100>>,
@@ -5996,7 +5715,7 @@ impl CoreTEXT3_2 {
                     specific,
                     nonstandard_keywords,
                 );
-                Self::try_new_nodrop(metaroot, measurements, layout)
+                Self::try_new_nodrop(metaroot, measurements, data_schema)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -7183,7 +6902,7 @@ macro_rules! impl_version_set {
             type Optical = $opt;
             type Temporal = $t;
             type Name = $n;
-            type Headers = $l;
+            type DataSchema = $l;
             type DataFrame = $d;
             type Offsets = $ofs;
         }
@@ -7196,7 +6915,7 @@ impl_version_set!(
     InnerOptical2_0,
     InnerTemporal2_0,
     Option<Shortname>,
-    DataHeaders2_0,
+    DataSchema2_0,
     DataFrame2_0,
     TEXTOffsets2_0
 );
@@ -7207,7 +6926,7 @@ impl_version_set!(
     InnerOptical3_0,
     InnerTemporal3_0,
     Option<Shortname>,
-    DataHeaders3_0,
+    DataSchema3_0,
     DataFrame3_0,
     TEXTOffsets3_0
 );
@@ -7218,7 +6937,7 @@ impl_version_set!(
     InnerOptical3_1,
     InnerTemporal3_1,
     Identity<Shortname>,
-    DataHeaders3_1,
+    DataSchema3_1,
     DataFrame3_1,
     TEXTOffsets3_0
 );
@@ -7229,7 +6948,7 @@ impl_version_set!(
     InnerOptical3_2,
     InnerTemporal3_2,
     Identity<Shortname>,
-    DataHeaders3_2,
+    DataSchema3_2,
     DataFrame3_2,
     TEXTOffsets3_2
 );
@@ -9047,7 +8766,7 @@ pub struct NameConversionError(Key1<Shortname>);
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
-    Layout(NewHeadersError),
+    Layout(NewDataSchemaError),
     Check(EventOverRangeError),
     HeaderText(WriteTEXTHeaderError),
 }
@@ -9106,7 +8825,7 @@ pub enum SetTransformsError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementsAndDataError {
     Meas(SetNamedMeasurementsError),
-    Mismatch(HeadersToDataFrameError),
+    Mismatch(DataSchemaToDataFrameError),
 }
 
 /// Error when setting measurements without $PnN and DATA/dataframe simultaneously
@@ -9114,40 +8833,32 @@ pub enum SetMeasurementsAndDataError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetUnnamdMeasurementsAndDataError {
     Meas(SetUnnamedMeasurementsError),
-    Mismatch(HeadersToDataFrameError),
+    Mismatch(DataSchemaToDataFrameError),
 }
 
-/// Error when setting layout for a dataset.
+/// Error when setting data schema for a dataset.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DatasetSetLayoutError {
-    Layout(MeasLayoutMismatchError),
+pub enum DatasetSetDataSchemaError {
+    DataSchema(MeasLayoutMismatchError),
     Cast(CastSeriesErrors),
 }
 
-/// Error when setting named measurements and layout for a dataset.
+/// Error when setting named measurements and data schema for a dataset.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DatasetSetUnnamedMeasAndLayoutError {
+pub enum DatasetSetUnnamedMeasAndDataSchemaError {
     Cast(CastSeriesErrors),
     Meas(SetUnnamedMeasurementsError),
 }
 
-/// Error when setting named measurements and layout for a dataset.
+/// Error when setting named measurements and data schema for a dataset.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DatasetSetNamedMeasAndLayoutError {
-    Layout(DatasetSetLayoutError),
+pub enum DatasetSetNamedMeasAndDataSchemaError {
+    DataSchema(DatasetSetDataSchemaError),
     Meas(SetNamedMeasurementsError),
 }
-
-// /// Error when setting dataframe/DATA segment in [`CoreDataset`]
-// #[derive(From, Display, Debug, Error)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum ColumnsToDataframeError {
-//     New(df::NewDataframeError),
-//     Mismatch(MeasDataMismatchError),
-// }
 
 /// Error when removing measurement by name ($PnN)
 #[derive(From, Display, Debug, Error)]
@@ -9239,7 +8950,7 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     Metaroot(LookupMetarootError),
     Meas(LookupMeasurementError),
     Shortname(LookupShortnameError),
-    Layout(LookupLayoutError),
+    DataSchema(LookupDataSchemaError),
     Offsets(LookupTEXTOffsetsError),
     Timestep(TimestepFoundError),
     Pseudo(PseudostandardError),
@@ -9257,7 +8968,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
     Shortname(OptIndexedKeyError<Shortname>),
-    Layout(LookupLayoutWarning),
+    DataSchema(LookupDataSchemaWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Timestep(TimestepFoundError),
     Pseudo(PseudostandardError),
@@ -9577,7 +9288,7 @@ pub enum LookupAndReadDataAnalysisError {
     DatasetOffset(DatasetOffsetError),
     Par(ReqKeyError<Par>),
     Offsets(LookupTEXTOffsetsError),
-    Layout(LookupLayoutError),
+    DataSchema(LookupDataSchemaError),
     Dataframe(ReadCheckedDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
 }
@@ -9587,7 +9298,7 @@ pub enum LookupAndReadDataAnalysisError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
-    Layout(LookupLayoutWarning),
+    DataSchema(LookupDataSchemaWarning),
     Data(ReadCheckedDataframeWarning),
 }
 
@@ -9996,11 +9707,6 @@ def_summary!(pub PushOpticalSummary, "could not push optical measurement");
 def_summary!(pub InsertOpticalSummary, "could not insert optical measurement");
 
 def_summary!(pub SetAppliedGatesSummary, "could not set gating keywords");
-
-def_summary!(
-    pub SetMeasurementsAndLayoutSummary,
-    "could not set measurements and layout"
-);
 
 def_summary!(pub WriteDatasetSummary, "could not write FCS file");
 

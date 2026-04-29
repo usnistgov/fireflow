@@ -56,16 +56,16 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
 
     m.add_class::<ff::PyGatedMeasurement>()?;
 
-    m.add_class::<ff::PyFixedAsciiHeaders>()?;
-    m.add_class::<ff::PyDelimAsciiHeaders>()?;
-    m.add_class::<ff::PyOrderedUintHeaders>()?;
-    m.add_class::<ff::PyOrderedF32Headers>()?;
-    m.add_class::<ff::PyOrderedF64Headers>()?;
-    m.add_class::<ff::PyEndianF32Headers>()?;
-    m.add_class::<ff::PyEndianF64Headers>()?;
-    m.add_class::<ff::PySingleUintHeaders>()?;
-    m.add_class::<ff::PyVariableUintHeaders>()?;
-    m.add_class::<ff::PyMixedHeaders>()?;
+    m.add_class::<ff::PyFixedAsciiDataSchema>()?;
+    m.add_class::<ff::PyDelimAsciiDataSchema>()?;
+    m.add_class::<ff::PyOrderedUintDataSchema>()?;
+    m.add_class::<ff::PyOrderedF32DataSchema>()?;
+    m.add_class::<ff::PyOrderedF64DataSchema>()?;
+    m.add_class::<ff::PyBigLittleF32DataSchema>()?;
+    m.add_class::<ff::PyBigLittleF64DataSchema>()?;
+    m.add_class::<ff::PySingleUintDataSchema>()?;
+    m.add_class::<ff::PyVariableUintDataSchema>()?;
+    m.add_class::<ff::PyMixedDataSchema>()?;
 
     m.add_class::<ff::PyHeader>()?;
     m.add_class::<ff::PyParsedHeaderSegments>()?;

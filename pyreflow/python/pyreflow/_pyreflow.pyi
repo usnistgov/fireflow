@@ -17,22 +17,22 @@ _L = TypeVar("_L")
 
 _OpticalKeyVals = list[_X | tuple[()] | None]
 
-class _LayoutUnmixedCommon:
+class _DataSchemaUnmixedCommon:
     @property
     def datatype(self) -> pft.Datatype: ...
     @property
     def byte_width(self) -> int: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
 
-class _LayoutEndianCommon:
+class _DataSchemaEndianCommon:
     @property
     def endian(self) -> pft.Endian: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
 
-class _LayoutAsciiCommon(_LayoutUnmixedCommon):
+class _DataSchemaAsciiCommon(_DataSchemaUnmixedCommon):
     def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
 
-class _LayoutOrderedUintCommon(_LayoutUnmixedCommon):
+class _DataSchemaOrderedUintCommon(_DataSchemaUnmixedCommon):
     def __new__(
         cls, ranges: list[pft.IntRange], byteord: pft.ByteOrd = "little"
     ) -> Self: ...
@@ -41,7 +41,7 @@ class _LayoutOrderedUintCommon(_LayoutUnmixedCommon):
     @property
     def byteord(self) -> pft.ByteOrd: ...
 
-class _LayoutOrderedFloatCommon(_LayoutUnmixedCommon):
+class _DataSchemaOrderedFloatCommon(_DataSchemaUnmixedCommon):
     def __new__(
         cls, ranges: list[pft.FloatRange], byteord: pft.ByteOrd = "little"
     ) -> Self: ...
@@ -50,7 +50,7 @@ class _LayoutOrderedFloatCommon(_LayoutUnmixedCommon):
     @property
     def byteord(self) -> pft.ByteOrd: ...
 
-class _LayoutEndianFloatCommon(_LayoutUnmixedCommon):
+class _DataSchemaEndianFloatCommon(_DataSchemaUnmixedCommon):
     def __new__(
         cls, ranges: list[pft.FloatRange], endian: pft.Endian = "little"
     ) -> Self: ...
@@ -60,9 +60,9 @@ class _LayoutEndianFloatCommon(_LayoutUnmixedCommon):
     def endian(self) -> pft.Endian: ...
 
 @final
-class FixedAsciiHeaders(
-    _LayoutAsciiCommon,
-    _LayoutUnmixedCommon,
+class FixedAsciiDataSchema(
+    _DataSchemaAsciiCommon,
+    _DataSchemaUnmixedCommon,
 ):
     def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
     @property
@@ -71,13 +71,13 @@ class FixedAsciiHeaders(
     def char_widths(self) -> list[int | float]: ...
 
 @final
-class DelimAsciiHeaders(_LayoutAsciiCommon, _LayoutUnmixedCommon):
+class DelimAsciiDataSchema(_DataSchemaAsciiCommon, _DataSchemaUnmixedCommon):
     def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
     @property
     def ranges(self) -> list[pft.IntRange]: ...
 
 @final
-class OrderedUintHeaders(_LayoutUnmixedCommon):
+class OrderedUintDataSchema(_DataSchemaUnmixedCommon):
     def __new__(
         cls,
         ranges: list[pft.IntRange],
@@ -90,19 +90,19 @@ class OrderedUintHeaders(_LayoutUnmixedCommon):
     def byteord(self) -> pft.ByteOrd: ...
 
 @final
-class OrderedF32Headers(_LayoutOrderedFloatCommon): ...
+class OrderedF32DataSchema(_DataSchemaOrderedFloatCommon): ...
 
 @final
-class OrderedF64Headers(_LayoutOrderedFloatCommon): ...
+class OrderedF64DataSchema(_DataSchemaOrderedFloatCommon): ...
 
 @final
-class EndianF32Headers(_LayoutEndianCommon, _LayoutEndianFloatCommon): ...
+class BigLittleF32DataSchema(_DataSchemaEndianCommon, _DataSchemaEndianFloatCommon): ...
 
 @final
-class EndianF64Headers(_LayoutEndianCommon, _LayoutEndianFloatCommon): ...
+class BigLittleF64DataSchema(_DataSchemaEndianCommon, _DataSchemaEndianFloatCommon): ...
 
 @final
-class SingleUintHeaders(_LayoutEndianCommon, _LayoutUnmixedCommon):
+class SingleUintDataSchema(_DataSchemaEndianCommon, _DataSchemaUnmixedCommon):
     def __new__(
         cls,
         ranges: list[pft.IntRange],
@@ -113,7 +113,7 @@ class SingleUintHeaders(_LayoutEndianCommon, _LayoutUnmixedCommon):
     def ranges(self) -> list[pft.IntRange]: ...
 
 @final
-class VariableUintHeaders(_LayoutEndianCommon, _LayoutUnmixedCommon):
+class VariableUintDataSchema(_DataSchemaEndianCommon, _DataSchemaUnmixedCommon):
     def __new__(
         cls, ranges: list[pft.VariableBitmask], endian: pft.Endian = "little"
     ) -> Self: ...
@@ -125,7 +125,7 @@ class VariableUintHeaders(_LayoutEndianCommon, _LayoutUnmixedCommon):
     def byte_widths(self) -> list[int]: ...
 
 @final
-class MixedHeaders(_LayoutEndianCommon):
+class MixedDataSchema(_DataSchemaEndianCommon):
     def __new__(
         cls, typed_ranges: list[pft.MixedRange], endian: pft.Endian = "little"
     ) -> Self: ...
@@ -136,31 +136,31 @@ class MixedHeaders(_LayoutEndianCommon):
     @property
     def byte_widths(self) -> list[int]: ...
 
-_AnyOrderedLayout = Union[
-    FixedAsciiHeaders
-    | DelimAsciiHeaders
-    | OrderedUintHeaders
-    | OrderedF32Headers
-    | OrderedF64Headers
+_AnyOrderedDataSchema = Union[
+    FixedAsciiDataSchema
+    | DelimAsciiDataSchema
+    | OrderedUintDataSchema
+    | OrderedF32DataSchema
+    | OrderedF64DataSchema
 ]
 
-_AnyNonMixedHeaders = Union[
-    FixedAsciiHeaders
-    | DelimAsciiHeaders
-    | EndianF32Headers
-    | EndianF64Headers
-    | SingleUintHeaders
-    | VariableUintHeaders
+_AnyNonMixedDataSchema = Union[
+    FixedAsciiDataSchema
+    | DelimAsciiDataSchema
+    | BigLittleF32DataSchema
+    | BigLittleF64DataSchema
+    | SingleUintDataSchema
+    | VariableUintDataSchema
 ]
 
-_AnyMixedHeaders = Union[
-    FixedAsciiHeaders
-    | DelimAsciiHeaders
-    | EndianF32Headers
-    | EndianF64Headers
-    | SingleUintHeaders
-    | VariableUintHeaders
-    | MixedHeaders
+_AnyMixedDataSchema = Union[
+    FixedAsciiDataSchema
+    | DelimAsciiDataSchema
+    | BigLittleF32DataSchema
+    | BigLittleF64DataSchema
+    | SingleUintDataSchema
+    | VariableUintDataSchema
+    | MixedDataSchema
 ]
 
 class _MeasCommon:
@@ -656,7 +656,7 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O]):
     ) -> None: ...
 
 class _CoreGetSetMeasOrdered(Generic[_O, _T]):
-    layout: _AnyOrderedLayout
+    data_schema: _AnyOrderedDataSchema
 
     def set_named_measurements(
         self,
@@ -664,21 +664,21 @@ class _CoreGetSetMeasOrdered(Generic[_O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_named_measurements_and_layout(
+    def set_named_measurements_and_data_schema(
         self,
         measurements: _FlatInput[pft.Shortname | None, _O, _T],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_and_layout(
+    def set_measurements_and_data_schema(
         self,
         measurements: list[_O | _T],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
     ) -> None: ...
 
 class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
-    layout: _L
+    data_schema: _L
 
     def set_named_measurements(
         self,
@@ -686,17 +686,17 @@ class _CoreGetSetMeasEndian(Generic[_L, _O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_named_measurements_and_layout(
+    def set_named_measurements_and_data_schema(
         self,
         measurements: _FlatInput[pft.Shortname, _O, _T],
-        layout: _L,
+        data_schema: _L,
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_and_layout(
+    def set_measurements_and_data_schema(
         self,
         measurements: list[_O | _T],
-        layout: _L,
+        data_schema: _L,
     ) -> None: ...
 
 class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
@@ -707,10 +707,10 @@ class _CoreDatasetGetSetMeasOrdered(Generic[_O, _T]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_layout_and_data(
+    def set_measurements_data_schema_and_data(
         self,
         measurements: list[_O | _T],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
         data: DataFrame,
     ) -> None: ...
 
@@ -722,10 +722,10 @@ class _CoreDatasetGetSetMeasEndian(Generic[_O, _T, _L]):
         allow_shared_names: bool = False,
         skip_index_check: bool = False,
     ) -> None: ...
-    def set_measurements_layout_and_data(
+    def set_measurements_data_schema_and_data(
         self,
         measurements: list[_O | _T],
-        layout: _L,
+        data_schema: _L,
         data: DataFrame,
     ) -> None: ...
 
@@ -870,7 +870,7 @@ class CoreTEXT2_0(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname | None, Optical2_0 | Temporal2_0]],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
         mode: pft.Mode = "L",
         cyt: str = "",
         comp: npt.NDArray[np.float32] | None = None,
@@ -954,7 +954,7 @@ class CoreTEXT3_0(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname | None, Optical3_0 | Temporal3_0]],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
         mode: pft.Mode = "L",
         cyt: str = "",
         comp: pft.Compensation | None = None,
@@ -1029,7 +1029,7 @@ class CoreTEXT3_1(
     _CoreTEXTRemove[pft.Shortname | None, Optical3_1, Temporal3_1],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[pft.Shortname, Temporal3_1, Optical3_1],
-    _CoreGetSetMeasEndian[_AnyNonMixedHeaders, Optical3_1, Temporal3_1],
+    _CoreGetSetMeasEndian[_AnyNonMixedDataSchema, Optical3_1, Temporal3_1],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreToDataset[CoreDataset3_1],
@@ -1051,7 +1051,7 @@ class CoreTEXT3_1(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname, Optical3_1 | Temporal3_1]],
-        layout: _AnyNonMixedHeaders,
+        data_schema: _AnyNonMixedDataSchema,
         mode: pft.Mode = "L",
         cyt: str = "",
         btim: time | None = None,
@@ -1131,7 +1131,7 @@ class CoreTEXT3_2(
     _CoreTEXTRemove[pft.Shortname | None, Optical3_2, Temporal3_2],
     _CoreReplaceTemporal3_2,
     _CoreTEXTGetSetMeas[pft.Shortname, Temporal3_2, Optical3_2],
-    _CoreGetSetMeasEndian[_AnyMixedHeaders, Optical3_2, Temporal3_2],
+    _CoreGetSetMeasEndian[_AnyMixedDataSchema, Optical3_2, Temporal3_2],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreToDataset[CoreDataset3_2],
@@ -1151,7 +1151,7 @@ class CoreTEXT3_2(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname, Optical3_2 | Temporal3_2]],
-        layout: _AnyMixedHeaders,
+        data_schema: _AnyMixedDataSchema,
         cyt: str,
         mode: pft.Mode3_2 | None = None,
         btim: time | None = None,
@@ -1255,7 +1255,7 @@ class CoreDataset2_0(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname | None, Optical2_0 | Temporal2_0]],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
         data: DataFrame,
         mode: pft.Mode = "L",
         cyt: str = "",
@@ -1353,7 +1353,7 @@ class CoreDataset3_0(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname | None, Optical3_0 | Temporal3_0]],
-        layout: _AnyOrderedLayout,
+        data_schema: _AnyOrderedDataSchema,
         data: DataFrame,
         mode: pft.Mode = "L",
         cyt: str = "",
@@ -1448,8 +1448,8 @@ class CoreDataset3_1(
     _CoreDatasetRemove[pft.Shortname | None, Optical3_1, Temporal3_1],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[pft.Shortname, Temporal3_1, Optical3_1],
-    _CoreGetSetMeasEndian[_AnyNonMixedHeaders, Optical3_1, Temporal3_1],
-    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1, _AnyNonMixedHeaders],
+    _CoreGetSetMeasEndian[_AnyNonMixedDataSchema, Optical3_1, Temporal3_1],
+    _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1, _AnyNonMixedDataSchema],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreSubset,
@@ -1471,7 +1471,7 @@ class CoreDataset3_1(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname, Optical3_1 | Temporal3_1]],
-        layout: _AnyNonMixedHeaders,
+        data_schema: _AnyNonMixedDataSchema,
         data: DataFrame,
         mode: pft.Mode = "L",
         cyt: str = "",
@@ -1571,8 +1571,8 @@ class CoreDataset3_2(
     _CoreDatasetRemove[pft.Shortname | None, Optical3_2, Temporal3_2],
     _CoreReplaceTemporal3_2,
     _CoreDatasetGetSetMeas[pft.Shortname, Temporal3_2, Optical3_2],
-    _CoreGetSetMeasEndian[_AnyMixedHeaders, Optical3_2, Temporal3_2],
-    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2, _AnyMixedHeaders],
+    _CoreGetSetMeasEndian[_AnyMixedDataSchema, Optical3_2, Temporal3_2],
+    _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2, _AnyMixedDataSchema],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
     _CoreModified,
@@ -1592,7 +1592,7 @@ class CoreDataset3_2(
     def __new__(
         cls,
         measurements: list[tuple[pft.Shortname, Optical3_2 | Temporal3_2]],
-        layout: _AnyMixedHeaders,
+        data_schema: _AnyMixedDataSchema,
         data: DataFrame,
         cyt: str,
         mode: pft.Mode3_2 | None = None,
@@ -2906,16 +2906,16 @@ __all__ = [
     "BivariateRegion3_0",
     "BivariateRegion3_2",
     "GatedMeasurement",
-    "FixedAsciiHeaders",
-    "DelimAsciiHeaders",
-    "OrderedUintHeaders",
-    "OrderedF32Headers",
-    "OrderedF64Headers",
-    "EndianF32Headers",
-    "EndianF64Headers",
-    "SingleUintHeaders",
-    "VariableUintHeaders",
-    "MixedHeaders",
+    "FixedAsciiDataSchema",
+    "DelimAsciiDataSchema",
+    "OrderedUintDataSchema",
+    "OrderedF32DataSchema",
+    "OrderedF64DataSchema",
+    "BigLittleF32DataSchema",
+    "BigLittleF64DataSchema",
+    "SingleUintDataSchema",
+    "VariableUintDataSchema",
+    "MixedDataSchema",
     "Header",
     "ParsedHeaderSegments",
     "HeaderAndSuppOffsets",

@@ -52,22 +52,22 @@ def blank_gated_meas() -> pf.GatedMeasurement:
 
 @pytest.fixture
 def blank_text_2_0() -> pf.CoreTEXT2_0:
-    return pf.CoreTEXT2_0([], pf.OrderedUintHeaders([]))
+    return pf.CoreTEXT2_0([], pf.OrderedUintDataSchema([]))
 
 
 @pytest.fixture
 def blank_text_3_0() -> pf.CoreTEXT3_0:
-    return pf.CoreTEXT3_0([], pf.OrderedUintHeaders([]))
+    return pf.CoreTEXT3_0([], pf.OrderedUintDataSchema([]))
 
 
 @pytest.fixture
 def blank_text_3_1() -> pf.CoreTEXT3_1:
-    return pf.CoreTEXT3_1([], pf.SingleUintHeaders([]))
+    return pf.CoreTEXT3_1([], pf.SingleUintDataSchema([]))
 
 
 @pytest.fixture
 def blank_text_3_2() -> pf.CoreTEXT3_2:
-    return pf.CoreTEXT3_2([], pf.SingleUintHeaders([]), "Moca Emporium")
+    return pf.CoreTEXT3_2([], pf.SingleUintDataSchema([]), "Moca Emporium")
 
 
 @pytest.fixture
@@ -1635,6 +1635,9 @@ class TestCore:
         new = "they've gone plaid"
         assert core.rename_temporal(new) == LINK_NAME2
 
+    # TODO test insertion of various data_schema (including those that cannot
+    # accept just a range
+
     @pytest.mark.parametrize(
         "core, optical",
         [
@@ -1722,26 +1725,26 @@ class TestCore:
         assert len(core.measurements) == 0
 
     @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
-    def test_ordered_layout(
+    def test_ordered_data_schema(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
-        assert isinstance(core.layout, pf.OrderedUintHeaders)
-        core.layout = pf.OrderedUintHeaders([9002, 9003])
-        assert isinstance(core.layout, pf.OrderedUintHeaders)
+        assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
+        core.data_schema = pf.OrderedUintDataSchema([9002, 9003])
+        assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
         with pytest.raises(TypeError):
-            core.layout = pf.VariableUintHeaders([9002, 9003], False)  # type: ignore
+            core.data_schema = pf.VariableUintDataSchema([9002, 9003], False)  # type: ignore
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
-    def test_endian_layout(
+    def test_endian_data_schema(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
-        assert isinstance(core.layout, pf.SingleUintHeaders)
-        core.layout = pf.EndianF32Headers([Decimal(9002), Decimal(9003)])
-        assert isinstance(core.layout, pf.EndianF32Headers)
+        assert isinstance(core.data_schema, pf.SingleUintDataSchema)
+        core.data_schema = pf.BigLittleF32DataSchema([Decimal(9002), Decimal(9003)])
+        assert isinstance(core.data_schema, pf.BigLittleF32DataSchema)
         with pytest.raises(TypeError):
-            core.layout = pf.OrderedUintHeaders([9002, 9003])  # type: ignore
+            core.data_schema = pf.OrderedUintDataSchema([9002, 9003])  # type: ignore
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1793,13 +1796,13 @@ class TestCore:
             ]
         ],
     )
-    def test_ordered_set_measurements_and_layout(
+    def test_ordered_set_measurements_and_data_schema(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
         optical: Any,
     ) -> None:
-        new = pf.OrderedUintHeaders([1], byte_width=8)
-        core.set_named_measurements_and_layout(
+        new = pf.OrderedUintDataSchema([1], byte_width=8)
+        core.set_named_measurements_and_data_schema(
             [(LINK_NAME1, optical)], new, False, False
         )
 
@@ -1815,13 +1818,13 @@ class TestCore:
             ]
         ],
     )
-    def test_endian_set_measurements_and_layout(
+    def test_endian_set_measurements_and_data_schema(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
     ) -> None:
-        new = pf.EndianF32Headers([Decimal(1)])
-        core.set_named_measurements_and_layout(
+        new = pf.BigLittleF32DataSchema([Decimal(1)])
+        core.set_named_measurements_and_data_schema(
             [(LINK_NAME1, optical)], new, False, False
         )
 
@@ -2437,17 +2440,17 @@ class TestMeas:
 class TestLayouts:
     def test_ascii_fixed(self) -> None:
         ranges = [9, 99, 999]
-        new = pf.FixedAsciiHeaders(ranges)
+        new = pf.FixedAsciiDataSchema(ranges)
         assert new.char_widths == [1, 2, 3]
         assert new.ranges == ranges
         assert new.datatype == "A"
         with pytest.raises(OverflowError):
             ranges = [1 * 10**20]
-            new = pf.FixedAsciiHeaders(ranges)
+            new = pf.FixedAsciiDataSchema(ranges)
 
     def test_ascii_delim(self) -> None:
         ranges = [9, 99, 999]
-        new = pf.DelimAsciiHeaders(ranges)
+        new = pf.DelimAsciiDataSchema(ranges)
         assert new.ranges == ranges
         assert new.datatype == "A"
 
@@ -2458,7 +2461,7 @@ class TestLayouts:
     def test_ordered_uint(self, width: int) -> None:
         n = int(width / 8)
         bitmasks = [2 ** (8 * (b + 1)) - 1 for b in range(n)]
-        new = pf.OrderedUintHeaders(bitmasks, byte_width=n)
+        new = pf.OrderedUintDataSchema(bitmasks, byte_width=n)
         # NOTE ranges will be 1+ whatever we put in because the inputs to the
         # the layout are literal ints and the output below is whatever the $PnR
         # value will be, which is 1+ the actual number...thanks FCS
@@ -2468,25 +2471,25 @@ class TestLayouts:
         assert new.ranges == [r for r in bitmasks]
         assert new.datatype == "I"
         with pytest.raises(pf.RelationalError if n < 8 else OverflowError):
-            pf.OrderedUintHeaders([2**width], byte_width=n)
+            pf.OrderedUintDataSchema([2**width], byte_width=n)
 
     @pytest.mark.parametrize(
-        "layout, width, datatype",
+        "data_schema, width, datatype",
         [
-            (pf.OrderedF32Headers, 32, "F"),
-            (pf.OrderedF64Headers, 64, "D"),
-            (pf.EndianF32Headers, 32, "F"),
-            (pf.EndianF64Headers, 64, "D"),
+            (pf.OrderedF32DataSchema, 32, "F"),
+            (pf.OrderedF64DataSchema, 64, "D"),
+            (pf.BigLittleF32DataSchema, 32, "F"),
+            (pf.BigLittleF64DataSchema, 64, "D"),
         ],
     )
-    def test_float(self, layout: type, width: int, datatype: Datatype) -> None:
+    def test_float(self, data_schema: type, width: int, datatype: Datatype) -> None:
         n = 3
-        new = layout([Decimal(1000.0)] * n)
+        new = data_schema([Decimal(1000.0)] * n)
         assert new.byte_width == width / 8
         assert new.ranges == [Decimal(1000.0)] * n
         assert new.datatype == datatype
         with pytest.raises(ValueError):
-            layout([float("inf")])
+            data_schema([float("inf")])
 
     def test_variable_uint(self) -> None:
         ranges: list[pt.VariableBitmask] = [
@@ -2494,7 +2497,7 @@ class TestLayouts:
             ("I16", 2**16 - 1),
             ("I32", 2**24 - 1),
         ]
-        new = pf.VariableUintHeaders(ranges)
+        new = pf.VariableUintDataSchema(ranges)
         assert new.byte_widths == [1, 2, 4]
         assert new.ranges == ranges
         assert new.datatype == "I"
@@ -2505,7 +2508,7 @@ class TestLayouts:
             ("D", Decimal(2000.0)),
             ("I08", 255),
         ]
-        new = pf.MixedHeaders(types)
+        new = pf.MixedDataSchema(types)
         assert new.byte_widths == [4, 8, 1]
         assert new.typed_ranges == types
 
@@ -4602,8 +4605,8 @@ class TestConfig:
                 integer_widths_from_byteord=f,
                 time_meas_pattern=None,
             )
-            lt = core.layout
-            if isinstance(lt, pf.OrderedUintHeaders | pf.SingleUintHeaders):
+            lt = core.data_schema
+            if isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
                 return lt.byte_width
             else:
                 assert False
@@ -4626,10 +4629,10 @@ class TestConfig:
                 integer_byteord_override=f,
                 time_meas_pattern=None,
             )
-            lt = core.layout
-            if isinstance(lt, pf.OrderedUintHeaders):
+            lt = core.data_schema
+            if isinstance(lt, pf.OrderedUintDataSchema):
                 return lt.byte_width
-            elif isinstance(lt, pf.VariableUintHeaders):
+            elif isinstance(lt, pf.VariableUintDataSchema):
                 assert len(lt.byte_widths) == 1
                 return lt.byte_widths[0]
             else:
@@ -4947,8 +4950,8 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "dataset_trunc.fcs"
         core.data = pl.DataFrame([[1.0, 1.0]], {LINK_NAME1: pl.Float32})
-        assert not isinstance(core.layout, pf.MixedHeaders)
-        assert core.layout.datatype == "I"
+        assert not isinstance(core.data_schema, pf.MixedDataSchema)
+        assert core.data_schema.datatype == "I"
         # this should convert 1.0 to 1 losslessly despite the underlying type
         # being U32
         core.write_dataset(p)
@@ -5015,21 +5018,21 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     @pytest.mark.parametrize(
-        "layout",
-        [pf.FixedAsciiHeaders([1000, 1000]), pf.DelimAsciiHeaders([1000, 1000])],
+        "data_schema",
+        [pf.FixedAsciiDataSchema([1000, 1000]), pf.DelimAsciiDataSchema([1000, 1000])],
     )
     def test_ascii(
         self,
         tmp_path: Path,
         core: AnyCoreDataset,
-        layout: pf.FixedAsciiHeaders | pf.DelimAsciiHeaders,
+        data_schema: pf.FixedAsciiDataSchema | pf.DelimAsciiDataSchema,
     ) -> None:
         d = tmp_path
         d.mkdir(exist_ok=True)
         p0 = d / "dataset_ascii_wrong.fcs"
         p1 = d / "dataset_ascii_right.fcs"
         core.write_dataset(p0)
-        core.layout = layout
+        core.data_schema = data_schema
         core.write_dataset(p1)
         new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
         if core.version in ["FCS3.1", "FCS3.2"]:
@@ -5056,7 +5059,7 @@ class TestReadWrite:
         p0 = d / "dataset_mixed_wrong.fcs"
         p1 = d / "dataset_mixed_right.fcs"
         core.write_dataset(p0)
-        core.layout = pf.OrderedUintHeaders([1023, 1023], byteord=byteord)
+        core.data_schema = pf.OrderedUintDataSchema([1023, 1023], byteord=byteord)
         core.write_dataset(p1)
         new_core0, _ = pf.api.fcs_read_std_dataset(p0, time_meas_pattern=LINK_NAME2)
         new_core1, _ = pf.api.fcs_read_std_dataset(p1, time_meas_pattern=LINK_NAME2)

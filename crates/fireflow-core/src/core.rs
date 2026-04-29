@@ -205,9 +205,8 @@ use {
 /// These are not included because this struct will also be used to encode the
 /// TEXT data when writing a new FCS file, and the keywords that are not
 /// included can be computed on the fly when writing.
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[new(visibility = "")]
 // NOTE fields are private since metaroot, measurements, and data schema are all
 // related to each other and must be kept in sync
 pub struct Core<A, L, O, M, T, P, N, V> {
@@ -2421,6 +2420,27 @@ impl<A, L, O, M, T, P, N, V> Core<A, L, O, M, T, P, N, V> {
     pub fn par(&self) -> Par {
         Par(self.measurements.len())
     }
+
+    fn new(
+        metaroot: Metaroot<M>,
+        measurements: NamedVec<N, Temporal<T>, Optical<P>>,
+        mut layout: L,
+        analysis: A,
+        others: O,
+    ) -> Self
+    where
+        L: LayoutNormalize,
+    {
+        layout.normalize();
+        Self {
+            metaroot,
+            measurements,
+            layout,
+            analysis,
+            others,
+            _version: PhantomData,
+        }
+    }
 }
 
 impl<V, A, L, O> VersionedCore<A, L, O, V>
@@ -3581,7 +3601,8 @@ where
         Vf::Optical: ConvertFromOptical<V::Optical>,
         Vf::Temporal: ConvertFromTemporal<V::Temporal>,
         Vf::Name: MightHave<Shortname> + Clone + ConvertFromShortname<V::Name>,
-        Lf: ConvertFromLayout<L>,
+        // TODO technically normalize shouldn't be needed here but it won't hurt anything
+        Lf: ConvertFromLayout<L> + LayoutNormalize,
     {
         let root_res = self
             .metaroot
@@ -3616,14 +3637,7 @@ where
         root_res
             .zip3_commutative(meas_res, layout_res)
             .map_ok_value(|(metaroot, measurements, layout)| {
-                Core::new(
-                    metaroot,
-                    measurements,
-                    layout,
-                    // self.data,
-                    self.analysis,
-                    self.others,
-                )
+                Core::new(metaroot, measurements, layout, self.analysis, self.others)
             })
             .group_with(summary)
     }

@@ -15,7 +15,7 @@ use thiserror::Error;
 
 use std::marker::PhantomData;
 use std::mem;
-use std::slice::Iter;
+use std::slice::{Iter, from_raw_parts};
 
 #[cfg(feature = "python")]
 use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};

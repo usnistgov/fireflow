@@ -35,7 +35,8 @@ TRIAL_NUMBER = {
 
 
 DType = (
-    type[pl.UInt16]
+    type[pl.UInt8]
+    | type[pl.UInt16]
     | type[pl.UInt32]
     | type[pl.UInt64]
     | type[pl.Float32]
@@ -203,68 +204,64 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
 
     n_values = width * height
 
-    lt = core.layout
+    lt = core.data_schema
 
     bit_widths: str
 
-    if isinstance(lt, pf.MixedLayout) or isinstance(lt, pf.EndianUintLayout):
+    if isinstance(lt, pf.MixedDataSchema) or isinstance(lt, pf.VariableUintDataSchema):
         data_nbytes = sum(lt.byte_widths) * height
         bit_widths = ",".join(str(i * 8) for i in sorted(set(lt.byte_widths)))
-    elif (
-        isinstance(lt, pf.EndianF32Layout)
-        or isinstance(lt, pf.OrderedF32Layout)
-        or isinstance(lt, pf.OrderedUint32Layout)
+    elif isinstance(lt, pf.BigLittleF32DataSchema) or isinstance(
+        lt, pf.OrderedF32DataSchema
     ):
         data_nbytes = 4 * n_values
         bit_widths = "32"
-    elif (
-        isinstance(lt, pf.EndianF64Layout)
-        or isinstance(lt, pf.OrderedF64Layout)
-        or isinstance(lt, pf.OrderedUint64Layout)
+    elif isinstance(lt, pf.BigLittleF64DataSchema) or isinstance(
+        lt, pf.OrderedF64DataSchema
     ):
         data_nbytes = 8 * n_values
         bit_widths = "64"
-    elif isinstance(lt, pf.OrderedUint08Layout):
-        data_nbytes = n_values
-        bit_widths = "8"
-    elif isinstance(lt, pf.OrderedUint16Layout):
-        data_nbytes = 2 * n_values
-        bit_widths = "16"
-    elif isinstance(lt, pf.OrderedUint24Layout):
-        data_nbytes = 3 * n_values
-        bit_widths = "24"
+    elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
+        data_nbytes = lt.byte_width
+        bit_widths = str(lt.byte_width * 8)
     else:
         assert False, "invalid layout"
 
     datatypes: str
 
-    if isinstance(lt, pf.MixedLayout):
+    if isinstance(lt, pf.MixedDataSchema):
         datatypes = ",".join(sorted(set(t for (t, _) in lt.typed_ranges)))
-    elif isinstance(lt, pf.EndianF32Layout | pf.OrderedF32Layout):
+    elif isinstance(lt, pf.BigLittleF32DataSchema | pf.OrderedF32DataSchema):
         datatypes = "F"
-    elif isinstance(lt, pf.EndianF64Layout | pf.OrderedF64Layout):
+    elif isinstance(lt, pf.BigLittleF64DataSchema | pf.OrderedF64DataSchema):
         datatypes = "D"
-    else:
+    elif isinstance(
+        lt,
+        pf.OrderedUintDataSchema | pf.SingleUintDataSchema | pf.VariableUintDataSchema,
+    ):
         datatypes = "I"
+    else:
+        assert False, "invalid layout"
 
     byteord: str
 
+    def endian_to_order(e: pft.Endian) -> str:
+        return "1,2,3,4" if e == "little" else "4,3,2,1"
+
     if isinstance(
         lt,
-        pf.EndianF32Layout
-        | pf.EndianF64Layout
-        | pf.MixedLayout
-        | pf.EndianUintLayout
-        | pf.OrderedUint16Layout,
+        pf.BigLittleF32DataSchema
+        | pf.BigLittleF64DataSchema
+        | pf.MixedDataSchema
+        | pf.VariableUintDataSchema
+        | pf.SingleUintDataSchema,
     ):
-        byteord = "1,2,3,4" if lt.endian == "little" else "4,3,2,1"
-    elif isinstance(lt, pf.OrderedUint08Layout):
-        byteord = "1,2,3,4"
+        byteord = endian_to_order(lt.endian)
     else:
         byteord = (
             ",".join(str(x + 1) for x in lt.byteord)
             if isinstance(lt.byteord, list)
-            else lt.byteord
+            else endian_to_order(lt.byteord)
         )
 
     std_keywords = core.standard_keywords("both", "both")
@@ -366,7 +363,7 @@ def core_3_0_pdp11(
     ]
     rs = [2**32 - 1 for _ in range(0, width)]
     # wonky byteord...
-    layout = pf.OrderedUint32Layout(rs, [3, 4, 1, 2])
+    layout = pf.OrderedUintDataSchema(rs, byteord=[3, 4, 1, 2])
     data = pl.DataFrame(
         [
             pl.Series(
@@ -381,10 +378,13 @@ def core_3_0_pdp11(
 
 
 # TODO there is no way to save a file without truncating bits first, which
-# may or may not be what we want. Some files "use" these upper buts for things
+# may or may not be what we want. Some files "use" these upper bits for things
 def core_3_1(
     width: int,
-    layout: pf.EndianUintLayout | pf.EndianF32Layout | pf.EndianF64Layout,
+    layout: pf.SingleUintDataSchema
+    | pf.VariableUintDataSchema
+    | pf.BigLittleF32DataSchema
+    | pf.BigLittleF64DataSchema,
     data: pl.DataFrame,
 ) -> pf.CoreDataset3_1:
     ms: list[tuple[str, pf.Optical3_1 | pf.Temporal3_1]] = [
@@ -399,7 +399,11 @@ def core_3_1_int(
 ) -> pf.CoreDataset3_1:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
-    layout = pf.EndianUintLayout(rs, "big" if big_endian else "little")
+    layout = pf.SingleUintDataSchema(
+        rs,
+        byte_width=byte_width,
+        endian="big" if big_endian else "little",
+    )
     dtype: type[pl.UInt8] | type[pl.UInt16] | type[pl.UInt32] | type[pl.UInt64]
     if byte_width == 1:
         dtype = pl.UInt8
@@ -424,7 +428,7 @@ def core_3_1_int(
 def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
     upper = 1e10
     rs = [Decimal(upper) for _ in range(0, width)]
-    layout = pf.EndianF64Layout(rs) if is64 else pf.EndianF32Layout(rs)
+    layout = pf.BigLittleF64DataSchema(rs) if is64 else pf.BigLittleF32DataSchema(rs)
     data = pl.DataFrame(
         [
             pl.Series(
@@ -439,8 +443,17 @@ def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
 
 def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
     # per https://github.com/RGLab/flowCore/issues/46, 4x16+32+8
-    layout = pf.EndianUintLayout(
-        [2**16 - 1] * 4 + [2**32 - 1] + [2**8 - 1], "big" if big_endian else "little"
+    rs: list[pft.VariableBitmask] = [
+        ("I16", 2**16 - 1),
+        ("I16", 2**16 - 1),
+        ("I16", 2**16 - 1),
+        ("I16", 2**16 - 1),
+        ("I32", 2**32 - 1),
+        ("I08", 2**8 - 1),
+    ]
+    layout = pf.VariableUintDataSchema(
+        rs,
+        endian="big" if big_endian else "little",
     )
     data = pl.DataFrame(
         [
@@ -461,24 +474,28 @@ def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
     return core_3_1(6, layout, data)
 
 
-def to_data_parts(r: Range) -> tuple[float | int, DType]:
+def to_data_parts(r: pft.MixedRange) -> tuple[float | int, DType]:
     if r[0] == "F":
         return (float(r[1]), pl.Float32)
     elif r[0] == "D":
         return (float(r[1]), pl.Float64)
-    elif r[0] == "I":
-        if r[1] <= 2**64:
-            return (r[1], pl.UInt64)
-        elif r[1] <= 2**32:
-            return (r[1], pl.UInt32)
-    return (r[1], pl.UInt16)
+    elif r[0] == "I08":
+        return (r[1], pl.UInt8)
+    elif r[0] == "I16":
+        return (r[1], pl.UInt16)
+    elif r[0] == "I32":
+        return (r[1], pl.UInt32)
+    elif r[0] == "I64":
+        return (r[1], pl.UInt64)
+    else:
+        assert False, f"invalid datatype {r[1]}"
 
 
 def core_3_2_a8(height: int, big_endian: bool) -> pf.CoreDataset3_2:
-    floats: list[Range] = [("F", Decimal(1e10))] * 380
-    ints: list[Range] = [("I", 2**32 - 1)] * 20
+    floats: list[pft.MixedRange] = [("F", Decimal(1e10))] * 380
+    ints: list[pft.MixedRange] = [("I32", 2**32 - 1)] * 20
     rs = floats + ints
-    layout = pf.MixedLayout(rs)
+    layout = pf.MixedDataSchema(rs)
     data_parts = [to_data_parts(r) for r in rs]
     data = pl.DataFrame(
         pl.Series(np.random.uniform(low=0, high=u, size=height), dtype=t)
@@ -490,22 +507,20 @@ def core_3_2_a8(height: int, big_endian: bool) -> pf.CoreDataset3_2:
 
 
 def core_3_2_random_mixed(height: int, big_endian: bool) -> pf.CoreDataset3_2:
-    Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
-
     n_cols = 15
 
-    f32: list[Range] = [("F", Decimal(1e10))] * n_cols
-    f64: list[Range] = [("D", Decimal(1e10))] * n_cols
-    int8: list[Range] = [("I", 2**8 - 1)] * n_cols
-    int16: list[Range] = [("I", 2**16 - 1)] * n_cols
-    int32: list[Range] = [("I", 2**32 - 1)] * n_cols
-    int64: list[Range] = [("I", 2**64 - 1)] * n_cols
+    f32: list[pft.MixedRange] = [("F", Decimal(1e10))] * n_cols
+    f64: list[pft.MixedRange] = [("D", Decimal(1e10))] * n_cols
+    int8: list[pft.MixedRange] = [("I08", 2**8 - 1)] * n_cols
+    int16: list[pft.MixedRange] = [("I16", 2**16 - 1)] * n_cols
+    int32: list[pft.MixedRange] = [("I32", 2**32 - 1)] * n_cols
+    int64: list[pft.MixedRange] = [("I64", 2**64 - 1)] * n_cols
 
     rs = f32 + f64 + int8 + int16 + int32 + int64
 
     # torture the branch predictor
     shuffle(rs)
-    layout = pf.MixedLayout(rs)
+    layout = pf.MixedDataSchema(rs)
 
     data_parts = [to_data_parts(r) for r in rs]
     data = pl.DataFrame(
@@ -530,36 +545,36 @@ def make_bench_files(root: Path) -> None:
         )
         bench_files.append(core_to_benchfile(name, core))
 
-    # Make three different sizes of this to demonstrate how time changes with
-    # width and height. We expect that for a given datatype, normalized DATA
-    # throughput should not depend on width or height. TEXT throughput should
-    # not depend on height but should depend on width. Standardization overhead
-    # should depend on FCS version and width.
-    print_files("i32_10000x25", core_3_1_int(10000, 25, 4, False))
-    print_files("i32_10000x75", core_3_1_int(10000, 75, 4, False))
-    print_files("i32_100000x25", core_3_1_int(100000, 25, 4, False))
+    # # Make three different sizes of this to demonstrate how time changes with
+    # # width and height. We expect that for a given datatype, normalized DATA
+    # # throughput should not depend on width or height. TEXT throughput should
+    # # not depend on height but should depend on width. Standardization overhead
+    # # should depend on FCS version and width.
+    # print_files("i32_10000x25", core_3_1_int(10000, 25, 4, False))
+    # print_files("i32_10000x75", core_3_1_int(10000, 75, 4, False))
+    # print_files("i32_100000x25", core_3_1_int(100000, 25, 4, False))
 
-    # Make a mixed byteord file just for fun, it should be way slower. This
-    # also helps test a 3.0 file vs other 3.1 files
-    print_files("mx_i32_10000x25", core_3_0_pdp11(10000, 25))
+    # # Make a mixed byteord file just for fun, it should be way slower. This
+    # # also helps test a 3.0 file vs other 3.1 files
+    # print_files("mx_i32_10000x25", core_3_0_pdp11(10000, 25))
 
-    # make a big endian file just for fun (it should be the same as le)
-    print_files("be_i32_10000x25", core_3_1_int(10000, 25, 4, True))
+    # # make a big endian file just for fun (it should be the same as le)
+    # print_files("be_i32_10000x25", core_3_1_int(10000, 25, 4, True))
 
-    # make some other int sizes
-    print_files("i16_10000x25", core_3_1_int(10000, 25, 2, False))
-    print_files("i24_10000x25", core_3_1_int(10000, 25, 3, False))
-    print_files("i64_10000x25", core_3_1_int(10000, 25, 8, False))
+    # # make some other int sizes
+    # print_files("i16_10000x25", core_3_1_int(10000, 25, 2, False))
+    # print_files("i24_10000x25", core_3_1_int(10000, 25, 3, False))
+    # print_files("i64_10000x25", core_3_1_int(10000, 25, 8, False))
 
-    # make float layouts
-    print_files("f32_10000x25", core_3_1_float(10000, 25, False))
-    print_files("f64_10000x25", core_3_1_float(10000, 25, True))
+    # # make float layouts
+    # print_files("f32_10000x25", core_3_1_float(10000, 25, False))
+    # print_files("f64_10000x25", core_3_1_float(10000, 25, True))
 
     # add cyflow cube's infamous mixed width layout
-    print_files("cube_10000x6", core_3_1_cube(10000, False))
+    # print_files("cube_10000x6", core_3_1_cube(10000, False))
 
-    # add BD S8/A8's mixed 32bit layout
-    print_files("s8_1000x400", core_3_2_a8(1000, False))
+    # # add BD S8/A8's mixed 32bit layout
+    # print_files("s8_1000x400", core_3_2_a8(1000, False))
 
     # layout with random mixed-width/type data, nobody uses this but it is a
     # good test since it should be the hardest to process

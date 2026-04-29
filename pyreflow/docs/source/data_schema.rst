@@ -27,42 +27,42 @@ Only certain data schema are valid for a given FCS version, summarized below:
    * - :py:class:`~pyreflow.OrderedUintDataSchema`
      - X
      - X
-     - 
-     - 
+     -
+     -
    * - :py:class:`~pyreflow.OrderedF32DataSchema`
      - X
      - X
-     - 
-     - 
+     -
+     -
    * - :py:class:`~pyreflow.OrderedF64DataSchema`
      - X
      - X
-     - 
-     - 
+     -
+     -
    * - :py:class:`~pyreflow.BigLittleF32DataSchema`
-     - 
-     - 
+     -
+     -
      - X
      - X
    * - :py:class:`~pyreflow.BigLittleF64DataSchema`
-     - 
-     - 
+     -
+     -
      - X
      - X
    * - :py:class:`~pyreflow.SingleUintDataSchema`
-     - 
-     - 
+     -
+     -
      - X
      - X
    * - :py:class:`~pyreflow.VariableUintDataSchema`
-     - 
-     - 
+     -
+     -
      - X
      - X
    * - :py:class:`~pyreflow.MixedDataSchema`
-     - 
-     - 
-     - 
+     -
+     -
+     -
      - X
 
 ASCII data schema

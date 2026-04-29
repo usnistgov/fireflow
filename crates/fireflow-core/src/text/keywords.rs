@@ -50,9 +50,7 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 use nonempty_collections::{NEMap, NESlice};
 use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
 
-use fireflow_types::config::{
-    CheckEventRanges, ForceLinearScale, TemporalOpticalKey, TruncateEventValues,
-};
+use fireflow_types::config::{CheckedRangeDatatypes, ForceLinearScale, TemporalOpticalKey};
 use fireflow_types::keywords::{
     self as tk, MeasKeywordClass, RootKeywordClass, Version, VersionMembership,
 };
@@ -1796,17 +1794,10 @@ impl_str_enum_kw!(
 );
 
 impl AlphaNumType {
-    pub(crate) fn matches_truncation(self, trunc: TruncateEventValues) -> bool {
+    pub(crate) fn matches_range_check(self, trunc: CheckedRangeDatatypes) -> bool {
         matches!(
             (trunc, self),
-            (TruncateEventValues::IntOnly, Self::Integer) | (TruncateEventValues::All, _)
-        )
-    }
-
-    pub(crate) fn matches_check(self, trunc: CheckEventRanges) -> bool {
-        matches!(
-            (trunc, self),
-            (CheckEventRanges::IntOnly, Self::Integer) | (CheckEventRanges::All, _)
+            (CheckedRangeDatatypes::IntOnly, Self::Integer) | (CheckedRangeDatatypes::All, _)
         )
     }
 }

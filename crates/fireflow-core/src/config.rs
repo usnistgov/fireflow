@@ -31,11 +31,10 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, CheckEventRanges, DelimEscapeMode, ForceLinearScale,
+    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
     GuessOtherWidth, ProcessKeywordFailure, ProcessTemporalOpticalKeys, ReadStrategy,
     RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag, TrimValueWhitespace,
-    TruncateEventValues, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
-    VERSION_STRICT_LEVEL,
+    VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
@@ -238,12 +237,12 @@ pub struct WriteDatasetInnerConfig {
     pub text: WriteTEXTInnerConfig,
 
     /// Control which measurements will be checked via $PnR upon writing.
-    pub check_event_ranges: CheckEventRanges,
+    pub check_range_datatypes: CheckedRangeDatatypes,
 
     /// If `true`, forbid event values in DATA to exceed $PnR before writing.
     ///
     /// This flag only has an effect if the column is checked according to
-    /// [`Self::check_event_ranges`].
+    /// [`Self::check_range_datatypes`].
     pub disallow_over_range: DisallowOverRange,
 
     /// Set the size in bytes for the internal buffer used to write DATA.
@@ -944,7 +943,7 @@ pub struct ReadEventsConfig {
     pub allow_tot_mismatch: AllowTotMismatch,
 
     /// Control which measurements will be truncated via $PnR.
-    pub truncate_event_values: TruncateEventValues,
+    pub truncate_range_datatypes: CheckedRangeDatatypes,
 
     /// If `true`, forbid event values in DATA to exceed $PnR.
     ///
@@ -952,7 +951,7 @@ pub struct ReadEventsConfig {
     /// an error (`true`) or warning (`false`).
     ///
     /// This flag only has an effect if the column is not truncated according to
-    /// [`Self::truncate_event_values`].
+    /// [`Self::truncate_range_datatypes`].
     pub disallow_over_range: DisallowOverRange,
 
     /// Set the size in bytes for the internal buffer used to read DATA.

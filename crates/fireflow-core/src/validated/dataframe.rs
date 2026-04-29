@@ -3,7 +3,7 @@ use crate::macros::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use ambassador::{Delegate, delegatable_trait};
-use fireflow_types::config::{CheckEventRanges, TruncateEventValues};
+use fireflow_types::config::CheckedRangeDatatypes;
 use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
 use bytemuck::cast_vec;
@@ -1189,7 +1189,7 @@ impl<C> DataFrame<C> {
         self.series.iter()
     }
 
-    pub(crate) fn check_ranges(&self, check: CheckEventRanges) -> Vec<TruncatedResult>
+    pub(crate) fn check_ranges(&self, check: CheckedRangeDatatypes) -> Vec<TruncatedResult>
     where
         C: CheckRange,
     {
@@ -1200,7 +1200,7 @@ impl<C> DataFrame<C> {
             .collect()
     }
 
-    pub(crate) fn check_ranges_mut(&mut self, trunc: TruncateEventValues) -> Vec<TruncatedResult>
+    pub(crate) fn check_ranges_mut(&mut self, trunc: CheckedRangeDatatypes) -> Vec<TruncatedResult>
     where
         C: CheckRange,
     {

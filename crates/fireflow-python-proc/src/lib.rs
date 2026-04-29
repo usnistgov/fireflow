@@ -1,8 +1,9 @@
 extern crate proc_macro;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CheckEventRanges,
-    DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0,
+    AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CHECK_RANGE_ALL_LEVEL,
+    CHECK_RANGE_INT_ONLY_LEVEL, CHECK_RANGE_NONE_LEVEL, CheckedRangeDatatypes, DEDUP_PNN_SEP,
+    DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0,
     DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
     DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, DelimEscapeMode,
     EnumStrIter as _, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
@@ -17,8 +18,7 @@ use fireflow_types::config::{
     TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
     TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL, TRI_FALSE_LEVEL, TRI_SILENT_LEVEL,
     TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL,
-    TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL, TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL,
-    TemporalOpticalKey, TriFlag, TrimValueWhitespace, TruncateEventValues, VERSION_EARLIEST_LEVEL,
+    TRIM_NONE_LEVEL, TemporalOpticalKey, TriFlag, TrimValueWhitespace, VERSION_EARLIEST_LEVEL,
     VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
@@ -640,7 +640,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(cores_arg)
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_check_event_ranges())
+        .arg(DocArg::new_check_range_datatypes(false))
         .arg(DocArg::new_disallow_over_range(false))
         .arg(DocArg::new_row_buffer_size(false))
         .returns(ret);
@@ -658,7 +658,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
             );
             let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                 tconf,
-                check_event_ranges.into(),
+                check_range_datatypes.into(),
                 disallow_over_range.into(),
                 row_buffer_size,
             );
@@ -2142,7 +2142,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_check_event_ranges())
+        .arg(DocArg::new_check_range_datatypes(false))
         .arg(DocArg::new_disallow_over_range(false))
         .arg(DocArg::new_row_buffer_size(false))
         .arg(DocArg::new_appendable_param())
@@ -2164,7 +2164,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 );
                 let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                     tconf,
-                    check_event_ranges.into(),
+                    check_range_datatypes.into(),
                     disallow_over_range.into(),
                     row_buffer_size,
                 );
@@ -8454,7 +8454,7 @@ impl DocArgParam {
             Self::new_data_remainder_limit_param(),
             Self::new_allow_uneven_event_width_param(),
             Self::new_allow_tot_mismatch_param(),
-            Self::new_truncate_event_values(),
+            Self::new_check_range_datatypes(true),
             Self::new_disallow_over_range(true),
             Self::new_row_buffer_size(true),
         ];
@@ -9264,42 +9264,36 @@ impl DocArgParam {
         Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
     }
 
-    fn new_truncate_event_values() -> Self {
-        let path = types_config_path("TruncateEventValues");
-        let d = format!(
-            "Control which measurements will be truncated via {PNR}. If {int}, \
-             truncate integer measurements only. If {all}, truncate all \
-             measurements. If {none}, truncate nothing.",
-            int = code_str(TRUNCATE_INT_ONLY_LEVEL),
-            all = code_str(TRUNCATE_ALL_LEVEL),
-            none = code_str(TRUNCATE_NONE_LEVEL),
-        );
-        let pt = PyLiteral::new2(TruncateEventValues::iter_str(), path);
-        Self::new_param(TRUNCATE_EVENT_VALUES, pt, d).def_auto()
-    }
-
-    fn new_check_event_ranges() -> Self {
-        let path = types_config_path("CheckEventRanges");
-        let exc = PyreflowError::EventData.fmt_ref();
-        let d = format!(
-            "Check which types of events will be checked via {PNR} before \
-             writing. If {int}, check integer measurements only. If {all}, \
-             check all measurements. If {none}, check nothing. Any measurements \
-             over {PNR} will trigger {exc}.",
-            int = code_str(TRUNCATE_INT_ONLY_LEVEL),
-            all = code_str(TRUNCATE_ALL_LEVEL),
-            none = code_str(TRUNCATE_NONE_LEVEL),
-        );
-        let pt = PyLiteral::new2(CheckEventRanges::iter_str(), path);
-        Self::new_param(CHECK_EVENT_RANGES, pt, d).def_auto()
-    }
-
-    fn new_disallow_over_range(is_read: bool) -> Self {
-        let n = "disallow_over_range";
-        let check_arg = if is_read {
-            TRUNCATE_EVENT_VALUES
+    fn new_check_range_datatypes(is_trunc: bool) -> Self {
+        let path = types_config_path("CheckedRangeDatatypes");
+        let (action, action_past) = if is_trunc {
+            ("truncate", "truncated")
         } else {
-            CHECK_EVENT_RANGES
+            ("checked", "checked")
+        };
+        let d = format!(
+            "Control which measurements will be {action_past} via {PNR}. If \
+             {int}, {action} integer measurements only. If {all}, {action} all \
+             measurements. If {none}, {action} nothing.",
+            int = code_str(CHECK_RANGE_INT_ONLY_LEVEL),
+            all = code_str(CHECK_RANGE_ALL_LEVEL),
+            none = code_str(CHECK_RANGE_NONE_LEVEL),
+        );
+        let pt = PyLiteral::new2(CheckedRangeDatatypes::iter_str(), path);
+        let n = if is_trunc {
+            TRUNCATE_RANGE_DATATYPES
+        } else {
+            CHECK_RANGE_DATATYPES
+        };
+        Self::new_param(n, pt, d).def_auto()
+    }
+
+    fn new_disallow_over_range(is_trunc: bool) -> Self {
+        let n = "disallow_over_range";
+        let check_arg = if is_trunc {
+            TRUNCATE_RANGE_DATATYPES
+        } else {
+            CHECK_RANGE_DATATYPES
         };
         let d = format!(
             "Choose how to handle event values in {DATA} which exceed {PNR}. \
@@ -10533,8 +10527,8 @@ const BIG_OTHER: &str = "big_other";
 // const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
-const TRUNCATE_EVENT_VALUES: &str = "truncate_event_values";
-const CHECK_EVENT_RANGES: &str = "check_event_ranges";
+const TRUNCATE_RANGE_DATATYPES: &str = "truncate_range_datatypes";
+const CHECK_RANGE_DATATYPES: &str = "check_range_datatypes";
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
 const OTHER_WIDTH: &str = "other_width";
 

@@ -319,42 +319,23 @@ impl_config_flag!(
     Guess   => SPILLOVER_GUESS_LEVEL
 );
 
-pub const TRUNCATE_NONE_LEVEL: &NEStr = NONE_LEVEL;
-pub const TRUNCATE_INT_ONLY_LEVEL: &NEStr = ne_str!("int_only");
-pub const TRUNCATE_ALL_LEVEL: &NEStr = ALL_LEVEL;
+pub const CHECK_RANGE_NONE_LEVEL: &NEStr = NONE_LEVEL;
+pub const CHECK_RANGE_INT_ONLY_LEVEL: &NEStr = ne_str!("int_only");
+pub const CHECK_RANGE_ALL_LEVEL: &NEStr = ALL_LEVEL;
 
 impl_config_flag!(
-    /// Choose which event types are truncated.
+    /// The types of event values which are checked against $PnR.
     ///
-    /// By default only truncate when $DATATYPE (or $PnDATATYPE) is "I".
-    pub TruncateEventValues,
-    /// Error when parsing [`TruncateEventValues`] from [`String`]
-    pub TruncateEventValuesError,
+    /// By default, only check if $DATATYPE (or $PnDATATYPE) is "I".
+    pub CheckedRangeDatatypes,
+    /// Error when parsing [`RangeDatatypes`] from [`String`]
+    pub RangeDatatypesError,
     /// Only truncate integer events.
-    IntOnly => TRUNCATE_INT_ONLY_LEVEL,
+    IntOnly => CHECK_RANGE_INT_ONLY_LEVEL,
     /// Truncate all events.
-    All     => TRUNCATE_ALL_LEVEL,
+    All     => CHECK_RANGE_ALL_LEVEL,
     /// Truncate no events.
-    None    => TRUNCATE_NONE_LEVEL
-);
-
-// This is basically the same flag as above but has the inverse use case (throw
-// error for matching things)
-//
-// TODO clean this up with newtype.
-impl_config_flag!(
-    /// Choose which event types are checked via $PnR before writing.
-    ///
-    /// By default only check when $DATATYPE (or $PnDATATYPE) is "I".
-    pub CheckEventRanges,
-    /// Error when parsing [`CheckEventRanges`] from [`String`]
-    pub CheckEventRangesError,
-    /// Only truncate integer events.
-    IntOnly => TRUNCATE_INT_ONLY_LEVEL,
-    /// Truncate all events.
-    All     => TRUNCATE_ALL_LEVEL,
-    /// Truncate no events.
-    None    => TRUNCATE_NONE_LEVEL
+    None    => CHECK_RANGE_NONE_LEVEL
 );
 
 pub const MISMATCH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;

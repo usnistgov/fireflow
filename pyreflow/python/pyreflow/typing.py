@@ -155,9 +155,7 @@ DelimEscapeMode: TypeAlias = Literal[
     "guess_unescaped",
 ]
 
-TruncateEventValues: TypeAlias = Literal["int_only", "all", "none"]
-
-CheckEventRanges: TypeAlias = TruncateEventValues
+CheckedRangeDatatypes: TypeAlias = Literal["int_only", "all", "none"]
 
 ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 

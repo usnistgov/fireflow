@@ -121,7 +121,7 @@ class _ReadEventsConfig(BaseModel):
     data_remainder_limit: int = 0
     allow_uneven_event_width: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_tot_mismatch: pft.TriFlag = _DEFAULT_TRIFLAG
-    truncate_event_values: pft.TruncateEventValues = "int_only"
+    truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only"
     disallow_over_range: pft.TriFlag = _DEFAULT_TRIFLAG
     row_buffer_size: int = 28000
 

@@ -3,20 +3,20 @@
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
-    DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadEventsConfig,
-    ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
-    TemporalHasOpticalKeyError, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
-    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    DisallowOverRange, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
+    ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState,
+    ReadStdKeywordsConfig, TemporalHasOpticalKeyError, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
     DataFrame3_1, DataFrame3_2, DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0,
     DataSchema3_0, DataSchema3_1, DataSchema3_2, DataSchemaToDataFrameError,
-    DataSchemaToEmptyDataFrame, EventOverRangeError, EventsDiagnostics, IsTot, LayoutConvertError,
-    LayoutDatatype, LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize,
-    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
+    DataSchemaToEmptyDataFrame, EventOverRangeError, EventOverRangeSummary, EventsDiagnostics,
+    IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight as _, LayoutInsert, LayoutKeywords,
+    LayoutNormalize, LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
     LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataSchemaError, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
+    NewDataSchemaError, OverrangeColumn, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
     ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataSchema,
     WithPrimitiveDataFrame,
 };
@@ -104,7 +104,9 @@ use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
-use fireflow_types::config::{IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey};
+use fireflow_types::config::{
+    CheckedRangeDatatypes, IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey,
+};
 use fireflow_types::keywords::{
     HasVersion, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
@@ -5057,7 +5059,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         let others = &self.others.0[..];
 
         self.layout
-            .check_ranges(conf.check_event_ranges, conf.disallow_over_range)
+            .check_ranges(conf.check_range_datatypes, conf.disallow_over_range)
             .map_errors(StdWriterError::from)
             .group()
             .map_error(IOErrorGroup::Pure)
@@ -5135,6 +5137,27 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         self.unset_measurements_inner()?;
         self.layout.clear();
         Ok(())
+    }
+
+    /// Check that all events are within $PnR.
+    ///
+    /// `check_event_ranges` can be used to control which datatypes are checked.
+    /// By default, only integers are checked.
+    ///
+    /// If `truncate` is `true`, truncate events in place if they exceed $PnR.
+    pub fn check_ranges(
+        &mut self,
+        check_event_ranges: CheckedRangeDatatypes,
+        disallow: DisallowOverRange,
+    ) -> WarningsAndGroupResult<
+        Vec<OverrangeColumn>,
+        EventOverRangeError,
+        EventOverRangeError,
+        EventOverRangeSummary,
+    > {
+        self.layout
+            .check_ranges(check_event_ranges, disallow)
+            .group()
     }
 
     /// Get data schema.

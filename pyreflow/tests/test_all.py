@@ -4748,7 +4748,7 @@ class TestConfig:
             ("FCS3.2", (256, 267)),
         ],
     )
-    def test_truncate_event_values_int(
+    def test_truncate_range_datatypes_int(
         self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
@@ -4766,10 +4766,12 @@ class TestConfig:
             rest=data,
         )
 
-        def go(f: pt.TruncateEventValues, g: TriFlag) -> list[tuple[int, bool] | None]:
+        def go(
+            f: pt.CheckedRangeDatatypes, g: TriFlag
+        ) -> list[tuple[int, bool] | None]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                truncate_event_values=f,
+                truncate_range_datatypes=f,
                 disallow_over_range=g,
             )
             return out.dataset.events_diagnostics.overrange_columns
@@ -4796,7 +4798,7 @@ class TestConfig:
             ("FCS3.2", (256, 267)),
         ],
     )
-    def test_truncate_event_values_float(
+    def test_truncate_range_datatypes_float(
         self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
         p = tmp_path / "thing.fcs"
@@ -4816,10 +4818,12 @@ class TestConfig:
             rest=data,
         )
 
-        def go(f: pt.TruncateEventValues, g: TriFlag) -> list[tuple[int, bool] | None]:
+        def go(
+            f: pt.CheckedRangeDatatypes, g: TriFlag
+        ) -> list[tuple[int, bool] | None]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                truncate_event_values=f,
+                truncate_range_datatypes=f,
                 disallow_over_range=g,
             )
             return out.dataset.events_diagnostics.overrange_columns
@@ -4928,21 +4932,20 @@ class TestReadWrite:
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core
 
-    #     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-    #     def test_dataset_truncated(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-    #         assert False, "fixme"
-    #         # d = tmp_path
-    #         # d.mkdir(exist_ok=True)
-    #         # p = d / "dataset_trunc.fcs"
-    #         # core.data = pl.DataFrame([[0.5, 0.5]], {LINK_NAME1: pl.Float32})
-    #         # assert not isinstance(core.layout, pf.MixedHeaders)
-    #         # assert core.layout.datatype == "I"
-    #         # # this will attempt to write a float as an int
-    #         # with pytest.RaisesGroup(pf.DataLossError):
-    #         #     core.write_dataset(p)
-    #         # # this will force the float to int with a warning
-    #         # with pytest.warns(pf.PyreflowWarning):
-    #         #     core.write_dataset(p)
+    # @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    # def test_dataset_truncated(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    #     d = tmp_path
+    #     d.mkdir(exist_ok=True)
+    #     p = d / "dataset_trunc.fcs"
+    #     core.data = pl.DataFrame([[0.5, 0.5]], {LINK_NAME1: pl.Float32})
+    #     assert not isinstance(core.data_schema, pf.MixedDataSchema)
+    #     assert core.data_schema.datatype == "I"
+    #     # this will attempt to write a float as an int
+    #     with pytest.RaisesGroup(pf.DataLossError):
+    #         core.write_dataset(p)
+    #     # this will force the float to int with a warning
+    #     with pytest.warns(pf.PyreflowWarning):
+    #         core.write_dataset(p)
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
     def test_dataset_different_type(self, tmp_path: Path, core: AnyCoreDataset) -> None:

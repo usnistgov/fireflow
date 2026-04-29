@@ -23,13 +23,14 @@ use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_core::validated::timepattern::TimePattern;
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, CheckEventRanges, DelimEscapeMode, ForceLinearScale,
+    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
     GuessOtherWidth, ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey,
-    TriFlag, TrimValueWhitespace, TruncateEventValues,
+    TriFlag, TrimValueWhitespace,
 };
 use fireflow_types::config::{
-    BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT,
-    DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
+    BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CHECK_RANGE_ALL_LEVEL, CHECK_RANGE_INT_ONLY_LEVEL,
+    CHECK_RANGE_NONE_LEVEL, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0,
+    DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
     DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL,
     FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
     FORCE_LINEAR_TIME_LEVEL, KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL,
@@ -42,9 +43,8 @@ use fireflow_types::config::{
     SPILLOVER_NAMED_LEVEL, TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
     TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL,
     TMP_OPT_DROP_WARN_LEVEL, TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL,
-    TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, TRUNCATE_ALL_LEVEL,
-    TRUNCATE_INT_ONLY_LEVEL, TRUNCATE_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
-    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, VERSION_EARLIEST_LEVEL,
+    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
 use fireflow_types::nonempty_string::NEString;
@@ -829,11 +829,11 @@ fn run() -> AppResult<()> {
     let truncate_event_values = Arg::new(TRUNCATE_EVENT_VALUES)
         .long(TRUNCATE_EVENT_VALUES)
         .value_name("WHICH")
-        .value_parser(value_parser!(TruncateEventValues))
+        .value_parser(value_parser!(CheckedRangeDatatypes))
         .help(format!(
             "Truncate values exceeding {pn_r}. \
-             Must be one of '{TRUNCATE_INT_ONLY_LEVEL}' (default), \
-             '{TRUNCATE_ALL_LEVEL}', or '{TRUNCATE_NONE_LEVEL}'.",
+             Must be one of '{CHECK_RANGE_INT_ONLY_LEVEL}' (default), \
+             '{CHECK_RANGE_ALL_LEVEL}', or '{CHECK_RANGE_NONE_LEVEL}'.",
         ));
 
     let disallow_over_range = tri_flag_arg::<DisallowOverRange>(
@@ -1452,7 +1452,7 @@ fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
     get_opt(s, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
         c.allow_uneven_event_width = x;
     });
-    get_opt(s, TRUNCATE_EVENT_VALUES, |x| c.truncate_event_values = x);
+    get_opt(s, TRUNCATE_EVENT_VALUES, |x| c.truncate_range_datatypes = x);
     get_opt(s, DISALLOW_OVER_RANGE, |x| c.disallow_over_range = x);
     get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
 
@@ -1519,7 +1519,7 @@ fn get_write_std_dataset_config(sargs: &ArgMatches) -> config::WriteDatasetInner
     get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
     // ranges are checked once when reading the dataframe so no need to check
     // them again; if anything they might be fixed
-    conf.check_event_ranges = CheckEventRanges::None;
+    conf.check_range_datatypes = CheckedRangeDatatypes::None;
     conf
 }
 

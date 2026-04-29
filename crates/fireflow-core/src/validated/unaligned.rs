@@ -280,11 +280,11 @@ macro_rules! impl_unaligned {
             type Bytes = <$outer as FCSRepr>::FileBuf;
 
             fn from_be_bytes(bytes: &Self::Bytes) -> Self {
-                Self(from_unaligned_be_bytes(bytes))
+                Self(prim_from_unaligned_be_bytes(bytes))
             }
 
             fn from_le_bytes(bytes: &Self::Bytes) -> Self {
-                Self(from_unaligned_le_bytes(bytes))
+                Self(prim_from_unaligned_le_bytes(bytes))
             }
         }
 
@@ -292,11 +292,11 @@ macro_rules! impl_unaligned {
             type Bytes = <$outer as FCSRepr>::FileBuf;
 
             fn to_be_bytes(&self) -> Self::Bytes {
-                to_unaligned_be_bytes(&self.0)
+                prim_to_unaligned_be_bytes(&self.0)
             }
 
             fn to_le_bytes(&self) -> Self::Bytes {
-                to_unaligned_le_bytes(&self.0)
+                prim_to_unaligned_le_bytes(&self.0)
             }
         }
 
@@ -313,54 +313,65 @@ impl_unaligned!(u64, U40, 40);
 impl_unaligned!(u64, U48, 48);
 impl_unaligned!(u64, U56, 56);
 
-fn from_unaligned_be_bytes<
-    T: FromBytes<Bytes = [u8; OUTER_LEN]>,
-    const INNER_LEN: usize,
-    const OUTER_LEN: usize,
+fn prim_from_unaligned_be_bytes<
+    Prim: FromBytes<Bytes = [u8; MEM_LEN]>,
+    const MEM_LEN: usize,
+    const FILE_LEN: usize,
 >(
-    bytes: &[u8; INNER_LEN],
-) -> T {
-    let mut buf = [0; OUTER_LEN];
-    let b = OUTER_LEN - INNER_LEN;
+    bytes: &[u8; FILE_LEN],
+) -> Prim {
+    debug_assert_len(FILE_LEN, MEM_LEN);
+    let mut buf = [0; MEM_LEN];
+    let b = MEM_LEN - FILE_LEN;
     buf[b..].copy_from_slice(bytes);
-    T::from_be_bytes(&buf)
+    Prim::from_be_bytes(&buf)
 }
 
-fn from_unaligned_le_bytes<
-    T: FromBytes<Bytes = [u8; OUTER_LEN]>,
-    const INNER_LEN: usize,
-    const OUTER_LEN: usize,
+fn prim_from_unaligned_le_bytes<
+    Prim: FromBytes<Bytes = [u8; MEM_LEN]>,
+    const MEM_LEN: usize,
+    const FILE_LEN: usize,
 >(
-    bytes: &[u8; INNER_LEN],
-) -> T {
-    let mut buf = [0; OUTER_LEN];
-    buf[..INNER_LEN].copy_from_slice(bytes);
-    T::from_le_bytes(&buf)
+    bytes: &[u8; FILE_LEN],
+) -> Prim {
+    debug_assert_len(FILE_LEN, MEM_LEN);
+    let mut buf = [0; MEM_LEN];
+    buf[..FILE_LEN].copy_from_slice(bytes);
+    Prim::from_le_bytes(&buf)
 }
 
-fn to_unaligned_be_bytes<
-    T: ToBytes<Bytes = [u8; INNER_LEN]>,
-    const INNER_LEN: usize,
-    const OUTER_LEN: usize,
+fn prim_to_unaligned_be_bytes<
+    Prim: ToBytes<Bytes = [u8; MEM_LEN]>,
+    const MEM_LEN: usize,
+    const FILE_LEN: usize,
 >(
-    x: &T,
-) -> [u8; OUTER_LEN] {
-    let mut buf = [0; OUTER_LEN];
-    let b = OUTER_LEN - INNER_LEN;
+    x: &Prim,
+) -> [u8; FILE_LEN] {
+    debug_assert_len(FILE_LEN, MEM_LEN);
+    let mut buf = [0; FILE_LEN];
+    let b = MEM_LEN - FILE_LEN;
     buf.copy_from_slice(&x.to_be_bytes()[b..]);
     buf
 }
 
-fn to_unaligned_le_bytes<
-    T: ToBytes<Bytes = [u8; INNER_LEN]>,
-    const INNER_LEN: usize,
-    const OUTER_LEN: usize,
+fn prim_to_unaligned_le_bytes<
+    Prim: ToBytes<Bytes = [u8; MEM_LEN]>,
+    const FILE_LEN: usize,
+    const MEM_LEN: usize,
 >(
-    x: &T,
-) -> [u8; OUTER_LEN] {
-    let mut buf = [0; OUTER_LEN];
-    buf.copy_from_slice(&x.to_le_bytes()[..INNER_LEN]);
+    x: &Prim,
+) -> [u8; FILE_LEN] {
+    debug_assert_len(FILE_LEN, MEM_LEN);
+    let mut buf = [0; FILE_LEN];
+    buf.copy_from_slice(&x.to_le_bytes()[..FILE_LEN]);
     buf
+}
+
+fn debug_assert_len(file_len: usize, mem_len: usize) {
+    debug_assert!(
+        mem_len >= file_len,
+        "size in memory ({mem_len}) less than size in file ({file_len})",
+    );
 }
 
 /// Make conversion from smaller number to bigger type (which will never fail).

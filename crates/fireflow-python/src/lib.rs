@@ -60,14 +60,16 @@ use fireflow_core::core;
 use fireflow_core::data::AnySingleUintDataSchema;
 use fireflow_core::data::DataSchema3_0;
 use fireflow_core::data::DataSchema3_1;
+use fireflow_core::data::DecimalRangeAndSeries;
+use fireflow_core::data::FullDecimalRange;
 use fireflow_core::data::RangeAndSeries;
 use fireflow_core::data::{
     self, AnyAsciiDataSchema, AnyBigLittleUintDataSchema, AnyDatatype, AnyOrderedDataSchema,
     AnyUint, BigLittleDataSchema, ColumnMarkers, DataSchema2_0, DataSchema3_2,
     DelimAsciiDataSchema, F32Col, F64Col, FixedAsciiDataSchema, LayoutByteOrder as _,
-    LayoutDatatype as _, NonMixedDataSchema, PhantomInto as _, RangeOrMixedRange,
-    RangeOrMixedSeries, RangeOrVariableBitmask, RangeOrVariableUintSeries, Series, ToInsert,
-    VariableUintDataSchema, VariableUintSeries,
+    LayoutDatatype as _, MaybeTypedMixedRange, MaybeTypedMixedSeries, MaybeTypedRange,
+    MaybeTypedVariableBitmask, MaybeTypedVariableUintSeries, NonMixedDataSchema, PhantomInto as _,
+    Series, VariableUintDataSchema, VariableUintSeries,
 };
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
@@ -1049,27 +1051,27 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
 }
 
 impl PyAnyFCSColumn {
-    fn with_range(self, range: kws::Range) -> RangeAndSeries {
+    fn with_range(self, range: FullDecimalRange) -> DecimalRangeAndSeries {
         (range, self.0)
     }
 
     fn with_bitmask_range(
         self,
-        range: RangeOrVariableBitmask,
-    ) -> PyResult<RangeOrVariableUintSeries> {
+        range: MaybeTypedVariableBitmask,
+    ) -> PyResult<MaybeTypedVariableUintSeries> {
         match range {
-            ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
-            ToInsert::Specific(r) => {
+            MaybeTypedRange::Untyped(r) => Ok(MaybeTypedRange::Untyped((r, self.0))),
+            MaybeTypedRange::Typed(r) => {
                 let c = match_map_uint!(r, x, Series::from_prim(x, self.0)?);
-                Ok(ToInsert::Specific(c))
+                Ok(MaybeTypedRange::Typed(c))
             }
         }
     }
 
-    fn with_mixed_range(self, range: RangeOrMixedRange) -> PyResult<RangeOrMixedSeries> {
+    fn with_mixed_range(self, range: MaybeTypedMixedRange) -> PyResult<MaybeTypedMixedSeries> {
         match range {
-            ToInsert::Decimal(r) => Ok(ToInsert::Decimal((r, self.0))),
-            ToInsert::Specific(r) => {
+            MaybeTypedRange::Untyped(r) => Ok(MaybeTypedRange::Untyped((r, self.0))),
+            MaybeTypedRange::Typed(r) => {
                 let c = match r {
                     AnyDatatype::Ascii(x) => AnyDatatype::Ascii(Series::from_prim(x, self.0)?),
                     AnyDatatype::Uint(x) => {
@@ -1079,7 +1081,7 @@ impl PyAnyFCSColumn {
                     AnyDatatype::F32(x) => AnyDatatype::F32(Series::from_prim(x, self.0)?),
                     AnyDatatype::F64(x) => AnyDatatype::F64(Series::from_prim(x, self.0)?),
                 };
-                Ok(ToInsert::Specific(c))
+                Ok(MaybeTypedRange::Typed(c))
             }
         }
     }

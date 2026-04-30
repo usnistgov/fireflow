@@ -331,7 +331,7 @@ pub enum ReqMeasKeyword<'a> {
     Scale(SplitKeyword1<Scale>),
     TemporalScale3_0(SplitKeyword1<TemporalScale3_0>),
     Width(SplitKeyword1<Width>),
-    Range(SplitKeyword1<Range>),
+    Range(SplitKeyword1<TextRange>),
 }
 
 #[derive(Clone, From, Delegate)]
@@ -3193,11 +3193,11 @@ impl ToDisplayNE<'_> for Width {
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u8, u16, u32, u64, BigDecimal)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
-pub struct Range(pub BigDecimal);
+pub struct TextRange(pub BigDecimal);
 
 macro_rules! impl_from_unaligned {
     ($t:ident) => {
-        impl From<$t> for Range {
+        impl From<$t> for TextRange {
             fn from(value: $t) -> Self {
                 u64::from(value).into()
             }
@@ -3210,7 +3210,7 @@ impl_from_unaligned!(U40);
 impl_from_unaligned!(U48);
 impl_from_unaligned!(U56);
 
-impl Range {
+impl TextRange {
     pub(crate) fn into_uint<T>(self) -> DeferredError<BitmaskValue<T>, RangeToIntError<()>>
     where
         T: TryFrom<Self, Error = RangeToIntError<T>> + Bounded + Copy,
@@ -3262,10 +3262,10 @@ impl Range {
 
 macro_rules! try_from_range_int {
     ($inttype:ident, $to:ident, $ut:ident) => {
-        impl TryFrom<Range> for $inttype {
+        impl TryFrom<TextRange> for $inttype {
             type Error = RangeToIntError<$inttype>;
 
-            fn try_from(value: Range) -> Result<Self, Self::Error> {
+            fn try_from(value: TextRange) -> Result<Self, Self::Error> {
                 let x = &value.0;
                 let err = |error_kind| RangeToIntError {
                     dest_type: PrivBytes::$ut,
@@ -3299,7 +3299,7 @@ try_from_range_int!(U48, to_u64, B6);
 try_from_range_int!(U56, to_u64, B7);
 try_from_range_int!(u64, to_u64, B8);
 
-/// Error when converting [`Range`] to integer.
+/// Error when converting [`TextRange`] to integer.
 ///
 /// This is a helper type to make more specific errors and not meant for
 /// external use.
@@ -3309,17 +3309,6 @@ pub struct RangeToIntError<T> {
     pub(crate) src_value: BigDecimal,
     pub(crate) error_kind: RangeToIntErrorKind<T>,
 }
-
-// impl From<UintType> for PrivBytes {
-//     fn from(value: UintType) -> Self {
-//         match value {
-//             UintType::U8 => Self::B1,
-//             UintType::U16 => Self::B2,
-//             UintType::U32 => Self::B4,
-//             UintType::U64 => Self::B8,
-//         }
-//     }
-// }
 
 #[derive(Debug)]
 pub(crate) enum RangeToIntErrorKind<T> {
@@ -3342,14 +3331,14 @@ impl<T> RangeToIntError<T> {
     }
 }
 
-impl TryFrom<f32> for Range {
+impl TryFrom<f32> for TextRange {
     type Error = ParseBigDecimalError;
     fn try_from(value: f32) -> Result<Self, Self::Error> {
         value.try_into().map(Self)
     }
 }
 
-impl TryFrom<f64> for Range {
+impl TryFrom<f64> for TextRange {
     type Error = ParseBigDecimalError;
     fn try_from(value: f64) -> Result<Self, Self::Error> {
         value.try_into().map(Self)
@@ -3370,7 +3359,7 @@ pub struct GateShortname(pub Shortname);
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[from(u64)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
-pub struct GateRange(pub Range);
+pub struct GateRange(pub TextRange);
 
 macro_rules! impl_non_neg_float {
     ($(#[$meta:meta])* $t:ident) => {
@@ -4195,7 +4184,7 @@ kw_opt_meas!(
     tk::PNP_VERS,
     Option<Self>
 );
-kw_req_meas!(Range, tk::RANGE_KW_SUFFIX, tk::PNR_VERS);
+kw_req_meas!(TextRange, tk::RANGE_KW_SUFFIX, tk::PNR_VERS);
 kw_opt_meas_string!(Longname, tk::LONGNAME_KW_SUFFIX, tk::PNL_VERS);
 kw_opt_meas_string!(DetectorType, tk::DET_TYPE_KW_SUFFIX, tk::PNT_VERS);
 kw_opt_meas!(

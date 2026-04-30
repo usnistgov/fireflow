@@ -6647,7 +6647,7 @@ impl<E> PyDecimal<E> {
 
 impl<E: From<PyException>> PyDecimal<E> {
     fn new_range() -> Self {
-        let path = parse_quote!(fireflow_core::text::keywords::Range);
+        let path = parse_quote!(fireflow_core::data::FullDecimalRange);
         Self::default().rstype(path)
     }
 }
@@ -7149,7 +7149,7 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_range_or_bitmask_range() -> Self {
-        let path = quote!(fireflow_core::data::RangeOrVariableBitmask);
+        let path = quote!(fireflow_core::data::MaybeTypedVariableBitmask);
         let ints = PyTuple::new1(PyLiteral::new1(IntegerWidth::iter_str()))
             .add(RsInt::U64)
             .into();
@@ -7158,7 +7158,7 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_range_or_mixed_range() -> Self {
-        let path = quote!(fireflow_core::data::RangeOrMixedRange);
+        let path = quote!(fireflow_core::data::MaybeTypedMixedRange);
         let int_literals = once(COL_TYPE_ASCII.as_str()).chain(IntegerWidth::iter_str());
         let float_literals = [COL_TYPE_F32.as_str(), COL_TYPE_F64.as_str()];
         let ints = PyTuple::new1(PyLiteral::new1(int_literals))

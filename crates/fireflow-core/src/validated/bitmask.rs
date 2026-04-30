@@ -1,12 +1,13 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
 use crate::text::byteord::PrivBytes;
-use crate::text::keywords::Range;
+use crate::text::keywords::TextRange;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use bigdecimal::BigDecimal;
+use derive_more::From;
 use derive_new::new;
-use num_traits::{Bounded, One as _};
+use num_traits::{Bounded, ToPrimitive as _};
 use thiserror::Error;
 
 use std::ops::Shr;
@@ -57,22 +58,20 @@ pub type Bitmask48 = Bitmask<U48>;
 pub type Bitmask56 = Bitmask<U56>;
 pub type Bitmask64 = Bitmask<u64>;
 
-impl<T> From<Bitmask<T>> for Range
+impl<T> From<Bitmask<T>> for TextRange
 where
-    T: Copy,
-    u64: From<T>,
+    T: Copy + Into<u64>,
 {
     fn from(value: Bitmask<T>) -> Self {
         // NOTE add 1 since the spec treats int ranges as one less than they
         // appear in TEXT
-        Self::from(u64::from(value.value.0)) + Self::from(BigDecimal::one())
+        Self::from(Into::<u64>::into(value.value.0) + 1)
     }
 }
 
-impl<T> From<&Bitmask<T>> for Range
+impl<T> From<&Bitmask<T>> for TextRange
 where
-    T: Copy,
-    u64: From<T>,
+    T: Copy + Into<u64>,
 {
     fn from(value: &Bitmask<T>) -> Self {
         (*value).into()
@@ -81,7 +80,7 @@ where
 
 impl<T> From<Bitmask<T>> for u64
 where
-    Self: From<T>,
+    T: Into<Self>,
 {
     fn from(value: Bitmask<T>) -> Self {
         value.value.0.into()
@@ -101,6 +100,20 @@ where
             return Err(e);
         }
         Ok(new)
+    }
+}
+
+impl<T> TryFrom<BigDecimal> for Bitmask<T>
+where
+    u64: TryInto<Self, Error = NewBitmaskError>,
+{
+    type Error = BitmaskFromBigDecimalError;
+
+    fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
+        match value.to_u64() {
+            Some(x) => Ok(x.try_into()?),
+            None => Err(BitmaskFromBigDecimalError::Decimal(value)),
+        }
     }
 }
 
@@ -157,6 +170,18 @@ impl<T> Bitmask<T> {
 pub struct NewBitmaskError {
     bytes: PrivBytes,
     value: u64,
+}
+
+/// Error when making a new [`Bitmask`] from a [`BigDecimal`].
+#[derive(Error, Debug, From)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub enum BitmaskFromBigDecimalError {
+    #[from(NewBitmaskError)]
+    #[error("{0}")]
+    New(NewBitmaskError),
+    #[error("Decimal '{0}' is not an integer")]
+    Decimal(BigDecimal),
 }
 
 #[cfg(test)]

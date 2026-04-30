@@ -2,16 +2,18 @@
 
 use crate::config::DisallowRangeTrunc;
 use crate::data::{
-    ColumnSchemaFromRange as _, ConvertedRange, IndexedError, IndexedRangeToAsciiError,
+    ColumnSchemaFromTextRange as _, ConvertedRange, IndexedError, IndexedRangeToAsciiError,
 };
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{Range, RangeToIntError, Width};
+use crate::text::keywords::{RangeToIntError, TextRange, Width};
 use crate::validated::keys::IndexedKey as _;
 
+use bigdecimal::BigDecimal;
 use derive_more::{Display, From, Into};
 use derive_new::new;
+use num_traits::ToPrimitive as _;
 use thiserror::Error;
 
 use std::fmt;
@@ -83,11 +85,22 @@ pub(crate) const MAX_CHARS: NonZeroU8 = NonZeroU8::new(20).unwrap();
 
 pub(crate) const MIN_OTHER_WIDTH: NonZeroU8 = NonZeroU8::new(8).unwrap();
 
-impl TryFrom<Range> for Chars {
+impl TryFrom<TextRange> for Chars {
     type Error = RangeToIntError<u64>;
 
-    fn try_from(value: Range) -> Result<Self, Self::Error> {
+    fn try_from(value: TextRange) -> Result<Self, Self::Error> {
         u64::try_from(value).map(Self::from_u64)
+    }
+}
+
+impl TryFrom<BigDecimal> for AsciiRangeValue {
+    type Error = AsciiRangeValueFromBigDecimalError;
+
+    fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
+        value.to_u64().map_or(
+            Err(AsciiRangeValueFromBigDecimalError(value.clone())),
+            |x| Ok(Self(x)),
+        )
     }
 }
 
@@ -110,25 +123,25 @@ impl From<FixedAsciiRange> for DelimAsciiRange {
     }
 }
 
-impl From<FixedAsciiRange> for Range {
+impl From<FixedAsciiRange> for TextRange {
     fn from(value: FixedAsciiRange) -> Self {
         value.value.0.into()
     }
 }
 
-impl From<DelimAsciiRange> for Range {
+impl From<DelimAsciiRange> for TextRange {
     fn from(value: DelimAsciiRange) -> Self {
         value.0.0.into()
     }
 }
 
-impl From<&FixedAsciiRange> for Range {
+impl From<&FixedAsciiRange> for TextRange {
     fn from(value: &FixedAsciiRange) -> Self {
         value.value.0.into()
     }
 }
 
-impl From<&DelimAsciiRange> for Range {
+impl From<&DelimAsciiRange> for TextRange {
     fn from(value: &DelimAsciiRange) -> Self {
         value.0.0.into()
     }
@@ -165,7 +178,7 @@ impl FixedAsciiRange {
     /// Will return an error if $PnB is too small to hold $PnR.
     pub(crate) fn from_width_and_range(
         width: Width,
-        range: Range,
+        range: TextRange,
         i: MeasIndex,
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<
@@ -193,7 +206,7 @@ impl FixedAsciiRange {
     }
 
     pub(crate) fn from_range_indexed(
-        range: Range,
+        range: TextRange,
         i: MeasIndex,
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorsResult<
@@ -202,7 +215,7 @@ impl FixedAsciiRange {
         IndexedRangeToAsciiError,
         AsciiRangeFromKeywordsError,
     > {
-        Self::from_range_switch(range, flag)
+        Self::from_range(range, flag)
             .map_switchable_errors(|e| IndexedError::new(i, e))
             .map_switchable_errors(IndexedRangeToAsciiError)
             .switchable_into_commutative()
@@ -300,6 +313,13 @@ pub enum AsciiRangeFromKeywordsError {
     Range(IndexedRangeToAsciiError),
 }
 
+/// Error when making [`AsciiRangeValue`] from [`BigDecimal`];
+#[derive(From, Debug, Error)]
+#[error("Could not make Ascii range from decimal value '{0}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct AsciiRangeValueFromBigDecimalError(BigDecimal);
+
 /// Error when $PnB could not be converted to number of characters
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -324,7 +344,7 @@ impl fmt::Display for IndexedWidthToCharsError {
 #[derive(Debug, Error)]
 #[error(
     "{pnr} ({r}) is longer than {b} digits allowed by {pnb}",
-    pnr = Range::std(_0.index),
+    pnr = TextRange::std(_0.index),
     pnb = Width::std(_0.index),
     r = _0.error.value,
     b = _0.error.chars,

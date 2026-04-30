@@ -1,4 +1,4 @@
-use crate::text::keywords::Range;
+use crate::text::keywords::TextRange;
 
 use bigdecimal::num_bigint::{BigUint, Sign};
 use bigdecimal::{BigDecimal, ParseBigDecimalError};
@@ -57,7 +57,7 @@ impl TryFrom<f64> for FloatDecimal<f64> {
     }
 }
 
-impl<T> From<FloatDecimal<T>> for Range {
+impl<T> From<FloatDecimal<T>> for TextRange {
     fn from(value: FloatDecimal<T>) -> Self {
         Self(value.value)
     }

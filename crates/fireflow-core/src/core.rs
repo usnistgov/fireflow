@@ -16,9 +16,9 @@ use crate::data::{
     IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight as _, LayoutInsert, LayoutKeywords,
     LayoutNormalize, LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
     LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataSchemaError, OverrangeColumn, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
-    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataSchema,
-    WithPrimitiveDataFrame,
+    NewDataSchemaError, OverrangeColumn, RangeAndSeries, ReadCheckedDataframeError,
+    ReadCheckedDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame,
+    VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -60,7 +60,7 @@ use crate::text::keywords::{
     Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, Op, OptKeyword,
     OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptRootKeyword, OptTemporalKeyword,
     OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex,
-    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Range,
+    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, TextRange,
     ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1,
     Src, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
     TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
@@ -4099,7 +4099,7 @@ where
             INDEX.into(),
             Shortname::std_blank(),
             Width::std_blank(),
-            Range::std_blank(),
+            TextRange::std_blank(),
             Scale::std_blank(),
             Filter::std_blank(),
             // NOTE same for Wavelengths
@@ -4768,20 +4768,26 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
-    pub fn remove_measurement_by_name(
+    pub fn remove_measurement_by_name<R>(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<V>, Range), RemoveMeasByNameError> {
+    ) -> Result<(MeasIndex, TemporalOrOptical<V>, R), RemoveMeasByNameError>
+    where
+        V::DataSchema: LayoutRemove<R>,
+    {
         self.remove_measurement_by_name_inner(n)
     }
 
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
-    pub fn remove_measurement_by_index(
+    pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<V>, Range), RemoveMeasByIndexError> {
+    ) -> Result<(NamedTemporalOrOptical<V>, R), RemoveMeasByIndexError>
+    where
+        V::DataSchema: LayoutRemove<R>,
+    {
         self.remove_measurement_by_index_inner(index)
     }
 
@@ -5263,10 +5269,12 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// Remove a measurement matching the given name.
     ///
     /// Return removed measurement and its index if found.
-    pub fn remove_measurement_by_name(
+    pub fn remove_measurement_by_name<R>(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<V>, AnyPrimitiveSeries, Range), RemoveMeasByNameError>
+    ) -> Result<(MeasIndex, TemporalOrOptical<V>, AnyPrimitiveSeries, R), RemoveMeasByNameError>
+    where
+        V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
     {
         let (index, meas, (rng, col)) = self.remove_measurement_by_name_inner(n)?;
         Ok((index, meas, col, rng))
@@ -5275,10 +5283,12 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
-    pub fn remove_measurement_by_index(
+    pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<V>, AnyPrimitiveSeries, Range), RemoveMeasByIndexError>
+    ) -> Result<(NamedTemporalOrOptical<V>, AnyPrimitiveSeries, R), RemoveMeasByIndexError>
+    where
+        V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
     {
         let (meas, (rng, col)) = self.remove_measurement_by_index_inner(index)?;
         Ok((meas, col, rng))

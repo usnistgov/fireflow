@@ -42,7 +42,7 @@ pub struct Bitmask<T> {
     bitmask: T,
 }
 
-/// Integer value for [`Range`] for a bitmask
+/// Integer value for [`TextRange`] for a bitmask
 #[derive(PartialEq, Clone, Copy, Debug, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]

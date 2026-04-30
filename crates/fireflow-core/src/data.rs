@@ -249,9 +249,9 @@ pub type DataFrame3_2 = Any3_2Layout<DataFrameFamily>;
 #[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "M: HasWidth, N: HasWidth")]
 #[delegate(LayoutKeywords, where = "M: HasWidth, N: HasWidth")]
+#[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
@@ -299,9 +299,9 @@ type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
 #[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "Delim: HasWidth, Fixed: HasWidth")]
 #[delegate(LayoutKeywords, where = "Delim: HasWidth, Fixed: HasWidth")]
+#[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutInsert<R>, generics = "R")]
 #[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -441,9 +441,9 @@ pub struct ColumnMarkers<T, D> {
 #[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutRanges)]
 #[delegate(LayoutDatatype, where = "Single: HasWidth, Multi: HasWidth")]
 #[delegate(LayoutKeywords, where = "Single: HasWidth, Multi: HasWidth")]
+#[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -547,7 +547,6 @@ where
 #[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutRanges)]
 #[delegate(
     LayoutDatatype,
     where = "A: HasWidth, \
@@ -562,6 +561,7 @@ where
              F: HasWidth, \
              D: HasWidth"
 )]
+#[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -614,8 +614,6 @@ pub type MixedSeries = AnyDatatype<
 #[delegate(HasWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutRanges)]
-#[delegate(LayoutInsert<R>, generics = "R")]
 #[delegate(
     LayoutDatatype,
     where = "C08: HasWidth, \
@@ -638,6 +636,8 @@ pub type MixedSeries = AnyDatatype<
              C56: HasWidth, \
              C64: HasWidth"
 )]
+#[delegate(LayoutRanges<R>, generics = "R")]
+#[delegate(LayoutInsert<R>, generics = "R")]
 #[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -687,14 +687,14 @@ pub enum MaybeTypedRange<D, S> {
 }
 
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[repr(transparent)]
 pub struct FullIntRange(pub u64);
 
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[repr(transparent)]
 pub struct FullDecimalRange(pub BigDecimal);
 
 pub type RangeAndSeries<R> = (R, AnyPrimitiveSeries);
-
-// pub type IntRangeAndSeries = RangeAndSeries<FullIntRange>;
 
 pub type DecimalRangeAndSeries = RangeAndSeries<FullDecimalRange>;
 
@@ -1500,7 +1500,7 @@ pub struct MixedToNonMixedError {
     dest: AlphaNumType,
 }
 
-/// Error when attempting to insert new [`Range`] into a layout.
+/// Error when attempting to insert new [`TextRange`] into a layout.
 #[derive(From, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertRangeError {
@@ -1516,7 +1516,7 @@ pub enum InsertRangeError {
     MismatchTypes(MismatchTypeRangeError),
 }
 
-/// Error when attempting to insert new [`Range`] with a series into a layout.
+/// Error when attempting to insert new [`TextRange`] with a series into a layout.
 #[derive(Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -1545,7 +1545,7 @@ impl_functor_once!(
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct MismatchTypeRangeError;
 
-/// Inner error for converting [`Range`] to [`Bitmask`]
+/// Inner error for converting [`TextRange`] to [`Bitmask`]
 ///
 /// This is separate from RangeToBitmaskError since we need different error
 /// messages here given that $PnR and $PnB do not apply to newly supplied ranges.
@@ -2233,18 +2233,23 @@ impl<C: HasWidth, F, I, L, M, const ORD: bool> HasWidth for Layout<C, F, I, L, M
 
 /// A layout which has ranges.
 #[delegatable_trait]
-pub trait LayoutRanges: Sized {
-    fn ranges(&self) -> Vec<TextRange>;
+pub trait LayoutRanges<R>: Sized {
+    fn ranges(&self) -> Vec<R>;
 }
 
-impl<C, F, I, L, M, const ORD: bool> LayoutRanges for Layout<C, F, I, L, M, ORD>
+impl<R, C, F, I, L, M, const ORD: bool> LayoutRanges<R> for Layout<C, F, I, L, M, ORD>
 where
     I: IsCol<F, ORD>,
     C: AsRef<[I::Inner]>,
-    for<'c> TextRange: From<&'c I::Inner>,
+    I::Inner: Into<R> + Clone,
 {
-    fn ranges(&self) -> Vec<TextRange> {
-        self.container.as_ref().iter().map(Into::into).collect()
+    fn ranges(&self) -> Vec<R> {
+        self.container
+            .as_ref()
+            .iter()
+            .cloned()
+            .map(Into::into)
+            .collect()
     }
 }
 
@@ -4482,7 +4487,7 @@ impl<D> LayoutInsert<VariableBitmask> for AnyBigLittleUintDataSchema<D> {
                         }
                     } else {
                         let mut new = mem::take(y).map_inner(VariableBitmask::from);
-                        new.insert_or_push(index, col);
+                        let Ok(()) = new.insert_or_push(index, col);
                         *self = Self::Multi(new);
                     }
                     Ok(())
@@ -4624,19 +4629,6 @@ impl<R: TryInto<C>, C, I, L, M, const ORD: bool> LayoutInsert<R>
     }
 }
 
-// impl<C, I, L, M, const ORD: bool> LayoutInsert<C> for Layout<Vec<C>, VecFamily, I, L, M, ORD> {
-//     type Error = Infallible;
-
-//     fn insert_or_push(&mut self, index: Option<MeasIndex>, col: C) -> Result<(), Self::Error> {
-//         if let Some(i) = index {
-//             self.container.insert(i.into(), col);
-//         } else {
-//             self.container.push(col);
-//         }
-//         Ok(())
-//     }
-// }
-
 impl<A, I, F32, F64, Ae, Ie, F32e, F64e> LayoutInsert<DecimalRangeAndSeries>
     for AnyDatatype<A, I, F32, F64>
 where
@@ -4700,7 +4692,7 @@ impl<D> LayoutInsert<VariableUintSeries> for AnyBigLittleUintDataFrame<D> {
                         }
                     } else {
                         let mut new = mem::take(y).map_inner(VariableUintSeries::from);
-                        new.insert_or_push(index, col);
+                        let Ok(()) = new.insert_or_push(index, col);
                         *self = Self::Multi(new);
                     }
                     Ok(())
@@ -5783,6 +5775,21 @@ impl<A, I, F32, F64> ColumnHasDatatype for AnyDatatype<A, I, F32, F64> {
 
 // Implement column -> real range (not $PnR)
 
+impl<T> From<Bitmask<T>> for FullIntRange
+where
+    T: Into<u64>,
+{
+    fn from(value: Bitmask<T>) -> Self {
+        Self(u64::from(value))
+    }
+}
+
+impl From<VariableBitmask> for FullIntRange {
+    fn from(value: VariableBitmask) -> Self {
+        match_any_uint!(value, x, x.into())
+    }
+}
+
 impl<T> From<Bitmask<T>> for FullDecimalRange
 where
     T: Into<u64>,
@@ -6705,7 +6712,7 @@ impl_generic_enum_from! {
     F64 ~ NativeSeries<F64Range>
 }
 
-// necessary for inserting $PnR into mixed layuot
+// necessary for inserting ascii range into mixed layuot
 impl From<DelimAsciiRange> for MixedRange {
     fn from(value: DelimAsciiRange) -> Self {
         // this will automatically make any delimited ASCII layout a fixed
@@ -6715,7 +6722,7 @@ impl From<DelimAsciiRange> for MixedRange {
     }
 }
 
-// necessary for inserting $PnR into mixed layuot
+// necessary for inserting ascii range into mixed layuot
 impl From<NativeSeries<DelimAsciiRange>> for MixedSeries {
     fn from(value: NativeSeries<DelimAsciiRange>) -> Self {
         // this will automatically make any delimited ASCII layout a fixed
@@ -6725,21 +6732,21 @@ impl From<NativeSeries<DelimAsciiRange>> for MixedSeries {
     }
 }
 
-// necessary for inserting $PnR into mixed layuot
+// necessary for inserting ascii range into mixed layuot
 impl From<NativeSeries<DelimAsciiRange>> for NativeSeries<FixedAsciiRange> {
     fn from(value: NativeSeries<DelimAsciiRange>) -> Self {
         NativeSeries::new(value.column_schema.into(), value.series)
     }
 }
 
-// necessary for inserting $PnR into mixed layuot
+// necessary for inserting ascii range into mixed layuot
 impl From<NativeSeries<FixedAsciiRange>> for NativeSeries<DelimAsciiRange> {
     fn from(value: NativeSeries<FixedAsciiRange>) -> Self {
         NativeSeries::new(value.column_schema.into(), value.series)
     }
 }
 
-// necessary for inserting $PnR into mixed layuot
+// necessary for inserting bitmask into mixed layuot
 impl<T> From<Bitmask<T>> for MixedRange
 where
     VariableBitmask: From<Bitmask<T>>,
@@ -6749,7 +6756,7 @@ where
     }
 }
 
-// necessary for inserting $PnR into mixed layuot
+// necessary for inserting bitmask into mixed layuot
 impl<T> From<NativeSeries<Bitmask<T>>> for MixedSeries
 where
     VariableUintSeries: From<NativeSeries<Bitmask<T>>>,
@@ -6881,128 +6888,6 @@ impl<C, F, I, M, const ORD: bool> Layout<C, F, I, NoByteOrd<ORD>, M, ORD> {
         Self::new(columns, NoByteOrd::<ORD>)
     }
 }
-
-// TODO these could be used internally when parsing from keywords
-impl<T> AnyOrderedUintDataSchema<T> {
-    /// Make a new uint layout with a given byte order and width in bytes
-    ///
-    /// Throw error if any of the provided ranges cannot fit within the allotted
-    /// width.
-    ///
-    /// Only applicable to FCS 2.0/3.0.
-    pub fn new_ordered_uint(
-        ranges: Vec<u64>,
-        byte_width: &ArgBytes,
-        byte_order: AnyByteOrder,
-    ) -> Result<Self, NewOrderedUintLayoutError> {
-        macro_rules! go {
-            ($var:ident) => {{
-                let rs = ranges
-                    .into_iter()
-                    .map(Bitmask::try_from)
-                    .collect::<Result<Vec<_>, _>>()?;
-                let b = byte_order.try_into()?;
-                Ok(AnyUint::$var(Layout::new(rs, b)))
-            }};
-        }
-        match byte_width.0 {
-            PrivBytes::B1 => go!(Uint08),
-            PrivBytes::B2 => go!(Uint16),
-            PrivBytes::B3 => go!(Uint24),
-            PrivBytes::B4 => go!(Uint32),
-            PrivBytes::B5 => go!(Uint40),
-            PrivBytes::B6 => go!(Uint48),
-            PrivBytes::B7 => go!(Uint56),
-            PrivBytes::B8 => go!(Uint64),
-        }
-    }
-
-    #[must_use]
-    pub fn uint_ranges(&self) -> Vec<u64> {
-        match_any_uint!(self, x, x.columns().iter().map(|c| (*c).into()).collect())
-    }
-
-    #[must_use]
-    pub fn byte_width(&self) -> ArgBytes {
-        let b = match self {
-            AnyUint::Uint08(_) => PrivBytes::B1,
-            AnyUint::Uint16(_) => PrivBytes::B2,
-            AnyUint::Uint24(_) => PrivBytes::B3,
-            AnyUint::Uint32(_) => PrivBytes::B4,
-            AnyUint::Uint40(_) => PrivBytes::B5,
-            AnyUint::Uint48(_) => PrivBytes::B6,
-            AnyUint::Uint56(_) => PrivBytes::B7,
-            AnyUint::Uint64(_) => PrivBytes::B8,
-        };
-        ArgBytes(b)
-    }
-}
-
-impl<D> AnySingleUintDataSchema<D> {
-    /// Make a new big/little endian uint layout with a given width in bytes.
-    ///
-    /// Throw error if any of the provided ranges cannot fit within the allotted
-    /// width.
-    ///
-    /// Only applicable to FCS 3.1/3.2.
-    pub fn new_single_uint(
-        ranges: Vec<u64>,
-        byte_width: &ArgBytes,
-        endian: Endian,
-    ) -> Result<Self, NewBitmaskError> {
-        macro_rules! go {
-            ($var:ident) => {{
-                let rs = ranges
-                    .into_iter()
-                    .map(Bitmask::try_from)
-                    .collect::<Result<Vec<_>, _>>()?;
-                Ok(AnyUint::$var(Layout::new(rs, endian)))
-            }};
-        }
-        match byte_width.0 {
-            PrivBytes::B1 => go!(Uint08),
-            PrivBytes::B2 => go!(Uint16),
-            PrivBytes::B3 => go!(Uint24),
-            PrivBytes::B4 => go!(Uint32),
-            PrivBytes::B5 => go!(Uint40),
-            PrivBytes::B6 => go!(Uint48),
-            PrivBytes::B7 => go!(Uint56),
-            PrivBytes::B8 => go!(Uint64),
-        }
-    }
-
-    // TODO not DRY
-    #[must_use]
-    pub fn uint_ranges(&self) -> Vec<u64> {
-        match_any_uint!(self, x, x.columns().iter().map(|c| (*c).into()).collect())
-    }
-
-    #[must_use]
-    pub fn byte_width(&self) -> ArgBytes {
-        let b = match self {
-            AnyUint::Uint08(_) => PrivBytes::B1,
-            AnyUint::Uint16(_) => PrivBytes::B2,
-            AnyUint::Uint24(_) => PrivBytes::B3,
-            AnyUint::Uint32(_) => PrivBytes::B4,
-            AnyUint::Uint40(_) => PrivBytes::B5,
-            AnyUint::Uint48(_) => PrivBytes::B6,
-            AnyUint::Uint56(_) => PrivBytes::B7,
-            AnyUint::Uint64(_) => PrivBytes::B8,
-        };
-        ArgBytes(b)
-    }
-}
-
-// impl<T, I, A, M, const ORD: bool> Layout<Vec<Bitmask<T>>, VecFamily, I, ArrayByteOrd<A>, M, ORD>
-// where
-//     T: FCSRepr,
-//     Bitmask<T>: ColumnHasNativeType<Native = T>,
-// {
-//     #[must_use]
-//     pub fn new_endian_uint(ranges: Vec<Bitmask<T>>, endian: Endian) -> Self {
-//         Self::new(ranges, ArrayByteOrd::Endian(endian))
-//     }
-// }
 
 impl<T, I, A, M, const ORD: bool> Layout<Vec<FloatRange<T>>, VecFamily, I, ArrayByteOrd<A>, M, ORD>
 where
@@ -7201,7 +7086,106 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
 
 // Implement methods on specific aliases of column group
 
+// TODO these could be used internally when parsing from keywords
+
+impl<D> AnySingleUintDataSchema<D> {
+    /// Make a new big/little endian uint layout with a given width in bytes.
+    ///
+    /// Throw error if any of the provided ranges cannot fit within the allotted
+    /// width.
+    ///
+    /// Only applicable to FCS 3.1/3.2.
+    pub fn new_single_uint(
+        ranges: Vec<FullIntRange>,
+        byte_width: &ArgBytes,
+        endian: Endian,
+    ) -> Result<Self, NewBitmaskError> {
+        macro_rules! go {
+            ($var:ident) => {{
+                let rs = ranges
+                    .into_iter()
+                    .map(Bitmask::try_from)
+                    .collect::<Result<Vec<_>, _>>()?;
+                Ok(AnyUint::$var(Layout::new(rs, endian)))
+            }};
+        }
+        match byte_width.0 {
+            PrivBytes::B1 => go!(Uint08),
+            PrivBytes::B2 => go!(Uint16),
+            PrivBytes::B3 => go!(Uint24),
+            PrivBytes::B4 => go!(Uint32),
+            PrivBytes::B5 => go!(Uint40),
+            PrivBytes::B6 => go!(Uint48),
+            PrivBytes::B7 => go!(Uint56),
+            PrivBytes::B8 => go!(Uint64),
+        }
+    }
+
+    #[must_use]
+    pub fn byte_width(&self) -> ArgBytes {
+        let b = match self {
+            AnyUint::Uint08(_) => PrivBytes::B1,
+            AnyUint::Uint16(_) => PrivBytes::B2,
+            AnyUint::Uint24(_) => PrivBytes::B3,
+            AnyUint::Uint32(_) => PrivBytes::B4,
+            AnyUint::Uint40(_) => PrivBytes::B5,
+            AnyUint::Uint48(_) => PrivBytes::B6,
+            AnyUint::Uint56(_) => PrivBytes::B7,
+            AnyUint::Uint64(_) => PrivBytes::B8,
+        };
+        ArgBytes(b)
+    }
+}
+
 impl<T> AnyOrderedUintDataSchema<T> {
+    /// Make a new uint layout with a given byte order and width in bytes
+    ///
+    /// Throw error if any of the provided ranges cannot fit within the allotted
+    /// width.
+    ///
+    /// Only applicable to FCS 2.0/3.0.
+    pub fn new_ordered_uint(
+        ranges: Vec<FullIntRange>,
+        byte_width: &ArgBytes,
+        byte_order: AnyByteOrder,
+    ) -> Result<Self, NewOrderedUintLayoutError> {
+        macro_rules! go {
+            ($var:ident) => {{
+                let rs = ranges
+                    .into_iter()
+                    .map(Bitmask::try_from)
+                    .collect::<Result<Vec<_>, _>>()?;
+                let b = byte_order.try_into()?;
+                Ok(AnyUint::$var(Layout::new(rs, b)))
+            }};
+        }
+        match byte_width.0 {
+            PrivBytes::B1 => go!(Uint08),
+            PrivBytes::B2 => go!(Uint16),
+            PrivBytes::B3 => go!(Uint24),
+            PrivBytes::B4 => go!(Uint32),
+            PrivBytes::B5 => go!(Uint40),
+            PrivBytes::B6 => go!(Uint48),
+            PrivBytes::B7 => go!(Uint56),
+            PrivBytes::B8 => go!(Uint64),
+        }
+    }
+
+    #[must_use]
+    pub fn byte_width(&self) -> ArgBytes {
+        let b = match self {
+            AnyUint::Uint08(_) => PrivBytes::B1,
+            AnyUint::Uint16(_) => PrivBytes::B2,
+            AnyUint::Uint24(_) => PrivBytes::B3,
+            AnyUint::Uint32(_) => PrivBytes::B4,
+            AnyUint::Uint40(_) => PrivBytes::B5,
+            AnyUint::Uint48(_) => PrivBytes::B6,
+            AnyUint::Uint56(_) => PrivBytes::B7,
+            AnyUint::Uint64(_) => PrivBytes::B8,
+        };
+        ArgBytes(b)
+    }
+
     fn try_new(
         cs: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
         bo: ByteOrd2_0,

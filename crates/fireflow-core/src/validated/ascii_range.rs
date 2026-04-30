@@ -58,7 +58,7 @@ pub struct FixedAsciiRange {
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
 pub struct DelimAsciiRange(pub AsciiRangeValue);
 
-/// Integer value for [`Range`] for an ASCII measurement
+/// Integer value for [`TextRange`] for an ASCII measurement
 #[derive(PartialEq, Clone, Copy, Debug, Display, Into)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
@@ -97,10 +97,11 @@ impl TryFrom<BigDecimal> for AsciiRangeValue {
     type Error = AsciiRangeValueFromBigDecimalError;
 
     fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
-        value.to_u64().map_or(
-            Err(AsciiRangeValueFromBigDecimalError(value.clone())),
-            |x| Ok(Self(x)),
-        )
+        value
+            .to_u64()
+            .map_or(Err(AsciiRangeValueFromBigDecimalError(value)), |x| {
+                Ok(Self(x))
+            })
     }
 }
 

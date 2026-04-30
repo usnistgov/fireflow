@@ -60,7 +60,7 @@ use crate::text::keywords::{
     Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, Op, OptKeyword,
     OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptRootKeyword, OptTemporalKeyword,
     OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex,
-    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, TextRange,
+    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError,
     ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1,
     Src, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
     TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
@@ -135,7 +135,7 @@ use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use {
-    crate::text::keywords::{AsHeader as _, NumType, RefKeyword1, Width},
+    crate::text::keywords::{AsHeader as _, NumType, RefKeyword1, TextRange, Width},
     nalgebra::DMatrix,
     serde::Serialize,
     std::string::ToString as _,

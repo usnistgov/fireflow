@@ -4503,7 +4503,7 @@ pub fn impl_new_ordered_uint_data_schema(_: TokenStream) -> TokenStream {
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
+        PyList::new1(PyInt::new_full_int_range()),
         format!(
             "The range of each measurement. Corresponds to the {PNR} \
              keyword less one. The number of bytes used to encode each \
@@ -4516,7 +4516,7 @@ pub fn impl_new_ordered_uint_data_schema(_: TokenStream) -> TokenStream {
             v1023 = code(1023_u32),
             v1024 = code(1024_u32),
         ),
-        |_, _| quote!(self.0.uint_ranges()),
+        |_, _| quote!(fireflow_core::data::LayoutRanges::ranges(&self.0)),
     );
 
     let width_param = DocArg::new_ivar_ro(
@@ -4558,6 +4558,7 @@ pub fn impl_new_ordered_uint_data_schema(_: TokenStream) -> TokenStream {
     quote!(#class #datatype).into()
 }
 
+// TODO not DRY
 #[proc_macro]
 pub fn impl_new_single_uint_data_schema(_: TokenStream) -> TokenStream {
     let name = format_ident!("SingleUintDataSchema");
@@ -4570,7 +4571,7 @@ pub fn impl_new_single_uint_data_schema(_: TokenStream) -> TokenStream {
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(RsInt::U64),
+        PyList::new1(PyInt::new_full_int_range()),
         format!(
             "The range of each measurement. Corresponds to the {PNR} \
              keyword less one. The number of bytes used to encode each \
@@ -4583,7 +4584,7 @@ pub fn impl_new_single_uint_data_schema(_: TokenStream) -> TokenStream {
             v1023 = code(1023_u32),
             v1024 = code(1024_u32),
         ),
-        |_, _| quote!(self.0.uint_ranges()),
+        |_, _| quote!(fireflow_core::data::LayoutRanges::ranges(&self.0)),
     );
 
     let width_param = DocArg::new_ivar_ro(
@@ -6468,6 +6469,11 @@ impl<E: From<PyException>> PyInt<E> {
         let e = PyException::new_invalid_keyword().desc(r.exc_desc());
         let path = parse_quote!(fireflow_core::validated::bitmask::#i);
         Self::from(r).rstype(path).exc(e)
+    }
+
+    fn new_full_int_range() -> Self {
+        let path = parse_quote!(fireflow_core::data::FullIntRange);
+        Self::from(RsInt::U64).rstype(path)
     }
 }
 

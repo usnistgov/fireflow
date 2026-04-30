@@ -1317,21 +1317,6 @@ class TestCore:
         with pytest.raises(pf.ParseKeyError):
             core.nonstandard_keywords = {"$" + k: v}  # type: ignore
 
-        # trying to get key from empty list should return None
-        # assert core.get_nonstandard(k) is None
-        # # ditto if we try to remove it
-        # assert core.remove_nonstandard(k) is None
-        # # insert should succeed
-        # core.insert_nonstandard(k, v)
-        # # now the key should be present
-        # assert core.get_nonstandard(k) == v
-        # # if we remove it we should also get the key
-        # assert core.remove_nonstandard(k) == v
-        # # no the key shouldn't be present again
-        # assert core.get_nonstandard(k) is None
-        # # and it shouldn't return anything if we try to remove it a 2nd time
-        # assert core.remove_nonstandard(k) is None
-
     @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_temporal_no_timestep(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
@@ -1635,76 +1620,150 @@ class TestCore:
         new = "they've gone plaid"
         assert core.rename_temporal(new) == LINK_NAME2
 
-    # TODO test insertion of various data_schema (including those that cannot
-    # accept just a range
+    # TODO also test push here
 
     @pytest.mark.parametrize(
-        "core, optical",
+        "core, optical, data_schema",
         [
-            (lazy_fixture(c), lazy_fixture(o))
-            for c, o in [
-                ("blank_text_2_0", "blank_optical_2_0"),
-                ("blank_text_3_0", "blank_optical_3_0"),
-                ("blank_text_3_1", "blank_optical_3_1"),
-                ("blank_text_3_2", "blank_optical_3_2"),
+            (lazy_fixture(c), lazy_fixture(o), t)
+            for c, o, t in [
+                ("blank_text_2_0", "blank_optical_2_0", pf.OrderedUintDataSchema),
+                ("blank_text_3_0", "blank_optical_3_0", pf.OrderedUintDataSchema),
+                ("blank_text_3_1", "blank_optical_3_1", pf.SingleUintDataSchema),
+                ("blank_text_3_2", "blank_optical_3_2", pf.SingleUintDataSchema),
             ]
         ],
     )
-    def test_text_insert_optical(self, core: AnyCoreTEXT, optical: Any) -> None:
+    def test_text_insert_optical(
+        self, core: AnyCoreTEXT, optical: Any, data_schema: type
+    ) -> None:
+        assert isinstance(core.data_schema, data_schema)
         core.insert_optical(0, LINK_NAME1, optical, 9001)
         assert isinstance(core.measurement_at(0), type(optical))
+        assert isinstance(core.data_schema, data_schema)
 
     @pytest.mark.parametrize(
-        "core, temporal",
+        "core, temporal, data_schema",
         [
-            (lazy_fixture(c), lazy_fixture(o))
-            for c, o in [
-                ("blank_text_2_0", "blank_temporal_2_0"),
-                ("blank_text_3_0", "blank_temporal_3_0"),
-                ("blank_text_3_1", "blank_temporal_3_1"),
-                ("blank_text_3_2", "blank_temporal_3_2"),
+            (lazy_fixture(c), lazy_fixture(o), t)
+            for c, o, t in [
+                ("blank_text_2_0", "blank_temporal_2_0", pf.OrderedUintDataSchema),
+                ("blank_text_3_0", "blank_temporal_3_0", pf.OrderedUintDataSchema),
+                ("blank_text_3_1", "blank_temporal_3_1", pf.SingleUintDataSchema),
+                ("blank_text_3_2", "blank_temporal_3_2", pf.SingleUintDataSchema),
             ]
         ],
     )
-    def test_text_insert_temporal(self, core: AnyCoreTEXT, temporal: Any) -> None:
+    def test_text_insert_temporal(
+        self, core: AnyCoreTEXT, temporal: Any, data_schema: type
+    ) -> None:
+        assert isinstance(core.data_schema, data_schema)
         core.insert_temporal(0, LINK_NAME1, temporal, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
+        assert isinstance(core.data_schema, data_schema)
 
     @pytest.mark.parametrize(
-        "core, optical",
+        "core, optical, data_schema",
         [
-            (lazy_fixture(c), lazy_fixture(o))
-            for c, o in [
-                ("blank_dataset_2_0", "blank_optical_2_0"),
-                ("blank_dataset_3_0", "blank_optical_3_0"),
-                ("blank_dataset_3_1", "blank_optical_3_1"),
-                ("blank_dataset_3_2", "blank_optical_3_2"),
+            (lazy_fixture(c), lazy_fixture(o), t)
+            for c, o, t in [
+                ("blank_dataset_2_0", "blank_optical_2_0", pf.OrderedUintDataSchema),
+                ("blank_dataset_3_0", "blank_optical_3_0", pf.OrderedUintDataSchema),
+                ("blank_dataset_3_1", "blank_optical_3_1", pf.SingleUintDataSchema),
+                ("blank_dataset_3_2", "blank_optical_3_2", pf.SingleUintDataSchema),
             ]
         ],
     )
     def test_dataset_insert_optical(
-        self, core: AnyCoreDataset, optical: Any, series1: pl.Series
+        self, core: AnyCoreDataset, optical: Any, data_schema: type, series1: pl.Series
     ) -> None:
+        assert isinstance(core.data_schema, data_schema)
         core.insert_optical(0, LINK_NAME1, optical, 9001, series1)
         assert isinstance(core.measurement_at(0), type(optical))
+        assert isinstance(core.data_schema, data_schema)
 
     @pytest.mark.parametrize(
-        "core, temporal",
+        "core, temporal, data_schema",
         [
-            (lazy_fixture(c), lazy_fixture(o))
-            for c, o in [
-                ("blank_dataset_2_0", "blank_temporal_2_0"),
-                ("blank_dataset_3_0", "blank_temporal_3_0"),
-                ("blank_dataset_3_1", "blank_temporal_3_1"),
-                ("blank_dataset_3_2", "blank_temporal_3_2"),
+            (lazy_fixture(c), lazy_fixture(o), t)
+            for c, o, t in [
+                ("blank_dataset_2_0", "blank_temporal_2_0", pf.OrderedUintDataSchema),
+                ("blank_dataset_3_0", "blank_temporal_3_0", pf.OrderedUintDataSchema),
+                ("blank_dataset_3_1", "blank_temporal_3_1", pf.SingleUintDataSchema),
+                ("blank_dataset_3_2", "blank_temporal_3_2", pf.SingleUintDataSchema),
             ]
         ],
     )
     def test_dataset_insert_temporal(
-        self, core: AnyCoreDataset, temporal: Any, series1: pl.Series
+        self, core: AnyCoreDataset, temporal: Any, data_schema: type, series1: pl.Series
     ) -> None:
+        assert isinstance(core.data_schema, data_schema)
         core.insert_temporal(0, LINK_NAME1, temporal, 9001, series1)
         assert isinstance(core.measurement_at(0), type(temporal))
+        assert isinstance(core.data_schema, data_schema)
+
+    # all tests above are on 32-bit integer layouts, make sure we can insert
+    # into weirder layouts as well
+
+    @pytest.mark.parametrize(
+        "core, optical, data_schema",
+        [
+            (lazy_fixture(c), lazy_fixture(o), t)
+            for c, o, t in [
+                ("dataset_2_0", "blank_optical_2_0", pf.OrderedF32DataSchema),
+                ("dataset_3_0", "blank_optical_3_0", pf.OrderedF32DataSchema),
+                ("dataset_3_1", "blank_optical_3_1", pf.BigLittleF32DataSchema),
+                ("dataset_3_2", "blank_optical_3_2", pf.BigLittleF32DataSchema),
+                ("dataset_2_0", "blank_optical_2_0", pf.OrderedF64DataSchema),
+                ("dataset_3_0", "blank_optical_3_0", pf.OrderedF64DataSchema),
+                ("dataset_3_1", "blank_optical_3_1", pf.BigLittleF64DataSchema),
+                ("dataset_3_2", "blank_optical_3_2", pf.BigLittleF64DataSchema),
+            ]
+        ],
+    )
+    def test_insert_float(
+        self,
+        core: AnyCoreDataset,
+        optical: Any,
+        data_schema: type,
+        series1: pl.Series,
+    ) -> None:
+        core.data_schema = data_schema([Decimal(9001.0)])
+        assert isinstance(core.data_schema, data_schema)
+        core.insert_optical(0, LINK_NAME2, optical, 9001, series1)
+        assert isinstance(core.measurement_at(1), type(optical))
+        assert isinstance(core.data_schema, data_schema)
+
+    @pytest.mark.parametrize(
+        "core, optical",
+        [
+            (lazy_fixture(c), lazy_fixture(o))
+            for c, o in [
+                ("dataset2_3_1", "blank_optical_3_1"),
+                ("dataset2_3_2", "blank_optical_3_2"),
+                ("dataset2_3_1", "blank_optical_3_1"),
+                ("dataset2_3_2", "blank_optical_3_2"),
+            ]
+        ],
+    )
+    def test_insert_var_uint(
+        self,
+        core: AnyCoreDataset,
+        optical: Any,
+        series1: pl.Series,
+    ) -> None:
+        core.data_schema = pf.VariableUintDataSchema([("I16", 10000), ("I32", 10000)])
+        assert isinstance(core.data_schema, pf.VariableUintDataSchema)
+        core.insert_optical(0, "wannacry", optical, ("I64", 10000), series1)
+        assert isinstance(core.measurement_at(1), type(optical))
+        assert isinstance(core.data_schema, pf.VariableUintDataSchema)
+
+    # TODO add mixed insert test
+    # TODO add untyped mixed insert test (which should error)
+    # TODO add typed insert tests for non-mixed layouts (all of them)
+    # TODO add ascii insert tests
+    # TODO add typed int insert test for single layouts
+    # TODO add untyped int insert test for variable layout (which should error)
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:

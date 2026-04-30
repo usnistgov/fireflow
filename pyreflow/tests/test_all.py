@@ -626,7 +626,7 @@ class TestCore:
             "$PAR": "1",
             "$P1B": "32",
             "$P1N": LINK_NAME1,
-            "$P1R": "9001",
+            "$P1R": "9002",
         }
         for k, v in expected.items():
             assert k in kws
@@ -645,7 +645,7 @@ class TestCore:
             "$PAR": "1",
             "$P1B": "32",
             "$P1N": LINK_NAME1,
-            "$P1R": "9001",
+            "$P1R": "9002",
             "$P1E": "0,0",
         }
         for k, v in expected.items():
@@ -665,7 +665,7 @@ class TestCore:
             "$PAR": "1",
             "$P1B": "32",
             "$P1N": LINK_NAME1,
-            "$P1R": "9001",
+            "$P1R": "9002",
             "$P1E": "0,0",
         }
         for k, v in expected.items():
@@ -685,7 +685,7 @@ class TestCore:
             "$CYT": "Moca Emporium",
             "$P1B": "32",
             "$P1N": LINK_NAME1,
-            "$P1R": "9001",
+            "$P1R": "9002",
             "$P1E": "0,0",
         }
         for k, v in expected.items():

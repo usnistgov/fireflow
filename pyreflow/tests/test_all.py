@@ -1639,102 +1639,47 @@ class TestCore:
         new = "they've gone plaid"
         assert core.rename_temporal(new) == LINK_NAME2
 
-    # TODO also test push here
-
     @pytest.mark.parametrize(
-        "core, optical, data_schema",
+        "core, optical, data_schema, method",
         [
-            (lazy_fixture(c), lazy_fixture(o), t)
+            (lazy_fixture(c), lazy_fixture(o), t, m)
+            for core in ["text", "dataset"]
+            for meas in ["optical", "temporal"]
             for c, o, t in [
-                ("blank_text_2_0", "blank_optical_2_0", pf.OrderedUintDataSchema),
-                ("blank_text_3_0", "blank_optical_3_0", pf.OrderedUintDataSchema),
-                ("blank_text_3_1", "blank_optical_3_1", pf.SingleUintDataSchema),
-                ("blank_text_3_2", "blank_optical_3_2", pf.SingleUintDataSchema),
+                (f"blank_{core}_2_0", f"blank_{meas}_2_0", pf.OrderedUintDataSchema),
+                (f"blank_{core}_3_0", f"blank_{meas}_3_0", pf.OrderedUintDataSchema),
+                (f"blank_{core}_3_1", f"blank_{meas}_3_1", pf.SingleUintDataSchema),
+                (f"blank_{core}_3_2", f"blank_{meas}_3_2", pf.SingleUintDataSchema),
             ]
+            for m in [f"insert_{meas}", f"push_{meas}"]
         ],
     )
-    def test_text_insert_decimal_optical(
-        self, core: AnyCoreTEXT, optical: Any, data_schema: type
+    def test_text_insert_decimal_int32(
+        self,
+        core: AnyCoreTEXT | AnyCoreDataset,
+        optical: Any,
+        data_schema: type,
+        method: str,
+        series1: pl.Series,
     ) -> None:
-        """Check int32 schema optical insertion into text.
+        """Check int32 schema insertion into text.
 
         Schema should not change when inserting a decimal range.
+
+        Test all push/insert, dataset/text, and optical/temporal combinations.
         """
         assert isinstance(core.data_schema, data_schema)
-        core.insert_optical(0, LINK_NAME1, optical, 9001)
+        if "insert" in method:
+            if isinstance(core, AnyCoreTEXT):
+                getattr(core, method)(0, LINK_NAME1, optical, 100)
+            else:
+                getattr(core, method)(0, LINK_NAME1, optical, 100, series1)
+        else:
+            if isinstance(core, AnyCoreTEXT):
+                getattr(core, method)(LINK_NAME1, optical, 100)
+            else:
+                getattr(core, method)(LINK_NAME1, optical, 100, series1)
         assert isinstance(core.measurement_at(0), type(optical))
-        assert isinstance(core.data_schema, data_schema)
-
-    @pytest.mark.parametrize(
-        "core, temporal, data_schema",
-        [
-            (lazy_fixture(c), lazy_fixture(o), t)
-            for c, o, t in [
-                ("blank_text_2_0", "blank_temporal_2_0", pf.OrderedUintDataSchema),
-                ("blank_text_3_0", "blank_temporal_3_0", pf.OrderedUintDataSchema),
-                ("blank_text_3_1", "blank_temporal_3_1", pf.SingleUintDataSchema),
-                ("blank_text_3_2", "blank_temporal_3_2", pf.SingleUintDataSchema),
-            ]
-        ],
-    )
-    def test_text_insert_decimal_temporal(
-        self, core: AnyCoreTEXT, temporal: Any, data_schema: type
-    ) -> None:
-        """Check int32 schema temporal insertion into text.
-
-        Schema should not change when inserting a decimal range.
-        """
-        assert isinstance(core.data_schema, data_schema)
-        core.insert_temporal(0, LINK_NAME1, temporal, 9001)
-        assert isinstance(core.measurement_at(0), type(temporal))
-        assert isinstance(core.data_schema, data_schema)
-
-    @pytest.mark.parametrize(
-        "core, optical, data_schema",
-        [
-            (lazy_fixture(c), lazy_fixture(o), t)
-            for c, o, t in [
-                ("blank_dataset_2_0", "blank_optical_2_0", pf.OrderedUintDataSchema),
-                ("blank_dataset_3_0", "blank_optical_3_0", pf.OrderedUintDataSchema),
-                ("blank_dataset_3_1", "blank_optical_3_1", pf.SingleUintDataSchema),
-                ("blank_dataset_3_2", "blank_optical_3_2", pf.SingleUintDataSchema),
-            ]
-        ],
-    )
-    def test_dataset_insert_decimal_optical(
-        self, core: AnyCoreDataset, optical: Any, data_schema: type, series1: pl.Series
-    ) -> None:
-        """Check int32 schema optical insertion into dataset.
-
-        Schema should not change when inserting a decimal range.
-        """
-        assert isinstance(core.data_schema, data_schema)
-        core.insert_optical(0, LINK_NAME1, optical, 9001, series1)
-        assert isinstance(core.measurement_at(0), type(optical))
-        assert isinstance(core.data_schema, data_schema)
-
-    @pytest.mark.parametrize(
-        "core, temporal, data_schema",
-        [
-            (lazy_fixture(c), lazy_fixture(o), t)
-            for c, o, t in [
-                ("blank_dataset_2_0", "blank_temporal_2_0", pf.OrderedUintDataSchema),
-                ("blank_dataset_3_0", "blank_temporal_3_0", pf.OrderedUintDataSchema),
-                ("blank_dataset_3_1", "blank_temporal_3_1", pf.SingleUintDataSchema),
-                ("blank_dataset_3_2", "blank_temporal_3_2", pf.SingleUintDataSchema),
-            ]
-        ],
-    )
-    def test_dataset_insert_decimal_temporal(
-        self, core: AnyCoreDataset, temporal: Any, data_schema: type, series1: pl.Series
-    ) -> None:
-        """Check int32 schema temporal insertion into dataset.
-
-        Schema should not change when inserting a decimal range.
-        """
-        assert isinstance(core.data_schema, data_schema)
-        core.insert_temporal(0, LINK_NAME1, temporal, 9001, series1)
-        assert isinstance(core.measurement_at(0), type(temporal))
         assert isinstance(core.data_schema, data_schema)
 
     # all tests above are on 32-bit integer layouts, make sure we can insert
@@ -1778,10 +1723,6 @@ class TestCore:
         [
             (lazy_fixture(c), lazy_fixture(o), t)
             for c, o in [
-                ("dataset_2_0", "blank_optical_2_0"),
-                ("dataset_3_0", "blank_optical_3_0"),
-                ("dataset_3_1", "blank_optical_3_1"),
-                ("dataset_3_2", "blank_optical_3_2"),
                 ("dataset_2_0", "blank_optical_2_0"),
                 ("dataset_3_0", "blank_optical_3_0"),
                 ("dataset_3_1", "blank_optical_3_1"),

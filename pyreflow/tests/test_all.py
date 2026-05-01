@@ -1858,8 +1858,7 @@ class TestCore:
         core.insert_optical(0, "wannacry", optical, ("I64", 10000), series1)
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
-        # TODO this is a misleading error
-        with pytest.RaisesGroup(pf.InvalidKeywordValueError):
+        with pytest.RaisesGroup(pf.RelationalError):
             core.insert_optical(0, "gonnacry", optical, 10000, series1)
 
     def test_insert_mixed(
@@ -1880,8 +1879,7 @@ class TestCore:
         )
         assert isinstance(dataset2_3_2.measurement_at(1), pf.Optical3_2)
         assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
-        # TODO this is a misleading error
-        with pytest.RaisesGroup(pf.InvalidKeywordValueError):
+        with pytest.RaisesGroup(pf.RelationalError):
             dataset2_3_2.insert_optical(
                 0, "gotpetya", blank_optical_3_2, 10000, series1
             )
@@ -2668,7 +2666,7 @@ class TestLayouts:
         assert new.byte_width == width / 8
         assert new.ranges == [1000.0] * n
         assert new.datatype == datatype
-        with pytest.raises(pf.InvalidKeywordValueError):
+        with pytest.raises(ValueError):
             data_schema([float("inf")])
 
     def test_variable_uint(self) -> None:

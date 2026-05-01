@@ -122,31 +122,22 @@ impl TryFrom<FiniteF64> for FiniteF32 {
 /// Error when converting [`u64`] to [`FiniteFloat`].
 #[derive(Debug, Error)]
 #[error("int '{0}' too large to be converted to float")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(
-    feature = "python",
-    pyerr(fireflow_types::python::InvalidKeywordValueError)
-)]
+// this is only used for function args, so ValueError is appropriate
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct U64ToFiniteFloatError(u64);
 
 /// Error when converting [`FiniteF64`] to [`FiniteF32`].
 #[derive(Debug, Error)]
 #[error("64-bit float '{0}' too large to be converted to 32-bit finite float")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(
-    feature = "python",
-    pyerr(fireflow_types::python::InvalidKeywordValueError)
-)]
+// this is only used for function args, so ValueError is appropriate
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct FiniteF64toF32Error(FiniteF64);
 
 /// Error when converting float to [`FiniteFloat`].
 #[derive(Debug, Error)]
 #[error("float could not be converted to decimal because it is not finite")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(
-    feature = "python",
-    pyerr(fireflow_types::python::InvalidKeywordValueError)
-)]
+// this is only used for function args, so ValueError is appropriate
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct FloatToFiniteFloatError;
 
 /// Error when converting BigDecimal to f32 or f64

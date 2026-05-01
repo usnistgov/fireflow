@@ -1451,13 +1451,16 @@ pub enum InsertFullRangeError {
     DecimalToInt(BitmaskFromFullRangeError),
     F32(F32RangeFromFullRangeError),
     F64(U64ToFiniteFloatError),
-    MismatchTypes(MismatchTypeRangeError),
+    UnderspecUint(UnderspecifiedUintRangeError),
+    OverspecUint(OverspecifiedUintRangeError),
+    UnderspecMixed(UnderspecifiedMixedRangeError),
 }
 
 /// Error when making a new [`Bitmask`] from a [`FullRange`].
 #[derive(Error, Debug, From)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+// this is only used for function args, so ValueError is appropriate
+#[cfg_attr(feature = "python", pyerr(PyValueError))]
 pub enum BitmaskFromFullRangeError {
     #[from(NewBitmaskError)]
     #[error("{0}")]
@@ -1470,7 +1473,8 @@ pub enum BitmaskFromFullRangeError {
 #[derive(From, Debug, Error)]
 #[error("Could not make Ascii range from float value '{0}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+// this is only used for function args, so ValueError is appropriate
+#[cfg_attr(feature = "python", pyerr(PyValueError))]
 pub struct AsciiRangeValueFromFullRangeError(FiniteF64);
 
 /// Error when making [`F64Range`] from [`FullRange`];
@@ -1502,13 +1506,32 @@ impl_functor_once!(
     }
 );
 
-/// Error when insert range with concrete type which mismatches layout.
+/// Error when inserting untyped uint into variable width schema.
 #[derive(Debug, Error)]
-// TODO make this say something useful
-#[error("range type mistmatches")]
+#[error("tried to insert integer range into variable-width schema without specifying width")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
-pub struct MismatchTypeRangeError;
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct UnderspecifiedUintRangeError;
+
+/// Error when inserting typed uint into mismatching single-width schema
+#[derive(Debug, Error, new)]
+#[error(
+    "tried to insert integer range into type='{}' schema",
+    self.schema_type.as_displayable()
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct OverspecifiedUintRangeError {
+    // TODO this isn't the best way to print the datatype, it's one letter...
+    schema_type: AlphaNumType,
+}
+
+/// Error when inserting untyped range into mixed-type schema.
+#[derive(Debug, Error)]
+#[error("tried to insert untyped range into variable-width schema")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct UnderspecifiedMixedRangeError;
 
 /// Inner error for converting [`TextRange`] to [`Bitmask`]
 ///
@@ -4426,7 +4449,7 @@ impl<D> LayoutInsert<FullRange> for AnyBigLittleUintDataSchema<D> {
                 x.insert_or_push(index, col)?;
                 Ok(())
             }
-            Self::Multi(_) => Err(MismatchTypeRangeError.into()),
+            Self::Multi(_) => Err(UnderspecifiedUintRangeError.into()),
         }
     }
 }
@@ -4497,7 +4520,7 @@ impl<D> LayoutInsert<MaybeTypedVariableBitmask> for NonMixedDataSchema<D> {
                 if let MaybeTypedRange::Untyped(r) = col {
                     $layout.insert_or_push(index, r)?;
                 } else {
-                    return Err(MismatchTypeRangeError.into());
+                    return Err(OverspecifiedUintRangeError::new($layout.datatype()).into());
                 }
             };
         }
@@ -4546,7 +4569,7 @@ impl LayoutInsert<MaybeTypedMixedRange> for DataSchema3_2 {
 
         match col {
             MaybeTypedRange::Untyped(r) => match self {
-                Self::Mixed(_) => return Err(MismatchTypeRangeError.into()),
+                Self::Mixed(_) => return Err(UnderspecifiedMixedRangeError.into()),
                 Self::NonMixed(x) => x.insert_or_push(index, r)?,
             },
 
@@ -4632,7 +4655,7 @@ impl<D> LayoutInsert<DecimalRangeAndSeries> for AnyBigLittleUintDataFrame<D> {
                 Ok(())
             }
             Self::Multi(_) => Err(InsertRangeAndSeriesError::Range(
-                MismatchTypeRangeError.into(),
+                UnderspecifiedUintRangeError.into(),
             )),
         }
     }
@@ -4702,7 +4725,7 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
                         .map_err(InsertRangeAndSeriesError::fmap_into_once)?;
                 } else {
                     return Err(InsertRangeAndSeriesError::Range(
-                        MismatchTypeRangeError.into(),
+                        OverspecifiedUintRangeError::new($layout.datatype()).into(),
                     ));
                 }
             };
@@ -4754,7 +4777,7 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
             MaybeTypedRange::Untyped(r) => match self {
                 Self::Mixed(_) => {
                     return Err(InsertRangeAndSeriesError::Range(
-                        MismatchTypeRangeError.into(),
+                        UnderspecifiedMixedRangeError.into(),
                     ));
                 }
                 Self::NonMixed(x) => x.insert_or_push(index, r)?,

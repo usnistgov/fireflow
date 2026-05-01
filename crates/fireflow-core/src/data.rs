@@ -128,7 +128,6 @@ use crate::text::byteord::{
     HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBytes, VecToSizedError, WidthToBytesError,
     WidthToFixedError,
 };
-use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
     AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, Keyword0FromValue as _, Keyword1FromValue as _,
@@ -142,17 +141,20 @@ use crate::text::lookup::{
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
-    AsciiRangeFromKeywordsError, AsciiRangeValue, AsciiRangeValueFromBigDecimalError, Chars,
-    DelimAsciiRange, FixedAsciiRange,
+    AsciiRangeFromKeywordsError, AsciiRangeValue, Chars, DelimAsciiRange, FixedAsciiRange,
 };
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
-    Bitmask64, BitmaskFromBigDecimalError, BitmaskValue, NewBitmaskError,
+    Bitmask64, BitmaskValue, NewBitmaskError,
 };
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
     HasFCSType, HasLen, HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries,
     ambassador_impl_HasLen, ambassador_impl_HasWidth,
+};
+use crate::validated::finite_float::{
+    DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
+    U64ToFiniteFloatError,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
 use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
@@ -175,7 +177,7 @@ use nonempty_collections::{
     IntoIteratorExt as _, NEVec,
     iter::{NonEmptyIterator as _, once},
 };
-use num_traits::Bounded;
+use num_traits::{Bounded, ToPrimitive as _};
 use thiserror::Error;
 
 use std::convert::Infallible;
@@ -540,7 +542,7 @@ where
 /// Generic container for anything that can be categorized by $DATATYPE.
 // TODO false positive lint
 #[allow(clippy::duplicated_attributes)]
-#[derive(Debug, PartialEq, Clone, Delegate, IntoInner)]
+#[derive(Debug, PartialEq, Clone, Copy, Delegate, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(ColumnIsFixed)]
 #[delegate(HasLen)]
@@ -686,79 +688,27 @@ pub enum MaybeTypedRange<D, S> {
     Typed(S),
 }
 
+#[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 #[repr(transparent)]
 pub struct FullIntRange(pub u64);
 
-#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[repr(transparent)]
-pub struct FullDecimalRange(pub BigDecimal);
+#[derive(Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+pub enum FullRange {
+    Float(FiniteF64),
+    Int(FullIntRange),
+}
 
 pub type RangeAndSeries<R> = (R, AnyPrimitiveSeries);
 
-pub type DecimalRangeAndSeries = RangeAndSeries<FullDecimalRange>;
+pub type DecimalRangeAndSeries = RangeAndSeries<FullRange>;
 
-impl<T> TryFrom<FullIntRange> for Bitmask<T>
-where
-    u64: TryInto<Self>,
-{
-    type Error = <u64 as TryInto<Self>>::Error;
-
-    fn try_from(value: FullIntRange) -> Result<Self, Self::Error> {
-        value.0.try_into()
-    }
-}
-
-impl<T> TryFrom<FullDecimalRange> for Bitmask<T>
-where
-    BigDecimal: TryInto<Self>,
-{
-    type Error = <BigDecimal as TryInto<Self>>::Error;
-
-    fn try_from(value: FullDecimalRange) -> Result<Self, Self::Error> {
-        value.0.try_into()
-    }
-}
-
-impl TryFrom<FullDecimalRange> for DelimAsciiRange
-where
-    BigDecimal: TryInto<AsciiRangeValue>,
-{
-    type Error = <BigDecimal as TryInto<AsciiRangeValue>>::Error;
-
-    fn try_from(value: FullDecimalRange) -> Result<Self, Self::Error> {
-        value.0.try_into().map(Self)
-    }
-}
-
-impl TryFrom<FullDecimalRange> for FixedAsciiRange
-where
-    BigDecimal: TryInto<AsciiRangeValue>,
-{
-    type Error = <BigDecimal as TryInto<AsciiRangeValue>>::Error;
-
-    fn try_from(value: FullDecimalRange) -> Result<Self, Self::Error> {
-        let r: AsciiRangeValue = value.0.try_into()?;
-        Ok(Self::from(r))
-    }
-}
-
-impl<T> TryFrom<FullDecimalRange> for FloatRange<T>
-where
-    BigDecimal: TryInto<FloatDecimal<T>>,
-{
-    type Error = <BigDecimal as TryInto<FloatDecimal<T>>>::Error;
-
-    fn try_from(value: FullDecimalRange) -> Result<Self, Self::Error> {
-        value.0.try_into().map(Self::new)
-    }
-}
-
-pub type MaybeTypedVariableBitmask = MaybeTypedRange<FullDecimalRange, VariableBitmask>;
+pub type MaybeTypedVariableBitmask = MaybeTypedRange<FullRange, VariableBitmask>;
 
 pub type MaybeTypedVariableUintSeries = MaybeTypedRange<DecimalRangeAndSeries, VariableUintSeries>;
 
-pub type MaybeTypedMixedRange = MaybeTypedRange<FullDecimalRange, MixedRange>;
+pub type MaybeTypedMixedRange = MaybeTypedRange<FullRange, MixedRange>;
 
 pub type MaybeTypedMixedSeries = MaybeTypedRange<DecimalRangeAndSeries, MixedSeries>;
 
@@ -774,11 +724,12 @@ pub type VariableUintSeries = AnyUint<
 >;
 
 /// The type of any floating point column in all versions
-#[derive(PartialEq, Clone, new, Debug)]
+#[derive(PartialEq, Clone, Copy, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
+#[cfg_attr(feature = "python", derive(IntoPyObject), pyo3(transparent))]
 pub struct FloatRange<T> {
-    range: FloatDecimal<T>,
+    range: FiniteFloat<T>,
 }
 
 pub type F32Range = FloatRange<f32>;
@@ -1477,15 +1428,6 @@ pub enum MixedToOrderedUintError {
     Other(MixedToNonMixedError),
 }
 
-// impl MixedToOrderedUintError {
-//     fn into_col_error(self, i: MeasIndex) -> MixedToOrderedLayoutError {
-//         match self {
-//             Self::Integer(e) => UintEndianToOrderedLayoutError(IndexedError::new(i, e)).into(),
-//             Self::Other(e) => MixedToNonMixedLayoutError(IndexedError::new(i, e)).into(),
-//         }
-//     }
-// }
-
 /// Error when converting between [`Bitmask`]s with different byte-widths.
 #[derive(Debug, new)]
 pub struct UintToUintError {
@@ -1500,20 +1442,43 @@ pub struct MixedToNonMixedError {
     dest: AlphaNumType,
 }
 
-/// Error when attempting to insert new [`TextRange`] into a layout.
-#[derive(From, Debug, Error)]
+/// Error when attempting to insert new [`FullRange`] into a layout.
+#[derive(From, Debug, Error, Display)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum InsertRangeError {
-    #[error("could not insert range into ASCII layout because {0}")]
-    Ascii(AsciiRangeValueFromBigDecimalError),
-    #[error("could not insert integer into integer layout because {0}")]
+pub enum InsertFullRangeError {
+    Ascii(AsciiRangeValueFromFullRangeError),
     IntToInt(NewBitmaskError),
-    #[error("could not insert range into integer layout because {0}")]
-    DecimalToInt(BitmaskFromBigDecimalError),
-    #[error("could not insert range into float layout because {0}")]
-    Float(DecimalToFloatError),
-    #[error("could not insert range {0}")]
+    DecimalToInt(BitmaskFromFullRangeError),
+    F32(F32RangeFromFullRangeError),
+    F64(U64ToFiniteFloatError),
     MismatchTypes(MismatchTypeRangeError),
+}
+
+/// Error when making a new [`Bitmask`] from a [`FullRange`].
+#[derive(Error, Debug, From)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub enum BitmaskFromFullRangeError {
+    #[from(NewBitmaskError)]
+    #[error("{0}")]
+    New(NewBitmaskError),
+    #[error("Float '{0}' is not an integer")]
+    Float(FiniteF64),
+}
+
+/// Error when making [`AsciiRangeValue`] from [`FullRange`];
+#[derive(From, Debug, Error)]
+#[error("Could not make Ascii range from float value '{0}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct AsciiRangeValueFromFullRangeError(FiniteF64);
+
+/// Error when making [`F64Range`] from [`FullRange`];
+#[derive(From, Display, Error, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum F32RangeFromFullRangeError {
+    U64(U64ToFiniteFloatError),
+    F64(FiniteF64toF32Error),
 }
 
 /// Error when attempting to insert new [`TextRange`] with a series into a layout.
@@ -2428,10 +2393,10 @@ impl<C, F, I, L, M, const ORD: bool> LayoutKeywords for Layout<C, F, I, L, M, OR
 where
     I: IsCol<F, ORD, Layout = L>,
     C: AsRef<[I::Inner]>,
-    I::Inner: ColumnHasDatatype + ColumnSchemaAsWidth,
+    I::Inner: ColumnHasDatatype + ColumnSchemaAsWidth + Clone,
     L: Copy + HasByteOrd,
     for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<L::ByteOrd>>,
-    for<'c> TextRange: From<&'c I::Inner>,
+    TextRange: From<I::Inner>,
 {
     fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
         ReqRootKeyword::from_value(self.byteord.into())
@@ -2444,7 +2409,7 @@ where
             .enumerate()
             .map(|(i, c)| {
                 let w = ReqMeasKeyword::from_value(c.as_width(), i);
-                let r = ReqMeasKeyword::from_value(TextRange::from(c), i);
+                let r = ReqMeasKeyword::from_value(TextRange::from(c.clone()), i);
                 [w, r]
             })
             .collect()
@@ -3809,7 +3774,7 @@ where
 {
     if let Ok(cs) = ranges
         .iter()
-        .cloned()
+        .copied()
         .map(W::try_from)
         .collect::<Result<Vec<_>, _>>()
     {
@@ -4424,20 +4389,20 @@ pub trait LayoutInsert<Column>: LayoutNormalize {
     fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Column) -> Result<(), Self::Error>;
 }
 
-impl<A, I, F32, F64> LayoutInsert<FullDecimalRange> for AnyDatatype<A, I, F32, F64>
+impl<A, I, F32, F64> LayoutInsert<FullRange> for AnyDatatype<A, I, F32, F64>
 where
-    A: LayoutInsert<FullDecimalRange>,
-    I: LayoutInsert<FullDecimalRange>,
-    F32: LayoutInsert<FullDecimalRange>,
-    F64: LayoutInsert<FullDecimalRange>,
-    InsertRangeError: From<A::Error> + From<I::Error> + From<F32::Error> + From<F64::Error>,
+    A: LayoutInsert<FullRange>,
+    I: LayoutInsert<FullRange>,
+    F32: LayoutInsert<FullRange>,
+    F64: LayoutInsert<FullRange>,
+    InsertFullRangeError: From<A::Error> + From<I::Error> + From<F32::Error> + From<F64::Error>,
 {
-    type Error = InsertRangeError;
+    type Error = InsertFullRangeError;
 
     fn insert_or_push(
         &mut self,
         index: Option<MeasIndex>,
-        col: FullDecimalRange,
+        col: FullRange,
     ) -> Result<(), Self::Error> {
         match_any_datatype!(self, x, {
             x.insert_or_push(index, col).map_err(Self::Error::from)
@@ -4448,13 +4413,13 @@ where
 // Insert general range into potentially variable int layout. If single-width,
 // coerce range to the width of the layout. If variable, fail instantly since
 // width of the new range is ambiguous.
-impl<D> LayoutInsert<FullDecimalRange> for AnyBigLittleUintDataSchema<D> {
-    type Error = InsertRangeError;
+impl<D> LayoutInsert<FullRange> for AnyBigLittleUintDataSchema<D> {
+    type Error = InsertFullRangeError;
 
     fn insert_or_push(
         &mut self,
         index: Option<MeasIndex>,
-        col: FullDecimalRange,
+        col: FullRange,
     ) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => {
@@ -4502,7 +4467,7 @@ impl<D> LayoutInsert<VariableBitmask> for AnyBigLittleUintDataSchema<D> {
 // either be a general decimal or a specific bitmask type which implies the
 // width of the new column.
 impl<D> LayoutInsert<MaybeTypedVariableBitmask> for AnyBigLittleUintDataSchema<D> {
-    type Error = InsertRangeError;
+    type Error = InsertFullRangeError;
 
     fn insert_or_push(
         &mut self,
@@ -4520,7 +4485,7 @@ impl<D> LayoutInsert<MaybeTypedVariableBitmask> for AnyBigLittleUintDataSchema<D
 }
 
 impl<D> LayoutInsert<MaybeTypedVariableBitmask> for NonMixedDataSchema<D> {
-    type Error = InsertRangeError;
+    type Error = InsertFullRangeError;
 
     fn insert_or_push(
         &mut self,
@@ -4547,7 +4512,7 @@ impl<D> LayoutInsert<MaybeTypedVariableBitmask> for NonMixedDataSchema<D> {
 }
 
 impl LayoutInsert<MaybeTypedMixedRange> for DataSchema3_2 {
-    type Error = InsertRangeError;
+    type Error = InsertFullRangeError;
 
     fn insert_or_push(
         &mut self,
@@ -4636,9 +4601,9 @@ where
     I: LayoutInsert<DecimalRangeAndSeries, Error = InsertRangeAndSeriesError<Ie>>,
     F32: LayoutInsert<DecimalRangeAndSeries, Error = InsertRangeAndSeriesError<F32e>>,
     F64: LayoutInsert<DecimalRangeAndSeries, Error = InsertRangeAndSeriesError<F64e>>,
-    InsertRangeError: From<Ae> + From<Ie> + From<F32e> + From<F64e>,
+    InsertFullRangeError: From<Ae> + From<Ie> + From<F32e> + From<F64e>,
 {
-    type Error = InsertRangeAndSeriesError<InsertRangeError>;
+    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
 
     fn insert_or_push(
         &mut self,
@@ -4647,13 +4612,13 @@ where
     ) -> Result<(), Self::Error> {
         match_any_datatype!(self, x, {
             x.insert_or_push(index, col)
-                .map_err(|e| e.fmap_once(InsertRangeError::from))
+                .map_err(|e| e.fmap_once(InsertFullRangeError::from))
         })
     }
 }
 
 impl<D> LayoutInsert<DecimalRangeAndSeries> for AnyBigLittleUintDataFrame<D> {
-    type Error = InsertRangeAndSeriesError<InsertRangeError>;
+    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
 
     fn insert_or_push(
         &mut self,
@@ -4704,7 +4669,7 @@ impl<D> LayoutInsert<VariableUintSeries> for AnyBigLittleUintDataFrame<D> {
 }
 
 impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for AnyBigLittleUintDataFrame<D> {
-    type Error = InsertRangeAndSeriesError<InsertRangeError>;
+    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
 
     fn insert_or_push(
         &mut self,
@@ -4722,7 +4687,7 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for AnyBigLittleUintDataFrame
 }
 
 impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
-    type Error = InsertRangeAndSeriesError<InsertRangeError>;
+    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
 
     fn insert_or_push(
         &mut self,
@@ -4753,7 +4718,7 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
 }
 
 impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
-    type Error = InsertRangeAndSeriesError<InsertRangeError>;
+    type Error = InsertRangeAndSeriesError<InsertFullRangeError>;
 
     fn insert_or_push(
         &mut self,
@@ -5773,6 +5738,97 @@ impl<A, I, F32, F64> ColumnHasDatatype for AnyDatatype<A, I, F32, F64> {
     }
 }
 
+// Implement real range (not $PnR) -> column
+
+impl FullRange {
+    fn as_u64(&self) -> Result<u64, FiniteF64> {
+        match self {
+            Self::Int(x) => Ok(x.0),
+            Self::Float(x) => f64::from(*x).to_u64().ok_or(*x),
+        }
+    }
+}
+
+impl<T> TryFrom<FullIntRange> for Bitmask<T>
+where
+    u64: TryInto<Self>,
+{
+    type Error = <u64 as TryInto<Self>>::Error;
+
+    fn try_from(value: FullIntRange) -> Result<Self, Self::Error> {
+        value.0.try_into()
+    }
+}
+
+impl<T> TryFrom<FullRange> for Bitmask<T>
+where
+    u64: TryInto<Self, Error = NewBitmaskError>,
+{
+    type Error = BitmaskFromFullRangeError;
+
+    fn try_from(value: FullRange) -> Result<Self, Self::Error> {
+        let x = match value.as_u64() {
+            Ok(x) => x,
+            Err(x) => return Err(BitmaskFromFullRangeError::Float(x)),
+        };
+        Ok(x.try_into()?)
+    }
+}
+
+impl TryFrom<FullRange> for DelimAsciiRange {
+    type Error = AsciiRangeValueFromFullRangeError;
+
+    fn try_from(value: FullRange) -> Result<Self, Self::Error> {
+        value
+            .as_u64()
+            .map_err(AsciiRangeValueFromFullRangeError)
+            .map(AsciiRangeValue)
+            .map(Self)
+    }
+}
+
+impl TryFrom<FullRange> for FixedAsciiRange {
+    type Error = AsciiRangeValueFromFullRangeError;
+
+    fn try_from(value: FullRange) -> Result<Self, Self::Error> {
+        value
+            .as_u64()
+            .map_err(AsciiRangeValueFromFullRangeError)
+            .map(AsciiRangeValue)
+            .map(Self::from)
+    }
+}
+
+impl TryFrom<FullRange> for F32Range
+where
+    u64: TryInto<FiniteF64, Error = U64ToFiniteFloatError>,
+    FiniteF64: TryInto<FiniteF32, Error = FiniteF64toF32Error>,
+{
+    type Error = F32RangeFromFullRangeError;
+
+    fn try_from(value: FullRange) -> Result<Self, Self::Error> {
+        let ret = match value {
+            FullRange::Float(x) => x.try_into()?,
+            FullRange::Int(x) => {
+                let y: FiniteF64 = x.0.try_into()?;
+                y.try_into()?
+            }
+        };
+        Ok(Self::new(ret))
+    }
+}
+
+impl TryFrom<FullRange> for F64Range {
+    type Error = U64ToFiniteFloatError;
+
+    fn try_from(value: FullRange) -> Result<Self, Self::Error> {
+        match value {
+            FullRange::Float(x) => Ok(Self::new(x)),
+            FullRange::Int(x) => x.0.try_into().map(Self::new),
+        }
+    }
+}
+
 // Implement column -> real range (not $PnR)
 
 impl<T> From<Bitmask<T>> for FullIntRange
@@ -5790,46 +5846,52 @@ impl From<VariableBitmask> for FullIntRange {
     }
 }
 
-impl<T> From<Bitmask<T>> for FullDecimalRange
+impl<T> From<Bitmask<T>> for FullRange
 where
     T: Into<u64>,
 {
     fn from(value: Bitmask<T>) -> Self {
-        Self(BigDecimal::from(u64::from(value)))
+        Self::Int(FullIntRange(u64::from(value)))
     }
 }
 
-impl<T> From<FloatRange<T>> for FullDecimalRange {
-    fn from(value: FloatRange<T>) -> Self {
-        Self(value.range.into())
+impl From<F32Range> for FullRange {
+    fn from(value: F32Range) -> Self {
+        Self::Float(value.range.into())
     }
 }
 
-impl From<FixedAsciiRange> for FullDecimalRange {
+impl From<F64Range> for FullRange {
+    fn from(value: F64Range) -> Self {
+        Self::Float(value.range)
+    }
+}
+
+impl From<FixedAsciiRange> for FullRange {
     fn from(value: FixedAsciiRange) -> Self {
-        Self(BigDecimal::from(value.value().0))
+        Self::Int(FullIntRange(value.value().0))
     }
 }
 
-impl From<DelimAsciiRange> for FullDecimalRange {
+impl From<DelimAsciiRange> for FullRange {
     fn from(value: DelimAsciiRange) -> Self {
-        Self(BigDecimal::from(value.0.0))
+        Self::Int(FullIntRange(value.0.0))
     }
 }
 
-impl From<VariableBitmask> for FullDecimalRange {
+impl From<VariableBitmask> for FullRange {
     fn from(value: VariableBitmask) -> Self {
         match_any_uint!(value, x, x.into())
     }
 }
 
-impl From<MixedRange> for FullDecimalRange {
+impl From<MixedRange> for FullRange {
     fn from(value: MixedRange) -> Self {
         match_any_datatype!(value, x, x.into())
     }
 }
 
-impl<C> From<NativeSeries<C>> for FullDecimalRange
+impl<C> From<NativeSeries<C>> for FullRange
 where
     C: ColumnHasNativeType + Into<Self>,
     C::Native: FCSRepr,
@@ -5839,13 +5901,13 @@ where
     }
 }
 
-impl From<VariableUintSeries> for FullDecimalRange {
+impl From<VariableUintSeries> for FullRange {
     fn from(value: VariableUintSeries) -> Self {
         match_any_uint!(value, x, x.into())
     }
 }
 
-impl From<MixedSeries> for FullDecimalRange {
+impl From<MixedSeries> for FullRange {
     fn from(value: MixedSeries) -> Self {
         match_any_datatype!(value, x, x.into())
     }
@@ -5854,18 +5916,6 @@ impl From<MixedSeries> for FullDecimalRange {
 // Implement column schema -> Range (ie $PnR) for types defined here.
 //
 // For bitmask and ascii types this is defined in separate modules.
-
-impl From<&MixedRange> for TextRange {
-    fn from(value: &MixedRange) -> Self {
-        match_any_datatype!(value, x, x.into())
-    }
-}
-
-impl From<&VariableBitmask> for TextRange {
-    fn from(value: &VariableBitmask) -> Self {
-        match_any_uint!(value, x, x.into())
-    }
-}
 
 impl From<MixedRange> for TextRange {
     fn from(value: MixedRange) -> Self {
@@ -5879,36 +5929,33 @@ impl From<VariableBitmask> for TextRange {
     }
 }
 
-impl<T: Clone> From<&FloatRange<T>> for TextRange {
-    fn from(value: &FloatRange<T>) -> Self {
-        value.clone().into()
-    }
-}
-
-impl<T: Clone> From<FloatRange<T>> for TextRange {
-    fn from(value: FloatRange<T>) -> Self {
-        value.range.into()
-    }
-}
-
-impl<C> From<&NativeSeries<C>> for TextRange
+impl<T> From<FloatRange<T>> for TextRange
 where
-    C: ColumnHasNativeType + Clone + Into<Self>,
+    FiniteFloat<T>: Into<BigDecimal>,
+{
+    fn from(value: FloatRange<T>) -> Self {
+        Into::<BigDecimal>::into(value.range).into()
+    }
+}
+
+impl<C> From<NativeSeries<C>> for TextRange
+where
+    C: ColumnHasNativeType + Into<Self>,
     C::Native: FCSRepr,
 {
-    fn from(value: &NativeSeries<C>) -> Self {
-        value.column_schema.clone().into()
+    fn from(value: NativeSeries<C>) -> Self {
+        value.column_schema.into()
     }
 }
 
-impl From<&VariableUintSeries> for TextRange {
-    fn from(value: &VariableUintSeries) -> Self {
+impl From<VariableUintSeries> for TextRange {
+    fn from(value: VariableUintSeries) -> Self {
         match_any_uint!(value, x, x.into())
     }
 }
 
-impl From<&MixedSeries> for TextRange {
-    fn from(value: &MixedSeries) -> Self {
+impl From<MixedSeries> for TextRange {
+    fn from(value: MixedSeries) -> Self {
         match_any_datatype!(value, x, x.into())
     }
 }
@@ -5985,7 +6032,8 @@ where
 
 impl<T> ColumnSchemaFromTextRange for FloatRange<T>
 where
-    T: HasFloatBounds,
+    BigDecimal: TryInto<FiniteFloat<T>, Error = DecimalToFloatError>,
+    FiniteFloat<T>: Bounded,
 {
     type Error = DecimalToFloatError;
 
@@ -6308,24 +6356,22 @@ trait ColumnSchemaAsRange: ColumnHasNativeType {
 
 impl<T> ColumnSchemaAsRange for Bitmask<T>
 where
-    Self: ColumnHasNativeType<Native = T>,
-    for<'a> &'a Self: Into<TextRange>,
+    Self: ColumnHasNativeType<Native = T> + Into<TextRange>,
     T: Copy,
 {
     fn as_range(&self) -> (Self::Native, TextRange) {
-        (self.bitmask(), self.into())
+        (self.bitmask(), (*self).into())
     }
 }
 
 impl<T> ColumnSchemaAsRange for FloatRange<T>
 where
-    Self: ColumnHasNativeType<Native = T>,
-    for<'a> &'a Self: Into<TextRange>,
+    Self: ColumnHasNativeType<Native = T> + Into<TextRange>,
     T: Copy,
-    FloatDecimal<T>: Into<T>,
+    FiniteFloat<T>: Into<T>,
 {
     fn as_range(&self) -> (Self::Native, TextRange) {
-        (self.range.clone().into(), self.into())
+        (self.range.into(), (*self).into())
     }
 }
 
@@ -7806,8 +7852,9 @@ impl<T> FloatRange<T> {
         flag: DisallowRangeTrunc,
     ) -> WarningsAndErrorResult<ConvertedRange<Self>, (), IndexedFloatRangeError, FloatWidthError>
     where
-        FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
-        T: HasFloatBounds + FCSRepr,
+        BigDecimal: TryInto<FiniteFloat<T>, Error = DecimalToFloatError>,
+        FiniteFloat<T>: Bounded,
+        T: FCSRepr,
     {
         PrivBytes::try_from(width)
             .map_err(|e| IndexedError::new(i, e))
@@ -7836,8 +7883,8 @@ impl MixedRange {
         match self {
             Self::Ascii(b) => MixedVec::Ascii(RangedVec::new(*b, vec![0; nrows])),
             Self::Uint(b) => MixedVec::Uint(b.init_column(nrows)),
-            Self::F32(b) => MixedVec::F32(RangedVec::new(b.clone(), vec![0.0; nrows])),
-            Self::F64(b) => MixedVec::F64(RangedVec::new(b.clone(), vec![0.0; nrows])),
+            Self::F32(b) => MixedVec::F32(RangedVec::new(*b, vec![0.0; nrows])),
+            Self::F64(b) => MixedVec::F64(RangedVec::new(*b, vec![0.0; nrows])),
         }
     }
 
@@ -7990,34 +8037,19 @@ pub(crate) fn usize_to_u64(x: usize) -> u64 {
 mod python {
     use super::{AnyUint, FloatRange, MixedRange, VariableBitmask};
 
-    use crate::text::float_decimal::{FloatDecimal, HasFloatBounds};
+    use crate::validated::finite_float::FiniteFloat;
 
     use fireflow_types::python::{ColumnType, IntegerWidth};
 
-    use bigdecimal::BigDecimal;
-    use pyo3::conversion::FromPyObjectBound;
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
     impl<'py, T> FromPyObject<'py> for FloatRange<T>
     where
-        for<'a> T: FromPyObjectBound<'a, 'py> + HasFloatBounds,
-        FloatDecimal<T>: TryFrom<BigDecimal>,
-        PyErr: From<<FloatDecimal<T> as TryFrom<BigDecimal>>::Error>,
+        FiniteFloat<T>: FromPyObject<'py>,
     {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x = ob.extract::<BigDecimal>()?;
-            Ok(FloatDecimal::try_from(x).map(Self::new)?)
-        }
-    }
-
-    impl<'py, T> IntoPyObject<'py> for FloatRange<T> {
-        type Target = PyAny;
-        type Output = Bound<'py, PyAny>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            BigDecimal::from(self.range).into_pyobject(py)
+            Ok(Self::new(ob.extract::<FiniteFloat<T>>()?))
         }
     }
 

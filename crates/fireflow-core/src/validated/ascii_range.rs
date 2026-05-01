@@ -10,10 +10,8 @@ use crate::text::index::MeasIndex;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
 use crate::validated::keys::IndexedKey as _;
 
-use bigdecimal::BigDecimal;
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use num_traits::ToPrimitive as _;
 use thiserror::Error;
 
 use std::fmt;
@@ -90,18 +88,6 @@ impl TryFrom<TextRange> for Chars {
 
     fn try_from(value: TextRange) -> Result<Self, Self::Error> {
         u64::try_from(value).map(Self::from_u64)
-    }
-}
-
-impl TryFrom<BigDecimal> for AsciiRangeValue {
-    type Error = AsciiRangeValueFromBigDecimalError;
-
-    fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
-        value
-            .to_u64()
-            .map_or(Err(AsciiRangeValueFromBigDecimalError(value)), |x| {
-                Ok(Self(x))
-            })
     }
 }
 
@@ -313,13 +299,6 @@ pub enum AsciiRangeFromKeywordsError {
     Width(IndexedWidthToCharsError),
     Range(IndexedRangeToAsciiError),
 }
-
-/// Error when making [`AsciiRangeValue`] from [`BigDecimal`];
-#[derive(From, Debug, Error)]
-#[error("Could not make Ascii range from decimal value '{0}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct AsciiRangeValueFromBigDecimalError(BigDecimal);
 
 /// Error when $PnB could not be converted to number of characters
 #[derive(From, Debug, Error)]

@@ -299,6 +299,10 @@ impl<T> CastValueResult<T> {
     fn new1(x: T) -> Self {
         Self::new(x, false)
     }
+
+    pub(crate) fn lossless(self) -> Option<T> {
+        (!self.lossy).then_some(self.inner)
+    }
 }
 
 impl<F> CastValueResult<F> {

@@ -1,6 +1,5 @@
 import pyreflow._pyreflow as pf
 from typing import Literal, TypeAlias
-from decimal import Decimal
 import numpy as np
 import numpy.typing as npt
 
@@ -10,9 +9,9 @@ Endian: TypeAlias = Literal["big", "little"]
 
 ByteOrd: TypeAlias = list[int] | Endian
 
-Range: TypeAlias = Decimal
+Range: TypeAlias = float | int
 
-FloatRange: TypeAlias = Decimal
+FloatRange: TypeAlias = float
 
 IntRange: TypeAlias = int
 

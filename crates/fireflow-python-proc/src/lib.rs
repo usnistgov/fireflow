@@ -2751,11 +2751,11 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
             PyTuple::new1(name_or_index)
                 .add(PyUnion::new_measurement(version))
                 .add(PyClass::new_series())
-                .add(PyDecimal::new_range())
+                .add(PyUnion::new_range())
         } else {
             PyTuple::new1(name_or_index)
                 .add(PyUnion::new_measurement(version))
-                .add(PyDecimal::new_range())
+                .add(PyUnion::new_range())
         };
         let (which, argname) = if is_index {
             ("Index", "index")
@@ -4203,7 +4203,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let shortname_pytype = PyStr::new_shortname().rstype(keyword_path("GateShortname"));
     let shortname = make_arg_opt("shortname", "N", shortname_pytype.into());
 
-    let range_pytype = PyDecimal::new_range().rstype(keyword_path("GateRange"));
+    let range_pytype = PyDecimal::new_gate_range();
     let range = make_arg_opt("range", "R", range_pytype.into());
 
     let summary = format!("The {GM_ANY} keywords for one gated measurement.");
@@ -6652,8 +6652,8 @@ impl<E> PyDecimal<E> {
 }
 
 impl<E: From<PyException>> PyDecimal<E> {
-    fn new_range() -> Self {
-        let path = parse_quote!(fireflow_core::data::FullDecimalRange);
+    fn new_gate_range() -> Self {
+        let path = keyword_path("GateRange");
         Self::default().rstype(path)
     }
 }
@@ -7154,12 +7154,17 @@ impl<E: From<PyException>> PyUnion<E> {
         .exc(exc)
     }
 
+    fn new_range() -> Self {
+        let path = parse_quote!(fireflow_core::data::FullRange);
+        Self::new2(RsInt::U64, RsFloat::F64, path)
+    }
+
     fn new_range_or_bitmask_range() -> Self {
         let path = quote!(fireflow_core::data::MaybeTypedVariableBitmask);
         let ints = PyTuple::new1(PyLiteral::new1(IntegerWidth::iter_str()))
             .add(RsInt::U64)
             .into();
-        let rng = PyType::from(PyDecimal::new_range());
+        let rng = PyType::from(Self::new_range());
         Self::new1([ints, rng], parse_quote!(#path))
     }
 
@@ -7173,7 +7178,7 @@ impl<E: From<PyException>> PyUnion<E> {
         let floats = PyTuple::new1(PyLiteral::new1(float_literals))
             .add(PyDecimal::default())
             .into();
-        let rng = PyType::from(PyDecimal::new_range());
+        let rng = PyType::from(Self::new_range());
         Self::new1([ints, floats, rng], parse_quote!(#path))
     }
 }
@@ -8248,7 +8253,7 @@ impl DocArgParam {
     fn new_range_param(version: Version) -> Self {
         let desc = format!("Range of measurement. Corresponds to {PNR}.");
         let pytype: PyType<_> = match version {
-            Version::FCS2_0 | Version::FCS3_0 => PyDecimal::new_range().into(),
+            Version::FCS2_0 | Version::FCS3_0 => PyUnion::new_range().into(),
             Version::FCS3_1 => PyUnion::new_range_or_bitmask_range().into(),
             Version::FCS3_2 => PyUnion::new_range_or_mixed_range().into(),
         };

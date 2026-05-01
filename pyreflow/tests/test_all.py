@@ -2,7 +2,6 @@ import numpy as np
 import inspect as ins
 from typing import cast, Any, NamedTuple, TypeVar, Callable
 from datetime import date, datetime, time, timezone, timedelta
-from decimal import Decimal
 from pathlib import Path
 from copy import deepcopy
 
@@ -49,8 +48,8 @@ INTEGER_WIDTHS: list[pt.VariableBitmask] = [
 
 
 MIXED_SCHEMAS: list[tuple[pt.AnyType, pt.AnyDataSchema3_2]] = [
-    ("F", pf.BigLittleF32DataSchema([Decimal(255), Decimal(255)])),
-    ("D", pf.BigLittleF64DataSchema([Decimal(255), Decimal(255)])),
+    ("F", pf.BigLittleF32DataSchema([255, 255])),
+    ("D", pf.BigLittleF64DataSchema([255, 255])),
     ("I32", pf.SingleUintDataSchema([255, 255], byte_width=4)),
     ("A", pf.FixedAsciiDataSchema([255, 255])),
 ]
@@ -168,7 +167,7 @@ def series3() -> pl.Series:
 def text_2_0(
     blank_text_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
 ) -> pf.CoreTEXT2_0:
-    blank_text_2_0.push_optical(LINK_NAME1, blank_optical_2_0, Decimal(9001))
+    blank_text_2_0.push_optical(LINK_NAME1, blank_optical_2_0, 9001)
     return blank_text_2_0
 
 
@@ -176,7 +175,7 @@ def text_2_0(
 def text_3_0(
     blank_text_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
 ) -> pf.CoreTEXT3_0:
-    blank_text_3_0.push_optical(LINK_NAME1, blank_optical_3_0, Decimal(9001))
+    blank_text_3_0.push_optical(LINK_NAME1, blank_optical_3_0, 9001)
     return blank_text_3_0
 
 
@@ -184,7 +183,7 @@ def text_3_0(
 def text_3_1(
     blank_text_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
-    blank_text_3_1.push_optical(LINK_NAME1, blank_optical_3_1, Decimal(9001))
+    blank_text_3_1.push_optical(LINK_NAME1, blank_optical_3_1, 9001)
     return blank_text_3_1
 
 
@@ -192,7 +191,7 @@ def text_3_1(
 def text_3_2(
     blank_text_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
 ) -> pf.CoreTEXT3_2:
-    blank_text_3_2.push_optical(LINK_NAME1, blank_optical_3_2, Decimal(9001))
+    blank_text_3_2.push_optical(LINK_NAME1, blank_optical_3_2, 9001)
     return blank_text_3_2
 
 
@@ -202,9 +201,7 @@ def dataset_2_0(
     blank_optical_2_0: pf.Optical2_0,
     series1: pl.Series,
 ) -> pf.CoreDataset2_0:
-    blank_dataset_2_0.push_optical(
-        LINK_NAME1, blank_optical_2_0, Decimal(9001), series1
-    )
+    blank_dataset_2_0.push_optical(LINK_NAME1, blank_optical_2_0, 9001, series1)
     return blank_dataset_2_0
 
 
@@ -214,9 +211,7 @@ def dataset_3_0(
     blank_optical_3_0: pf.Optical3_0,
     series1: pl.Series,
 ) -> pf.CoreDataset3_0:
-    blank_dataset_3_0.push_optical(
-        LINK_NAME1, blank_optical_3_0, Decimal(9001), series1
-    )
+    blank_dataset_3_0.push_optical(LINK_NAME1, blank_optical_3_0, 9001, series1)
     return blank_dataset_3_0
 
 
@@ -226,9 +221,7 @@ def dataset_3_1(
     blank_optical_3_1: pf.Optical3_1,
     series1: pl.Series,
 ) -> pf.CoreDataset3_1:
-    blank_dataset_3_1.push_optical(
-        LINK_NAME1, blank_optical_3_1, Decimal(9001), series1
-    )
+    blank_dataset_3_1.push_optical(LINK_NAME1, blank_optical_3_1, 9001, series1)
     return blank_dataset_3_1
 
 
@@ -238,9 +231,7 @@ def dataset_3_2(
     blank_optical_3_2: pf.Optical3_2,
     series1: pl.Series,
 ) -> pf.CoreDataset3_2:
-    blank_dataset_3_2.push_optical(
-        LINK_NAME1, blank_optical_3_2, Decimal(9001), series1
-    )
+    blank_dataset_3_2.push_optical(LINK_NAME1, blank_optical_3_2, 9001, series1)
     return blank_dataset_3_2
 
 
@@ -248,7 +239,7 @@ def dataset_3_2(
 def text2_2_0(
     text_2_0: pf.CoreTEXT2_0, blank_temporal_2_0: pf.Temporal2_0
 ) -> pf.CoreTEXT2_0:
-    text_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, Decimal(9002))
+    text_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, 9002)
     return text_2_0
 
 
@@ -256,7 +247,7 @@ def text2_2_0(
 def text2_3_0(
     text_3_0: pf.CoreTEXT3_0, blank_temporal_3_0: pf.Temporal3_0
 ) -> pf.CoreTEXT3_0:
-    text_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, Decimal(9002))
+    text_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, 9002)
     return text_3_0
 
 
@@ -264,7 +255,7 @@ def text2_3_0(
 def text2_3_1(
     text_3_1: pf.CoreTEXT3_1, blank_temporal_3_1: pf.Temporal3_1
 ) -> pf.CoreTEXT3_1:
-    text_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, Decimal(9002))
+    text_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, 9002)
     return text_3_1
 
 
@@ -272,7 +263,7 @@ def text2_3_1(
 def text2_3_2(
     text_3_2: pf.CoreTEXT3_2, blank_temporal_3_2: pf.Temporal3_2
 ) -> pf.CoreTEXT3_2:
-    text_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, Decimal(9002))
+    text_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, 9002)
     return text_3_2
 
 
@@ -282,7 +273,7 @@ def dataset2_2_0(
     blank_temporal_2_0: pf.Temporal2_0,
     series2: pl.Series,
 ) -> pf.CoreDataset2_0:
-    dataset_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, Decimal(9002), series2)
+    dataset_2_0.push_temporal(LINK_NAME2, blank_temporal_2_0, 9002, series2)
     return dataset_2_0
 
 
@@ -292,7 +283,7 @@ def dataset2_3_0(
     blank_temporal_3_0: pf.Temporal3_0,
     series2: pl.Series,
 ) -> pf.CoreDataset3_0:
-    dataset_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, Decimal(9002), series2)
+    dataset_3_0.push_temporal(LINK_NAME2, blank_temporal_3_0, 9002, series2)
     return dataset_3_0
 
 
@@ -302,7 +293,7 @@ def dataset2_3_1(
     blank_temporal_3_1: pf.Temporal3_1,
     series2: pl.Series,
 ) -> pf.CoreDataset3_1:
-    dataset_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, Decimal(9002), series2)
+    dataset_3_1.push_temporal(LINK_NAME2, blank_temporal_3_1, 9002, series2)
     return dataset_3_1
 
 
@@ -312,7 +303,7 @@ def dataset2_3_2(
     blank_temporal_3_2: pf.Temporal3_2,
     series2: pl.Series,
 ) -> pf.CoreDataset3_2:
-    dataset_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, Decimal(9002), series2)
+    dataset_3_2.push_temporal(LINK_NAME2, blank_temporal_3_2, 9002, series2)
     return dataset_3_2
 
 
@@ -320,7 +311,7 @@ def dataset2_3_2(
 def text3_2_0(
     text2_2_0: pf.CoreTEXT2_0, blank_optical_2_0: pf.Optical2_0
 ) -> pf.CoreTEXT2_0:
-    text2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, Decimal(9003))
+    text2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, 9003)
     return text2_2_0
 
 
@@ -328,7 +319,7 @@ def text3_2_0(
 def text3_3_0(
     text2_3_0: pf.CoreTEXT3_0, blank_optical_3_0: pf.Optical3_0
 ) -> pf.CoreTEXT3_0:
-    text2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, Decimal(9003))
+    text2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, 9003)
     return text2_3_0
 
 
@@ -336,7 +327,7 @@ def text3_3_0(
 def text3_3_1(
     text2_3_1: pf.CoreTEXT3_1, blank_optical_3_1: pf.Optical3_1
 ) -> pf.CoreTEXT3_1:
-    text2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, Decimal(9003))
+    text2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, 9003)
     return text2_3_1
 
 
@@ -344,7 +335,7 @@ def text3_3_1(
 def text3_3_2(
     text2_3_2: pf.CoreTEXT3_2, blank_optical_3_2: pf.Optical3_2
 ) -> pf.CoreTEXT3_2:
-    text2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, Decimal(9003))
+    text2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, 9003)
     return text2_3_2
 
 
@@ -354,7 +345,7 @@ def dataset3_2_0(
     blank_optical_2_0: pf.Optical2_0,
     series3: pl.Series,
 ) -> pf.CoreDataset2_0:
-    dataset2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, Decimal(9003), series3)
+    dataset2_2_0.push_optical(LINK_NAME3, blank_optical_2_0, 9003, series3)
     return dataset2_2_0
 
 
@@ -364,7 +355,7 @@ def dataset3_3_0(
     blank_optical_3_0: pf.Optical3_0,
     series3: pl.Series,
 ) -> pf.CoreDataset3_0:
-    dataset2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, Decimal(9003), series3)
+    dataset2_3_0.push_optical(LINK_NAME3, blank_optical_3_0, 9003, series3)
     return dataset2_3_0
 
 
@@ -374,7 +365,7 @@ def dataset3_3_1(
     blank_optical_3_1: pf.Optical3_1,
     series3: pl.Series,
 ) -> pf.CoreDataset3_1:
-    dataset2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, Decimal(9003), series3)
+    dataset2_3_1.push_optical(LINK_NAME3, blank_optical_3_1, 9003, series3)
     return dataset2_3_1
 
 
@@ -384,7 +375,7 @@ def dataset3_3_2(
     blank_optical_3_2: pf.Optical3_2,
     series3: pl.Series,
 ) -> pf.CoreDataset3_2:
-    dataset2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, Decimal(9003), series3)
+    dataset2_3_2.push_optical(LINK_NAME3, blank_optical_3_2, 9003, series3)
     return dataset2_3_2
 
 
@@ -1720,9 +1711,9 @@ class TestCore:
 
         Schema should not change when inserting a decimal range.
         """
-        core.data_schema = data_schema([Decimal(9001.0)])
+        core.data_schema = data_schema([9001.0])
         assert isinstance(core.data_schema, data_schema)
-        core.insert_optical(0, LINK_NAME2, optical, Decimal(9001), series1)
+        core.insert_optical(0, LINK_NAME2, optical, 9001, series1)
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, data_schema)
 
@@ -1752,10 +1743,11 @@ class TestCore:
         """
         core.data_schema = data_schema([255])
         assert isinstance(core.data_schema, data_schema)
-        core.insert_optical(0, LINK_NAME2, optical, Decimal(1), series1)
+        core.insert_optical(0, LINK_NAME2, optical, 1, series1)
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, data_schema)
 
+    # TODO test inserting typed integer column into non-int schema
     @pytest.mark.parametrize(
         "core, optical, byte_width, right_type, wrong_type",
         [
@@ -1868,7 +1860,7 @@ class TestCore:
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
         # TODO this is a misleading error
         with pytest.RaisesGroup(pf.InvalidKeywordValueError):
-            core.insert_optical(0, "gonnacry", optical, Decimal(10000), series1)
+            core.insert_optical(0, "gonnacry", optical, 10000, series1)
 
     def test_insert_mixed(
         self,
@@ -1881,9 +1873,7 @@ class TestCore:
         Inserting a plain decimal (without type) should result in error.
         Inserting decimal with type should not change the schema.
         """
-        dataset2_3_2.data_schema = pf.MixedDataSchema(
-            [("F", Decimal(10000)), ("I64", 10000)]
-        )
+        dataset2_3_2.data_schema = pf.MixedDataSchema([("F", 10000), ("I64", 10000)])
         assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
         dataset2_3_2.insert_optical(
             0, "notpetya", blank_optical_3_2, ("I16", 10000), series1
@@ -1893,7 +1883,7 @@ class TestCore:
         # TODO this is a misleading error
         with pytest.RaisesGroup(pf.InvalidKeywordValueError):
             dataset2_3_2.insert_optical(
-                0, "gotpetya", blank_optical_3_2, Decimal(10000), series1
+                0, "gotpetya", blank_optical_3_2, 10000, series1
             )
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
@@ -1931,7 +1921,7 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
-        core.data_schema = pf.BigLittleF32DataSchema([Decimal(9002), Decimal(9003)])
+        core.data_schema = pf.BigLittleF32DataSchema([9002, 9003])
         assert isinstance(core.data_schema, pf.BigLittleF32DataSchema)
         with pytest.raises(TypeError):
             core.data_schema = pf.OrderedUintDataSchema([9002, 9003])  # type: ignore
@@ -2013,7 +2003,7 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
     ) -> None:
-        new = pf.BigLittleF32DataSchema([Decimal(1)])
+        new = pf.BigLittleF32DataSchema([1])
         core.set_named_measurements_and_data_schema(
             [(LINK_NAME1, optical)], new, False, False
         )
@@ -2674,11 +2664,11 @@ class TestLayouts:
     )
     def test_float(self, data_schema: type, width: int, datatype: Datatype) -> None:
         n = 3
-        new = data_schema([Decimal(1000.0)] * n)
+        new = data_schema([1000.0] * n)
         assert new.byte_width == width / 8
-        assert new.ranges == [Decimal(1000.0)] * n
+        assert new.ranges == [1000.0] * n
         assert new.datatype == datatype
-        with pytest.raises(ValueError):
+        with pytest.raises(pf.InvalidKeywordValueError):
             data_schema([float("inf")])
 
     def test_variable_uint(self) -> None:
@@ -2694,8 +2684,8 @@ class TestLayouts:
 
     def test_mixed(self) -> None:
         types: list[MixedRange] = [
-            ("F", Decimal(1000.0)),
-            ("D", Decimal(2000.0)),
+            ("F", 1000.0),
+            ("D", 2000.0),
             ("I08", 255),
         ]
         new = pf.MixedDataSchema(types)

@@ -6,6 +6,7 @@ pub mod bitmask;
 pub mod case_ins_regex;
 pub mod dataframe;
 pub mod datepattern;
+pub mod finite_float;
 pub mod header_segments;
 pub mod keys;
 pub mod keystring_pairs;

@@ -15,7 +15,6 @@ use crate::segment::{HasRegion, TEXTSegment};
 use crate::text::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes};
 use crate::text::compensation::{Compensation, NewCompError};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::float_decimal::{DecimalToFloatError, FloatDecimal, HasFloatBounds};
 use crate::text::index::{GateIndex, MeasIndex, RegionIndex};
 use crate::text::lookup::{
     FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
@@ -34,6 +33,7 @@ use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime10
 use crate::validated::ascii_range::AsciiRangeValue;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
+use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
     AnyKey, BiIndex, BiIndexedKey, DKey0, DKey1, DKey2, DollarKey, IndexedKey, Key1, Key2,
@@ -3240,17 +3240,17 @@ impl TextRange {
         LogResult::new_deferred_maybe(b, err)
     }
 
-    pub(crate) fn into_float<T>(self) -> DeferredError<FloatDecimal<T>, DecimalToFloatError>
+    pub(crate) fn into_float<T>(self) -> DeferredError<FiniteFloat<T>, DecimalToFloatError>
     where
-        FloatDecimal<T>: TryFrom<BigDecimal, Error = DecimalToFloatError>,
-        T: HasFloatBounds,
+        BigDecimal: TryInto<FiniteFloat<T>, Error = DecimalToFloatError>,
+        FiniteFloat<T>: Bounded,
     {
-        let (x, err) = FloatDecimal::try_from(self.0).map_or_else(
+        let (x, err) = self.0.try_into().map_or_else(
             |e| {
-                let m = if e.over {
-                    T::max_decimal()
+                let m = if e.over() {
+                    FiniteFloat::<T>::max_value()
                 } else {
-                    T::min_decimal()
+                    FiniteFloat::<T>::min_value()
                 };
                 (m, Some(e))
             },

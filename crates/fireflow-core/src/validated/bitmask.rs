@@ -2,20 +2,17 @@
 
 use crate::text::byteord::PrivBytes;
 use crate::text::keywords::TextRange;
+use crate::validated::unaligned::FCSRepr;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use bigdecimal::BigDecimal;
-use derive_more::From;
 use derive_new::new;
-use num_traits::{Bounded, ToPrimitive as _};
+use num_traits::Bounded;
 use thiserror::Error;
 
 use std::ops::Shr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::unaligned::FCSRepr;
 
 #[cfg(feature = "python")]
 use {
@@ -103,20 +100,6 @@ where
     }
 }
 
-impl<T> TryFrom<BigDecimal> for Bitmask<T>
-where
-    u64: TryInto<Self, Error = NewBitmaskError>,
-{
-    type Error = BitmaskFromBigDecimalError;
-
-    fn try_from(value: BigDecimal) -> Result<Self, Self::Error> {
-        match value.to_u64() {
-            Some(x) => Ok(x.try_into()?),
-            None => Err(BitmaskFromBigDecimalError::Decimal(value)),
-        }
-    }
-}
-
 impl<T> Bitmask<T> {
     pub(crate) fn bitmask(&self) -> T
     where
@@ -170,18 +153,6 @@ impl<T> Bitmask<T> {
 pub struct NewBitmaskError {
     bytes: PrivBytes,
     value: u64,
-}
-
-/// Error when making a new [`Bitmask`] from a [`BigDecimal`].
-#[derive(Error, Debug, From)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub enum BitmaskFromBigDecimalError {
-    #[from(NewBitmaskError)]
-    #[error("{0}")]
-    New(NewBitmaskError),
-    #[error("Decimal '{0}' is not an integer")]
-    Decimal(BigDecimal),
 }
 
 #[cfg(test)]

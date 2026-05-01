@@ -61,10 +61,10 @@ use fireflow_core::data::{
     self, AnyAsciiDataSchema, AnyBigLittleUintDataSchema, AnyDatatype, AnyOrderedDataSchema,
     AnySingleUintDataSchema, AnyUint, BigLittleDataSchema, ColumnMarkers, DataSchema2_0,
     DataSchema3_0, DataSchema3_1, DataSchema3_2, DecimalRangeAndSeries, DelimAsciiDataSchema,
-    F32Col, F64Col, FixedAsciiDataSchema, FullDecimalRange, LayoutByteOrder as _,
-    LayoutDatatype as _, MaybeTypedMixedRange, MaybeTypedMixedSeries, MaybeTypedRange,
-    MaybeTypedVariableBitmask, MaybeTypedVariableUintSeries, NonMixedDataSchema, PhantomInto as _,
-    Series, VariableUintDataSchema, VariableUintSeries,
+    F32Col, F64Col, FixedAsciiDataSchema, FullRange, LayoutByteOrder as _, LayoutDatatype as _,
+    MaybeTypedMixedRange, MaybeTypedMixedSeries, MaybeTypedRange, MaybeTypedVariableBitmask,
+    MaybeTypedVariableUintSeries, NonMixedDataSchema, PhantomInto as _, Series,
+    VariableUintDataSchema, VariableUintSeries,
 };
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
@@ -1046,10 +1046,11 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
 }
 
 impl PyAnyFCSColumn {
-    fn with_range(self, range: FullDecimalRange) -> DecimalRangeAndSeries {
+    fn with_range(self, range: FullRange) -> DecimalRangeAndSeries {
         (range, self.0)
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn with_bitmask_range(
         self,
         range: MaybeTypedVariableBitmask,
@@ -1063,6 +1064,7 @@ impl PyAnyFCSColumn {
         }
     }
 
+    #[allow(clippy::needless_pass_by_value)]
     fn with_mixed_range(self, range: MaybeTypedMixedRange) -> PyResult<MaybeTypedMixedSeries> {
         match range {
             MaybeTypedRange::Untyped(r) => Ok(MaybeTypedRange::Untyped((r, self.0))),

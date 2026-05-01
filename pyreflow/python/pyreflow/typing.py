@@ -82,7 +82,9 @@ IntegerType = Literal["I"]
 AsciiType = Literal["A"]
 IntegerWidth = Literal["I08", "I16", "I24", "I32", "I40", "I48", "I56", "I64"]
 
+# TODO these two are confusing
 Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
+AnyType: TypeAlias = FloatType | DoubleType | AsciiType | IntegerWidth
 VariableBitmask: TypeAlias = tuple[IntegerWidth, IntRange]
 MixedRange: TypeAlias = (
     tuple[FloatType | DoubleType, FloatRange]
@@ -122,6 +124,27 @@ AnyOptical: TypeAlias = pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optic
 AnyTemporal: TypeAlias = (
     pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
 )
+
+AnyAsciiDataSchema: TypeAlias = pf.DelimAsciiDataSchema | pf.FixedAsciiDataSchema
+
+AnyDataSchema2_0: TypeAlias = (
+    AnyAsciiDataSchema
+    | pf.OrderedUintDataSchema
+    | pf.OrderedF32DataSchema
+    | pf.OrderedF64DataSchema
+)
+
+AnyDataSchema3_0: TypeAlias = AnyDataSchema2_0
+
+AnyDataSchema3_1: TypeAlias = (
+    AnyAsciiDataSchema
+    | pf.SingleUintDataSchema
+    | pf.VariableUintDataSchema
+    | pf.BigLittleF32DataSchema
+    | pf.BigLittleF64DataSchema
+)
+
+AnyDataSchema3_2: TypeAlias = AnyDataSchema3_1 | pf.MixedDataSchema
 
 AnyMeas: TypeAlias = AnyOptical | AnyTemporal
 

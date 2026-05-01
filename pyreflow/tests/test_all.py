@@ -36,6 +36,25 @@ import ast
 
 X = TypeVar("X")
 
+INTEGER_WIDTHS: list[pt.VariableBitmask] = [
+    ("I08", 1),
+    ("I16", 2),
+    ("I24", 3),
+    ("I32", 4),
+    ("I40", 5),
+    ("I48", 6),
+    ("I56", 7),
+    ("I64", 8),
+]
+
+
+MIXED_SCHEMAS: list[tuple[pt.AnyType, pt.AnyDataSchema3_2]] = [
+    ("F", pf.BigLittleF32DataSchema([Decimal(255), Decimal(255)])),
+    ("D", pf.BigLittleF64DataSchema([Decimal(255), Decimal(255)])),
+    ("I32", pf.SingleUintDataSchema([255, 255], byte_width=4)),
+    ("A", pf.FixedAsciiDataSchema([255, 255])),
+]
+
 LINK_NAME1 = "wubbalubbadubdub"
 LINK_NAME2 = "maple latte"
 LINK_NAME3 = "silent man"
@@ -1634,9 +1653,13 @@ class TestCore:
             ]
         ],
     )
-    def test_text_insert_optical(
+    def test_text_insert_decimal_optical(
         self, core: AnyCoreTEXT, optical: Any, data_schema: type
     ) -> None:
+        """Check int32 schema optical insertion into text.
+
+        Schema should not change when inserting a decimal range.
+        """
         assert isinstance(core.data_schema, data_schema)
         core.insert_optical(0, LINK_NAME1, optical, 9001)
         assert isinstance(core.measurement_at(0), type(optical))
@@ -1654,9 +1677,13 @@ class TestCore:
             ]
         ],
     )
-    def test_text_insert_temporal(
+    def test_text_insert_decimal_temporal(
         self, core: AnyCoreTEXT, temporal: Any, data_schema: type
     ) -> None:
+        """Check int32 schema temporal insertion into text.
+
+        Schema should not change when inserting a decimal range.
+        """
         assert isinstance(core.data_schema, data_schema)
         core.insert_temporal(0, LINK_NAME1, temporal, 9001)
         assert isinstance(core.measurement_at(0), type(temporal))
@@ -1674,9 +1701,13 @@ class TestCore:
             ]
         ],
     )
-    def test_dataset_insert_optical(
+    def test_dataset_insert_decimal_optical(
         self, core: AnyCoreDataset, optical: Any, data_schema: type, series1: pl.Series
     ) -> None:
+        """Check int32 schema optical insertion into dataset.
+
+        Schema should not change when inserting a decimal range.
+        """
         assert isinstance(core.data_schema, data_schema)
         core.insert_optical(0, LINK_NAME1, optical, 9001, series1)
         assert isinstance(core.measurement_at(0), type(optical))
@@ -1694,9 +1725,13 @@ class TestCore:
             ]
         ],
     )
-    def test_dataset_insert_temporal(
+    def test_dataset_insert_decimal_temporal(
         self, core: AnyCoreDataset, temporal: Any, data_schema: type, series1: pl.Series
     ) -> None:
+        """Check int32 schema temporal insertion into dataset.
+
+        Schema should not change when inserting a decimal range.
+        """
         assert isinstance(core.data_schema, data_schema)
         core.insert_temporal(0, LINK_NAME1, temporal, 9001, series1)
         assert isinstance(core.measurement_at(0), type(temporal))
@@ -1721,18 +1756,131 @@ class TestCore:
             ]
         ],
     )
-    def test_insert_float(
+    def test_insert_decimal_float(
         self,
         core: AnyCoreDataset,
         optical: Any,
         data_schema: type,
         series1: pl.Series,
     ) -> None:
+        """Check float schema insertion.
+
+        Schema should not change when inserting a decimal range.
+        """
         core.data_schema = data_schema([Decimal(9001.0)])
         assert isinstance(core.data_schema, data_schema)
         core.insert_optical(0, LINK_NAME2, optical, 9001, series1)
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, data_schema)
+
+    @pytest.mark.parametrize(
+        "core, optical, data_schema",
+        [
+            (lazy_fixture(c), lazy_fixture(o), t)
+            for c, o in [
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+                ("dataset_3_1", "blank_optical_3_1"),
+                ("dataset_3_2", "blank_optical_3_2"),
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
+                ("dataset_3_1", "blank_optical_3_1"),
+                ("dataset_3_2", "blank_optical_3_2"),
+            ]
+            for t in [pf.DelimAsciiDataSchema, pf.FixedAsciiDataSchema]
+        ],
+    )
+    def test_insert_decimal_ascii(
+        self,
+        core: AnyCoreDataset,
+        optical: Any,
+        data_schema: type,
+        series1: pl.Series,
+    ) -> None:
+        """Check ASCII schema insertion.
+
+        Schema should not change when inserting a decimal range.
+        """
+        core.data_schema = data_schema([255])
+        assert isinstance(core.data_schema, data_schema)
+        core.insert_optical(0, LINK_NAME2, optical, 1, series1)
+        assert isinstance(core.measurement_at(1), type(optical))
+        assert isinstance(core.data_schema, data_schema)
+
+    @pytest.mark.parametrize(
+        "core, optical, byte_width, right_type, wrong_type",
+        [
+            (lazy_fixture(c), lazy_fixture(o), right_width, right_type, wrong_type)
+            for c, o in [
+                ("dataset2_3_1", "blank_optical_3_1"),
+                ("dataset2_3_2", "blank_optical_3_2"),
+            ]
+            for (right_type, right_width) in INTEGER_WIDTHS
+            for (wrong_type, _) in INTEGER_WIDTHS
+            if not wrong_type == right_type
+        ],
+    )
+    def test_insert_typed_single_uint(
+        self,
+        core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
+        optical: Any,
+        series1: pl.Series,
+        byte_width: int,
+        right_type: pt.IntegerWidth,
+        wrong_type: pt.IntegerWidth,
+    ) -> None:
+        """Check typed insertion into single uint width schema.
+
+        If type matches current schema, the width should be the same. If type
+        does not match, the schema should change to variable.
+        """
+        core.data_schema = pf.SingleUintDataSchema([255, 255], byte_width=byte_width)
+        assert isinstance(core.data_schema, pf.SingleUintDataSchema)
+        core.insert_optical(0, "iloveyou", optical, (right_type, 1), series1)
+        assert isinstance(core.measurement_at(1), type(optical))
+        assert isinstance(core.data_schema, pf.SingleUintDataSchema)
+        assert core.data_schema.byte_width == byte_width
+        core.insert_optical(0, "eyehateu", optical, (wrong_type, 1), series1)
+        assert isinstance(core.data_schema, pf.VariableUintDataSchema)
+
+    @pytest.mark.parametrize(
+        "schema, right_type, wrong_type",
+        [
+            (right_schema, right_type, wrong_type)
+            for c, o in [
+                ("dataset2_3_1", "blank_optical_3_1"),
+                ("dataset2_3_2", "blank_optical_3_2"),
+            ]
+            for (right_type, right_schema) in MIXED_SCHEMAS
+            for (wrong_type, _) in MIXED_SCHEMAS
+            if not wrong_type == right_type
+        ],
+    )
+    def test_insert_typed_nonmixed(
+        self,
+        dataset2_3_2: pf.CoreDataset3_2,
+        blank_optical_3_2: Any,
+        series1: pl.Series,
+        schema: pt.AnyDataSchema3_2,
+        right_type: pt.AnyType,
+        wrong_type: pt.AnyType,
+    ) -> None:
+        """Check typed insertion into single uint width schema.
+
+        If type matches current schema, the width should be the same. If type
+        does not match, the schema should change to variable.
+        """
+        dataset2_3_2.data_schema = schema
+        assert isinstance(dataset2_3_2.data_schema, type(schema))
+        dataset2_3_2.insert_optical(
+            0, "sql slammer", blank_optical_3_2, (right_type, 1), series1
+        )
+        assert isinstance(dataset2_3_2.measurement_at(1), type(blank_optical_3_2))
+        assert isinstance(dataset2_3_2.data_schema, type(schema))
+        dataset2_3_2.insert_optical(
+            0, "sql slammer (the sequel)", blank_optical_3_2, (wrong_type, 1), series1
+        )
+        assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -1741,29 +1889,54 @@ class TestCore:
             for c, o in [
                 ("dataset2_3_1", "blank_optical_3_1"),
                 ("dataset2_3_2", "blank_optical_3_2"),
-                ("dataset2_3_1", "blank_optical_3_1"),
-                ("dataset2_3_2", "blank_optical_3_2"),
             ]
         ],
     )
     def test_insert_var_uint(
         self,
-        core: AnyCoreDataset,
+        core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
         series1: pl.Series,
     ) -> None:
+        """Check variable uint schema insertion.
+
+        Inserting a plain decimal (without type) should result in error.
+        Inserting decimal with type should not change the schema.
+        """
         core.data_schema = pf.VariableUintDataSchema([("I16", 10000), ("I32", 10000)])
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
         core.insert_optical(0, "wannacry", optical, ("I64", 10000), series1)
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
+        # TODO this is a misleading error
+        with pytest.RaisesGroup(pf.InvalidKeywordValueError):
+            core.insert_optical(0, "gonnacry", optical, 10000, series1)
 
-    # TODO add mixed insert test
-    # TODO add untyped mixed insert test (which should error)
-    # TODO add typed insert tests for non-mixed layouts (all of them)
-    # TODO add ascii insert tests
-    # TODO add typed int insert test for single layouts
-    # TODO add untyped int insert test for variable layout (which should error)
+    def test_insert_mixed(
+        self,
+        dataset2_3_2: pf.CoreDataset3_2,
+        blank_optical_3_2: pf.Optical3_2,
+        series1: pl.Series,
+    ) -> None:
+        """Check mixed schema insertion.
+
+        Inserting a plain decimal (without type) should result in error.
+        Inserting decimal with type should not change the schema.
+        """
+        dataset2_3_2.data_schema = pf.MixedDataSchema(
+            [("F", Decimal(10000)), ("I64", 10000)]
+        )
+        assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
+        dataset2_3_2.insert_optical(
+            0, "notpetya", blank_optical_3_2, ("I16", 10000), series1
+        )
+        assert isinstance(dataset2_3_2.measurement_at(1), pf.Optical3_2)
+        assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
+        # TODO this is a misleading error
+        with pytest.RaisesGroup(pf.InvalidKeywordValueError):
+            dataset2_3_2.insert_optical(
+                0, "gotpetya", blank_optical_3_2, 10000, series1
+            )
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:

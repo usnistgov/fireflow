@@ -10,7 +10,7 @@ Endian: TypeAlias = Literal["big", "little"]
 
 ByteOrd: TypeAlias = list[int] | Endian
 
-Range: TypeAlias = float
+Range: TypeAlias = Decimal
 
 FloatRange: TypeAlias = Decimal
 
@@ -87,9 +87,11 @@ Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
 AnyType: TypeAlias = FloatType | DoubleType | AsciiType | IntegerWidth
 VariableBitmask: TypeAlias = tuple[IntegerWidth, IntRange]
 MixedRange: TypeAlias = (
-    tuple[FloatType | DoubleType, FloatRange]
-    | tuple[AsciiType | IntegerWidth, IntRange]
+    tuple[FloatType | DoubleType, Range] | tuple[AsciiType | IntegerWidth, IntRange]
 )
+
+MaybeTypedVariableBitmask: TypeAlias = IntRange | VariableBitmask
+MaybeTypedMixedRange: TypeAlias = Range | MixedRange
 
 TemporalOpticalKey = Literal[
     "G",

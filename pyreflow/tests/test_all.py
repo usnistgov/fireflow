@@ -1747,7 +1747,6 @@ class TestCore:
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, data_schema)
 
-    # TODO test inserting typed integer column into non-int schema
     @pytest.mark.parametrize(
         "core, optical, byte_width, right_type, wrong_type",
         [
@@ -1785,13 +1784,37 @@ class TestCore:
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
 
     @pytest.mark.parametrize(
+        "schema",
+        [
+            pf.BigLittleF32DataSchema([255, 255]),
+            pf.BigLittleF64DataSchema([255, 255]),
+            pf.FixedAsciiDataSchema([255, 255]),
+        ],
+    )
+    def test_insert_typed_single_uint_wrongtype(
+        self,
+        dataset2_3_1: pf.CoreDataset3_1,
+        blank_optical_3_1: pf.Optical3_1,
+        series1: pl.Series,
+        schema: pf.BigLittleF32DataSchema
+        | pf.BigLittleF64DataSchema
+        | pf.FixedAsciiDataSchema,
+    ) -> None:
+        """Check typed insertion into non-uint width schema.
+
+        These should error because the type is over-specified.
+        """
+        dataset2_3_1.data_schema = schema
+        assert isinstance(dataset2_3_1.data_schema, type(schema))
+        with pytest.RaisesGroup(pf.RelationalError):
+            dataset2_3_1.insert_optical(
+                0, "pegasus", blank_optical_3_1, ("I08", 1), series1
+            )
+
+    @pytest.mark.parametrize(
         "schema, right_type, wrong_type",
         [
             (right_schema, right_type, wrong_type)
-            for c, o in [
-                ("dataset2_3_1", "blank_optical_3_1"),
-                ("dataset2_3_2", "blank_optical_3_2"),
-            ]
             for (right_type, right_schema) in MIXED_SCHEMAS
             for (wrong_type, _) in MIXED_SCHEMAS
             if not wrong_type == right_type

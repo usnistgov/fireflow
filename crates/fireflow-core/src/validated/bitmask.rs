@@ -101,6 +101,13 @@ where
 }
 
 impl<T> Bitmask<T> {
+    pub(crate) fn value(&self) -> T
+    where
+        T: Copy,
+    {
+        self.value.0
+    }
+
     pub(crate) fn bitmask(&self) -> T
     where
         T: Copy,

@@ -1,4 +1,4 @@
-use crate::data::{CheckRange, TruncatedResult};
+use crate::data::{CheckRange, EventOverRangeError, TruncatedResult};
 use crate::macros::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
@@ -205,16 +205,15 @@ impl<T, Raw> InternalSeries<T, Raw> {
         unsafe { from_raw_parts(p, n) }
     }
 
-    pub(crate) fn truncate(&mut self, upper: Raw) -> Option<usize>
+    pub(crate) fn truncate<F>(&mut self, f: F) -> Option<usize>
     where
         T: Copy + PartialOrd,
-        Raw: Into<T>,
+        F: Fn(T) -> Option<T>,
     {
         let mut xs = mem::take(&mut self.inner).make_mut();
         let mut j = None;
-        let u: T = upper.into();
         for (rowi, x) in xs.iter_mut().enumerate() {
-            if *x > u {
+            if let Some(u) = f(*x) {
                 if j.is_none() {
                     j = Some(rowi);
                 }
@@ -1193,25 +1192,29 @@ impl<C> DataFrame<C> {
         self.series.iter()
     }
 
-    pub(crate) fn check_ranges(&self, check: CheckedRangeDatatypes) -> Vec<TruncatedResult>
+    pub(crate) fn check_ranges(&self, check: CheckedRangeDatatypes) -> Vec<EventOverRangeError>
     where
         C: CheckRange,
     {
         self.series
             .iter()
             .enumerate()
-            .map(|(i, c)| c.check_range(i.into(), check))
+            .filter_map(|(i, c)| c.check_range(i.into(), check).err())
             .collect()
     }
 
-    pub(crate) fn check_ranges_mut(&mut self, trunc: CheckedRangeDatatypes) -> Vec<TruncatedResult>
+    pub(crate) fn check_ranges_mut(
+        &mut self,
+        check: CheckedRangeDatatypes,
+        trunc: bool,
+    ) -> Vec<Option<TruncatedResult>>
     where
         C: CheckRange,
     {
         self.series
             .iter_mut()
             .enumerate()
-            .map(|(i, c)| c.check_range_mut(i.into(), trunc))
+            .map(|(i, c)| c.check_range_mut(i.into(), check, trunc))
             .collect()
     }
 

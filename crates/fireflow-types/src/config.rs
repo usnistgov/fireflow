@@ -320,16 +320,23 @@ impl_config_flag!(
 );
 
 pub const CHECK_RANGE_NONE_LEVEL: &NEStr = NONE_LEVEL;
+pub const CHECK_RANGE_BITMASK_ONLY_LEVEL: &NEStr = ne_str!("bitmask_only");
 pub const CHECK_RANGE_INT_ONLY_LEVEL: &NEStr = ne_str!("int_only");
 pub const CHECK_RANGE_ALL_LEVEL: &NEStr = ALL_LEVEL;
 
 impl_config_flag!(
-    /// The types of event values which are checked against $PnR.
+    /// Choose which $PnR to use for range checks.
     ///
-    /// By default, only check if $DATATYPE (or $PnDATATYPE) is "I".
+    /// By default, only check values against the bitmask if $DATATYPE (or
+    /// $PnDATATYPE) is "I".
     pub CheckedRangeDatatypes,
     /// Error when parsing [`RangeDatatypes`] from [`String`]
     pub RangeDatatypesError,
+    /// Only truncate integers to their bitmask.
+    ///
+    /// If a value exceeds $PnR but does not exceed the bitmask implied by
+    /// $PnR (ie the next power of 2 minus 1), it will not be truncated.
+    BitmaskOnly => CHECK_RANGE_BITMASK_ONLY_LEVEL,
     /// Only truncate integer events.
     IntOnly => CHECK_RANGE_INT_ONLY_LEVEL,
     /// Truncate all events.
@@ -337,6 +344,36 @@ impl_config_flag!(
     /// Truncate no events.
     None    => CHECK_RANGE_NONE_LEVEL
 );
+
+pub const OVERRANGE_ACTION_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
+pub const OVERRANGE_ACTION_WARN_LEVEL: &NEStr = WARN_LEVEL;
+pub const OVERRANGE_ACTION_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
+pub const OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL: &NEStr = ne_str!("trunc_silent");
+pub const OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL: &NEStr = ne_str!("trunc_warn");
+
+impl_config_flag!(
+    /// How to handle overrange values in DATA.
+    pub OverRangeAction,
+    /// Error when parsing [`OverRangeAction`] from [`String`]
+    pub OverRangeActionError,
+    /// Warn for overrange values.
+    Warn => OVERRANGE_ACTION_WARN_LEVEL,
+    /// Error for overrange values.
+    Error => OVERRANGE_ACTION_ERROR_LEVEL,
+    /// Do nothing.
+    Silent => OVERRANGE_ACTION_SILENT_LEVEL,
+    /// Truncateand throw warnnig.
+    TruncateWarn => OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL,
+    /// Truncateand throw warnnig.
+    TruncateSilent => OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL
+);
+
+impl OverRangeAction {
+    #[must_use]
+    pub fn is_truncate(&self) -> bool {
+        matches!(self, Self::TruncateWarn | Self::TruncateSilent)
+    }
+}
 
 pub const MISMATCH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
 pub const MISMATCH_HEADER_WARN_LEVEL: &NEStr = ne_str!("header_warn");

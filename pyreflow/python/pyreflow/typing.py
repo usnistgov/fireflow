@@ -179,7 +179,6 @@ DelimEscapeMode: TypeAlias = Literal[
     "guess_unescaped",
 ]
 
-CheckedRangeDatatypes: TypeAlias = Literal["int_only", "all", "none"]
 
 ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
 
@@ -224,4 +223,10 @@ OtherSegments: TypeAlias = tuple[list[Segment], int]
 
 AllowHeaderTextOffsetMismatch: TypeAlias = Literal[
     "error", "header_warn", "header_silent", "text_warn", "text_silent"
+]
+
+CheckedRangeDatatypes: TypeAlias = Literal["bitmask_only", "int_only", "all", "none"]
+
+OverRangeAction: TypeAlias = Literal[
+    "error", "warn", "silent", "trunc_warn", "trunc_silent"
 ]

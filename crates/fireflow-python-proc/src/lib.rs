@@ -1,10 +1,9 @@
 extern crate proc_macro;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CHECK_RANGE_ALL_LEVEL,
-    CHECK_RANGE_INT_ONLY_LEVEL, CHECK_RANGE_NONE_LEVEL, CheckedRangeDatatypes, DEDUP_PNN_SEP,
-    DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT, DEFAULT_TIME_FORMAT_2_0,
-    DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
+    self as tc, AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC,
+    CheckedRangeDatatypes, DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT,
+    DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
     DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, DelimEscapeMode,
     EnumStrIter as _, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
     FORCE_LINEAR_TIME_LEVEL, ForceLinearScale, GuessOtherWidth, IncludeReqOrOpt, IncludeRootOrMeas,
@@ -12,14 +11,14 @@ use fireflow_types::config::{
     KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
     MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
     NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER, ProcessKeywordFailure,
-    ProcessTemporalOpticalKeys, RowBufferSize, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
-    SPILLOVER_NAMED_LEVEL, SpilloverMeasurementMode, TIME_MEAS_NAME_PATTERN_DEFAULT,
-    TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL,
-    TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL, TRI_FALSE_LEVEL, TRI_SILENT_LEVEL,
-    TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL,
-    TRIM_NONE_LEVEL, TemporalOpticalKey, TriFlag, TrimValueWhitespace, VERSION_EARLIEST_LEVEL,
-    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS, VERSION_STRICT_LEVEL,
+    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, OverRangeAction, PATTERN_DELIMITER,
+    ProcessKeywordFailure, ProcessTemporalOpticalKeys, RowBufferSize, SPILLOVER_GUESS_LEVEL,
+    SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL, SpilloverMeasurementMode,
+    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
+    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
+    TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL,
+    TemporalOpticalKey, TriFlag, TrimValueWhitespace, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
 
@@ -640,8 +639,8 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(cores_arg)
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_check_range_datatypes(false))
-        .arg(DocArg::new_disallow_over_range(false))
+        .arg(DocArg::new_checked_range_datatypes())
+        .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size(false))
         .returns(ret);
 
@@ -658,7 +657,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
             );
             let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                 tconf,
-                check_range_datatypes.into(),
+                checked_range_datatypes.into(),
                 disallow_over_range.into(),
                 row_buffer_size,
             );
@@ -1052,9 +1051,7 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
 
     let truncated_columns = DocArgROIvar::new_ivar_ro(
         "overrange_columns",
-        PyList::new1(PyOpt::new1(
-            PyTuple::new1(RsInt::Usize).add(PyBool::default()),
-        )),
+        PyList::new_overrange_columns(),
         format!(
             "Columns for which at least one event was out of range via {PNR}. \
              Each index corresponds to a column in {DATA}. Elements will be \
@@ -2142,8 +2139,8 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_check_range_datatypes(false))
-        .arg(DocArg::new_disallow_over_range(false))
+        .arg(DocArg::new_checked_range_datatypes())
+        .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size(false))
         .arg(DocArg::new_appendable_param())
         .arg(DocArg::new_append_param())
@@ -2164,7 +2161,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 );
                 let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                     tconf,
-                    check_range_datatypes.into(),
+                    checked_range_datatypes.into(),
                     disallow_over_range.into(),
                     row_buffer_size,
                 );
@@ -3392,43 +3389,46 @@ pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
     .into()
 }
 
-// TODO adapt this for truncating just PnR
+#[proc_macro]
+pub fn impl_coredataset_check_ranges(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let _ = split_ident_version_checked("PyCoreDataset", &i);
 
-// #[proc_macro]
-// pub fn impl_coredataset_truncate_data(input: TokenStream) -> TokenStream {
-//     let i: Ident = syn::parse(input).unwrap();
-//     let _ = split_ident_version_checked("PyCoreDataset", &i);
+    let check_param = DocArg::new_checked_range_datatypes();
+    let action_param = DocArg::new_over_range_action();
 
-//     let p = DocArg::new_bool_param(
-//         "skip_conv_check",
-//         format!(
-//             "If {TRUE}, silently truncate data; otherwise return warnings when \
-//              truncation is performed."
-//         ),
-//     );
+    let exc = PyException::new_data_loss();
 
-//     let exc = PyException::new_data_loss();
+    let ret = DocReturn::new(PyList::new1(PyOpt::new1(RsInt::Usize)))
+        .exc([exc])
+        .desc(format!(
+            "The columns that were overrange. List indices \
+             correspond to columns. {NONE} is returned is not truncated. \
+             Index of first overrange row is returned."
+        ));
 
-//     let doc =
-//         DocString::new_method("Coerce all values in DATA to fit within types specified in layout.")
-//             .para("This will always create a new copy of DATA in-place.")
-//             .arg(p)
-//             .returns(DocReturn::new(PyTuple::default()).exc([exc]));
+    let doc =
+        DocString::new_method("Coerce all values in DATA to fit within types specified in layout.")
+            .para("This will always create a new copy of DATA in-place.")
+            .arg(check_param)
+            .arg(action_param)
+            .returns(ret);
 
-//     let fun_arg = doc.fun_args();
-//     let inner_arg = doc.idents();
+    let fun_arg = doc.fun_args();
+    let inner_arg = doc.idents();
+    let ret_path = doc.ret_path();
 
-//     quote! {
-//         #[pymethods]
-//         impl #i {
-//             #doc
-//             fn truncate_data(&mut self, #fun_arg) -> PyResult<()> {
-//                 self.0.truncate_data(#inner_arg).py_resolve_warnings()
-//             }
-//         }
-//     }
-//     .into()
-// }
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn check_ranges(&mut self, #fun_arg) -> #ret_path {
+                self.0.check_ranges(#inner_arg).py_resolve_commutative()
+            }
+        }
+    }
+    .into()
+}
 
 #[proc_macro]
 pub fn impl_core_set_measurements_and_data_schema(input: TokenStream) -> TokenStream {
@@ -5071,8 +5071,8 @@ enum PyreflowError {
     Relational,
     #[display("EventDataError")]
     EventData,
-    // #[display("DataLossError")]
-    // DataLoss,
+    #[display("DataLossError")]
+    DataLoss,
     #[display("ConfigError")]
     Config,
 }
@@ -6154,13 +6154,12 @@ impl PyException {
         Self::new_overflow().desc(d)
     }
 
-    // fn new_data_loss() -> Self {
-    //     Self::new_pyreflow(PyreflowError::DataLoss).desc(format!(
-    //         "If any values in {DATA} segment need to be truncated to \
-    //          fit layout and {skip_conversion_check} is {FALSE}",
-    //         skip_conversion_check = arg(SKIP_CONVERSION_CHECK)
-    //     ))
-    // }
+    fn new_data_loss() -> Self {
+        Self::new_pyreflow(PyreflowError::DataLoss).desc(format!(
+            "If any values in {DATA} segment need to be truncated to \
+             fit layout data_schema"
+        ))
+    }
 
     fn new_pyreflow(p: PyreflowError) -> Self {
         Self::new(format!("~pyreflow.{p}"))
@@ -6765,6 +6764,12 @@ impl<E: From<PyException>> PyList<E> {
     fn new_key_patterns() -> Self {
         let path = config_path("KeyPatterns");
         Self::new1(PyStr::new_keystring_or_pattern()).rstype(path)
+    }
+
+    fn new_overrange_columns() -> Self {
+        Self::new1(PyOpt::new1(
+            PyTuple::new1(RsInt::Usize).add(PyBool::default()),
+        ))
     }
 }
 
@@ -7985,9 +7990,9 @@ impl DocArgParam {
         let d = format!(
             "{desc} If {false_}, {false_action}. If {true_}, {true_action}. \
              If {silent}, do nothing.",
-            false_ = code_str(TRI_FALSE_LEVEL),
-            true_ = code_str(TRI_TRUE_LEVEL),
-            silent = code_str(TRI_SILENT_LEVEL),
+            false_ = code_str(tc::TRI_FALSE_LEVEL),
+            true_ = code_str(tc::TRI_TRUE_LEVEL),
+            silent = code_str(tc::TRI_SILENT_LEVEL),
         );
         let pt = PyLiteral::new_tri_flag(ident_name);
         Self::new_param(name, pt, d).def_auto()
@@ -8465,8 +8470,8 @@ impl DocArgParam {
             Self::new_data_remainder_limit_param(),
             Self::new_allow_uneven_event_width_param(),
             Self::new_allow_tot_mismatch_param(),
-            Self::new_check_range_datatypes(true),
-            Self::new_disallow_over_range(true),
+            Self::new_checked_range_datatypes(),
+            Self::new_over_range_action(),
             Self::new_row_buffer_size(true),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
@@ -8495,7 +8500,7 @@ impl DocArgParam {
         let d = format!(
             "If {TRUE}, force all {PNN} to be unique by appending \
              {suffix} to each duplicate and incrementing {x} starting at 0.",
-            suffix = code_str(format!("{DEDUP_PNN_SEP}X")),
+            suffix = code_str(format!("{}X", tc::DEDUP_PNN_SEP)),
             x = code("X"),
         );
         Self::new_bool_param("dedup_measurement_names", d)
@@ -9275,45 +9280,50 @@ impl DocArgParam {
         Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
     }
 
-    fn new_check_range_datatypes(is_trunc: bool) -> Self {
+    fn new_checked_range_datatypes() -> Self {
         let path = types_config_path("CheckedRangeDatatypes");
-        let (action, action_past) = if is_trunc {
-            ("truncate", "truncated")
-        } else {
-            ("checked", "checked")
-        };
         let d = format!(
-            "Control which measurements will be {action_past} via {PNR}. If \
-             {int}, {action} integer measurements only. If {all}, {action} all \
-             measurements. If {none}, {action} nothing.",
-            int = code_str(CHECK_RANGE_INT_ONLY_LEVEL),
-            all = code_str(CHECK_RANGE_ALL_LEVEL),
-            none = code_str(CHECK_RANGE_NONE_LEVEL),
+            "Control which measurements will be checked via {PNR}. If \
+             {int}, check integer measurements only. If {all}, check all \
+             measurements. If {none}, check nothing.",
+            int = code_str(tc::CHECK_RANGE_INT_ONLY_LEVEL),
+            all = code_str(tc::CHECK_RANGE_ALL_LEVEL),
+            none = code_str(tc::CHECK_RANGE_NONE_LEVEL),
         );
         let pt = PyLiteral::new2(CheckedRangeDatatypes::iter_str(), path);
-        let n = if is_trunc {
-            TRUNCATE_RANGE_DATATYPES
-        } else {
-            CHECK_RANGE_DATATYPES
-        };
-        Self::new_param(n, pt, d).def_auto()
+        Self::new_param(CHECKED_RANGE_DATATYPES, pt, d).def_auto()
     }
 
-    fn new_disallow_over_range(is_trunc: bool) -> Self {
+    fn new_disallow_over_range() -> Self {
         let n = "disallow_over_range";
-        let check_arg = if is_trunc {
-            TRUNCATE_RANGE_DATATYPES
-        } else {
-            CHECK_RANGE_DATATYPES
-        };
         let d = format!(
-            "Choose how to handle event values in {DATA} which exceed {PNR}. \
-             This only has an effect if the column is not truncated \
+            "Choose how to report event values in {DATA} which exceed {PNR}. \
+             This only has an effect if the column is checked \
              according to {arg}.",
-            arg = arg(check_arg),
+            arg = arg(CHECKED_RANGE_DATATYPES),
         );
         let e = PyreflowError::EventData;
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
+    }
+
+    fn new_over_range_action() -> Self {
+        let n = "over_range_action";
+        let d = format!(
+            "Choose what to do with event values in {DATA} which exceed {PNR}. \
+             This only has an effect if the column is checked \
+             according to {arg}. Pass {error} to emit error, {warn} to emit \
+             warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
+             warning, and {trunc_silent} to truncate with no warning.",
+            arg = arg(CHECKED_RANGE_DATATYPES),
+            error = code_str(tc::OVERRANGE_ACTION_ERROR_LEVEL),
+            warn = code_str(tc::OVERRANGE_ACTION_WARN_LEVEL),
+            silent = code_str(tc::OVERRANGE_ACTION_SILENT_LEVEL),
+            trunc_warn = code_str(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = code_str(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
+        );
+        let path = types_config_path("OverRangeAction");
+        let pt = PyLiteral::new2(OverRangeAction::iter_str(), path);
+        Self::new_param(n, pt, d).def_auto()
     }
 
     fn new_row_buffer_size(is_reader: bool) -> Self {
@@ -10538,8 +10548,7 @@ const BIG_OTHER: &str = "big_other";
 // const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
-const TRUNCATE_RANGE_DATATYPES: &str = "truncate_range_datatypes";
-const CHECK_RANGE_DATATYPES: &str = "check_range_datatypes";
+const CHECKED_RANGE_DATATYPES: &str = "checked_range_datatypes";
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
 const OTHER_WIDTH: &str = "other_width";
 

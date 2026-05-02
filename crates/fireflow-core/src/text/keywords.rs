@@ -7,6 +7,7 @@ use crate::core::{
     AnyTemporalKeyLossError, AnyTemporalToOpticalKeyLossError, GatingLossError, KeyLossError,
     NonLinearScaleError, NonUnitGainError, PeakLossError, RegionLossError, TimestepLossError,
 };
+use crate::data::RangeCheckLevel;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
@@ -1794,11 +1795,14 @@ impl_str_enum_kw!(
 );
 
 impl AlphaNumType {
-    pub(crate) fn matches_range_check(self, trunc: CheckedRangeDatatypes) -> bool {
-        matches!(
-            (trunc, self),
-            (CheckedRangeDatatypes::IntOnly, Self::Integer) | (CheckedRangeDatatypes::All, _)
-        )
+    pub(crate) fn range_check_level(self, trunc: CheckedRangeDatatypes) -> Option<RangeCheckLevel> {
+        match (self, trunc) {
+            (Self::Integer, CheckedRangeDatatypes::BitmaskOnly) => Some(RangeCheckLevel::Bitmask),
+            (_, CheckedRangeDatatypes::All) | (Self::Integer, CheckedRangeDatatypes::IntOnly) => {
+                Some(RangeCheckLevel::Range)
+            }
+            (_, _) => None,
+        }
     }
 }
 

@@ -107,7 +107,7 @@
 // * width: The value of $PnB
 
 use crate::config::{
-    AllowTotMismatch, ConfigFlag as _, DisallowOverRange, DisallowRangeTrunc,
+    AllowTotMismatch, ConfigFlag as _, DisallowOverRange, DisallowRangeTrunc, DummyTriFlag,
     ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::core::{
@@ -161,7 +161,7 @@ use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
-use fireflow_types::config::CheckedRangeDatatypes;
+use fireflow_types::config::{CheckedRangeDatatypes, OverRangeAction};
 use fireflow_types::nonempty_string::DisplayableNE as _;
 use type_families::{
     Functor, FunctorOnce, Kind1, Sibling1, VecFamily, impl_functor_once, impl_kind1,
@@ -821,27 +821,15 @@ impl_functor_once!(
 );
 
 /// Result of possibly truncated value
-pub enum TruncatedResult {
-    None,
-    Truncated(usize),
-    Overrange(MeasIndex, usize, TextRange),
+#[derive(new)]
+pub struct TruncatedResult {
+    truncated: bool,
+    error: EventOverRangeError,
 }
 
 impl TruncatedResult {
-    fn into_err(self) -> Option<EventOverRangeError> {
-        if let Self::Overrange(i, j, r) = self {
-            Some(EventOverRangeError::new(j, i, r))
-        } else {
-            None
-        }
-    }
-
-    fn as_col(&self) -> OverrangeColumn {
-        match self {
-            Self::None => None,
-            Self::Truncated(i) => Some((*i, true)),
-            Self::Overrange(_, i, _) => Some((*i, false)),
-        }
+    fn as_col(&self) -> (usize, bool) {
+        (self.error.row, self.truncated)
     }
 }
 
@@ -1227,7 +1215,7 @@ pub enum ReadDataframeWarning {
     range.as_displayable()
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::EventDataError))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
 pub struct EventOverRangeError {
     row: usize,
     column: MeasIndex,
@@ -1934,8 +1922,8 @@ where
                     .map_commutative_warnings(ReadCheckedDataframeWarning::from)
                     .and_then_commutative(|mut res| {
                         // check dataframe ranges (if configured)
-                        let trunc = conf.truncate_range_datatypes;
-                        let flag = conf.disallow_over_range;
+                        let trunc = conf.checked_range_datatypes;
+                        let flag = conf.over_range_action;
                         res.dataframe
                             .check_ranges_mut(trunc, flag)
                             .group()
@@ -5229,34 +5217,39 @@ where
 /// Return error or warning-like result depending on configuration parameter.
 #[delegatable_trait]
 pub trait DataFrameCheckRanges {
-    fn check_ranges_inner(&self, check: CheckedRangeDatatypes) -> Vec<TruncatedResult>;
+    fn check_ranges_inner(&self, check: CheckedRangeDatatypes) -> Vec<EventOverRangeError>;
 
-    fn check_ranges_inner_mut(&mut self, trunc: CheckedRangeDatatypes) -> Vec<TruncatedResult>;
+    fn check_ranges_inner_mut(
+        &mut self,
+        check: CheckedRangeDatatypes,
+        trunc: bool,
+    ) -> Vec<Option<TruncatedResult>>;
 
     fn check_ranges(
         &self,
         check: CheckedRangeDatatypes,
         disallow: DisallowOverRange,
-    ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
-    {
-        let rs = self.check_ranges_inner(check);
-        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
+    ) -> WarningsAndErrorsResult<(), (), EventOverRangeError, EventOverRangeError> {
+        let es = self.check_ranges_inner(check);
         SwitchableErrorsResult::new_deferred_switchable_iter3((), es, disallow)
             .switchable_into_commutative()
-            .map_ok_value(|()| overrange)
     }
 
     fn check_ranges_mut(
         &mut self,
-        trunc: CheckedRangeDatatypes,
-        disallow: DisallowOverRange,
+        check: CheckedRangeDatatypes,
+        action: OverRangeAction,
     ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
     {
-        let rs = self.check_ranges_inner_mut(trunc);
-        let overrange = rs.iter().map(TruncatedResult::as_col).collect();
-        let es = rs.into_iter().filter_map(TruncatedResult::into_err);
-        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, disallow)
+        let flag = DummyTriFlag::from_over_range_action(action);
+        let trunc = action.is_truncate();
+        let rs = self.check_ranges_inner_mut(check, trunc);
+        let overrange = rs
+            .iter()
+            .map(|r| r.as_ref().map(TruncatedResult::as_col))
+            .collect();
+        let es = rs.into_iter().filter_map(|c| c.map(|r| r.error));
+        SwitchableErrorsResult::new_deferred_switchable_iter3((), es, flag)
             .switchable_into_commutative()
             .map_ok_value(|()| overrange)
     }
@@ -5267,12 +5260,16 @@ impl<C, I, L, M, const ORD: bool> DataFrameCheckRanges
 where
     C: CheckRange,
 {
-    fn check_ranges_inner(&self, check: CheckedRangeDatatypes) -> Vec<TruncatedResult> {
+    fn check_ranges_inner(&self, check: CheckedRangeDatatypes) -> Vec<EventOverRangeError> {
         self.container.check_ranges(check)
     }
 
-    fn check_ranges_inner_mut(&mut self, trunc: CheckedRangeDatatypes) -> Vec<TruncatedResult> {
-        self.container.check_ranges_mut(trunc)
+    fn check_ranges_inner_mut(
+        &mut self,
+        check: CheckedRangeDatatypes,
+        trunc: bool,
+    ) -> Vec<Option<TruncatedResult>> {
+        self.container.check_ranges_mut(check, trunc)
     }
 }
 
@@ -6373,42 +6370,94 @@ impl IsNumType for Option<NumType> {
 // This is used only internally by the range checker.
 
 /// A column schema which has a $PnR and and native type for range.
-trait ColumnSchemaAsRange: ColumnHasNativeType {
-    fn as_range(&self) -> (Self::Native, TextRange);
+trait ColumnSchemaAsRange: ColumnHasNativeType
+where
+    Self::Native: FCSRepr,
+{
+    fn as_range(&self) -> EffectiveRange<<Self::Native as FCSRepr>::Prim>;
+}
+
+#[derive(new)]
+struct EffectiveRange<T> {
+    /// The numeric limit expressed via $PnR.
+    numeric_range: T,
+    /// The bitmask implied by $PnR (only applies to integers).
+    bitmask: Option<T>,
+    /// $PnR itself.
+    text_range: TextRange,
+}
+
+#[derive(Clone, Copy)]
+pub(crate) enum RangeCheckLevel {
+    Bitmask,
+    Range,
+}
+
+impl<T> EffectiveRange<T> {
+    fn apply(&self, x: T, level: RangeCheckLevel) -> (T, bool)
+    where
+        T: PartialOrd + Copy,
+    {
+        match level {
+            RangeCheckLevel::Bitmask => self.apply_bit_range(x),
+            RangeCheckLevel::Range => {
+                if x > self.numeric_range {
+                    return (self.numeric_range, true);
+                }
+                (x, false)
+            }
+        }
+    }
+
+    fn apply_bit_range(&self, x: T) -> (T, bool)
+    where
+        T: PartialOrd + Copy,
+    {
+        debug_assert!(
+            self.bitmask.is_none_or(|r| self.numeric_range <= r),
+            "bitmask less than numeric range"
+        );
+        let limit = self.bitmask.unwrap_or(self.numeric_range);
+        if x > limit { (limit, true) } else { (x, false) }
+    }
 }
 
 impl<T> ColumnSchemaAsRange for Bitmask<T>
 where
     Self: ColumnHasNativeType<Native = T> + Into<TextRange>,
-    T: Copy,
+    T: Copy + FCSRepr + Into<T::Prim>,
 {
-    fn as_range(&self) -> (Self::Native, TextRange) {
-        (self.bitmask(), (*self).into())
+    fn as_range(&self) -> EffectiveRange<T::Prim> {
+        EffectiveRange::new(
+            self.value().into(),
+            Some(self.bitmask().into()),
+            (*self).into(),
+        )
     }
 }
 
 impl<T> ColumnSchemaAsRange for FloatRange<T>
 where
     Self: ColumnHasNativeType<Native = T> + Into<TextRange>,
-    T: Copy,
+    T: Copy + FCSRepr<Prim = T>,
     FiniteFloat<T>: Into<T>,
 {
-    fn as_range(&self) -> (Self::Native, TextRange) {
-        (self.range.into(), (*self).into())
+    fn as_range(&self) -> EffectiveRange<T> {
+        EffectiveRange::new(self.range.into(), None, (*self).into())
     }
 }
 
 impl ColumnSchemaAsRange for FixedAsciiRange {
-    fn as_range(&self) -> (Self::Native, TextRange) {
+    fn as_range(&self) -> EffectiveRange<u64> {
         let r = self.value();
-        (r.0, r.0.into())
+        EffectiveRange::new(r.0, None, r.0.into())
     }
 }
 
 impl ColumnSchemaAsRange for DelimAsciiRange {
-    fn as_range(&self) -> (Self::Native, TextRange) {
+    fn as_range(&self) -> EffectiveRange<u64> {
         let r = self.0;
-        (r.0, r.0.into())
+        EffectiveRange::new(r.0, None, r.0.into())
     }
 }
 
@@ -6417,9 +6466,18 @@ impl ColumnSchemaAsRange for DelimAsciiRange {
 // This is the column-level trait for CheckRanges; see for details.
 
 pub(crate) trait CheckRange {
-    fn check_range(&self, i: MeasIndex, check: CheckedRangeDatatypes) -> TruncatedResult;
+    fn check_range(
+        &self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+    ) -> Result<(), EventOverRangeError>;
 
-    fn check_range_mut(&mut self, i: MeasIndex, trunc: CheckedRangeDatatypes) -> TruncatedResult;
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+        trunc: bool,
+    ) -> Option<TruncatedResult>;
 }
 
 impl<C> CheckRange for NativeSeries<C>
@@ -6428,67 +6486,102 @@ where
     <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd,
     C::Native: FCSRepr + Into<<<C as ColumnHasNativeType>::Native as FCSRepr>::Prim>,
 {
-    // TODO not DRY
-    fn check_range(&self, i: MeasIndex, check: CheckedRangeDatatypes) -> TruncatedResult {
+    fn check_range(
+        &self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+    ) -> Result<(), EventOverRangeError> {
         let dt = self.column_schema.col_datatype();
-        let (u, rng) = self.column_schema.as_range();
-        let upper_limit = u.into();
-        if dt.matches_range_check(check) {
+        let rng = self.column_schema.as_range();
+        if let Some(level) = dt.range_check_level(check) {
             self.series
                 .as_ref()
                 .iter()
-                .position(|x| *x > upper_limit)
-                .map_or(TruncatedResult::None, |rowi| {
-                    TruncatedResult::Overrange(i, rowi, rng)
+                .position(|x| rng.apply(*x, level).1)
+                .map_or(Ok(()), |rowi| {
+                    Err(EventOverRangeError::new(rowi, i, rng.text_range))
                 })
         } else {
-            TruncatedResult::None
+            Ok(())
         }
     }
 
     // TODO these errors could be cleaned up; we know that the highest range
     // that can be truncated is u64 or f64 so it isn't necessary to return a
     // rang object. Furthermore it shouldn't be necessary to pass the calling index.
-    fn check_range_mut(&mut self, i: MeasIndex, trunc: CheckedRangeDatatypes) -> TruncatedResult {
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+        trunc: bool,
+    ) -> Option<TruncatedResult> {
         let dt = self.column_schema.col_datatype();
-        let (u, rng) = self.column_schema.as_range();
-        let upper_limit = u.into();
-        if dt.matches_range_check(trunc) {
-            // If we wish to truncate this column, silently truncate without
-            // throwing any errors
-            let j = self.series.truncate(u);
-            j.map_or(TruncatedResult::None, TruncatedResult::Truncated)
-        } else {
-            // Otherwise, scan through the values and return error on first
-            // encounter with overrange value
-            self.series
-                .as_ref()
-                .iter()
-                .position(|x| *x > upper_limit)
-                .map_or(TruncatedResult::None, |rowi| {
-                    TruncatedResult::Overrange(i, rowi, rng)
+        let rng = self.column_schema.as_range();
+        if let Some(level) = dt.range_check_level(check) {
+            if trunc {
+                // If we wish to truncate this column, silently truncate without
+                // throwing any errors
+                let j = self.series.truncate(|x| {
+                    let (new, truncated) = rng.apply(x, level);
+                    truncated.then_some(new)
+                });
+                j.map(|rowi| {
+                    let e = EventOverRangeError::new(rowi, i, rng.text_range);
+                    TruncatedResult::new(true, e)
                 })
+            } else {
+                // Otherwise, scan through the values and return error on first
+                // encounter with overrange value
+                self.series
+                    .as_ref()
+                    .iter()
+                    .position(|x| rng.apply(*x, level).1)
+                    .map(|rowi| {
+                        let e = EventOverRangeError::new(rowi, i, rng.text_range);
+                        TruncatedResult::new(false, e)
+                    })
+            }
+        } else {
+            None
         }
     }
 }
 
 impl CheckRange for VariableUintSeries {
-    fn check_range(&self, i: MeasIndex, check: CheckedRangeDatatypes) -> TruncatedResult {
+    fn check_range(
+        &self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+    ) -> Result<(), EventOverRangeError> {
         match_any_uint!(self, x, x.check_range(i, check))
     }
 
-    fn check_range_mut(&mut self, i: MeasIndex, trunc: CheckedRangeDatatypes) -> TruncatedResult {
-        match_any_uint!(self, x, x.check_range_mut(i, trunc))
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+        trunc: bool,
+    ) -> Option<TruncatedResult> {
+        match_any_uint!(self, x, x.check_range_mut(i, check, trunc))
     }
 }
 
 impl CheckRange for MixedSeries {
-    fn check_range(&self, i: MeasIndex, check: CheckedRangeDatatypes) -> TruncatedResult {
+    fn check_range(
+        &self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+    ) -> Result<(), EventOverRangeError> {
         match_any_datatype!(self, x, x.check_range(i, check))
     }
 
-    fn check_range_mut(&mut self, i: MeasIndex, trunc: CheckedRangeDatatypes) -> TruncatedResult {
-        match_any_datatype!(self, x, x.check_range_mut(i, trunc))
+    fn check_range_mut(
+        &mut self,
+        i: MeasIndex,
+        check: CheckedRangeDatatypes,
+        trunc: bool,
+    ) -> Option<TruncatedResult> {
+        match_any_datatype!(self, x, x.check_range_mut(i, check, trunc))
     }
 }
 

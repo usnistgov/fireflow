@@ -1452,8 +1452,8 @@ fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
     get_opt(s, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
         c.allow_uneven_event_width = x;
     });
-    get_opt(s, TRUNCATE_EVENT_VALUES, |x| c.truncate_range_datatypes = x);
-    get_opt(s, DISALLOW_OVER_RANGE, |x| c.disallow_over_range = x);
+    get_opt(s, TRUNCATE_EVENT_VALUES, |x| c.checked_range_datatypes = x);
+    get_opt(s, DISALLOW_OVER_RANGE, |x| c.over_range_action = x);
     get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
 
     c
@@ -1519,7 +1519,7 @@ fn get_write_std_dataset_config(sargs: &ArgMatches) -> config::WriteDatasetInner
     get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
     // ranges are checked once when reading the dataframe so no need to check
     // them again; if anything they might be fixed
-    conf.check_range_datatypes = CheckedRangeDatatypes::None;
+    conf.checked_range_datatypes = CheckedRangeDatatypes::None;
     conf
 }
 

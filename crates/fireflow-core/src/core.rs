@@ -3,10 +3,10 @@
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetOffset, DatasetOffsetError,
-    DisallowOverRange, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
-    ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState,
-    ReadStdKeywordsConfig, TemporalHasOpticalKeyError, WriteDatasetInnerConfig, WriteMultiConfig,
-    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadEventsConfig,
+    ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadState, ReadStdKeywordsConfig,
+    TemporalHasOpticalKeyError, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
+    WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::data::{
     CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
@@ -16,9 +16,9 @@ use crate::data::{
     IsTot, LayoutConvertError, LayoutDatatype, LayoutHeight as _, LayoutInsert, LayoutKeywords,
     LayoutNormalize, LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
     LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataSchemaError, OverrangeColumn, RangeAndSeries, ReadCheckedDataframeError,
-    ReadCheckedDataframeWarning, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame,
-    VersionedDataSchema, WithPrimitiveDataFrame,
+    NewDataSchemaError, RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
+    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataSchema,
+    WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -105,7 +105,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{
-    CheckedRangeDatatypes, IncludeReqOrOpt, IncludeRootOrMeas, TemporalOpticalKey,
+    CheckedRangeDatatypes, IncludeReqOrOpt, IncludeRootOrMeas, OverRangeAction, TemporalOpticalKey,
 };
 use fireflow_types::keywords::{
     HasVersion, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -5065,12 +5065,12 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         let others = &self.others.0[..];
 
         self.layout
-            .check_ranges(conf.check_range_datatypes, conf.disallow_over_range)
+            .check_ranges(conf.checked_range_datatypes, conf.disallow_over_range)
             .map_errors(StdWriterError::from)
             .group()
             .map_error(IOErrorGroup::Pure)
             // write HEADER+TEXT+OTHER(s) first
-            .and_then_commutative(|_| {
+            .and_then_commutative(|()| {
                 let data_len = self.layout.nbytes();
                 let ht_conf = WriteHeaderAndTextConfig {
                     delim,
@@ -5153,17 +5153,18 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// If `truncate` is `true`, truncate events in place if they exceed $PnR.
     pub fn check_ranges(
         &mut self,
-        check_event_ranges: CheckedRangeDatatypes,
-        disallow: DisallowOverRange,
+        check_range_datatypes: CheckedRangeDatatypes,
+        over_range_action: OverRangeAction,
     ) -> WarningsAndGroupResult<
-        Vec<OverrangeColumn>,
+        Vec<Option<usize>>,
         EventOverRangeError,
         EventOverRangeError,
         EventOverRangeSummary,
     > {
         self.layout
-            .check_ranges(check_event_ranges, disallow)
+            .check_ranges_mut(check_range_datatypes, over_range_action)
             .group()
+            .map_ok_value(|rs| rs.fmap(|x| x.map(|(i, _)| i)))
     }
 
     /// Get data schema.

@@ -1653,7 +1653,7 @@ class TestCore:
             for m in [f"insert_{meas}", f"push_{meas}"]
         ],
     )
-    def test_text_insert_decimal_int32(
+    def test_insert_decimal_int32(
         self,
         core: AnyCoreTEXT | AnyCoreDataset,
         optical: Any,
@@ -1906,6 +1906,63 @@ class TestCore:
             dataset2_3_2.insert_optical(
                 0, "gotpetya", blank_optical_3_2, 10000, series1
             )
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
+    def test_check_ranges(
+        self,
+        core: AnyCoreTEXT,
+    ) -> None:
+        df1 = pl.DataFrame([pl.Series("unnamed", [1], dtype=pl.UInt32)])
+        cd = core.to_dataset(df1)
+        # should not error
+        cd.check_ranges()
+
+        df2 = pl.DataFrame([pl.Series("unnamed", [100000], dtype=pl.UInt32)])
+
+        def go(
+            c: pt.CheckedRangeDatatypes,
+            a: pt.OverRangeAction,
+            res: list[None | int],
+            val: int,
+        ) -> None:
+            cd.data = df2
+            assert (
+                cd.check_ranges(checked_range_datatypes=c, over_range_action=a) == res
+            )
+            assert cd.data[0, 0] == val
+
+        go("none", "error", [None], 100000)
+        go("none", "warn", [None], 100000)
+        go("none", "silent", [None], 100000)
+        go("none", "trunc_warn", [None], 100000)
+        go("none", "trunc_silent", [None], 100000)
+
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("bitmask_only", "error", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("bitmask_only", "warn", [0], 100000)
+        go("bitmask_only", "silent", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("bitmask_only", "trunc_warn", [0], 16383)
+        go("bitmask_only", "trunc_silent", [0], 16383)
+
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("int_only", "error", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("int_only", "warn", [0], 100000)
+        go("int_only", "silent", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("int_only", "trunc_warn", [0], 9001)
+        go("int_only", "trunc_silent", [0], 9001)
+
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("all", "error", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("all", "warn", [0], 100000)
+        go("all", "silent", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("all", "trunc_warn", [0], 9001)
+        go("all", "trunc_silent", [0], 9001)
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:
@@ -4968,27 +5025,48 @@ class TestConfig:
         )
 
         def go(
-            f: pt.CheckedRangeDatatypes, g: TriFlag
+            f: pt.CheckedRangeDatatypes,
+            g: pt.OverRangeAction,
         ) -> list[tuple[int, bool] | None]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                truncate_range_datatypes=f,
-                disallow_over_range=g,
+                checked_range_datatypes=f,
+                over_range_action=g,
             )
             return out.dataset.events_diagnostics.overrange_columns
 
-        with pytest.warns(pf.PyreflowWarning):
-            assert go("none", "false") == [(0, False)]
-        with pytest.RaisesGroup(pf.EventDataError, flatten_subgroups=True):
-            assert go("none", "true") == [(0, False)]
-        assert go("none", "silent") == [(0, False)]
+        assert go("none", "warn") == [None]
+        assert go("none", "error") == [None]
+        assert go("none", "silent") == [None]
+        assert go("none", "trunc_warn") == [None]
+        assert go("none", "trunc_silent") == [None]
 
-        assert go("int_only", "false") == [(0, True)]
-        assert go("int_only", "true") == [(0, True)]
-        assert go("int_only", "silent") == [(0, True)]
-        assert go("all", "false") == [(0, True)]
-        assert go("all", "true") == [(0, True)]
-        assert go("all", "silent") == [(0, True)]
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("bitmask_only", "warn") == [(0, False)]
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("bitmask_only", "error") == [(0, False)]
+        assert go("bitmask_only", "silent") == [(0, False)]
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("bitmask_only", "trunc_warn") == [(0, True)]
+        assert go("bitmask_only", "trunc_silent") == [(0, True)]
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("int_only", "warn") == [(0, False)]
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("int_only", "error") == [(0, False)]
+        assert go("int_only", "silent") == [(0, False)]
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("int_only", "trunc_warn") == [(0, True)]
+        assert go("int_only", "trunc_silent") == [(0, True)]
+
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("all", "warn") == [(0, False)]
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("all", "error") == [(0, False)]
+        assert go("all", "silent") == [(0, False)]
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("all", "trunc_warn") == [(0, True)]
+        assert go("all", "trunc_silent") == [(0, True)]
 
     @pytest.mark.parametrize(
         "version, data_seg",
@@ -5020,30 +5098,41 @@ class TestConfig:
         )
 
         def go(
-            f: pt.CheckedRangeDatatypes, g: TriFlag
+            f: pt.CheckedRangeDatatypes, g: pt.OverRangeAction
         ) -> list[tuple[int, bool] | None]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                truncate_range_datatypes=f,
-                disallow_over_range=g,
+                checked_range_datatypes=f,
+                over_range_action=g,
             )
             return out.dataset.events_diagnostics.overrange_columns
 
-        with pytest.warns(pf.PyreflowWarning):
-            assert go("none", "false") == [(0, False)]
-        with pytest.RaisesGroup(pf.EventDataError, flatten_subgroups=True):
-            assert go("none", "true") == [(0, False)]
-        assert go("none", "silent") == [(0, False)]
+        assert go("none", "warn") == [None]
+        assert go("none", "error") == [None]
+        assert go("none", "silent") == [None]
+        assert go("none", "trunc_warn") == [None]
+        assert go("none", "trunc_silent") == [None]
+
+        assert go("bitmask_only", "warn") == [None]
+        assert go("bitmask_only", "error") == [None]
+        assert go("bitmask_only", "silent") == [None]
+        assert go("bitmask_only", "trunc_warn") == [None]
+        assert go("bitmask_only", "trunc_silent") == [None]
+
+        assert go("int_only", "warn") == [None]
+        assert go("int_only", "error") == [None]
+        assert go("int_only", "silent") == [None]
+        assert go("int_only", "trunc_warn") == [None]
+        assert go("int_only", "trunc_silent") == [None]
 
         with pytest.warns(pf.PyreflowWarning):
-            assert go("int_only", "false") == [(0, False)]
-        with pytest.RaisesGroup(pf.EventDataError, flatten_subgroups=True):
-            assert go("int_only", "true") == [(0, False)]
-        assert go("int_only", "silent") == [(0, False)]
-
-        assert go("all", "false") == [(0, True)]
-        assert go("all", "true") == [(0, True)]
-        assert go("all", "silent") == [(0, True)]
+            assert go("all", "warn") == [(0, False)]
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("all", "error") == [(0, False)]
+        assert go("all", "silent") == [(0, False)]
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("all", "trunc_warn") == [(0, True)]
+        assert go("all", "trunc_silent") == [(0, True)]
 
 
 class TestReadWrite:

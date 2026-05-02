@@ -144,10 +144,8 @@ create_exception!(
     PyreflowError,
     "Raised when values in *DATA* segment must be truncated.\n\
      \n\
-     This can occur because the dataframe used to represent *DATA* is \n\
-     allowed to contain arbitrary data types, but these must be coerced to\n\
-     a given *DATA* layout when written to an FCS file. This coercion may\n\
-     result in data loss, which is indicated by this error."
+     This can occur because input data is the wrong type for the target data\n\
+     schema or the data is out of range."
 );
 
 create_exception!(

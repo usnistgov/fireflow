@@ -104,7 +104,8 @@ use fireflow_python_proc::{
     impl_core_replace_temporal, impl_core_set_measurements_and_data_schema,
     impl_core_set_named_measurements, impl_core_set_temporal, impl_core_set_tr_threshold,
     impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
-    impl_core_version, impl_core_write_dataset, impl_core_write_text, impl_coredataset_from_kws,
+    impl_core_version, impl_core_write_dataset, impl_core_write_text,
+    impl_coredataset_check_ranges, impl_coredataset_from_kws,
     impl_coredataset_set_measurements_data_schema_and_data,
     impl_coredataset_set_named_measurements_and_data, impl_coredataset_unset_data,
     impl_coretext_from_kws, impl_coretext_to_dataset, impl_coretext_unset_measurements,
@@ -357,7 +358,7 @@ macro_rules! impl_coredataset_common {
         impl_coredataset_set_measurements_data_schema_and_data!($pytype);
         impl_core_write_dataset!($pytype);
         impl_coredataset_unset_data!($pytype);
-        // impl_coredataset_truncate_data!($pytype);
+        impl_coredataset_check_ranges!($pytype);
     };
 }
 

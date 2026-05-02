@@ -32,9 +32,10 @@ use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
     AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
-    GuessOtherWidth, ProcessKeywordFailure, ProcessTemporalOpticalKeys, ReadStrategy,
-    RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag, TrimValueWhitespace,
-    VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    GuessOtherWidth, OverRangeAction, ProcessKeywordFailure, ProcessTemporalOpticalKeys,
+    ReadStrategy, RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
+    TrimValueWhitespace, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
+    VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
@@ -237,12 +238,12 @@ pub struct WriteDatasetInnerConfig {
     pub text: WriteTEXTInnerConfig,
 
     /// Control which measurements will be checked via $PnR upon writing.
-    pub check_range_datatypes: CheckedRangeDatatypes,
+    pub checked_range_datatypes: CheckedRangeDatatypes,
 
     /// If `true`, forbid event values in DATA to exceed $PnR before writing.
     ///
     /// This flag only has an effect if the column is checked according to
-    /// [`Self::check_range_datatypes`].
+    /// [`Self::checked_range_datatypes`].
     pub disallow_over_range: DisallowOverRange,
 
     /// Set the size in bytes for the internal buffer used to write DATA.
@@ -943,16 +944,13 @@ pub struct ReadEventsConfig {
     pub allow_tot_mismatch: AllowTotMismatch,
 
     /// Control which measurements will be truncated via $PnR.
-    pub truncate_range_datatypes: CheckedRangeDatatypes,
+    pub checked_range_datatypes: CheckedRangeDatatypes,
 
-    /// If `true`, forbid event values in DATA to exceed $PnR.
+    /// How to handle overrange values.
     ///
-    /// Each column containing an overrange value will be reported, either as
-    /// an error (`true`) or warning (`false`).
-    ///
-    /// This flag only has an effect if the column is not truncated according to
-    /// [`Self::truncate_range_datatypes`].
-    pub disallow_over_range: DisallowOverRange,
+    /// This flag only has an effect if a column is checked according to
+    /// [`Self::checked_range_datatypes`].
+    pub over_range_action: OverRangeAction,
 
     /// Set the size in bytes for the internal buffer used to read DATA.
     ///
@@ -1236,10 +1234,12 @@ impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_tri_error_flag!(false_is_error AllowMissingTime);
 
 impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
-impl_tri_error_flag!(true_is_error DisallowOverRange);
 
 // flag for controlling imperfect downgrades and upgrades
 impl_tri_error_flag!(false_is_error AllowLoss);
+
+// flag or controlling how to deal with overrange values in read-only case
+impl_tri_error_flag!(true_is_error DisallowOverRange);
 
 /// Fake 2-way flag to use for non-public switchable errors
 #[derive(From, Into, Clone, Copy)]
@@ -1277,6 +1277,15 @@ impl DummyTriFlag {
             GuessOtherWidth::Silent => Some(TriFlag::Silent),
         };
         r.map(Into::into)
+    }
+
+    pub(crate) fn from_over_range_action(x: OverRangeAction) -> Self {
+        let f = match x {
+            OverRangeAction::Error => TriFlag::False,
+            OverRangeAction::Warn | OverRangeAction::TruncateWarn => TriFlag::True,
+            OverRangeAction::Silent | OverRangeAction::TruncateSilent => TriFlag::Silent,
+        };
+        f.into()
     }
 }
 

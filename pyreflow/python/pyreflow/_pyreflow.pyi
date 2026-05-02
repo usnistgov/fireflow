@@ -486,7 +486,7 @@ class _CoreDatasetCommon:
         path: Path,
         delim: int = 30,
         big_other: bool = False,
-        check_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
+        checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
         disallow_over_range: pft.TriFlag = "false",
         row_buffer_size: int = 28000,
         appendable: bool = False,
@@ -648,7 +648,11 @@ class _CoreDatasetGetSetMeas(Generic[_N, _T, _O, _R]):
         col: Series,
     ) -> None: ...
     def unset_data(self) -> None: ...
-    def truncate_data(self, skip_conv_check: bool = False) -> None: ...
+    def check_ranges(
+        self,
+        checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+        over_range_action: pft.OverRangeAction = "warn",
+    ) -> list[int | None]: ...
     data: DataFrame
     def set_measurements_and_data(
         self,
@@ -1330,8 +1334,8 @@ class CoreDataset2_0(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-        disallow_over_range: pft.TriFlag = "false",
+        checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+        over_range_action: pft.OverRangeAction = "warn",
         row_buffer_size: int = 28000,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1451,8 +1455,8 @@ class CoreDataset3_0(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-        disallow_over_range: pft.TriFlag = "false",
+        checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+        over_range_action: pft.OverRangeAction = "warn",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1579,8 +1583,8 @@ class CoreDataset3_1(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-        disallow_over_range: pft.TriFlag = "false",
+        checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+        over_range_action: pft.OverRangeAction = "warn",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1711,8 +1715,8 @@ class CoreDataset3_2(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-        disallow_over_range: pft.TriFlag = "false",
+        checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+        over_range_action: pft.OverRangeAction = "warn",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -2396,8 +2400,8 @@ def fcs_read_flat_dataset(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-    disallow_over_range: pft.TriFlag = "false",
+    checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+    over_range_action: pft.OverRangeAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2485,8 +2489,8 @@ def fcs_read_std_dataset(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-    disallow_over_range: pft.TriFlag = "false",
+    checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+    over_range_action: pft.OverRangeAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2687,8 +2691,8 @@ def fcs_read_flat_datasets(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-    disallow_over_range: pft.TriFlag = "false",
+    checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+    over_range_action: pft.OverRangeAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2777,8 +2781,8 @@ def fcs_read_std_datasets(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-    disallow_over_range: pft.TriFlag = "false",
+    checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+    over_range_action: pft.OverRangeAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2809,8 +2813,8 @@ def fcs_read_flat_dataset_with_keywords(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-    disallow_over_range: pft.TriFlag = "false",
+    checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+    over_range_action: pft.OverRangeAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2878,8 +2882,8 @@ def fcs_summarize(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    truncate_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
-    disallow_over_range: pft.TriFlag = "false",
+    checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
+    over_range_action: pft.OverRangeAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2892,7 +2896,7 @@ def fcs_write_datasets(
     datasets: list[pft.AnyCoreDataset],
     delim: int = 30,
     big_other: bool = False,
-    check_range_datatypes: pft.CheckedRangeDatatypes = "int_only",
+    checked_range_datatypes: pft.CheckedRangeDatatypes = "bitmask_only",
     disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,
 ) -> int | None: ...

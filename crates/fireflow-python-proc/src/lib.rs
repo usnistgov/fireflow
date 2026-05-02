@@ -1,25 +1,6 @@
 extern crate proc_macro;
 
-use fireflow_types::config::{
-    self as tc, AllowHeaderTEXTOffsetMismatch, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC,
-    CheckedRangeDatatypes, DEFAULT_DATE_FORMAT, DEFAULT_LAST_MODIFIED_FORMAT,
-    DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
-    DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, DelimEscapeMode,
-    EnumStrIter as _, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
-    FORCE_LINEAR_TIME_LEVEL, ForceLinearScale, GuessOtherWidth, IncludeReqOrOpt, IncludeRootOrMeas,
-    KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL,
-    KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
-    MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
-    NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, OverRangeAction, PATTERN_DELIMITER,
-    ProcessKeywordFailure, ProcessTemporalOpticalKeys, RowBufferSize, SPILLOVER_GUESS_LEVEL,
-    SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL, SpilloverMeasurementMode,
-    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
-    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
-    TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL,
-    TemporalOpticalKey, TriFlag, TrimValueWhitespace, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
-    VERSION_LOOSE_LEVEL, VERSION_STRATEGY_ALL_LEVELS, VERSION_STRICT_LEVEL,
-};
+use fireflow_types::config::{self as tc, EnumStrIter as _};
 use fireflow_types::keywords as tk;
 
 use const_format::formatcp;
@@ -2004,13 +1985,13 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
 
     let req_or_opt = DocArg::new_param(
         "req_or_opt",
-        PyLiteral::new2(IncludeReqOrOpt::iter_str(), req_or_opt_path),
+        PyLiteral::new2(tc::IncludeReqOrOpt::iter_str(), req_or_opt_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
     let root_or_meas = DocArg::new_param(
         "root_or_meas",
-        PyLiteral::new2(IncludeRootOrMeas::iter_str(), root_or_meas_path),
+        PyLiteral::new2(tc::IncludeRootOrMeas::iter_str(), root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
@@ -6795,13 +6776,13 @@ impl PyLiteral {
         let path = config_path("VersionOverride");
         let vs = ALL_VERSION_STRINGS
             .into_iter()
-            .chain(VERSION_STRATEGY_ALL_LEVELS);
+            .chain(tc::VERSION_STRATEGY_ALL_LEVELS);
         Self::new2(vs, path)
     }
 
     fn new_temporal_optical_key() -> Self {
         Self::new2(
-            TemporalOpticalKey::iter_str(),
+            tc::TemporalOpticalKey::iter_str(),
             parse_quote!(fireflow_core::config::TemporalOpticalKeys),
         )
     }
@@ -6840,7 +6821,7 @@ impl PyLiteral {
 
     fn new_tri_flag(name: &str) -> Self {
         let path = config_path(name);
-        Self::new2(TriFlag::iter_str(), path)
+        Self::new2(tc::TriFlag::iter_str(), path)
     }
 }
 
@@ -8004,17 +7985,17 @@ impl DocArgParam {
         desc: impl fmt::Display,
     ) -> Self {
         let path = config_path(ident_name);
-        let pt = PyLiteral::new2(ProcessKeywordFailure::iter_str(), path);
+        let pt = PyLiteral::new2(tc::ProcessKeywordFailure::iter_str(), path);
         let d = format!(
             "{desc} Use {error} to throw error on failure, {demote} to demote \
              to non-standard with warning, {demote_silent} to demote to \
              non-standard with no warning, {drop} to drop with warning, or \
              {drop_silent} to drop with no warning",
-            error = code_str(KW_ERROR_LEVEL),
-            demote = code_str(KW_DEMOTE_WARN_LEVEL),
-            demote_silent = code_str(KW_DEMOTE_SILENT_LEVEL),
-            drop = code_str(KW_DROP_WARN_LEVEL),
-            drop_silent = code_str(KW_DROP_SILENT_LEVEL),
+            error = code_str(tc::KW_ERROR_LEVEL),
+            demote = code_str(tc::KW_DEMOTE_WARN_LEVEL),
+            demote_silent = code_str(tc::KW_DEMOTE_SILENT_LEVEL),
+            drop = code_str(tc::KW_DROP_WARN_LEVEL),
+            drop_silent = code_str(tc::KW_DROP_SILENT_LEVEL),
         );
         Self::new_param(name, pt, d).def_auto()
     }
@@ -8524,10 +8505,10 @@ impl DocArgParam {
         let d = format!(
             "A pattern to match the {PNN} of the time measurement. \
              If {none}, do not try to find a time measurement.",
-            none = code_str(TIME_MEAS_NAME_PATTERN_NONE),
+            none = code_str(tc::TIME_MEAS_NAME_PATTERN_NONE),
         );
         Self::new_param("time_meas_pattern", pytype, d)
-            .def(DocDefault::Str(TIME_MEAS_NAME_PATTERN_DEFAULT.into()))
+            .def(DocDefault::Str(tc::TIME_MEAS_NAME_PATTERN_DEFAULT.into()))
     }
 
     fn new_allow_missing_time_param() -> Self {
@@ -8548,16 +8529,16 @@ impl DocArgParam {
 
     fn new_force_linear_scale_param() -> Self {
         let path = types_config_path("ForceLinearScale");
-        let pt = PyLiteral::new2(ForceLinearScale::iter_str(), path);
+        let pt = PyLiteral::new2(tc::ForceLinearScale::iter_str(), path);
         let d = format!(
             "Force {PNE} to be linear. Use {time} to only \
              change the temporal measurement, {non_int} to change all \
              non-integer measurements and temporal measurement, {all} to change \
              all measurements, and {none} to change no measurements.",
-            time = code_str(FORCE_LINEAR_TIME_LEVEL),
-            non_int = code_str(FORCE_LINEAR_NON_INT_LEVEL),
-            all = code_str(FORCE_LINEAR_ALL_LEVEL),
-            none = code_str(FORCE_LINEAR_NONE_LEVEL),
+            time = code_str(tc::FORCE_LINEAR_TIME_LEVEL),
+            non_int = code_str(tc::FORCE_LINEAR_NON_INT_LEVEL),
+            all = code_str(tc::FORCE_LINEAR_ALL_LEVEL),
+            none = code_str(tc::FORCE_LINEAR_NONE_LEVEL),
         );
         Self::new_param("force_linear_scale", pt, d).def_auto()
     }
@@ -8593,13 +8574,13 @@ impl DocArgParam {
              or without warning) or drop keys entirely (with or without \
              warning) respectively.",
             other_arg = arg(IGNORE_TIME_OPTICAL_KEYS),
-            demote = code_str(TMP_OPT_DEMOTE_WARN_LEVEL),
-            demote_silent = code_str(TMP_OPT_DEMOTE_SILENT_LEVEL),
-            drop = code_str(TMP_OPT_DROP_WARN_LEVEL),
-            drop_silent = code_str(TMP_OPT_DROP_SILENT_LEVEL),
+            demote = code_str(tc::TMP_OPT_DEMOTE_WARN_LEVEL),
+            demote_silent = code_str(tc::TMP_OPT_DEMOTE_SILENT_LEVEL),
+            drop = code_str(tc::TMP_OPT_DROP_WARN_LEVEL),
+            drop_silent = code_str(tc::TMP_OPT_DROP_SILENT_LEVEL),
         );
         let path = types_config_path("ProcessTemporalOpticalKeys");
-        let pt = PyLiteral::new2(ProcessTemporalOpticalKeys::iter_str(), path);
+        let pt = PyLiteral::new2(tc::ProcessTemporalOpticalKeys::iter_str(), path);
         Self::new_param("process_time_optical_keys", pt, d).def_auto()
     }
 
@@ -8611,12 +8592,12 @@ impl DocArgParam {
              point to measurements. Set to {guess} to automatically \
              choose the prior two modes.",
             spillover = Kw::Spillover.kw(),
-            named = code_str(SPILLOVER_NAMED_LEVEL),
-            indexed = code_str(SPILLOVER_INDEXED_LEVEL),
-            guess = code_str(SPILLOVER_GUESS_LEVEL),
+            named = code_str(tc::SPILLOVER_NAMED_LEVEL),
+            indexed = code_str(tc::SPILLOVER_INDEXED_LEVEL),
+            guess = code_str(tc::SPILLOVER_GUESS_LEVEL),
         );
         let path = types_config_path("SpilloverMeasurementMode");
-        let pt = PyLiteral::new2(SpilloverMeasurementMode::iter_str(), path);
+        let pt = PyLiteral::new2(tc::SpilloverMeasurementMode::iter_str(), path);
         Self::new_param("spillover_measurement_mode", pt, d).def_auto()
     }
 
@@ -8632,7 +8613,7 @@ impl DocArgParam {
             "If supplied, will be used as an alternative pattern when parsing \
              {DATE}. If not supplied, {DATE} will be parsed according to \
              the standard pattern which is {pat}.",
-            pat = code_str(DEFAULT_DATE_FORMAT),
+            pat = code_str(tc::DEFAULT_DATE_FORMAT),
         );
         Self::new_opt_param("date_pattern", pytype, d)
     }
@@ -8655,7 +8636,7 @@ impl DocArgParam {
              {last_mod}. The pattern must follow the format outlined in \
              {CHRONO_REF}. If not supplied, these will be parsed according to \
              the default pattern which is {pat} possibly with centiseconds after.",
-            pat = code_str(DEFAULT_LAST_MODIFIED_FORMAT),
+            pat = code_str(tc::DEFAULT_LAST_MODIFIED_FORMAT),
             last_mod = fcs_kw(tk::LAST_MODIFIED),
         );
         Self::new_opt_param("last_modified_pattern", pytype, d)
@@ -8679,14 +8660,14 @@ impl DocArgParam {
              seconds, and optionally sub-seconds (where {b60} and {b100} \
              correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
              in {CHRONO_REF}",
-            b60 = code_str(BASE60_SECOND_SPEC),
-            b100 = code_str(BASE100_SECOND_SPEC),
+            b60 = code_str(tc::BASE60_SECOND_SPEC),
+            b100 = code_str(tc::BASE100_SECOND_SPEC),
         );
         let exc = PyException::new_config().desc(exc_desc);
 
-        let fmt2_0 = code_str(DEFAULT_TIME_FORMAT_2_0);
-        let fmt3_0 = code_str(DEFAULT_TIME_FORMAT_3_0);
-        let fmt3_1 = code_str(DEFAULT_TIME_FORMAT_3_1);
+        let fmt2_0 = code_str(tc::DEFAULT_TIME_FORMAT_2_0);
+        let fmt3_0 = code_str(tc::DEFAULT_TIME_FORMAT_3_0);
+        let fmt3_1 = code_str(tc::DEFAULT_TIME_FORMAT_3_1);
 
         // format arg description
         let std_pat = match version {
@@ -8700,8 +8681,8 @@ impl DocArgParam {
         let line2 = format!(
             "The values {b60} or {b100} may be used to match \
              {NAME3_0} or {NAME3_1} respectively.",
-            b60 = code_str(BASE60_SECOND_SPEC),
-            b100 = code_str(BASE100_SECOND_SPEC),
+            b60 = code_str(tc::BASE60_SECOND_SPEC),
+            b100 = code_str(tc::BASE100_SECOND_SPEC),
         );
         let line3 = format!(
             "If not supplied, {BTIM} and {ETIM} will be parsed \
@@ -8769,7 +8750,7 @@ impl DocArgParam {
 
     fn new_nonstandard_measurement_pattern_param() -> Self {
         let path = config_path("NonStdMeasPatternOpt");
-        let pat = code_str(NON_STD_MEAS_INDEX_PAT);
+        let pat = code_str(tc::NON_STD_MEAS_INDEX_PAT);
         let ed = format!("if {ARG_TOKEN} does not have {pat}");
         let exc = PyException::new_config().desc(ed);
         // TODO this is really weird, why is path specified twice?
@@ -8778,15 +8759,16 @@ impl DocArgParam {
             .rstype(path);
         let d = format!(
             "Pattern to use when matching nonstandard measurement keys. \
-             Values that start and end with {PATTERN_DELIMITER} will be \
+             Values that start and end with {delim} will be \
              interpreted as regular expressions, otherwise as literal strings \
              to be used as an exact prefix match. If a regular expression, it \
              must include {pat} which will represent the measurement index. \
              Otherwise should be a normal regular expression as defined in \
-             {REGEXP_REF}."
+             {REGEXP_REF}.",
+            delim = tc::PATTERN_DELIMITER
         );
         Self::new_param("nonstandard_measurement_pattern", pytype, d)
-            .def(DocDefault::Str(NON_STD_MEAS_PAT_DEFAULT.into()))
+            .def(DocDefault::Str(tc::NON_STD_MEAS_PAT_DEFAULT.into()))
     }
 
     fn new_integer_widths_from_byteord_param() -> Self {
@@ -8873,7 +8855,7 @@ impl DocArgParam {
 
     fn new_guess_other_width_param() -> Self {
         let path = types_config_path("GuessOtherWidth");
-        let pt = PyLiteral::new2(GuessOtherWidth::iter_str(), path);
+        let pt = PyLiteral::new2(tc::GuessOtherWidth::iter_str(), path);
         let d = format!(
             "Guess the width of {OTHER} segments. Valid values are {none} \
              (no guessing) or {error}, {warn} or {silent} which will guess and \
@@ -8881,10 +8863,10 @@ impl DocArgParam {
              {silent}, failure will fall back to the 8 or whatever was given in \
              {other_arg}",
             other_arg = arg(OTHER_WIDTH),
-            none = code_str(OTHER_WIDTH_NONE_LEVEL),
-            error = code_str(OTHER_WIDTH_ERROR_LEVEL),
-            warn = code_str(OTHER_WIDTH_WARN_LEVEL),
-            silent = code_str(OTHER_WIDTH_SILENT_LEVEL),
+            none = code_str(tc::OTHER_WIDTH_NONE_LEVEL),
+            error = code_str(tc::OTHER_WIDTH_ERROR_LEVEL),
+            warn = code_str(tc::OTHER_WIDTH_WARN_LEVEL),
+            silent = code_str(tc::OTHER_WIDTH_SILENT_LEVEL),
         );
         Self::new_param("guess_other_width", pt, d).def_auto()
     }
@@ -8951,10 +8933,10 @@ impl DocArgParam {
              if no versions can be found which accommodate all required \
              keywords in {TEXT}.",
             verstr = code_str("FCS3.2"),
-            latest = code_str(VERSION_LATEST_LEVEL),
-            earliest = code_str(VERSION_EARLIEST_LEVEL),
-            strict = code_str(VERSION_STRICT_LEVEL),
-            loose = code_str(VERSION_LOOSE_LEVEL),
+            latest = code_str(tc::VERSION_LATEST_LEVEL),
+            earliest = code_str(tc::VERSION_EARLIEST_LEVEL),
+            strict = code_str(tc::VERSION_STRICT_LEVEL),
+            loose = code_str(tc::VERSION_LOOSE_LEVEL),
         );
         Self::new_opt_param("version_override", PyLiteral::new_version_override(), d)
     }
@@ -8992,12 +8974,12 @@ impl DocArgParam {
              respectively. If {guess_escaped} or  {guess_unescaped}, \
              attempt to guess how delimiters should be treated, falling back \
              to escaped or unescaped mode respectively if the choice is ambiguous.",
-            escaped = code_str(DELIM_ESCAPED_LEVEL),
-            unescaped = code_str(DELIM_UNESCAPED_LEVEL),
-            guess_escaped = code_str(DELIM_GUESS_ESCAPED_LEVEL),
-            guess_unescaped = code_str(DELIM_GUESS_UNESCAPED_LEVEL),
+            escaped = code_str(tc::DELIM_ESCAPED_LEVEL),
+            unescaped = code_str(tc::DELIM_UNESCAPED_LEVEL),
+            guess_escaped = code_str(tc::DELIM_GUESS_ESCAPED_LEVEL),
+            guess_unescaped = code_str(tc::DELIM_GUESS_UNESCAPED_LEVEL),
         );
-        let pt = PyLiteral::new2(DelimEscapeMode::iter_str(), path);
+        let pt = PyLiteral::new2(tc::DelimEscapeMode::iter_str(), path);
         Self::new_param("delim_escape_mode", pt, d).def_auto()
     }
 
@@ -9116,13 +9098,13 @@ impl DocArgParam {
              Set to {notrim} to not trim at all. Set to {trim}, {trim_blank_warn}, \
              or {trim_blank_nowarn} to enable trimming and throw error, warning, \
              or nothing when trimming results in a blank.",
-            notrim = code_str(TRIM_NONE_LEVEL),
-            trim = code_str(TRIM_ERROR_LEVEL),
-            trim_blank_warn = code_str(TRIM_BLANK_WARN_LEVEL),
-            trim_blank_nowarn = code_str(TRIM_BLANK_SILENT_LEVEL),
+            notrim = code_str(tc::TRIM_NONE_LEVEL),
+            trim = code_str(tc::TRIM_ERROR_LEVEL),
+            trim_blank_warn = code_str(tc::TRIM_BLANK_WARN_LEVEL),
+            trim_blank_nowarn = code_str(tc::TRIM_BLANK_SILENT_LEVEL),
         );
         let rstype = types_config_path("TrimValueWhitespace");
-        let pt = PyLiteral::new2(TrimValueWhitespace::iter_str(), rstype);
+        let pt = PyLiteral::new2(tc::TrimValueWhitespace::iter_str(), rstype);
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
     }
 
@@ -9146,8 +9128,9 @@ impl DocArgParam {
 
     fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
         let common = format!(
-            "Values that start and end with {PATTERN_DELIMITER} will be \
-             interpreted as regular expressions."
+            "Values that start and end with {delim} will be \
+             interpreted as regular expressions.",
+            delim = tc::PATTERN_DELIMITER
         );
         let d = format!("{desc} {common}");
         Self::new_param(argname, PyList::new_key_patterns(), d).def_auto()
@@ -9234,14 +9217,14 @@ impl DocArgParam {
              {header_warn} or {header_silent}, choose {HEADER} and throw \
              a warning or nothing on mismatch. If {text_warn} or {text_silent} \
              behave analogously for {TEXT}. If {error} throw {exc}",
-            header_warn = code_str(MISMATCH_HEADER_WARN_LEVEL),
-            header_silent = code_str(MISMATCH_HEADER_SILENT_LEVEL),
-            text_warn = code_str(MISMATCH_TEXT_WARN_LEVEL),
-            text_silent = code_str(MISMATCH_TEXT_SILENT_LEVEL),
-            error = code_str(MISMATCH_ERROR_LEVEL),
+            header_warn = code_str(tc::MISMATCH_HEADER_WARN_LEVEL),
+            header_silent = code_str(tc::MISMATCH_HEADER_SILENT_LEVEL),
+            text_warn = code_str(tc::MISMATCH_TEXT_WARN_LEVEL),
+            text_silent = code_str(tc::MISMATCH_TEXT_SILENT_LEVEL),
+            error = code_str(tc::MISMATCH_ERROR_LEVEL),
         );
         let path = types_config_path("AllowHeaderTEXTOffsetMismatch");
-        let pt = PyLiteral::new2(AllowHeaderTEXTOffsetMismatch::iter_str(), path);
+        let pt = PyLiteral::new2(tc::AllowHeaderTEXTOffsetMismatch::iter_str(), path);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -9290,7 +9273,7 @@ impl DocArgParam {
             all = code_str(tc::CHECK_RANGE_ALL_LEVEL),
             none = code_str(tc::CHECK_RANGE_NONE_LEVEL),
         );
-        let pt = PyLiteral::new2(CheckedRangeDatatypes::iter_str(), path);
+        let pt = PyLiteral::new2(tc::CheckedRangeDatatypes::iter_str(), path);
         Self::new_param(CHECKED_RANGE_DATATYPES, pt, d).def_auto()
     }
 
@@ -9322,7 +9305,7 @@ impl DocArgParam {
             trunc_silent = code_str(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
         );
         let path = types_config_path("OverRangeAction");
-        let pt = PyLiteral::new2(OverRangeAction::iter_str(), path);
+        let pt = PyLiteral::new2(tc::OverRangeAction::iter_str(), path);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -9336,7 +9319,7 @@ impl DocArgParam {
         );
         let path = parse_quote!(fireflow_types::config::RowBufferSize);
         let pt = PyInt::new_int(RsInt::Usize).rstype(path);
-        let def = RowBufferSize::default().into();
+        let def = tc::RowBufferSize::default().into();
         Self::new_param("row_buffer_size", pt, d).def(DocDefault::Int(def))
     }
 

@@ -205,7 +205,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
         pub fn fcs_read_flat_texts(#many_fun_args) -> #many_ret_path {
             #conf_q
             let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
-            Ok(xs.fmap(Into::into))
+            Ok(type_families::Functor::fmap(xs, Into::into))
         }
     }
     .into()
@@ -304,7 +304,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         pub fn fcs_read_std_texts(#many_fun_args) -> #many_ret_path {
             #conf_q
             let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
-            Ok(xs.fmap(|(c, d)| (c.into(), d.into())))
+            Ok(type_families::Functor::fmap(xs, |(c, d)| (c.into(), d.into())))
         }
     }
     .into()
@@ -411,7 +411,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         pub fn fcs_read_flat_datasets(#many_fun_args) -> #many_ret_path {
             #conf_q
             let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
-            Ok(xs.fmap(Into::into))
+            Ok(type_families::Functor::fmap(xs, Into::into))
         }
 
         #[pyfunction]
@@ -420,7 +420,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         pub fn fcs_summarize(#smry_fun_args) -> #smry_ret_path {
             #conf_q
             let xs = #fun_smry_path(&path, skip, limit, &conf).py_resolve_commutative()?;
-            Ok(xs.fmap(Into::into))
+            Ok(type_families::Functor::fmap(xs, Into::into))
         }
     }
     .into()
@@ -521,7 +521,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         pub fn fcs_read_std_datasets(#many_fun_args) -> #many_ret_path {
             #conf_q
             let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
-            Ok(xs.fmap(|(c, d)| (c.into(), d.into())))
+            Ok(type_families::Functor::fmap(xs, |(c, d)| (c.into(), d.into())))
         }
     }
     .into()
@@ -642,7 +642,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
                 disallow_over_range.into(),
                 row_buffer_size,
             );
-            let cs = datasets.fmap(|c| c.into());
+            let cs = type_families::Functor::fmap(datasets, Into::into);
             #fun_path(&path, &cs[..], &dconf).py_resolve_commutative()
         }
     }
@@ -1969,7 +1969,12 @@ pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStrea
         &t,
         "all_meas_nonstandard_keywords",
         true,
-        |_, _| quote!(self.0.get_meas_nonstandard().clone().fmap(Clone::clone)),
+        |_, _| {
+            quote! {
+                let ns = self.0.get_meas_nonstandard().clone();
+                type_families::Functor::fmap(ns, Clone::clone)
+            }
+        },
         |n, _| quote!(Ok(self.0.set_meas_nonstandard(#n)?)),
     )
     .into()
@@ -2199,7 +2204,12 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
         &i,
         "all_shortnames_maybe",
         true,
-        |_, _| quote!(self.0.shortnames_maybe().fmap(|x| x.cloned())),
+        |_, _| {
+            quote! {
+                let ns = self.0.shortnames_maybe();
+                type_families::Functor::fmap(ns, |x| x.cloned())
+            }
+        },
         |n, _| quote!(Ok(self.0.set_measurement_shortnames_maybe(#n).map(|_| ())?)),
     )
     .into()
@@ -2505,14 +2515,22 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
                 self.0
                     .measurements()
                     .iter()
-                    .map(|e| e.bimap_once(|t| t.value.clone(), |o| o.value.clone()))
-                    .map(|v| v.bimap_into_once())
+                    .map(|e| {
+                        type_families::BifunctorOnce::bimap_once(
+                            e,
+                            |t| t.value.clone(), |o| o.value.clone()
+                        )
+                    })
+                    .map(type_families::BifunctorOnce::bimap_into_once)
                     .collect()
             }
         },
         |n, _| {
             quote! {
-                let ms = #n.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ms = #n
+                    .into_iter()
+                    .map(type_families::BifunctorOnce::bimap_into_once)
+                    .collect();
                 Ok(self.0.set_measurements(ms)?)
             }
         },
@@ -2563,6 +2581,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn measurement_at(&self, #fun_args) -> #ret {
+                use type_families::{BifunctorOnce as _};
                 let m = self.0.measurements().get(index)?;
                 Ok(m.bimap_once(|x| x.1.clone(), |x| x.1.clone()).bimap_into_once())
             }
@@ -2589,6 +2608,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn measurement_named(&self, #fun_args) -> #ret {
+                use type_families::{BifunctorOnce as _};
                 let (_, m) = self.0.measurements().get_name(&name)?;
                 Ok(m.bimap_once(|x| x.clone(), |x| x.clone()).bimap_into_once())
             }
@@ -2769,23 +2789,25 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let name_ret = by_name_doc.ret_path();
     let index_ret = by_index_doc.ret_path();
 
+    let bimap_into_once = quote!(type_families::BifunctorOnce::bimap_into_once);
+
     let name_mapper = if is_dataset {
-        quote!(|(i, x, c, r)| (i, x.bimap_into_once(), c.into(), r))
+        quote!(|(i, x, c, r)| (i, #bimap_into_once(x), c.into(), r))
     } else {
-        quote!(|(i, x, r)| (i, x.bimap_into_once(), r))
+        quote!(|(i, x, r)| (i, #bimap_into_once(x), r))
     };
 
     let index_body = if is_dataset {
         quote! {
             let (p, c, r) = self.0.remove_measurement_by_index(#index_ident)?;
             let (n, v) = p.unzip();
-            Ok((n, v.bimap_into_once(), c.into(), r))
+            Ok((n, #bimap_into_once(v), c.into(), r))
         }
     } else {
         quote! {
             let (p, r) = self.0.remove_measurement_by_index(#index_ident)?;
             let (n, v) = p.unzip();
-            Ok((n, v.bimap_into_once(), r))
+            Ok((n, #bimap_into_once(v), r))
         }
     };
 
@@ -2959,12 +2981,14 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         impl #ident {
             #replace_at_doc
             fn replace_optical_at(&mut self, #index_fun_args) -> #index_ret {
-                Ok(self.0.replace_optical_at(index, meas.into())?.bimap_into_once())
+                let ret = self.0.replace_optical_at(index, meas.into())?;
+                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
             }
 
             #replace_named_doc
             fn replace_optical_named(&mut self, #name_fun_args) -> #named_ret {
-                Ok(self.0.replace_optical_named(&name, meas.into())?.bimap_into_once())
+                let ret = self.0.replace_optical_named(&name, meas.into())?;
+                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
             }
         }
     }
@@ -3048,7 +3072,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 #index_fun_args
             ) -> #index_ret {
                 let ret = #replace_tmp_at_body;
-                Ok(ret.bimap_into_once())
+                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
             }
 
             #replace_named_doc
@@ -3057,7 +3081,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 #name_fun_args
             ) -> #named_ret {
                 let ret = #replace_tmp_named_body;
-                Ok(ret.bimap_into_once())
+                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
             }
         }
     }
@@ -3314,7 +3338,7 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
             #doc
             fn write_texts(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
                 let conf = #conf { #(#recs),* };
-                let cs = datasets.fmap(|c| c.0);
+                let cs = type_families::Functor::fmap(datasets, |c| c.0);
                 Ok(#path::write_texts(&path, &cs[..], &conf)?)
             }
         }
@@ -3465,7 +3489,10 @@ pub fn impl_core_set_measurements_and_data_schema(input: TokenStream) -> TokenSt
 
             #unnamed_doc
             fn set_measurements_and_data_schema(&mut self, #unnamed_fun_args) -> PyResult<()> {
-                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ms = measurements
+                    .into_iter()
+                    .map(type_families::BifunctorOnce::bimap_into_once)
+                    .collect();
                 let ret = self.0.set_measurements_and_data_schema(ms, data_schema.into())?;
                 Ok(ret)
             }
@@ -3522,7 +3549,10 @@ pub fn impl_coredataset_set_named_measurements_and_data(input: TokenStream) -> T
 
             #unnamed_doc
             fn set_measurements_and_data(&mut self, #unnamed_fun_args) -> PyResult<()> {
-                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ms = measurements
+                    .into_iter()
+                    .map(type_families::BifunctorOnce::bimap_into_once)
+                    .collect();
                 Ok(self.0.set_measurements_and_data(ms, data.into())?)
             }
         }
@@ -3564,7 +3594,10 @@ pub fn impl_coredataset_set_measurements_data_schema_and_data(input: TokenStream
         impl #i {
             #doc
             fn set_measurements_data_schema_and_data(&mut self, #fun_args) -> PyResult<()> {
-                let ms = measurements.into_iter().map(|m| m.bimap_into_once()).collect();
+                let ms = measurements
+                    .into_iter()
+                    .map(type_families::BifunctorOnce::bimap_into_once)
+                    .collect();
                 Ok(self.0.set_measurements_data_schema_and_data(ms, data_schema.into(), data.into())?)
             }
         }
@@ -3877,6 +3910,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
         true,
         |_, _| {
             quote! {
+                use type_families::{BifunctorOnce as _};
                 self.0
                     .get_temporal_optical::<#inner_tmp_rstype, #inner_opt_rstype>()
                     .map(|e| e.bimap_once(|x| x.clone(), |y| y.clone()))
@@ -3946,7 +3980,11 @@ pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
         quote!(
             self.0
                 .other_features()
-                .map(|x| x.fmap_once(|y| y.fmap_once(|z| z.to_owned())))
+                .map(|x| {
+                    type_families::FunctorOnce::fmap_once(x, |y| {
+                        type_families::FunctorOnce::fmap_once(y, |z| z.to_owned())
+                    })
+                })
                 .collect()
         )
     })
@@ -4015,18 +4053,20 @@ fn core_all_meas_attr(t: &Ident, kw: MeasKw) -> TokenStream {
 
     let doc = DocString::new_ivar(doc_summary, PyList::new1(full_pytype)).paras(doc_middle);
 
+    let second_once = quote!(type_families::BifunctorOnce::second_once);
+
     let get_optical_body = if is_optional {
         quote! {
             self.0
                 .optical_opt()
-                .map(|e| e.0.second_once(|x| x.cloned()).into())
+                .map(|e| #second_once(e.0, |x| x.cloned()).into())
                 .collect()
         }
     } else {
         quote! {
             self.0
                 .optical::<#inner_rstype>()
-                .map(|e| e.0.second_once(|x| x.clone()).into())
+                .map(|e| #second_once(e.0, |x| x.clone()).into())
                 .collect()
         }
     };
@@ -4249,7 +4289,9 @@ pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
         );
 
     let char_widths = char_widths_doc.into_impl_get(&pyname, "char_widths", |_, _| {
-        quote!(self.0.widths().fmap(|x| u64::from(u8::from(x))))
+        quote! {
+            type_families::Functor::fmap(self.0.widths(), |x| u64::from(u8::from(x)))
+        }
     });
 
     let datatype = make_data_schema_datatype(&pyname, "A");
@@ -4698,7 +4740,9 @@ pub fn impl_data_schema_byte_widths(input: TokenStream) -> TokenStream {
     ));
 
     doc.into_impl_get(&t, "byte_widths", |_, _| {
-        quote!(self.0.widths().fmap(|x| u32::from(u8::from(x)) / 8))
+        quote! {
+            type_families::Functor::fmap(self.0.widths(), |x| u32::from(u8::from(x)) / 8)
+        }
     })
     .into()
 }

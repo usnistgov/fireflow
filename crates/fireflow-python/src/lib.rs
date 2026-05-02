@@ -85,7 +85,7 @@ use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_types::python::EventDataError;
 
-use type_families::{BifunctorOnce as _, Functor as _, FunctorOnce as _};
+use type_families::Functor as _;
 
 use fireflow_python_proc::{
     def_fcs_read_flat_dataset, def_fcs_read_flat_dataset_with_keywords, def_fcs_read_flat_text,

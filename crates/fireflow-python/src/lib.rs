@@ -58,13 +58,11 @@ use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
 use fireflow_core::data::{
-    self, AnyAsciiDataSchema, AnyBigLittleUintDataSchema, AnyDatatype, AnyOrderedDataSchema,
-    AnySingleUintDataSchema, AnyUint, BigLittleDataSchema, ColumnMarkers, DataSchema2_0,
-    DataSchema3_0, DataSchema3_1, DataSchema3_2, DecimalRangeAndSeries, DelimAsciiDataSchema,
-    F32Col, F64Col, FixedAsciiDataSchema, FullRange, LayoutByteOrder as _, LayoutDatatype as _,
-    MaybeTypedMixedRange, MaybeTypedMixedSeries, MaybeTypedRange, MaybeTypedVariableBitmask,
-    MaybeTypedVariableUintSeries, NonMixedDataSchema, PhantomInto as _, Series,
-    VariableUintDataSchema, VariableUintSeries,
+    self, AnyAsciiDataSchema, AnyBigLittleUintDataSchema, AnyDatatype, ColumnMarkers,
+    DataSchema2_0, DataSchema3_0, DataSchema3_1, DataSchema3_2, DecimalRangeAndSeries, FullRange,
+    LayoutByteOrder as _, LayoutDatatype as _, MaybeTypedMixedRange, MaybeTypedMixedSeries,
+    MaybeTypedRange, MaybeTypedVariableBitmask, MaybeTypedVariableUintSeries, NonMixedDataSchema,
+    PhantomInto as _, Series, VariableUintSeries,
 };
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
@@ -75,7 +73,6 @@ use fireflow_core::text::gating::{
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
-use fireflow_core::text::optional::{Identity, Nothing};
 use fireflow_core::validated::dataframe::{
     AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries,
 };
@@ -83,46 +80,11 @@ use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname::Shortname;
 
+use fireflow_python_proc as fpp;
+
 use fireflow_types::python::EventDataError;
 
 use type_families::Functor as _;
-
-use fireflow_python_proc::{
-    def_fcs_read_flat_dataset, def_fcs_read_flat_dataset_with_keywords, def_fcs_read_flat_text,
-    def_fcs_read_header, def_fcs_read_std_dataset, def_fcs_read_std_text, def_fcs_write_datasets,
-    impl_config_defaults, impl_core_all_awh_pnfeature, impl_core_all_meas_nonstandard_keywords,
-    impl_core_all_pkn, impl_core_all_pknn, impl_core_all_pnanalyte, impl_core_all_pncal3_1,
-    impl_core_all_pncal3_2, impl_core_all_pnd, impl_core_all_pndet, impl_core_all_pnf,
-    impl_core_all_pnfeature, impl_core_all_pnl_new, impl_core_all_pnl_old, impl_core_all_pno,
-    impl_core_all_pnp, impl_core_all_pns, impl_core_all_pnt, impl_core_all_pntag,
-    impl_core_all_pntype, impl_core_all_pnv, impl_core_all_shortnames_attr,
-    impl_core_all_shortnames_maybe_attr, impl_core_all_transforms_attr,
-    impl_core_get_all_other_pnfeature, impl_core_get_measurement, impl_core_get_measurements,
-    impl_core_get_named_measurement, impl_core_get_set_timestep, impl_core_get_temporal,
-    impl_core_insert_measurement, impl_core_par, impl_core_push_measurement,
-    impl_core_remove_measurement, impl_core_rename_temporal, impl_core_replace_optical,
-    impl_core_replace_temporal, impl_core_set_measurements_and_data_schema,
-    impl_core_set_named_measurements, impl_core_set_temporal, impl_core_set_tr_threshold,
-    impl_core_standard_keywords, impl_core_to_version_x_y, impl_core_unset_temporal,
-    impl_core_version, impl_core_write_dataset, impl_core_write_text,
-    impl_coredataset_check_ranges, impl_coredataset_from_kws,
-    impl_coredataset_set_measurements_data_schema_and_data,
-    impl_coredataset_set_named_measurements_and_data, impl_coredataset_unset_data,
-    impl_coretext_from_kws, impl_coretext_to_dataset, impl_coretext_unset_measurements,
-    impl_coretext_write_multi, impl_data_schema_byte_widths, impl_gated_meas,
-    impl_meas_awh_pnfeature, impl_new_core, impl_new_delim_ascii_data_schema,
-    impl_new_endian_float_data_schema, impl_new_endian_uint_data_schema,
-    impl_new_fixed_ascii_data_schema, impl_new_gate_bi_regions, impl_new_gate_uni_regions,
-    impl_new_meas, impl_new_mixed_data_schema, impl_new_ordered_data_schema,
-    impl_new_ordered_uint_data_schema, impl_new_single_uint_data_schema, impl_py_dataset_segments,
-    impl_py_dataset_summary, impl_py_flat_dataset_output, impl_py_flat_dataset_with_kws_output,
-    impl_py_flat_text_diagnostics, impl_py_flat_text_output, impl_py_header,
-    impl_py_header_segments, impl_py_header_supp, impl_py_keyword_version_score,
-    impl_py_new_flat_dataset_with_kws_output, impl_py_new_std_dataset_with_kws_output,
-    impl_py_read_events_diagnostics, impl_py_split_text_diagnostics, impl_py_std_dataset_output,
-    impl_py_std_dataset_with_kws_output, impl_py_std_diagnostics, impl_py_std_text_output,
-    impl_py_uncorrected_header_segments, impl_py_valid_keywords,
-};
 
 use derive_more::{From, Into};
 use polars::prelude as pl;
@@ -135,50 +97,50 @@ use pyo3_polars::{PyDataFrame, PySeries};
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
-def_fcs_read_header!(api::fcs_read_header);
-def_fcs_read_flat_text!(api::fcs_read_flat_text, api::fcs_read_flat_texts);
-def_fcs_read_std_text!(api::fcs_read_std_text, api::fcs_read_std_texts);
-def_fcs_read_flat_dataset!(
+fpp::def_fcs_read_header!(api::fcs_read_header);
+fpp::def_fcs_read_flat_text!(api::fcs_read_flat_text, api::fcs_read_flat_texts);
+fpp::def_fcs_read_std_text!(api::fcs_read_std_text, api::fcs_read_std_texts);
+fpp::def_fcs_read_flat_dataset!(
     api::fcs_read_flat_dataset,
     api::fcs_read_flat_datasets,
     api::fcs_summarize
 );
-def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
-def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
-def_fcs_write_datasets!(api::fcs_write_datasets);
+fpp::def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
+fpp::def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
+fpp::def_fcs_write_datasets!(api::fcs_write_datasets);
 
-impl_config_defaults!(cfg::ReadHeaderConfig);
-impl_config_defaults!(cfg::ReadFlatTEXTConfig);
-impl_config_defaults!(cfg::ReadStdTEXTConfig);
-impl_config_defaults!(cfg::ReadFlatDatasetConfig);
-impl_config_defaults!(cfg::ReadStdDatasetConfig);
-impl_config_defaults!(cfg::ReadFlatDatasetFromKeywordsConfig);
-impl_config_defaults!(cfg::NewCoreTEXTConfig);
-impl_config_defaults!(cfg::NewCoreDatasetConfig);
+fpp::impl_config_defaults!(cfg::ReadHeaderConfig);
+fpp::impl_config_defaults!(cfg::ReadFlatTEXTConfig);
+fpp::impl_config_defaults!(cfg::ReadStdTEXTConfig);
+fpp::impl_config_defaults!(cfg::ReadFlatDatasetConfig);
+fpp::impl_config_defaults!(cfg::ReadStdDatasetConfig);
+fpp::impl_config_defaults!(cfg::ReadFlatDatasetFromKeywordsConfig);
+fpp::impl_config_defaults!(cfg::NewCoreTEXTConfig);
+fpp::impl_config_defaults!(cfg::NewCoreDatasetConfig);
 
-impl_py_header!(header::Header);
-impl_py_header_segments!(header_segments::ParsedHeaderSegments);
-impl_py_uncorrected_header_segments!(header::UncorrectedHeaderSegments);
-impl_py_valid_keywords!(keys::ValidKeywords);
-impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
-impl_py_dataset_segments!(core::DatasetSegments);
+fpp::impl_py_header!(header::Header);
+fpp::impl_py_header_segments!(header_segments::ParsedHeaderSegments);
+fpp::impl_py_uncorrected_header_segments!(header::UncorrectedHeaderSegments);
+fpp::impl_py_valid_keywords!(keys::ValidKeywords);
+fpp::impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
+fpp::impl_py_dataset_segments!(core::DatasetSegments);
 
-impl_py_flat_text_output!(api::FlatTEXTOutput);
-impl_py_header_supp!(api::HeaderAndSuppOffsets);
-impl_py_flat_dataset_output!(api::FlatDatasetOutput);
-impl_py_flat_text_diagnostics!(api::FlatTEXTDiagnostics);
-impl_py_split_text_diagnostics!(api::SplitTEXTDiagnostics);
-impl_py_flat_dataset_with_kws_output!(api::FlatDatasetFromKwsOutput);
-impl_py_new_flat_dataset_with_kws_output!(api::NewFlatDatasetFromKwsOutput);
-impl_py_read_events_diagnostics!(data::EventsDiagnostics);
-impl_py_keyword_version_score!(kws::KeywordVersionScore);
+fpp::impl_py_flat_text_output!(api::FlatTEXTOutput);
+fpp::impl_py_header_supp!(api::HeaderAndSuppOffsets);
+fpp::impl_py_flat_dataset_output!(api::FlatDatasetOutput);
+fpp::impl_py_flat_text_diagnostics!(api::FlatTEXTDiagnostics);
+fpp::impl_py_split_text_diagnostics!(api::SplitTEXTDiagnostics);
+fpp::impl_py_flat_dataset_with_kws_output!(api::FlatDatasetFromKwsOutput);
+fpp::impl_py_new_flat_dataset_with_kws_output!(api::NewFlatDatasetFromKwsOutput);
+fpp::impl_py_read_events_diagnostics!(data::EventsDiagnostics);
+fpp::impl_py_keyword_version_score!(kws::KeywordVersionScore);
 
-impl_py_std_text_output!(api::StdTEXTOutput);
-impl_py_std_dataset_output!(api::StdDatasetOutput);
-impl_py_std_dataset_with_kws_output!(core::StdDatasetFromKwsOutput);
-impl_py_new_std_dataset_with_kws_output!(core::NewStdDatasetFromKwsOutput);
+fpp::impl_py_std_text_output!(api::StdTEXTOutput);
+fpp::impl_py_std_dataset_output!(api::StdDatasetOutput);
+fpp::impl_py_std_dataset_with_kws_output!(core::StdDatasetFromKwsOutput);
+fpp::impl_py_new_std_dataset_with_kws_output!(core::NewStdDatasetFromKwsOutput);
 
-impl_py_dataset_summary!(api::DatasetSummary);
+fpp::impl_py_dataset_summary!(api::DatasetSummary);
 
 // Implement python classes for core* structs
 //
@@ -187,127 +149,127 @@ impl_py_dataset_summary!(api::DatasetSummary);
 //
 // This will include the __new__ methods and all attributes corresponding to
 // "instance variables" supplied to __new__
-impl_new_core!(core::CoreTEXT2_0, core::CoreDataset2_0);
-impl_new_core!(core::CoreTEXT3_0, core::CoreDataset3_0);
-impl_new_core!(core::CoreTEXT3_1, core::CoreDataset3_1);
-impl_new_core!(core::CoreTEXT3_2, core::CoreDataset3_2);
+fpp::impl_new_core!(core::CoreTEXT2_0, core::CoreDataset2_0);
+fpp::impl_new_core!(core::CoreTEXT3_0, core::CoreDataset3_0);
+fpp::impl_new_core!(core::CoreTEXT3_1, core::CoreDataset3_1);
+fpp::impl_new_core!(core::CoreTEXT3_2, core::CoreDataset3_2);
 
 // Implement python classes for Optical* structs (as PyOptical*)
 //
 // This will include the __new__ methods and all attributes corresponding to
 // "instance variables" supplied to __new__
-impl_new_meas!(core::Optical2_0);
-impl_new_meas!(core::Optical3_0);
-impl_new_meas!(core::Optical3_1);
-impl_new_meas!(core::Optical3_2);
+fpp::impl_new_meas!(core::Optical2_0);
+fpp::impl_new_meas!(core::Optical3_0);
+fpp::impl_new_meas!(core::Optical3_1);
+fpp::impl_new_meas!(core::Optical3_2);
 
 // Implement $PnFEATURE (area/width/height) get/set for 3.2
-impl_meas_awh_pnfeature!(PyOptical3_2);
+fpp::impl_meas_awh_pnfeature!(PyOptical3_2);
 
 // Implement python classes for Temporal* structs (as PyTemporal*)
 //
 // This will include the __new__ methods and all attributes corresponding to
 // "instance variables" supplied to __new__
-impl_new_meas!(core::Temporal2_0);
-impl_new_meas!(core::Temporal3_0);
-impl_new_meas!(core::Temporal3_1);
-impl_new_meas!(core::Temporal3_2);
+fpp::impl_new_meas!(core::Temporal2_0);
+fpp::impl_new_meas!(core::Temporal3_0);
+fpp::impl_new_meas!(core::Temporal3_1);
+fpp::impl_new_meas!(core::Temporal3_2);
 
 // Common methods for all Core* versions. Some of these macros will implement a
 // slightly different method depending on version.
 macro_rules! impl_common {
     ($pytype:ident) => {
         // get FCS version as read-only value
-        impl_core_version!($pytype);
+        fpp::impl_core_version!($pytype);
 
         // get $PAR as read-only value
-        impl_core_par!($pytype);
+        fpp::impl_core_par!($pytype);
 
         // method to set $TR threshold without changing its reference
-        impl_core_set_tr_threshold!($pytype);
+        fpp::impl_core_set_tr_threshold!($pytype);
 
         // method to write HEADER+TEXT to file
-        impl_core_write_text!($pytype);
+        fpp::impl_core_write_text!($pytype);
 
         // $Shortnames attribute; for 2.0/3.0, this will not allow setting any to None
-        impl_core_all_shortnames_attr!($pytype);
+        fpp::impl_core_all_shortnames_attr!($pytype);
 
         // method to rename temporal measurement if it exists
-        impl_core_rename_temporal!($pytype);
+        fpp::impl_core_rename_temporal!($pytype);
 
         // methods to set any measurement to temporal (using index or name)
-        impl_core_set_temporal!($pytype);
+        fpp::impl_core_set_temporal!($pytype);
 
         // method to convert temporal measurement to optical if it exists; these
         // are slightly different for each version
-        impl_core_unset_temporal!($pytype);
+        fpp::impl_core_unset_temporal!($pytype);
 
         // method to get/set unnamed measurements
-        impl_core_get_measurements!($pytype);
+        fpp::impl_core_get_measurements!($pytype);
 
         // method to set all measurements; this cannot be combined with
         // impl_core_get_measurements! because this method takes arguments
-        impl_core_set_named_measurements!($pytype);
+        fpp::impl_core_set_named_measurements!($pytype);
 
         // method to get one measurement by index
-        impl_core_get_measurement!($pytype);
+        fpp::impl_core_get_measurement!($pytype);
 
         // method to get one measurement by name
-        impl_core_get_named_measurement!($pytype);
+        fpp::impl_core_get_named_measurement!($pytype);
 
         // method to get temporal measurement if it exists
-        impl_core_get_temporal!($pytype);
+        fpp::impl_core_get_temporal!($pytype);
 
         // method to set all measurements and data_schema at once
-        impl_core_set_measurements_and_data_schema!($pytype);
+        fpp::impl_core_set_measurements_and_data_schema!($pytype);
 
         // methods to add optical or temporal measurement at last index
-        impl_core_push_measurement!($pytype);
+        fpp::impl_core_push_measurement!($pytype);
 
         // methods to add optical or temporal measurement at arbitrary index
-        impl_core_insert_measurement!($pytype);
+        fpp::impl_core_insert_measurement!($pytype);
 
         // method to replace temporal measurement by index or name; slightly
         // different for each version since later versions are fallable
-        impl_core_replace_temporal!($pytype);
+        fpp::impl_core_replace_temporal!($pytype);
 
         // method to replace optical measurement by index or name
-        impl_core_replace_optical!($pytype);
+        fpp::impl_core_replace_optical!($pytype);
 
         // method to replace measurement by index or name
-        impl_core_remove_measurement!($pytype);
+        fpp::impl_core_remove_measurement!($pytype);
 
         // methods to convert this class to to a different version; actually
         // implements one method for each version that isn't this one
-        impl_core_to_version_x_y!($pytype);
+        fpp::impl_core_to_version_x_y!($pytype);
 
         // attribute for all $PnS keywords
-        impl_core_all_pns!($pytype);
+        fpp::impl_core_all_pns!($pytype);
 
         // attribute for all $PnF keywords
-        impl_core_all_pnf!($pytype);
+        fpp::impl_core_all_pnf!($pytype);
 
         // attribute for all $PnO keywords
-        impl_core_all_pno!($pytype);
+        fpp::impl_core_all_pno!($pytype);
 
         // attribute for all $PnP keywords
-        impl_core_all_pnp!($pytype);
+        fpp::impl_core_all_pnp!($pytype);
 
         // attribute for all $PnT keywords
-        impl_core_all_pnt!($pytype);
+        fpp::impl_core_all_pnt!($pytype);
 
         // attribute for all $PnV keywords
-        impl_core_all_pnv!($pytype);
+        fpp::impl_core_all_pnv!($pytype);
 
         // attribute for all scaling keywords ($PnE or $PnG if present);
         // 3.0 and later will return gain and scale combined
-        impl_core_all_transforms_attr!($pytype);
+        fpp::impl_core_all_transforms_attr!($pytype);
 
         // attribute to get/set nonstandard keywords for all measurements
-        impl_core_all_meas_nonstandard_keywords!($pytype);
+        fpp::impl_core_all_meas_nonstandard_keywords!($pytype);
 
         // method to return all standard keywords as read-only dict
-        impl_core_standard_keywords!($pytype);
+        fpp::impl_core_standard_keywords!($pytype);
     };
 }
 
@@ -321,28 +283,28 @@ impl_common!(PyCoreDataset3_1);
 impl_common!(PyCoreDataset3_2);
 
 // impl from_kws for all CoreTEXT*
-impl_coretext_from_kws!(core::CoreTEXT2_0);
-impl_coretext_from_kws!(core::CoreTEXT3_0);
-impl_coretext_from_kws!(core::CoreTEXT3_1);
-impl_coretext_from_kws!(core::CoreTEXT3_2);
+fpp::impl_coretext_from_kws!(core::CoreTEXT2_0);
+fpp::impl_coretext_from_kws!(core::CoreTEXT3_0);
+fpp::impl_coretext_from_kws!(core::CoreTEXT3_1);
+fpp::impl_coretext_from_kws!(core::CoreTEXT3_2);
 
 // impl from_kws for all CoreTEXT*
-impl_coredataset_from_kws!(core::CoreDataset2_0);
-impl_coredataset_from_kws!(core::CoreDataset3_0);
-impl_coredataset_from_kws!(core::CoreDataset3_1);
-impl_coredataset_from_kws!(core::CoreDataset3_2);
+fpp::impl_coredataset_from_kws!(core::CoreDataset2_0);
+fpp::impl_coredataset_from_kws!(core::CoreDataset3_0);
+fpp::impl_coredataset_from_kws!(core::CoreDataset3_1);
+fpp::impl_coredataset_from_kws!(core::CoreDataset3_2);
 
 // impl write_multitext for all CoreTEXT*
-impl_coretext_write_multi!(core::CoreTEXT2_0);
-impl_coretext_write_multi!(core::CoreTEXT3_0);
-impl_coretext_write_multi!(core::CoreTEXT3_1);
-impl_coretext_write_multi!(core::CoreTEXT3_2);
+fpp::impl_coretext_write_multi!(core::CoreTEXT2_0);
+fpp::impl_coretext_write_multi!(core::CoreTEXT3_0);
+fpp::impl_coretext_write_multi!(core::CoreTEXT3_1);
+fpp::impl_coretext_write_multi!(core::CoreTEXT3_2);
 
 // Common methods for all CoreTEXT* versions.
 macro_rules! impl_coretext_common {
     ($pytype:ident) => {
-        impl_coretext_to_dataset!($pytype);
-        impl_coretext_unset_measurements!($pytype);
+        fpp::impl_coretext_to_dataset!($pytype);
+        fpp::impl_coretext_unset_measurements!($pytype);
     };
 }
 
@@ -354,11 +316,11 @@ impl_coretext_common!(PyCoreTEXT3_2);
 // Common methods for all CoreDataset* versions.
 macro_rules! impl_coredataset_common {
     ($pytype:ident) => {
-        impl_coredataset_set_named_measurements_and_data!($pytype);
-        impl_coredataset_set_measurements_data_schema_and_data!($pytype);
-        impl_core_write_dataset!($pytype);
-        impl_coredataset_unset_data!($pytype);
-        impl_coredataset_check_ranges!($pytype);
+        fpp::impl_coredataset_set_named_measurements_and_data!($pytype);
+        fpp::impl_coredataset_set_measurements_data_schema_and_data!($pytype);
+        fpp::impl_core_write_dataset!($pytype);
+        fpp::impl_coredataset_unset_data!($pytype);
+        fpp::impl_coredataset_check_ranges!($pytype);
     };
 }
 
@@ -369,90 +331,90 @@ impl_coredataset_common!(PyCoreDataset3_2);
 
 // methods to get/set timestep; this is not an attribute because the
 // setter method returns something
-impl_core_get_set_timestep!(PyCoreTEXT3_0);
-impl_core_get_set_timestep!(PyCoreTEXT3_1);
-impl_core_get_set_timestep!(PyCoreTEXT3_2);
-impl_core_get_set_timestep!(PyCoreDataset3_0);
-impl_core_get_set_timestep!(PyCoreDataset3_1);
-impl_core_get_set_timestep!(PyCoreDataset3_2);
+fpp::impl_core_get_set_timestep!(PyCoreTEXT3_0);
+fpp::impl_core_get_set_timestep!(PyCoreTEXT3_1);
+fpp::impl_core_get_set_timestep!(PyCoreTEXT3_2);
+fpp::impl_core_get_set_timestep!(PyCoreDataset3_0);
+fpp::impl_core_get_set_timestep!(PyCoreDataset3_1);
+fpp::impl_core_get_set_timestep!(PyCoreDataset3_2);
 
 // Get/set $Shortnames for 2.0 and 3.0 where this field is optional
-impl_core_all_shortnames_maybe_attr!(PyCoreTEXT2_0);
-impl_core_all_shortnames_maybe_attr!(PyCoreTEXT3_0);
-impl_core_all_shortnames_maybe_attr!(PyCoreDataset2_0);
-impl_core_all_shortnames_maybe_attr!(PyCoreDataset3_0);
+fpp::impl_core_all_shortnames_maybe_attr!(PyCoreTEXT2_0);
+fpp::impl_core_all_shortnames_maybe_attr!(PyCoreTEXT3_0);
+fpp::impl_core_all_shortnames_maybe_attr!(PyCoreDataset2_0);
+fpp::impl_core_all_shortnames_maybe_attr!(PyCoreDataset3_0);
 
 // Get/set methods for $PKn (2.0-3.1)
-impl_core_all_pkn!(PyCoreTEXT2_0);
-impl_core_all_pkn!(PyCoreTEXT3_0);
-impl_core_all_pkn!(PyCoreTEXT3_1);
-impl_core_all_pkn!(PyCoreDataset2_0);
-impl_core_all_pkn!(PyCoreDataset3_0);
-impl_core_all_pkn!(PyCoreDataset3_1);
+fpp::impl_core_all_pkn!(PyCoreTEXT2_0);
+fpp::impl_core_all_pkn!(PyCoreTEXT3_0);
+fpp::impl_core_all_pkn!(PyCoreTEXT3_1);
+fpp::impl_core_all_pkn!(PyCoreDataset2_0);
+fpp::impl_core_all_pkn!(PyCoreDataset3_0);
+fpp::impl_core_all_pkn!(PyCoreDataset3_1);
 
 // Get/set methods for $PKNn (2.0-3.1)
-impl_core_all_pknn!(PyCoreTEXT2_0);
-impl_core_all_pknn!(PyCoreTEXT3_0);
-impl_core_all_pknn!(PyCoreTEXT3_1);
-impl_core_all_pknn!(PyCoreDataset2_0);
-impl_core_all_pknn!(PyCoreDataset3_0);
-impl_core_all_pknn!(PyCoreDataset3_1);
+fpp::impl_core_all_pknn!(PyCoreTEXT2_0);
+fpp::impl_core_all_pknn!(PyCoreTEXT3_0);
+fpp::impl_core_all_pknn!(PyCoreTEXT3_1);
+fpp::impl_core_all_pknn!(PyCoreDataset2_0);
+fpp::impl_core_all_pknn!(PyCoreDataset3_0);
+fpp::impl_core_all_pknn!(PyCoreDataset3_1);
 
 // Get/set methods for scaler $PnL (2.0-3.0)
-impl_core_all_pnl_old!(PyCoreTEXT2_0);
-impl_core_all_pnl_old!(PyCoreTEXT3_0);
-impl_core_all_pnl_old!(PyCoreDataset2_0);
-impl_core_all_pnl_old!(PyCoreDataset3_0);
+fpp::impl_core_all_pnl_old!(PyCoreTEXT2_0);
+fpp::impl_core_all_pnl_old!(PyCoreTEXT3_0);
+fpp::impl_core_all_pnl_old!(PyCoreDataset2_0);
+fpp::impl_core_all_pnl_old!(PyCoreDataset3_0);
 
 // Get/set methods for vector $PnL (3.1-3.2)
-impl_core_all_pnl_new!(PyCoreTEXT3_1);
-impl_core_all_pnl_new!(PyCoreTEXT3_2);
-impl_core_all_pnl_new!(PyCoreDataset3_1);
-impl_core_all_pnl_new!(PyCoreDataset3_2);
+fpp::impl_core_all_pnl_new!(PyCoreTEXT3_1);
+fpp::impl_core_all_pnl_new!(PyCoreTEXT3_2);
+fpp::impl_core_all_pnl_new!(PyCoreDataset3_1);
+fpp::impl_core_all_pnl_new!(PyCoreDataset3_2);
 
 // Get/set methods for $PnD (3.1+)
 //
 // This is valid for the time channel so don't set on just optical
-impl_core_all_pnd!(PyCoreTEXT3_1);
-impl_core_all_pnd!(PyCoreDataset3_1);
-impl_core_all_pnd!(PyCoreTEXT3_2);
-impl_core_all_pnd!(PyCoreDataset3_2);
+fpp::impl_core_all_pnd!(PyCoreTEXT3_1);
+fpp::impl_core_all_pnd!(PyCoreDataset3_1);
+fpp::impl_core_all_pnd!(PyCoreTEXT3_2);
+fpp::impl_core_all_pnd!(PyCoreDataset3_2);
 
 // Get/set methods for $PnDET (3.2)
-impl_core_all_pndet!(PyCoreTEXT3_2);
-impl_core_all_pndet!(PyCoreDataset3_2);
+fpp::impl_core_all_pndet!(PyCoreTEXT3_2);
+fpp::impl_core_all_pndet!(PyCoreDataset3_2);
 
 // Get/set methods for $PnCALIBRATION (3.1)
-impl_core_all_pncal3_1!(PyCoreTEXT3_1);
-impl_core_all_pncal3_1!(PyCoreDataset3_1);
+fpp::impl_core_all_pncal3_1!(PyCoreTEXT3_1);
+fpp::impl_core_all_pncal3_1!(PyCoreDataset3_1);
 
 // Get/set methods for $PnCALIBRATION (3.2)
-impl_core_all_pncal3_2!(PyCoreTEXT3_2);
-impl_core_all_pncal3_2!(PyCoreDataset3_2);
+fpp::impl_core_all_pncal3_2!(PyCoreTEXT3_2);
+fpp::impl_core_all_pncal3_2!(PyCoreDataset3_2);
 
 // Get/set methods for $PnTAG (3.2)
-impl_core_all_pntag!(PyCoreTEXT3_2);
-impl_core_all_pntag!(PyCoreDataset3_2);
+fpp::impl_core_all_pntag!(PyCoreTEXT3_2);
+fpp::impl_core_all_pntag!(PyCoreDataset3_2);
 
 // Get/set methods for $PnTYPE (3.2)
-impl_core_all_pntype!(PyCoreTEXT3_2);
-impl_core_all_pntype!(PyCoreDataset3_2);
+fpp::impl_core_all_pntype!(PyCoreTEXT3_2);
+fpp::impl_core_all_pntype!(PyCoreDataset3_2);
 
 // Get/set methods for $PnFEATURE (3.2)
-impl_core_all_pnfeature!(PyCoreTEXT3_2);
-impl_core_all_pnfeature!(PyCoreDataset3_2);
+fpp::impl_core_all_pnfeature!(PyCoreTEXT3_2);
+fpp::impl_core_all_pnfeature!(PyCoreDataset3_2);
 
 // Get/set methods for area/width/height $PnFEATURE (3.2)
-impl_core_all_awh_pnfeature!(PyCoreTEXT3_2);
-impl_core_all_awh_pnfeature!(PyCoreDataset3_2);
+fpp::impl_core_all_awh_pnfeature!(PyCoreTEXT3_2);
+fpp::impl_core_all_awh_pnfeature!(PyCoreDataset3_2);
 
 // Get/set methods for non-area/width/height $PnFEATURE (3.2)
-impl_core_get_all_other_pnfeature!(PyCoreTEXT3_2);
-impl_core_get_all_other_pnfeature!(PyCoreDataset3_2);
+fpp::impl_core_get_all_other_pnfeature!(PyCoreTEXT3_2);
+fpp::impl_core_get_all_other_pnfeature!(PyCoreDataset3_2);
 
 // Get/set methods for $PnANALYTE (3.2)
-impl_core_all_pnanalyte!(PyCoreTEXT3_2);
-impl_core_all_pnanalyte!(PyCoreDataset3_2);
+fpp::impl_core_all_pnanalyte!(PyCoreTEXT3_2);
+fpp::impl_core_all_pnanalyte!(PyCoreDataset3_2);
 
 #[derive(From, Into, Default)]
 struct PyAppliedGates2_0(AppliedGates2_0);
@@ -539,22 +501,22 @@ impl<'py> IntoPyObject<'py> for PyAppliedGates3_2 {
 }
 
 // Implement __new__ and attributes for PyUnivariate2_0
-impl_new_gate_uni_regions!(UnivariateRegion<GateIndex>);
+fpp::impl_new_gate_uni_regions!(UnivariateRegion<GateIndex>);
 
 // Implement __new__ and attributes for PyUnivariate3_0
-impl_new_gate_uni_regions!(UnivariateRegion<kws::MeasOrGateIndex>);
+fpp::impl_new_gate_uni_regions!(UnivariateRegion<kws::MeasOrGateIndex>);
 
 // Implement __new__ and attributes for PyUnivariate3_2
-impl_new_gate_uni_regions!(UnivariateRegion<kws::PrefixedMeasIndex>);
+fpp::impl_new_gate_uni_regions!(UnivariateRegion<kws::PrefixedMeasIndex>);
 
 // Implement __new__ and attributes for PyBivariate2_0
-impl_new_gate_bi_regions!(BivariateRegion<GateIndex>);
+fpp::impl_new_gate_bi_regions!(BivariateRegion<GateIndex>);
 
 // Implement __new__ and attributes for PyBivariate3_0
-impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
+fpp::impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
 
 // Implement __new__ and attributes for PyBivariate3_2
-impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
+fpp::impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
 
 struct PyEithers<K, U, V>(Eithers<K, U, V>);
 
@@ -648,7 +610,7 @@ where
     }
 }
 
-impl_gated_meas!(GatedMeasurement);
+fpp::impl_gated_meas!(GatedMeasurement);
 
 #[derive(FromPyObject, IntoPyObject)]
 struct PyGatedMeasurements(Vec<PyGatedMeasurement>);
@@ -665,45 +627,62 @@ impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
-// Implement __new__ and attributes for PyFixedAsciiDataSchema
-impl_new_fixed_ascii_data_schema!(
-    FixedAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
-);
+// These are dummy markers for use inside python objects. They have no meaning
+// in the python API so this is arbitrary.
+type ColumnMarkers_ = ColumnMarkers<(), ()>;
 
-// Implement __new__ and attributes for PyFixedDelimDataSchema
-impl_new_delim_ascii_data_schema!(
-    DelimAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
-);
+type FixedAsciiDataSchema_ = data::FixedAsciiDataSchema<false, ColumnMarkers_>;
+
+type DelimAsciiDataSchema_ = data::DelimAsciiDataSchema<false, ColumnMarkers_>;
+
+// Implement __new__ and attributes for PyFixedAsciiDataSchema
+fpp::impl_new_fixed_ascii_data_schema!("FixedAsciiDataSchema", FixedAsciiDataSchema_);
+
+// Implement __new__ and attributes for PyDelimAsciiDataSchema
+fpp::impl_new_delim_ascii_data_schema!("DelimAsciiDataSchema", DelimAsciiDataSchema_);
 
 // TODO these can probably be combined
 
 // Implement __new__ and attributes for all PyOrderedF*DataSchema structs
-impl_new_ordered_data_schema!(4, true);
-impl_new_ordered_data_schema!(8, true);
+fpp::impl_new_ordered_data_schema!("OrderedF32DataSchema", data::OrderedF32DataSchema<()>, 4);
+fpp::impl_new_ordered_data_schema!("OrderedF64DataSchema", data::OrderedF64DataSchema<()>, 8);
 
-// Implement __new__ and attributes for all PyEndianF*DataSchema structs
-impl_new_endian_float_data_schema!(4);
-impl_new_endian_float_data_schema!(8);
+// Implement __new__ and attributes for all PyBigLittleF*DataSchema structs
+fpp::impl_new_endian_float_data_schema!(
+    "BigLittleF32DataSchema",
+    data::BigLittleF32DataSchema<()>,
+    4
+);
 
-// TODO these can probably be combined
+fpp::impl_new_endian_float_data_schema!(
+    "BigLittleF64DataSchema",
+    data::BigLittleF64DataSchema<()>,
+    8
+);
 
 // Implement __new__ and attributes for PyOrderedUintDataSchema
-impl_new_ordered_uint_data_schema!();
+fpp::impl_new_ordered_uint_data_schema!(
+    "OrderedUintDataSchema",
+    data::AnyOrderedUintDataSchema<()>
+);
 
 // Implement __new__ and attributes for PySingleUintDataSchema
-impl_new_single_uint_data_schema!();
+fpp::impl_new_single_uint_data_schema!("SingleUintDataSchema", data::AnySingleUintDataSchema<()>);
 
 // TODO update docs to reflect new range parameters
 
 // Implement __new__ and attributes for PyVariableUintDataSchema
-impl_new_endian_uint_data_schema!();
+fpp::impl_new_variable_uint_data_schema!(
+    "VariableUintDataSchema",
+    data::VariableUintDataSchema<()>
+);
 
 // Implement __new__ and attributes for PyMixedDataSchema
-impl_new_mixed_data_schema!();
+fpp::impl_new_mixed_data_schema!("MixedDataSchema", data::MixedDataSchema);
 
 // Implement method to return the byte widths of variable-widths data_schema
-impl_data_schema_byte_widths!(PyVariableUintDataSchema);
-impl_data_schema_byte_widths!(PyMixedDataSchema);
+fpp::impl_data_schema_byte_widths!(PyVariableUintDataSchema);
+fpp::impl_data_schema_byte_widths!(PyMixedDataSchema);
 
 #[derive(IntoPyObject, From)]
 pub enum PyAnyCoreTEXT {
@@ -775,28 +754,22 @@ pub enum PyOrderedDataSchema {
 /// All data_schema used for 3.1 in Python.
 #[derive(FromPyObject, IntoPyObject, From)]
 pub enum PyNonMixedDataSchema {
-    #[from(
-        PyFixedAsciiDataSchema,
-        FixedAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
-    )]
+    #[from(PyFixedAsciiDataSchema, FixedAsciiDataSchema_)]
     AsciiFixed(PyFixedAsciiDataSchema),
 
-    #[from(
-        PyDelimAsciiDataSchema,
-        DelimAsciiDataSchema<false, ColumnMarkers<Identity<kws::Tot>, Nothing<kws::NumType>>>
-    )]
+    #[from(PyDelimAsciiDataSchema, DelimAsciiDataSchema_)]
     AsciiDelim(PyDelimAsciiDataSchema),
 
-    #[from(PyVariableUintDataSchema, VariableUintDataSchema<Nothing<kws::NumType>>)]
+    #[from(PyVariableUintDataSchema, data::VariableUintDataSchema<()>)]
     VariableUint(PyVariableUintDataSchema),
 
-    #[from(PySingleUintDataSchema, AnySingleUintDataSchema<Nothing<kws::NumType>>)]
+    #[from(PySingleUintDataSchema, data::AnySingleUintDataSchema<()>)]
     SingleUint(PySingleUintDataSchema),
 
-    #[from(PyBigLittleF32DataSchema, BigLittleDataSchema<F32Col, Nothing<kws::NumType>>)]
+    #[from(PyBigLittleF32DataSchema, data::BigLittleF32DataSchema<()>)]
     F32(PyBigLittleF32DataSchema),
 
-    #[from(PyBigLittleF64DataSchema, BigLittleDataSchema<F64Col, Nothing<kws::NumType>>)]
+    #[from(PyBigLittleF64DataSchema, data::BigLittleF64DataSchema<()>)]
     F64(PyBigLittleF64DataSchema),
 }
 
@@ -809,15 +782,14 @@ pub enum PyDataSchema3_2 {
 
 impl From<PyOrderedDataSchema> for DataSchema2_0 {
     fn from(value: PyOrderedDataSchema) -> Self {
-        AnyOrderedDataSchema::<Identity<kws::Tot>>::from(value).phantom_into()
+        DataSchema3_0::from(value).phantom_into()
     }
 }
 
 impl From<DataSchema2_0> for PyOrderedDataSchema {
     fn from(value: DataSchema2_0) -> Self {
-        value
-            .phantom_into::<ColumnMarkers<Identity<kws::Tot>, _>>()
-            .into()
+        let d: DataSchema3_0 = value.phantom_into();
+        d.into()
     }
 }
 
@@ -832,40 +804,42 @@ impl From<PyOrderedDataSchema> for DataSchema3_0 {
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
-            PyOrderedDataSchema::Uint(x) => x.0.into(),
-            PyOrderedDataSchema::F32(x) => x.0.into(),
-            PyOrderedDataSchema::F64(x) => x.0.into(),
+            PyOrderedDataSchema::Uint(x) => x.0.phantom_into().into(),
+            PyOrderedDataSchema::F32(x) => x.0.phantom_into().into(),
+            PyOrderedDataSchema::F64(x) => x.0.phantom_into().into(),
         }
     }
 }
 
 impl From<DataSchema3_0> for PyOrderedDataSchema {
-    fn from(value: AnyOrderedDataSchema<Identity<kws::Tot>>) -> Self {
+    fn from(value: DataSchema3_0) -> Self {
         match value {
-            AnyOrderedDataSchema::Ascii(x) => match x.phantom_into() {
+            AnyDatatype::Ascii(x) => match x.phantom_into() {
                 AnyAsciiDataSchema::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
-                AnyAsciiDataSchema::Fixed(y) => Self::AsciiFixed(y.byte_layout_into().into()),
+                AnyAsciiDataSchema::Fixed(y) => {
+                    Self::AsciiFixed(y.byte_layout_into().phantom_into().into())
+                }
             },
-            AnyOrderedDataSchema::Uint(x) => Self::Uint(x.into()),
-            AnyOrderedDataSchema::F32(x) => Self::F32(x.into()),
-            AnyOrderedDataSchema::F64(x) => Self::F64(x.into()),
+            AnyDatatype::Uint(x) => Self::Uint(x.phantom_into().into()),
+            AnyDatatype::F32(x) => Self::F32(x.phantom_into().into()),
+            AnyDatatype::F64(x) => Self::F64(x.phantom_into().into()),
         }
     }
 }
 
 impl From<DataSchema3_1> for PyNonMixedDataSchema {
-    fn from(value: NonMixedDataSchema<Nothing<kws::NumType>>) -> Self {
+    fn from(value: DataSchema3_1) -> Self {
         match value {
-            NonMixedDataSchema::Ascii(x) => match x {
-                AnyAsciiDataSchema::Fixed(y) => y.into(),
-                AnyAsciiDataSchema::Delimited(y) => y.into(),
+            AnyDatatype::Ascii(x) => match x {
+                AnyAsciiDataSchema::Fixed(y) => y.phantom_into().into(),
+                AnyAsciiDataSchema::Delimited(y) => y.phantom_into().into(),
             },
-            NonMixedDataSchema::Uint(x) => match x {
-                AnyBigLittleUintDataSchema::Single(y) => y.into(),
-                AnyBigLittleUintDataSchema::Multi(y) => y.into(),
+            AnyDatatype::Uint(x) => match x {
+                AnyBigLittleUintDataSchema::Single(y) => y.phantom_into().into(),
+                AnyBigLittleUintDataSchema::Multi(y) => y.phantom_into().into(),
             },
-            NonMixedDataSchema::F32(x) => x.into(),
-            NonMixedDataSchema::F64(x) => x.into(),
+            AnyDatatype::F32(x) => x.phantom_into().into(),
+            AnyDatatype::F64(x) => x.phantom_into().into(),
         }
     }
 }
@@ -873,16 +847,16 @@ impl From<DataSchema3_1> for PyNonMixedDataSchema {
 impl From<PyNonMixedDataSchema> for DataSchema3_1 {
     fn from(value: PyNonMixedDataSchema) -> Self {
         match value {
-            PyNonMixedDataSchema::AsciiFixed(x) => Self::Ascii(x.0.into()),
-            PyNonMixedDataSchema::AsciiDelim(x) => Self::Ascii(x.0.into()),
+            PyNonMixedDataSchema::AsciiFixed(x) => Self::Ascii(x.0.phantom_into().into()),
+            PyNonMixedDataSchema::AsciiDelim(x) => Self::Ascii(x.0.phantom_into().into()),
             PyNonMixedDataSchema::SingleUint(x) => {
-                Self::Uint(AnyBigLittleUintDataSchema::Single(x.into()))
+                Self::Uint(AnyBigLittleUintDataSchema::Single(x.0.phantom_into()))
             }
             PyNonMixedDataSchema::VariableUint(x) => {
-                Self::Uint(AnyBigLittleUintDataSchema::Multi(x.into()))
+                Self::Uint(AnyBigLittleUintDataSchema::Multi(x.0.phantom_into()))
             }
-            PyNonMixedDataSchema::F32(x) => Self::F32(x.into()),
-            PyNonMixedDataSchema::F64(x) => Self::F64(x.into()),
+            PyNonMixedDataSchema::F32(x) => Self::F32(x.0.phantom_into()),
+            PyNonMixedDataSchema::F64(x) => Self::F64(x.0.phantom_into()),
         }
     }
 }

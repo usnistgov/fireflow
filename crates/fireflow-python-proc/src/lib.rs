@@ -2,11 +2,11 @@ extern crate proc_macro;
 
 use fireflow_types::config::{self as tc, EnumStrIter as _};
 use fireflow_types::keywords as tk;
+use fireflow_types::python::{COL_TYPE_ASCII, COL_TYPE_F32, COL_TYPE_F64, IntegerWidth};
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use fireflow_types::python::{COL_TYPE_ASCII, COL_TYPE_F32, COL_TYPE_F64, IntegerWidth};
 use itertools::Itertools as _;
 use nonempty_collections::{
     NEVec,
@@ -15,6 +15,12 @@ use nonempty_collections::{
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{ToTokens, format_ident, quote};
+use syn::{
+    GenericArgument, Ident, LitInt, LitStr, Path, PathArguments, Type,
+    parse::{Parse, ParseStream},
+    parse_macro_input, parse_quote,
+    token::Comma,
+};
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -22,12 +28,6 @@ use std::hash::Hash;
 use std::iter::{empty, once};
 use std::marker::PhantomData;
 use std::string::ToString;
-use syn::{
-    GenericArgument, Ident, LitBool, LitInt, Path, PathArguments, Type,
-    parse::{Parse, ParseStream},
-    parse_macro_input, parse_quote,
-    token::Comma,
-};
 
 /// Italic RST format
 macro_rules! italic {
@@ -4253,8 +4253,9 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
-    let path: Path = syn::parse(input).unwrap();
-    let name = path.segments.last().unwrap().ident.clone();
+    let parsed = parse_macro_input!(input as NamedPath);
+    let path = parsed.path;
+    let name = parsed.name;
     let bare_path = path_strip_args(path.clone());
 
     let chars_param = DocArg::new_ivar_ro(
@@ -4278,7 +4279,7 @@ pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &path, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
 
     let char_widths_doc =
         DocString::new_ivar("The width of each measurement.", PyList::new1(RsInt::U64)).para(
@@ -4306,8 +4307,9 @@ pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
-    let path: Path = syn::parse(input).unwrap();
-    let name = path.segments.last().unwrap().ident.clone();
+    let parsed = parse_macro_input!(input as NamedPath);
+    let path = &parsed.path;
+    let name = parsed.name;
     let bare_path = path_strip_args(path.clone());
 
     let ranges_param = DocArg::new_ivar_ro(
@@ -4335,7 +4337,7 @@ pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &path, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), path, new);
     let datatype = make_data_schema_datatype(&pyname, "A");
     quote!(#class #datatype).into()
 }
@@ -4344,62 +4346,26 @@ pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
 #[allow(clippy::too_many_lines)]
 pub fn impl_new_ordered_data_schema(input: TokenStream) -> TokenStream {
     const RANGES: &str = "ranges";
-    let info = parse_macro_input!(input as OrderedDataSchemaInfo);
-    let nbytes = info.nbytes;
-    let is_float = info.is_float;
+    let parsed = parse_macro_input!(input as SizedDataSchemaPath);
+    let path = parsed.named_path.path;
+    let name = parsed.named_path.name;
+    let nbytes = parsed.nbytes;
     let nbits = nbytes * 8;
+    let bare_path = path_strip_args(path.clone());
+    let dt = if nbytes == 4 { "F" } else { "D" };
 
-    let (range_pytype, range_desc, what, base, range_path, dt) = if is_float {
-        let coltype = format_ident!("F{:02}Col", nbits);
-        let range_desc = format!(
+    let summary = format!("{nbits}-bit ordered float data schema.");
+
+    let range_param = DocArg::new_ivar_ro(
+        RANGES,
+        PyList::new1(PyFloat::new_float_range(nbytes)),
+        format!(
             "The range for each measurement. Corresponds to {PNR}. \
              This is not used internally so only serves for users' \
              own purposes.",
-        );
-        (
-            PyFloat::new_float_range(nbytes).into(),
-            range_desc,
-            "float",
-            "F",
-            quote!(fireflow_core::data::#coltype),
-            if nbytes == 4 { "F" } else { "D" },
-        )
-    } else {
-        let coltype = format_ident!("U{:02}Col", nbits);
-        let range_desc = format!(
-            "The range for each measurement. Corresponds to \
-             {PNR} - 1, which implies that the value for each \
-             measurement must be less than or equal to the values \
-             in {ranges}. A bitmask will be created which \
-             corresponds to one less the next power of 2.",
-            ranges = arg(RANGES),
-        );
-        (
-            PyType::from(PyInt::new_bitmask(nbytes)),
-            range_desc,
-            "integer",
-            "Uint",
-            quote!(fireflow_core::data::#coltype),
-            "I",
-        )
-    };
-    let tot_path = keyword_path("Tot");
-    let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
-    let ordered_data_schema_path = quote!(fireflow_core::data::OrderedDataSchema);
-    let fixed_data_schema_path = quote!(fireflow_core::data::Layout);
-    let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
-
-    let full_data_schema_path: Path =
-        parse_quote!(#ordered_data_schema_path<#range_path, #known_tot_path>);
-
-    let data_schema_name = format!("Ordered{base}{nbits:02}DataSchema");
-
-    let summary = format!("{nbits}-bit ordered {what} data schema.");
-
-    let range_param =
-        DocArg::new_ivar_ro(RANGES, PyList::new1(range_pytype), range_desc, |_, _| {
-            quote!(self.0.columns().iter().map(|c| c.clone()).collect())
-        });
+        ),
+        |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
+    );
 
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
@@ -4409,55 +4375,17 @@ pub fn impl_new_ordered_data_schema(input: TokenStream) -> TokenStream {
     )
     .def_auto();
 
-    let is_big_param = DocArgROIvar::new_endian_param(2, true);
-
     let make_doc = |args| DocString::new_class(summary).args(args);
 
-    // make different constructors and getters for u8 and u16 since the byteord
-    // for these can be simplified
-    let (pyname, class) = match (is_float, nbytes) {
-        // u8 doesn't need byteord since only one is possible
-        (false, 1) => {
-            let doc = make_doc(vec![range_param]);
-            let new = |fun_args| {
-                quote! {
-                    fn new(#fun_args) -> Self {
-                        #fixed_data_schema_path::new(ranges, #sizedbyteord_path::default()).into()
-                    }
-                }
-            };
-            doc.into_impl_class(data_schema_name, &full_data_schema_path, new)
-        }
-
-        // u16 only has two combinations (big and little) so don't allow a list
-        // for byteord
-        (false, 2) => {
-            let doc = make_doc(vec![range_param, is_big_param]);
-            let new = |fun_args| {
-                quote! {
-                    fn new(#fun_args) -> Self {
-                        let b = #sizedbyteord_path::Endian(endian);
-                        #fixed_data_schema_path::new(ranges, b).into()
-                    }
-                }
-            };
-            doc.into_impl_class(data_schema_name, &full_data_schema_path, new)
-        }
-
-        // everything else needs the "full" version of byteord, which is big,
-        // little, and mixed (a list)
-        _ => {
-            let doc = make_doc(vec![range_param, byteord_param]);
-            let new = |fun_args| {
-                quote! {
-                    fn new(#fun_args) -> Self {
-                        #fixed_data_schema_path::new(ranges, byteord).into()
-                    }
-                }
-            };
-            doc.into_impl_class(data_schema_name, &full_data_schema_path, new)
+    let doc = make_doc(vec![range_param, byteord_param]);
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #bare_path::new(ranges, byteord).into()
+            }
         }
     };
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
 
     let widths = make_byte_width(&pyname, nbytes);
     let datatype = make_data_schema_datatype(&pyname, dt);
@@ -4466,22 +4394,30 @@ pub fn impl_new_ordered_data_schema(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
-    let nbytes = parse_macro_input!(input as LitInt)
-        .base10_parse::<usize>()
-        .expect("Must be an integer");
+    let parsed = parse_macro_input!(input as SizedDataSchemaPath);
+    let path = parsed.named_path.path;
+    let name = parsed.named_path.name;
+    let nbytes = parsed.nbytes;
     let nbits = nbytes * 8;
-    let coltype = format_ident!("F{:02}Col", nbits);
-    let coltype_path: Path = parse_quote!(fireflow_core::data::#coltype);
+    let bare_path = path_strip_args(path.clone());
+    let dt = if nbytes == 4 { "F" } else { "D" };
 
-    let numtype_path = keyword_path("NumType");
-    let nomeasdt_path = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let big_little_data_schema_path = quote!(fireflow_core::data::BigLittleDataSchema);
-    let fixed_data_schema_path = quote!(fireflow_core::data::Layout);
+    // let nbytes = parse_macro_input!(input as LitInt)
+    //     .base10_parse::<usize>()
+    //     .expect("Must be an integer");
+    // let nbits = nbytes * 8;
+    // let coltype = format_ident!("F{:02}Col", nbits);
+    // let coltype_path: Path = parse_quote!(fireflow_core::data::#coltype);
 
-    let full_data_schema_path =
-        parse_quote!(#big_little_data_schema_path<#coltype_path, #nomeasdt_path>);
+    // let numtype_path = keyword_path("NumType");
+    // let nomeasdt_path = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
+    // let big_little_data_schema_path = quote!(fireflow_core::data::BigLittleDataSchema);
+    // let fixed_data_schema_path = quote!(fireflow_core::data::Layout);
 
-    let data_schema_name = format!("BigLittleF{nbits:02}DataSchema");
+    // let full_data_schema_path =
+    //     parse_quote!(#big_little_data_schema_path<#coltype_path, #nomeasdt_path>);
+
+    // let data_schema_name = format!("BigLittleF{nbits:02}DataSchema");
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
@@ -4501,59 +4437,28 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #fixed_data_schema_path::new(ranges, endian).into()
+                #bare_path::new(ranges, endian).into()
             }
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(data_schema_name, &full_data_schema_path, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
 
     let widths = make_byte_width(&pyname, nbytes);
-    let datatype = make_data_schema_datatype(&pyname, if nbytes == 4 { "F" } else { "D" });
+    let datatype = make_data_schema_datatype(&pyname, dt);
 
     quote!(#class #widths #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_ordered_uint_data_schema(_: TokenStream) -> TokenStream {
-    let name = format_ident!("OrderedUintDataSchema");
+pub fn impl_new_ordered_uint_data_schema(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as NamedPath);
+    let name = parsed.name;
+    let path = parsed.path;
+    let bare_path = path_strip_args(path.clone());
 
-    let data_schema_path = quote!(fireflow_core::data::AnyOrderedUintDataSchema);
-    let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
-    let tot_path = keyword_path("Tot");
-    let known_tot_path = quote!(fireflow_core::text::optional::Identity<#tot_path>);
-    let full_data_schema_path = parse_quote!(#data_schema_path<#known_tot_path>);
-
-    let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
-        "ranges",
-        PyList::new1(PyInt::new_full_int_range()),
-        format!(
-            "The range of each measurement. Corresponds to the {PNR} \
-             keyword less one. The number of bytes used to encode each \
-             measurement ({PNB}) will be the minimum required to express this \
-             value. For instance, a value of {v1023} will set {PNB} to {v16}, \
-             will set {PNR} to {v1024}, and encode values for this measurement as \
-             16-bit integers. The values of a measurement will be less than or \
-             equal to this value.",
-            v16 = code(16_u8),
-            v1023 = code(1023_u32),
-            v1024 = code(1024_u32),
-        ),
-        |_, _| quote!(fireflow_core::data::LayoutRanges::ranges(&self.0)),
-    );
-
-    let width_param = DocArg::new_ivar_ro(
-        "byte_width",
-        PyInt::from(RsInt::U8).rstype(bytes_path),
-        format!(
-            "The width of the data schema in bytes. Must be an integer 1 to 8. \
-             All in {ranges_arg} must be able to fit within the allotted bytes.",
-            ranges_arg = arg("ranges"),
-        ),
-        |_, _| quote!(self.0.byte_width()),
-    )
-    .def(DocDefault::Int(4));
-
+    let ranges_param = DocArg::new_uint_ranges_ivar();
+    let width_param = DocArg::new_byte_width_ivar();
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
         PyUnion::new_byteord(None),
@@ -4571,57 +4476,25 @@ pub fn impl_new_ordered_uint_data_schema(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                Ok(#data_schema_path::new_ordered_uint(ranges, &byte_width, byteord)?.into())
+                Ok(#bare_path::new_ordered_uint(ranges, &byte_width, byteord)?.into())
             }
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &full_data_schema_path, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
     let datatype = make_data_schema_datatype(&pyname, "I");
     quote!(#class #datatype).into()
 }
 
-// TODO not DRY
 #[proc_macro]
-pub fn impl_new_single_uint_data_schema(_: TokenStream) -> TokenStream {
-    let name = format_ident!("SingleUintDataSchema");
+pub fn impl_new_single_uint_data_schema(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as NamedPath);
+    let name = parsed.name;
+    let path = parsed.path;
+    let bare_path = path_strip_args(path.clone());
 
-    let data_schema_path = quote!(fireflow_core::data::AnySingleUintDataSchema);
-    let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
-    let numtype_path = keyword_path("NumType");
-    let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let full_data_schema_path = parse_quote!(#data_schema_path<#nomeasdt>);
-
-    let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
-        "ranges",
-        PyList::new1(PyInt::new_full_int_range()),
-        format!(
-            "The range of each measurement. Corresponds to the {PNR} \
-             keyword less one. The number of bytes used to encode each \
-             measurement ({PNB}) will be the minimum required to express this \
-             value. For instance, a value of {v1023} will set {PNB} to {v16}, \
-             will set {PNR} to {v1024}, and encode values for this measurement as \
-             16-bit integers. The values of a measurement will be less than or \
-             equal to this value.",
-            v16 = code(16_u8),
-            v1023 = code(1023_u32),
-            v1024 = code(1024_u32),
-        ),
-        |_, _| quote!(fireflow_core::data::LayoutRanges::ranges(&self.0)),
-    );
-
-    let width_param = DocArg::new_ivar_ro(
-        "byte_width",
-        PyInt::from(RsInt::U32).rstype(bytes_path),
-        format!(
-            "The width of the data schema in bytes. Must be an integer 1 through 8. \
-             All in {ranges_arg} must be able to fit within the allotted bytes.",
-            ranges_arg = arg("ranges"),
-        ),
-        |_, _| quote!(self.0.byte_width()),
-    )
-    .def(DocDefault::Int(4));
-
+    let ranges_param = DocArg::new_uint_ranges_ivar();
+    let width_param = DocArg::new_byte_width_ivar();
     let is_big_param = DocArgROIvar::new_endian_param(4, false);
 
     let doc = DocString::new_class("A mixed-width integer data schema.")
@@ -4632,26 +4505,22 @@ pub fn impl_new_single_uint_data_schema(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
-                Ok(#data_schema_path::new_single_uint(ranges, &byte_width, endian)?.into())
+                Ok(#bare_path::new_single_uint(ranges, &byte_width, endian)?.into())
             }
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &full_data_schema_path, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
     let datatype = make_data_schema_datatype(&pyname, "I");
     quote!(#class #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_endian_uint_data_schema(_: TokenStream) -> TokenStream {
-    let name = format_ident!("VariableUintDataSchema");
-
-    let fixed = quote!(fireflow_core::data::Layout);
-    let coltype = quote!(fireflow_core::data::UvarCol);
-    let numtype_path = keyword_path("NumType");
-    let nomeasdt = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    let big_little_data_schema = quote!(fireflow_core::data::BigLittleDataSchema);
-    let full_data_schema_path = parse_quote!(#big_little_data_schema<#coltype, #nomeasdt>);
+pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as NamedPath);
+    let name = parsed.name;
+    let path = parsed.path;
+    let bare_path = path_strip_args(path.clone());
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
@@ -4673,22 +4542,22 @@ pub fn impl_new_endian_uint_data_schema(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #fixed::new(ranges, endian).into()
+                #bare_path::new(ranges, endian).into()
             }
         }
     };
 
-    let (pyname, class) = doc.into_impl_class(name, &full_data_schema_path, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
     let datatype = make_data_schema_datatype(&pyname, "I");
     quote!(#class #datatype).into()
 }
 
 #[proc_macro]
-pub fn impl_new_mixed_data_schema(_: TokenStream) -> TokenStream {
-    let name = format_ident!("MixedDataSchema");
-    let data_schema_path = parse_quote!(fireflow_core::data::#name);
-
-    let fixed = quote!(fireflow_core::data::Layout);
+pub fn impl_new_mixed_data_schema(input: TokenStream) -> TokenStream {
+    let parsed = parse_macro_input!(input as NamedPath);
+    let name = parsed.name;
+    let path = parsed.path;
+    let bare_path = path_strip_args(path.clone());
 
     let dt_ascii = code("A");
     let dt_int = code("I");
@@ -4718,12 +4587,12 @@ pub fn impl_new_mixed_data_schema(_: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #fixed::new(typed_ranges, endian).into()
+                #bare_path::new(typed_ranges, endian).into()
             }
         }
     };
 
-    doc.into_impl_class(name, &data_schema_path, new).1.into()
+    doc.into_impl_class(name.value(), &path, new).1.into()
 }
 
 #[proc_macro]
@@ -4875,6 +4744,44 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
     doc.into_impl_class(name, path, new).1.into()
 }
 
+/// Macro arg for implementing a python class around a path.
+///
+/// Unlike using the path directly, the name of the python class does not need
+/// to match the path.
+struct NamedPath {
+    name: LitStr,
+    _comma: Comma,
+    path: Path,
+}
+
+impl Parse for NamedPath {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            name: input.parse()?,
+            _comma: input.parse()?,
+            path: input.parse()?,
+        })
+    }
+}
+
+/// Macro arg for making data schema classes with a fixed size.
+struct SizedDataSchemaPath {
+    named_path: NamedPath,
+    nbytes: usize,
+}
+
+impl Parse for SizedDataSchemaPath {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let named_path = input.parse()?;
+        let _: Comma = input.parse()?;
+        let nbytes = input
+            .parse::<LitInt>()?
+            .base10_parse::<usize>()
+            .expect("Number of bytes must be an unsigned integer");
+        Ok(Self { named_path, nbytes })
+    }
+}
+
 /// Macro args for implementing read functions for both position and multiple datasets
 struct ReadPaths2 {
     path0: Path,
@@ -4941,23 +4848,23 @@ impl Parse for NewCoreInfo {
     }
 }
 
-/// Macro args for implementing new ordered data schema
-struct OrderedDataSchemaInfo {
-    nbytes: usize,
-    is_float: bool,
-}
+// /// Macro args for implementing new ordered data schema
+// struct OrderedDataSchemaInfo {
+//     nbytes: usize,
+//     is_float: bool,
+// }
 
-impl Parse for OrderedDataSchemaInfo {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let nbytes = input
-            .parse::<LitInt>()?
-            .base10_parse::<usize>()
-            .expect("Number of bytes must be an unsigned integer");
-        let _: Comma = input.parse()?;
-        let is_float = input.parse::<LitBool>()?.value();
-        Ok(Self { nbytes, is_float })
-    }
-}
+// impl Parse for OrderedDataSchemaInfo {
+//     fn parse(input: ParseStream) -> syn::Result<Self> {
+//         let nbytes = input
+//             .parse::<LitInt>()?
+//             .base10_parse::<usize>()
+//             .expect("Number of bytes must be an unsigned integer");
+//         let _: Comma = input.parse()?;
+//         let is_float = input.parse::<LitBool>()?.value();
+//         Ok(Self { nbytes, is_float })
+//     }
+// }
 
 /// A docstring for any python function/method/class
 #[derive(Clone, new)]
@@ -5353,7 +5260,6 @@ struct PyTuple<E> {
 #[derive(Clone)]
 enum RsInt {
     U8,
-    U16,
     U32,
     U64,
     I32,
@@ -5686,7 +5592,6 @@ impl HasRustPath for RsInt {
     fn as_rust_type(&self) -> Type {
         match self {
             Self::U8 => parse_quote!(u8),
-            Self::U16 => parse_quote!(u16),
             Self::U32 => parse_quote!(u32),
             Self::U64 => parse_quote!(u64),
             Self::Usize => parse_quote!(usize),
@@ -6474,25 +6379,6 @@ impl<E: From<PyException>> PyInt<E> {
     fn new_delim_ascii_range() -> Self {
         let p = parse_quote!(fireflow_core::validated::ascii_range::DelimAsciiRange);
         Self::new_int(RsInt::U64).rstype(p)
-    }
-
-    // fn new_bitmask_value64() -> Self {
-    //     let p = parse_quote!(fireflow_core::validated::bitmask::BitmaskValue<u64>);
-    //     Self::new_int(RsInt::U64).rstype(p)
-    // }
-
-    fn new_bitmask(nbytes: usize) -> Self {
-        let i = format_ident!("Bitmask{:02}", nbytes * 8);
-        let r = match nbytes {
-            1 => RsInt::U8,
-            2 => RsInt::U16,
-            3 | 4 => RsInt::U32,
-            5..=8 => RsInt::U64,
-            _ => panic!("invalid number of uint bytes: {nbytes}"),
-        };
-        let e = PyException::new_invalid_keyword().desc(r.exc_desc());
-        let path = parse_quote!(fireflow_core::validated::bitmask::#i);
-        Self::from(r).rstype(path).exc(e)
     }
 
     fn new_full_int_range() -> Self {
@@ -7415,36 +7301,36 @@ impl ArgPyType {
     }
 }
 
-impl RsInt {
-    fn lower(&self) -> &'static str {
-        match self {
-            Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::Usize => "0",
-            Self::NonZeroU8 | Self::NonZeroUsize => "1",
-            Self::I32 => "-2**31",
-            Self::I128 => "-2**127",
-        }
-    }
+// impl RsInt {
+//     fn lower(&self) -> &'static str {
+//         match self {
+//             Self::U8 | Self::U16 | Self::U32 | Self::U64 | Self::Usize => "0",
+//             Self::NonZeroU8 | Self::NonZeroUsize => "1",
+//             Self::I32 => "-2**31",
+//             Self::I128 => "-2**127",
+//         }
+//     }
 
-    fn upper(&self) -> String {
-        match self {
-            Self::U8 | Self::NonZeroU8 => "255".into(),
-            Self::U16 => "2**16-1".into(),
-            Self::U32 => "2**32-1".into(),
-            Self::I32 => "2**31-1".into(),
-            Self::I128 => "2**127-1".into(),
-            Self::U64 => "2**64-1".into(),
-            Self::Usize | Self::NonZeroUsize => format!("2**{}-1", usize::BITS),
-        }
-    }
+//     fn upper(&self) -> String {
+//         match self {
+//             Self::U8 | Self::NonZeroU8 => "255".into(),
+//             Self::U16 => "2**16-1".into(),
+//             Self::U32 => "2**32-1".into(),
+//             Self::I32 => "2**31-1".into(),
+//             Self::I128 => "2**127-1".into(),
+//             Self::U64 => "2**64-1".into(),
+//             Self::Usize | Self::NonZeroUsize => format!("2**{}-1", usize::BITS),
+//         }
+//     }
 
-    fn exc_desc(&self) -> String {
-        format!(
-            "if {ARG_TOKEN} is less than {} or greater than {}",
-            code(self.lower()),
-            code(self.upper())
-        )
-    }
-}
+//     fn exc_desc(&self) -> String {
+//         format!(
+//             "if {ARG_TOKEN} is less than {} or greater than {}",
+//             code(self.lower()),
+//             code(self.upper())
+//         )
+//     }
+// }
 
 impl DocArgRWIvar {
     fn new_ivar_rw(
@@ -7976,6 +7862,33 @@ impl DocArgROIvar {
             format!("Output when making standardized {TEXT} and {DATA}."),
             |n, _| quote!(self.0.#n.clone().into()),
         )
+    }
+
+    fn new_uint_ranges_ivar() -> Self {
+        Self::new_ivar_ro(
+            UINT_RANGES,
+            PyList::new1(PyInt::new_full_int_range()),
+            format!(
+                "The maximum value of each measurement. Corresponds to the {PNR} \
+                 keyword less one."
+            ),
+            |_, _| quote!(fireflow_core::data::LayoutRanges::ranges(&self.0)),
+        )
+    }
+
+    fn new_byte_width_ivar() -> Self {
+        let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
+        Self::new_ivar_ro(
+            "byte_width",
+            PyInt::from(RsInt::U8).rstype(bytes_path),
+            format!(
+                "The width of the data schema in bytes. Must be an integer 1 to 8. \
+                 All in {arg} must be able to fit within the allotted bytes.",
+                arg = arg(UINT_RANGES),
+            ),
+            |_, _| quote!(self.0.byte_width()),
+        )
+        .def(DocDefault::Int(4))
     }
 }
 
@@ -10572,12 +10485,12 @@ const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 // argument names that are referenced in doc strings
 
 const BIG_OTHER: &str = "big_other";
-// const SKIP_CONVERSION_CHECK: &str = "skip_conversion_check";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
 const CHECKED_RANGE_DATATYPES: &str = "checked_range_datatypes";
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
 const OTHER_WIDTH: &str = "other_width";
+const UINT_RANGES: &str = "ranges";
 
 // formatted segment names
 

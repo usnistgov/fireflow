@@ -586,6 +586,11 @@ type AnyDatatypeLayout<Fam, const ORD: bool, M, I> = AnyDatatype<
 type AnyOrderedDatatypeLayout<Fam, const ORD: bool, M> =
     AnyDatatypeLayout<Fam, ORD, M, AnyUintLayout<Fam, ORD, M>>;
 
+pub type OrderedF32DataSchema<T> = OrderedDataSchema<F32Col, T>;
+pub type OrderedF64DataSchema<T> = OrderedDataSchema<F64Col, T>;
+pub type BigLittleF32DataSchema<D> = BigLittleDataSchema<F32Col, D>;
+pub type BigLittleF64DataSchema<D> = BigLittleDataSchema<F64Col, D>;
+
 pub type OrderedLayout<F, I, T> = FamilyLayout<F, I, true, ColumnMarkers<T, Nothing<NumType>>>;
 
 pub type BigLittleLayout<F, I, D> = FamilyLayout<F, I, false, ColumnMarkers<Identity<Tot>, D>>;
@@ -1799,50 +1804,54 @@ macro_rules! match_any_3_2 {
 
 #[macro_export]
 macro_rules! match_map_uint {
-    ($value:expr, $inner:ident, $action:expr) => {
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyUint::*;
         match $value {
-            AnyUint::Uint08($inner) => AnyUint::Uint08($action),
-            AnyUint::Uint16($inner) => AnyUint::Uint16($action),
-            AnyUint::Uint24($inner) => AnyUint::Uint24($action),
-            AnyUint::Uint32($inner) => AnyUint::Uint32($action),
-            AnyUint::Uint40($inner) => AnyUint::Uint40($action),
-            AnyUint::Uint48($inner) => AnyUint::Uint48($action),
-            AnyUint::Uint56($inner) => AnyUint::Uint56($action),
-            AnyUint::Uint64($inner) => AnyUint::Uint64($action),
+            Uint08($inner) => Uint08($action),
+            Uint16($inner) => Uint16($action),
+            Uint24($inner) => Uint24($action),
+            Uint32($inner) => Uint32($action),
+            Uint40($inner) => Uint40($action),
+            Uint48($inner) => Uint48($action),
+            Uint56($inner) => Uint56($action),
+            Uint64($inner) => Uint64($action),
         }
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! match_map_datatype {
-    ($value:expr, $inner:ident, $action:expr) => {
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyDatatype::*;
         match $value {
-            AnyDatatype::Ascii($inner) => AnyDatatype::Ascii($action),
-            AnyDatatype::Uint($inner) => AnyDatatype::Uint($action),
-            AnyDatatype::F32($inner) => AnyDatatype::F32($action),
-            AnyDatatype::F64($inner) => AnyDatatype::F64($action),
+            Ascii($inner) => Ascii($action),
+            Uint($inner) => Uint($action),
+            F32($inner) => F32($action),
+            F64($inner) => F64($action),
         }
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! match_map_ascii {
-    ($value:expr, $inner:ident, $action:expr) => {
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyAscii::*;
         match $value {
-            AnyAscii::Delimited($inner) => AnyAscii::Delimited($action),
-            AnyAscii::Fixed($inner) => AnyAscii::Fixed($action),
+            Delimited($inner) => Delimited($action),
+            Fixed($inner) => Fixed($action),
         }
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! match_map_endian_uint {
-    ($value:expr, $inner:ident, $action:expr) => {
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyBigLittleUint::*;
         match $value {
-            AnyBigLittleUint::Multi($inner) => AnyBigLittleUint::Multi($action),
-            AnyBigLittleUint::Single($inner) => AnyBigLittleUint::Single($action),
+            Multi($inner) => Multi($action),
+            Single($inner) => Single($action),
         }
-    };
+    }};
 }
 
 // Implement version specific-operations for data schema.

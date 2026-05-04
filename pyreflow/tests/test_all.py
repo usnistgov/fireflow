@@ -2720,11 +2720,7 @@ class TestLayouts:
         n = int(width / 8)
         bitmasks = [2 ** (8 * (b + 1)) - 1 for b in range(n)]
         new = pf.OrderedUintDataSchema(bitmasks, byte_width=n)
-        # NOTE ranges will be 1+ whatever we put in because the inputs to the
-        # the layout are literal ints and the output below is whatever the $PnR
-        # value will be, which is 1+ the actual number...thanks FCS
-        if n > 2:
-            assert new.byteord == "little"
+        assert new.byteord == "little"
         assert new.byte_width == n
         assert new.ranges == [r for r in bitmasks]
         assert new.datatype == "I"

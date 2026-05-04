@@ -303,21 +303,24 @@ impl ReadBuffer {
     }
 
     /// Read a matrix where type is an aligned big, little, or mixed endian value.
-    pub(crate) fn read_ordered_matrix<R, T>(
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn read_ordered_matrix<R, T, const LEN: usize>(
         &mut self,
         h: &mut BufReader<R>,
         cols: &mut [Vec<T>],
-        s: ArrayByteOrd<T::ByteOrd>,
+        s: ArrayByteOrd<LEN>,
     ) -> io::Result<()>
     where
         R: Read,
-        T: FromBytes<Bytes = T::FileBuf> + FCSRepr,
+        T: FromBytes<Bytes = T::FileBuf> + FCSRepr<ByteOrd = [u8; LEN]>,
         T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
         T::ByteOrd: AsRef<[u8]>,
+        ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
     {
-        match s {
-            ArrayByteOrd::Endian(e) => self.read_endian_matrix(h, cols, e),
-            ArrayByteOrd::Order(o) => self.read_matrix(h, cols, |bs| T::from_ordered_bytes(bs, &o)),
+        if let Some(e) = s.as_endian() {
+            self.read_endian_matrix(h, cols, e)
+        } else {
+            self.read_matrix(h, cols, |bs| T::from_ordered_bytes(bs, s.as_ref()))
         }
     }
 
@@ -553,21 +556,24 @@ impl WriteBuffer {
     }
 
     /// Write a matrix where type is an aligned big, little, or mixed endian value.
-    pub(crate) fn write_ordered_matrix<W, T>(
+    #[allow(clippy::needless_pass_by_value)]
+    pub(crate) fn write_ordered_matrix<W, T, const LEN: usize>(
         &mut self,
         h: &mut BufWriter<W>,
         cols: &[&[T]],
-        s: ArrayByteOrd<T::ByteOrd>,
+        s: ArrayByteOrd<LEN>,
     ) -> io::Result<()>
     where
         W: Write,
-        T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
+        T: ToBytes<Bytes = T::FileBuf> + FCSRepr<ByteOrd = [u8; LEN]>,
         T::FileBuf: AsRef<[u8]> + AsMut<[u8]> + Default,
         T::ByteOrd: AsRef<[u8]>,
+        ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
     {
-        match s {
-            ArrayByteOrd::Endian(e) => self.write_endian_matrix(h, cols, e),
-            ArrayByteOrd::Order(o) => self.write_matrix(h, cols, |bs| T::to_ordered_bytes(bs, &o)),
+        if let Some(e) = s.as_endian() {
+            self.write_endian_matrix(h, cols, e)
+        } else {
+            self.write_matrix(h, cols, |bs| T::to_ordered_bytes(bs, s.as_ref()))
         }
     }
 

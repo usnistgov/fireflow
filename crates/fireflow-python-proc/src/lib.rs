@@ -4402,23 +4402,6 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let dt = if nbytes == 4 { "F" } else { "D" };
 
-    // let nbytes = parse_macro_input!(input as LitInt)
-    //     .base10_parse::<usize>()
-    //     .expect("Must be an integer");
-    // let nbits = nbytes * 8;
-    // let coltype = format_ident!("F{:02}Col", nbits);
-    // let coltype_path: Path = parse_quote!(fireflow_core::data::#coltype);
-
-    // let numtype_path = keyword_path("NumType");
-    // let nomeasdt_path = quote!(fireflow_core::text::optional::Nothing<#numtype_path>);
-    // let big_little_data_schema_path = quote!(fireflow_core::data::BigLittleDataSchema);
-    // let fixed_data_schema_path = quote!(fireflow_core::data::Layout);
-
-    // let full_data_schema_path =
-    //     parse_quote!(#big_little_data_schema_path<#coltype_path, #nomeasdt_path>);
-
-    // let data_schema_name = format!("BigLittleF{nbits:02}DataSchema");
-
     let range_param = DocArg::new_ivar_ro(
         "ranges",
         PyList::new1(PyFloat::new_float_range(nbytes)),
@@ -7002,7 +6985,7 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_byteord(nbytes: Option<usize>) -> Self {
         let (path, exc_desc) = if let Some(n) = nbytes {
             let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
-            let p = parse_quote!(#sizedbyteord_path<[u8; #n]>);
+            let p = parse_quote!(#sizedbyteord_path<#n>);
             let d = format!(
                 "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
                  or a list of all integers from 1 to {n} in any order"

@@ -1673,14 +1673,14 @@ impl_str_enum_kw!(
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum ByteOrd2_0 {
-    O1(ArrayByteOrd<[u8; 1]>),
-    O2(ArrayByteOrd<[u8; 2]>),
-    O3(ArrayByteOrd<[u8; 3]>),
-    O4(ArrayByteOrd<[u8; 4]>),
-    O5(ArrayByteOrd<[u8; 5]>),
-    O6(ArrayByteOrd<[u8; 6]>),
-    O7(ArrayByteOrd<[u8; 7]>),
-    O8(ArrayByteOrd<[u8; 8]>),
+    O1(ArrayByteOrd<1>),
+    O2(ArrayByteOrd<2>),
+    O3(ArrayByteOrd<3>),
+    O4(ArrayByteOrd<4>),
+    O5(ArrayByteOrd<5>),
+    O6(ArrayByteOrd<6>),
+    O7(ArrayByteOrd<7>),
+    O8(ArrayByteOrd<8>),
 }
 
 impl FromStr for ByteOrd2_0 {
@@ -1752,17 +1752,16 @@ impl ByteOrd2_0 {
     }
 
     fn is_endian(&self) -> bool {
-        matches!(
-            self,
-            Self::O1(ArrayByteOrd::Endian(_))
-                | Self::O2(ArrayByteOrd::Endian(_))
-                | Self::O3(ArrayByteOrd::Endian(_))
-                | Self::O4(ArrayByteOrd::Endian(_))
-                | Self::O5(ArrayByteOrd::Endian(_))
-                | Self::O6(ArrayByteOrd::Endian(_))
-                | Self::O7(ArrayByteOrd::Endian(_))
-                | Self::O8(ArrayByteOrd::Endian(_))
-        )
+        match self {
+            Self::O1(x) => Endian::try_from(*x).is_ok(),
+            Self::O2(x) => Endian::try_from(*x).is_ok(),
+            Self::O3(x) => Endian::try_from(*x).is_ok(),
+            Self::O4(x) => Endian::try_from(*x).is_ok(),
+            Self::O5(x) => Endian::try_from(*x).is_ok(),
+            Self::O6(x) => Endian::try_from(*x).is_ok(),
+            Self::O7(x) => Endian::try_from(*x).is_ok(),
+            Self::O8(x) => Endian::try_from(*x).is_ok(),
+        }
     }
 }
 

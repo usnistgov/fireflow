@@ -124,9 +124,9 @@ use crate::logging::{
 use crate::macros::{def_summary, match_many_to_one};
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
-    AnyByteOrder, ArgBytes, ArrayByteOrd, BitsOrChars, ByteOrdToSizedError, Bytes, Endian,
-    HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBytes, VecToSizedError, WidthToBytesError,
-    WidthToFixedError,
+    AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
+    Endian, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBytes, VecToSizedError,
+    WidthToBytesError, WidthToFixedError,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keywords::{
@@ -4933,18 +4933,18 @@ pub trait LayoutByteOrder {
 }
 
 impl<T> LayoutByteOrder for AnyOrderedUintDataSchema<T> {
-    type ByteOrder = ByteOrd2_0;
+    type ByteOrder = AnyByteOrder;
 
     fn byte_order(&self) -> Self::ByteOrder {
         match self {
-            AnyUint::Uint08(x) => ByteOrd2_0::O1(x.byte_order()),
-            AnyUint::Uint16(x) => ByteOrd2_0::O2(x.byte_order()),
-            AnyUint::Uint24(x) => ByteOrd2_0::O3(x.byte_order()),
-            AnyUint::Uint32(x) => ByteOrd2_0::O4(x.byte_order()),
-            AnyUint::Uint40(x) => ByteOrd2_0::O5(x.byte_order()),
-            AnyUint::Uint48(x) => ByteOrd2_0::O6(x.byte_order()),
-            AnyUint::Uint56(x) => ByteOrd2_0::O7(x.byte_order()),
-            AnyUint::Uint64(x) => ByteOrd2_0::O8(x.byte_order()),
+            AnyUint::Uint08(x) => x.byte_order().into(),
+            AnyUint::Uint16(x) => x.byte_order().into(),
+            AnyUint::Uint24(x) => x.byte_order().into(),
+            AnyUint::Uint32(x) => x.byte_order().into(),
+            AnyUint::Uint40(x) => x.byte_order().into(),
+            AnyUint::Uint48(x) => x.byte_order().into(),
+            AnyUint::Uint56(x) => x.byte_order().into(),
+            AnyUint::Uint64(x) => x.byte_order().into(),
         }
     }
 }
@@ -5343,12 +5343,12 @@ macro_rules! impl_numeric_column_type {
     ($c:ident, $inner:ident, $n:expr) => {
         impl IsCol<VecFamily, true> for $c {
             type Inner = $inner;
-            type Layout = ArrayByteOrd<[u8; $n]>;
+            type Layout = ArrayByteOrd<$n>;
         }
 
         impl IsCol<DataFrameFamily, true> for $c {
             type Inner = NativeSeries<$inner>;
-            type Layout = ArrayByteOrd<[u8; $n]>;
+            type Layout = ArrayByteOrd<$n>;
         }
 
         impl IsCol<VecFamily, false> for $c {
@@ -6647,7 +6647,7 @@ macro_rules! impl_ordered_layout_io {
     ($t:ident) => {
         impl_byte_layout_io!(
             $t,
-            ArrayByteOrd<<<$t as ColumnHasNativeType>::Native as FCSRepr>::ByteOrd>,
+            ArrayByteOrd_<<<$t as ColumnHasNativeType>::Native as FCSRepr>::ByteOrd>,
             read_ordered_matrix,
             write_ordered_matrix
         );
@@ -7060,16 +7060,16 @@ impl<C, F, I, M, const ORD: bool> Layout<C, F, I, NoByteOrd<ORD>, M, ORD> {
     }
 }
 
-impl<T, I, A, M, const ORD: bool> Layout<Vec<FloatRange<T>>, VecFamily, I, ArrayByteOrd<A>, M, ORD>
-where
-    T: FCSRepr,
-    FloatRange<T>: ColumnHasNativeType<Native = T>,
-{
-    #[must_use]
-    pub fn new_endian_float(ranges: Vec<FloatRange<T>>, endian: Endian) -> Self {
-        Self::new(ranges, ArrayByteOrd::Endian(endian))
-    }
-}
+// impl<T, I, A, M, const ORD: bool> Layout<Vec<FloatRange<T>>, VecFamily, I, ArrayByteOrd<A>, M, ORD>
+// where
+//     T: FCSRepr,
+//     FloatRange<T>: ColumnHasNativeType<Native = T>,
+// {
+//     #[must_use]
+//     pub fn new_endian_float(ranges: Vec<FloatRange<T>>, endian: Endian) -> Self {
+//         Self::new(ranges, ArrayByteOrd::Endian(endian))
+//     }
+// }
 
 impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarkers<T, D>, ORD> {
     fn try_new<F, P, W, E>(
@@ -7585,26 +7585,26 @@ impl<T> AnyOrderedDataSchema<T> {
         AnyAsciiDataSchema::new_delim(ranges).into()
     }
 
-    #[must_use]
-    pub fn new_uint<I>(columns: Vec<I::Inner>, byte_layout: I::Layout) -> Self
-    where
-        I: IsCol<VecFamily, true>,
-        I::Inner: ColumnHasNativeType,
-        <I::Inner as ColumnHasNativeType>::Native: FCSRepr,
-        AnyOrderedUintDataSchema<T>: From<DataSchema_<I, true, ColumnMarkers<T, Nothing<NumType>>>>,
-    {
-        Self::Uint(Layout::new(columns, byte_layout).into())
-    }
+    // #[must_use]
+    // pub fn new_uint<I>(columns: Vec<I::Inner>, byte_layout: I::Layout) -> Self
+    // where
+    //     I: IsCol<VecFamily, true>,
+    //     I::Inner: ColumnHasNativeType,
+    //     <I::Inner as ColumnHasNativeType>::Native: FCSRepr,
+    //     AnyOrderedUintDataSchema<T>: From<DataSchema_<I, true, ColumnMarkers<T, Nothing<NumType>>>>,
+    // {
+    //     Self::Uint(Layout::new(columns, byte_layout).into())
+    // }
 
-    #[must_use]
-    pub fn new_f32(ranges: Vec<F32Range>, byte_layout: ArrayByteOrd<[u8; 4]>) -> Self {
-        Layout::new(ranges, byte_layout).into()
-    }
+    // #[must_use]
+    // pub fn new_f32(ranges: Vec<F32Range>, byte_layout: ArrayByteOrd<[u8; 4]>) -> Self {
+    //     Layout::new(ranges, byte_layout).into()
+    // }
 
-    #[must_use]
-    pub fn new_f64(ranges: Vec<F64Range>, byte_layout: ArrayByteOrd<[u8; 8]>) -> Self {
-        Layout::new(ranges, byte_layout).into()
-    }
+    // #[must_use]
+    // pub fn new_f64(ranges: Vec<F64Range>, byte_layout: ArrayByteOrd<[u8; 8]>) -> Self {
+    //     Layout::new(ranges, byte_layout).into()
+    // }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
         match datatype {

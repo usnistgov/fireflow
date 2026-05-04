@@ -6,15 +6,17 @@ use crate::validated::ascii_range::{Chars, CharsError};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{NEDelim, NEStr, ToDisplayNE};
 
-use derive_more::{Display, From, Into};
+use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
-use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
+use nonempty_collections::{
+    FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _,
+};
 use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
 use thiserror::Error;
 
-use std::fmt;
 use std::num::{NonZeroU8, ParseIntError};
 use std::str::FromStr;
+use std::{array, fmt};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -26,19 +28,18 @@ use {
     pyo3::prelude::*,
 };
 
-// TODO it might be easier and simpler just to store and array and check if
-// needed if it is big/little. The enum was only necessary when I was checking
-// for big/little every value in a loop which we don't do now
-/// Byte order with known size in bytes
-#[derive(PartialEq, Eq, Hash, Copy, Clone, From, Debug)]
-pub enum ArrayByteOrd<A> {
-    /// Either big or little endian
-    #[from]
-    Endian(Endian),
+/// Byte order with known size in bytes.
+///
+/// This is only meant to store arrays of a given length. Arrays are guaranteed
+/// to include all digits 0-LEN in any order.
+///
+/// This needs to be fully generic to get around limitations with const generics
+/// and trait bounds (ie the num_traits crate specifies an array rather than a
+/// length to be used in an array)
+#[derive(PartialEq, Eq, Hash, Copy, Clone, Debug, AsRef)]
+pub struct ArrayByteOrd_<A>(A);
 
-    /// The byte order if mixed (not monotonically increasing/decreasing)
-    Order(A),
-}
+pub type ArrayByteOrd<const LEN: usize> = ArrayByteOrd_<[u8; LEN]>;
 
 /// Endianness (big or little)
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
@@ -103,31 +104,57 @@ impl Default for AnyByteOrder {
     }
 }
 
-impl<const LEN: usize> From<ArrayByteOrd<[u8; LEN]>> for AnyByteOrder {
-    fn from(value: ArrayByteOrd<[u8; LEN]>) -> Self {
-        match value {
-            ArrayByteOrd::Endian(e) => Self::Endian(e),
-            ArrayByteOrd::Order(o) => {
-                Self::Ordered(o.map(|x| NonZeroU8::MIN.saturating_add(x)).to_vec())
-            }
+impl<const LEN: usize> From<ArrayByteOrd<LEN>> for AnyByteOrder
+where
+    ArrayByteOrd<LEN>: Into<[NonZeroU8; LEN]>,
+{
+    fn from(value: ArrayByteOrd<LEN>) -> Self {
+        if let Some(e) = value.as_endian() {
+            Self::Endian(e)
+        } else {
+            let arr: [NonZeroU8; LEN] = value.into();
+            Self::Ordered(arr.to_vec())
         }
     }
 }
 
-impl From<ByteOrd2_0> for AnyByteOrder {
-    fn from(value: ByteOrd2_0) -> Self {
+impl<const LEN: usize> TryFrom<AnyByteOrder> for ArrayByteOrd<LEN>
+where
+    Endian: Into<Self>,
+    Vec<NonZeroU8>: TryInto<Self, Error = VecToSizedError>,
+{
+    type Error = VecToSizedError;
+    fn try_from(value: AnyByteOrder) -> Result<Self, Self::Error> {
         match value {
-            ByteOrd2_0::O1(x) => x.into(),
-            ByteOrd2_0::O2(x) => x.into(),
-            ByteOrd2_0::O3(x) => x.into(),
-            ByteOrd2_0::O4(x) => x.into(),
-            ByteOrd2_0::O5(x) => x.into(),
-            ByteOrd2_0::O6(x) => x.into(),
-            ByteOrd2_0::O7(x) => x.into(),
-            ByteOrd2_0::O8(x) => x.into(),
+            AnyByteOrder::Endian(e) => Ok(e.into()),
+            AnyByteOrder::Ordered(xs) => xs.try_into(),
         }
     }
 }
+
+// /// Any byte order that can be used in a 2.0/3.0 layout with a given size.
+// ///
+// /// Meant for arguments to functions.
+// pub enum SizedByteOrder<const LEN: usize> {
+//     Endian(Endian),
+//     Ordered(ArrayByteOrd<LEN>),
+// }
+
+// impl<const LEN: usize> Default for SizedByteOrder<LEN> {
+//     fn default() -> Self {
+//         Self::Endian(Endian::default())
+//     }
+// }
+
+// impl<const LEN: usize> From<ArrayByteOrd<LEN>> for SizedByteOrder<LEN> {
+//     fn from(value: ArrayByteOrd<LEN>) -> Self {
+//         if let Some(e) = value.as_endian() {
+//             Self::Endian(e)
+//         } else {
+//             Self::Ordered(value)
+//         }
+//     }
+// }
 
 /// The number of bytes for a numeric measurement
 #[derive(Into, Debug, Display)]
@@ -213,128 +240,6 @@ impl HasByteOrd for Endian {
     type ByteOrd = ByteOrd3_1;
 }
 
-macro_rules! byteord_from_sized {
-    ($len:expr, $var:ident, $bytes:ident) => {
-        impl TryFrom<ArrayByteOrd<[u8; $len]>> for Endian {
-            type Error = OrderedToEndianError;
-            fn try_from(value: ArrayByteOrd<[u8; $len]>) -> Result<Self, Self::Error> {
-                match value {
-                    ArrayByteOrd::Endian(x) => Ok(x),
-                    ArrayByteOrd::Order(_) => Err(OrderedToEndianError),
-                }
-            }
-        }
-
-        impl TryFrom<ByteOrd2_0> for ArrayByteOrd<[u8; $len]> {
-            type Error = ByteOrdToSizedError;
-            fn try_from(value: ByteOrd2_0) -> Result<Self, Self::Error> {
-                if let ByteOrd2_0::$var(sized) = value {
-                    Ok(sized)
-                } else {
-                    Err(ByteOrdToSizedError::new(value.nbytes(), $len))
-                }
-            }
-        }
-
-        impl TryFrom<Vec<NonZeroU8>> for ArrayByteOrd<[u8; $len]> {
-            type Error = VecToSizedError;
-            fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
-                let xs: [NonZeroU8; $len] =
-                    value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
-                        vec_len: ys.len(),
-                        req_len: $len,
-                    })?;
-                let ret = xs.try_into()?;
-                Ok(ret)
-            }
-        }
-
-        impl TryFrom<AnyByteOrder> for ArrayByteOrd<[u8; $len]> {
-            type Error = VecToSizedError;
-            fn try_from(value: AnyByteOrder) -> Result<Self, Self::Error> {
-                match value {
-                    AnyByteOrder::Endian(e) => Ok(Self::Endian(e)),
-                    AnyByteOrder::Ordered(xs) => xs.try_into(),
-                }
-            }
-        }
-
-        /// Convert array of length $len to byte order.
-        ///
-        /// Correct array will be from the set of {1..$len} and each number
-        /// will only appear once in any order.
-        impl TryFrom<[NonZeroU8; $len]> for ArrayByteOrd<[u8; $len]> {
-            type Error = NewByteOrdError;
-            fn try_from(xs: [NonZeroU8; $len]) -> Result<Self, Self::Error> {
-                let mut flags = [false; $len];
-                // Try to subtract one from each number. While doing so, track
-                // which numbers were seen by setting flags in an array where
-                // each index corresponds to the number we wish to see. If all
-                // are true, then each number is present.
-                let ys = xs.map(|x| {
-                    let y = u8::from(x) - 1;
-                    if y < $len {
-                        flags[usize::from(y)] = true;
-                    }
-                    y
-                });
-                if flags.iter().all(|x| *x) {
-                    let mut it = ys.iter().copied().map(usize::from);
-                    let ret = if it.by_ref().enumerate().all(|(i, x)| i == x) {
-                        Self::Endian(Endian::Little)
-                    } else if it.rev().enumerate().all(|(i, x)| i == x) {
-                        Self::Endian(Endian::Big)
-                    } else {
-                        // something else (mixed)
-                        Self::Order(ys)
-                    };
-                    Ok(ret)
-                } else {
-                    Err(NewByteOrdError($len))
-                }
-            }
-        }
-
-        impl From<ArrayByteOrd<[u8; $len]>> for [NonZeroU8; $len] {
-            fn from(value: ArrayByteOrd<[u8; $len]>) -> Self {
-                debug_assert!($len <= 8_usize, "this should not be called for len > 8");
-                let arr = match value {
-                    ArrayByteOrd::Endian(e) => {
-                        let mut o = std::array::from_fn(|i| u8::try_from(i).unwrap());
-                        if e == Endian::Big {
-                            o.reverse();
-                        };
-                        o
-                    }
-                    ArrayByteOrd::Order(o) => o,
-                };
-                arr.map(|x| NonZeroU8::MIN.saturating_add(x))
-            }
-        }
-
-        impl HasByteOrd for ArrayByteOrd<[u8; $len]> {
-            type ByteOrd = ByteOrd2_0;
-        }
-
-        impl<'a> ToDisplayNE<'a> for ArrayByteOrd<[u8; $len]> {
-            type NE = NEDelim<NEVec<NonZeroU8>>;
-            fn to_ne(&'a self) -> Self::NE {
-                let xs = <[NonZeroU8; $len]>::from(*self);
-                NEDelim::new(',', xs.into_nonempty_iter().collect())
-            }
-        }
-    };
-}
-
-byteord_from_sized!(1, O1, B1);
-byteord_from_sized!(2, O2, B2);
-byteord_from_sized!(3, O3, B3);
-byteord_from_sized!(4, O4, B4);
-byteord_from_sized!(5, O5, B5);
-byteord_from_sized!(6, O6, B6);
-byteord_from_sized!(7, O7, B7);
-byteord_from_sized!(8, O8, B8);
-
 impl PrivBytes {
     /// Return number of bytes needed to express the given u64.
     pub(crate) fn from_u64(x: u64) -> Self {
@@ -352,18 +257,154 @@ impl PrivBytes {
     // }
 }
 
-#[cfg(feature = "serde")]
-impl<const LEN: usize> Serialize for ArrayByteOrd<[u8; LEN]> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        match self {
-            Self::Endian(e) => serializer.serialize_newtype_variant("ArrayByteOrd", 0, "Endian", e),
-            Self::Order(o) => {
-                serializer.serialize_newtype_variant("ArrayByteOrd", 1, "Order", &o[..])
+impl<const LEN: usize> TryFrom<ArrayByteOrd<LEN>> for Endian {
+    type Error = OrderedToEndianError;
+    fn try_from(value: ArrayByteOrd<LEN>) -> Result<Self, Self::Error> {
+        debug_assert!(value.is_valid_order(), "invalid byte order");
+        match value.as_endian() {
+            Some(e) => Ok(e),
+            None => Err(OrderedToEndianError),
+        }
+    }
+}
+
+impl<const LEN: usize> TryFrom<Vec<NonZeroU8>> for ArrayByteOrd<LEN>
+where
+    [NonZeroU8; LEN]: TryInto<Self, Error = NewByteOrdError>,
+{
+    type Error = VecToSizedError;
+    fn try_from(value: Vec<NonZeroU8>) -> Result<Self, Self::Error> {
+        let xs: [NonZeroU8; LEN] = value.try_into().map_err(|ys: Vec<_>| VecToArrayError {
+            vec_len: ys.len(),
+            req_len: LEN,
+        })?;
+        let ret = xs.try_into()?;
+        Ok(ret)
+    }
+}
+
+impl<const LEN: usize> TryFrom<[NonZeroU8; LEN]> for ArrayByteOrd<LEN> {
+    type Error = NewByteOrdError;
+    fn try_from(xs: [NonZeroU8; LEN]) -> Result<Self, Self::Error> {
+        let new = Self(xs.map(|x| u8::from(x) - 1));
+        if new.is_valid_order() {
+            Ok(new)
+        } else {
+            Err(NewByteOrdError(LEN))
+        }
+    }
+}
+
+impl<const LEN: usize> From<ArrayByteOrd<LEN>> for [NonZeroU8; LEN] {
+    fn from(value: ArrayByteOrd<LEN>) -> Self {
+        debug_assert!(value.is_valid_order(), "invalid byte order");
+        value.0.map(|x| NonZeroU8::MIN.saturating_add(x))
+    }
+}
+
+impl<'a, const LEN: usize> ToDisplayNE<'a> for ArrayByteOrd<LEN>
+where
+    [NonZeroU8; LEN]: IntoNonEmptyIterator,
+    NEVec<NonZeroU8>: FromNonEmptyIterator<<[NonZeroU8; LEN] as IntoIterator>::Item>,
+{
+    type NE = NEDelim<NEVec<NonZeroU8>>;
+    fn to_ne(&'a self) -> Self::NE {
+        debug_assert!(self.is_valid_order(), "invalid byte order");
+        let xs = <[NonZeroU8; LEN]>::from(*self);
+        NEDelim::new(',', xs.into_nonempty_iter().collect())
+    }
+}
+
+impl<const LEN: usize> Default for ArrayByteOrd<LEN>
+where
+    Endian: Into<Self>,
+{
+    fn default() -> Self {
+        Endian::Little.into()
+    }
+}
+
+impl<const LEN: usize> From<Endian> for ArrayByteOrd<LEN> {
+    fn from(value: Endian) -> Self {
+        let mut arr = array::from_fn(|i| u8::try_from(i).unwrap());
+        if value == Endian::Big {
+            arr.reverse();
+        }
+        Self(arr)
+    }
+}
+
+macro_rules! byteord_from_sized {
+    ($len:expr, $var:ident, $bytes:ident) => {
+        impl TryFrom<ByteOrd2_0> for ArrayByteOrd<$len> {
+            type Error = ByteOrdToSizedError;
+            fn try_from(value: ByteOrd2_0) -> Result<Self, Self::Error> {
+                if let ByteOrd2_0::$var(sized) = value {
+                    Ok(sized)
+                } else {
+                    Err(ByteOrdToSizedError::new(value.nbytes(), $len))
+                }
             }
         }
+
+        impl HasByteOrd for ArrayByteOrd<$len> {
+            type ByteOrd = ByteOrd2_0;
+        }
+    };
+}
+
+byteord_from_sized!(1, O1, B1);
+byteord_from_sized!(2, O2, B2);
+byteord_from_sized!(3, O3, B3);
+byteord_from_sized!(4, O4, B4);
+byteord_from_sized!(5, O5, B5);
+byteord_from_sized!(6, O6, B6);
+byteord_from_sized!(7, O7, B7);
+byteord_from_sized!(8, O8, B8);
+
+impl<const LEN: usize> ArrayByteOrd<LEN> {
+    pub(crate) fn as_endian(&self) -> Option<Endian> {
+        debug_assert!(self.is_valid_order(), "invalid byte order");
+        let mut it = self.0.iter().copied().map(usize::from);
+        if it.by_ref().enumerate().all(|(i, x)| i == x) {
+            Some(Endian::Little)
+        } else if it.rev().enumerate().all(|(i, x)| i == x) {
+            Some(Endian::Big)
+        } else {
+            None
+        }
+    }
+
+    /// Check if this array is a valid byte order.
+    ///
+    /// Array is valid if it contains all numbers 0 to LEN - 1 exactly once in
+    /// any order.
+    fn is_valid_order(&self) -> bool {
+        let mut flags = [false; LEN];
+        // Try to subtract one from each number. While doing so, track which
+        // numbers were seen by setting flags in an array where each index
+        // corresponds to the number we wish to see. If all are true, then each
+        // number is present.
+        for x in &self.0 {
+            let i = usize::from(*x);
+            if i < LEN {
+                flags[i] = true;
+            }
+        }
+        flags.iter().all(|x| *x)
+    }
+}
+
+#[cfg(feature = "serde")]
+impl<const LEN: usize> Serialize for ArrayByteOrd<LEN> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        Self: Into<[NonZeroU8; LEN]>,
+        S: serde::Serializer,
+    {
+        debug_assert!(self.is_valid_order(), "invalid byte order");
+        let xs: [NonZeroU8; LEN] = (*self).into();
+        xs.to_vec().serialize(serializer)
     }
 }
 
@@ -382,20 +423,6 @@ impl TryFrom<&[NonZeroU8]> for ByteOrd2_0 {
             &[a, b, c, d, e, f, g, h] => [a, b, c, d, e, f, g, h].try_into().map(Self::O8),
             ys => Err(NewByteOrdError(ys.len())),
         }
-    }
-}
-
-impl<const LEN: usize> Default for ArrayByteOrd<[u8; LEN]> {
-    fn default() -> Self {
-        Self::Endian(Endian::default())
-    }
-}
-
-impl ArrayByteOrd<[u8; 2]> {
-    #[must_use]
-    pub fn endian(&self) -> Endian {
-        let [x, y] = (*self).into();
-        (y > x).into()
     }
 }
 
@@ -639,6 +666,19 @@ mod tests {
         assert_eq!(PrivBytes::B3, PrivBytes::from_u64(0x0001_0000));
         assert_eq!(PrivBytes::B8, PrivBytes::from_u64(0xFFFF_FFFF_FFFF_FFFF));
     }
+
+    #[test]
+    fn valid_order() {
+        assert!(ArrayByteOrd_([0, 1, 2, 3]).is_valid_order());
+        assert!(ArrayByteOrd_([3, 2, 1, 0]).is_valid_order());
+        assert!(ArrayByteOrd_([2, 3, 0, 1]).is_valid_order());
+    }
+
+    #[test]
+    fn invalid_order() {
+        assert!(!ArrayByteOrd_([1, 2, 3, 4]).is_valid_order());
+        assert!(!ArrayByteOrd_([0, 0, 1, 1]).is_valid_order());
+    }
 }
 
 #[cfg(feature = "python")]
@@ -649,7 +689,7 @@ mod python {
     use fireflow_types::python::InvalidKeywordValueError;
 
     use pyo3::types::PyInt;
-    use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyString};
+    use pyo3::{prelude::*, types::PyString};
 
     use std::convert::Infallible;
     use std::num::NonZeroU8;
@@ -704,9 +744,11 @@ mod python {
         }
     }
 
+    // TODO this would be cleaner with a wrapper type
+
     // for mixed byte, order use literals "big" and "little" like above and also
     // check for appropriate lists which represent mixed order
-    impl<'py, const LEN: usize> FromPyObject<'py> for ArrayByteOrd<[u8; LEN]>
+    impl<'py, const LEN: usize> FromPyObject<'py> for ArrayByteOrd<LEN>
     where
         Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
     {
@@ -730,21 +772,20 @@ mod python {
         }
     }
 
-    impl<'py, const LEN: usize> IntoPyObject<'py> for ArrayByteOrd<[u8; LEN]> {
+    impl<'py, const LEN: usize> IntoPyObject<'py> for ArrayByteOrd<LEN> {
         type Target = PyAny;
         type Output = Bound<'py, PyAny>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            match self {
-                Self::Endian(Endian::Big) => BYTEORD_BIG.into_bound_py_any(py),
-                Self::Endian(Endian::Little) => BYTEORD_LITTLE.into_bound_py_any(py),
+            if let Some(e) = self.as_endian() {
+                let Ok(ret) = e.into_pyobject(py);
+                Ok(ret.into_any())
+            } else {
+                let xs: [NonZeroU8; LEN] = self.into();
                 // use u32 here since Vec<u8> converts to bytes in python
-                Self::Order(xs) => xs
-                    .into_iter()
-                    .map(u32::from)
-                    .collect::<Vec<_>>()
-                    .into_pyobject(py),
+                let ret: Vec<_> = xs.into_iter().map(|x| u32::from(u8::from(x))).collect();
+                ret.into_pyobject(py)
             }
         }
     }

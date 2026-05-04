@@ -7627,6 +7627,7 @@ impl DocArgRWIvar {
         };
         let vsu = collapsed_version.short_underscore();
         let rstype_inner = format_ident!("AppliedGates{vsu}");
+        let full_rstype: Path = parse_quote!(fireflow_core::text::gating::#rstype_inner);
         let rstype = format_ident!("Py{rstype_inner}");
         let gm_pytype = (collapsed_version < Version::FCS3_2)
             .then(|| PyList::new1(PyClass::new_py([""; 0], "GatedMeasurement")).into());
@@ -7697,14 +7698,14 @@ impl DocArgRWIvar {
         if collapsed_version == Version::FCS2_0 {
             param.into_rw(
                 false,
-                |_, _| quote!(self.0.metaroot::<#rstype_inner>().clone().into()),
-                |n, _| quote!(self.0.set_metaroot::<#rstype_inner>(#n.into())),
+                |_, _| quote!(self.0.metaroot::<#full_rstype>().clone().into()),
+                |n, _| quote!(self.0.set_metaroot::<#full_rstype>(#n.into())),
             )
         } else {
             let setter = format_ident!("set_applied_gates_{vsu}");
             param.into_rw(
                 true,
-                |_, _| quote!(self.0.metaroot::<#rstype_inner>().clone().into()),
+                |_, _| quote!(self.0.metaroot::<#full_rstype>().clone().into()),
                 |n, _| quote!(Ok(self.0.#setter(#n.into())?)),
             )
         }

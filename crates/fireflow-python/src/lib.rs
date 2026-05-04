@@ -57,20 +57,11 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
-use fireflow_core::data::{
-    self, AnyAsciiDataSchema, AnyBigLittleUintDataSchema, AnyDatatype, ColumnMarkers,
-    DataSchema2_0, DataSchema3_0, DataSchema3_1, DataSchema3_2, DecimalRangeAndSeries, FullRange,
-    LayoutByteOrder as _, LayoutDatatype as _, MaybeTypedMixedRange, MaybeTypedMixedSeries,
-    MaybeTypedRange, MaybeTypedVariableBitmask, MaybeTypedVariableUintSeries, NonMixedDataSchema,
-    PhantomInto as _, Series, VariableUintSeries,
-};
+use fireflow_core::data::{self, LayoutByteOrder as _, LayoutDatatype as _, PhantomInto as _};
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
 use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
-use fireflow_core::text::gating::{
-    AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
-    GatingScheme, Region, UnivariateRegion,
-};
+use fireflow_core::text::gating::{self, Region};
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
@@ -79,20 +70,20 @@ use fireflow_core::validated::dataframe::{
 };
 use fireflow_core::validated::header_segments;
 use fireflow_core::validated::keys;
-use fireflow_core::validated::shortname::Shortname;
+use fireflow_core::validated::shortname as sn;
 
 use fireflow_python_proc as fpp;
 
 use fireflow_types::keywords as ftk;
 use fireflow_types::python::EventDataError;
 
-use pyo3::exceptions::PyValueError;
 use type_families::Functor as _;
 
 use derive_more::{From, Into};
 use polars::prelude as pl;
 use polars_arrow::array::{Array, PrimitiveArray};
 use polars_arrow::datatypes::ArrowDataType;
+use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 use pyo3::types::PyTuple;
 use pyo3_polars::{PyDataFrame, PySeries};
@@ -421,13 +412,13 @@ fpp::impl_core_all_pnanalyte!(PyCoreTEXT3_2);
 fpp::impl_core_all_pnanalyte!(PyCoreDataset3_2);
 
 #[derive(From, Into, Default)]
-struct PyAppliedGates2_0(AppliedGates2_0);
+struct PyAppliedGates2_0(gating::AppliedGates2_0);
 
 #[derive(From, Into, Default)]
-struct PyAppliedGates3_0(AppliedGates3_0);
+struct PyAppliedGates3_0(gating::AppliedGates3_0);
 
 #[derive(From, Into, Default)]
-struct PyAppliedGates3_2(AppliedGates3_2);
+struct PyAppliedGates3_2(gating::AppliedGates3_2);
 
 impl<'py> FromPyObject<'py> for PyAppliedGates2_0 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
@@ -436,8 +427,8 @@ impl<'py> FromPyObject<'py> for PyAppliedGates2_0 {
             PyRegionMapping<PyRegion2_0>,
             Option<kws::Gating>,
         ) = ob.extract()?;
-        let scheme = GatingScheme::try_new(gating, regions.into())?;
-        Ok(AppliedGates2_0::try_new(gated_measurements.into(), scheme)?.into())
+        let scheme = gating::GatingScheme::try_new(gating, regions.into())?;
+        Ok(gating::AppliedGates2_0::try_new(gated_measurements.into(), scheme)?.into())
     }
 }
 
@@ -464,8 +455,8 @@ impl<'py> FromPyObject<'py> for PyAppliedGates3_0 {
             PyRegionMapping<PyRegion3_0>,
             Option<kws::Gating>,
         ) = ob.extract()?;
-        let scheme = GatingScheme::try_new(gating, regions.into())?;
-        Ok(AppliedGates3_0::try_new(Vec::from(gated_measurements), scheme)?.into())
+        let scheme = gating::GatingScheme::try_new(gating, regions.into())?;
+        Ok(gating::AppliedGates3_0::try_new(Vec::from(gated_measurements), scheme)?.into())
     }
 }
 
@@ -489,7 +480,7 @@ impl<'py> FromPyObject<'py> for PyAppliedGates3_2 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
         let (regions, gating): (PyRegionMapping<PyRegion3_2>, Option<kws::Gating>) =
             ob.extract()?;
-        Ok(AppliedGates3_2::try_new(gating, regions.into())?.into())
+        Ok(gating::AppliedGates3_2::try_new(gating, regions.into())?.into())
     }
 }
 
@@ -505,22 +496,22 @@ impl<'py> IntoPyObject<'py> for PyAppliedGates3_2 {
 }
 
 // Implement __new__ and attributes for PyUnivariate2_0
-fpp::impl_new_gate_uni_regions!(UnivariateRegion<GateIndex>);
+fpp::impl_new_gate_uni_regions!(gating::UnivariateRegion<GateIndex>);
 
 // Implement __new__ and attributes for PyUnivariate3_0
-fpp::impl_new_gate_uni_regions!(UnivariateRegion<kws::MeasOrGateIndex>);
+fpp::impl_new_gate_uni_regions!(gating::UnivariateRegion<kws::MeasOrGateIndex>);
 
 // Implement __new__ and attributes for PyUnivariate3_2
-fpp::impl_new_gate_uni_regions!(UnivariateRegion<kws::PrefixedMeasIndex>);
+fpp::impl_new_gate_uni_regions!(gating::UnivariateRegion<kws::PrefixedMeasIndex>);
 
 // Implement __new__ and attributes for PyBivariate2_0
-fpp::impl_new_gate_bi_regions!(BivariateRegion<GateIndex>);
+fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<GateIndex>);
 
 // Implement __new__ and attributes for PyBivariate3_0
-fpp::impl_new_gate_bi_regions!(BivariateRegion<kws::MeasOrGateIndex>);
+fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::MeasOrGateIndex>);
 
 // Implement __new__ and attributes for PyBivariate3_2
-fpp::impl_new_gate_bi_regions!(BivariateRegion<kws::PrefixedMeasIndex>);
+fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::PrefixedMeasIndex>);
 
 struct PyEithers<K, U, V>(Eithers<K, U, V>);
 
@@ -558,8 +549,8 @@ type PyRegion3_2 = PyRegion<PyUnivariateRegion3_2, PyBivariateRegion3_2>;
 
 impl<U, B, I> From<PyRegion<U, B>> for Region<I>
 where
-    UnivariateRegion<I>: From<U>,
-    BivariateRegion<I>: From<B>,
+    gating::UnivariateRegion<I>: From<U>,
+    gating::BivariateRegion<I>: From<B>,
 {
     fn from(value: PyRegion<U, B>) -> Self {
         match value {
@@ -571,8 +562,8 @@ where
 
 impl<U, B, I> From<Region<I>> for PyRegion<U, B>
 where
-    U: From<UnivariateRegion<I>>,
-    B: From<BivariateRegion<I>>,
+    U: From<gating::UnivariateRegion<I>>,
+    B: From<gating::BivariateRegion<I>>,
 {
     fn from(value: Region<I>) -> Self {
         match value {
@@ -614,26 +605,26 @@ where
     }
 }
 
-fpp::impl_gated_meas!(GatedMeasurement);
+fpp::impl_gated_meas!(gating::GatedMeasurement);
 
 #[derive(FromPyObject, IntoPyObject)]
 struct PyGatedMeasurements(Vec<PyGatedMeasurement>);
 
-impl From<PyGatedMeasurements> for Vec<GatedMeasurement> {
+impl From<PyGatedMeasurements> for Vec<gating::GatedMeasurement> {
     fn from(value: PyGatedMeasurements) -> Self {
         value.0.into_iter().map(|x| x.0).collect()
     }
 }
 
-impl From<Vec<GatedMeasurement>> for PyGatedMeasurements {
-    fn from(value: Vec<GatedMeasurement>) -> Self {
+impl From<Vec<gating::GatedMeasurement>> for PyGatedMeasurements {
+    fn from(value: Vec<gating::GatedMeasurement>) -> Self {
         Self(value.into_iter().map(Into::into).collect())
     }
 }
 
 // These are dummy markers for use inside python objects. They have no meaning
 // in the python API so this is arbitrary.
-type ColumnMarkers_ = ColumnMarkers<(), ()>;
+type ColumnMarkers_ = data::ColumnMarkers<(), ()>;
 
 type FixedAsciiDataSchema_ = data::FixedAsciiDataSchema<false, ColumnMarkers_>;
 
@@ -784,27 +775,27 @@ pub enum PyDataSchema3_2 {
     Mixed(PyMixedDataSchema),
 }
 
-impl From<PyOrderedDataSchema> for DataSchema2_0 {
+impl From<PyOrderedDataSchema> for data::DataSchema2_0 {
     fn from(value: PyOrderedDataSchema) -> Self {
-        DataSchema3_0::from(value).phantom_into()
+        data::DataSchema3_0::from(value).phantom_into()
     }
 }
 
-impl From<DataSchema2_0> for PyOrderedDataSchema {
-    fn from(value: DataSchema2_0) -> Self {
-        let d: DataSchema3_0 = value.phantom_into();
+impl From<data::DataSchema2_0> for PyOrderedDataSchema {
+    fn from(value: data::DataSchema2_0) -> Self {
+        let d: data::DataSchema3_0 = value.phantom_into();
         d.into()
     }
 }
 
-impl From<PyOrderedDataSchema> for DataSchema3_0 {
+impl From<PyOrderedDataSchema> for data::DataSchema3_0 {
     fn from(value: PyOrderedDataSchema) -> Self {
         match value {
-            PyOrderedDataSchema::AsciiFixed(x) => AnyAsciiDataSchema::from(x.0)
+            PyOrderedDataSchema::AsciiFixed(x) => data::AnyAsciiDataSchema::from(x.0)
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
-            PyOrderedDataSchema::AsciiDelim(x) => AnyAsciiDataSchema::from(x.0)
+            PyOrderedDataSchema::AsciiDelim(x) => data::AnyAsciiDataSchema::from(x.0)
                 .phantom_into()
                 .byte_layout_into()
                 .into(),
@@ -815,49 +806,51 @@ impl From<PyOrderedDataSchema> for DataSchema3_0 {
     }
 }
 
-impl From<DataSchema3_0> for PyOrderedDataSchema {
-    fn from(value: DataSchema3_0) -> Self {
+impl From<data::DataSchema3_0> for PyOrderedDataSchema {
+    fn from(value: data::DataSchema3_0) -> Self {
         match value {
-            AnyDatatype::Ascii(x) => match x.phantom_into() {
-                AnyAsciiDataSchema::Delimited(y) => Self::AsciiDelim(y.byte_layout_into().into()),
-                AnyAsciiDataSchema::Fixed(y) => {
+            data::AnyDatatype::Ascii(x) => match x.phantom_into() {
+                data::AnyAsciiDataSchema::Delimited(y) => {
+                    Self::AsciiDelim(y.byte_layout_into().into())
+                }
+                data::AnyAsciiDataSchema::Fixed(y) => {
                     Self::AsciiFixed(y.byte_layout_into().phantom_into().into())
                 }
             },
-            AnyDatatype::Uint(x) => Self::Uint(x.phantom_into().into()),
-            AnyDatatype::F32(x) => Self::F32(x.phantom_into().into()),
-            AnyDatatype::F64(x) => Self::F64(x.phantom_into().into()),
+            data::AnyDatatype::Uint(x) => Self::Uint(x.phantom_into().into()),
+            data::AnyDatatype::F32(x) => Self::F32(x.phantom_into().into()),
+            data::AnyDatatype::F64(x) => Self::F64(x.phantom_into().into()),
         }
     }
 }
 
-impl From<DataSchema3_1> for PyNonMixedDataSchema {
-    fn from(value: DataSchema3_1) -> Self {
+impl From<data::DataSchema3_1> for PyNonMixedDataSchema {
+    fn from(value: data::DataSchema3_1) -> Self {
         match value {
-            AnyDatatype::Ascii(x) => match x {
-                AnyAsciiDataSchema::Fixed(y) => y.phantom_into().into(),
-                AnyAsciiDataSchema::Delimited(y) => y.phantom_into().into(),
+            data::AnyDatatype::Ascii(x) => match x {
+                data::AnyAsciiDataSchema::Fixed(y) => y.phantom_into().into(),
+                data::AnyAsciiDataSchema::Delimited(y) => y.phantom_into().into(),
             },
-            AnyDatatype::Uint(x) => match x {
-                AnyBigLittleUintDataSchema::Single(y) => y.phantom_into().into(),
-                AnyBigLittleUintDataSchema::Multi(y) => y.phantom_into().into(),
+            data::AnyDatatype::Uint(x) => match x {
+                data::AnyBigLittleUintDataSchema::Single(y) => y.phantom_into().into(),
+                data::AnyBigLittleUintDataSchema::Multi(y) => y.phantom_into().into(),
             },
-            AnyDatatype::F32(x) => x.phantom_into().into(),
-            AnyDatatype::F64(x) => x.phantom_into().into(),
+            data::AnyDatatype::F32(x) => x.phantom_into().into(),
+            data::AnyDatatype::F64(x) => x.phantom_into().into(),
         }
     }
 }
 
-impl From<PyNonMixedDataSchema> for DataSchema3_1 {
+impl From<PyNonMixedDataSchema> for data::DataSchema3_1 {
     fn from(value: PyNonMixedDataSchema) -> Self {
         match value {
             PyNonMixedDataSchema::AsciiFixed(x) => Self::Ascii(x.0.phantom_into().into()),
             PyNonMixedDataSchema::AsciiDelim(x) => Self::Ascii(x.0.phantom_into().into()),
             PyNonMixedDataSchema::SingleUint(x) => {
-                Self::Uint(AnyBigLittleUintDataSchema::Single(x.0.phantom_into()))
+                Self::Uint(data::AnyBigLittleUintDataSchema::Single(x.0.phantom_into()))
             }
             PyNonMixedDataSchema::VariableUint(x) => {
-                Self::Uint(AnyBigLittleUintDataSchema::Multi(x.0.phantom_into()))
+                Self::Uint(data::AnyBigLittleUintDataSchema::Multi(x.0.phantom_into()))
             }
             PyNonMixedDataSchema::F32(x) => Self::F32(x.0.phantom_into()),
             PyNonMixedDataSchema::F64(x) => Self::F64(x.0.phantom_into()),
@@ -865,22 +858,22 @@ impl From<PyNonMixedDataSchema> for DataSchema3_1 {
     }
 }
 
-impl From<PyDataSchema3_2> for DataSchema3_2 {
+impl From<PyDataSchema3_2> for data::DataSchema3_2 {
     fn from(value: PyDataSchema3_2) -> Self {
         match value {
             PyDataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
             PyDataSchema3_2::NonMixed(x) => {
-                Self::NonMixed(NonMixedDataSchema::from(x).phantom_into())
+                Self::NonMixed(data::NonMixedDataSchema::from(x).phantom_into())
             }
         }
     }
 }
 
-impl From<DataSchema3_2> for PyDataSchema3_2 {
-    fn from(value: DataSchema3_2) -> Self {
+impl From<data::DataSchema3_2> for PyDataSchema3_2 {
+    fn from(value: data::DataSchema3_2) -> Self {
         match value {
-            DataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
-            DataSchema3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
+            data::DataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
+            data::DataSchema3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
         }
     }
 }
@@ -992,7 +985,7 @@ pub struct PyFCSDataFrame(PrimitiveDataFrame);
 pub struct PyAnyFCSColumn(AnyPrimitiveSeries);
 
 #[derive(From, Into)]
-pub struct PyVariableUintSeries(VariableUintSeries);
+pub struct PyVariableUintSeries(data::VariableUintSeries);
 
 impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
     type Target = PyAny;
@@ -1103,39 +1096,48 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
 }
 
 impl PyAnyFCSColumn {
-    fn with_range(self, range: FullRange) -> DecimalRangeAndSeries {
+    fn with_range(self, range: data::FullRange) -> data::DecimalRangeAndSeries {
         (range, self.0)
     }
 
     #[allow(clippy::needless_pass_by_value)]
     fn with_bitmask_range(
         self,
-        range: MaybeTypedVariableBitmask,
-    ) -> PyResult<MaybeTypedVariableUintSeries> {
+        range: data::MaybeTypedVariableBitmask,
+    ) -> PyResult<data::MaybeTypedVariableUintSeries> {
         match range {
-            MaybeTypedRange::Untyped(r) => Ok(MaybeTypedRange::Untyped((r, self.0))),
-            MaybeTypedRange::Typed(r) => {
-                let c = match_map_uint!(r, x, Series::from_prim(x, self.0)?);
-                Ok(MaybeTypedRange::Typed(c))
+            data::MaybeTypedRange::Untyped(r) => Ok(data::MaybeTypedRange::Untyped((r, self.0))),
+            data::MaybeTypedRange::Typed(r) => {
+                let c = match_map_uint!(r, x, data::Series::from_prim(x, self.0)?);
+                Ok(data::MaybeTypedRange::Typed(c))
             }
         }
     }
 
     #[allow(clippy::needless_pass_by_value)]
-    fn with_mixed_range(self, range: MaybeTypedMixedRange) -> PyResult<MaybeTypedMixedSeries> {
+    fn with_mixed_range(
+        self,
+        range: data::MaybeTypedMixedRange,
+    ) -> PyResult<data::MaybeTypedMixedSeries> {
         match range {
-            MaybeTypedRange::Untyped(r) => Ok(MaybeTypedRange::Untyped((r, self.0))),
-            MaybeTypedRange::Typed(r) => {
+            data::MaybeTypedRange::Untyped(r) => Ok(data::MaybeTypedRange::Untyped((r, self.0))),
+            data::MaybeTypedRange::Typed(r) => {
                 let c = match r {
-                    AnyDatatype::Ascii(x) => AnyDatatype::Ascii(Series::from_prim(x, self.0)?),
-                    AnyDatatype::Uint(x) => {
-                        let z = match_map_uint!(x, y, Series::from_prim(y, self.0)?);
-                        AnyDatatype::Uint(z)
+                    data::AnyDatatype::Ascii(x) => {
+                        data::AnyDatatype::Ascii(data::Series::from_prim(x, self.0)?)
                     }
-                    AnyDatatype::F32(x) => AnyDatatype::F32(Series::from_prim(x, self.0)?),
-                    AnyDatatype::F64(x) => AnyDatatype::F64(Series::from_prim(x, self.0)?),
+                    data::AnyDatatype::Uint(x) => {
+                        let z = match_map_uint!(x, y, data::Series::from_prim(y, self.0)?);
+                        data::AnyDatatype::Uint(z)
+                    }
+                    data::AnyDatatype::F32(x) => {
+                        data::AnyDatatype::F32(data::Series::from_prim(x, self.0)?)
+                    }
+                    data::AnyDatatype::F64(x) => {
+                        data::AnyDatatype::F64(data::Series::from_prim(x, self.0)?)
+                    }
                 };
-                Ok(MaybeTypedRange::Typed(c))
+                Ok(data::MaybeTypedRange::Typed(c))
             }
         }
     }
@@ -1189,8 +1191,8 @@ impl PyFCSDataFrame {
     // reason is that we want to encode the names in the dataframe, and the only
     // way to do that is to have a function that takes names since FCSDataFrame
     // does not store then itself.
-    fn as_polars_dataframe(&self, names: &[Shortname]) -> pl::DataFrame {
-        fn as_polars_column(c: &AnyPrimitiveSeries, name: &Shortname) -> pl::Column {
+    fn as_polars_dataframe(&self, names: &[sn::Shortname]) -> pl::DataFrame {
+        fn as_polars_column(c: &AnyPrimitiveSeries, name: &sn::Shortname) -> pl::Column {
             // ASSUME this will not fail because the we know that any of the 6
             // allowed types will be valid columns and we don't add a NULL array
             // when making the array

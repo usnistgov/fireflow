@@ -254,7 +254,6 @@ pub type DataFrame3_2 = Any3_2Layout<DataFrameFamily>;
 #[delegate(LayoutDatatype, where = "M: HasWidth, N: HasWidth")]
 #[delegate(LayoutKeywords, where = "M: HasWidth, N: HasWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
-#[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -304,11 +303,10 @@ type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
 #[delegate(LayoutDatatype, where = "Delim: HasWidth, Fixed: HasWidth")]
 #[delegate(LayoutKeywords, where = "Delim: HasWidth, Fixed: HasWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
-#[delegate(LayoutInsert<R>, generics = "R")]
-#[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
+#[delegate(LayoutNormalize)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyAscii<Delim, Fixed> {
     Delimited(Delim),
@@ -446,7 +444,6 @@ pub struct ColumnMarkers<T, D> {
 #[delegate(LayoutDatatype, where = "Single: HasWidth, Multi: HasWidth")]
 #[delegate(LayoutKeywords, where = "Single: HasWidth, Multi: HasWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
-#[delegate(LayoutRemove<R>, generics = "R", where = "Self: LayoutNormalize")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
@@ -564,10 +561,10 @@ where
              D: HasWidth"
 )]
 #[delegate(LayoutRanges<R>, generics = "R")]
-#[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
+#[delegate(LayoutNormalize)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyDatatype<A, U, F, D> {
     Ascii(A),
@@ -644,8 +641,6 @@ pub type MixedSeries = AnyDatatype<
              C64: HasWidth"
 )]
 #[delegate(LayoutRanges<R>, generics = "R")]
-#[delegate(LayoutInsert<R>, generics = "R")]
-#[delegate(LayoutRemove<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
@@ -4380,9 +4375,11 @@ impl<C, F, I, T, M, const ORD: bool> PhantomInto for Layout<C, F, I, T, M, ORD> 
 //    layout itself.
 // 3. If we insert a column along with a range, we need to check the type
 //    of the column as well.
+//
+// Don't use ambassador since it doesn't handle default methods properly which
+// means normalize won't be called.
 
 /// A type which can accept a new column.
-#[delegatable_trait]
 pub trait LayoutInsert<Column>: LayoutNormalize {
     /// Error to emit if new column is not compatible with existing columns.
     type Error;
@@ -4391,7 +4388,7 @@ pub trait LayoutInsert<Column>: LayoutNormalize {
     ///
     /// This will panic if index is out of bounds.
     fn insert_nocheck(&mut self, index: MeasIndex, col: Column) -> Result<(), Self::Error> {
-        self.insert_or_push(Some(index), col)?;
+        self.insert_or_push(Some(index), col, private::NoTouchy)?;
         // Normalization is only needed here is we have an empty layout of a
         // mixed type; inserting one column by definition will have a single
         // type which is less complex than the initial mixed layout.
@@ -4401,12 +4398,58 @@ pub trait LayoutInsert<Column>: LayoutNormalize {
 
     /// Push new column to the right of the current column vector.
     fn push(&mut self, col: Column) -> Result<(), Self::Error> {
-        self.insert_or_push(None, col)?;
+        self.insert_or_push(None, col, private::NoTouchy)?;
         self.normalize();
         Ok(())
     }
 
-    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: Column) -> Result<(), Self::Error>;
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: Column,
+        token: private::NoTouchy,
+    ) -> Result<(), Self::Error>;
+}
+
+impl<C, D, F> LayoutInsert<C> for AnyAscii<D, F>
+where
+    D: LayoutInsert<C>,
+    F: LayoutInsert<C, Error = D::Error>,
+{
+    type Error = D::Error;
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: C,
+        token: private::NoTouchy,
+    ) -> Result<(), Self::Error> {
+        match_any_ascii!(self, x, x.insert_or_push(index, col, token)?);
+        Ok(())
+    }
+}
+
+impl<C, C08, C16, C24, C32, C40, C48, C56, C64> LayoutInsert<C>
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: LayoutInsert<C>,
+    C16: LayoutInsert<C, Error = C08::Error>,
+    C24: LayoutInsert<C, Error = C08::Error>,
+    C32: LayoutInsert<C, Error = C08::Error>,
+    C40: LayoutInsert<C, Error = C08::Error>,
+    C48: LayoutInsert<C, Error = C08::Error>,
+    C56: LayoutInsert<C, Error = C08::Error>,
+    C64: LayoutInsert<C, Error = C08::Error>,
+{
+    type Error = C08::Error;
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: C,
+        token: private::NoTouchy,
+    ) -> Result<(), Self::Error> {
+        match_any_uint!(self, x, x.insert_or_push(index, col, token)?);
+        Ok(())
+    }
 }
 
 impl<A, I, F32, F64> LayoutInsert<FullRange> for AnyDatatype<A, I, F32, F64>
@@ -4423,9 +4466,11 @@ where
         &mut self,
         index: Option<MeasIndex>,
         col: FullRange,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match_any_datatype!(self, x, {
-            x.insert_or_push(index, col).map_err(Self::Error::from)
+            x.insert_or_push(index, col, token)
+                .map_err(Self::Error::from)
         })
     }
 }
@@ -4440,10 +4485,11 @@ impl<D> LayoutInsert<FullRange> for AnyBigLittleUintDataSchema<D> {
         &mut self,
         index: Option<MeasIndex>,
         col: FullRange,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => {
-                x.insert_or_push(index, col)?;
+                x.insert_or_push(index, col, token)?;
                 Ok(())
             }
             Self::Multi(_) => Err(UnderspecifiedUintRangeError.into()),
@@ -4460,6 +4506,7 @@ impl<D> LayoutInsert<VariableBitmask> for AnyBigLittleUintDataSchema<D> {
         &mut self,
         index: Option<MeasIndex>,
         col: VariableBitmask,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => {
@@ -4472,13 +4519,13 @@ impl<D> LayoutInsert<VariableBitmask> for AnyBigLittleUintDataSchema<D> {
                         }
                     } else {
                         let mut new = mem::take(y).map_inner(VariableBitmask::from);
-                        let Ok(()) = new.insert_or_push(index, col);
+                        let Ok(()) = new.insert_or_push(index, col, token);
                         *self = Self::Multi(new);
                     }
                     Ok(())
                 })
             }
-            Self::Multi(x) => x.insert_or_push(index, col),
+            Self::Multi(x) => x.insert_or_push(index, col, token),
         }
     }
 }
@@ -4493,11 +4540,12 @@ impl<D> LayoutInsert<MaybeTypedVariableBitmask> for AnyBigLittleUintDataSchema<D
         &mut self,
         index: Option<MeasIndex>,
         col: MaybeTypedVariableBitmask,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match col {
-            MaybeTypedRange::Untyped(r) => self.insert_or_push(index, r)?,
+            MaybeTypedRange::Untyped(r) => self.insert_or_push(index, r, token)?,
             MaybeTypedRange::Typed(r) => {
-                let Ok(()) = self.insert_or_push(index, r);
+                let Ok(()) = self.insert_or_push(index, r, token);
             }
         }
         Ok(())
@@ -4511,11 +4559,12 @@ impl<D> LayoutInsert<MaybeTypedVariableBitmask> for NonMixedDataSchema<D> {
         &mut self,
         index: Option<MeasIndex>,
         col: MaybeTypedVariableBitmask,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         macro_rules! go {
             ($layout:expr) => {
                 if let MaybeTypedRange::Untyped(r) = col {
-                    $layout.insert_or_push(index, r)?;
+                    $layout.insert_or_push(index, r, token)?;
                 } else {
                     return Err(OverspecifiedUintRangeError::new($layout.datatype()).into());
                 }
@@ -4523,7 +4572,7 @@ impl<D> LayoutInsert<MaybeTypedVariableBitmask> for NonMixedDataSchema<D> {
         }
         match self {
             Self::Ascii(x) => go!(x),
-            Self::Uint(x) => x.insert_or_push(index, col)?,
+            Self::Uint(x) => x.insert_or_push(index, col, token)?,
             Self::F32(x) => go!(x),
             Self::F64(x) => go!(x),
         }
@@ -4538,6 +4587,7 @@ impl LayoutInsert<MaybeTypedMixedRange> for DataSchema3_2 {
         &mut self,
         index: Option<MeasIndex>,
         col: MaybeTypedMixedRange,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         macro_rules! go_mixed {
             ($col:expr, $from:expr) => {{
@@ -4546,7 +4596,7 @@ impl LayoutInsert<MaybeTypedMixedRange> for DataSchema3_2 {
                         .map_inner(MixedRange::from)
                         .byte_layout_into(),
                 );
-                new.insert_or_push(index, $col)?;
+                new.insert_or_push(index, $col, token)?;
                 *self = new;
             }};
         }
@@ -4567,12 +4617,12 @@ impl LayoutInsert<MaybeTypedMixedRange> for DataSchema3_2 {
         match col {
             MaybeTypedRange::Untyped(r) => match self {
                 Self::Mixed(_) => return Err(UnderspecifiedMixedRangeError.into()),
-                Self::NonMixed(x) => x.insert_or_push(index, r)?,
+                Self::NonMixed(x) => x.insert_or_push(index, r, token)?,
             },
 
             MaybeTypedRange::Typed(r) => match self {
                 Self::Mixed(x) => {
-                    let Ok(()) = x.insert_or_push(index, r);
+                    let Ok(()) = x.insert_or_push(index, r, token);
                 }
                 Self::NonMixed(x) => match x {
                     AnyDatatype::Ascii(y) => match y {
@@ -4582,7 +4632,7 @@ impl LayoutInsert<MaybeTypedMixedRange> for DataSchema3_2 {
                     AnyDatatype::Uint(y) => match y {
                         AnyBigLittleUint::Single(z) => {
                             if let AnyDatatype::Uint(rr) = r {
-                                let Ok(()) = y.insert_or_push(index, rr);
+                                let Ok(()) = y.insert_or_push(index, rr, token);
                             } else {
                                 match_any_uint!(z, s, go_mixed!(MaybeTypedRange::Typed(r), s));
                             }
@@ -4603,7 +4653,12 @@ impl<R: TryInto<C>, C, I, L, M, const ORD: bool> LayoutInsert<R>
 {
     type Error = R::Error;
 
-    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: R) -> Result<(), Self::Error> {
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: R,
+        _: private::NoTouchy,
+    ) -> Result<(), Self::Error> {
         let r: C = col.try_into()?;
         if let Some(i) = index {
             self.container.insert(i.into(), r);
@@ -4629,9 +4684,10 @@ where
         &mut self,
         index: Option<MeasIndex>,
         col: DecimalRangeAndSeries,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match_any_datatype!(self, x, {
-            x.insert_or_push(index, col)
+            x.insert_or_push(index, col, token)
                 .map_err(|e| e.fmap_once(InsertFullRangeError::from))
         })
     }
@@ -4644,10 +4700,11 @@ impl<D> LayoutInsert<DecimalRangeAndSeries> for AnyBigLittleUintDataFrame<D> {
         &mut self,
         index: Option<MeasIndex>,
         col: DecimalRangeAndSeries,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => {
-                x.insert_or_push(index, col)
+                x.insert_or_push(index, col, token)
                     .map_err(FunctorOnce::fmap_into_once)?;
                 Ok(())
             }
@@ -4665,6 +4722,7 @@ impl<D> LayoutInsert<VariableUintSeries> for AnyBigLittleUintDataFrame<D> {
         &mut self,
         index: Option<MeasIndex>,
         col: VariableUintSeries,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match self {
             Self::Single(x) => {
@@ -4677,13 +4735,13 @@ impl<D> LayoutInsert<VariableUintSeries> for AnyBigLittleUintDataFrame<D> {
                         }
                     } else {
                         let mut new = mem::take(y).map_inner(VariableUintSeries::from);
-                        let Ok(()) = new.insert_or_push(index, col);
+                        let Ok(()) = new.insert_or_push(index, col, token);
                         *self = Self::Multi(new);
                     }
                     Ok(())
                 })
             }
-            Self::Multi(x) => x.insert_or_push(index, col),
+            Self::Multi(x) => x.insert_or_push(index, col, token),
         }
     }
 }
@@ -4695,11 +4753,12 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for AnyBigLittleUintDataFrame
         &mut self,
         index: Option<MeasIndex>,
         col: MaybeTypedVariableUintSeries,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         match col {
-            MaybeTypedRange::Untyped(r) => self.insert_or_push(index, r)?,
+            MaybeTypedRange::Untyped(r) => self.insert_or_push(index, r, token)?,
             MaybeTypedRange::Typed(r) => {
-                let Ok(()) = self.insert_or_push(index, r);
+                let Ok(()) = self.insert_or_push(index, r, token);
             }
         }
         Ok(())
@@ -4713,12 +4772,13 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
         &mut self,
         index: Option<MeasIndex>,
         col: MaybeTypedVariableUintSeries,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         macro_rules! go {
             ($layout:expr) => {
                 if let MaybeTypedRange::Untyped(r) = col {
                     $layout
-                        .insert_or_push(index, r)
+                        .insert_or_push(index, r, token)
                         .map_err(InsertRangeAndSeriesError::fmap_into_once)?;
                 } else {
                     return Err(InsertRangeAndSeriesError::Range(
@@ -4729,7 +4789,7 @@ impl<D> LayoutInsert<MaybeTypedVariableUintSeries> for NonMixedDataFrame<D> {
         }
         match self {
             Self::Ascii(x) => go!(x),
-            Self::Uint(x) => x.insert_or_push(index, col)?,
+            Self::Uint(x) => x.insert_or_push(index, col, token)?,
             Self::F32(x) => go!(x),
             Self::F64(x) => go!(x),
         }
@@ -4744,6 +4804,7 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
         &mut self,
         index: Option<MeasIndex>,
         col: MaybeTypedMixedSeries,
+        token: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         macro_rules! go_mixed {
             ($col:expr, $from:expr) => {{
@@ -4752,7 +4813,7 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                         .map_inner(MixedSeries::from)
                         .byte_layout_into(),
                 );
-                new.insert_or_push(index, $col)?;
+                new.insert_or_push(index, $col, token)?;
                 *self = new;
             }};
         }
@@ -4777,12 +4838,12 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                         UnderspecifiedMixedRangeError.into(),
                     ));
                 }
-                Self::NonMixed(x) => x.insert_or_push(index, r)?,
+                Self::NonMixed(x) => x.insert_or_push(index, r, token)?,
             },
 
             MaybeTypedRange::Typed(r) => match self {
                 Self::Mixed(x) => {
-                    let Ok(()) = x.insert_or_push(index, r);
+                    let Ok(()) = x.insert_or_push(index, r, token);
                 }
                 Self::NonMixed(x) => match x {
                     AnyDatatype::Ascii(y) => match y {
@@ -4792,7 +4853,7 @@ impl LayoutInsert<MaybeTypedMixedSeries> for DataFrame3_2 {
                     AnyDatatype::Uint(y) => match y {
                         AnyBigLittleUint::Single(z) => {
                             if let AnyDatatype::Uint(rr) = r {
-                                let Ok(()) = y.insert_or_push(index, rr);
+                                let Ok(()) = y.insert_or_push(index, rr, token);
                             } else {
                                 match_any_uint!(z, s, go_mixed!(MaybeTypedRange::Typed(r), s));
                             }
@@ -4822,6 +4883,7 @@ where
         &mut self,
         index: Option<MeasIndex>,
         col: RangeAndSeries<R>,
+        _: private::NoTouchy,
     ) -> Result<(), Self::Error> {
         let c = col.try_into()?;
         if let Some(i) = index {
@@ -4841,7 +4903,12 @@ impl<C: HasLen, I, L, M, const ORD: bool> LayoutInsert<C>
 {
     type Error = Infallible;
 
-    fn insert_or_push(&mut self, index: Option<MeasIndex>, col: C) -> Result<(), Self::Error> {
+    fn insert_or_push(
+        &mut self,
+        index: Option<MeasIndex>,
+        col: C,
+        _: private::NoTouchy,
+    ) -> Result<(), Self::Error> {
         if let Some(i) = index {
             self.container.insert_series_nocheck(i.into(), col);
         } else {
@@ -4872,29 +4939,92 @@ where
 //
 // Unlike insertions, this cannot fail which makes this trait simpler.
 // Also (for now) these only return a range (ie $PnR value).
+//
+// Ambassador won't handle the default method properly (which means normalize
+// won't be called) so impl enums manually.
 
 // TODO return type of mixed type which was removed?
 
 /// A type which can have a column removed from it.
-#[delegatable_trait]
 pub trait LayoutRemove<C>: Sized + LayoutNormalize {
     /// Remove a column.
     ///
     /// Will panic if index is out of bounds.
     fn remove_nocheck(&mut self, index: MeasIndex) -> C {
-        let ret = self.remove_nocheck_inner(index);
+        let ret = self.remove_nocheck_inner(index, private::NoTouchy);
         self.normalize();
         ret
     }
 
-    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> C;
+    fn remove_nocheck_inner(&mut self, index: MeasIndex, token: private::NoTouchy) -> C;
+}
+
+impl<C, M, N> LayoutRemove<C> for Any3_2<M, N>
+where
+    Self: LayoutNormalize,
+    M: LayoutRemove<C>,
+    N: LayoutRemove<C>,
+{
+    fn remove_nocheck_inner(&mut self, index: MeasIndex, token: private::NoTouchy) -> C {
+        match_any_3_2!(self, x, x.remove_nocheck_inner(index, token))
+    }
+}
+
+impl<C, D, F> LayoutRemove<C> for AnyAscii<D, F>
+where
+    D: LayoutRemove<C>,
+    F: LayoutRemove<C>,
+{
+    fn remove_nocheck_inner(&mut self, index: MeasIndex, token: private::NoTouchy) -> C {
+        match_any_ascii!(self, x, x.remove_nocheck_inner(index, token))
+    }
+}
+
+impl<C, A, I, F32, F64> LayoutRemove<C> for AnyDatatype<A, I, F32, F64>
+where
+    A: LayoutRemove<C>,
+    I: LayoutRemove<C>,
+    F32: LayoutRemove<C>,
+    F64: LayoutRemove<C>,
+{
+    fn remove_nocheck_inner(&mut self, index: MeasIndex, token: private::NoTouchy) -> C {
+        match_any_datatype!(self, x, x.remove_nocheck_inner(index, token))
+    }
+}
+
+impl<C, W, W0> LayoutRemove<C> for AnyBigLittleUint<W0, W>
+where
+    Self: LayoutNormalize,
+    W0: LayoutRemove<C>,
+    W: LayoutRemove<C>,
+{
+    fn remove_nocheck_inner(&mut self, index: MeasIndex, token: private::NoTouchy) -> C {
+        match_any_endian_uint!(self, x, x.remove_nocheck_inner(index, token))
+    }
+}
+
+impl<C, C08, C16, C24, C32, C40, C48, C56, C64> LayoutRemove<C>
+    for AnyUint<C08, C16, C24, C32, C40, C48, C56, C64>
+where
+    C08: LayoutRemove<C>,
+    C16: LayoutRemove<C>,
+    C24: LayoutRemove<C>,
+    C32: LayoutRemove<C>,
+    C40: LayoutRemove<C>,
+    C48: LayoutRemove<C>,
+    C56: LayoutRemove<C>,
+    C64: LayoutRemove<C>,
+{
+    fn remove_nocheck_inner(&mut self, index: MeasIndex, token: private::NoTouchy) -> C {
+        match_any_uint!(self, x, x.remove_nocheck_inner(index, token))
+    }
 }
 
 impl<R, C, I, L, M, const ORD: bool> LayoutRemove<R> for Layout<Vec<C>, VecFamily, I, L, M, ORD>
 where
     C: Into<R>,
 {
-    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> R {
+    fn remove_nocheck_inner(&mut self, index: MeasIndex, _: private::NoTouchy) -> R {
         debug_assert!(
             usize::from(index) <= self.container.len(),
             "Index should be less than/equal to column number"
@@ -4908,7 +5038,11 @@ impl<R, C, I, L, M, const ORD: bool> LayoutRemove<RangeAndSeries<R>>
 where
     C: Into<R> + Into<AnyPrimitiveSeries> + Clone,
 {
-    fn remove_nocheck_inner(&mut self, index: MeasIndex) -> RangeAndSeries<R> {
+    fn remove_nocheck_inner(
+        &mut self,
+        index: MeasIndex,
+        _: private::NoTouchy,
+    ) -> RangeAndSeries<R> {
         debug_assert!(
             usize::from(index) <= self.container.ncols(),
             "Index should be less than/equal to column number"
@@ -5014,35 +5148,6 @@ impl<C, F, I, L, M, const ORD: bool> LayoutNormalize for Layout<C, F, I, L, M, O
     }
 
     fn normalize(&mut self) {}
-}
-
-// Ditto ascii layouts
-impl<D, F> LayoutNormalize for AnyAscii<D, F> {
-    fn is_normalized(&self) -> bool {
-        true
-    }
-
-    fn normalize(&mut self) {}
-}
-
-// Any layout that can hold multiple datatype defers to the integer type since
-// this generic might be filled by a variable or single width layout which
-// can be normalized. Ascii, F32, and F64 types are by definition irreducible
-// and cannot be normalized, so noop if these are selected.
-impl<A, I: LayoutNormalize, F32, F64> LayoutNormalize for AnyDatatype<A, I, F32, F64> {
-    fn is_normalized(&self) -> bool {
-        if let Self::Uint(x) = self {
-            x.is_normalized()
-        } else {
-            true
-        }
-    }
-
-    fn normalize(&mut self) {
-        if let Self::Uint(x) = self {
-            x.normalize();
-        }
-    }
 }
 
 // A variable width integer layout can be simplified to a single width layout
@@ -8156,6 +8261,10 @@ pub(crate) fn u64_to_usize(x: u64) -> usize {
 
 pub(crate) fn usize_to_u64(x: usize) -> u64 {
     u64::try_from(x).expect("overflow")
+}
+
+mod private {
+    pub struct NoTouchy;
 }
 
 #[cfg(feature = "python")]

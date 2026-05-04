@@ -66,6 +66,7 @@ use fireflow_core::data::{
 };
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
+use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
 use fireflow_core::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_2, BivariateRegion, GatedMeasurement,
     GatingScheme, Region, UnivariateRegion,
@@ -82,8 +83,10 @@ use fireflow_core::validated::shortname::Shortname;
 
 use fireflow_python_proc as fpp;
 
+use fireflow_types::keywords as ftk;
 use fireflow_types::python::EventDataError;
 
+use pyo3::exceptions::PyValueError;
 use type_families::Functor as _;
 
 use derive_more::{From, Into};
@@ -96,6 +99,7 @@ use pyo3_polars::{PyDataFrame, PySeries};
 
 use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
+use std::num::NonZeroU8;
 
 fpp::def_fcs_read_header!(api::fcs_read_header);
 fpp::def_fcs_read_flat_text!(api::fcs_read_flat_text, api::fcs_read_flat_texts);
@@ -644,8 +648,8 @@ fpp::impl_new_delim_ascii_data_schema!("DelimAsciiDataSchema", DelimAsciiDataSch
 // TODO these can probably be combined
 
 // Implement __new__ and attributes for all PyOrderedF*DataSchema structs
-fpp::impl_new_ordered_data_schema!("OrderedF32DataSchema", data::OrderedF32DataSchema<()>, 4);
-fpp::impl_new_ordered_data_schema!("OrderedF64DataSchema", data::OrderedF64DataSchema<()>, 8);
+fpp::impl_new_ordered_float_data_schema!("OrderedF32DataSchema", data::OrderedF32DataSchema<()>, 4);
+fpp::impl_new_ordered_float_data_schema!("OrderedF64DataSchema", data::OrderedF64DataSchema<()>, 8);
 
 // Implement __new__ and attributes for all PyBigLittleF*DataSchema structs
 fpp::impl_new_endian_float_data_schema!(
@@ -877,6 +881,84 @@ impl From<DataSchema3_2> for PyDataSchema3_2 {
         match value {
             DataSchema3_2::Mixed(x) => Self::Mixed(x.into()),
             DataSchema3_2::NonMixed(x) => Self::NonMixed(x.phantom_into().into()),
+        }
+    }
+}
+
+/// Any byte order that can be used in a 2.0/3.0 layout with a given size.
+///
+/// Meant for arguments to functions.
+pub enum PyByteOrder<const LEN: usize> {
+    Endian(Endian),
+    Ordered(ArrayByteOrd<LEN>),
+}
+
+impl<const LEN: usize> Default for PyByteOrder<LEN> {
+    fn default() -> Self {
+        Self::Endian(Endian::default())
+    }
+}
+
+impl<const LEN: usize> From<ArrayByteOrd<LEN>> for PyByteOrder<LEN> {
+    fn from(value: ArrayByteOrd<LEN>) -> Self {
+        if let Some(e) = value.as_endian() {
+            Self::Endian(e)
+        } else {
+            Self::Ordered(value)
+        }
+    }
+}
+
+impl<const LEN: usize> From<PyByteOrder<LEN>> for ArrayByteOrd<LEN> {
+    fn from(value: PyByteOrder<LEN>) -> Self {
+        match value {
+            PyByteOrder::Endian(e) => e.into(),
+            PyByteOrder::Ordered(o) => o,
+        }
+    }
+}
+
+impl<'py, const LEN: usize> FromPyObject<'py> for PyByteOrder<LEN>
+where
+    Vec<NonZeroU8>: TryInto<ArrayByteOrd<LEN>>,
+{
+    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+        if let Ok(e) = ob.extract::<Endian>() {
+            Ok(Self::Endian(e))
+        } else if let Some(o) = ob
+            .extract::<Vec<NonZeroU8>>()
+            .ok()
+            .and_then(|xs| xs.try_into().ok())
+        {
+            Ok(Self::Ordered(o))
+        } else {
+            let msg = format!(
+                "must be '{}', '{}', or a list",
+                ftk::BYTEORD_LITTLE,
+                ftk::BYTEORD_BIG
+            );
+            Err(PyValueError::new_err(msg))
+        }
+    }
+}
+
+impl<'py, const LEN: usize> IntoPyObject<'py> for PyByteOrder<LEN> {
+    type Target = PyAny;
+    type Output = Bound<'py, PyAny>;
+    type Error = PyErr;
+
+    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+        match self {
+            Self::Endian(e) => {
+                let Ok(ret) = e.into_pyobject(py);
+                Ok(ret.into_any())
+            }
+            Self::Ordered(o) => {
+                let xs: [NonZeroU8; LEN] = o.into();
+                // use u32 here since Vec<u8> converts to bytes in python
+                let ret: Vec<_> = xs.into_iter().map(|x| u32::from(u8::from(x))).collect();
+                ret.into_pyobject(py)
+            }
         }
     }
 }

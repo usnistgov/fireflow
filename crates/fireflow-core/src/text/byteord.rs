@@ -132,30 +132,6 @@ where
     }
 }
 
-// /// Any byte order that can be used in a 2.0/3.0 layout with a given size.
-// ///
-// /// Meant for arguments to functions.
-// pub enum SizedByteOrder<const LEN: usize> {
-//     Endian(Endian),
-//     Ordered(ArrayByteOrd<LEN>),
-// }
-
-// impl<const LEN: usize> Default for SizedByteOrder<LEN> {
-//     fn default() -> Self {
-//         Self::Endian(Endian::default())
-//     }
-// }
-
-// impl<const LEN: usize> From<ArrayByteOrd<LEN>> for SizedByteOrder<LEN> {
-//     fn from(value: ArrayByteOrd<LEN>) -> Self {
-//         if let Some(e) = value.as_endian() {
-//             Self::Endian(e)
-//         } else {
-//             Self::Ordered(value)
-//         }
-//     }
-// }
-
 /// The number of bytes for a numeric measurement
 #[derive(Into, Debug, Display)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]
@@ -363,7 +339,8 @@ byteord_from_sized!(7, O7, B7);
 byteord_from_sized!(8, O8, B8);
 
 impl<const LEN: usize> ArrayByteOrd<LEN> {
-    pub(crate) fn as_endian(&self) -> Option<Endian> {
+    /// Convert to [`Endian`] if possible.
+    pub fn as_endian(&self) -> Option<Endian> {
         debug_assert!(self.is_valid_order(), "invalid byte order");
         let mut it = self.0.iter().copied().map(usize::from);
         if it.by_ref().enumerate().all(|(i, x)| i == x) {
@@ -683,7 +660,7 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{ArgBytes, ArrayByteOrd, Endian, NewArgBytesError, VecToSizedError};
+    use super::{ArgBytes, Endian, NewArgBytesError};
 
     use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
     use fireflow_types::python::InvalidKeywordValueError;
@@ -692,7 +669,6 @@ mod python {
     use pyo3::{prelude::*, types::PyString};
 
     use std::convert::Infallible;
-    use std::num::NonZeroU8;
 
     // This is just a python integer 1-8. Thus far this is only used when
     // making data layouts.
@@ -741,52 +717,6 @@ mod python {
                 Self::Little => BYTEORD_LITTLE,
             }
             .into_pyobject(py)
-        }
-    }
-
-    // TODO this would be cleaner with a wrapper type
-
-    // for mixed byte, order use literals "big" and "little" like above and also
-    // check for appropriate lists which represent mixed order
-    impl<'py, const LEN: usize> FromPyObject<'py> for ArrayByteOrd<LEN>
-    where
-        Self: TryFrom<Vec<NonZeroU8>, Error = VecToSizedError>,
-    {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let err = || {
-                let msg = format!("must be '{BYTEORD_BIG}', '{BYTEORD_LITTLE}', or a list");
-                InvalidKeywordValueError::new_err(msg)
-            };
-            if let Ok(s) = ob.extract::<String>() {
-                match s.as_str() {
-                    BYTEORD_LITTLE => Ok(Endian::Little),
-                    BYTEORD_BIG => Ok(Endian::Big),
-                    _ => Err(err()),
-                }
-                .map(Self::from)
-            } else if let Ok(xs) = ob.extract::<Vec<NonZeroU8>>() {
-                Ok(Self::try_from(xs)?)
-            } else {
-                Err(err())
-            }
-        }
-    }
-
-    impl<'py, const LEN: usize> IntoPyObject<'py> for ArrayByteOrd<LEN> {
-        type Target = PyAny;
-        type Output = Bound<'py, PyAny>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            if let Some(e) = self.as_endian() {
-                let Ok(ret) = e.into_pyobject(py);
-                Ok(ret.into_any())
-            } else {
-                let xs: [NonZeroU8; LEN] = self.into();
-                // use u32 here since Vec<u8> converts to bytes in python
-                let ret: Vec<_> = xs.into_iter().map(|x| u32::from(u8::from(x))).collect();
-                ret.into_pyobject(py)
-            }
         }
     }
 }

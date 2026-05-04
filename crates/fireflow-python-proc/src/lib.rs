@@ -4344,7 +4344,7 @@ pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
 
 #[proc_macro]
 #[allow(clippy::too_many_lines)]
-pub fn impl_new_ordered_data_schema(input: TokenStream) -> TokenStream {
+pub fn impl_new_ordered_float_data_schema(input: TokenStream) -> TokenStream {
     const RANGES: &str = "ranges";
     let parsed = parse_macro_input!(input as SizedDataSchemaPath);
     let path = parsed.named_path.path;
@@ -4371,7 +4371,7 @@ pub fn impl_new_ordered_data_schema(input: TokenStream) -> TokenStream {
         "byteord",
         PyUnion::new_byteord(Some(nbytes)),
         "The byte order to use when encoding values.",
-        |_, _| quote!(*self.0.as_ref()),
+        |_, _| quote!(PyByteOrder::from(self.0.byte_order())),
     )
     .def_auto();
 
@@ -4381,7 +4381,7 @@ pub fn impl_new_ordered_data_schema(input: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #bare_path::new(ranges, byteord).into()
+                #bare_path::new(ranges, byteord.into()).into()
             }
         }
     };
@@ -6984,7 +6984,7 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_byteord(nbytes: Option<usize>) -> Self {
         let (path, exc_desc) = if let Some(n) = nbytes {
-            let sizedbyteord_path: Path = parse_quote!(fireflow_core::text::byteord::ArrayByteOrd);
+            let sizedbyteord_path: Path = parse_quote!(PyByteOrder);
             let p = parse_quote!(#sizedbyteord_path<#n>);
             let d = format!(
                 "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \

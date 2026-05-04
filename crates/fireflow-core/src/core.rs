@@ -31,7 +31,8 @@ use crate::logging::{
     SwitchableErrorResult, WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult,
     WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::macros::{def_summary, match_many_to_one};
+use crate::macros::def_summary;
+use crate::match_many_to_one;
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
     KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _, OptSegmentWithDefaultWarning,

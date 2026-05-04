@@ -1143,6 +1143,40 @@ impl PyAnyFCSColumn {
     }
 }
 
+// fn from_series(rs: data::DecimalRangeAndSeries) -> data::FullRange {
+//     rs.0
+// }
+
+// fn from_bitmask_series(
+//     rs: data::MaybeTypedVariableUintSeries,
+// ) -> (data::MaybeTypedVariableBitmask, Self) {
+//     match rs {
+//         data::MaybeTypedRange::Untyped((r, s)) => (data::MaybeTypedRange::Untyped(r), Self(s)),
+//         data::MaybeTypedRange::Typed(x) => {
+//             let r = match_map_uint!(x.clone(), y, *y.column_schema());
+//             let s = match_any_uint!(x, y, y.to_prim());
+//             (data::MaybeTypedRange::Typed(r), Self(s))
+//         }
+//     }
+// }
+
+// fn from_mixed_series(rs: data::MaybeTypedMixedSeries) -> (data::MaybeTypedMixedRange, Self) {
+//     match rs {
+//         data::MaybeTypedRange::Untyped((r, s)) => (data::MaybeTypedRange::Untyped(r), Self(s)),
+//         data::MaybeTypedRange::Typed(x) => {
+//             let r = match x {
+//                 data::AnyDatatype::Ascii(ref y) => data::AnyDatatype::Ascii(*y.column_schema()),
+//                 data::AnyDatatype::Uint(ref y) => {
+//                     data::AnyDatatype::Uint(match_map_uint!(y, z, *z.column_schema()))
+//                 }
+//                 data::AnyDatatype::F32(ref y) => data::AnyDatatype::F32(*y.column_schema()),
+//                 data::AnyDatatype::F64(ref y) => data::AnyDatatype::F64(*y.column_schema()),
+//             };
+//             (data::MaybeTypedRange::Typed(r), Self(x.into()))
+//         }
+//     }
+// }
+
 pub enum SeriesToColumnError {
     InvalidDatatype(pl::PlSmallStr, pl::DataType),
     HasNull(pl::PlSmallStr),

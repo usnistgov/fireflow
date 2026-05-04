@@ -1,7 +1,8 @@
 use crate::config::OverlapCorrectionLimit;
 use crate::core::{DatasetSegments, OthersReader};
 use crate::logging::{ErrorGroup, ErrorsResult};
-use crate::macros::{def_summary, match_many_to_one};
+use crate::macros::def_summary;
+use crate::match_many_to_one;
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment,
     IsDataOrAnalysis, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,

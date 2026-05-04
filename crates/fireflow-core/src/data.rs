@@ -121,7 +121,8 @@ use crate::logging::{
     WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, io_to_log,
 };
-use crate::macros::{def_summary, match_many_to_one};
+use crate::macros::def_summary;
+use crate::match_many_to_one;
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
@@ -487,7 +488,15 @@ impl<M, T, R> Series<M, T, R> {
         Ok(Self::new(metadata, series.try_into()?))
     }
 
-    pub(crate) fn column_schema(&self) -> &M {
+    pub fn to_prim(&self) -> AnyPrimitiveSeries
+    where
+        InternalSeries<T, R>: Into<PrimitiveSeries<T>> + Clone,
+        PrimitiveSeries<T>: Into<AnyPrimitiveSeries>,
+    {
+        PrimitiveSeries::from(self.series.clone()).into()
+    }
+
+    pub fn column_schema(&self) -> &M {
         &self.column_schema
     }
 
@@ -1750,8 +1759,9 @@ enum Any8ByteType<F64, I64> {
 
 #[macro_export]
 macro_rules! match_any_uint {
-    ($value:expr, $inner:ident, $action:expr) => {
-        match_many_to_one!(
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyUint;
+        $crate::match_many_to_one!(
             $value,
             AnyUint,
             [
@@ -1760,41 +1770,45 @@ macro_rules! match_any_uint {
             $inner,
             $action
         )
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! match_any_datatype {
-    ($value:expr, $inner:ident, $action:expr ) => {
-        match_many_to_one!(
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyDatatype;
+        $crate::match_many_to_one!(
             $value,
             AnyDatatype,
             [Ascii, Uint, F32, F64],
             $inner,
             $action
         )
-    };
+    }};
 }
 
 #[macro_export]
 macro_rules! match_any_ascii {
-    ($value:expr, $inner:ident, $action:expr) => {
-        match_many_to_one!($value, AnyAscii, [Delimited, Fixed], $inner, $action)
-    };
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyAscii;
+        $crate::match_many_to_one!($value, AnyAscii, [Delimited, Fixed], $inner, $action)
+    }};
 }
 
 #[macro_export]
 macro_rules! match_any_endian_uint {
-    ($value:expr, $inner:ident, $action:expr) => {
-        match_many_to_one!($value, AnyBigLittleUint, [Single, Multi], $inner, $action)
-    };
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::AnyBigLittleUint;
+        $crate::match_many_to_one!($value, AnyBigLittleUint, [Single, Multi], $inner, $action)
+    }};
 }
 
 #[macro_export]
 macro_rules! match_any_3_2 {
-    ($value:expr, $inner:ident, $action:expr) => {
-        match_many_to_one!($value, Any3_2, [Mixed, NonMixed], $inner, $action)
-    };
+    ($value:expr, $inner:ident, $action:expr) => {{
+        use $crate::data::Any3_2;
+        $crate::match_many_to_one!($value, Any3_2, [Mixed, NonMixed], $inner, $action)
+    }};
 }
 
 #[macro_export]
@@ -5963,7 +5977,9 @@ impl TryFrom<FullRange> for F64Range {
     }
 }
 
-// Implement column -> real range (not $PnR)
+// Implement column -> real range (not $PnR) for 2.0/3.0
+//
+// Required to remove columns from layout
 
 impl<T> From<Bitmask<T>> for FullIntRange
 where
@@ -6044,6 +6060,158 @@ impl From<VariableUintSeries> for FullRange {
 impl From<MixedSeries> for FullRange {
     fn from(value: MixedSeries) -> Self {
         match_any_datatype!(value, x, x.into())
+    }
+}
+
+// Implement column -> real range (not $PnR) for 3.1
+//
+// Required to remove columns from layout
+//
+// VariableInt ranges (with or without a series) map to typed full ranges,
+// everything else maps to untyped
+
+impl<T> From<Bitmask<T>> for MaybeTypedVariableBitmask
+where
+    Bitmask<T>: Into<FullRange>,
+{
+    fn from(value: Bitmask<T>) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl<T> From<FloatRange<T>> for MaybeTypedVariableBitmask
+where
+    FloatRange<T>: Into<FullRange>,
+{
+    fn from(value: FloatRange<T>) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<FixedAsciiRange> for MaybeTypedVariableBitmask {
+    fn from(value: FixedAsciiRange) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<DelimAsciiRange> for MaybeTypedVariableBitmask {
+    fn from(value: DelimAsciiRange) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<VariableBitmask> for MaybeTypedVariableBitmask {
+    fn from(value: VariableBitmask) -> Self {
+        Self::Typed(value)
+    }
+}
+
+impl<C> From<NativeSeries<C>> for MaybeTypedVariableBitmask
+where
+    C: ColumnHasNativeType + Into<FullRange>,
+    C::Native: FCSRepr,
+{
+    fn from(value: NativeSeries<C>) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<VariableUintSeries> for MaybeTypedVariableBitmask {
+    fn from(value: VariableUintSeries) -> Self {
+        Self::Typed(match_map_uint!(value, x, *x.column_schema()))
+    }
+}
+
+impl From<MixedSeries> for MaybeTypedVariableBitmask {
+    fn from(value: MixedSeries) -> Self {
+        match value {
+            AnyDatatype::Ascii(x) => Self::Untyped(x.into()),
+            AnyDatatype::Uint(x) => Self::Typed(match_map_uint!(x, y, *y.column_schema())),
+            AnyDatatype::F32(x) => Self::Untyped(x.into()),
+            AnyDatatype::F64(x) => Self::Untyped(x.into()),
+        }
+    }
+}
+
+// Implement column -> real range (not $PnR) for 3.2
+//
+// Required to remove columns from layout
+//
+// Mixed and VariableInt ranges (with or without a series) map to typed full
+// ranges, everything else maps to untyped
+
+impl<T> From<Bitmask<T>> for MaybeTypedMixedRange
+where
+    Bitmask<T>: Into<FullRange>,
+{
+    fn from(value: Bitmask<T>) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl<T> From<FloatRange<T>> for MaybeTypedMixedRange
+where
+    FloatRange<T>: Into<FullRange>,
+{
+    fn from(value: FloatRange<T>) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<FixedAsciiRange> for MaybeTypedMixedRange {
+    fn from(value: FixedAsciiRange) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<DelimAsciiRange> for MaybeTypedMixedRange {
+    fn from(value: DelimAsciiRange) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<VariableBitmask> for MaybeTypedMixedRange {
+    fn from(value: VariableBitmask) -> Self {
+        Self::Typed(MixedRange::Uint(value))
+    }
+}
+
+impl From<MixedRange> for MaybeTypedMixedRange {
+    fn from(value: MixedRange) -> Self {
+        Self::Typed(value)
+    }
+}
+
+impl<C> From<NativeSeries<C>> for MaybeTypedMixedRange
+where
+    C: ColumnHasNativeType,
+    C::Native: FCSRepr,
+    NativeSeries<C>: Into<FullRange>,
+{
+    fn from(value: NativeSeries<C>) -> Self {
+        Self::Untyped(value.into())
+    }
+}
+
+impl From<VariableUintSeries> for MaybeTypedMixedRange {
+    fn from(value: VariableUintSeries) -> Self {
+        Self::Typed(MixedRange::Uint(match_map_uint!(
+            value,
+            x,
+            *x.column_schema()
+        )))
+    }
+}
+
+impl From<MixedSeries> for MaybeTypedMixedRange {
+    fn from(value: MixedSeries) -> Self {
+        let s = match value {
+            AnyDatatype::Ascii(x) => AnyDatatype::Ascii(*x.column_schema()),
+            AnyDatatype::Uint(x) => AnyDatatype::Uint(match_map_uint!(x, y, *y.column_schema())),
+            AnyDatatype::F32(x) => AnyDatatype::F32(*x.column_schema()),
+            AnyDatatype::F64(x) => AnyDatatype::F64(*x.column_schema()),
+        };
+        Self::Typed(s)
     }
 }
 

@@ -1638,7 +1638,7 @@ class TestCore:
         assert n1 == LINK_NAME2
         assert isinstance(m0, optical)
         assert isinstance(m1, temporal)
-        assert r0 == 1000
+        assert r0 == ("I16", 1000)
         assert r1 == 2000
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
@@ -1669,7 +1669,7 @@ class TestCore:
         assert n1 == LINK_NAME2
         assert isinstance(m0, optical)
         assert isinstance(m1, temporal)
-        assert r0 == 1000
+        assert r0 == ("I16", 1000)
         assert r1 == 2000
         assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
@@ -1687,7 +1687,7 @@ class TestCore:
         assert n1 == LINK_NAME2
         assert isinstance(m0, pf.Optical3_2)
         assert isinstance(m1, pf.Temporal3_2)
-        assert r0 == 1000.0
+        assert r0 == ("F", 1000.0)
         assert r1 == 2000
         with pytest.raises(IndexError):
             text2_3_2.remove_measurement_by_index(0)
@@ -1705,7 +1705,11 @@ class TestCore:
         assert n1 == LINK_NAME2
         assert isinstance(m0, pf.Optical3_2)
         assert isinstance(m1, pf.Temporal3_2)
-        assert r0 == 1000.0
+        assert r0 == ("F", 1000.0)
+        # TODO this is a weird side effect of normalization; if we remove all
+        # but the last in a mixed layout, the layout will simplify to a
+        # non-mixed layout which means we don't get the type. This probably
+        # isn't what the user expects.
         assert r1 == 2000
         assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))

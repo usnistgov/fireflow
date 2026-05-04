@@ -1,5 +1,5 @@
 use crate::data::{CheckRange, EventOverRangeError, TruncatedResult};
-use crate::macros::match_many_to_one;
+use crate::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use ambassador::{Delegate, delegatable_trait};

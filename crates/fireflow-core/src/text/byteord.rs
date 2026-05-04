@@ -1,4 +1,4 @@
-use crate::macros::match_many_to_one;
+use crate::match_many_to_one;
 use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::text::lookup::ReqMetarootKey;
 use crate::validated::ascii_range::{Chars, CharsError};

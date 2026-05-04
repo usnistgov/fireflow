@@ -2662,7 +2662,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let rng = DocArg::new_range_param(version);
+    let rng = DocArg::new_any_range_param(version);
 
     let push_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
@@ -2738,6 +2738,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
+    let meas = PyUnion::new_measurement(version);
+    let rng = PyUnion::new_any_range(version);
+
     let make_ret = |is_index: bool| {
         // NOTE this is not a typo, these are supposed to be flipped
         let name_or_index = if is_index {
@@ -2747,13 +2750,13 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         };
         let ret = if is_dataset {
             PyTuple::new1(name_or_index)
-                .add(PyUnion::new_measurement(version))
+                .add(meas.clone())
                 .add(PyClass::new_series())
-                .add(PyUnion::new_range())
+                .add(rng.clone())
         } else {
             PyTuple::new1(name_or_index)
-                .add(PyUnion::new_measurement(version))
-                .add(PyUnion::new_range())
+                .add(meas.clone())
+                .add(rng.clone())
         };
         let (which, argname) = if is_index {
             ("Index", "index")
@@ -2842,7 +2845,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let rng = DocArg::new_range_param(version);
+    let rng = DocArg::new_any_range_param(version);
 
     // TODO not DRY
     let insert_meas_doc = |is_optical: bool, hasdata: bool| {
@@ -7053,7 +7056,15 @@ impl<E: From<PyException>> PyUnion<E> {
         .exc(exc)
     }
 
-    fn new_range() -> Self {
+    fn new_any_range(version: Version) -> Self {
+        match version {
+            Version::FCS2_0 | Version::FCS3_0 => Self::new_full_range(),
+            Version::FCS3_1 => Self::new_range_or_bitmask_range(),
+            Version::FCS3_2 => Self::new_range_or_mixed_range(),
+        }
+    }
+
+    fn new_full_range() -> Self {
         let path = parse_quote!(fireflow_core::data::FullRange);
         Self::new2(RsInt::U64, RsFloat::F64, path)
     }
@@ -7063,7 +7074,7 @@ impl<E: From<PyException>> PyUnion<E> {
         let ints = PyTuple::new1(PyLiteral::new1(IntegerWidth::iter_str()))
             .add(RsInt::U64)
             .into();
-        let rng = PyType::from(Self::new_range());
+        let rng = PyType::from(Self::new_full_range());
         Self::new1([ints, rng], parse_quote!(#path))
     }
 
@@ -7077,7 +7088,7 @@ impl<E: From<PyException>> PyUnion<E> {
         let floats = PyTuple::new1(PyLiteral::new1(float_literals))
             .add(PyDecimal::default())
             .into();
-        let rng = PyType::from(Self::new_range());
+        let rng = PyType::from(Self::new_full_range());
         Self::new1([ints, floats, rng], parse_quote!(#path))
     }
 }
@@ -8177,14 +8188,9 @@ impl DocArgParam {
         Self::new_param("name", PyStr::new_shortname(), desc)
     }
 
-    fn new_range_param(version: Version) -> Self {
+    fn new_any_range_param(version: Version) -> Self {
         let desc = format!("Range of measurement. Corresponds to {PNR}.");
-        let pytype: PyType<_> = match version {
-            Version::FCS2_0 | Version::FCS3_0 => PyUnion::new_range().into(),
-            Version::FCS3_1 => PyUnion::new_range_or_bitmask_range().into(),
-            Version::FCS3_2 => PyUnion::new_range_or_mixed_range().into(),
-        };
-        Self::new_param("range", pytype, desc)
+        Self::new_param("range", PyUnion::new_any_range(version), desc)
     }
 
     // fn new_notrunc_param() -> Self {

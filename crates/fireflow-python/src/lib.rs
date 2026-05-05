@@ -75,8 +75,7 @@ use fireflow_core::validated::shortname as sn;
 use fireflow_python_proc as fpp;
 
 use fireflow_types::keywords as ftk;
-use fireflow_types::python::EventDataError;
-
+use fireflow_types::python::{ColumnType, EventDataError, IntegerWidth};
 use type_families::Functor as _;
 
 use derive_more::{From, Into};
@@ -1143,39 +1142,54 @@ impl PyAnyFCSColumn {
     }
 }
 
-// fn from_series(rs: data::DecimalRangeAndSeries) -> data::FullRange {
-//     rs.0
-// }
+#[allow(clippy::needless_pass_by_value)]
+fn split_bitmask_range(
+    r: data::MaybeTypedVariableBitmask,
+) -> (data::FullRange, Option<IntegerWidth>) {
+    match r {
+        data::MaybeTypedVariableBitmask::Untyped(x) => (x, None),
+        data::MaybeTypedVariableBitmask::Typed(x) => {
+            let w = match x {
+                data::AnyUint::Uint08(_) => IntegerWidth::I08,
+                data::AnyUint::Uint16(_) => IntegerWidth::I16,
+                data::AnyUint::Uint24(_) => IntegerWidth::I24,
+                data::AnyUint::Uint32(_) => IntegerWidth::I32,
+                data::AnyUint::Uint40(_) => IntegerWidth::I40,
+                data::AnyUint::Uint48(_) => IntegerWidth::I48,
+                data::AnyUint::Uint56(_) => IntegerWidth::I56,
+                data::AnyUint::Uint64(_) => IntegerWidth::I64,
+            };
+            let f: data::FullRange = x.into();
+            (f, Some(w))
+        }
+    }
+}
 
-// fn from_bitmask_series(
-//     rs: data::MaybeTypedVariableUintSeries,
-// ) -> (data::MaybeTypedVariableBitmask, Self) {
-//     match rs {
-//         data::MaybeTypedRange::Untyped((r, s)) => (data::MaybeTypedRange::Untyped(r), Self(s)),
-//         data::MaybeTypedRange::Typed(x) => {
-//             let r = match_map_uint!(x.clone(), y, *y.column_schema());
-//             let s = match_any_uint!(x, y, y.to_prim());
-//             (data::MaybeTypedRange::Typed(r), Self(s))
-//         }
-//     }
-// }
-
-// fn from_mixed_series(rs: data::MaybeTypedMixedSeries) -> (data::MaybeTypedMixedRange, Self) {
-//     match rs {
-//         data::MaybeTypedRange::Untyped((r, s)) => (data::MaybeTypedRange::Untyped(r), Self(s)),
-//         data::MaybeTypedRange::Typed(x) => {
-//             let r = match x {
-//                 data::AnyDatatype::Ascii(ref y) => data::AnyDatatype::Ascii(*y.column_schema()),
-//                 data::AnyDatatype::Uint(ref y) => {
-//                     data::AnyDatatype::Uint(match_map_uint!(y, z, *z.column_schema()))
-//                 }
-//                 data::AnyDatatype::F32(ref y) => data::AnyDatatype::F32(*y.column_schema()),
-//                 data::AnyDatatype::F64(ref y) => data::AnyDatatype::F64(*y.column_schema()),
-//             };
-//             (data::MaybeTypedRange::Typed(r), Self(x.into()))
-//         }
-//     }
-// }
+#[allow(clippy::needless_pass_by_value)]
+fn split_mixed_range(r: data::MaybeTypedMixedRange) -> (data::FullRange, Option<ColumnType>) {
+    match r {
+        data::MaybeTypedMixedRange::Untyped(x) => (x, None),
+        data::MaybeTypedMixedRange::Typed(x) => {
+            let w = match x {
+                data::AnyDatatype::Ascii(_) => ColumnType::A,
+                data::AnyDatatype::Uint(y) => match y {
+                    data::AnyUint::Uint08(_) => ColumnType::I08,
+                    data::AnyUint::Uint16(_) => ColumnType::I16,
+                    data::AnyUint::Uint24(_) => ColumnType::I24,
+                    data::AnyUint::Uint32(_) => ColumnType::I32,
+                    data::AnyUint::Uint40(_) => ColumnType::I40,
+                    data::AnyUint::Uint48(_) => ColumnType::I48,
+                    data::AnyUint::Uint56(_) => ColumnType::I56,
+                    data::AnyUint::Uint64(_) => ColumnType::I64,
+                },
+                data::AnyDatatype::F32(_) => ColumnType::F,
+                data::AnyDatatype::F64(_) => ColumnType::D,
+            };
+            let f: data::FullRange = x.into();
+            (f, Some(w))
+        }
+    }
+}
 
 pub enum SeriesToColumnError {
     InvalidDatatype(pl::PlSmallStr, pl::DataType),

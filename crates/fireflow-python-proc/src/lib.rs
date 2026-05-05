@@ -2,7 +2,9 @@ extern crate proc_macro;
 
 use fireflow_types::config::{self as tc, EnumStrIter as _};
 use fireflow_types::keywords as tk;
-use fireflow_types::python::{COL_TYPE_ASCII, COL_TYPE_F32, COL_TYPE_F64, IntegerWidth};
+use fireflow_types::python::{
+    COL_TYPE_ASCII, COL_TYPE_F32, COL_TYPE_F64, ColumnType, IntegerWidth,
+};
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
@@ -1990,13 +1992,13 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
 
     let req_or_opt = DocArg::new_param(
         "req_or_opt",
-        PyLiteral::new2(tc::IncludeReqOrOpt::iter_str(), req_or_opt_path),
+        PyLiteral::new1(tc::IncludeReqOrOpt::iter_str()).rstype(req_or_opt_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
     let root_or_meas = DocArg::new_param(
         "root_or_meas",
-        PyLiteral::new2(tc::IncludeRootOrMeas::iter_str(), root_or_meas_path),
+        PyLiteral::new1(tc::IncludeRootOrMeas::iter_str()).rstype(root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
@@ -2734,12 +2736,15 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
     let meas = PyUnion::new_measurement(version);
-    let rng = PyUnion::new_any_range(version);
+    let rng = PyUnion::new_full_range();
+    let int_widths = PyOpt::new1(PyLiteral::new_integer_width());
+    let col_type = PyOpt::new1(PyLiteral::new_column_type());
 
     let make_ret = |is_index: bool| {
         // NOTE this is not a typo, these are supposed to be flipped
@@ -2748,7 +2753,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         } else {
             PyInt::new_meas_index().into()
         };
-        let ret = if is_dataset {
+        let pre_ret = if is_dataset {
             PyTuple::new1(name_or_index)
                 .add(meas.clone())
                 .add(PyClass::new_series())
@@ -2758,6 +2763,12 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 .add(meas.clone())
                 .add(rng.clone())
         };
+        let ret = match version {
+            Version::FCS2_0 | Version::FCS3_0 => pre_ret,
+            Version::FCS3_1 => pre_ret.add(int_widths.clone()),
+            Version::FCS3_2 => pre_ret.add(col_type.clone()),
+        };
+
         let (which, argname) = if is_index {
             ("Index", "index")
         } else {
@@ -2794,23 +2805,98 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
 
     let bimap_into_once = quote!(type_families::BifunctorOnce::bimap_into_once);
 
+    // split the range into FullRange (either float or int) and its type if it
+    // exists. This will minimize "surprises" when data schemas are
+    // auto-normalized after removing a column. If going from a complex to
+    // simple layout, the first removal will have a type and subsequent won't.
+    // Rather than return unions in python with or without the type, split the
+    // type out and return as a separate arg wrapped in None. User can ignore if
+    // desired (which will be most of the type probably).
+    //
+    // This only applies to 3.1 and 3.2
     let name_mapper = if is_dataset {
-        quote!(|(i, x, c, r)| (i, #bimap_into_once(x), c.into(), r))
-    } else {
-        quote!(|(i, x, r)| (i, #bimap_into_once(x), r))
-    };
-
-    let index_body = if is_dataset {
-        quote! {
-            let (p, c, r) = self.0.remove_measurement_by_index(#index_ident)?;
-            let (n, v) = p.unzip();
-            Ok((n, #bimap_into_once(v), c.into(), r))
+        match version {
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                |(i, x, c, r)| (i, #bimap_into_once(x), c.into(), r)
+            },
+            Version::FCS3_1 => quote! {
+                |(i, x, c, r)| {
+                    let (rr, t) = split_bitmask_range(r);
+                    (i, #bimap_into_once(x), c.into(), rr, t)
+                }
+            },
+            Version::FCS3_2 => quote! {
+                |(i, x, c, r)| {
+                    let (rr, t) = split_mixed_range(r);
+                    (i, #bimap_into_once(x), c.into(), rr, t)
+                }
+            },
         }
     } else {
-        quote! {
-            let (p, r) = self.0.remove_measurement_by_index(#index_ident)?;
-            let (n, v) = p.unzip();
-            Ok((n, #bimap_into_once(v), r))
+        match version {
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                |(i, x, r)| (i, #bimap_into_once(x), r)
+            },
+            Version::FCS3_1 => quote! {
+                |(i, x, r)| {
+                    let (rr, t) = split_bitmask_range(r);
+                    (i, #bimap_into_once(x), rr, t)
+                }
+            },
+            Version::FCS3_2 => quote! {
+                |(i, x, r)| {
+                    let (rr, t) = split_mixed_range(r);
+                    (i, #bimap_into_once(x), rr, t)
+                }
+            },
+        }
+    };
+
+    let index_mapper = if is_dataset {
+        match version {
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                |(p, c, r)| {
+                    let (n, v) = p.unzip();
+                    (n, #bimap_into_once(v), c.into(), r)
+                }
+            },
+            Version::FCS3_1 => quote! {
+                |(p, c, r)| {
+                    let (n, v) = p.unzip();
+                    let (rr, t) = split_bitmask_range(r);
+                    (n, #bimap_into_once(v), c.into(), rr, t)
+                }
+            },
+            Version::FCS3_2 => quote! {
+                |(p, c, r)| {
+                    let (n, v) = p.unzip();
+                    let (rr, t) = split_mixed_range(r);
+                    (n, #bimap_into_once(v), c.into(), rr, t)
+                }
+            },
+        }
+    } else {
+        match version {
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                |(p, r)| {
+                    let (n, v) = p.unzip();
+                    (n, #bimap_into_once(v), r)
+                }
+            },
+            Version::FCS3_1 => quote! {
+                |(p, r)| {
+                    let (n, v) = p.unzip();
+                    let (rr, t) = split_bitmask_range(r);
+                    (n, #bimap_into_once(v), rr, t)
+                }
+            },
+            Version::FCS3_2 => quote! {
+                |(p, r)| {
+                    let (n, v) = p.unzip();
+                    let (rr, t) = split_mixed_range(r);
+                    (n, #bimap_into_once(v), rr, t)
+                }
+            },
         }
     };
 
@@ -2822,10 +2908,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #name_arg
             ) -> #name_ret {
-                Ok(self
-                   .0
-                   .remove_measurement_by_name(&#name_ident)
-                   .map(#name_mapper)?)
+                Ok(self.0.remove_measurement_by_name(&#name_ident).map(#name_mapper)?)
             }
 
             #by_index_doc
@@ -2833,7 +2916,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_arg
             ) -> #index_ret {
-                #index_body
+                Ok(self.0.remove_measurement_by_index(#index_ident).map(#index_mapper)?)
             }
         }
     }
@@ -6677,15 +6760,14 @@ impl PyLiteral {
         Self::new(head, it, None)
     }
 
-    fn new2(iter: impl IntoIterator<Item = &'static str>, rstype: Path) -> Self {
-        let mut x = Self::new1(iter);
-        x.rstype = Some(rstype);
-        x
+    fn rstype(mut self, rstype: Path) -> Self {
+        self.rstype = Some(rstype);
+        self
     }
 
     fn new_version() -> Self {
         let path = parse_quote!(fireflow_types::keywords::Version);
-        Self::new2(ALL_VERSION_STRINGS, path)
+        Self::new1(ALL_VERSION_STRINGS).rstype(path)
     }
 
     fn new_version_override() -> Self {
@@ -6693,29 +6775,27 @@ impl PyLiteral {
         let vs = ALL_VERSION_STRINGS
             .into_iter()
             .chain(tc::VERSION_STRATEGY_ALL_LEVELS);
-        Self::new2(vs, path)
+        Self::new1(vs).rstype(path)
     }
 
     fn new_temporal_optical_key() -> Self {
-        Self::new2(
-            tc::TemporalOpticalKey::iter_str(),
-            parse_quote!(fireflow_core::config::TemporalOpticalKeys),
-        )
+        Self::new1(tc::TemporalOpticalKey::iter_str())
+            .rstype(parse_quote!(fireflow_core::config::TemporalOpticalKeys))
     }
 
     fn new_datatype() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
-        Self::new2(["A", "I", "F", "D"], path)
+        Self::new1(["A", "I", "F", "D"]).rstype(path)
     }
 
     fn new_awh_feature() -> Self {
         let path = keyword_path("OpticalFeature");
-        Self::new2(["Area", "Width", "Height"], path)
+        Self::new1(["Area", "Width", "Height"]).rstype(path)
     }
 
     fn new_endian() -> Self {
         let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
-        Self::new2([tk::BYTEORD_LITTLE, tk::BYTEORD_BIG], endian)
+        Self::new1([tk::BYTEORD_LITTLE, tk::BYTEORD_BIG]).rstype(endian)
     }
 
     fn new_scale_fix() -> Self {
@@ -6737,7 +6817,17 @@ impl PyLiteral {
 
     fn new_tri_flag(name: &str) -> Self {
         let path = config_path(name);
-        Self::new2(tc::TriFlag::iter_str(), path)
+        Self::new1(tc::TriFlag::iter_str()).rstype(path)
+    }
+
+    fn new_integer_width() -> Self {
+        let path = parse_quote!(fireflow_types::python::IntegerWidth);
+        Self::new1(IntegerWidth::iter_str()).rstype(path)
+    }
+
+    fn new_column_type() -> Self {
+        let path = parse_quote!(fireflow_types::python::ColumnType);
+        Self::new1(ColumnType::iter_str()).rstype(path)
     }
 }
 
@@ -6908,7 +6998,7 @@ impl<E: From<PyException>> PyTuple<E> {
 
     fn new_variable_bitmask() -> Self {
         let path = quote!(fireflow_core::data::VariableBitmask);
-        Self::new1(PyLiteral::new1(IntegerWidth::iter_str()))
+        Self::new1(PyLiteral::new_integer_width())
             .add(RsInt::U64)
             .rstype(parse_quote!(#path))
     }
@@ -7037,23 +7127,12 @@ impl<E: From<PyException>> PyUnion<E> {
 
     // TODO this should be obsolete
     fn new_mixed_range() -> Self {
-        let dt_ascii = code("A");
-        let dt_int = code("I");
-
-        let desc = format!(
-            "if field 2 of {ARG_TOKEN} is less than {min} or greater than {max} \
-             when field 1 is {dt_ascii} or {dt_int}",
-            min = code("0"),
-            max = code("2**64-1"),
-        );
-        let exc = PyException::new_invalid_keyword().desc(desc);
         let path = quote!(fireflow_core::data::MixedRange);
         Self::new2(
-            PyTuple::new1(PyLiteral::new1(["A", "I"])).add(RsInt::U64),
-            PyTuple::new1(PyLiteral::new1(["F", "D"])).add(PyDecimal::default()),
+            PyTuple::new1(PyLiteral::new1(IntegerWidth::iter_str().chain(["A"]))).add(RsInt::U64),
+            PyTuple::new1(PyLiteral::new1(["F", "D"])).add(RsFloat::F64),
             parse_quote!(#path),
         )
-        .exc(exc)
     }
 
     fn new_any_range(version: Version) -> Self {
@@ -7937,7 +8016,7 @@ impl DocArgParam {
         desc: impl fmt::Display,
     ) -> Self {
         let path = config_path(ident_name);
-        let pt = PyLiteral::new2(tc::ProcessKeywordFailure::iter_str(), path);
+        let pt = PyLiteral::new1(tc::ProcessKeywordFailure::iter_str()).rstype(path);
         let d = format!(
             "{desc} Use {error} to throw error on failure, {demote} to demote \
              to non-standard with warning, {demote_silent} to demote to \
@@ -8476,7 +8555,7 @@ impl DocArgParam {
 
     fn new_force_linear_scale_param() -> Self {
         let path = types_config_path("ForceLinearScale");
-        let pt = PyLiteral::new2(tc::ForceLinearScale::iter_str(), path);
+        let pt = PyLiteral::new1(tc::ForceLinearScale::iter_str()).rstype(path);
         let d = format!(
             "Force {PNE} to be linear. Use {time} to only \
              change the temporal measurement, {non_int} to change all \
@@ -8527,7 +8606,7 @@ impl DocArgParam {
             drop_silent = code_str(tc::TMP_OPT_DROP_SILENT_LEVEL),
         );
         let path = types_config_path("ProcessTemporalOpticalKeys");
-        let pt = PyLiteral::new2(tc::ProcessTemporalOpticalKeys::iter_str(), path);
+        let pt = PyLiteral::new1(tc::ProcessTemporalOpticalKeys::iter_str()).rstype(path);
         Self::new_param("process_time_optical_keys", pt, d).def_auto()
     }
 
@@ -8544,7 +8623,7 @@ impl DocArgParam {
             guess = code_str(tc::SPILLOVER_GUESS_LEVEL),
         );
         let path = types_config_path("SpilloverMeasurementMode");
-        let pt = PyLiteral::new2(tc::SpilloverMeasurementMode::iter_str(), path);
+        let pt = PyLiteral::new1(tc::SpilloverMeasurementMode::iter_str()).rstype(path);
         Self::new_param("spillover_measurement_mode", pt, d).def_auto()
     }
 
@@ -8802,7 +8881,7 @@ impl DocArgParam {
 
     fn new_guess_other_width_param() -> Self {
         let path = types_config_path("GuessOtherWidth");
-        let pt = PyLiteral::new2(tc::GuessOtherWidth::iter_str(), path);
+        let pt = PyLiteral::new1(tc::GuessOtherWidth::iter_str()).rstype(path);
         let d = format!(
             "Guess the width of {OTHER} segments. Valid values are {none} \
              (no guessing) or {error}, {warn} or {silent} which will guess and \
@@ -8926,7 +9005,7 @@ impl DocArgParam {
             guess_escaped = code_str(tc::DELIM_GUESS_ESCAPED_LEVEL),
             guess_unescaped = code_str(tc::DELIM_GUESS_UNESCAPED_LEVEL),
         );
-        let pt = PyLiteral::new2(tc::DelimEscapeMode::iter_str(), path);
+        let pt = PyLiteral::new1(tc::DelimEscapeMode::iter_str()).rstype(path);
         Self::new_param("delim_escape_mode", pt, d).def_auto()
     }
 
@@ -9051,7 +9130,7 @@ impl DocArgParam {
             trim_blank_nowarn = code_str(tc::TRIM_BLANK_SILENT_LEVEL),
         );
         let rstype = types_config_path("TrimValueWhitespace");
-        let pt = PyLiteral::new2(tc::TrimValueWhitespace::iter_str(), rstype);
+        let pt = PyLiteral::new1(tc::TrimValueWhitespace::iter_str()).rstype(rstype);
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
     }
 
@@ -9171,7 +9250,7 @@ impl DocArgParam {
             error = code_str(tc::MISMATCH_ERROR_LEVEL),
         );
         let path = types_config_path("AllowHeaderTEXTOffsetMismatch");
-        let pt = PyLiteral::new2(tc::AllowHeaderTEXTOffsetMismatch::iter_str(), path);
+        let pt = PyLiteral::new1(tc::AllowHeaderTEXTOffsetMismatch::iter_str()).rstype(path);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -9220,7 +9299,7 @@ impl DocArgParam {
             all = code_str(tc::CHECK_RANGE_ALL_LEVEL),
             none = code_str(tc::CHECK_RANGE_NONE_LEVEL),
         );
-        let pt = PyLiteral::new2(tc::CheckedRangeDatatypes::iter_str(), path);
+        let pt = PyLiteral::new1(tc::CheckedRangeDatatypes::iter_str()).rstype(path);
         Self::new_param(CHECKED_RANGE_DATATYPES, pt, d).def_auto()
     }
 
@@ -9252,7 +9331,7 @@ impl DocArgParam {
             trunc_silent = code_str(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
         );
         let path = types_config_path("OverRangeAction");
-        let pt = PyLiteral::new2(tc::OverRangeAction::iter_str(), path);
+        let pt = PyLiteral::new1(tc::OverRangeAction::iter_str()).rstype(path);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -10231,8 +10310,8 @@ impl Kw {
     {
         let path = self.type_name();
         match self {
-            Self::Mode => PyLiteral::new2(["L", "U", "C"], path).into(),
-            Self::Mode3_2 => PyOpt::new1(PyLiteral::new2(["L"], path)).into(),
+            Self::Mode => PyLiteral::new1(["L", "U", "C"]).rstype(path).into(),
+            Self::Mode3_2 => PyOpt::new1(PyLiteral::new1(["L"]).rstype(path)).into(),
             Self::Cyt
             | Self::Com
             | Self::Cells
@@ -10264,7 +10343,7 @@ impl Kw {
             Self::LastModified => PyOpt::new1(PyDatetime::default().rstype(path)).into(),
             Self::Originality => {
                 let choices = ["Original", "NonDataModified", "Appended", "DataModified"];
-                PyOpt::new1(PyLiteral::new2(choices, path)).into()
+                PyOpt::new1(PyLiteral::new1(choices).rstype(path)).into()
             }
             Self::Vol => PyOpt::new1(PyFloat::new_non_negative_float().rstype(path)).into(),
             Self::Spillover => {

@@ -548,21 +548,97 @@ class _CoreGetSetMeas(Generic[_N, _O, _T]):
     ) -> _O | _T | None: ...
     def rename_temporal(self, name: pft.Shortname) -> pft.Shortname | None: ...
 
-class _CoreTEXTRemove(Generic[_N, _O, _T, _R]):
+class _CoreTEXTRemove2_0(Generic[_O, _T]):
     def remove_measurement_by_name(
         self, name: pft.Shortname
-    ) -> tuple[pft.MeasIndex, _O | _T, _R]: ...
+    ) -> tuple[pft.MeasIndex, _O | _T, pft.Range]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
-    ) -> tuple[_N, _O | _T, _R]: ...
+    ) -> tuple[pft.Shortname | None, _O | _T, pft.Range]: ...
 
-class _CoreDatasetRemove(Generic[_N, _O, _T, _R]):
+class _CoreTEXTRemove3_1:
     def remove_measurement_by_name(
         self, name: pft.Shortname
-    ) -> tuple[pft.MeasIndex, _O | _T, Series, _R]: ...
+    ) -> tuple[
+        pft.MeasIndex,
+        Optical3_1 | Temporal3_1,
+        pft.Range,
+        pft.IntegerWidth | None,
+    ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
-    ) -> tuple[_N, _O | _T, Series, _R]: ...
+    ) -> tuple[
+        pft.Shortname,
+        Optical3_1 | Temporal3_1,
+        pft.Range,
+        pft.IntegerWidth | None,
+    ]: ...
+
+class _CoreTEXTRemove3_2:
+    def remove_measurement_by_name(
+        self, name: pft.Shortname
+    ) -> tuple[
+        pft.MeasIndex,
+        Optical3_2 | Temporal3_2,
+        pft.Range,
+        pft.AnyType | None,
+    ]: ...
+    def remove_measurement_by_index(
+        self, index: pft.MeasIndex
+    ) -> tuple[
+        pft.Shortname,
+        Optical3_2 | Temporal3_2,
+        pft.Range,
+        pft.AnyType | None,
+    ]: ...
+
+class _CoreDatasetRemove2_0(Generic[_O, _T]):
+    def remove_measurement_by_name(
+        self, name: pft.Shortname
+    ) -> tuple[pft.MeasIndex, _O | _T, Series, pft.Range]: ...
+    def remove_measurement_by_index(
+        self, index: pft.MeasIndex
+    ) -> tuple[pft.Shortname | None, _O | _T, Series, pft.Range]: ...
+
+class _CoreDatasetRemove3_1:
+    def remove_measurement_by_name(
+        self, name: pft.Shortname
+    ) -> tuple[
+        pft.MeasIndex,
+        Optical3_1 | Temporal3_1,
+        Series,
+        pft.Range,
+        pft.IntegerWidth | None,
+    ]: ...
+    def remove_measurement_by_index(
+        self, index: pft.MeasIndex
+    ) -> tuple[
+        pft.Shortname,
+        Optical3_1 | Temporal3_1,
+        Series,
+        pft.Range,
+        pft.IntegerWidth | None,
+    ]: ...
+
+class _CoreDatasetRemove3_2:
+    def remove_measurement_by_name(
+        self, name: pft.Shortname
+    ) -> tuple[
+        pft.MeasIndex,
+        Optical3_2 | Temporal3_2,
+        Series,
+        pft.Range,
+        pft.AnyType | None,
+    ]: ...
+    def remove_measurement_by_index(
+        self, index: pft.MeasIndex
+    ) -> tuple[
+        pft.Shortname,
+        Optical3_2 | Temporal3_2,
+        Series,
+        pft.Range,
+        pft.AnyType | None,
+    ]: ...
 
 class _CoreReplaceTemporal2_0(Generic[_N, _O, _T]):
     def replace_temporal_at(self, index: pft.MeasIndex, meas: _T) -> _O | _T: ...
@@ -857,7 +933,7 @@ class CoreTEXT2_0(
     _CoreTemporal2_0,
     _CoreShortnamesMaybe,
     _CoreGetSetMeas[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTRemove[pft.Shortname | None, Optical2_0, Temporal2_0, pft.Range],
+    _CoreTEXTRemove2_0[Optical2_0, Temporal2_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[pft.Shortname | None, Temporal2_0, Optical2_0, pft.Range],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
@@ -937,7 +1013,7 @@ class CoreTEXT3_0(
     _CoreTemporal3_0,
     _CoreShortnamesMaybe,
     _CoreGetSetMeas[pft.Shortname | None, Optical3_0, Temporal3_0],
-    _CoreTEXTRemove[pft.Shortname | None, Optical3_0, Temporal3_0, pft.Range],
+    _CoreTEXTRemove2_0[Optical3_0, Temporal3_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[pft.Shortname | None, Temporal3_0, Optical3_0, pft.Range],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
@@ -1031,12 +1107,7 @@ class CoreTEXT3_1(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[pft.Shortname, Optical3_1, Temporal3_1],
-    _CoreTEXTRemove[
-        pft.Shortname | None,
-        Optical3_1,
-        Temporal3_1,
-        pft.MaybeTypedVariableBitmask,
-    ],
+    _CoreTEXTRemove3_1,
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTGetSetMeas[
         pft.Shortname,
@@ -1143,12 +1214,7 @@ class CoreTEXT3_2(
     _Core3_2,
     _CoreTemporal3_2,
     _CoreGetSetMeas[pft.Shortname, Optical3_2, Temporal3_2],
-    _CoreTEXTRemove[
-        pft.Shortname | None,
-        Optical3_2,
-        Temporal3_2,
-        pft.MaybeTypedMixedRange,
-    ],
+    _CoreTEXTRemove3_2,
     _CoreReplaceTemporal3_2,
     _CoreTEXTGetSetMeas[
         pft.Shortname,
@@ -1261,7 +1327,7 @@ class CoreDataset2_0(
     _CoreTemporal2_0,
     _CoreShortnamesMaybe,
     _CoreGetSetMeas[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetRemove[pft.Shortname | None, Optical2_0, Temporal2_0, pft.Range],
+    _CoreDatasetRemove2_0[Optical2_0, Temporal2_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[
         pft.Shortname | None,
@@ -1360,7 +1426,7 @@ class CoreDataset3_0(
     _CoreTemporal3_0,
     _CoreShortnamesMaybe,
     _CoreGetSetMeas[pft.Shortname | None, Optical3_0, Temporal3_0],
-    _CoreDatasetRemove[pft.Shortname | None, Optical3_0, Temporal3_0, pft.Range],
+    _CoreDatasetRemove2_0[Optical3_0, Temporal3_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[
         pft.Shortname | None,
@@ -1480,12 +1546,7 @@ class CoreDataset3_1(
     _CorePre3_2,
     _CoreTemporal3_0,
     _CoreGetSetMeas[pft.Shortname, Optical3_1, Temporal3_1],
-    _CoreDatasetRemove[
-        pft.Shortname | None,
-        Optical3_1,
-        Temporal3_1,
-        pft.MaybeTypedVariableBitmask,
-    ],
+    _CoreDatasetRemove3_1,
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeas[
         pft.Shortname,
@@ -1613,12 +1674,7 @@ class CoreDataset3_2(
     _Core3_2,
     _CoreTemporal3_2,
     _CoreGetSetMeas[pft.Shortname, Optical3_2, Temporal3_2],
-    _CoreDatasetRemove[
-        pft.Shortname | None,
-        Optical3_2,
-        Temporal3_2,
-        pft.MaybeTypedMixedRange,
-    ],
+    _CoreDatasetRemove3_2,
     _CoreReplaceTemporal3_2,
     _CoreDatasetGetSetMeas[
         pft.Shortname,

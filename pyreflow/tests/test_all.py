@@ -1408,10 +1408,10 @@ class TestCore:
         self, core: AnyCoreTEXT, optical: type
     ) -> None:
         assert len(core.measurements) == 1
-        i, m, r = core.remove_measurement_by_name(LINK_NAME1)
-        assert i == 0
-        assert isinstance(m, optical)
-        assert r == 9001
+        ret = core.remove_measurement_by_name(LINK_NAME1)
+        assert ret[0] == 0
+        assert isinstance(ret[1], optical)
+        assert ret[2] == 9001
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
@@ -1432,11 +1432,11 @@ class TestCore:
         self, core: AnyCoreDataset, optical: type
     ) -> None:
         assert len(core.measurements) == 1
-        i, m, c, r = core.remove_measurement_by_name(LINK_NAME1)
-        assert i == 0
-        assert isinstance(m, optical)
-        assert c.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
-        assert r == 9001
+        ret = core.remove_measurement_by_name(LINK_NAME1)
+        assert ret[0] == 0
+        assert isinstance(ret[1], optical)
+        assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert ret[3] == 9001
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
@@ -1457,10 +1457,10 @@ class TestCore:
         self, core: AnyCoreTEXT, optical: type
     ) -> None:
         assert len(core.measurements) == 1
-        n, m, r = core.remove_measurement_by_index(0)
-        assert n == LINK_NAME1
-        assert isinstance(m, optical)
-        assert r == 9001
+        ret = core.remove_measurement_by_index(0)
+        assert ret[0] == LINK_NAME1
+        assert isinstance(ret[1], optical)
+        assert ret[2] == 9001
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
@@ -1480,11 +1480,11 @@ class TestCore:
         self, core: AnyCoreDataset, optical: type
     ) -> None:
         assert len(core.measurements) == 1
-        n, m, c, r = core.remove_measurement_by_index(0)
-        assert n == LINK_NAME1
-        assert isinstance(m, optical)
-        assert c.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
-        assert r == 9001
+        ret = core.remove_measurement_by_index(0)
+        assert ret[0] == LINK_NAME1
+        assert isinstance(ret[1], optical)
+        assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert ret[3] == 9001
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
@@ -1512,10 +1512,10 @@ class TestCore:
     ) -> None:
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000.0])
-        i, m, r = core.remove_measurement_by_name(LINK_NAME1)
-        assert i == 0
-        assert isinstance(m, optical)
-        assert r == 1000.0
+        ret = core.remove_measurement_by_name(LINK_NAME1)
+        assert ret[0] == 0
+        assert isinstance(ret[1], optical)
+        assert ret[2] == 1000.0
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
@@ -1544,13 +1544,13 @@ class TestCore:
     ) -> None:
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000.0])
-        i, m, c, r = core.remove_measurement_by_name(LINK_NAME1)
-        assert i == 0
-        assert isinstance(m, optical)
+        ret = core.remove_measurement_by_name(LINK_NAME1)
+        assert ret[0] == 0
+        assert isinstance(ret[1], optical)
         # NOTE this will test true even though the left side is f32/f64, the
         # numeric values are the same
-        assert c.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
-        assert r == 1000.0
+        assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert ret[3] == 1000.0
         assert len(core.measurements) == 0
         with pytest.raises(KeyError):
             core.remove_measurement_by_name(LINK_NAME1)
@@ -1576,10 +1576,10 @@ class TestCore:
     ) -> None:
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000])
-        n, m, r = core.remove_measurement_by_index(0)
-        assert n == LINK_NAME1
-        assert isinstance(m, optical)
-        assert r == 1000
+        ret = core.remove_measurement_by_index(0)
+        assert ret[0] == LINK_NAME1
+        assert isinstance(ret[1], optical)
+        assert ret[2] == 1000
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
@@ -1604,11 +1604,11 @@ class TestCore:
     ) -> None:
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000])
-        n, m, c, r = core.remove_measurement_by_index(0)
-        assert n == LINK_NAME1
-        assert isinstance(m, optical)
-        assert c.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
-        assert r == 1000
+        ret = core.remove_measurement_by_index(0)
+        assert ret[0] == LINK_NAME1
+        assert isinstance(ret[1], optical)
+        assert ret[2].equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert ret[3] == 1000
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
@@ -1630,16 +1630,18 @@ class TestCore:
     ) -> None:
         assert len(core.measurements) == 2
         core.data_schema = pf.VariableUintDataSchema([("I16", 1000), ("I32", 2000)])
-        n0, m0, r0 = core.remove_measurement_by_index(0)
+        n0, m0, r0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
-        n1, m1, r1 = core.remove_measurement_by_index(0)
+        n1, m1, r1, t1 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
         assert isinstance(m0, optical)
         assert isinstance(m1, temporal)
-        assert r0 == ("I16", 1000)
+        assert r0 == 1000
         assert r1 == 2000
+        assert t0 == "I16"
+        assert t1 is None
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
@@ -1661,34 +1663,38 @@ class TestCore:
     ) -> None:
         assert len(core.measurements) == 2
         core.data_schema = pf.VariableUintDataSchema([("I16", 1000), ("I32", 2000)])
-        n0, m0, c0, r0 = core.remove_measurement_by_index(0)
+        n0, m0, c0, r0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
-        n1, m1, c1, r1 = core.remove_measurement_by_index(0)
+        n1, m1, c1, r1, t1 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
         assert isinstance(m0, optical)
         assert isinstance(m1, temporal)
-        assert r0 == ("I16", 1000)
+        assert r0 == 1000
         assert r1 == 2000
         assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert t0 == "I16"
+        assert t1 is None
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
     def test_text_remove_mixed_meas_by_index(self, text2_3_2: pf.CoreTEXT3_2) -> None:
         assert len(text2_3_2.measurements) == 2
         text2_3_2.data_schema = pf.MixedDataSchema([("F", 1000.0), ("I32", 2000)])
-        n0, m0, r0 = text2_3_2.remove_measurement_by_index(0)
+        n0, m0, r0, t0 = text2_3_2.remove_measurement_by_index(0)
         assert isinstance(text2_3_2.data_schema, pf.SingleUintDataSchema)
-        n1, m1, r1 = text2_3_2.remove_measurement_by_index(0)
+        n1, m1, r1, t1 = text2_3_2.remove_measurement_by_index(0)
         assert isinstance(text2_3_2.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
         assert isinstance(m0, pf.Optical3_2)
         assert isinstance(m1, pf.Temporal3_2)
-        assert r0 == ("F", 1000.0)
+        assert r0 == 1000.0
         assert r1 == 2000
+        assert t0 == "F"
+        assert t1 is None
         with pytest.raises(IndexError):
             text2_3_2.remove_measurement_by_index(0)
 
@@ -1697,15 +1703,15 @@ class TestCore:
     ) -> None:
         assert len(dataset2_3_2.measurements) == 2
         dataset2_3_2.data_schema = pf.MixedDataSchema([("F", 1000.0), ("I32", 2000)])
-        n0, m0, c0, r0 = dataset2_3_2.remove_measurement_by_index(0)
+        n0, m0, c0, r0, t0 = dataset2_3_2.remove_measurement_by_index(0)
         assert isinstance(dataset2_3_2.data_schema, pf.SingleUintDataSchema)
-        n1, m1, c1, r1 = dataset2_3_2.remove_measurement_by_index(0)
+        n1, m1, c1, r1, t1 = dataset2_3_2.remove_measurement_by_index(0)
         assert isinstance(dataset2_3_2.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
         assert isinstance(m0, pf.Optical3_2)
         assert isinstance(m1, pf.Temporal3_2)
-        assert r0 == ("F", 1000.0)
+        assert r0 == 1000.0
         # TODO this is a weird side effect of normalization; if we remove all
         # but the last in a mixed layout, the layout will simplify to a
         # non-mixed layout which means we don't get the type. This probably
@@ -1713,6 +1719,8 @@ class TestCore:
         assert r1 == 2000
         assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
+        assert t0 == "F"
+        assert t1 is None
         with pytest.raises(IndexError):
             dataset2_3_2.remove_measurement_by_index(0)
 

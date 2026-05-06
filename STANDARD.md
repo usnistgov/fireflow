@@ -155,6 +155,10 @@ version 3.2, the only case where this is done is for unsigned integer
 measurements (*$DATATYPE* or *$PnDATATYPE* are `I`) where *$PnR* is used to
 make the bitmask that will be applied to data when read/written.
 
+In any user-facing API, the "range" of the value is taken to be its maximum
+possible value. This means that for integers, the range (in the API) will be one
+less than *$PnR* for integers and exactly equal to *$PnR* for floats.
+
 ### *$PnE* and *$PnG*
 
 As of FCS 3.2, *$PnG* shall not be used when *$PnE* is set to log scaling

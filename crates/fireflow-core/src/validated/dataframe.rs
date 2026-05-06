@@ -1,3 +1,8 @@
+//! Dataframe and series for encoding FCS DATA segment.
+//!
+//! Here we only need to worry about 6 external types (u8-64, f32, f64) and 10
+//! internal types, (f32, f64, all unsigned int widths 1-8 bytes).
+
 use crate::data::{CheckRange, EventOverRangeError, TruncatedResult};
 use crate::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
@@ -20,54 +25,15 @@ use std::slice::{Iter, from_raw_parts};
 #[cfg(feature = "python")]
 use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 
+/// Dataframe composed of allowed primitive types.
+pub type PrimitiveDataFrame = DataFrame<AnyPrimitiveSeries>;
+
 /// Column-major dataframe to represent events in DATA
 ///
 /// This is a very light wrapper around a polars buffer which is ref-counted and
 /// therefore allows us to return event to external interfaces without copying
 /// memory. It is validated to contain no NULL values where all series have the
 /// same length.
-pub type PrimitiveDataFrame = DataFrame<AnyPrimitiveSeries>;
-
-impl From<AnyInternalSeries> for AnyPrimitiveSeries {
-    fn from(value: AnyInternalSeries) -> Self {
-        match value {
-            AnyInternalSeries::U08(c) => Self::U08(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::U16(c) => Self::U16(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::U24(c) => Self::U32(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::U32(c) => Self::U32(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::U40(c) => Self::U64(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::U48(c) => Self::U64(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::U56(c) => Self::U64(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::U64(c) => Self::U64(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::F32(c) => Self::F32(PrimitiveSeries(c.inner)),
-            AnyInternalSeries::F64(c) => Self::F64(PrimitiveSeries(c.inner)),
-        }
-    }
-}
-
-impl<T, R: HasFCSType> TryFrom<AnyPrimitiveSeries> for InternalSeries<T, R>
-where
-    Self: FromSeries<U08Series>
-        + FromSeries<U16Series>
-        + FromSeries<U32Series>
-        + FromSeries<U64Series>
-        + FromSeries<F32Series>
-        + FromSeries<F64Series>,
-{
-    type Error = CastSeriesError;
-    fn try_from(value: AnyPrimitiveSeries) -> Result<Self, Self::Error> {
-        let ret = match value {
-            AnyPrimitiveSeries::U08(c) => Self::from_series(c),
-            AnyPrimitiveSeries::U16(c) => Self::from_series(c),
-            AnyPrimitiveSeries::U32(c) => Self::from_series(c),
-            AnyPrimitiveSeries::U64(c) => Self::from_series(c),
-            AnyPrimitiveSeries::F32(c) => Self::from_series(c),
-            AnyPrimitiveSeries::F64(c) => Self::from_series(c),
-        };
-        ret.into_result()
-    }
-}
-
 #[derive(Clone, PartialEq, AsRef, Into, new)]
 #[new(visibility = "")]
 pub struct DataFrame<C> {
@@ -107,21 +73,6 @@ pub enum AnyPrimitiveSeries {
     F64(F64Series),
 }
 
-#[derive(Clone, From, Delegate)]
-#[delegate(HasLen)]
-pub(crate) enum AnyInternalSeries {
-    U08(InternalU08Series),
-    U16(InternalU16Series),
-    U24(InternalU24Series),
-    U32(InternalU32Series),
-    U40(InternalU40Series),
-    U48(InternalU48Series),
-    U56(InternalU56Series),
-    U64(InternalU64Series),
-    F32(InternalF32Series),
-    F64(InternalF64Series),
-}
-
 /// A generic series for [`DataFrame`]
 #[derive(Clone, PartialEq, From, Into, AsRef)]
 #[repr(transparent)]
@@ -135,6 +86,10 @@ pub type U64Series = PrimitiveSeries<u64>;
 pub type F32Series = PrimitiveSeries<f32>;
 pub type F64Series = PrimitiveSeries<f64>;
 
+/// Internal series contain a native rust type and FCS type annotation.
+///
+/// The phantom type is to encode for types like u24 which store data as
+/// u32 but are read/written to files in 24 bits.
 #[derive(Clone, PartialEq, Into, AsRef, new)]
 #[repr(transparent)]
 #[new(visibility = "")]
@@ -152,85 +107,37 @@ impl<T, Raw> Default for InternalSeries<T, Raw> {
     }
 }
 
-macro_rules! impl_internal_from_vec {
-    ($t:ident, $raw:ident) => {
-        impl From<Vec<$raw>> for InternalSeries<$t, $raw> {
-            fn from(value: Vec<$raw>) -> Self {
-                Self::new(Buffer::from(cast_vec(value)))
-            }
-        }
-    };
+/// Error when building [`DataFrame`] from individual series
+#[derive(Debug, Error)]
+#[error("series lengths to not match")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct NewDataframeError;
+
+/// Error when new series has number of rows which are not equal to that in [`DataFrame`]
+#[derive(Debug, Error)]
+#[error("series length ({col_len}) is different from number of rows in dataframe ({df_len})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct SeriesLengthError {
+    df_len: usize,
+    col_len: usize,
 }
 
-impl_internal_from_vec!(u8, u8);
-impl_internal_from_vec!(u16, u16);
-impl_internal_from_vec!(u32, U24);
-impl_internal_from_vec!(u32, u32);
-impl_internal_from_vec!(u64, U40);
-impl_internal_from_vec!(u64, U48);
-impl_internal_from_vec!(u64, U56);
-impl_internal_from_vec!(u64, u64);
-impl_internal_from_vec!(f32, f32);
-impl_internal_from_vec!(f64, f64);
-
-// AsRef for unaligned types needs an unsafe cast. This should be fine so long
-// as the InternalSeries is sealed and maintains the coupling between the
-// unaligned wrapper type and the primitive aligned type.
-//
-// Aligned types don't need this because of the AsRef impl on the InternalSeries
-// type itself.
-
-macro_rules! impl_internal_as_ref_unaligned {
-    ($t:ident, $raw:ident) => {
-        impl AsRef<[$raw]> for InternalSeries<$t, $raw> {
-            fn as_ref(&self) -> &[$raw] {
-                self.as_raw_slice()
-            }
-        }
-    };
-}
-
-impl_internal_as_ref_unaligned!(u32, U24);
-impl_internal_as_ref_unaligned!(u64, U40);
-impl_internal_as_ref_unaligned!(u64, U48);
-impl_internal_as_ref_unaligned!(u64, U56);
-
-impl<T, Raw> InternalSeries<T, Raw> {
-    fn as_raw_slice(&self) -> &[Raw] {
-        debug_assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
-        let xs = self.inner.as_ref();
-        let p = xs.as_ptr().cast::<Raw>();
-        let n = xs.len();
-        // SAFETY: T and Raw are assumed to have the same layout and size
-        unsafe { from_raw_parts(p, n) }
-    }
-
-    pub(crate) fn truncate<F>(&mut self, f: F) -> Option<usize>
-    where
-        T: Copy + PartialOrd,
-        F: Fn(T) -> Option<T>,
-    {
-        let mut xs = mem::take(&mut self.inner).make_mut();
-        let mut j = None;
-        for (rowi, x) in xs.iter_mut().enumerate() {
-            if let Some(u) = f(*x) {
-                if j.is_none() {
-                    j = Some(rowi);
-                }
-                *x = u;
-            }
-        }
-        self.inner = Buffer::from(xs);
-        j
-    }
-
-    fn truncate_from_samesize_int(buf: Buffer<T>) -> CastSeriesResult<Self>
-    where
-        Raw: FromValue<T> + Into<T> + HasFCSType,
-        T: Copy + HasFCSType,
-    {
-        cast_buffer_samesize::<_, Raw>(buf).fmap_once(Self::new)
-    }
+/// Any internal series containing allowed internal types.
+#[derive(Clone, From, Delegate)]
+#[delegate(HasLen)]
+pub(crate) enum AnyInternalSeries {
+    U08(InternalU08Series),
+    U16(InternalU16Series),
+    U24(InternalU24Series),
+    U32(InternalU32Series),
+    U40(InternalU40Series),
+    U48(InternalU48Series),
+    U56(InternalU56Series),
+    U64(InternalU64Series),
+    F32(InternalF32Series),
+    F64(InternalF64Series),
 }
 
 pub(crate) type InternalU08Series = InternalSeries<u8, u8>;
@@ -256,7 +163,9 @@ pub struct CastSeriesError {
     to_type: FCSType,
 }
 
-// TODO add to/from type names to this for error messages
+/// The result of a casting operation.
+///
+/// May have an error if the cast had data loss.
 #[derive(new)]
 pub(crate) struct CastSeriesResult<T> {
     inner: T,
@@ -278,16 +187,9 @@ impl_functor_once!(
     CastSeriesResult::new(f(self.inner), self.loss_error,)
 );
 
-pub(crate) trait FromSeries<From>: Sized {
-    fn from_series(col: From) -> CastSeriesResult<Self>;
-}
-
-pub(crate) trait FromValue<From>: Sized {
-    const LOSSLESS: bool;
-
-    fn from_value(value: &From) -> CastValueResult<Self>;
-}
-
+/// The result of casting a value from one type to another.
+///
+/// Flag will be true if loss occured.
 #[derive(new, Debug, PartialEq)]
 pub(crate) struct CastValueResult<T> {
     inner: T,
@@ -332,6 +234,91 @@ impl<I> CastValueResult<I> {
     {
         Self::new(x.as_(), !float_is_uint::<F, I>(x))
     }
+}
+
+/// Any valid Rust numeric type which may be used in an [`DataFrame`]
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
+pub(crate) enum FCSType {
+    #[display("u8")]
+    U08,
+    #[display("u16")]
+    U16,
+    #[display("u24")]
+    U24,
+    #[display("u32")]
+    U32,
+    #[display("u40")]
+    U40,
+    #[display("u48")]
+    U48,
+    #[display("u56")]
+    U56,
+    #[display("u64")]
+    U64,
+    #[display("f32")]
+    F32,
+    #[display("f64")]
+    F64,
+}
+
+// Implement as vec -> internal series
+//
+// Use cast_vec from bytemuck since the underlying data of the vector will
+// always be a primitive type but may be wrapped as an FCS type of a smaller
+// size. Cast should works since we don't need to touch the memory layout to
+// convert.
+
+macro_rules! impl_internal_from_vec {
+    ($t:ident, $raw:ident) => {
+        impl From<Vec<$raw>> for InternalSeries<$t, $raw> {
+            fn from(value: Vec<$raw>) -> Self {
+                Self::new(Buffer::from(cast_vec(value)))
+            }
+        }
+    };
+}
+
+impl_internal_from_vec!(u8, u8);
+impl_internal_from_vec!(u16, u16);
+impl_internal_from_vec!(u32, U24);
+impl_internal_from_vec!(u32, u32);
+impl_internal_from_vec!(u64, U40);
+impl_internal_from_vec!(u64, U48);
+impl_internal_from_vec!(u64, U56);
+impl_internal_from_vec!(u64, u64);
+impl_internal_from_vec!(f32, f32);
+impl_internal_from_vec!(f64, f64);
+
+// Implement as ref for data stored in internal series
+//
+// AsRef for unaligned types needs an unsafe cast. This should be fine so long
+// as the InternalSeries is sealed and maintains the coupling between the
+// unaligned wrapper type and the primitive aligned type.
+//
+// Aligned types don't need this because of the AsRef impl on the InternalSeries
+// type itself.
+
+macro_rules! impl_internal_as_ref_unaligned {
+    ($t:ident, $raw:ident) => {
+        impl AsRef<[$raw]> for InternalSeries<$t, $raw> {
+            fn as_ref(&self) -> &[$raw] {
+                self.as_raw_slice()
+            }
+        }
+    };
+}
+
+impl_internal_as_ref_unaligned!(u32, U24);
+impl_internal_as_ref_unaligned!(u64, U40);
+impl_internal_as_ref_unaligned!(u64, U48);
+impl_internal_as_ref_unaligned!(u64, U56);
+
+// Implement value cast conversions
+
+pub(crate) trait FromValue<From>: Sized {
+    const LOSSLESS: bool;
+
+    fn from_value(value: &From) -> CastValueResult<Self>;
 }
 
 macro_rules! impl_from_val_into {
@@ -383,7 +370,6 @@ macro_rules! impl_from_val_float_to_int {
 
 // U08; all targets are larger, so all conversions are lossless and don't
 // require checks
-
 impl_from_val_into!(u8, u8);
 impl_from_val_into!(u8, u16);
 impl_from_val_into!(u8, U24);
@@ -397,7 +383,6 @@ impl_from_val_into!(u8, f64);
 
 // U16; all except u8 are larger, so no conversions require checks except for
 // u16 -> u8
-
 impl_from_val_try_into!(u16, u8);
 impl_from_val_into!(u16, u16);
 impl_from_val_into!(u16, U24);
@@ -413,7 +398,6 @@ impl_from_val_into!(u16, f64);
 // for u24 (really a u32) -> u8 or u16. u24 is actually a u32 internally and
 // also a subset of u32, so u24 -> u32 is a noop. Also, u24 can perfectly fit
 // within an f32 so this is also lossless and requires no checks.
-
 impl_from_val_try_into!(U24, u8);
 impl_from_val_try_into!(U24, u16);
 impl_from_val_into!(U24, U24);
@@ -433,7 +417,6 @@ impl_from_val_int_to_float!(U24, u32, f64);
 // 3. -> f32: anything larger than 2^24 will lose precision, so need to check
 //
 // u32 can perfectly fit in an f64 so this is lossless
-
 impl_from_val_try_into!(u32, u8);
 impl_from_val_try_into!(u32, u16);
 impl_from_val_try_into!(u32, U24);
@@ -453,7 +436,6 @@ impl_from_val_into!(u32, f64);
 // f32 conversion requires similar checks to u32.
 //
 // f64 conversion is lossless since the upper integer limit of an f64 is 2^53.
-
 impl_from_val_try_into!(U40, u8);
 impl_from_val_try_into!(U40, u16);
 impl_from_val_try_into!(U40, U24);
@@ -468,7 +450,6 @@ impl_from_val_into!(U40, f64);
 // U48; This is the same as u40 except that u48 -> u40 is an in-place truncation
 // and check since u40 is the same underlying type as u48 except with a smaller
 // range.
-
 impl_from_val_try_into!(U48, u8);
 impl_from_val_try_into!(U48, u16);
 impl_from_val_try_into!(U48, U24);
@@ -484,7 +465,6 @@ impl_from_val_into!(U48, f64);
 //
 // The only other difference between this and u48 is that f64 conversion is no
 // longer totally lossless, so this needs a precision check.
-
 impl_from_val_try_into!(U56, u8);
 impl_from_val_try_into!(U56, u16);
 impl_from_val_try_into!(U56, U24);
@@ -497,7 +477,6 @@ impl_from_val_int_to_float!(U56, u64, f32);
 impl_from_val_int_to_float!(U56, u64, f64);
 
 // U64; Generally the same as u56, continuing the same pattern
-
 impl_from_val_try_into!(u64, u8);
 impl_from_val_try_into!(u64, u16);
 impl_from_val_try_into!(u64, U24);
@@ -516,7 +495,6 @@ impl_from_val_int_to_float!(u64, u64, f64);
 //
 // f32 -> f64 is lossless, see
 // https://doc.rust-lang.org/reference/expressions/operator-expr.html#r-expr.as.numeric.float-widening
-
 impl_from_val_float_to_int!(f32, u8);
 impl_from_val_float_to_int!(f32, u16);
 impl_from_val_float_to_int!(f32, U24);
@@ -530,7 +508,6 @@ impl_from_val_into!(f32, f64);
 
 // F64; same as f32 except going from f64 to f32 requires a loss of precision
 // check
-
 impl_from_val_float_to_int!(f64, u8);
 impl_from_val_float_to_int!(f64, u16);
 impl_from_val_float_to_int!(f64, U24);
@@ -549,27 +526,9 @@ impl FromValue<f64> for f32 {
 
 impl_from_val_into!(f64, f64);
 
-impl<T> FromSeries<AnyPrimitiveSeries> for T
-where
-    T: FromSeries<U08Series>
-        + FromSeries<U16Series>
-        + FromSeries<U32Series>
-        + FromSeries<U64Series>
-        + FromSeries<F32Series>
-        + FromSeries<F64Series>,
-{
-    fn from_series(col: AnyPrimitiveSeries) -> CastSeriesResult<Self> {
-        match_many_to_one!(
-            col,
-            AnyPrimitiveSeries,
-            [U08, U16, U32, U64, F32, F64],
-            x,
-            FromSeries::from_series(x)
-        )
-    }
-}
-
-// Lots of macros for casting b/t series.
+// Implement series cast conversions
+//
+// Use lots of macros for casting b/t series.
 //
 // This would be way easier with specialization. Alas, use total brute force to
 // impl each conversion between each type. We have 6 types of primitive series
@@ -595,6 +554,10 @@ where
 //
 // 1. is zero-cost since it is a noop. 2. reuses the original vector since the
 // primitives are the same. 3. requires a reallocation.
+
+pub(crate) trait FromSeries<From>: Sized {
+    fn from_series(col: From) -> CastSeriesResult<Self>;
+}
 
 /// Cast one series into another when underlying types are exactly the same.
 macro_rules! impl_cast_col_noop {
@@ -829,6 +792,26 @@ impl_cast_col_into!(F64Series, InternalU64Series);
 impl_cast_col_into!(F64Series, InternalF32Series);
 impl_cast_col_noop!(F64Series, InternalF64Series);
 
+impl<T> FromSeries<AnyPrimitiveSeries> for T
+where
+    T: FromSeries<U08Series>
+        + FromSeries<U16Series>
+        + FromSeries<U32Series>
+        + FromSeries<U64Series>
+        + FromSeries<F32Series>
+        + FromSeries<F64Series>,
+{
+    fn from_series(col: AnyPrimitiveSeries) -> CastSeriesResult<Self> {
+        match_many_to_one!(
+            col,
+            AnyPrimitiveSeries,
+            [U08, U16, U32, U64, F32, F64],
+            x,
+            FromSeries::from_series(x)
+        )
+    }
+}
+
 fn cast_buffer<X, Y>(buf: &Buffer<X>) -> CastSeriesResult<Buffer<Y>>
 where
     Buffer<Y>: From<Vec<Y>>,
@@ -868,35 +851,73 @@ where
     CastSeriesResult::new(Buffer::from(inner), err)
 }
 
-fn float_is_uint<F: Float + 'static, I: Bounded + AsPrimitive<F>>(x: F) -> bool {
-    let upper: F = I::max_value().as_();
-    !x.is_nan() && !x.is_infinite() && !x.is_sign_negative() && x.fract().is_zero() && x <= upper
+// Implement width property for types used as columns in dataframe.
+
+#[delegatable_trait]
+pub trait HasWidth {
+    #[allow(clippy::len_without_is_empty)]
+    fn width(&self) -> usize;
+
+    fn clear(&mut self);
 }
 
-/// Any valid Rust numeric type which may be used in an [`DataFrame`]
-#[derive(Clone, Copy, Debug, Display, PartialEq)]
-pub(crate) enum FCSType {
-    #[display("u8")]
-    U08,
-    #[display("u16")]
-    U16,
-    #[display("u24")]
-    U24,
-    #[display("u32")]
-    U32,
-    #[display("u40")]
-    U40,
-    #[display("u48")]
-    U48,
-    #[display("u56")]
-    U56,
-    #[display("u64")]
-    U64,
-    #[display("f32")]
-    F32,
-    #[display("f64")]
-    F64,
+impl<T> HasWidth for Vec<T> {
+    fn width(&self) -> usize {
+        self.len()
+    }
+
+    fn clear(&mut self) {
+        self.clear();
+    }
 }
+
+impl<T> HasWidth for DataFrame<T> {
+    fn width(&self) -> usize {
+        self.series.len()
+    }
+
+    fn clear(&mut self) {
+        self.series.clear();
+    }
+}
+
+// Implement length property for various useful things with length
+
+#[delegatable_trait]
+#[allow(clippy::len_without_is_empty)]
+pub trait HasLen {
+    // this will be used for vectors, len is always constant
+    fn len(&self) -> usize;
+}
+
+impl<T> HasLen for PrimitiveSeries<T> {
+    fn len(&self) -> usize {
+        self.0.len()
+    }
+}
+
+impl<T, R> HasLen for InternalSeries<T, R> {
+    fn len(&self) -> usize {
+        self.inner.len()
+    }
+}
+
+impl<T> HasLen for Vec<T> {
+    #[allow(clippy::use_self)]
+    fn len(&self) -> usize {
+        Vec::len(self)
+    }
+}
+
+impl<T> HasLen for &[T] {
+    fn len(&self) -> usize {
+        self[..].len()
+    }
+}
+
+// Implement FCS type annotation for underlying numeric types.
+//
+// This is used for displaying useful type info in errors
 
 pub(crate) trait HasFCSType {
     const TYPE: FCSType;
@@ -921,95 +942,49 @@ impl_has_fcs_type!(u64, U64);
 impl_has_fcs_type!(f32, F32);
 impl_has_fcs_type!(f64, F64);
 
-// impl PartialEq for AnyPrimitiveSeries {
-//     /// Test for numeric equality between two series.
-//     ///
-//     /// This will attempt to convert b/t datatypes when testing equality; for
-//     /// example, a `1` / `1.0` will be equal regardless of datatype because
-//     /// it can be losslessly converted between all possible types for a series
-//     /// (u8-64 and f32/f64).
-//     fn eq(&self, other: &Self) -> bool {
-//         fn go_try_into<XS, YS, X, Y>(xs: &XS, ys: &YS) -> bool
-//         where
-//             XS: AsRef<[X]>,
-//             YS: AsRef<[Y]>,
-//             X: PartialEq,
-//             Y: TryInto<X> + Copy,
-//         {
-//             xs.as_ref()
-//                 .iter()
-//                 .zip(ys.as_ref().iter())
-//                 .all(|(x, y)| (*y).try_into().is_ok_and(|yx| &yx == x))
-//         }
+// Implement prim<->internal conversions
 
-//         fn go_int_float<IS, FS, I, F>(xs: &IS, ys: &FS) -> bool
-//         where
-//             IS: AsRef<[I]>,
-//             FS: AsRef<[F]>,
-//             I: Bounded + AsPrimitive<F>,
-//             F: Float + 'static,
-//         {
-//             xs.as_ref()
-//                 .iter()
-//                 .zip(ys.as_ref().iter())
-//                 .all(|(x, y)| float_is_uint::<F, I>(*y) && (*x).as_() == *y)
-//         }
-
-//         if self.len() != other.len() {
-//             return false;
-//         }
-
-//         match (self, other) {
-//             (Self::U08(xs), Self::U08(ys)) => go_try_into(xs, ys),
-//             (Self::U08(xs), Self::U16(ys)) => go_try_into(xs, ys),
-//             (Self::U08(xs), Self::U32(ys)) => go_try_into(xs, ys),
-//             (Self::U08(xs), Self::U64(ys)) => go_try_into(xs, ys),
-//             (Self::U08(xs), Self::F32(ys)) => go_int_float(xs, ys),
-//             (Self::U08(xs), Self::F64(ys)) => go_int_float(xs, ys),
-
-//             (Self::U16(xs), Self::U08(ys)) => go_try_into(xs, ys),
-//             (Self::U16(xs), Self::U16(ys)) => go_try_into(xs, ys),
-//             (Self::U16(xs), Self::U32(ys)) => go_try_into(xs, ys),
-//             (Self::U16(xs), Self::U64(ys)) => go_try_into(xs, ys),
-//             (Self::U16(xs), Self::F32(ys)) => go_int_float(xs, ys),
-//             (Self::U16(xs), Self::F64(ys)) => go_int_float(xs, ys),
-
-//             (Self::U32(xs), Self::U08(ys)) => go_try_into(xs, ys),
-//             (Self::U32(xs), Self::U16(ys)) => go_try_into(xs, ys),
-//             (Self::U32(xs), Self::U32(ys)) => go_try_into(xs, ys),
-//             (Self::U32(xs), Self::U64(ys)) => go_try_into(xs, ys),
-//             (Self::U32(xs), Self::F32(ys)) => go_int_float(xs, ys),
-//             (Self::U32(xs), Self::F64(ys)) => go_int_float(xs, ys),
-
-//             (Self::U64(xs), Self::U08(ys)) => go_try_into(xs, ys),
-//             (Self::U64(xs), Self::U16(ys)) => go_try_into(xs, ys),
-//             (Self::U64(xs), Self::U32(ys)) => go_try_into(xs, ys),
-//             (Self::U64(xs), Self::U64(ys)) => go_try_into(xs, ys),
-//             (Self::U64(xs), Self::F32(ys)) => go_int_float(xs, ys),
-//             (Self::U64(xs), Self::F64(ys)) => go_int_float(xs, ys),
-
-//             (Self::F32(xs), Self::U08(ys)) => go_int_float(ys, xs),
-//             (Self::F32(xs), Self::U16(ys)) => go_int_float(ys, xs),
-//             (Self::F32(xs), Self::U32(ys)) => go_int_float(ys, xs),
-//             (Self::F32(xs), Self::U64(ys)) => go_int_float(ys, xs),
-//             (Self::F32(xs), Self::F32(ys)) => go_try_into(xs, ys),
-//             (Self::F32(xs), Self::F64(ys)) => go_try_into(ys, xs),
-
-//             (Self::F64(xs), Self::U08(ys)) => go_int_float(ys, xs),
-//             (Self::F64(xs), Self::U16(ys)) => go_int_float(ys, xs),
-//             (Self::F64(xs), Self::U32(ys)) => go_int_float(ys, xs),
-//             (Self::F64(xs), Self::U64(ys)) => go_int_float(ys, xs),
-//             (Self::F64(xs), Self::F32(ys)) => go_try_into(xs, ys),
-//             (Self::F64(xs), Self::F64(ys)) => go_try_into(xs, ys),
-//         }
-//     }
-// }
-
-impl<T> From<Vec<T>> for PrimitiveSeries<T> {
-    fn from(value: Vec<T>) -> Self {
-        Self(value.into())
+impl From<AnyInternalSeries> for AnyPrimitiveSeries {
+    fn from(value: AnyInternalSeries) -> Self {
+        match value {
+            AnyInternalSeries::U08(c) => Self::U08(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::U16(c) => Self::U16(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::U24(c) => Self::U32(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::U32(c) => Self::U32(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::U40(c) => Self::U64(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::U48(c) => Self::U64(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::U56(c) => Self::U64(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::U64(c) => Self::U64(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::F32(c) => Self::F32(PrimitiveSeries(c.inner)),
+            AnyInternalSeries::F64(c) => Self::F64(PrimitiveSeries(c.inner)),
+        }
     }
 }
+
+impl<T, R: HasFCSType> TryFrom<AnyPrimitiveSeries> for InternalSeries<T, R>
+where
+    Self: FromSeries<U08Series>
+        + FromSeries<U16Series>
+        + FromSeries<U32Series>
+        + FromSeries<U64Series>
+        + FromSeries<F32Series>
+        + FromSeries<F64Series>,
+{
+    type Error = CastSeriesError;
+    fn try_from(value: AnyPrimitiveSeries) -> Result<Self, Self::Error> {
+        let ret = match value {
+            AnyPrimitiveSeries::U08(c) => Self::from_series(c),
+            AnyPrimitiveSeries::U16(c) => Self::from_series(c),
+            AnyPrimitiveSeries::U32(c) => Self::from_series(c),
+            AnyPrimitiveSeries::U64(c) => Self::from_series(c),
+            AnyPrimitiveSeries::F32(c) => Self::from_series(c),
+            AnyPrimitiveSeries::F64(c) => Self::from_series(c),
+        };
+        ret.into_result()
+    }
+}
+
+// Implement misc methods
 
 impl AnyPrimitiveSeries {
     #[must_use]
@@ -1070,83 +1045,6 @@ impl<T> PrimitiveSeries<T> {
                 .position(|x| X::from_value(x).lossy)
                 .map_or(Ok(()), |i| Err(CastSeriesError::new(i, T::TYPE, X::TYPE)))
         }
-    }
-}
-
-/// Error when building [`DataFrame`] from individual series
-#[derive(Debug, Error)]
-#[error("series lengths to not match")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct NewDataframeError;
-
-/// Error when new series has number of rows which are not equal to that in [`DataFrame`]
-#[derive(Debug, Error)]
-#[error("series length ({col_len}) is different from number of rows in dataframe ({df_len})")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct SeriesLengthError {
-    df_len: usize,
-    col_len: usize,
-}
-
-#[delegatable_trait]
-#[allow(clippy::len_without_is_empty)]
-pub trait HasLen {
-    // this will be used for vectors, len is always constant
-    fn len(&self) -> usize;
-}
-
-#[delegatable_trait]
-pub trait HasWidth {
-    #[allow(clippy::len_without_is_empty)]
-    fn width(&self) -> usize;
-
-    fn clear(&mut self);
-}
-
-impl<T> HasWidth for Vec<T> {
-    fn width(&self) -> usize {
-        self.len()
-    }
-
-    fn clear(&mut self) {
-        self.clear();
-    }
-}
-
-impl<T> HasWidth for DataFrame<T> {
-    fn width(&self) -> usize {
-        self.series.len()
-    }
-
-    fn clear(&mut self) {
-        self.series.clear();
-    }
-}
-
-impl<T> HasLen for PrimitiveSeries<T> {
-    fn len(&self) -> usize {
-        self.0.len()
-    }
-}
-
-impl<T, R> HasLen for InternalSeries<T, R> {
-    fn len(&self) -> usize {
-        self.inner.len()
-    }
-}
-
-impl<T> HasLen for Vec<T> {
-    #[allow(clippy::use_self)]
-    fn len(&self) -> usize {
-        Vec::len(self)
-    }
-}
-
-impl<T> HasLen for &[T] {
-    fn len(&self) -> usize {
-        self[..].len()
     }
 }
 
@@ -1250,18 +1148,6 @@ impl<C> DataFrame<C> {
         self.series.remove(i)
     }
 
-    // pub(crate) fn drop_in_place(&mut self, i: usize) -> Option<C>
-    // where
-    //     C: HasLen,
-    // {
-    //     if i > self.series.len() {
-    //         None
-    //     } else {
-    //         Some(self.remove(i))
-    //     }
-    // }
-
-    // TODO why called nocheck?
     pub(crate) fn push_series_nocheck(&mut self, col: C)
     where
         C: HasLen,
@@ -1306,6 +1192,49 @@ impl<C> DataFrame<C> {
         }
         Ok(())
     }
+}
+
+impl<T, Raw> InternalSeries<T, Raw> {
+    fn as_raw_slice(&self) -> &[Raw] {
+        debug_assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
+        let xs = self.inner.as_ref();
+        let p = xs.as_ptr().cast::<Raw>();
+        let n = xs.len();
+        // SAFETY: T and Raw are assumed to have the same layout and size
+        unsafe { from_raw_parts(p, n) }
+    }
+
+    pub(crate) fn truncate<F>(&mut self, f: F) -> Option<usize>
+    where
+        T: Copy + PartialOrd,
+        F: Fn(T) -> Option<T>,
+    {
+        let mut xs = mem::take(&mut self.inner).make_mut();
+        let mut j = None;
+        for (rowi, x) in xs.iter_mut().enumerate() {
+            if let Some(u) = f(*x) {
+                if j.is_none() {
+                    j = Some(rowi);
+                }
+                *x = u;
+            }
+        }
+        self.inner = Buffer::from(xs);
+        j
+    }
+
+    fn truncate_from_samesize_int(buf: Buffer<T>) -> CastSeriesResult<Self>
+    where
+        Raw: FromValue<T> + Into<T> + HasFCSType,
+        T: Copy + HasFCSType,
+    {
+        cast_buffer_samesize::<_, Raw>(buf).fmap_once(Self::new)
+    }
+}
+
+fn float_is_uint<F: Float + 'static, I: Bounded + AsPrimitive<F>>(x: F) -> bool {
+    let upper: F = I::max_value().as_();
+    !x.is_nan() && !x.is_infinite() && !x.is_sign_negative() && x.fract().is_zero() && x <= upper
 }
 
 // TODO this seems like a good place for property testing

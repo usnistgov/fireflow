@@ -3512,7 +3512,7 @@ where
                 .center_index()
                 .map(usize::from)
                 .and_then(|i| xforms.get(i))
-                .is_some_and(ScaleTransform::is_noop)
+                .is_some_and(|s| !ScaleTransform::is_noop(s))
                 .then_some(NonLinearTemporalTransformError.into())
         };
 

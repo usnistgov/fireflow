@@ -1,7 +1,7 @@
 import numpy as np
 import inspect as ins
 from itertools import product, chain
-from typing import cast, Any, NamedTuple, TypeVar, Callable, assert_never
+from typing import cast, Any, NamedTuple, TypeVar, Callable
 from datetime import date, datetime, time, timezone, timedelta
 from pathlib import Path
 from copy import deepcopy
@@ -38,21 +38,21 @@ X = TypeVar("X")
 
 
 INTEGER_WIDTHS: list[pt.VariableBitmask] = [
-    ("I08", 1),
-    ("I16", 2),
-    ("I24", 3),
-    ("I32", 4),
-    ("I40", 5),
-    ("I48", 6),
-    ("I56", 7),
-    ("I64", 8),
+    ("U08", 1),
+    ("U16", 2),
+    ("U24", 3),
+    ("U32", 4),
+    ("U40", 5),
+    ("U48", 6),
+    ("U56", 7),
+    ("U64", 8),
 ]
 
 
 MIXED_SCHEMAS: list[tuple[pt.AnyType, pt.AnyDataSchema3_2]] = [
-    ("F", pf.BigLittleF32DataSchema([255, 255])),
-    ("D", pf.BigLittleF64DataSchema([255, 255])),
-    ("I32", pf.SingleUintDataSchema([255, 255], byte_width=4)),
+    ("F32", pf.BigLittleF32DataSchema([255, 255])),
+    ("F64", pf.BigLittleF64DataSchema([255, 255])),
+    ("U32", pf.SingleUintDataSchema([255, 255], byte_width=4)),
     ("A", pf.FixedAsciiDataSchema([255, 255])),
 ]
 
@@ -1632,7 +1632,7 @@ class TestCore:
         temporal: type,
     ) -> None:
         assert len(core.measurements) == 2
-        core.data_schema = pf.VariableUintDataSchema([("I16", 1000), ("I32", 2000)])
+        core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
         n0, m0, r0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         n1, m1, r1, t1 = core.remove_measurement_by_index(0)
@@ -1643,7 +1643,7 @@ class TestCore:
         assert isinstance(m1, temporal)
         assert r0 == 1000
         assert r1 == 2000
-        assert t0 == "I16"
+        assert t0 == "U16"
         assert t1 is None
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
@@ -1665,7 +1665,7 @@ class TestCore:
         temporal: type,
     ) -> None:
         assert len(core.measurements) == 2
-        core.data_schema = pf.VariableUintDataSchema([("I16", 1000), ("I32", 2000)])
+        core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
         n0, m0, c0, r0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         n1, m1, c1, r1, t1 = core.remove_measurement_by_index(0)
@@ -1678,14 +1678,14 @@ class TestCore:
         assert r1 == 2000
         assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
-        assert t0 == "I16"
+        assert t0 == "U16"
         assert t1 is None
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
     def test_text_remove_mixed_meas_by_index(self, text2_3_2: pf.CoreTEXT3_2) -> None:
         assert len(text2_3_2.measurements) == 2
-        text2_3_2.data_schema = pf.MixedDataSchema([("F", 1000.0), ("I32", 2000)])
+        text2_3_2.data_schema = pf.MixedDataSchema([("F32", 1000.0), ("U32", 2000)])
         n0, m0, r0, t0 = text2_3_2.remove_measurement_by_index(0)
         assert isinstance(text2_3_2.data_schema, pf.SingleUintDataSchema)
         n1, m1, r1, t1 = text2_3_2.remove_measurement_by_index(0)
@@ -1696,7 +1696,7 @@ class TestCore:
         assert isinstance(m1, pf.Temporal3_2)
         assert r0 == 1000.0
         assert r1 == 2000
-        assert t0 == "F"
+        assert t0 == "F32"
         assert t1 is None
         with pytest.raises(IndexError):
             text2_3_2.remove_measurement_by_index(0)
@@ -1705,7 +1705,7 @@ class TestCore:
         self, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
         assert len(dataset2_3_2.measurements) == 2
-        dataset2_3_2.data_schema = pf.MixedDataSchema([("F", 1000.0), ("I32", 2000)])
+        dataset2_3_2.data_schema = pf.MixedDataSchema([("F32", 1000.0), ("U32", 2000)])
         n0, m0, c0, r0, t0 = dataset2_3_2.remove_measurement_by_index(0)
         assert isinstance(dataset2_3_2.data_schema, pf.SingleUintDataSchema)
         n1, m1, c1, r1, t1 = dataset2_3_2.remove_measurement_by_index(0)
@@ -1722,7 +1722,7 @@ class TestCore:
         assert r1 == 2000
         assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
-        assert t0 == "F"
+        assert t0 == "F32"
         assert t1 is None
         with pytest.raises(IndexError):
             dataset2_3_2.remove_measurement_by_index(0)
@@ -2052,7 +2052,7 @@ class TestCore:
         assert isinstance(dataset2_3_1.data_schema, type(schema))
         with pytest.RaisesGroup(pf.RelationalError):
             dataset2_3_1.insert_optical(
-                0, "pegasus", blank_optical_3_1, ("I08", 1), series1
+                0, "pegasus", blank_optical_3_1, ("U08", 1), series1
             )
 
     @pytest.mark.parametrize(
@@ -2120,9 +2120,9 @@ class TestCore:
         Inserting a plain decimal (without type) should result in error.
         Inserting decimal with type should not change the schema.
         """
-        core.data_schema = pf.VariableUintDataSchema([("I16", 10000), ("I32", 10000)])
+        core.data_schema = pf.VariableUintDataSchema([("U16", 10000), ("U32", 10000)])
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
-        core.insert_optical(0, "wannacry", optical, ("I64", 10000), series1)
+        core.insert_optical(0, "wannacry", optical, ("U64", 10000), series1)
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
         with pytest.RaisesGroup(pf.RelationalError):
@@ -2139,10 +2139,10 @@ class TestCore:
         Inserting a plain decimal (without type) should result in error.
         Inserting decimal with type should not change the schema.
         """
-        dataset2_3_2.data_schema = pf.MixedDataSchema([("F", 10000), ("I64", 10000)])
+        dataset2_3_2.data_schema = pf.MixedDataSchema([("F32", 10000), ("U64", 10000)])
         assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
         dataset2_3_2.insert_optical(
-            0, "notpetya", blank_optical_3_2, ("I16", 10000), series1
+            0, "notpetya", blank_optical_3_2, ("U16", 10000), series1
         )
         assert isinstance(dataset2_3_2.measurement_at(1), pf.Optical3_2)
         assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
@@ -2155,78 +2155,78 @@ class TestCore:
         "dtype, width, should_err",
         [
             # U8
-            (pl.UInt8, "I08", False),
-            (pl.UInt16, "I08", True),
-            (pl.UInt32, "I08", True),
-            (pl.UInt64, "I08", True),
-            (pl.Float32, "I08", True),
-            (pl.Float64, "I08", True),
+            (pl.UInt8, "U08", False),
+            (pl.UInt16, "U08", True),
+            (pl.UInt32, "U08", True),
+            (pl.UInt64, "U08", True),
+            (pl.Float32, "U08", True),
+            (pl.Float64, "U08", True),
             # U16
-            (pl.UInt8, "I16", False),
-            (pl.UInt16, "I16", False),
-            (pl.UInt32, "I16", True),
-            (pl.UInt64, "I16", True),
-            (pl.Float32, "I16", True),
-            (pl.Float64, "I16", True),
+            (pl.UInt8, "U16", False),
+            (pl.UInt16, "U16", False),
+            (pl.UInt32, "U16", True),
+            (pl.UInt64, "U16", True),
+            (pl.Float32, "U16", True),
+            (pl.Float64, "U16", True),
             # U24
-            (pl.UInt8, "I24", False),
-            (pl.UInt16, "I24", False),
-            (pl.UInt32, "I24", True),
-            (pl.UInt64, "I24", True),
-            (pl.Float32, "I24", True),
-            (pl.Float64, "I24", True),
+            (pl.UInt8, "U24", False),
+            (pl.UInt16, "U24", False),
+            (pl.UInt32, "U24", True),
+            (pl.UInt64, "U24", True),
+            (pl.Float32, "U24", True),
+            (pl.Float64, "U24", True),
             # U32
-            (pl.UInt8, "I32", False),
-            (pl.UInt16, "I32", False),
-            (pl.UInt32, "I32", False),
-            (pl.UInt64, "I32", True),
-            (pl.Float32, "I32", True),
-            (pl.Float64, "I32", True),
+            (pl.UInt8, "U32", False),
+            (pl.UInt16, "U32", False),
+            (pl.UInt32, "U32", False),
+            (pl.UInt64, "U32", True),
+            (pl.Float32, "U32", True),
+            (pl.Float64, "U32", True),
             # U40
-            (pl.UInt8, "I40", False),
-            (pl.UInt16, "I40", False),
-            (pl.UInt32, "I40", False),
-            (pl.UInt64, "I40", True),
-            (pl.Float32, "I40", True),
-            (pl.Float64, "I40", True),
+            (pl.UInt8, "U40", False),
+            (pl.UInt16, "U40", False),
+            (pl.UInt32, "U40", False),
+            (pl.UInt64, "U40", True),
+            (pl.Float32, "U40", True),
+            (pl.Float64, "U40", True),
             # U48
-            (pl.UInt8, "I48", False),
-            (pl.UInt16, "I48", False),
-            (pl.UInt32, "I48", False),
-            (pl.UInt64, "I48", True),
-            (pl.Float32, "I48", True),
-            (pl.Float64, "I48", True),
+            (pl.UInt8, "U48", False),
+            (pl.UInt16, "U48", False),
+            (pl.UInt32, "U48", False),
+            (pl.UInt64, "U48", True),
+            (pl.Float32, "U48", True),
+            (pl.Float64, "U48", True),
             # U56
-            (pl.UInt8, "I56", False),
-            (pl.UInt16, "I56", False),
-            (pl.UInt32, "I56", False),
-            (pl.UInt64, "I56", True),
-            (pl.Float32, "I56", True),
-            (pl.Float64, "I56", True),
+            (pl.UInt8, "U56", False),
+            (pl.UInt16, "U56", False),
+            (pl.UInt32, "U56", False),
+            (pl.UInt64, "U56", True),
+            (pl.Float32, "U56", True),
+            (pl.Float64, "U56", True),
             # U64
-            (pl.UInt8, "I64", False),
-            (pl.UInt16, "I64", False),
-            (pl.UInt32, "I64", False),
-            (pl.UInt64, "I64", False),
-            (pl.Float32, "I64", True),
-            (pl.Float64, "I64", True),
+            (pl.UInt8, "U64", False),
+            (pl.UInt16, "U64", False),
+            (pl.UInt32, "U64", False),
+            (pl.UInt64, "U64", False),
+            (pl.Float32, "U64", True),
+            (pl.Float64, "U64", True),
             # F32
-            (pl.UInt8, "F", False),
-            (pl.UInt16, "F", False),
+            (pl.UInt8, "F32", False),
+            (pl.UInt16, "F32", False),
             # this is a lucky fluke; u32::MAX just happens to be an exact f32
-            (pl.UInt32, "F", False),
+            (pl.UInt32, "F32", False),
             # this is a lucky fluke; u64::MAX just happens to be an exact f32
-            (pl.UInt64, "F", False),
-            (pl.Float32, "F", False),
-            (pl.Float64, "F", True),
+            (pl.UInt64, "F32", False),
+            (pl.Float32, "F32", False),
+            (pl.Float64, "F32", True),
             # F64
-            (pl.UInt8, "D", False),
-            (pl.UInt16, "D", False),
-            (pl.UInt32, "D", False),
+            (pl.UInt8, "F64", False),
+            (pl.UInt16, "F64", False),
+            (pl.UInt32, "F64", False),
             # this is a lucky fluke; u64::MAX just happens to be an exact f64
-            (pl.UInt64, "D", False),
-            (pl.Float32, "D", False),
-            (pl.Float64, "D", False),
+            (pl.UInt64, "F64", False),
+            (pl.Float32, "F64", False),
+            (pl.Float64, "F64", False),
         ],
     )
     def test_series_to_int(
@@ -3111,9 +3111,9 @@ class TestDataSchema:
 
     def test_variable_uint(self) -> None:
         ranges: list[pt.VariableBitmask] = [
-            ("I08", 2**8 - 1),
-            ("I16", 2**16 - 1),
-            ("I32", 2**24 - 1),
+            ("U08", 2**8 - 1),
+            ("U16", 2**16 - 1),
+            ("U32", 2**24 - 1),
         ]
         new = pf.VariableUintDataSchema(ranges)
         assert new.byte_widths == [1, 2, 4]
@@ -3122,9 +3122,9 @@ class TestDataSchema:
 
     def test_mixed(self) -> None:
         types: list[MixedRange] = [
-            ("F", 1000.0),
-            ("D", 2000.0),
-            ("I08", 255),
+            ("F32", 1000.0),
+            ("F64", 2000.0),
+            ("U08", 255),
         ]
         new = pf.MixedDataSchema(types)
         assert new.byte_widths == [4, 8, 1]

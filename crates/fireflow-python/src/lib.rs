@@ -1150,14 +1150,14 @@ fn split_bitmask_range(
         data::MaybeTypedVariableBitmask::Untyped(x) => (x, None),
         data::MaybeTypedVariableBitmask::Typed(x) => {
             let w = match x {
-                data::AnyUint::Uint08(_) => IntegerWidth::I08,
-                data::AnyUint::Uint16(_) => IntegerWidth::I16,
-                data::AnyUint::Uint24(_) => IntegerWidth::I24,
-                data::AnyUint::Uint32(_) => IntegerWidth::I32,
-                data::AnyUint::Uint40(_) => IntegerWidth::I40,
-                data::AnyUint::Uint48(_) => IntegerWidth::I48,
-                data::AnyUint::Uint56(_) => IntegerWidth::I56,
-                data::AnyUint::Uint64(_) => IntegerWidth::I64,
+                data::AnyUint::Uint08(_) => IntegerWidth::U08,
+                data::AnyUint::Uint16(_) => IntegerWidth::U16,
+                data::AnyUint::Uint24(_) => IntegerWidth::U24,
+                data::AnyUint::Uint32(_) => IntegerWidth::U32,
+                data::AnyUint::Uint40(_) => IntegerWidth::U40,
+                data::AnyUint::Uint48(_) => IntegerWidth::U48,
+                data::AnyUint::Uint56(_) => IntegerWidth::U56,
+                data::AnyUint::Uint64(_) => IntegerWidth::U64,
             };
             let f: data::FullRange = x.into();
             (f, Some(w))
@@ -1173,17 +1173,17 @@ fn split_mixed_range(r: data::MaybeTypedMixedRange) -> (data::FullRange, Option<
             let w = match x {
                 data::AnyDatatype::Ascii(_) => ColumnType::A,
                 data::AnyDatatype::Uint(y) => match y {
-                    data::AnyUint::Uint08(_) => ColumnType::I08,
-                    data::AnyUint::Uint16(_) => ColumnType::I16,
-                    data::AnyUint::Uint24(_) => ColumnType::I24,
-                    data::AnyUint::Uint32(_) => ColumnType::I32,
-                    data::AnyUint::Uint40(_) => ColumnType::I40,
-                    data::AnyUint::Uint48(_) => ColumnType::I48,
-                    data::AnyUint::Uint56(_) => ColumnType::I56,
-                    data::AnyUint::Uint64(_) => ColumnType::I64,
+                    data::AnyUint::Uint08(_) => ColumnType::U08,
+                    data::AnyUint::Uint16(_) => ColumnType::U16,
+                    data::AnyUint::Uint24(_) => ColumnType::U24,
+                    data::AnyUint::Uint32(_) => ColumnType::U32,
+                    data::AnyUint::Uint40(_) => ColumnType::U40,
+                    data::AnyUint::Uint48(_) => ColumnType::U48,
+                    data::AnyUint::Uint56(_) => ColumnType::U56,
+                    data::AnyUint::Uint64(_) => ColumnType::U64,
                 },
-                data::AnyDatatype::F32(_) => ColumnType::F,
-                data::AnyDatatype::F64(_) => ColumnType::D,
+                data::AnyDatatype::F32(_) => ColumnType::F32,
+                data::AnyDatatype::F64(_) => ColumnType::F64,
             };
             let f: data::FullRange = x.into();
             (f, Some(w))

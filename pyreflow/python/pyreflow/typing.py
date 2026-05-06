@@ -79,14 +79,15 @@ FloatType = Literal["F"]
 DoubleType = Literal["D"]
 IntegerType = Literal["I"]
 AsciiType = Literal["A"]
-IntegerWidth = Literal["I08", "I16", "I24", "I32", "I40", "I48", "I56", "I64"]
-
-# TODO these two are confusing
 Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
-AnyType: TypeAlias = FloatType | DoubleType | AsciiType | IntegerWidth
+
+F32Type = Literal["F32"]
+F64Type = Literal["F64"]
+IntegerWidth = Literal["U08", "U16", "U24", "U32", "U40", "U48", "U56", "U64"]
+AnyType: TypeAlias = F32Type | F64Type | AsciiType | IntegerWidth
 VariableBitmask: TypeAlias = tuple[IntegerWidth, IntRange]
 MixedRange: TypeAlias = (
-    tuple[FloatType | DoubleType, Range] | tuple[AsciiType | IntegerWidth, IntRange]
+    tuple[F32Type | F64Type, Range] | tuple[AsciiType | IntegerWidth, IntRange]
 )
 
 MaybeTypedVariableBitmask: TypeAlias = IntRange | VariableBitmask

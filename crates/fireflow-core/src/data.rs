@@ -8459,14 +8459,14 @@ mod python {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (width, value): (IntegerWidth, Bound<'py, PyAny>) = ob.extract()?;
             let ret = match width {
-                IntegerWidth::I08 => Self::Uint08(value.extract()?),
-                IntegerWidth::I16 => Self::Uint16(value.extract()?),
-                IntegerWidth::I24 => Self::Uint24(value.extract()?),
-                IntegerWidth::I32 => Self::Uint32(value.extract()?),
-                IntegerWidth::I40 => Self::Uint40(value.extract()?),
-                IntegerWidth::I48 => Self::Uint48(value.extract()?),
-                IntegerWidth::I56 => Self::Uint56(value.extract()?),
-                IntegerWidth::I64 => Self::Uint64(value.extract()?),
+                IntegerWidth::U08 => Self::Uint08(value.extract()?),
+                IntegerWidth::U16 => Self::Uint16(value.extract()?),
+                IntegerWidth::U24 => Self::Uint24(value.extract()?),
+                IntegerWidth::U32 => Self::Uint32(value.extract()?),
+                IntegerWidth::U40 => Self::Uint40(value.extract()?),
+                IntegerWidth::U48 => Self::Uint48(value.extract()?),
+                IntegerWidth::U56 => Self::Uint56(value.extract()?),
+                IntegerWidth::U64 => Self::Uint64(value.extract()?),
             };
             Ok(ret)
         }
@@ -8479,14 +8479,14 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Uint08(x) => (IntegerWidth::I08, x).into_pyobject(py),
-                Self::Uint16(x) => (IntegerWidth::I16, x).into_pyobject(py),
-                Self::Uint24(x) => (IntegerWidth::I24, x).into_pyobject(py),
-                Self::Uint32(x) => (IntegerWidth::I32, x).into_pyobject(py),
-                Self::Uint40(x) => (IntegerWidth::I40, x).into_pyobject(py),
-                Self::Uint48(x) => (IntegerWidth::I48, x).into_pyobject(py),
-                Self::Uint56(x) => (IntegerWidth::I56, x).into_pyobject(py),
-                Self::Uint64(x) => (IntegerWidth::I64, x).into_pyobject(py),
+                Self::Uint08(x) => (IntegerWidth::U08, x).into_pyobject(py),
+                Self::Uint16(x) => (IntegerWidth::U16, x).into_pyobject(py),
+                Self::Uint24(x) => (IntegerWidth::U24, x).into_pyobject(py),
+                Self::Uint32(x) => (IntegerWidth::U32, x).into_pyobject(py),
+                Self::Uint40(x) => (IntegerWidth::U40, x).into_pyobject(py),
+                Self::Uint48(x) => (IntegerWidth::U48, x).into_pyobject(py),
+                Self::Uint56(x) => (IntegerWidth::U56, x).into_pyobject(py),
+                Self::Uint64(x) => (IntegerWidth::U64, x).into_pyobject(py),
             }
         }
     }
@@ -8496,16 +8496,16 @@ mod python {
             let (ctype, value): (ColumnType, Bound<'py, PyAny>) = ob.extract()?;
             let ret = match ctype {
                 ColumnType::A => Self::Ascii(value.extract()?),
-                ColumnType::F => Self::F32(value.extract()?),
-                ColumnType::D => Self::F64(value.extract()?),
-                ColumnType::I08 => Self::Uint(AnyUint::Uint08(value.extract()?)),
-                ColumnType::I16 => Self::Uint(AnyUint::Uint16(value.extract()?)),
-                ColumnType::I24 => Self::Uint(AnyUint::Uint24(value.extract()?)),
-                ColumnType::I32 => Self::Uint(AnyUint::Uint32(value.extract()?)),
-                ColumnType::I40 => Self::Uint(AnyUint::Uint40(value.extract()?)),
-                ColumnType::I48 => Self::Uint(AnyUint::Uint48(value.extract()?)),
-                ColumnType::I56 => Self::Uint(AnyUint::Uint56(value.extract()?)),
-                ColumnType::I64 => Self::Uint(AnyUint::Uint64(value.extract()?)),
+                ColumnType::F32 => Self::F32(value.extract()?),
+                ColumnType::F64 => Self::F64(value.extract()?),
+                ColumnType::U08 => Self::Uint(AnyUint::Uint08(value.extract()?)),
+                ColumnType::U16 => Self::Uint(AnyUint::Uint16(value.extract()?)),
+                ColumnType::U24 => Self::Uint(AnyUint::Uint24(value.extract()?)),
+                ColumnType::U32 => Self::Uint(AnyUint::Uint32(value.extract()?)),
+                ColumnType::U40 => Self::Uint(AnyUint::Uint40(value.extract()?)),
+                ColumnType::U48 => Self::Uint(AnyUint::Uint48(value.extract()?)),
+                ColumnType::U56 => Self::Uint(AnyUint::Uint56(value.extract()?)),
+                ColumnType::U64 => Self::Uint(AnyUint::Uint64(value.extract()?)),
             };
             Ok(ret)
         }
@@ -8519,16 +8519,16 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
                 Self::Ascii(x) => (ColumnType::A, x).into_pyobject(py),
-                Self::F32(x) => (ColumnType::F, x).into_pyobject(py),
-                Self::F64(x) => (ColumnType::D, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint08(x)) => (ColumnType::I08, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint16(x)) => (ColumnType::I16, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint24(x)) => (ColumnType::I24, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint32(x)) => (ColumnType::I32, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint40(x)) => (ColumnType::I40, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint48(x)) => (ColumnType::I48, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint56(x)) => (ColumnType::I56, x).into_pyobject(py),
-                Self::Uint(AnyUint::Uint64(x)) => (ColumnType::I64, x).into_pyobject(py),
+                Self::F32(x) => (ColumnType::F32, x).into_pyobject(py),
+                Self::F64(x) => (ColumnType::F64, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint08(x)) => (ColumnType::U08, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint16(x)) => (ColumnType::U16, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint24(x)) => (ColumnType::U24, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint32(x)) => (ColumnType::U32, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint40(x)) => (ColumnType::U40, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint48(x)) => (ColumnType::U48, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint56(x)) => (ColumnType::U56, x).into_pyobject(py),
+                Self::Uint(AnyUint::Uint64(x)) => (ColumnType::U64, x).into_pyobject(py),
             }
         }
     }

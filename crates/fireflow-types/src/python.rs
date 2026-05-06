@@ -172,18 +172,18 @@ create_exception!(
     "Generic warning created by ``pyreflow``."
 );
 
-const I08: &NEStr = ne_str!("I08");
-const I16: &NEStr = ne_str!("I16");
-const I24: &NEStr = ne_str!("I24");
-const I32: &NEStr = ne_str!("I32");
-const I40: &NEStr = ne_str!("I40");
-const I48: &NEStr = ne_str!("I48");
-const I56: &NEStr = ne_str!("I56");
-const I64: &NEStr = ne_str!("I64");
+const U08: &NEStr = ne_str!("U08");
+const U16: &NEStr = ne_str!("U16");
+const U24: &NEStr = ne_str!("U24");
+const U32: &NEStr = ne_str!("U32");
+const U40: &NEStr = ne_str!("U40");
+const U48: &NEStr = ne_str!("U48");
+const U56: &NEStr = ne_str!("U56");
+const U64: &NEStr = ne_str!("U64");
 
 pub const COL_TYPE_ASCII: &NEStr = ne_str!("A");
-pub const COL_TYPE_F32: &NEStr = ne_str!("F");
-pub const COL_TYPE_F64: &NEStr = ne_str!("D");
+pub const COL_TYPE_F32: &NEStr = ne_str!("F32");
+pub const COL_TYPE_F64: &NEStr = ne_str!("F64");
 
 impl_str_enum!(
     /// All supported integer widths.
@@ -199,14 +199,14 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     pub IntegerWidthError,
-    I08 => I08,
-    I16 => I16,
-    I24 => I24,
-    I32 => I32,
-    I40 => I40,
-    I48 => I48,
-    I56 => I56,
-    I64 => I64
+    U08 => U08,
+    U16 => U16,
+    U24 => U24,
+    U32 => U32,
+    U40 => U40,
+    U48 => U48,
+    U56 => U56,
+    U64 => U64
 );
 
 impl_str_enum!(
@@ -224,14 +224,14 @@ impl_str_enum!(
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
     pub ColumnTypeError,
     A => COL_TYPE_ASCII,
-    F => COL_TYPE_F32,
-    D => COL_TYPE_F64,
-    I08 => I08,
-    I16 => I16,
-    I24 => I24,
-    I32 => I32,
-    I40 => I40,
-    I48 => I48,
-    I56 => I56,
-    I64 => I64
+    F32 => COL_TYPE_F32,
+    F64 => COL_TYPE_F64,
+    U08 => U08,
+    U16 => U16,
+    U24 => U24,
+    U32 => U32,
+    U40 => U40,
+    U48 => U48,
+    U56 => U56,
+    U64 => U64
 );

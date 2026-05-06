@@ -10,6 +10,22 @@ them. The `fireflow` flags specified under each issue are written in terms of
 the configuration as defined in [config.rs](crates/fireflow-core/src/config.rs)
 but have identical or near-identical analogues in `fireflow`'s various APIs.
 
+# TLDR
+
+Since this can get complicated quite quickly, `fireflow` has several built-in
+modes to handle these issues automatically for *most* files. The way these are
+invoked is API-specific, but the names of these two modes which can be search in
+the appropriate docs are:
+
+* scalpal: parse file carefullly, trying to preserve as much as possible without
+  destroying metadata
+* sledgehammer: parse file with the aim of reading *DATA* and skip reading
+  metadata as necessary
+
+These two options will set many of the flags outlined below. This is probably
+what most users want. It is quite fast, but the fastest performance may be
+achevied by manually specifying these flags using a priori knowledge.
+
 # Offset issues
 
 The offsets throughout the FCS file are often wrong. Usually, the end is one
@@ -20,7 +36,17 @@ intervals, slices, etc)
 
 Incorrect offsets can either be corrected, or in some cases, ignored entirely.
 
-## Correcting bad offsets
+## Overlap correction
+
+In practice, if the offsets are wrong, it is usually the ending offset, and it
+errs too large. This means segment often overlap with each if an offset is
+incorrect.
+
+Overlaps can automatically be fixed by setting `overlap_correction_limit` to
+a value greater than zero as appropriate. Usually `1` is enough since most
+offset errors are off by one.
+
+## Correcting bad offsets manually
 
 All offsets can be overriden. For *HEADER* these options are:
 
@@ -61,9 +87,8 @@ The *DATA* offset can also point beyond the end of the file if *DATA* is the
 last segment and the ending offset for *DATA* is one greater than it is supposed
 to be.
 
-To read these files, use `truncate_offsets` (for *HEADER* offsets) or
-`truncate_text_offsets` (for *TEXT*) to force all ending offsets to point to the
-last byte if they exceed the file's length.
+To read these files, set `truncate_offset_limit` to a value greater than zero
+as appropriate.
 
 ## "Split" offsets in *HEADER*
 
@@ -79,16 +104,18 @@ Enable `squish_offsets` to treat such offsets as `0,0`. Note this only applies
 to the *DATA* and *ANALYSIS* offsets since *TEXT* must fit within the first
 99,999,999 bytes. This should also only happen in FCS 3.0+ files.
 
-## Negative offsets in *HEADER*
+## Pseudoempty offsets
 
-In practice, the most common case of this seems to be `0,-1` which some vendors
-(quite logically) interpret to be an "empty" segment.
+Empty offsets should always be written as `0,0` according to the standard.
 
-This stems from the fact that the ending offset refers to the last byte of the
-segment, so `0,0` is actually a 1-byte segment (not empty).
+However, the standard also says that the offsets point to the first and second
+bytes of the segment, which means `0,0` is actually one byte (both at offset 0).
 
-Set `allow_negative` to set any negative numbers up to 0, in which the above
-case to become `0,0`.
+Consequently, some vendors write something like `0,-1` or `1000,999` to mean
+'empty'. This is totally logical, and unfortunately is not what the standard
+says to do.
+
+Such offsets are called 'pseudoempty'. To allow them, set `allow_pseudoempty`.
 
 ## Missing required *TEXT* offsets
 
@@ -102,19 +129,15 @@ Per the standard, *$NEXTDATA* is a required keyword. In practice, almost no FCS
 file has multiple datasets, so this keyword does nothing. If *$NEXTDATA* is
 missing, enable `allow_missing_nextdata` to permit this error.
 
-## Whitespace after *TEXT*
+## Incorrect *$NEXTDATA*
 
-Some vendors will add extra "padding" (usually spaces) after the last delimiter
-in *TEXT* and up until the ending offset for *TEXT* indicated in *HEADER*. The
-reason for this probably has to do with the fact that there is a circular
-dependency between the number of digits in offset keywords in *TEXT*
-(*$BEGINDATA*, *$ENDDATA*, etc) and the length of *TEXT*. Padding the end of
-*TEXT* up to a certain length could eliminate this problem by making the length
-of *TEXT* predictable.
+Use `nextdata_correction` to adjust the value of *$NEXTDATA*.
 
-Regardless of the root cause, the standard requires that *TEXT* end with a
-delimiter, so this behavior is not allowed. This can be fixed with
-`trim_trailing_whitespace`.
+## Duplicated Supplemental *TEXT*
+
+Often, if supplemental *TEXT* is included, it will exactly match the offsets
+from *TEXT*. Use `allow_duplicated_supp_text` to allow such cases (which will
+simply pretent the supplemental *TEXT* offsets do not exist).
 
 # Issues with standard keys
 
@@ -126,8 +149,8 @@ There are various solutions to this.
 
 ## Incorrect version
 
-Use `version_override` to force the file to be read with a different version. It
-will be as if this version were written in the first 6 bytes.
+Use `version_override` to either guess the version based on keywords or force a
+different version of the user's choice.
 
 ## Ignoring or demoting extra keys
 
@@ -146,15 +169,21 @@ Entirely missing keys can also be given with `append_standard_keywords`.
 
 If a standard key is misnamed, this can be fixed with `rename_standard_keys`.
 
+## Permitting optional keys that produce errors
+
+Use `process_optional_failure` to control how optional keywords are handled if
+they cannot be parsed.
+
 ## Permitting extra keys
 
-As a last resort, extra keys can simply be permitted.
+As a last resort, extra keys can simply be permitted. The following flags
+control how these keys are to be handled (dropped, throw error, warn, etc):
 
-Enable `allow_pseudostandard` to allow keys which are not part of the indicated
-standard to be included.
-
-Enable `allow_unused_standard` to allow keys which are part of the standard but
-not used to be included (for example *$TIMESTEP* without a time measurement).
+* `process_pseudostandard`: pertains to keys not in any standard
+* `process_hyper_par`: pertains to measurement keys in the standard but outside
+  the range of the *$PAR* keywrod.
+* `process_other_version`: pertains to keys from a different FCS version.
+* `process_extra_timestep`: pertains to the $TIMESTEP keyword if it was not used
 
 # Issues with standard keyword values
 
@@ -167,19 +196,38 @@ which permits infinite flexibility for the user while keeping the API simple.
 These options are for cases where standardization fails due to a value being
 incorrect.
 
+## Duplicated $PnN
+
+Sometimes $PnN are repeated. In FCS 2.0 and 3.0, this was not explicitly
+forbidden, although it doesn't make much sense to do. `fireflow` requires all
+names to be unique, so such files will result in an error.
+
+Use `dedup_measurement_names` to append a string to the end of such names which
+will make them unique.
+
 ## *$SPILLOVER* with indexed measurements
 
 The *$SPILLOVER* keyword should use *$PnN* to link the rows/columns of the
 matrix to measurements. In practice, some files use numbers to specify
-measurement indices. Enable `parse_indexed_spillover` to interpret the
-measurements as indices rather than names.
+measurement indices.
 
-## Invalid *$DATE*, *$BTIM*, and *$ETIM*
+Enable `spillover_measurement_mode` to guess or specify how these names/indices
+should be interepreted.
+
+## Invalid dates/times
 
 These keywords should follow a specified pattern. Use `date_pattern` (for
-*$DATE*) or `time_pattern` (for *$BTIM* and *$ETIM*) to supply a custom pattern
-for parsing this field in the case of files who do not format their dates and
-times correctly.
+*$DATE*), `time_pattern` (for *$BTIM* and *$ETIM*), `datetime_pattern` (for
+*$BEGINDATETIME* and *$ENDDATETIME*), or `last_modified_pattern` (for
+*$LAST_MODIFIED*) to supply a custom pattern for parsing this field in the case
+of files who do not format their dates and times correctly.
+
+## *$PnE* and *$DATATYPE* mismatch
+
+Some files use floats but specify log-scaled *$PnE* which is not allowed by the
+standard.
+
+Use `force_linear_scale` to force the *$PnE* in such files to be linear.
 
 ## Incorrect *$PnE* log offset value
 
@@ -216,6 +264,14 @@ truncation.
 Note that *$PnR* floats which are actually in integer columns will also be
 truncated. This may or may not indicate an issue with the file.
 
+## Invalid $PnFEATURE
+
+Only `"Area"`, `"Width"`, or `"Height"` is allowed for this keyword. However,
+some machines use non-optical measurements (ie imaging) which (understandably)
+set this to something else.
+
+Use `allow_other_feature` to allow such cases.
+
 ## Extra whitespace
 
 Some values contain whitespace around them. There are various reasons for this.
@@ -225,8 +281,8 @@ easier to compute. This can be a problem since the string `"  1"` cannot be
 parsed as a number (technically it should be `"001"`).
 
 Enable `trim_value_whitespace` to remove whitespace from the beginning and end
-of all values in *TEXT*. This will likely create empty values, in which case
-`allow_empty` can also be used.
+of all values in *TEXT*. This option can further specify how to treat empty
+values created by trimming, which will often happen.
 
 ## Extra whitespace in comma-separated values
 
@@ -260,6 +316,13 @@ in these cases.
 Files should include the time measurement. Enable `allow_missing_time` to permit
 the time measurement to be missing.
 
+## Missing $TIMESTEP
+
+Files with a time measurement should include $TIMESTEP. It may be missing for
+various reasons.
+
+Use `add_missing_timestep` to add $TIMESTEP to the file of a given value.
+
 ## Non-identity *$PnG*
 
 *$PnG* for the time measurement should not be present. In practice, a value of
@@ -271,8 +334,10 @@ ignore *$PnG* for the time measurement.
 ## Optical keywords
 
 The time measurement should not have any keywords which describe an optical
-property (ie *$PnL*) or a detector (ie *PnV*). Use `ignore_time_optical_keys` to
-ignore these keys if present.
+property (ie *$PnL*) or a detector (ie *PnV*).
+
+Use `ignore_time_optical_keys` to ignore these keys if present. Also specify
+`process_time_optical_keys` to control what will happen to such keys when found.
 
 # Issues parsing *HEADER*
 
@@ -283,9 +348,9 @@ Consequently, some vendors will use a different (often much longer) width when
 writing *OTHER* segments, presumably to break past the limit imposed by only
 allowing 8 digits.
 
-The flag `other_width` allows one to specify this width. Unfortunately it will
-likely require trial-and-error and/or direct inspection of the file to figure
-out what this should be.
+The flag `guess_other_width` can be used to infer the width of OTHER segments.
+This is not failsafe, so the flag `other_width` allows one to specify this width
+manually (which will likely require prior knowledge or manual file inspection).
 
 *OTHER* segments can be ignored entirely by setting `max_other` to `0`. This
 will bypass parsing of *OTHER* segments entirely.
@@ -297,6 +362,37 @@ will bypass parsing of *OTHER* segments entirely.
 Delimiters can have multiple failure modes, some of which have a tendency to
 occur together.
 
+### Whitespace after *TEXT*
+
+Some vendors will add extra "padding" (usually spaces) after the last delimiter
+in *TEXT* and up until the ending offset for *TEXT* indicated in *HEADER*. The
+reason for this probably has to do with the fact that there is a circular
+dependency between the number of digits in offset keywords in *TEXT*
+(*$BEGINDATA*, *$ENDDATA*, etc) and the length of *TEXT*. Padding the end of
+*TEXT* up to a certain length could eliminate this problem by making the length
+of *TEXT* predictable.
+
+Regardless of the root cause, the standard requires that *TEXT* end with a
+delimiter, so this behavior is not allowed. This can be fixed with
+`trim_trailing_whitespace`.
+
+### Odd number of tokens
+
+The number of tokens (keys and values) in TEXT should be even; they must be
+paired as keys and values. If this isn't the case, the file might have an issue
+with either delimiter escaping or the final offset. In many cases TEXT will end
+with whitespace after the final delimiter.
+
+Use `allow_odd_tokens` to allow TEXT to contain an odd number of tokens.
+
+### Even number of delimiters
+
+The number of delimiters in TEXT must always be odd (regardless of escape mode).
+If the number is even, it often means the final offset is incorrect or a value
+has an unescaped delimiter.
+
+Use `allow_even_delims` to allow TEXT to contain an even number of delimiters.
+
 ### Escaping
 
 Delimiters are supposed to be "escapable" which means the delimiter can be
@@ -305,20 +401,14 @@ is preceded by another delimiter (escaped). This precludes empty key values,
 which are forbidden by the standard.
 
 Some FCS files use literal delimiters, presumably to allow empty keyword values.
-In this case, enable `use_literal_delims`.
+
+Use `delim_escape_mode` to either guess or manually specify how delimiters
+should be escaped. Guessing is often reliable.
 
 ### Non-ASCII delimiters
 
 Delimiters should be an ASCII character (value between 1 and 126). For files
 which do not follow this, enable `allow_non_ascii_delim`.
-
-### Final delimiter
-
-The *TEXT* segment should start and end with a delimiter. If this isn't the
-case, enabling `allow_missing_final_delim` can solve this.
-
-However, this likely means that the boundaries of the *TEXT* segment are
-incorrect and should be fixed by changing the offsets.
 
 ### Boundary delimiters
 
@@ -343,23 +433,22 @@ All keywords should be unique. Enabling `allow_nonunique` will permit non-unique
 keywords to exist without triggering an error (`fireflow` will only use the
 first).
 
-### Non-even word number
+### Empty keys
 
-Keys and values come in pairs, so if the number of words in *TEXT* is odd, the
-last key does not have a value. Enable `allow_odd` to permit this. The last
-key will be ignored.
+Empty keys are not permitted. If these are present, it likely means the
+delimiter escape mode is incorrect. This is also rare. In practice it is much
+more likely that values will be empty.
 
-### Empty values
+Use `allow_empty_keys` to ignore empty keys.
 
-Empty keyword values are not permitted. This is implied when delimiter escaping
-is used. To allow empty values, enable `allow_empty`. Keys with empty values
-will be dropped.
+### Non-UTF8/Non-ASCII characters
 
-### Non-UTF8 characters
+The *TEXT* segment should be composed of UTF-8 text; additionally, keys must
+only be ASCII.
 
-The *TEXT* segment should be composed of UTF-8 text. Enable `allow_non_utf8` to
-permit non-UTF8 characters to be encountered while parsing. Such keys and/or
-values will be dropped.
+Enable `allow_non_ascii_keys` and `allow_non_utf8_values` to permit non-ASCII
+and non-UTF8 characters to be encountered while parsing keys and values
+respectively.
 
 Alternatively, enable `use_latin1` to interpret each character in *TEXT* as
 Latin-1 aka ISO/IEC 8859-1 if these need to be salvaged.
@@ -378,6 +467,8 @@ using hardcoded strings which only contain ASCII.
 
 # Issues parsing *DATA*
 
+## Mismatch between *$TOT* and length of *DATA*
+
 Unless a file uses delimited ASCII (which is rare if it ever happens), the
 number of events can be computed by dividing the length of *DATA* over the event
 width (the sum of *$PnB* in bytes). *$TOT* is unnecessary in this case and
@@ -385,6 +476,24 @@ leaves the possibility for a mismatch.
 
 In case of such a mismatch, enable `allow_tot_mismatch` to ignore the error.
 
-There is also the possibility that the event width does not evenly divide
-*DATA*. In this case, enable `allow_uneven_event_width` to permit the file to be
-read without error.
+## Mismatch between event width and lenth of *DATA*
+
+For non-delimited ASCII layouts, the event width (sum of *$PnB*) should evenly
+divide *DATA*. If this is not the case, this probably means the offsets for
+*DATA* are wrong.
+
+In some cases, this will likely be corrected using `overlap_correction_limit`
+for the offsets themselves. If this does not fix the problem, set
+`data_remainder_limit` to a number greater than zero to trim the remainder off
+the end of *DATA* such that event width perfectly divides it.
+
+This error can also be totally ignored using `allow_uneven_event_width`.
+
+## Range truncation
+
+By default, integer values should be truncated such that they fit within the
+bitmask implied by *$PnR*.
+
+However, some files store "extra" data in these higher bits. Truncation to
+*$PnR* can be controlled via `checked_range_datatypes` and `over_range_action`.
+

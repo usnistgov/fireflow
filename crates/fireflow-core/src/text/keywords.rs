@@ -99,101 +99,7 @@ use {
     pyo3::prelude::*,
 };
 
-#[derive(new)]
-pub(crate) struct Escaped<T> {
-    delim: TEXTDelim,
-    inner: T,
-}
-
-impl<T> Escaped<T> {
-    pub(crate) fn write_str(&self, buf: &mut NEString)
-    where
-        Self: fmt::Display,
-    {
-        write!(buf, "{self}").expect("str write should be infallible");
-    }
-}
-
-impl<T: DisplayEscaped + ?Sized> fmt::Display for Escaped<&T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        self.inner.fmt_escaped(self.delim, f)
-    }
-}
-
-#[delegatable_trait]
-trait DisplayEscaped {
-    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result;
-}
-
-struct EscapedFormatter<'a, 'b> {
-    delim: TEXTDelim,
-    inner: &'a mut fmt::Formatter<'b>,
-}
-
-impl EscapedFormatter<'_, '_> {
-    fn write_with_delim<V>(&mut self, v: &V, escape: bool) -> fmt::Result
-    where
-        V: ?Sized + for<'a> ToDisplayNE<'a>,
-    {
-        let delim = self.delim;
-        let w = v.as_displayable();
-        if escape {
-            write!(self, "{w}")?;
-            write!(self.inner, "{delim}")
-        } else {
-            write!(self.inner, "{w}{delim}")
-        }
-    }
-}
-
-impl fmt::Write for EscapedFormatter<'_, '_> {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        let d = self.delim;
-        // Check if delim is in str before trying to escape it. This is
-        // a massive optimization since encoding and decoding to chars
-        // on the fly is extremely expensive as opposed to checking if
-        // any single byte in the string is equal to some value.
-        if s.contains(char::from(d)) {
-            for c in s.bytes() {
-                if c == u8::from(d) {
-                    // if delimiter found, write it twice
-                    write!(self.inner, "{x}{x}", x = self.delim)?;
-                } else {
-                    // otherwise write non-delim once
-                    self.inner.write_char(char::from(c))?;
-                }
-            }
-        } else {
-            self.inner.write_str(s)?;
-        }
-        Ok(())
-    }
-}
-
-impl<K, I, V> DisplayEscaped for SplitKeyword<DollarKey<K, I>, V>
-where
-    for<'a> DollarKey<K, I>: ToDisplayNE<'a>,
-    for<'a> V: ToDisplayNE<'a>,
-{
-    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut xf = EscapedFormatter { delim, inner: f };
-        // ASSUME standard keys don't need to be escaped because the delim
-        // character is 0-31 which never appears in the standard keys
-        xf.write_with_delim(&self.key, false)?;
-        xf.write_with_delim(&self.value, true)?;
-        Ok(())
-    }
-}
-
-impl DisplayEscaped for NonStdKeyword<'_> {
-    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut xf = EscapedFormatter { delim, inner: f };
-        xf.write_with_delim(self.key, true)?;
-        xf.write_with_delim(&self.value, true)?;
-        Ok(())
-    }
-}
-
+/// Any offset keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(DisplayEscaped)]
 pub(crate) enum OffsetKeyword {
@@ -206,6 +112,7 @@ pub(crate) enum OffsetKeyword {
     Endstext(SplitKeyword0<Endstext>),
 }
 
+/// Any (non-offset) keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(DisplayEscaped)]
@@ -214,6 +121,7 @@ pub(crate) enum AnyKeyword<'a> {
     Opt(OptKeyword<'a>),
 }
 
+/// Any required keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsStdKeywordPair)]
@@ -223,6 +131,7 @@ pub(crate) enum ReqKeyword<'a> {
     Meas(ReqMeasKeyword<'a>),
 }
 
+/// Any optional keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsKeywordPair)]
@@ -232,6 +141,7 @@ pub(crate) enum OptKeyword<'a> {
     Meas(StdOrNonStdOptMeasKeyword<'a>),
 }
 
+/// Any non-measurement keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsKeywordPair)]
@@ -241,6 +151,7 @@ pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
     NonStd(NonStdKeyword<'a>),
 }
 
+/// Any measurement keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(HasDelim)]
 #[delegate(AsKeywordPair)]
@@ -250,6 +161,7 @@ pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
     NonStd(NonStdKeyword<'a>),
 }
 
+/// Any required root keyword type
 // TODO this shouldn't need to be pub
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
@@ -264,8 +176,7 @@ pub enum ReqRootKeyword<'a> {
     Cyt(RefKeyword0<'a, Cyt3_2>),
 }
 
-pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
-
+/// Any optional root keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -323,6 +234,7 @@ pub enum OptRootKeyword<'a> {
     Wellid(NEStringKeyword0<'a, Wellid>),
 }
 
+/// Any required measurement keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -335,6 +247,7 @@ pub enum ReqMeasKeyword<'a> {
     Range(SplitKeyword1<TextRange>),
 }
 
+/// Any optional measurement keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -345,6 +258,7 @@ pub enum OptMeasKeyword<'a> {
     Temporal(OptTemporalKeyword<'a>),
 }
 
+/// Any optional optical keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -372,6 +286,7 @@ pub enum OptOpticalKeyword<'a> {
     Peak(OptPeakKeyword),
 }
 
+/// Any optional temporal keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -385,6 +300,7 @@ pub enum OptTemporalKeyword<'a> {
     Peak(OptPeakKeyword),
 }
 
+/// Any $PK*n keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -395,6 +311,7 @@ pub enum OptPeakKeyword {
     PeakIndex(SplitKeyword1<PeakIndex>),
 }
 
+/// Any $Gn* keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -410,6 +327,7 @@ pub enum GateMeasKeyword<'a> {
     DetectorType(NEStringKeyword1<'a, GateDetectorType>),
 }
 
+/// Any $Rn* keyword type
 #[derive(Clone, From, Delegate)]
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
@@ -421,6 +339,10 @@ pub enum RegionKeyword<'a> {
     Window(RegionWindowSplitKeyword<'a>),
 }
 
+/// A non-standard keyword.
+pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
+
+/// A keyword-value pair as two individual types.
 #[derive(Clone, new)]
 pub struct SplitKeyword<K, V> {
     pub(crate) key: K,
@@ -1015,6 +937,102 @@ impl OptTemporalKeyword<'_> {
             | Self::Longname(_) => return None,
         };
         Some(ret)
+    }
+}
+
+/// A type which may be escaped when written as a string.
+#[derive(new)]
+pub(crate) struct Escaped<T> {
+    delim: TEXTDelim,
+    inner: T,
+}
+
+impl<T> Escaped<T> {
+    pub(crate) fn write_str(&self, buf: &mut NEString)
+    where
+        Self: fmt::Display,
+    {
+        write!(buf, "{self}").expect("str write should be infallible");
+    }
+}
+
+impl<T: DisplayEscaped + ?Sized> fmt::Display for Escaped<&T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.inner.fmt_escaped(self.delim, f)
+    }
+}
+
+#[delegatable_trait]
+trait DisplayEscaped {
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result;
+}
+
+struct EscapedFormatter<'a, 'b> {
+    delim: TEXTDelim,
+    inner: &'a mut fmt::Formatter<'b>,
+}
+
+impl EscapedFormatter<'_, '_> {
+    fn write_with_delim<V>(&mut self, v: &V, escape: bool) -> fmt::Result
+    where
+        V: ?Sized + for<'a> ToDisplayNE<'a>,
+    {
+        let delim = self.delim;
+        let w = v.as_displayable();
+        if escape {
+            write!(self, "{w}")?;
+            write!(self.inner, "{delim}")
+        } else {
+            write!(self.inner, "{w}{delim}")
+        }
+    }
+}
+
+impl fmt::Write for EscapedFormatter<'_, '_> {
+    fn write_str(&mut self, s: &str) -> fmt::Result {
+        let d = self.delim;
+        // Check if delim is in str before trying to escape it. This is
+        // a massive optimization since encoding and decoding to chars
+        // on the fly is extremely expensive as opposed to checking if
+        // any single byte in the string is equal to some value.
+        if s.contains(char::from(d)) {
+            for c in s.bytes() {
+                if c == u8::from(d) {
+                    // if delimiter found, write it twice
+                    write!(self.inner, "{x}{x}", x = self.delim)?;
+                } else {
+                    // otherwise write non-delim once
+                    self.inner.write_char(char::from(c))?;
+                }
+            }
+        } else {
+            self.inner.write_str(s)?;
+        }
+        Ok(())
+    }
+}
+
+impl<K, I, V> DisplayEscaped for SplitKeyword<DollarKey<K, I>, V>
+where
+    for<'a> DollarKey<K, I>: ToDisplayNE<'a>,
+    for<'a> V: ToDisplayNE<'a>,
+{
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut xf = EscapedFormatter { delim, inner: f };
+        // ASSUME standard keys don't need to be escaped because the delim
+        // character is 0-31 which never appears in the standard keys
+        xf.write_with_delim(&self.key, false)?;
+        xf.write_with_delim(&self.value, true)?;
+        Ok(())
+    }
+}
+
+impl DisplayEscaped for NonStdKeyword<'_> {
+    fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut xf = EscapedFormatter { delim, inner: f };
+        xf.write_with_delim(self.key, true)?;
+        xf.write_with_delim(&self.value, true)?;
+        Ok(())
     }
 }
 

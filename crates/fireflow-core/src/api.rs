@@ -989,6 +989,24 @@ impl From<SuppTEXTResult> for Option<(Option<SupplementalTextSegment>, Uncorrect
     }
 }
 
+def_summary!(pub HeaderSummary, "could not parse HEADER");
+
+def_summary!(pub FlatTEXTSummary, "could not parse TEXT segment");
+
+def_summary!(pub StdTEXTSummary, "could not standardize TEXT segment");
+
+def_summary!(
+    pub StdDatasetSummary,
+    "could not read DATA with standardized TEXT"
+);
+
+def_summary!(pub FlatDatasetSummary, "could not read DATA with flat TEXT");
+
+def_summary!(
+    pub FlatDatasetWithKwsSummary,
+    "could not read flat dataset from keywords"
+);
+
 impl HeaderAndSuppOffsets {
     /// Ensure this segment does not overlap with other segments.
     ///
@@ -2043,24 +2061,6 @@ where
         }
     })
 }
-
-def_summary!(pub HeaderSummary, "could not parse HEADER");
-
-def_summary!(pub FlatTEXTSummary, "could not parse TEXT segment");
-
-def_summary!(pub StdTEXTSummary, "could not standardize TEXT segment");
-
-def_summary!(
-    pub StdDatasetSummary,
-    "could not read DATA with standardized TEXT"
-);
-
-def_summary!(pub FlatDatasetSummary, "could not read DATA with flat TEXT");
-
-def_summary!(
-    pub FlatDatasetWithKwsSummary,
-    "could not read flat dataset from keywords"
-);
 
 #[cfg(test)]
 mod tests {

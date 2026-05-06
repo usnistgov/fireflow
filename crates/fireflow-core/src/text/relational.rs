@@ -26,24 +26,25 @@
 //! to run this process when creating a new Core* struct and also when we read
 //! a file and parse keywords from a hash table. The former doesn't require
 //! demoting optional keywords.
+
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
-use crate::text::index::{IndexFromOne, MeasIndex};
-use crate::text::keywords::{
-    Compensation3_0, Dfc, Gating, Keyword0FromValue as _, MeasOrGateIndex, OptRootKeyword,
-    PrefixedMeasIndex, RefKeyword0, RegionGateIndex, RegionKeyword, RegionWindow, SplitKeyword1,
-    Trigger, UnstainedCenters,
+use crate::text::gating::Region;
+use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::keyword_enum::{
+    AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, RefKeyword0, RegionKeyword,
+    SplitKeyword1, SplitKeyword2,
 };
+use crate::text::keywords::{
+    Compensation3_0, Dfc, Gating, MeasOrGateIndex, PrefixedMeasIndex, RegionGateIndex,
+    RegionWindow, Trigger, UnstainedCenters,
+};
+use crate::text::spillover::Spillover;
 use crate::validated::keys::{
     BiIndex, DollarKey, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
 };
 use crate::validated::shortname::Shortname;
-
-use super::gating::Region;
-use super::index::RegionIndex;
-use super::keywords::{AsStdKeywordPair as _, SplitKeyword2};
-use super::spillover::Spillover;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

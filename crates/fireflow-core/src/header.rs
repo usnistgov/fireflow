@@ -14,10 +14,12 @@ use crate::segment::{
     HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
     SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, UncorrectedSegment,
 };
+use crate::text::keyword_enum::{
+    AnyKeyword, Escaped, Keyword0FromValue as _, OffsetKeyword, OptKeyword, ReqKeyword,
+};
 use crate::text::keywords::{
-    AnyKeyword, Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Escaped,
-    Keyword0FromValue as _, KeywordOptimizer, KeywordVersionScore, Nextdata, OffsetKeyword,
-    OptKeyword, Par, ReqKeyword,
+    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
+    KeywordVersionScore, Nextdata, Par,
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};

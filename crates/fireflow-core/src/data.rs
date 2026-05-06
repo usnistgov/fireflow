@@ -130,10 +130,13 @@ use crate::text::byteord::{
     WidthToBytesError, WidthToFixedError,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::keyword_enum::{
+    Keyword0FromValue as _, Keyword1FromValue as _, ReqMeasKeyword, ReqRootKeyword, SplitKeyword0,
+    SplitKeyword1,
+};
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, Keyword0FromValue as _, Keyword1FromValue as _,
-    NumType, Par, RangeToIntError, RangeToIntErrorKind, ReqMeasKeyword, ReqRootKeyword, Scale,
-    SplitKeyword0, SplitKeyword1, TextRange, Tot, Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, NumType, Par, RangeToIntError, RangeToIntErrorKind,
+    Scale, TextRange, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,

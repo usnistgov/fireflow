@@ -1,7 +1,9 @@
 use crate::config::{ProcessOptionalFailure, ReadDataKeywordsConfig};
 use crate::logging::{DeferredSwitchableErrors, LogResult, ResultExt as _};
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{Dfc, Par};
+use crate::text::keyword_enum::SplitKeyword;
+use crate::text::keywords::{Dfc, LookupDfcError, Par};
+use crate::text::relational::BiIndexedKeyToIndexLinkError;
 use crate::text::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
@@ -24,9 +26,6 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject};
-
-use super::keywords::{LookupDfcError, SplitKeyword};
-use super::relational::BiIndexedKeyToIndexLinkError;
 
 /// The aggregated values of the $DFCiTOj keywords (2.0 only)
 #[derive(Clone, From, Into, AsRef, PartialEq)]

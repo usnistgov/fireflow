@@ -8,15 +8,18 @@ use crate::logging::{
 };
 use crate::nonempty::FcsNEVec;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::keyword_enum::{
+    GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _, OptRootKeyword, RegionKeyword,
+    SplitKeyword, SplitKeyword1,
+};
 use crate::text::keywords::{
-    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GateMeasKeyword,
-    GatePercentEmitted, GateRange, GateScale, GateShortname, Gating, IndexPair,
-    Keyword0FromValue as _, Keyword1FromValue as _, MeasOrGateIndex, OptRootKeyword, Par,
-    PrefixedMeasIndex, RegionGateIndex, RegionKeyword, RegionWindow, ScaleFix, SplitKeyword1,
-    UniGate, Vertex,
+    Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
+    GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
+    PrefixedMeasIndex, RegionGateIndex, RegionWindow, RegionWindowRef, ScaleFix, UniGate, Vertex,
 };
 use crate::text::lookup::{
-    OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptMetarootKey as _,
+    OptIndexedKey, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptMetarootKey as _,
+    Optional,
 };
 use crate::text::relational::{
     BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndexedKeyToIndexLinkError,
@@ -42,9 +45,6 @@ use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::keywords::{RegionWindowRef, SplitKeyword};
-use super::lookup::{OptIndexedKey, Optional};
 
 #[cfg(feature = "python")]
 use {

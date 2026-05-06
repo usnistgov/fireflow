@@ -1,4 +1,4 @@
-//! Data structures representing standardized TEXTnewsegment
+//! Data structures representing standardized TEXT segment
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
@@ -49,24 +49,26 @@ use crate::text::gating::{
     LookupAppliedGates3_2Error,
 };
 use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::keyword_enum::{
+    AnyKeyword, AsKeywordPair as _, HasMembership as _, Keyword0FromValue as _,
+    Keyword1FromValue as _, NonStdKeyword, OptKeyword, OptMeasKeyword, OptOpticalKeyword,
+    OptPeakKeyword, OptRootKeyword, OptTemporalKeyword, ReqKeyword, ReqMeasKeyword, ReqRootKeyword,
+    SplitKeyword, SplitKeyword1, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword,
+};
 use crate::text::keywords::{
-    Abrt, AlphaNumType, Analyte, AnyKeyword, AnyMeasScaleFix, AsKeywordPair as _, CSMode, CSTot,
-    CSVBits, CSVFlag, Calibration3_1, Calibration3_2, CalibrationLossError, Carrierid, Carriertype,
-    Cells, Com, Compensation3_0, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage,
-    Dfc, Display, Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate,
-    GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange,
-    GateScale, GateShortname, HasMembership as _, HyperGateError, HyperParError, Inst,
-    Keyword0FromValue as _, Keyword1FromValue as _, KeywordOtherVersionError, LastModified,
+    Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
+    Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
+    Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Exp,
+    ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, GateDetectorType,
+    GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale,
+    GateShortname, HyperGateError, HyperParError, Inst, KeywordOtherVersionError, LastModified,
     LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, NonStdKeyword, Op, OptKeyword,
-    OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptRootKeyword, OptTemporalKeyword,
-    OpticalFeature, OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex,
-    PercentEmitted, Plateid, Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError,
-    ReqKeyword, ReqMeasKeyword, ReqRootKeyword, Scale, ScaleFix, Smno, SplitKeyword, SplitKeyword1,
-    Src, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword, Sys, Tag, TemporalScale2_0,
-    TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded, TimestepFoundError,
-    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength, Wavelengths,
-    WavelengthsLossError, Wellid,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalScaleFix,
+    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    PrefixedMeasIndex, Proj, PseudostandardError, Scale, ScaleFix, Smno, Src, Sys, Tag,
+    TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded,
+    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
+    Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -136,7 +138,8 @@ use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use {
-    crate::text::keywords::{AsHeader as _, NumType, RefKeyword1, TextRange, Width},
+    crate::text::keyword_enum::{AsHeader as _, RefKeyword1},
+    crate::text::keywords::{NumType, TextRange, Width},
     nalgebra::DMatrix,
     serde::Serialize,
     std::string::ToString as _,

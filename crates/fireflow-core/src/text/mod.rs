@@ -5,6 +5,7 @@ pub mod compensation;
 pub mod datetimes;
 pub mod gating;
 pub mod index;
+pub mod keyword_enum;
 pub mod keywords;
 pub mod lookup;
 pub mod named_vec;

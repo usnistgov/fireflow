@@ -1,6 +1,6 @@
 use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::text::keywords::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword0};
+use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword0};
 use crate::text::lookup::{
     DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
 };

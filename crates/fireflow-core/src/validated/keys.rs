@@ -6,9 +6,10 @@ use crate::config::{
 use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
 use crate::text::index::{IndexFromOne, MeasIndex};
-use crate::text::keywords::{
-    self as kws, AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
+use crate::text::keyword_enum::{
+    AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
+use crate::text::keywords as kws;
 use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
 

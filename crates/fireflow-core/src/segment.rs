@@ -11,10 +11,8 @@ use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::text::keywords::{
-    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Keyword0FromValue as _,
-    OffsetKeyword, SplitKeyword0,
-};
+use crate::text::keyword_enum::{Keyword0FromValue as _, OffsetKeyword, SplitKeyword0};
+use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };

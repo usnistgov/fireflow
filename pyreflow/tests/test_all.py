@@ -441,10 +441,10 @@ all_blank_meas = parameterize_versions(
 
 
 class TestCore:
-    # all of these attributes should be either None or a positive integer
     @all_blank_core
     @pytest.mark.parametrize("attr", ["abrt", "lost"])
     def test_metaroot_opt_int(self, attr: str, core: AnyCore) -> None:
+        """Test keyword properties which are positive integers or None."""
         good = 420
         assert getattr(core, attr) is None
         setattr(core, attr, good)
@@ -454,13 +454,13 @@ class TestCore:
         with pytest.raises(OverflowError):
             setattr(core, attr, -420)
 
-    # all of these attributes should be either None or a string
     @all_blank_core
     @pytest.mark.parametrize(
         "attr",
         ["cells", "com", "exp", "fil", "inst", "op", "proj", "smno", "src", "sys"],
     )
     def test_metaroot_opt_str(self, attr: str, core: AnyCore) -> None:
+        """Test keyword properties which are strings (possibly empty)."""
         good = "spongebob"
         assert getattr(core, attr) == ""
         setattr(core, attr, good)
@@ -468,10 +468,10 @@ class TestCore:
         with pytest.raises(TypeError):
             setattr(core, attr, 3.14)
 
-    # these should be time objects
     @all_blank_core
     @pytest.mark.parametrize("attr", ["btim", "etim"])
     def test_time(self, attr: str, core: AnyCore) -> None:
+        """Test keyword properties which are time objects or None."""
         good = time(23, 58)
         assert getattr(core, attr) is None
         setattr(core, attr, good)
@@ -486,7 +486,12 @@ class TestCore:
     def test_imprecise_time_2_0(
         self, core0: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
-        # these timestamps should be "the same" because 2.0 doesn't have sub-seconds
+        """Test 2.0 keyword properties which hold time objects without sub-seconds.
+
+        Two time objects with different sub-seconds should be stored without
+        sub-seconds and will be returned with less precision.
+        """
+        # these should be equal
         t0 = time(23, 58, 0, 0)
         t1 = time(23, 58, 0, 1)
         # and this should be different
@@ -506,6 +511,12 @@ class TestCore:
     def test_imprecise_time_3_0(
         self, core0: pf.CoreTEXT3_0 | pf.CoreDataset3_0
     ) -> None:
+        """Test 3.0 keyword properties which hold time objects.
+
+        Since these can only hold 1/60 seconds, attempting to store a more
+        precise timestamp should return a timestamp rounded to the nearest 1/60
+        seconds.
+        """
         # these timestamps should be "the same" because 3.0 is only precise up to 1/60 seconds
         t0 = time(23, 58, 0, 17000)
         t1 = time(23, 58, 0, 18000)
@@ -531,6 +542,12 @@ class TestCore:
         self,
         core0: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test 3.1 keyword properties which hold time objects.
+
+        Since 3.1 timestamps only hold up to centiseconds, attempting to store
+         more precise timestamp will return that rounded to the nearest
+         centisecond.
+        """
         # these timestamps should be "the same" because 3.1 is only precise up to centiseconds
         t0 = time(23, 58, 0, 0)
         t1 = time(23, 58, 0, 1)
@@ -546,6 +563,7 @@ class TestCore:
 
     @all_blank_core
     def test_date(self, core: AnyCore) -> None:
+        """Test $DATE keyword property."""
         good = date(1991, 8, 25)
         assert core.date is None
         core.date = good
@@ -555,40 +573,53 @@ class TestCore:
 
     @all_core
     def test_trigger(self, core: AnyCore) -> None:
+        """Test $TR keyword property."""
         assert core.tr is None
         tr = (LINK_NAME1, 0)
         core.tr = tr
         assert core.tr == tr
+        with pytest.raises(TypeError):
+            core.tr = cast(Trigger, "over,9000")
 
     @all_core
     def test_trigger_threshold(self, core: AnyCore) -> None:
+        """Test threshhold property for $TR keyword.
+
+        This method will only set the value without the name and must be a
+        positive integer.
+        """
         tr = (LINK_NAME1, 0)
         core.tr = tr
         assert core.tr == tr
         core.set_trigger_threshold(1)
         assert core.tr == (LINK_NAME1, 1)
+        with pytest.raises(OverflowError):
+            core.set_trigger_threshold(-1)
 
-    @all_blank_core
-    def test_trigger_bad(self, core: AnyCore) -> None:
-        with pytest.raises(TypeError):
-            core.tr = cast(Trigger, "over,9000")
+    @all_core2
+    def test_trigger_badlink(self, core: AnyCore) -> None:
+        """Test name link for $TR keyword.
 
-    @all_blank_core
-    def test_trigger_nolink(self, core: AnyCore) -> None:
-        with pytest.raises(pf.RelationalError):
-            core.tr = ("harold", 0)
-
-    @all_blank_core
-    def test_trigger_temporal(self, core: AnyCore) -> None:
+        The measurement part of $TR must always point to an optical measurement."""
+        # cannot point to temporal measurement
         with pytest.raises(pf.RelationalError):
             core.tr = (LINK_NAME2, 0)
+        # cannot point to fictitious measurement
+        with pytest.raises(pf.RelationalError):
+            core.tr = ("infestis", 0)
 
     @all_core
     def test_par(self, core: AnyCore) -> None:
+        """Test the $PAR keyword.
+
+        This is just the length of the measurement vector and should be easy."""
         assert core.par == 1
 
     @all_core2
     def test_shortnames(self, core: AnyCore) -> None:
+        """Test the $PnN keyword property.
+
+        These must be unique, non-empty, and without commas."""
         assert core.all_shortnames == [LINK_NAME1, LINK_NAME2]
         new_names = ["I can haz IP", "=Coffee"]
         core.all_shortnames = new_names
@@ -610,6 +641,9 @@ class TestCore:
         | pf.CoreDataset3_1,
         attr: str,
     ) -> None:
+        """Test the $PKn and $PKNn keyword properties.
+
+        These must be a positive integer or None."""
         assert getattr(core, attr) == [None, None]
         setattr(core, attr, [1, 2])
         assert getattr(core, attr) == [1, 2]
@@ -621,6 +655,10 @@ class TestCore:
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
+        """Test $PnN for 2.0 and 3.0, where these keywords are optional.
+
+        These versions have a special method for the optional case.
+        """
         assert core.all_shortnames_maybe == [LINK_NAME1, LINK_NAME2]
         core.all_shortnames_maybe = [None, LINK_NAME2]
         assert core.all_shortnames_maybe == [None, LINK_NAME2]
@@ -629,6 +667,10 @@ class TestCore:
 
     @all_core
     def test_longnames(self, core: AnyCore) -> None:
+        """Test $PnS keyword property.
+
+        These must be strings or None.
+        """
         assert core.all_longnames == [""]
         new_name = "I can haz IP"
         core.all_longnames = [new_name]
@@ -639,6 +681,7 @@ class TestCore:
     # TODO make more tests to ensure keywords are dumped properly
     @parameterize_versions("core", ["2_0"], ["text", "dataset"])
     def test_standard_keywords_2_0(self, core: AnyCore) -> None:
+        """Test keyword generator method. for 2.0."""
         # TODO make these default
         kws = core.standard_keywords("both", "both")
         expected = {
@@ -659,6 +702,7 @@ class TestCore:
 
     @parameterize_versions("core", ["3_0"], ["text", "dataset"])
     def test_standard_keywords_3_0(self, core: AnyCore) -> None:
+        """Test keyword generator method. for 3.0."""
         kws = core.standard_keywords("both", "both")
         expected = {
             "$BYTEORD": "1,2,3,4",
@@ -679,6 +723,7 @@ class TestCore:
 
     @parameterize_versions("core", ["3_1"], ["text", "dataset"])
     def test_standard_keywords_3_1(self, core: AnyCore) -> None:
+        """Test keyword generator method. for 3.1."""
         kws = core.standard_keywords("both", "both")
         expected = {
             "$BYTEORD": "1,2,3,4",
@@ -699,6 +744,7 @@ class TestCore:
 
     @parameterize_versions("core", ["3_2"], ["text", "dataset"])
     def test_standard_keywords_3_2(self, core: AnyCore) -> None:
+        """Test keyword generator method. for 3.2."""
         kws = core.standard_keywords("both", "both")
         expected = {
             "$BYTEORD": "1,2,3,4",
@@ -727,9 +773,34 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
+        """Test $TIMESTEP keyword property for 3.0/3.1/3.2.
+
+        This should be a float greater than zero if assigned.
+        """
         assert core.timestep == 1.0
-        core.set_timestep(2.0)
+        assert core.set_timestep(2.0) == 1.0
         assert core.timestep == 2.0
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.set_timestep(0.0)
+
+    @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text", "dataset"])
+    def test_timestep_none(
+        self,
+        core: pf.CoreTEXT3_0
+        | pf.CoreTEXT3_1
+        | pf.CoreTEXT3_2
+        | pf.CoreDataset3_0
+        | pf.CoreDataset3_1
+        | pf.CoreDataset3_2,
+    ) -> None:
+        """Test $TIMESTEP keyword property for 3.0/3.1/3.2 (unset case).
+
+        Attempting to set the timestep will return None since the temporal
+        measurement does not exist.
+        """
+        assert core.timestep is None
+        assert core.set_timestep(1.0) is None
+        assert core.timestep is None
 
     @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
     @pytest.mark.parametrize(
@@ -750,6 +821,11 @@ class TestCore:
         value: Any,
         default: Any,
     ) -> None:
+        """Test modification and plate keyword properties (3.1/3.2).
+
+        These should either be a string or datetime (depending on the keyword)
+        or None.
+        """
         assert getattr(core, attr) == default
         setattr(core, attr, value)
         assert getattr(core, attr) == value
@@ -761,6 +837,11 @@ class TestCore:
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
+        """Test $COMP keyword (2.0/3.0).
+
+        This must be a square numpy array of floats equal to the number of
+        measurements ($PAR).
+        """
         assert core.comp is None
         new = np.array(
             [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=np.float32
@@ -769,22 +850,10 @@ class TestCore:
         assert core.comp is not None and np.array_equal(core.comp, new)
         core.comp = None
         assert core.comp is None
-
-    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
-    def test_comp_not_par_low(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-    ) -> None:
-        assert core.comp is None
+        # too small
         with pytest.raises(pf.RelationalError):
             core.comp = np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32)
-
-    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
-    def test_comp_not_par_low_high(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-    ) -> None:
-        assert core.comp is None
+        # too big
         with pytest.raises(pf.RelationalError):
             core.comp = np.array(
                 [
@@ -796,11 +865,16 @@ class TestCore:
                 dtype=np.float32,
             )
 
-    @parameterize_versions("core", ["2_0", "3_0"], ["text3", "dataset3"])
+    @parameterize_versions("core", ["2_0", "3_0"], ["text", "dataset"])
     def test_comp_toosmall(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
+        """Test $COMP keyword (2.0/3.0) (size minimum).
+
+        $COMP must be at least 2x2, and should still fail if 1x1 even if its
+        sides are equal to $PAR.
+        """
         with pytest.raises(pf.InvalidKeywordValueError):
             core.comp = np.array([[1.0], [0.0]], dtype=np.float32)
 
@@ -809,6 +883,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
+        """Test $COMP keyword (2.0/3.0) (non-square)."""
         with pytest.raises(pf.InvalidKeywordValueError):
             core.comp = np.array([[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]], dtype=np.float32)
 
@@ -817,6 +892,11 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $SPILLOVER keyword (3.1/3.2).
+
+        This must be a square matrix which has names pointing to optical
+        measurements.
+        """
         assert core.spillover is None
         new = (
             [LINK_NAME1, LINK_NAME3],
@@ -834,6 +914,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $SPILLOVER keyword (3.1/3.2) (too small case)
+
+        The matrix must be at least 2x2."""
         with pytest.raises(pf.InvalidKeywordValueError):
             core.spillover = (
                 [LINK_NAME1],
@@ -845,6 +928,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $SPILLOVER keyword (3.1/3.2) (non-square case).
+
+        The matrix must be square."""
         with pytest.raises(pf.InvalidKeywordValueError):
             core.spillover = (
                 [LINK_NAME1],
@@ -856,6 +942,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $SPILLOVER keyword (3.1/3.2) (temporal link case).
+
+        The matrix must have names which point only to optical measurements."""
         with pytest.RaisesGroup(pf.RelationalError):
             core.spillover = (
                 [LINK_NAME1, LINK_NAME2],
@@ -867,6 +956,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $SPILLOVER keyword (3.1/3.2) (no-link case).
+
+        The matrix must have names which point only to optical measurements."""
         with pytest.RaisesGroup(pf.RelationalError):
             core.spillover = (
                 [LINK_NAME1, "010011110100110101000111-010101110101010001001000"],
@@ -878,6 +970,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_0 | pf.CoreDataset3_0,
     ) -> None:
+        """Test $UNICODE keyword."""
         assert core.unicode is None
         # the actual contents arent' checked, presumably because nobody really
         # cares about this
@@ -892,6 +985,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $VOL keyword property.
+
+        This should be a float zero or greater."""
         assert core.vol is None
         core.vol = 0.0
         assert core.vol == 0.0
@@ -910,6 +1006,9 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
+        """Test $CYTSN keyword property (3.0/3.1/3.2).
+
+        This should be a string or None."""
         assert core.cytsn == ""
         new = "12345"
         core.cytsn = new
@@ -927,9 +1026,14 @@ class TestCore:
         | pf.CoreDataset3_0
         | pf.CoreDataset3_1,
     ) -> None:
+        """Test $MODE keyword property (pre-3.2).
+
+        This should be any of 'L', 'U', or 'C'."""
         assert core.mode == "L"
         core.mode = "U"
         assert core.mode == "U"
+        core.mode = "C"
+        assert core.mode == "C"
         with pytest.raises(pf.ParseKeywordValueError):
             core.mode = "fart"  # type: ignore
 
@@ -938,6 +1042,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $MODE keyword property (3.2).
+
+        This can be 'L' or None."""
         assert core.mode is None
         core.mode = "L"
         assert core.mode == "L"
@@ -954,6 +1061,9 @@ class TestCore:
         | pf.CoreDataset3_0
         | pf.CoreDataset3_1,
     ) -> None:
+        """Test $CYT keyword property (pre-3.2).
+
+        This must be a string (possibly empty)."""
         assert core.cyt == ""
         core.cyt = "meat grinder"
         assert core.cyt == "meat grinder"
@@ -963,7 +1073,10 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
-        new = "meat grinder"
+        """Test $CYT keyword property (3.2).
+
+        This must be a non-empty string."""
+        new = "meatallica"
         core.cyt = new
         assert core.cyt == new
         with pytest.raises(TypeError):
@@ -1002,6 +1115,7 @@ class TestCore:
         bad: Any,
         default: Any,
     ) -> None:
+        """Test various 3.2-only keywords."""
         assert getattr(core, attr) == default
         setattr(core, attr, good)
         assert getattr(core, attr) == good
@@ -1013,6 +1127,9 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $UNSTAINEDCENTERS keyword property (3.2).
+
+        This must a dict whose keys point to optical measurement names."""
         assert core.unstainedcenters == {}
         core.unstainedcenters = {LINK_NAME1: 42}
         assert core.unstainedcenters == {LINK_NAME1: 42}
@@ -1024,6 +1141,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $UNSTAINEDCENTERS keyword property (3.2) (temporal error case)."""
         with pytest.RaisesGroup(pf.RelationalError):
             core.unstainedcenters = {LINK_NAME2: 42}
 
@@ -1032,6 +1150,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
+        """Test $UNSTAINEDCENTERS keyword property (3.2) (nolink error case)."""
         with pytest.RaisesGroup(pf.RelationalError):
             core.unstainedcenters = {"barking pimpernel": 420}
 
@@ -1041,6 +1160,11 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreDataset2_0,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test gating keywords for 2.0.
+
+        $GATING must point to a valid region which must point to a valid $Gn*
+        keyword set.
+        """
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
         ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
         core.applied_gates = ag
@@ -1051,6 +1175,7 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreDataset2_0,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test gating keywords for 2.0 (invalid gating index error case)."""
         # index 1 does not exist
         ur = pf.UnivariateRegion2_0(1, (0.0, 1.0))
         ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
@@ -1063,6 +1188,7 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreDataset2_0,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test gating keywords for 2.0 (invalid $GATING pointer case)."""
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
         # R2 does not exist
         ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R2")
@@ -1075,6 +1201,11 @@ class TestCore:
         core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test gating keywords for 3.0/3.1.
+
+        $GATING must point to a valid region which must point to a valid $Gn*
+        keyword set or an existing measurement.
+        """
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
         ag: AppliedGates3_0 = ([], {0: ur}, "NOT R1")
         core.applied_gates = ag
@@ -1085,6 +1216,7 @@ class TestCore:
         core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test gating keywords for 3.0/3.1 (invalid measurement pointer error)."""
         with pytest.RaisesGroup(pf.RelationalError):
             # P3 does not point to anything
             ur_bad = pf.UnivariateRegion3_0("P3", (0.0, 1.0))
@@ -1097,6 +1229,7 @@ class TestCore:
         core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test gating keywords for 3.0/3.1 (invalid $Gn* pointer error)."""
         with pytest.raises(pf.RelationalError):
             # there are no gating keywords to reference here
             ur_bad = pf.UnivariateRegion3_0("G1", (0.0, 1.0))
@@ -1109,6 +1242,7 @@ class TestCore:
         core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test gating keywords for 3.0/3.1 (invalid $GATING pointer error)."""
         with pytest.raises(pf.RelationalError):
             # there are no gating keywords to reference here
             ur_bad = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
@@ -1117,6 +1251,11 @@ class TestCore:
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
     def test_applied_gates_3_2(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
+        """Test gating keywords for 3.2.
+
+        $GATING must point to a valid region which must point to an existing
+        measurement.
+        """
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
         ag: AppliedGates3_2 = ({0: ur}, "NOT R1")
         core.applied_gates = ag
@@ -1125,6 +1264,7 @@ class TestCore:
     def test_applied_gates_3_2_bad_index(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
     ) -> None:
+        """Test gating keywords for 3.2 (invalid measurement error)."""
         with pytest.RaisesGroup(pf.PyreflowError):
             # 2 does not point to anything
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
@@ -1135,6 +1275,7 @@ class TestCore:
     def test_applied_gates_3_2_bad_gating(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
     ) -> None:
+        """Test gating keywords for 3.2 (invalid $GATING pointer error)."""
         with pytest.raises(pf.PyreflowError):
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
             # R2 doesn't point to anything
@@ -1143,9 +1284,21 @@ class TestCore:
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
     def test_meas_scales(self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0) -> None:
+        """Test $PnE keywords property for 2.0.
+
+        Optical scales must be either '()' (linear) or '(float, float)' (log),
+        or None. Temporal scales must be '()' or None.
+        """
         assert core.all_scales == [None, ()]
         core.all_scales = [(), ()]
         assert core.all_scales == [(), ()]
+        core.all_scales = [(1.0, 4.0), ()]
+        assert core.all_scales == [(1.0, 4.0), ()]
+        # TODO fixme, setting temporal to None doesn't actually work, it stays as '()'
+        # core.all_scales = [(1.0, 4.0), None]
+        # assert core.all_scales == [(1.0, 4.0), None]
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_scales = [(), (1.0, 4.0)]
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
     def test_meas_all_transforms(
@@ -1157,7 +1310,30 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
+        """Test $PnG/$PnE keywords property for 3.0/3.1/3.2.
+
+        Temporal measurement will always be 1.0 and should not be set to
+        anything else. Optical measurements can either be 'float' (linear, float
+        corresponds to $PnG) or '(float, float)' (log, floats correspond to $PnE
+        values).
+        """
         assert core.all_scale_transforms == [1.0, 1.0]
+        core.all_scale_transforms = [(1.0, 2.0), 1.0]
+        assert core.all_scale_transforms == [(1.0, 2.0), 1.0]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_scale_transforms = [0.0, 1.0]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_scale_transforms = [-1.0, 1.0]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_scale_transforms = [(0.0, 2.0), 1.0]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_scale_transforms = [(-1.0, 2.0), 1.0]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_scale_transforms = [(1.0, 0.0), 1.0]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_scale_transforms = [(1.0, -1.0), 1.0]
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_scale_transforms = [1.0, 2.0]
 
     # each of these should be strings or None
     @all_core2
@@ -1165,12 +1341,19 @@ class TestCore:
         "attr", [f"all_{x}" for x in ["filters", "detector_types"]]
     )
     def test_meas_opt_strs(self, attr: str, core: AnyCore) -> None:
+        """Test string measurement optical keywords property for all versions.
+
+        These can be a string of any length, including empty, except the
+        temporal measurement must always be '()'.
+        """
         assert getattr(core, attr) == ["", ()]
         new = ["bla", ()]
         setattr(core, attr, new)
         assert getattr(core, attr) == new
         with pytest.raises(TypeError):
             setattr(core, attr, [42, ()])
+        with pytest.RaisesGroup(pf.RelationalError):
+            setattr(core, attr, ["bla", "bla"])
 
     # each of these should be a non-negative float
     @all_core2
@@ -1179,6 +1362,11 @@ class TestCore:
         [f"all_{x}" for x in ["powers", "percents_emitted", "detector_voltages"]],
     )
     def test_meas_opt_floats(self, attr: str, core: AnyCore) -> None:
+        """Test float measurement optical keywords property for all versions.
+
+        Floats must be zero or greater, and the temporal measurement must always
+        be '()'.
+        """
         assert getattr(core, attr) == [None, ()]
         new = 0.5
         setattr(core, attr, [new, ()])
@@ -1190,6 +1378,215 @@ class TestCore:
             setattr(core, attr, [-1.0, ()])
         with pytest.raises(TypeError):
             setattr(core, attr, ["pickle rick", ()])
+        with pytest.raises(TypeError):
+            setattr(core, attr, ["rickle pick", 9.75])
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    @pytest.mark.parametrize(
+        "attr",
+        [f"all_{x}" for x in ["detector_names", "tags", "analytes"]],
+    )
+    def test_meas_3_2_str(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
+    ) -> None:
+        """Test string optical measurement keyword property (3.2 only).
+
+        These can be a string of any length, including empty, except the
+        temporal measurement must always be '()'.
+        """
+        new = "ziltoid"
+        getattr(core, attr) == [None, ()]
+        setattr(core, attr, [new, ()])
+        getattr(core, attr) == [new, ()]
+        with pytest.raises(TypeError):
+            setattr(core, attr, [10000000000000000000000, ()])
+        with pytest.RaisesGroup(pf.RelationalError):
+            setattr(core, attr, ["bla", "bla"])
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_measurement_types(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        """Test $PnTYPE keyword property (3.2).
+
+        For optical, this can be any string (empty means unset).
+
+        For temporal, this can be True or False (corresponding to "Time" being
+        set or not).
+        """
+        new = "--- --"
+        core.all_measurement_types == ["", False]
+        core.all_measurement_types = [new, True]
+        core.all_measurement_types == [new, True]
+        with pytest.raises(TypeError):
+            core.all_measurement_types = [10000000000000000000000, None]  # type: ignore
+        with pytest.RaisesGroup(pf.RelationalError):
+            # relational error because a string (optical) is being assigned to
+            # the temporal index
+            core.all_measurement_types = ["-.---.----..", "false"]
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
+        """Test $PnFEATURE keyword property (3.2).
+
+        For optical, this can be any non-empty string or None.
+
+        For temporal, this must always be '()'.
+        """
+        # TODO this should be an empty string rather than None
+        core.all_features == [None, ()]
+        core.all_features = ["Area", ()]
+        assert core.all_features == ["Area", ()]
+        # this is also allowed
+        core.all_features = ["Urea", ()]
+        assert core.all_features == ["Urea", ()]
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_features = ["Urea", "Cycle"]
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_awh_feature(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        """Test $PnFEATURE keyword property (3.2, area/width/height only).
+
+        For optical, this can only be 'Area', 'Width', or 'Height'.
+
+        For temporal, this must always be '()'.
+        """
+        core.all_awh_features == [None, ()]
+        core.all_awh_features = ["Height", ()]
+        assert core.all_features == ["Height", ()]
+        with pytest.raises(pf.ParseKeywordValueError):
+            core.all_awh_features = ["Seight", ()]  # type: ignore
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_awh_features = ["Height", "Height"]
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_other_feature(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        """Test $PnFEATURE keyword property (3.2, non-area/width/height).
+
+        For optical, this will return any feature which is not
+        'Area'/'Width'/'Height'.
+
+        For temporal, this must always be '()'.
+        """
+        core.all_other_features == [None, ()]
+        core.all_awh_features = ["Width", ()]
+        assert core.all_other_features == [None, ()]
+        core.all_features = ["htdiW", ()]
+        assert core.all_other_features == ["htdiW", ()]
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_features = ["htdiW", "aerA"]
+
+    @parameterize_versions("core", ["3_1"], ["text2", "dataset2"])
+    def test_meas_3_1_calibration(
+        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
+    ) -> None:
+        """Test $PnCALIBRATION keyword property (3.1).
+
+        For optical, must be None or a tuple like (float, str).
+
+        For temporal, this must always be '()'.
+        """
+        new = (0.5, "NVidia A100 Heat Output")
+        core.all_calibrations == [None, ()]
+        core.all_calibrations = [new, ()]
+        assert core.all_calibrations == [new, ()]
+        with pytest.raises(TypeError):
+            core.all_calibrations = ["AMD Threadripper Power Consumptions", ()]  # type: ignore
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_calibrations = [None, (42.0, "Medieval timecube masses")]
+
+    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
+    def test_meas_3_2_calibration(
+        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
+    ) -> None:
+        """Test $PnCALIBRATION keyword property (3.1).
+
+        For optical, must be None or a tuple like (float, float, str).
+
+        For temporal, this must always be '()'.
+        """
+        new = (0.5, 0.25, "Gouda Cheese Wheels")
+        core.all_calibrations == [None, ()]
+        core.all_calibrations = [new, ()]
+        assert core.all_calibrations == [new, ()]
+        with pytest.raises(TypeError):
+            core.all_calibrations = ["Sacred Cows", ()]  # type: ignore
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_calibrations = [None, (6.66, 0.66, "Timestone cycles")]
+
+    @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
+    def test_meas_wavelengths_singleton(
+        self,
+        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
+    ) -> None:
+        """Test $PnL keyword property (2.0/3.0).
+
+        For optical, must be None or a positive float.
+
+        For temporal, this must always be '()'.
+        """
+        assert core.all_wavelengths == [None, ()]
+        core.all_wavelengths = [1.0, ()]
+        assert core.all_wavelengths == [1.0, ()]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_wavelengths = [0.0, ()]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_wavelengths = [-1.0, ()]
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_wavelengths = [1.0, 1.0]
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    def test_meas_wavelengths_vector(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        """Test $PnL keyword property (3.1/3.2).
+
+        For optical, must be a list of positive floats, possibly empty (which
+        means 'not set').
+
+        For temporal, this must always be '()'.
+        """
+        assert core.all_wavelengths == [[], ()]
+        new = [1.0, 2.0]
+        core.all_wavelengths = [new, ()]
+        assert core.all_wavelengths == [new, ()]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_wavelengths = [[0.0], ()]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_wavelengths = [[-1.0], ()]
+        with pytest.RaisesGroup(pf.RelationalError):
+            core.all_wavelengths = [[1.0], [1.0]]
+
+    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
+    def test_meas_displays(
+        self,
+        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
+    ) -> None:
+        """Test $PnD keyword property (3.1/3.2).
+
+        This can be applied to optical or temporal. Must be a tuple like
+        (bool, float, float). If first bool is 'True' (log), floats must be
+        positive.
+        """
+        assert core.all_displays == [None, None]
+        new: list[pt.Display | None] = [(False, -1.0, 2.0), (True, 4.0, 0.5)]
+        core.all_displays = new
+        assert core.all_displays == new
+        # TODO this should error
+        # core.all_displays = [(False, 2.0, 1.0), None]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_displays = [(True, 0.0, 1.0), None]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_displays = [(True, -2.0, 1.0), None]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_displays = [(True, 2.0, 0.0), None]
+        with pytest.raises(pf.InvalidKeywordValueError):
+            core.all_displays = [(True, 2.0, -1.0), None]
 
     @pytest.mark.parametrize(
         "core, optical, temporal",
@@ -1205,133 +1602,17 @@ class TestCore:
         ],
     )
     def test_measurement_at(self, core: AnyCore, optical: type, temporal: type) -> None:
+        """Test single measurement query."""
         assert isinstance(core.measurement_at(0), optical)
         assert isinstance(core.measurement_at(1), temporal)
 
-    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
-    @pytest.mark.parametrize(
-        "attr",
-        [f"all_{x}" for x in ["detector_names", "tags", "analytes"]],
-    )
-    def test_meas_3_2_str(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, attr: str
-    ) -> None:
-        new = "ziltoid"
-        getattr(core, attr) == [None, ()]
-        setattr(core, attr, [new, ()])
-        getattr(core, attr) == [new, ()]
-        with pytest.raises(TypeError):
-            setattr(core, attr, [10000000000000000000000, ()])
-
-    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
-    def test_meas_3_2_measurement_types(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
-    ) -> None:
-        new = "--- --"
-        core.all_measurement_types == ["", False]
-        core.all_measurement_types = [new, True]
-        core.all_measurement_types == [new, True]
-        with pytest.raises(TypeError):
-            core.all_measurement_types = [10000000000000000000000, None]  # type: ignore
-        with pytest.RaisesGroup(pf.RelationalError):
-            # relational error because a string (optical) is being assigned to
-            # the temporal index
-            core.all_measurement_types = ["-.--.----..", "false"]
-
-    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
-    def test_meas_3_2_feature(self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2) -> None:
-        core.all_features == [None, ()]
-        core.all_features = ["Area", ()]
-        assert core.all_features == ["Area", ()]
-        # this is also allowed
-        core.all_features = ["Urea", ()]
-        assert core.all_features == ["Urea", ()]
-
-    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
-    def test_meas_3_2_awh_feature(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
-    ) -> None:
-        core.all_awh_features == [None, ()]
-        core.all_awh_features = ["Height", ()]
-        assert core.all_features == ["Height", ()]
-        with pytest.raises(pf.ParseKeywordValueError):
-            core.all_awh_features = ["Seight", ()]  # type: ignore
-
-    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
-    def test_meas_3_2_other_feature(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
-    ) -> None:
-        core.all_other_features == [None, ()]
-        core.all_awh_features = ["Width", ()]
-        assert core.all_other_features == [None, ()]
-        core.all_features = ["htdiW", ()]
-        assert core.all_other_features == ["htdiW", ()]
-
-    @parameterize_versions("core", ["3_1"], ["text2", "dataset2"])
-    def test_meas_3_1_calibration(
-        self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1
-    ) -> None:
-        new = (0.5, "NVidia A100 Heat Output")
-        core.all_calibrations == [None, ()]
-        core.all_calibrations = [new, ()]
-        assert core.all_calibrations == [new, ()]
-        with pytest.raises(TypeError):
-            core.all_calibrations = ["AMD Threadripper Power Consumptions", ()]  # type: ignore
-
-    @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
-    def test_meas_3_2_calibration(
-        self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2
-    ) -> None:
-        new = (0.5, 0.25, "Gouda Cheese Wheels")
-        core.all_calibrations == [None, ()]
-        core.all_calibrations = [new, ()]
-        assert core.all_calibrations == [new, ()]
-        with pytest.raises(TypeError):
-            core.all_calibrations = ["Sacred Cows", ()]  # type: ignore
-
-    @parameterize_versions("core", ["2_0", "3_0"], ["text2", "dataset2"])
-    def test_meas_wavelengths_singleton(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-    ) -> None:
-        assert core.all_wavelengths == [None, ()]
-        core.all_wavelengths = [1.0, ()]
-        assert core.all_wavelengths == [1.0, ()]
-        with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_wavelengths = [0.0, ()]
-        with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_wavelengths = [-1.0, ()]
-
-    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
-    def test_meas_wavelengths_vector(
-        self,
-        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.all_wavelengths == [[], ()]
-        new = [1.0, 2.0]
-        core.all_wavelengths = [new, ()]
-        assert core.all_wavelengths == [new, ()]
-        with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_wavelengths = [[0.0], ()]
-        with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_wavelengths = [[-1.0], ()]
-
-    @parameterize_versions("core", ["3_1", "3_2"], ["text2", "dataset2"])
-    def test_meas_displays(
-        self,
-        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-    ) -> None:
-        assert core.all_displays == [None, None]
-        new: list[tuple[bool, float, float] | None] = [
-            (False, -1.0, 2.0),
-            (True, 4.0, 0.5),
-        ]
-        core.all_displays = new
-        assert core.all_displays == new
-
     @all_core
     def test_nonstandard(self, core: AnyCore) -> None:
-        k = "midnight"
+        """Test non-standard keyword property.
+
+        This is a dictionary, possibly empty. The only restriction is that
+        keys must not start with '$'."""
+        k = "twilight"
         v = "rowhammer"
         assert core.nonstandard_keywords == {}
         core.nonstandard_keywords = {k: v}
@@ -1343,6 +1624,7 @@ class TestCore:
     def test_temporal_no_timestep(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
+        """Test temporal measurement set/get by name(2.0)."""
         assert core.temporal is None
         core.set_temporal(LINK_NAME1)
         assert core.temporal is not None
@@ -1361,6 +1643,10 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
+        """Test temporal measurement set/get by name (3.0).
+
+        Unlike the 2.0 version, this requires $TIMESTEP to be provided.
+        """
         assert core.temporal is None
         ts = 1.0
         core.set_temporal(LINK_NAME1, ts)
@@ -1374,6 +1660,7 @@ class TestCore:
     def test_temporal_no_timestep_at(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0
     ) -> None:
+        """Test temporal measurement get/set by index (2.0)."""
         assert core.temporal is None
         core.set_temporal_at(0, "false")
         assert core.temporal is not None
@@ -1389,6 +1676,10 @@ class TestCore:
         | pf.CoreDataset3_1
         | pf.CoreDataset3_2,
     ) -> None:
+        """Test temporal measurement get/set by index (2.0).
+
+        Unlike the 2.0 version, this requires $TIMESTEP to be provided.
+        """
         assert core.temporal is None
         ts = 1.0
         core.set_temporal_at(0, ts, "false")
@@ -1410,6 +1701,7 @@ class TestCore:
     def test_text_remove_uint_meas_by_name(
         self, core: AnyCoreTEXT, optical: type
     ) -> None:
+        """Test removing measurement from integer data schema by name (TEXT)."""
         assert len(core.measurements) == 1
         ret = core.remove_measurement_by_name(LINK_NAME1)
         assert ret[0] == 0
@@ -1434,6 +1726,7 @@ class TestCore:
     def test_dataset_remove_uint_meas_by_name(
         self, core: AnyCoreDataset, optical: type
     ) -> None:
+        """Test removing measurement from integer data schema by name (Dataset)."""
         assert len(core.measurements) == 1
         ret = core.remove_measurement_by_name(LINK_NAME1)
         assert ret[0] == 0
@@ -1459,6 +1752,7 @@ class TestCore:
     def test_text_remove_uint_meas_by_index(
         self, core: AnyCoreTEXT, optical: type
     ) -> None:
+        """Test removing measurement from integer data schema by index (TEXT)."""
         assert len(core.measurements) == 1
         ret = core.remove_measurement_by_index(0)
         assert ret[0] == LINK_NAME1
@@ -1482,6 +1776,7 @@ class TestCore:
     def test_dataset_remove_uint_meas_by_index(
         self, core: AnyCoreDataset, optical: type
     ) -> None:
+        """Test removing measurement from integer data schema by index (Dataset)."""
         assert len(core.measurements) == 1
         ret = core.remove_measurement_by_index(0)
         assert ret[0] == LINK_NAME1
@@ -1490,6 +1785,10 @@ class TestCore:
         assert ret[3] == 9001
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
+
+    # ASSUME the integer tests will cover the index/name removal well enough
+    # that only one needs to be tested for the different data schemas below
+    # (arbitrarily choose index removal)
 
     @pytest.mark.parametrize(
         "core, optical, data_schema",
@@ -1507,16 +1806,17 @@ class TestCore:
             )
         ],
     )
-    def test_text_remove_float_meas_by_name(
+    def test_text_remove_float_meas(
         self,
         core: AnyCoreTEXT,
         optical: type,
         data_schema: type,
     ) -> None:
+        """Test removing measurement from float data schema (TEXT)."""
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000.0])
-        ret = core.remove_measurement_by_name(LINK_NAME1)
-        assert ret[0] == 0
+        ret = core.remove_measurement_by_index(0)
+        assert ret[0] == LINK_NAME1
         assert isinstance(ret[1], optical)
         assert ret[2] == 1000.0
         assert len(core.measurements) == 0
@@ -1539,16 +1839,17 @@ class TestCore:
             )
         ],
     )
-    def test_dataset_remove_float_meas_by_name(
+    def test_dataset_remove_float_meas(
         self,
         core: AnyCoreDataset,
         optical: type,
         data_schema: type,
     ) -> None:
+        """Test removing measurement from float data schema (Dataset)."""
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000.0])
-        ret = core.remove_measurement_by_name(LINK_NAME1)
-        assert ret[0] == 0
+        ret = core.remove_measurement_by_index(0)
+        assert ret[0] == LINK_NAME1
         assert isinstance(ret[1], optical)
         # NOTE this will test true even though the left side is f32/f64, the
         # numeric values are the same
@@ -1571,12 +1872,13 @@ class TestCore:
             for s in [pf.FixedAsciiDataSchema, pf.DelimAsciiDataSchema]
         ],
     )
-    def test_text_remove_ascii_meas_by_index(
+    def test_text_remove_ascii_meas(
         self,
         core: AnyCoreTEXT,
         optical: type,
         data_schema: type,
     ) -> None:
+        """Test removing measurement from ASCII data schema (TEXT)."""
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000])
         ret = core.remove_measurement_by_index(0)
@@ -1599,12 +1901,13 @@ class TestCore:
             for s in [pf.FixedAsciiDataSchema, pf.DelimAsciiDataSchema]
         ],
     )
-    def test_dataset_remove_ascii_meas_by_index(
+    def test_dataset_remove_ascii_meas(
         self,
         core: AnyCoreDataset,
         optical: type,
         data_schema: type,
     ) -> None:
+        """Test removing measurement from ASCII data schema (Dataset)."""
         assert len(core.measurements) == 1
         core.data_schema = data_schema([1000])
         ret = core.remove_measurement_by_index(0)
@@ -1625,12 +1928,17 @@ class TestCore:
             ]
         ],
     )
-    def test_text_remove_var_uint_meas_by_index(
+    def test_text_remove_var_uint_meas(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2,
         optical: type,
         temporal: type,
     ) -> None:
+        """Test removing measurement from variable int data schema (TEXT).
+
+        Unlike other data schemas, this will return a type along with the
+        removed range. It should match the column that was removed.
+        """
         assert len(core.measurements) == 2
         core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
         n0, m0, r0, t0 = core.remove_measurement_by_index(0)
@@ -1658,12 +1966,17 @@ class TestCore:
             ]
         ],
     )
-    def test_dataset_remove_var_uint_meas_by_index(
+    def test_dataset_remove_var_uint_meas(
         self,
         core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: type,
         temporal: type,
     ) -> None:
+        """Test removing measurement from variable int data schema (Dataset).
+
+        Unlike other data schemas, this will return a type along with the
+        removed range. It should match the column that was removed.
+        """
         assert len(core.measurements) == 2
         core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
         n0, m0, c0, r0, t0 = core.remove_measurement_by_index(0)
@@ -1683,7 +1996,12 @@ class TestCore:
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
-    def test_text_remove_mixed_meas_by_index(self, text2_3_2: pf.CoreTEXT3_2) -> None:
+    def test_text_remove_mixed_meas(self, text2_3_2: pf.CoreTEXT3_2) -> None:
+        """Test removing measurement from mixed data schema (TEXT).
+
+        Unlike other data schemas, this will return a type along with the
+        removed range. It should match the column that was removed.
+        """
         assert len(text2_3_2.measurements) == 2
         text2_3_2.data_schema = pf.MixedDataSchema([("F32", 1000.0), ("U32", 2000)])
         n0, m0, r0, t0 = text2_3_2.remove_measurement_by_index(0)
@@ -1701,9 +2019,12 @@ class TestCore:
         with pytest.raises(IndexError):
             text2_3_2.remove_measurement_by_index(0)
 
-    def test_dataset_remove_mixed_meas_by_index(
-        self, dataset2_3_2: pf.CoreDataset3_2
-    ) -> None:
+    def test_dataset_remove_mixed_meas(self, dataset2_3_2: pf.CoreDataset3_2) -> None:
+        """Test removing measurement from mixed data schema (Dataset).
+
+        Unlike other data schemas, this will return a type along with the
+        removed range. It should match the column that was removed.
+        """
         assert len(dataset2_3_2.measurements) == 2
         dataset2_3_2.data_schema = pf.MixedDataSchema([("F32", 1000.0), ("U32", 2000)])
         n0, m0, c0, r0, t0 = dataset2_3_2.remove_measurement_by_index(0)
@@ -1729,6 +2050,7 @@ class TestCore:
 
     @all_core3
     def test_remove_meas_by_name_with_tr(self, core: AnyCore) -> None:
+        """Test removing measurement with $TR pointing to it (should error)."""
         core.tr = (LINK_NAME1, 1)
         assert core.remove_measurement_by_name(LINK_NAME2) is not None
         assert core.remove_measurement_by_name(LINK_NAME3) is not None
@@ -1741,6 +2063,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test removing measurement with $SPILLOVER pointing to it (should error)."""
         sp = (
             [LINK_NAME1, LINK_NAME3],
             np.array([[1.0, 0.0], [0.0, 1.0]], dtype=np.float32),
@@ -1756,6 +2079,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
     ) -> None:
+        """Test removing measurement with $UNSTAINEDCENTERS pointing to it (should error)."""
         core.unstainedcenters = {LINK_NAME1: 42}
         assert core.remove_measurement_by_name(LINK_NAME2) is not None
         assert core.remove_measurement_by_name(LINK_NAME3) is not None
@@ -1769,6 +2093,7 @@ class TestCore:
         core: pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreDataset3_0 | pf.CoreDataset3_1,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test removing measurement with $RnI pointing to it (3.0/3.1) (should error)."""
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
         ag: AppliedGates3_0 = ([], {0: ur}, "NOT R1")
         core.applied_gates = ag
@@ -1782,6 +2107,7 @@ class TestCore:
         core: pf.CoreTEXT3_2 | pf.CoreDataset3_2,
         blank_gated_meas: pf.GatedMeasurement,
     ) -> None:
+        """Test removing measurement with $RnI pointing to it (3.2) (should error)."""
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
         ag: AppliedGates3_2 = ({0: ur}, "NOT R1")
         core.applied_gates = ag
@@ -1806,6 +2132,7 @@ class TestCore:
         ],
     )
     def test_replace_optical_at(self, core: AnyCore, optical: Any) -> None:
+        """Test replacing optical measurement at index."""
         ln = "I am not living"
         optical.longname = ln
         core.replace_optical_at(0, optical)
@@ -1828,6 +2155,7 @@ class TestCore:
         ],
     )
     def test_replace_optical_named(self, core: AnyCore, optical: Any) -> None:
+        """Test replacing optical measurement with a given $PnN."""
         ln = "I'm asleep"
         optical.longname = ln
         core.replace_optical_named(LINK_NAME1, optical)
@@ -1850,6 +2178,7 @@ class TestCore:
         ],
     )
     def test_replace_temporal_at(self, core: AnyCore, temporal: Any) -> None:
+        """Test replacing temporal measurement at index."""
         ln = "show me wut u got"
         temporal.longname = ln
         core.replace_temporal_at(1, temporal)
@@ -1872,6 +2201,7 @@ class TestCore:
         ],
     )
     def test_replace_temporal_named(self, core: AnyCore, temporal: Any) -> None:
+        """Test replacing temporal measurement with given $PnN."""
         ln = "the combination is... 1. 2. 3. 4. 5."
         temporal.longname = ln
         core.replace_temporal_named(LINK_NAME2, temporal)
@@ -1879,6 +2209,10 @@ class TestCore:
 
     @all_core2
     def test_rename_temporal(self, core: AnyCore) -> None:
+        """Test renaming the $PnN for the temporal measurement.
+
+        Old name should be returned.
+        """
         new = "they've gone plaid"
         assert core.rename_temporal(new) == LINK_NAME2
 
@@ -1905,7 +2239,7 @@ class TestCore:
         method: str,
         series1: pl.Series,
     ) -> None:
-        """Check int32 schema insertion into text.
+        """Test int32 schema insertion into text.
 
         Schema should not change when inserting a decimal range.
 
@@ -1951,7 +2285,7 @@ class TestCore:
         data_schema: type,
         series1: pl.Series,
     ) -> None:
-        """Check float schema insertion.
+        """Test float schema insertion.
 
         Schema should not change when inserting a decimal range.
         """
@@ -1981,7 +2315,7 @@ class TestCore:
         data_schema: type,
         series1: pl.Series,
     ) -> None:
-        """Check ASCII schema insertion.
+        """Test ASCII schema insertion.
 
         Schema should not change when inserting a decimal range.
         """
@@ -2013,7 +2347,7 @@ class TestCore:
         right_type: pt.IntegerWidth,
         wrong_type: pt.IntegerWidth,
     ) -> None:
-        """Check typed insertion into single uint width schema.
+        """Test typed insertion into single uint width schema.
 
         If type matches current schema, the width should be the same. If type
         does not match, the schema should change to variable.
@@ -2044,7 +2378,7 @@ class TestCore:
         | pf.BigLittleF64DataSchema
         | pf.FixedAsciiDataSchema,
     ) -> None:
-        """Check typed insertion into non-uint width schema.
+        """Test typed insertion into non-uint width schema.
 
         These should error because the type is over-specified.
         """
@@ -2073,7 +2407,7 @@ class TestCore:
         right_type: pt.AnyType,
         wrong_type: pt.AnyType,
     ) -> None:
-        """Check typed insertion into single uint width schema.
+        """Test typed insertion into single uint width schema.
 
         If type matches current schema, the width should be the same. If type
         does not match, the schema should change to variable.
@@ -2115,7 +2449,7 @@ class TestCore:
         optical: Any,
         series1: pl.Series,
     ) -> None:
-        """Check variable uint schema insertion.
+        """Test variable uint schema insertion.
 
         Inserting a plain decimal (without type) should result in error.
         Inserting decimal with type should not change the schema.
@@ -2134,7 +2468,7 @@ class TestCore:
         blank_optical_3_2: pf.Optical3_2,
         series1: pl.Series,
     ) -> None:
-        """Check mixed schema insertion.
+        """Test mixed schema insertion.
 
         Inserting a plain decimal (without type) should result in error.
         Inserting decimal with type should not change the schema.
@@ -2237,6 +2571,11 @@ class TestCore:
         width: pt.IntegerWidth,
         should_err: bool,
     ) -> None:
+        """Test inserting series which may be different type than data schema.
+
+        If values in inserted series do not "fit" losslessly into schema
+        datatype, throw error.
+        """
         # zero should insert cleanly for any datatype
         ser0 = pl.Series("unnamed", [0], dtype=dtype)
         blank_dataset_3_2.insert_optical(
@@ -2272,10 +2611,15 @@ class TestCore:
             )
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
-    def test_check_ranges(
+    def test_check_ranges_int(
         self,
         core: AnyCoreTEXT,
     ) -> None:
+        """Test range check method (integer column).
+
+        This will ensure all values in DATA with within the limits set by $PnR,
+        with some control over how this is checked and for which datatypes.
+        """
         df1 = pl.DataFrame([pl.Series("unnamed", [1], dtype=pl.UInt32)])
         cd = core.to_dataset(df1)
         # should not error
@@ -2306,6 +2650,7 @@ class TestCore:
         with pytest.warns(pf.PyreflowWarning):
             go("bitmask_only", "warn", [0], 100000)
         go("bitmask_only", "silent", [0], 100000)
+        # truncate to the bitmask implied by $PnR
         with pytest.warns(pf.PyreflowWarning):
             go("bitmask_only", "trunc_warn", [0], 16383)
         go("bitmask_only", "trunc_silent", [0], 16383)
@@ -2315,9 +2660,76 @@ class TestCore:
         with pytest.warns(pf.PyreflowWarning):
             go("int_only", "warn", [0], 100000)
         go("int_only", "silent", [0], 100000)
+        # truncate to the hard limit set by $PnR
         with pytest.warns(pf.PyreflowWarning):
             go("int_only", "trunc_warn", [0], 9001)
         go("int_only", "trunc_silent", [0], 9001)
+
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("all", "error", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("all", "warn", [0], 100000)
+        go("all", "silent", [0], 100000)
+        # same behavior as "int_only"
+        with pytest.warns(pf.PyreflowWarning):
+            go("all", "trunc_warn", [0], 9001)
+        go("all", "trunc_silent", [0], 9001)
+
+    @pytest.mark.parametrize(
+        "core, data_schema",
+        [
+            (lazy_fixture(c), t)
+            for c, t in [
+                ("text_2_0", pf.OrderedF32DataSchema),
+                ("text_3_0", pf.OrderedF32DataSchema),
+                ("text_3_1", pf.BigLittleF32DataSchema),
+                ("text_3_2", pf.BigLittleF32DataSchema),
+            ]
+        ],
+    )
+    def test_check_ranges_float(self, core: AnyCoreTEXT, data_schema: type) -> None:
+        """Test range check method (float column).
+
+        This will ensure all values in DATA with within the limits set by $PnR,
+        with some control over how this is checked and for which datatypes.
+        """
+        core.data_schema = data_schema([9001])
+        df1 = pl.DataFrame([pl.Series("unnamed", [1], dtype=pl.Float32)])
+        cd = core.to_dataset(df1)
+        # should not error
+        cd.check_ranges()
+
+        df2 = pl.DataFrame([pl.Series("unnamed", [100000], dtype=pl.Float32)])
+
+        def go(
+            c: pt.CheckedRangeDatatypes,
+            a: pt.OverRangeAction,
+            res: list[None | int],
+            val: int,
+        ) -> None:
+            cd.data = df2
+            assert (
+                cd.check_ranges(checked_range_datatypes=c, over_range_action=a) == res
+            )
+            assert cd.data[0, 0] == val
+
+        go("none", "error", [None], 100000)
+        go("none", "warn", [None], 100000)
+        go("none", "silent", [None], 100000)
+        go("none", "trunc_warn", [None], 100000)
+        go("none", "trunc_silent", [None], 100000)
+
+        go("bitmask_only", "error", [None], 100000)
+        go("bitmask_only", "warn", [None], 100000)
+        go("bitmask_only", "silent", [None], 100000)
+        go("bitmask_only", "trunc_warn", [None], 100000)
+        go("bitmask_only", "trunc_silent", [None], 100000)
+
+        go("int_only", "error", [None], 100000)
+        go("int_only", "warn", [None], 100000)
+        go("int_only", "silent", [None], 100000)
+        go("int_only", "trunc_warn", [None], 100000)
+        go("int_only", "trunc_silent", [None], 100000)
 
         with pytest.RaisesGroup(pf.DataLossError):
             go("all", "error", [0], 100000)
@@ -2330,12 +2742,14 @@ class TestCore:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:
+        """Test method to unset measurements."""
         assert len(core.measurements) == 2
         core.unset_measurements()
         assert len(core.measurements) == 0
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     def test_unset_data(self, core: AnyCoreDataset) -> None:
+        """Test method to unset DATA (which will also remove measurements)."""
         df0 = core.data
         assert df0.height == 3
         assert df0.width == 2
@@ -2351,6 +2765,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
     ) -> None:
+        """Test data schema property (2.0/3.0)."""
         assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
         core.data_schema = pf.OrderedUintDataSchema([9002, 9003])
         assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
@@ -2362,6 +2777,7 @@ class TestCore:
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
     ) -> None:
+        """Test data schema property (3.1/3.2)."""
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         core.data_schema = pf.BigLittleF32DataSchema([9002, 9003])
         assert isinstance(core.data_schema, pf.BigLittleF32DataSchema)
@@ -2375,35 +2791,19 @@ class TestCore:
             for c, o in [
                 ("text_2_0", "blank_optical_2_0"),
                 ("text_3_0", "blank_optical_3_0"),
-                ("dataset_2_0", "blank_optical_2_0"),
-                ("dataset_3_0", "blank_optical_3_0"),
-            ]
-        ],
-    )
-    def test_ordered_set_measurements(
-        self,
-        core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        optical: Any,
-    ) -> None:
-        core.set_named_measurements([(LINK_NAME1, optical)], False, False)
-
-    @pytest.mark.parametrize(
-        "core, optical",
-        [
-            (lazy_fixture(c), lazy_fixture(o))
-            for c, o in [
                 ("text_3_1", "blank_optical_3_1"),
                 ("text_3_2", "blank_optical_3_2"),
+                ("dataset_2_0", "blank_optical_2_0"),
+                ("dataset_3_0", "blank_optical_3_0"),
                 ("dataset_3_1", "blank_optical_3_1"),
                 ("dataset_3_2", "blank_optical_3_2"),
             ]
         ],
     )
-    def test_endian_set_measurements(
-        self,
-        core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-        optical: Any,
+    def test_ordered_set_measurements(
+        self, core: AnyCoreTEXT | AnyCoreDataset, optical: Any
     ) -> None:
+        """Test set method for named measurements."""
         core.set_named_measurements([(LINK_NAME1, optical)], False, False)
 
     @pytest.mark.parametrize(
@@ -2423,10 +2823,15 @@ class TestCore:
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
         optical: Any,
     ) -> None:
+        """Test set method for named measurements and data schema at once (2.0/3.0)."""
+        assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
+        assert core.data_schema.byte_width == 4
         new = pf.OrderedUintDataSchema([1], byte_width=8)
         core.set_named_measurements_and_data_schema(
             [(LINK_NAME1, optical)], new, False, False
         )
+        assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
+        assert core.data_schema.byte_width == 8
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -2445,10 +2850,13 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
     ) -> None:
+        """Test set method for named measurements and data schema at once (3.1/3.2)."""
+        assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         new = pf.BigLittleF32DataSchema([1])
         core.set_named_measurements_and_data_schema(
             [(LINK_NAME1, optical)], new, False, False
         )
+        assert isinstance(core.data_schema, pf.BigLittleF32DataSchema)
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -2457,35 +2865,18 @@ class TestCore:
             for c, o in [
                 ("dataset_2_0", "blank_optical_2_0"),
                 ("dataset_3_0", "blank_optical_3_0"),
-            ]
-        ],
-    )
-    def test_ordered_set_measurements_and_data(
-        self,
-        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        optical: Any,
-        series2: pl.Series,
-    ) -> None:
-        core.set_named_measurements_and_data(
-            [(LINK_NAME1, optical)], pl.DataFrame([series2]), False, False
-        )
-
-    @pytest.mark.parametrize(
-        "core, optical",
-        [
-            (lazy_fixture(c), lazy_fixture(o))
-            for c, o in [
                 ("dataset_3_1", "blank_optical_3_1"),
                 ("dataset_3_2", "blank_optical_3_2"),
             ]
         ],
     )
-    def test_endian_set_measurements_and_data(
+    def test_set_measurements_and_data(
         self,
-        core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
+        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
         optical: Any,
         series2: pl.Series,
     ) -> None:
+        """Test set method for named measurements and data at once."""
         core.set_named_measurements_and_data(
             [(LINK_NAME1, optical)], pl.DataFrame([series2]), False, False
         )
@@ -2504,9 +2895,13 @@ class TestCore:
         ],
     )
     def test_measurements(self, core: AnyCore, optical: type, temporal: type) -> None:
+        """Test measurements access property."""
         assert len(core.measurements) == 2
         assert isinstance(core.measurements[0], optical)
         assert isinstance(core.measurements[1], temporal)
+
+    # TODO there are some edge cases that could be included to test if errors
+    # are thrown properly (for instance, $COMP being present in 2.0 -> 3.1)
 
     @pytest.mark.parametrize(
         "core, target",
@@ -2521,6 +2916,7 @@ class TestCore:
     def test_2_0_to_3_0(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
+        """Test 2.0 to 3.0 conversion."""
         # should fail if $PnE are missing
         with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_0()
@@ -2544,6 +2940,7 @@ class TestCore:
     def test_2_0_to_3_1(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
+        """Test 2.0 to 3.1 conversion."""
         # should fail if $PnE are missing
         with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_1()
@@ -2567,6 +2964,7 @@ class TestCore:
     def test_2_0_to_3_2(
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
+        """Test 2.0 to 3.2 conversion."""
         # should fail if $PnE and $CYT are missing
         with pytest.RaisesGroup(pf.ConversionError, pf.ConversionError):
             core.to_version_3_2()
@@ -2592,6 +2990,7 @@ class TestCore:
     def test_3_0_to_2_0(
         self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
     ) -> None:
+        """Test 3.0 to 2.0 conversion."""
         new = core.to_version_2_0()
         assert isinstance(new, target)
 
@@ -2608,6 +3007,7 @@ class TestCore:
     def test_3_0_to_3_1(
         self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
     ) -> None:
+        """Test 3.0 to 3.1 conversion."""
         new = core.to_version_3_1()
         assert isinstance(new, target)
 
@@ -2624,6 +3024,7 @@ class TestCore:
     def test_3_0_to_3_2(
         self, core: pf.CoreTEXT3_0 | pf.CoreDataset3_0, target: type
     ) -> None:
+        """Test 3.0 to 3.2 conversion."""
         # should fail if $CYT is missing
         with pytest.RaisesGroup(pf.ConversionError):
             core.to_version_3_2()
@@ -2647,6 +3048,7 @@ class TestCore:
     def test_3_1_to_2_0(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
     ) -> None:
+        """Test 3.1 to 2.0 conversion."""
         new = core.to_version_2_0()
         assert isinstance(new, target)
 
@@ -2663,6 +3065,7 @@ class TestCore:
     def test_3_1_to_3_0(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
     ) -> None:
+        """Test 3.1 to 3.0 conversion."""
         new = core.to_version_3_0()
         assert isinstance(new, target)
 
@@ -2679,6 +3082,7 @@ class TestCore:
     def test_3_1_to_3_2(
         self, core: pf.CoreTEXT3_1 | pf.CoreDataset3_1, target: type
     ) -> None:
+        """Test 3.1 to 3.2 conversion."""
         # should fail if $CYT is missing
         with pytest.RaisesGroup(pf.ConversionError):
             core.to_version_3_2()
@@ -2702,6 +3106,7 @@ class TestCore:
     def test_3_2_to_2_0(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
     ) -> None:
+        """Test 3.2 to 2.0 conversion."""
         new = core.to_version_2_0()
         assert isinstance(new, target)
 
@@ -2718,6 +3123,7 @@ class TestCore:
     def test_3_2_to_3_0(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
     ) -> None:
+        """Test 3.2 to 3.0 conversion."""
         new = core.to_version_3_0()
         assert isinstance(new, target)
 
@@ -2734,6 +3140,7 @@ class TestCore:
     def test_3_2_to_3_1(
         self, core: pf.CoreTEXT3_2 | pf.CoreDataset3_2, target: type
     ) -> None:
+        """Test 3.2 to 3.1 conversion."""
         new = core.to_version_3_1()
         assert isinstance(new, target)
 
@@ -2752,6 +3159,7 @@ class TestCore:
     def test_text_to_dataset(
         self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
     ) -> None:
+        """Test converting CoreTEXT to CoreDataset by adding a dataframe."""
         with pytest.raises(pf.PyreflowError):
             core.to_dataset(pl.DataFrame([series1]), b"", [])
         new = core.to_dataset(pl.DataFrame([series1, series2]), b"", [])
@@ -2772,10 +3180,15 @@ class TestCore:
     def test_text_to_dataset_chunked(
         self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
     ) -> None:
-        # Despite having multiple chunks, this should never fail because the
-        # python->rust conversion for PySeries will call .rechunk. It also calls
-        # .to_arrow which is why pyarrow is necessary. See
-        # https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
+        """Test converting CoreTEXT to CoreDataset using chunked dataframe.
+
+        This is to ensure an annoying edge-case does not happen.
+
+        A dataframe with multiple chunks should never fail because the
+        python->rust conversion for PySeries will call .rechunk. It also calls
+        .to_arrow which is why pyarrow is necessary. See
+        https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
+        """
         d0 = pl.DataFrame([[1, 2]], {LINK_NAME1: pl.UInt32})
         d1 = pl.DataFrame([[3, 4]], {LINK_NAME1: pl.UInt32})
         d2 = d0.vstack(d1)
@@ -2798,20 +3211,54 @@ class TestCore:
     def test_text_to_dataset_null(
         self, core: AnyCoreTEXT, target: type, series1: pl.Series, series2: pl.Series
     ) -> None:
+        """Test converting CoreTEXT to CoreDataset using dataframe with NULL.
+
+        This should error since NULL values are not allowed internally.
+        """
         d = pl.DataFrame([[1, None]], {LINK_NAME1: pl.UInt32})
         with pytest.raises(pf.EventDataError):
             core.to_dataset(d, b"", [])
 
+    # TODO why does f16 work here?
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
     @pytest.mark.parametrize(
-        "dtype", [pl.UInt8, pl.UInt16, pl.UInt32, pl.UInt64, pl.Float32, pl.Float64]
+        "dtype",
+        [
+            pl.UInt8,
+            pl.UInt16,
+            pl.UInt32,
+            pl.UInt64,
+            pl.Float16,
+            pl.Float32,
+            pl.Float64,
+        ],
     )
     def test_data_dtypes(self, core: AnyCoreDataset, dtype: Any) -> None:
+        """Test converting CoreTEXT to CoreDataset using dataframe of varying types."""
         core.data = pl.DataFrame([[1, 2]], {LINK_NAME1: dtype})
+
+    # TODO add tests for more invalid datatypes, this is not straightforward
+    # because the current pyreflow lib only supports a handful of datatypes, so
+    # the errors we get back will be of different types depending on how they
+    # are implemented and/or filtered internally in polars and fireflow.
+    #
+    # For instance, u128 will refuse to compute at the arrow level and decimal
+    # will simply panic.
+
+    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    @pytest.mark.parametrize("dtype", [pl.Int32, pl.Int64])
+    def test_data_dtypes_unsupported(self, core: AnyCoreDataset, dtype: Any) -> None:
+        """Test converting CoreTEXT to CoreDataset using unsupported types (error)."""
+        with pytest.raises(pf.EventDataError):
+            core.data = pl.DataFrame([[1, 2]], {LINK_NAME1: dtype})
 
 
 class TestGating:
     def test_scale(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        """Test $GnE" keyword property.
+
+        Must be either '()' or a tuple like (float, float).
+        """
         assert blank_gated_meas.scale is None
         blank_gated_meas.scale = ()
         assert blank_gated_meas.scale == ()
@@ -2821,6 +3268,10 @@ class TestGating:
             blank_gated_meas.scale = cast(tuple[()], "the new abnormal")
 
     def test_range(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        """Test $GnR" keyword property.
+
+        Must be a decimal/float/int.
+        """
         assert blank_gated_meas.range is None
         blank_gated_meas.range = 1.0
         assert blank_gated_meas.range == 1.0
@@ -2829,48 +3280,62 @@ class TestGating:
 
     @pytest.mark.parametrize("attr", ["percent_emitted", "detector_voltage"])
     def test_floats(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
+        """Test all $Gn* keyword properties which accept non-negative floats."""
         assert getattr(blank_gated_meas, attr) is None
         new = 1.0
         setattr(blank_gated_meas, attr, new)
         assert getattr(blank_gated_meas, attr) == new
+        with pytest.raises(pf.InvalidKeywordValueError):
+            setattr(blank_gated_meas, attr, -1.0)
         with pytest.raises(TypeError):
             setattr(blank_gated_meas, attr, "3.14...4...4...4...4...uuuuuuuuhhhhh")
 
     @pytest.mark.parametrize("attr", ["filter", "longname", "detector_type"])
     def test_strs(self, blank_gated_meas: pf.GatedMeasurement, attr: str) -> None:
+        """Test all $Gn* keyword properties which accept strings (possibly empty)."""
         assert getattr(blank_gated_meas, attr) == ""
-        new = "this is sweet revenge and karma's a"
+        new = "string cheese"
         setattr(blank_gated_meas, attr, new)
         assert getattr(blank_gated_meas, attr) == new
         with pytest.raises(TypeError):
             setattr(blank_gated_meas, attr, 1.0)
 
     def test_shortname(self, blank_gated_meas: pf.GatedMeasurement) -> None:
+        """Test $GnN keyword property.
+
+        Must be None or nonempty string without commas.
+        """
         assert blank_gated_meas.shortname is None
         new = "shorty"
         blank_gated_meas.shortname = new
         blank_gated_meas.shortname == new
         with pytest.raises(TypeError):
             blank_gated_meas.shortname = cast(str, 1.0)
+        with pytest.raises(pf.ParseKeywordValueError):
+            blank_gated_meas.shortname = "shor,ty"
 
     def test_uvregion2_0(self) -> None:
+        """Test $RnI/$RnW object creation for one dimension (2.0)."""
         r = pf.UnivariateRegion2_0(0, (0.0, 1.0))
         assert r.index == 0
         assert r.gate == (0.0, 1.0)
 
     def test_uvregion3_0(self) -> None:
-        # TODO this is confusing as ****, for the other two we get a 0-index
-        # and here we get a 1-index
+        """Test $RnI/$RnW object creation for one dimension (3.0/3.1)."""
+        # TODO this is confusing for the other two we get a 0-index and here we
+        # get a 1-index
         r = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
         assert r.index == "P1"
         assert r.gate == (0.0, 1.0)
 
     def test_uvregion3_2(self) -> None:
+        """Test $RnI/$RnW object creation for one dimension (3.2)."""
         r = pf.UnivariateRegion3_2(0, (0.0, 1.0))
         assert r.index == 0
         assert r.gate == (0.0, 1.0)
 
     def test_bvregion2_0(self) -> None:
+        """Test $RnI/$RnW object creation for two dimensions (2.0)."""
         i = (0, 1)
         # TODO this should have 3 vertices minimum, a line gate makes no sense
         vs = [(0.0, 1.0), (1.0, 3.0)]
@@ -2879,6 +3344,7 @@ class TestGating:
         assert r.vertices == vs
 
     def test_bvregion3_0(self) -> None:
+        """Test $RnI/$RnW object creation for two dimensions (3.0/3.1)."""
         i = ("P1", "G2")
         vs = [(0.0, 1.0), (1.0, 3.0)]
         r = pf.BivariateRegion3_0(i, vs)
@@ -2886,6 +3352,7 @@ class TestGating:
         assert r.vertices == vs
 
     def test_bvregion3_2(self) -> None:
+        """Test $RnI/$RnW object creation for two dimensions (3.2)."""
         i = (0, 1)
         vs = [(0.0, 1.0), (1.0, 3.0)]
         r = pf.BivariateRegion3_2(i, vs)
@@ -2896,6 +3363,10 @@ class TestGating:
 class TestMeas:
     @all_blank_meas
     def test_longname(self, meas: AnyMeas) -> None:
+        """Test $PnL keyword property.
+
+        Must be a string (possibly empty).
+        """
         assert meas.longname == ""
         new = "Headbangeeeeeeeeeeeerrrrrrrrrrrrrrrrrrrrrrrrrrr!!!!!!"
         meas.longname = new
@@ -2906,16 +3377,20 @@ class TestMeas:
     @all_blank_optical
     @pytest.mark.parametrize("attr", ["detector_voltage", "percent_emitted"])
     def test_optical_float(self, meas: AnyOptical, attr: str) -> None:
+        """Test keyword properties which may be non-negative floats."""
         assert getattr(meas, attr) is None
         new = 1.0
         setattr(meas, attr, new)
         assert getattr(meas, attr) == new
+        with pytest.raises(pf.InvalidKeywordValueError):
+            setattr(meas, attr, -1.0)
         with pytest.raises(TypeError):
             setattr(meas, attr, "the one")
 
     @all_blank_optical
     @pytest.mark.parametrize("attr", ["filter", "detector_type"])
     def test_optical_str(self, meas: AnyOptical, attr: str) -> None:
+        """Test keyword properties which may be (possibly nonempty) strings."""
         assert getattr(meas, attr) == ""
         new = "punky bruster"
         setattr(meas, attr, new)
@@ -2927,18 +3402,49 @@ class TestMeas:
     def test_display(
         self, meas: pf.Optical3_1 | pf.Optical3_2 | pf.Temporal3_1 | pf.Temporal3_2
     ) -> None:
+        """Test $PnD keyword property.
+
+        This must be like (bool, float, float) where the two floats must be
+        positive if first bool is true (log case).
+        """
         assert meas.display is None
         new = (False, 0.0, 1.0)
         meas.display = new
         assert meas.display == new
+        # TODO this should fail
+        # with pytest.raises(pf.InvalidKeywordValueError):
+        #     meas.display = (False, 2.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.display = (True, 0.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.display = (True, 1.0, 0.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.display = (True, -1.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.display = (True, 1.0, -1.0)
         with pytest.raises(TypeError):
             meas.display = 999  # type: ignore
 
     @parameterize_versions("meas", ["2_0"], ["blank_optical"])
     def test_scale(self, meas: pf.Optical2_0) -> None:
+        """Test $PnE keyword property (2.0).
+
+        This must be like '()' or (float, float) where the two floats must be
+        positive.
+        """
         assert meas.scale is None
         meas.scale = ()
         assert meas.scale == ()
+        meas.scale = (1.0, 1.0)
+        assert meas.scale == (1.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.scale = (0.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.scale = (-1.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.scale = (1.0, 0.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.scale = (1.0, -1.0)
         with pytest.raises(TypeError):
             meas.scale = "the summit"  # type: ignore
 
@@ -2946,6 +3452,11 @@ class TestMeas:
     def test_transform(
         self, meas: pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
     ) -> None:
+        """Test $PnE keyword property (3.0/3.1/3.2).
+
+        This must be like float or (float, float) where floats must be positive.
+
+        """
         assert meas.transform == 1.0
         new = (4.0, 0.5)
         meas.transform = new
@@ -2953,20 +3464,38 @@ class TestMeas:
         with pytest.raises(pf.InvalidKeywordValueError):
             meas.transform = 0.0
         with pytest.raises(pf.InvalidKeywordValueError):
-            meas.transform = (0.0, 0.0)
+            meas.transform = -1.0
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.transform = (0.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.transform = (-1.0, 1.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.transform = (1.0, 0.0)
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.transform = (1.0, -1.0)
 
     @parameterize_versions("meas", ["3_0", "3_1", "3_2"], ["blank_temporal"])
     def test_timestep(
         self, meas: pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
     ) -> None:
+        """Test $TIMESTEP keyword property (3.0/3.1/3.2).
+
+        Must be a postive float or None.
+        """
         assert meas.timestep == 1.0
         meas.timestep = 2.0
         assert meas.timestep == 2.0
         with pytest.raises(pf.InvalidKeywordValueError):
             meas.timestep = 0.0
+        with pytest.raises(pf.InvalidKeywordValueError):
+            meas.timestep = -1.0
 
     @parameterize_versions("meas", ["2_0", "3_0"], ["blank_optical"])
     def test_wavelength_2_0(self, meas: pf.Optical2_0 | pf.Optical3_0) -> None:
+        """Test $PnL keyword property (2.0/3.0).
+
+        Must be a postive float or None.
+        """
         assert meas.wavelength is None
         new = 1.0
         meas.wavelength = new
@@ -2978,6 +3507,10 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_1", "3_2"], ["blank_optical"])
     def test_wavelength_3_1(self, meas: pf.Optical3_1 | pf.Optical3_2) -> None:
+        """Test $PnL keyword property (3.1/3.2).
+
+        Must be a list of positive floats (possibly empty).
+        """
         assert meas.wavelengths == []
         new = [1.0, 2.0]
         meas.wavelengths = new
@@ -2989,6 +3522,10 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_1"], ["blank_optical"])
     def test_calibration_3_1(self, meas: pf.Optical3_1) -> None:
+        """Test $PnCALIBRATION keyword property (3.1).
+
+        Must be like (float, string).
+        """
         assert meas.calibration is None
         new = (4.0, "imperial mega-amperes")
         meas.calibration = new
@@ -2998,6 +3535,10 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
     def test_calibration_3_2(self, meas: pf.Optical3_2) -> None:
+        """Test $PnCALIBRATION keyword property (3.2).
+
+        Must be like (float, float, string).
+        """
         assert meas.calibration is None
         new = (1.0, 0.0, "John Carmack Equivalents")
         meas.calibration = new
@@ -3007,15 +3548,25 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
     def test_feature_3_2(self, meas: pf.Optical3_2) -> None:
+        """Test $PnFEATURE keyword property (3.2).
+
+        Must be a non-empty string or None.
+        """
         assert meas.feature is None
         meas.feature = "Area"
         assert meas.feature == "Area"
         # this is also allowed for this attribute
         meas.feature = "under da curv"
         assert meas.feature == "under da curv"
+        with pytest.raises(pf.ParseKeywordValueError):
+            meas.feature = ""
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
     def test_awh_feature_3_2(self, meas: pf.Optical3_2) -> None:
+        """Test $PnFEATURE keyword property (3.2) (area/width/height).
+
+        Must be one of 'Area', 'Width', or 'Height'.
+        """
         assert meas.awh_feature is None
         meas.awh_feature = "Area"
         assert meas.awh_feature == "Area"
@@ -3025,6 +3576,7 @@ class TestMeas:
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
     @pytest.mark.parametrize("attr", ["detector_name", "tag", "analyte"])
     def test_optical_3_2(self, meas: AnyOptical, attr: str) -> None:
+        """Test 3.2-specific keywords that can be strings (possibly empty)."""
         assert getattr(meas, attr) == ""
         new = "heavy metal kitten pix"
         setattr(meas, attr, new)
@@ -3034,10 +3586,9 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_2"], ["blank_optical"])
     def test_optical_meas_type(self, meas: pf.Optical3_2) -> None:
+        """Test $PnTYPE optical keyword property."""
         meas.measurement_type is None
-        # maybe if I use enough caps, David Goggins will have mercy on my soul
-        # and my problems will magically go away
-        new = "TO THE THRESHOOOOOOOOLD!!!!!!!!!!"
+        new = "O-negative"
         meas.measurement_type = new
         meas.measurement_type == new
         with pytest.raises(TypeError):
@@ -3045,12 +3596,17 @@ class TestMeas:
 
     @parameterize_versions("meas", ["3_2"], ["blank_temporal"])
     def test_temporal_type(self, meas: pf.Temporal3_2) -> None:
+        """Test $PnTYPE temporal keyword property."""
         assert not meas.has_type
         meas.has_type = True
         assert meas.has_type
 
     @all_blank_meas
     def test_nonstandard(self, meas: AnyOptical) -> None:
+        """Test measurement-specific non-standard keywords.
+
+        Keys should not start with $.
+        """
         assert meas.nonstandard_keywords == {}
         with pytest.raises(pf.ParseKeyError):
             meas.nonstandard_keywords = {"$GOD": "MONEY"}
@@ -3061,6 +3617,7 @@ class TestMeas:
 
 class TestDataSchema:
     def test_ascii_fixed(self) -> None:
+        """Test creation of fixed ASCII data schema."""
         ranges = [9, 99, 999]
         new = pf.FixedAsciiDataSchema(ranges)
         assert new.char_widths == [1, 2, 3]
@@ -3071,16 +3628,15 @@ class TestDataSchema:
             new = pf.FixedAsciiDataSchema(ranges)
 
     def test_ascii_delim(self) -> None:
+        """Test creation of delimited ASCII data schema."""
         ranges = [9, 99, 999]
         new = pf.DelimAsciiDataSchema(ranges)
         assert new.ranges == ranges
         assert new.datatype == "A"
 
-    @pytest.mark.parametrize(
-        "width",
-        [8, 16, 24, 32, 40, 48, 56, 64],
-    )
+    @pytest.mark.parametrize("width", [8, 16, 24, 32, 40, 48, 56, 64])
     def test_ordered_uint(self, width: int) -> None:
+        """Test creation of integer data schema (2.0/3.0)."""
         n = int(width / 8)
         bitmasks = [2 ** (8 * (b + 1)) - 1 for b in range(n)]
         new = pf.OrderedUintDataSchema(bitmasks, byte_width=n)
@@ -3101,6 +3657,7 @@ class TestDataSchema:
         ],
     )
     def test_float(self, data_schema: type, width: int, datatype: Datatype) -> None:
+        """Test creation of float data schema."""
         n = 3
         new = data_schema([1000.0] * n)
         assert new.byte_width == width / 8
@@ -3110,6 +3667,7 @@ class TestDataSchema:
             data_schema([float("inf")])
 
     def test_variable_uint(self) -> None:
+        """Test creation of variable integer data schema (3.1/3.2)."""
         ranges: list[pt.VariableBitmask] = [
             ("U08", 2**8 - 1),
             ("U16", 2**16 - 1),
@@ -3121,6 +3679,7 @@ class TestDataSchema:
         assert new.datatype == "I"
 
     def test_mixed(self) -> None:
+        """Test creation of mixed type data schema (3.2)."""
         types: list[MixedRange] = [
             ("F32", 1000.0),
             ("F64", 2000.0),
@@ -3132,11 +3691,23 @@ class TestDataSchema:
 
 
 class TestApiFunctions:
+    """The goal of these test is to ensure consistency of the API functions.
+
+    Particularly, the arguments, types, and defaults need to match between the
+    basic python interface and the pydantic interface. Also, arguments need to
+    be validated correctly.
+
+    The behavior of these functions as they related to reading and writing is
+    tested elsewhere.
+    """
+
     def test_flat_text_to_parent(self) -> None:
+        """Test flat config to header-only config."""
         conf = pfp.PyreflowReadFlatTEXTConfig().to_header_config()
         assert isinstance(conf, pfp.PyreflowReadHeaderConfig)
 
     def test_std_text_to_parent(self) -> None:
+        """Test std config to header-only or flat config."""
         conf = pfp.PyreflowReadStdTEXTConfig()
         conf0 = conf.to_header_config()
         assert isinstance(conf0, pfp.PyreflowReadHeaderConfig)
@@ -3144,17 +3715,20 @@ class TestApiFunctions:
         assert isinstance(conf1, pfp.PyreflowReadFlatTEXTConfig)
 
     def test_flat_dataset_to_parent(self) -> None:
+        """Test std dataset config to header-only or flat config."""
         conf = pfp.PyreflowReadFlatDatasetConfig()
         assert isinstance(conf.to_header_config(), pfp.PyreflowReadHeaderConfig)
         assert isinstance(conf.to_flat_text_config(), pfp.PyreflowReadFlatTEXTConfig)
 
     def test_std_dataset_to_parent(self) -> None:
+        """Test std dataset config to header-only or std config."""
         conf = pfp.PyreflowReadStdDatasetConfig()
         assert isinstance(conf.to_header_config(), pfp.PyreflowReadHeaderConfig)
         assert isinstance(conf.to_flat_text_config(), pfp.PyreflowReadFlatTEXTConfig)
         assert isinstance(conf.to_std_text_config(), pfp.PyreflowReadStdTEXTConfig)
 
     def test_read_header(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
+        """Test fcs_read_header with explicit configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3165,6 +3739,7 @@ class TestApiFunctions:
     def test_read_header_pd(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_read_header using pydantic configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3174,6 +3749,7 @@ class TestApiFunctions:
     def test_read_flat_text(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_read_flat_text with explicit configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3185,6 +3761,7 @@ class TestApiFunctions:
     def test_read_flat_text_pd(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_flat_text using pydantic configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3196,6 +3773,7 @@ class TestApiFunctions:
     def test_read_std_text(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_read_std_text with explicit configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3209,6 +3787,7 @@ class TestApiFunctions:
     def test_read_std_text_pd(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_std_text using pydantic configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3222,6 +3801,7 @@ class TestApiFunctions:
     def test_read_flat_dataset(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_read_flat_dataset with explicit configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3233,6 +3813,7 @@ class TestApiFunctions:
     def test_read_flat_dataset_pd(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_flat_dataset using pydantic configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3244,6 +3825,7 @@ class TestApiFunctions:
     def test_read_std_dataset(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_read_std_dataset with explicit configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3257,6 +3839,7 @@ class TestApiFunctions:
     def test_read_std_dataset_pd(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test fcs_std_dataset using pydantic configuration."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3268,6 +3851,10 @@ class TestApiFunctions:
             _ = conf.read_std_datasets(p)
 
     def test_other_width(self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2) -> None:
+        """Test that other_width parameter validates appropriately.
+
+        Only 8 and 20 should be allowed.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3282,12 +3869,17 @@ class TestApiFunctions:
     def test_key_patterns(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test that arguments that take key patterns validate appropriately.
+
+        These must either be bare strings or regexp strings starting and ending
+        with '/', which of course also must be valid regexps.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["wood"])
-        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["/lawnmower+spike/"])
+        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["/wooden+leg/"])
         # TODO blank should be an error since it will match anything
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=[""])
@@ -3297,11 +3889,19 @@ class TestApiFunctions:
     def test_rename_standard_keys(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test that rename_standard_keys validates appropriately.
+
+        This must be a dictionary of non-empty strings for both key and value.
+
+        Keys can start with '$' but this will match the second dollar in a
+        standard key like '$$*'.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
         _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"dollar": "bitcoin"})
+        _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"$dollar": "litecoin"})
         with pytest.raises(pf.ParseKeyError):
             _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"": "notblank"})
         with pytest.raises(pf.ParseKeyError):
@@ -3310,6 +3910,14 @@ class TestApiFunctions:
     def test_replace_standard_key_values(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test that replaces_standard_key_values validates appropriately.
+
+        This must be a dictionary of non-empty strings for keys. Values may be
+        empty.
+
+        Keys can start with '$' but this will match the second dollar in a
+        standard key like '$$*'.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3329,6 +3937,14 @@ class TestApiFunctions:
     def test_append_standard_keys(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test that append_standard_keys validates appropriately.
+
+        This must be a dictionary of non-empty strings for keys. Values may be
+        empty.
+
+        Keys can start with '$' but this will match the second dollar in a
+        standard key like '$$*'.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3346,6 +3962,19 @@ class TestApiFunctions:
     def test_sub_patterns(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test that substitute_standard_key_values validates appropriately.
+
+        This must be a dictionary with non-empty strings for keys (which match
+        keys in TEXT) and a tuple like (string, string, bool).
+
+        Key strings may be literal strings or valid regular expressions starting
+        and ending with '/'.
+
+        The first string in the tuple must be a valid regular expression. The
+        second string must be a literal string that may have a capture link.
+        If a capture link is present, it must correspond to a capture expression
+        in the first string.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3380,9 +4009,14 @@ class TestApiFunctions:
                 },
             )
 
+    # TODO considering making this pattern/literal like the other regexp args
     def test_time_meas_pattern(
         self, tmp_path: Path, blank_dataset_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test that time_meas_pattern is validated appropriately.
+
+        This must be a valid regular expression.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3394,19 +4028,34 @@ class TestApiFunctions:
     def test_ns_meas_pattern(
         self, tmp_path: Path, blank_dataset_3_2: pf.CoreDataset3_2
     ) -> None:
+        """Test that nonstandard_measurement_pattern is validated appropriately.
+
+        Must be a literal string or regular expression flanked by '/'. In either
+        case must contain the string '%n' which will match the measurement
+        index.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         blank_dataset_3_2.write_text(p)
         _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="%n")
+        _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="%n)))")
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="")
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="n")
+        # TODO fixme, this raises a warning
+        # with pytest.raises(pf.ConfigError):
+        #     _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="/%n)))/")
 
     def test_int_byteord_override(
         self, tmp_path: Path, blank_dataset_2_0: pf.CoreDataset2_0
     ) -> None:
+        """Test that integer_byteord_override is validated appropriately.
+
+        Must be a list of integers containing all values from 1 to the length
+        of the list. Must be non-empty. Must be length 1 to 8.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
@@ -3418,9 +4067,20 @@ class TestApiFunctions:
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1, 1])
         with pytest.raises(OverflowError):
             _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[666])
+        with pytest.raises(pf.InvalidKeywordValueError):
+            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=list(range(1, 10)))
 
 
 class TestConfig:
+    """Test configuration options used to modify reading and writing behavior.
+
+    Most of these will involve making a fake file at the byte level and testing
+    that its contents read as expected (or not).
+
+    Also, most of these functions will affect diagnostic output, which must be
+    checked as well.
+    """
+
     @staticmethod
     def mock_fcs_file(path: Path, xs: bytes) -> None:
         with open(path, "wb") as f:
@@ -3691,6 +4351,7 @@ class TestConfig:
         other_corrections: list[tuple[int, int]],
         tmp_path: Path,
     ) -> None:
+        """Test the other_corrections flag."""
         other_segs = list(other_segs)  # for some reason these come in as tuple
         other_corrections = list(other_corrections)
         t0 = len(other_segs) * 2 * 8 + 58
@@ -3726,6 +4387,7 @@ class TestConfig:
         other_segs: Any,
         tmp_path: Path,
     ) -> None:
+        """Test the max_other flag."""
         other_segs = list(other_segs)  # for some reason these come in as tuple
         t0 = len(other_segs) * 2 * 8 + 58
         p = tmp_path / "thing.fcs"
@@ -3748,6 +4410,7 @@ class TestConfig:
         other_width: int,
         tmp_path: Path,
     ) -> None:
+        """Test the guess_other_width flag."""
         other_segs = [(0, 0), (0, 0)]
         t0 = len(other_segs) * 2 * other_width + 58
         p = tmp_path / "thing.fcs"
@@ -3799,6 +4462,7 @@ class TestConfig:
 
     @all_versions
     def test_squish_offsets(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the squish_offsets flag."""
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 58), d=(59, 0), rest=b"/")
 
@@ -3818,6 +4482,7 @@ class TestConfig:
     def test_allow_pseudoempty_req_header(
         self, version: pt.FCSVersion, data_end: int, analysis_end: int, tmp_path: Path
     ) -> None:
+        """Test the allow_pseudoempty flag for a required segment in HEADER."""
         p = tmp_path / "thing.fcs"
         self.mock_header(
             p, version, t=(58, 58), d=(0, data_end), a=(0, analysis_end), rest=b"/"
@@ -3835,6 +4500,7 @@ class TestConfig:
     def test_allow_pseudoempty_other(
         self, version: pt.FCSVersion, other_end: int, tmp_path: Path
     ) -> None:
+        """Test the allow_pseudoempty flag for OTHER segments."""
         t0 = 58 + 8 * 2
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(t0, t0), other_segs=[(0, other_end)], rest=b"/")
@@ -3853,6 +4519,7 @@ class TestConfig:
     def test_truncate_offset_limit(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the truncate_offset_limit flag."""
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 59), rest=b"/")
 
@@ -3866,6 +4533,7 @@ class TestConfig:
     def test_overlap_correction_limit(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the overlap_correction_limit flag."""
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 59), d=(59, 62), rest=b"/data")
 
@@ -3882,6 +4550,7 @@ class TestConfig:
 
     @all_versions
     def test_supp_text_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the supp_text_correction flag."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=(0, -1))
 
@@ -3905,6 +4574,7 @@ class TestConfig:
 
     @all_versions
     def test_nextdata_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the nextdata_correction flag."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, nextdata=-1)
 
@@ -3917,6 +4587,7 @@ class TestConfig:
     def test_allow_dup_supp_text_exact(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_duplicated_supp_text flag (wrt TEXT)."""
         p = tmp_path / "thing.fcs"
         # exactly equal to TEXT
         text_coords = (58, 98)
@@ -3940,6 +4611,7 @@ class TestConfig:
     def test_allow_dup_supp_text_other(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_duplicated_supp_text flag (wrt OTHER)."""
         # STEXT and OTHER are duplicated, keep STEXT
         p = tmp_path / "thing.fcs"
         stext_coords = (117, 163)
@@ -3980,8 +4652,9 @@ class TestConfig:
 
     @all_versions
     def test_delim_escaped(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the delim_escape_mode arg."""
         # NOTE more cases are tested internally in rust, this is to ensure the
-        # python api works as indended
+        # python api works as intended
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/aaa//bbb/bbb/ccc/ddd/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -3999,6 +4672,7 @@ class TestConfig:
 
     @all_versions
     def test_non_ascii_delim(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the allow_non_ascii_delim arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, delim=0)
 
@@ -4012,6 +4686,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_non_unique(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the allow_nonunique arg (wrt to standard keys)."""
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/$NEXTDATA/666/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -4026,6 +4701,7 @@ class TestConfig:
     def test_allow_non_unique_nonstd(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_nonunique arg (wrt to non-standard keys)."""
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/slayer/42/slayer/420/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -4087,6 +4763,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_empty_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the allow_empty_keys arg (just key is missing)."""
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0//herman/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -4102,6 +4779,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_empty_pairs(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the allow_empty_keys arg (key and value is missing)."""
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0///"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -4131,6 +4809,7 @@ class TestConfig:
         text: bytes,
         comp: tuple[list[str | bytes], int],
     ) -> None:
+        """Test the allow_delmi_at_boundary arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
@@ -4149,6 +4828,7 @@ class TestConfig:
 
     @all_versions
     def test_use_latin1(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the use_latin1 arg."""
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/tool/\xc6nima/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -4161,6 +4841,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_non_ascii_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the allow_non_ascii_keys arg."""
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/t\0\0l/Aenima/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -4176,6 +4857,7 @@ class TestConfig:
     def test_allow_non_utf8_values(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_non_utf8_values arg."""
         text = b"/$BEGINSTEXT/0/$ENDSTEXT/0/$NEXTDATA/0/tool/\xc6nima/"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
@@ -4191,6 +4873,7 @@ class TestConfig:
     def test_allow_missing_supp_text(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_missing_supp_text arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=None)
 
@@ -4209,6 +4892,7 @@ class TestConfig:
     def test_allow_supp_text_own_delim(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_supp_text_own_delim arg."""
         text = b"/$BEGINSTEXT/101/$ENDSTEXT/118/$NEXTDATA/0/\\microsoft\\ntfs:(\\"
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 100), rest=text)
@@ -4232,6 +4916,7 @@ class TestConfig:
     def test_allow_missing_nextdata(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_missing_nextdata arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, nextdata=None)
 
@@ -4245,6 +4930,7 @@ class TestConfig:
     def test_trim_value_whitespace(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the trim_value_whitespace arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$CYT": " "})
 
@@ -4270,6 +4956,7 @@ class TestConfig:
 
     @all_versions
     def test_ignore_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the ignore_standard_keys arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$CYT": "T1000"})
 
@@ -4278,6 +4965,7 @@ class TestConfig:
 
     @all_versions
     def test_rename_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the rename_standard_keys arg."""
         pub = "eprint.iacr.org/2025/1237.pdf"
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$CYT": pub}, delim=10)
@@ -4287,6 +4975,7 @@ class TestConfig:
 
     @all_versions
     def test_promote_to_standard(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the promote_to_standard arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"PLUTO": "planet"})
 
@@ -4295,6 +4984,7 @@ class TestConfig:
 
     @all_versions
     def test_demote_from_standard(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the demote_from_standard arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$BLUETOOTH": "reliable"})
 
@@ -4303,6 +4993,7 @@ class TestConfig:
 
     @all_versions
     def test_replace_std_key_vals(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the replace_standard_key_values arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$DARTH_VADER": "evil"})
 
@@ -4313,6 +5004,7 @@ class TestConfig:
 
     @all_versions
     def test_append_std_kws(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the append_standard_keywords arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version)
 
@@ -4321,16 +5013,18 @@ class TestConfig:
 
     @all_versions
     def test_sub_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the substitute_standard_key_values arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, kws={"$OP": "Megadeath"})
 
         out = pf.api.fcs_read_flat_text(
             p, substitute_standard_key_values={"OP": ("death", "deth", False)}
         )
-        assert out.kws.std["$OP"] == "Megadeth"
+        assert out.kws.std["$OP"] == "Megadeth"  # this is the way
 
     @all_versions
     def test_dedup_meas_names(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the dedup_measurement_names arg."""
         kws = {
             "$P1N": "poppy",
             "$P1E": "0,0",
@@ -4358,6 +5052,7 @@ class TestConfig:
     def test_trim_intra_value_whitespace(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the trim_intra_value_whitespace arg."""
         kws = {"$P1N": "BTC", "$P1E": "0, 0", "$P1B": "32", "$P1R": "32"}
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
@@ -4373,6 +5068,7 @@ class TestConfig:
 
     @all_versions
     def test_time_meas_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the time_meas_pattern arg."""
         kws = {"$P1N": "T!ME", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         if version != "FCS2.0":
             kws["$TIMESTEP"] = "1.0"
@@ -4395,6 +5091,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_missing_time(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the allow_missing_time arg."""
         kws = {"$P1N": "nottimeatall", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
@@ -4410,6 +5107,7 @@ class TestConfig:
 
     @all_versions
     def test_add_missing_timestep(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the add_missing_timestep arg."""
         kws = {"$P1N": "TIME", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
@@ -4439,6 +5137,7 @@ class TestConfig:
     def test_force_linear_scale(
         self, version: pt.FCSVersion, datatype: pt.Datatype, tmp_path: Path
     ) -> None:
+        """Test the force_time_linear arg."""
         if datatype == "A":
             width = "10"
         elif datatype == "D":
@@ -4543,6 +5242,7 @@ class TestConfig:
     def test_ignore_time_optical_keys(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the ignore_time_optical_keys arg."""
         jiggawatt = "10000000000000000000000000000"
         kws = {
             "$P1N": "TIME",
@@ -4611,6 +5311,7 @@ class TestConfig:
         indexed_error: bool,
         tmp_path: Path,
     ) -> None:
+        """Test the spillover_meas_mode arg."""
         kws = {
             "$P1N": p1n,
             "$P1E": "0,0",
@@ -4654,6 +5355,7 @@ class TestConfig:
 
     @all_versions
     def test_date_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the date_pattern arg."""
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -4678,6 +5380,7 @@ class TestConfig:
 
     @all_versions
     def test_time_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the time_pattern arg."""
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -4702,6 +5405,7 @@ class TestConfig:
 
     @all_versions
     def test_datetime_pattern(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the datetime_pattern arg."""
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -4734,7 +5438,10 @@ class TestConfig:
                 assert go("%Y_%m_%d_%H_%M_%S.%f%z")
 
     @all_versions
-    def test_last_modified(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+    def test_last_modified_pattern(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
+        """Test the last_modified_pattern arg."""
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -4767,6 +5474,7 @@ class TestConfig:
 
     @all_versions
     def test_allow_other_feature(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the allow_other_feature arg."""
         feat = "black_hole_density"
         kws = {
             "$P1N": "xyz",
@@ -4804,6 +5512,7 @@ class TestConfig:
     def test_process_pseudostandard(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the process_pseudostandard arg."""
         val = "I mean, camaraderie"
         kws = {
             "$P1N": "xyz",
@@ -4834,6 +5543,7 @@ class TestConfig:
 
     @all_versions
     def test_process_hyper_par(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the process_hyper_par arg."""
         val = "uae_sightings"
         kws = {
             "$P1N": "xyz",
@@ -4864,6 +5574,7 @@ class TestConfig:
     def test_process_other_version(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the process_other_version arg."""
         val = "42,bla,blaa,blaaa"
         kws = {
             "$P1N": "xyz",
@@ -4901,6 +5612,7 @@ class TestConfig:
     def test_process_extra_timestep(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the process_extra_timestep arg."""
         val = "1.618033988749"
         kws = {
             "$P1N": "xyz",
@@ -4943,6 +5655,7 @@ class TestConfig:
     def test_fix_log_scale_offsets(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the fix_log_scale_offsets arg."""
         kws = {
             "$P1N": "xyz",
             "$P1E": "2,0",
@@ -4964,6 +5677,7 @@ class TestConfig:
 
     @all_versions
     def test_disallow_localtime(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the disallow_localtime arg."""
         kws = {
             "$P1N": "xyz",
             "$P1E": "0,0",
@@ -4994,6 +5708,7 @@ class TestConfig:
 
     @all_versions
     def test_non_std_meas_pat(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the nonstandard_measurement_pattern arg."""
         extra = {"#P1LASER": "42pm"}
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", **extra}
         p = tmp_path / "thing.fcs"
@@ -5016,6 +5731,7 @@ class TestConfig:
 
     @all_versions
     def test_text_data_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the text_data_correction arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
@@ -5039,6 +5755,7 @@ class TestConfig:
     def test_text_analysis_correction(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the text_analysis_correction arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=(0, -1))
 
@@ -5067,6 +5784,7 @@ class TestConfig:
     def test_ignore_text_data_offsets(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the ignore_text_data_offsets arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
@@ -5087,6 +5805,7 @@ class TestConfig:
     def test_ignore_text_analysis_offsets(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the ignore_text_analysis_offsets arg."""
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, 0), text_analysis=(0, -1))
 
@@ -5112,6 +5831,7 @@ class TestConfig:
     def test_allow_header_text_offset_mismatch_data(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_header_text_offset_mismatch arg (wrt DATA)."""
         p = tmp_path / "thing.fcs"
 
         self._test_allow_header_text_offset_mismatch(p, version, False)
@@ -5120,6 +5840,7 @@ class TestConfig:
     def test_allow_header_text_offset_mismatch_analysis(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_header_text_offset_mismatch arg (wrt ANALYSIS)."""
         p = tmp_path / "thing.fcs"
 
         self._test_allow_header_text_offset_mismatch(p, version, True)
@@ -5128,6 +5849,7 @@ class TestConfig:
     def test_allow_missing_required_offsets_data(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_missing_required_offsets arg (wrt DATA)."""
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=None)
 
@@ -5160,6 +5882,7 @@ class TestConfig:
     def test_allow_missing_required_offsets_analysis(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the allow_missing_required_offsets arg (wrt ANALYSIS)."""
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=None)
 
@@ -5192,6 +5915,7 @@ class TestConfig:
     def test_process_optional_failure(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the process_optional_failure arg."""
         p = tmp_path / "thing.fcs"
         val = "January Nine-teen twenty12"
         kws = {"$DATE": val}
@@ -5213,6 +5937,7 @@ class TestConfig:
     def test_int_widths_from_byteord(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the integer_widths_from_byteord arg."""
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "24", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1)
@@ -5237,6 +5962,7 @@ class TestConfig:
 
     @all_versions
     def test_int_byteord_override(self, version: pt.FCSVersion, tmp_path: Path) -> None:
+        """Test the integer_byteord_override arg."""
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1, byteord=[1, 2, 3])
@@ -5272,6 +5998,7 @@ class TestConfig:
     def test_disallow_range_truncation(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
+        """Test the disallow_range_truncation arg."""
         p = tmp_path / "thing.fcs"
         val = "10000000000000000000000000000000000000000000000000000000000000000"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": val}
@@ -5300,6 +6027,7 @@ class TestConfig:
     def test_allow_uneven_event_width(
         self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
+        """Test the allow_uneven_event_width arg."""
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         tot = 3
@@ -5335,6 +6063,7 @@ class TestConfig:
     def test_allow_tot_mismatch(
         self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
+        """Test the allow_tot_mistmatch arg."""
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         tot = 3
@@ -5369,6 +6098,17 @@ class TestConfig:
     def test_truncate_range_datatypes_int(
         self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
+        """Test range truncation on read (int case).
+
+        This will test two flags: checked_range_datatypes and over_range_action.
+
+        Together they control how/when values in DATA are truncated according to
+        $PnR.
+
+        For int, this should apply when all but "none" is given for
+        checked_range_datatypes. When truncating, truncate to bitmask for
+        "bitmask_only" and to the $PnR itself for "int_only".
+        """
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}
         tot = 3
@@ -5440,6 +6180,16 @@ class TestConfig:
     def test_truncate_range_datatypes_float(
         self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
+        """Test range truncation on read (float case).
+
+        This will test two flags: checked_range_datatypes and over_range_action.
+
+        Together they control how/when values in DATA are truncated according to
+        $PnR.
+
+        For floats, this should only apply when the "all" option is specified
+        for checked_range_datatypes.
+        """
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}
         tot = 3
@@ -5518,6 +6268,10 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_text"])
     def test_text_empty(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+        """Test writing then reading an empty FCS file.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "empty_text.fcs"
@@ -5528,6 +6282,10 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
     def test_text_non_empty_1(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+        """Test writing then reading TEXT with one measurement.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
@@ -5538,6 +6296,10 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_text_non_empty_2(self, tmp_path: Path, core: AnyCoreTEXT) -> None:
+        """Test writing then reading TEXT with two measurements.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "text2.fcs"
@@ -5548,6 +6310,10 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["blank_dataset"])
     def test_dataset_empty(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        """Test writing then reading an empty dataset.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "empty_dataset.fcs"
@@ -5558,6 +6324,10 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
     def test_dataset_non_empty_1(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        """Test writing then reading a dataset with one measurement.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "dataset1.fcs"
@@ -5570,6 +6340,10 @@ class TestReadWrite:
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     def test_dataset_non_empty_2(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        """Test writing then reading a dataset with two measurements.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "dataset2.fcs"
@@ -5597,20 +6371,28 @@ class TestReadWrite:
     #     with pytest.warns(pf.PyreflowWarning):
     #         core.write_dataset(p)
 
-    @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-    def test_dataset_different_type(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-        d = tmp_path
-        d.mkdir(exist_ok=True)
-        p = d / "dataset_trunc.fcs"
-        core.data = pl.DataFrame([[1.0, 1.0]], {LINK_NAME1: pl.Float32})
-        assert not isinstance(core.data_schema, pf.MixedDataSchema)
-        assert core.data_schema.datatype == "I"
-        # this should convert 1.0 to 1 losslessly despite the underlying type
-        # being U32
-        core.write_dataset(p)
+    # @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
+    # def test_dataset_different_type(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+    #     """Test writing then reading a dataset with two measurements.
+
+    #     Reading and writing should result in an identical copy of the original.
+    #     """
+    #     d = tmp_path
+    #     d.mkdir(exist_ok=True)
+    #     p = d / "dataset_trunc.fcs"
+    #     core.data = pl.DataFrame([[1.0, 1.0]], {LINK_NAME1: pl.Float32})
+    #     assert not isinstance(core.data_schema, pf.MixedDataSchema)
+    #     assert core.data_schema.datatype == "I"
+    #     # this should convert 1.0 to 1 losslessly despite the underlying type
+    #     # being U32
+    #     core.write_dataset(p)
 
     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_texts_non_empty(self, tmp_path: Path, core0: AnyCoreTEXT) -> None:
+        """Test writing then reading multiple empty TEXT objects.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "texts.fcs"
@@ -5633,6 +6415,10 @@ class TestReadWrite:
 
     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     def test_datasets_non_empty(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+        """Test writing then reading multiple TEXT objects with one measurement.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "datasets.fcs"
@@ -5657,6 +6443,7 @@ class TestReadWrite:
 
     @parameterize_versions("core0", ["2_0", "3_0", "3_1", "3_2"], ["dataset2"])
     def test_summarize_pd(self, tmp_path: Path, core0: AnyCoreDataset) -> None:
+        """Test writing then summarizing multiple TEXT objects with two measurements."""
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "datasets.fcs"
@@ -5680,6 +6467,10 @@ class TestReadWrite:
         core: AnyCoreDataset,
         data_schema: pf.FixedAsciiDataSchema | pf.DelimAsciiDataSchema,
     ) -> None:
+        """Test writing then reading an ASCII dataset.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p0 = d / "dataset_ascii_wrong.fcs"
@@ -5695,6 +6486,8 @@ class TestReadWrite:
         assert new_core0 != core
         assert new_core1 == core
 
+    # TODO this is probably better to test directly by making a mock file.
+
     @parameterize_versions("core", ["2_0", "3_0"], ["dataset2"])
     # make sure we can store and read a totally scrambled byteord (note the
     # first byte in the middle to make it extra weird)
@@ -5707,6 +6500,10 @@ class TestReadWrite:
         core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
         byteord: ByteOrd,
     ) -> None:
+        """Test writing then reading a dataset with mixed byte order.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p0 = d / "dataset_mixed_wrong.fcs"
@@ -5719,23 +6516,12 @@ class TestReadWrite:
         assert new_core0.data.equals(core.data)
         assert new_core1.data.equals(core.data)
 
-    #     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["dataset"])
-    #     def test_dataset_conversion(self, tmp_path: Path, core: AnyCoreDataset) -> None:
-    #         assert False, "FIXME"
-    #         # d = tmp_path
-    #         # d.mkdir(exist_ok=True)
-    #         # p = d / "dataset_conversion.fcs"
-    #         # ser = pl.Series("blub", [1.5, 2.5, 3.5], dtype=pl.Float32)
-    #         # core.data = pl.DataFrame([ser])
-    #         # # this should fail because we are trying to write a non-integer float
-    #         # # as an integer
-    #         # with pytest.RaisesGroup(pf.PyreflowError):
-    #         #     core.write_dataset(p)
-    #         # with pytest.warns(pf.PyreflowWarning):
-    #         #     core.write_dataset(p, skip_conversion_check=True)
-
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["dataset2"])
     def test_dataset_supp_text(self, tmp_path: Path, core: AnyCoreDataset) -> None:
+        """Test writing then reading a dataset with a supplemental TEXT segment.
+
+        Reading and writing should result in an identical copy of the original.
+        """
         d = tmp_path
         d.mkdir(exist_ok=True)
         p = d / "dataset_supp_text.fcs"
@@ -5778,6 +6564,8 @@ class TestPydantic:
         ],
     )
     def test_fun_sig_vs_pydantic(self, pydantic_class: type, fun_name: str) -> None:
+        """Test that each pydantic class has matching types compared to stubs."""
+
         class StubMismatch(NamedTuple):
             argname: str
             pydantic_type: str
@@ -5890,4 +6678,5 @@ class TestPydantic:
     )
     @pytest.mark.parametrize("method", ["new_scalpal", "new_sledgehammer"])
     def test_alt_configs(self, pydantic_class: type, method: str) -> None:
+        """Test that each pydantic class has alternative config methods."""
         getattr(pydantic_class, method)()

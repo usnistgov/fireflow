@@ -1,7 +1,7 @@
 import numpy as np
 import inspect as ins
 from itertools import product, chain
-from typing import cast, Any, NamedTuple, TypeVar, Callable
+from typing import cast, Any, NamedTuple, TypeVar, Callable, assert_never
 from datetime import date, datetime, time, timezone, timedelta
 from pathlib import Path
 from copy import deepcopy
@@ -36,6 +36,7 @@ import ast
 
 X = TypeVar("X")
 
+
 INTEGER_WIDTHS: list[pt.VariableBitmask] = [
     ("I08", 1),
     ("I16", 2),
@@ -58,6 +59,8 @@ MIXED_SCHEMAS: list[tuple[pt.AnyType, pt.AnyDataSchema3_2]] = [
 LINK_NAME1 = "wubbalubbadubdub"
 LINK_NAME2 = "maple latte"
 LINK_NAME3 = "silent man"
+
+DTYPE = pl.UInt8 | pl.UInt16 | pl.UInt32 | pl.UInt64 | pl.Float32 | pl.Float64
 
 # used for testing the pydantic model against the types in the pyi file
 with open("python/pyreflow/_pyreflow.pyi") as f:
@@ -2148,6 +2151,126 @@ class TestCore:
                 0, "gotpetya", blank_optical_3_2, 10000, series1
             )
 
+    @pytest.mark.parametrize(
+        "dtype, width, should_err",
+        [
+            # U8
+            (pl.UInt8, "I08", False),
+            (pl.UInt16, "I08", True),
+            (pl.UInt32, "I08", True),
+            (pl.UInt64, "I08", True),
+            (pl.Float32, "I08", True),
+            (pl.Float64, "I08", True),
+            # U16
+            (pl.UInt8, "I16", False),
+            (pl.UInt16, "I16", False),
+            (pl.UInt32, "I16", True),
+            (pl.UInt64, "I16", True),
+            (pl.Float32, "I16", True),
+            (pl.Float64, "I16", True),
+            # U24
+            (pl.UInt8, "I24", False),
+            (pl.UInt16, "I24", False),
+            (pl.UInt32, "I24", True),
+            (pl.UInt64, "I24", True),
+            (pl.Float32, "I24", True),
+            (pl.Float64, "I24", True),
+            # U32
+            (pl.UInt8, "I32", False),
+            (pl.UInt16, "I32", False),
+            (pl.UInt32, "I32", False),
+            (pl.UInt64, "I32", True),
+            (pl.Float32, "I32", True),
+            (pl.Float64, "I32", True),
+            # U40
+            (pl.UInt8, "I40", False),
+            (pl.UInt16, "I40", False),
+            (pl.UInt32, "I40", False),
+            (pl.UInt64, "I40", True),
+            (pl.Float32, "I40", True),
+            (pl.Float64, "I40", True),
+            # U48
+            (pl.UInt8, "I48", False),
+            (pl.UInt16, "I48", False),
+            (pl.UInt32, "I48", False),
+            (pl.UInt64, "I48", True),
+            (pl.Float32, "I48", True),
+            (pl.Float64, "I48", True),
+            # U56
+            (pl.UInt8, "I56", False),
+            (pl.UInt16, "I56", False),
+            (pl.UInt32, "I56", False),
+            (pl.UInt64, "I56", True),
+            (pl.Float32, "I56", True),
+            (pl.Float64, "I56", True),
+            # U64
+            (pl.UInt8, "I64", False),
+            (pl.UInt16, "I64", False),
+            (pl.UInt32, "I64", False),
+            (pl.UInt64, "I64", False),
+            (pl.Float32, "I64", True),
+            (pl.Float64, "I64", True),
+            # F32
+            (pl.UInt8, "F", False),
+            (pl.UInt16, "F", False),
+            # this is a lucky fluke; u32::MAX just happens to be an exact f32
+            (pl.UInt32, "F", False),
+            # this is a lucky fluke; u64::MAX just happens to be an exact f32
+            (pl.UInt64, "F", False),
+            (pl.Float32, "F", False),
+            (pl.Float64, "F", True),
+            # F64
+            (pl.UInt8, "D", False),
+            (pl.UInt16, "D", False),
+            (pl.UInt32, "D", False),
+            # this is a lucky fluke; u64::MAX just happens to be an exact f64
+            (pl.UInt64, "D", False),
+            (pl.Float32, "D", False),
+            (pl.Float64, "D", False),
+        ],
+    )
+    def test_series_to_int(
+        self,
+        blank_dataset_3_2: pf.CoreDataset3_2,
+        blank_optical_3_2: pf.Optical3_2,
+        dtype: DTYPE,
+        width: pt.IntegerWidth,
+        should_err: bool,
+    ) -> None:
+        # zero should insert cleanly for any datatype
+        ser0 = pl.Series("unnamed", [0], dtype=dtype)
+        blank_dataset_3_2.insert_optical(
+            0, "duqu", blank_optical_3_2, (width, 100), ser0
+        )
+
+        upper: float | int
+
+        if dtype == pl.UInt8:
+            upper = 255
+        elif dtype == pl.UInt16:
+            upper = 2**16 - 1
+        elif dtype == pl.UInt32:
+            upper = 2**32 - 1
+        elif dtype == pl.UInt64:
+            upper = 2**64 - 1
+        elif dtype == pl.Float32:
+            upper = 3.4e38
+        elif dtype == pl.Float64:
+            upper = 1.79e308
+
+        # inserting the max of a given datatype might clip depending on the
+        # desired target type
+        ser1 = pl.Series("unnamed", [upper], dtype=dtype)
+        if should_err:
+            with pytest.raises(pf.DataLossError):
+                blank_dataset_3_2.insert_optical(
+                    0, "zeus", blank_optical_3_2, (width, 100), ser1
+                )
+        else:
+            blank_dataset_3_2.insert_optical(
+                0, "zeus", blank_optical_3_2, (width, 100), ser1
+            )
+
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text"])
     def test_check_ranges(
         self,
@@ -2936,7 +3059,7 @@ class TestMeas:
         meas.nonstandard_keywords = {k: v0}
 
 
-class TestLayouts:
+class TestDataSchema:
     def test_ascii_fixed(self) -> None:
         ranges = [9, 99, 999]
         new = pf.FixedAsciiDataSchema(ranges)

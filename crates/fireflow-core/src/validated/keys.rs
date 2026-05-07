@@ -1530,12 +1530,13 @@ mod serialize {
 
     use std::collections::BTreeMap;
 
-    pub fn ordered_map<K: Serialize + Clone + Ord, S>(
+    pub(super) fn ordered_map<K, S>(
         value: &HashMap<K, NEString>,
         serializer: S,
     ) -> Result<S::Ok, S::Error>
     where
         S: serde::Serializer,
+        K: Serialize + Clone + Ord,
     {
         let ordered: BTreeMap<K, _> = value.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         ordered.serialize(serializer)

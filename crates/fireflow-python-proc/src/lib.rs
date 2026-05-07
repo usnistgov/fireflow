@@ -10139,7 +10139,7 @@ fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
 
 impl Version {
     #[must_use]
-    pub fn short(self) -> &'static str {
+    fn short(self) -> &'static str {
         match self {
             Self::FCS2_0 => "2.0",
             Self::FCS3_0 => "3.0",
@@ -10149,7 +10149,7 @@ impl Version {
     }
 
     #[must_use]
-    pub fn short_underscore(self) -> &'static str {
+    fn short_underscore(self) -> &'static str {
         match self {
             Self::FCS2_0 => "2_0",
             Self::FCS3_0 => "3_0",
@@ -10170,7 +10170,7 @@ impl Version {
     // }
 
     #[must_use]
-    pub fn from_short_underscore(s: &str) -> Option<Self> {
+    fn from_short_underscore(s: &str) -> Option<Self> {
         match s {
             "2_0" => Some(Self::FCS2_0),
             "3_0" => Some(Self::FCS3_0),

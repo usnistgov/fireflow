@@ -246,9 +246,7 @@ where
     }
     let mut buf = [0; 6];
     h.read_exact(&mut buf)?;
-    if buf.is_ascii() {
-        // SAFETY: we just checked that all bytes are ASCII
-        let s = unsafe { str::from_utf8_unchecked(&buf) };
+    if let Ok(s) = str::from_utf8(&buf) {
         s.parse()
             .map_err(VersionError::from)
             .map_err(IOErrorGroup::new_pure_one)

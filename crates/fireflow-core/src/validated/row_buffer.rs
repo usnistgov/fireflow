@@ -176,7 +176,7 @@ impl ReadBuffer {
     where
         R: Read,
         Fr: FnMut(&mut C, DstIndex, &[u8], SrcIndex) -> Result<(), E>,
-        Fw: Fn(usize) -> usize,
+        Fw: Fn(&C) -> usize,
     {
         // Read groups of rows in outer loop
         let mut src_col_offset;
@@ -185,10 +185,10 @@ impl ReadBuffer {
             self.read(h)?;
             src_col_offset = 0;
             // Once we have a buffer, iterate through each column and write data
-            for (ci, c) in columns.iter_mut().enumerate() {
+            for c in columns.iter_mut() {
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
-                let src_width = fwidth(ci);
+                let src_width = fwidth(c);
                 for row in 0..self.rows_per_buffer {
                     let src_idx = SrcIndex(src_col_offset + self.row_width * row);
                     let dst_idx = DstIndex(dst_row_offset + row);
@@ -202,13 +202,13 @@ impl ReadBuffer {
         // Read remaining rows if they exist
         self.read_remainder(h)?;
         src_col_offset = 0;
-        for (ci, c) in columns.iter_mut().enumerate() {
+        for c in columns.iter_mut() {
             for row in 0..self.remainder_row_number() {
                 let src_idx = SrcIndex(src_col_offset + self.row_width * row);
                 let dst_idx = DstIndex(dst_row_offset + row);
                 fread(c, dst_idx, &self.bytes, src_idx).map_err(ImpureError::Pure)?;
             }
-            src_col_offset += fwidth(ci);
+            src_col_offset += fwidth(c);
         }
 
         Ok(())
@@ -331,11 +331,6 @@ impl ReadBuffer {
         h: &mut BufReader<R>,
         cols: &mut [RangedVec<FixedAsciiRange, u64>],
     ) -> IOResult<(), AsciiToUintError> {
-        // TODO this smells like something that could be cleaned up later
-        let ranges: Vec<_> = cols
-            .iter()
-            .map(|c| usize::from(u8::from(c.range.chars())))
-            .collect();
         self.read_columns(
             h,
             cols,
@@ -345,7 +340,7 @@ impl ReadBuffer {
                 dst.data[dst_index.0] = x;
                 Ok(())
             },
-            |i| ranges[i],
+            |c| usize::from(u8::from(c.range.chars())),
         )
     }
 
@@ -356,10 +351,7 @@ impl ReadBuffer {
         cols: &mut [AnyUintVec],
         endian: Endian,
     ) -> io::Result<()> {
-        let src_widths: Vec<_> = cols
-            .iter()
-            .map(|c| usize::from(u8::from(c.bytes())))
-            .collect();
+        let get_width = |c: &AnyUintVec| usize::from(u8::from(c.bytes()));
         let res = match endian {
             Endian::Big => self.read_columns(
                 h,
@@ -368,7 +360,7 @@ impl ReadBuffer {
                     dst.read_be(dst_index, src, src_index);
                     Ok(())
                 },
-                |i| src_widths[i],
+                get_width,
             ),
             Endian::Little => self.read_columns(
                 h,
@@ -377,7 +369,7 @@ impl ReadBuffer {
                     dst.read_le(dst_index, src, src_index);
                     Ok(())
                 },
-                |i| src_widths[i],
+                get_width,
             ),
         };
         res.map_err(|e: ImpureError<Infallible>| {
@@ -393,18 +385,15 @@ impl ReadBuffer {
         cols: &mut [MixedVec],
         endian: Endian,
     ) -> IOResult<(), AsciiToUintError> {
-        let src_widths: Vec<_> = cols
-            .iter()
-            .map(|c| match c {
-                MixedVec::Ascii(x) => usize::from(u8::from(x.range.chars())),
-                MixedVec::Uint(x) => usize::from(u8::from(x.bytes())),
-                MixedVec::F32(_) => 4,
-                MixedVec::F64(_) => 8,
-            })
-            .collect();
+        let get_width = |c: &MixedVec| match c {
+            MixedVec::Ascii(x) => usize::from(u8::from(x.range.chars())),
+            MixedVec::Uint(x) => usize::from(u8::from(x.bytes())),
+            MixedVec::F32(_) => 4,
+            MixedVec::F64(_) => 8,
+        };
         match endian {
-            Endian::Big => self.read_columns(h, cols, AnyDatatype::read_be, |i| src_widths[i]),
-            Endian::Little => self.read_columns(h, cols, AnyDatatype::read_le, |i| src_widths[i]),
+            Endian::Big => self.read_columns(h, cols, AnyDatatype::read_be, get_width),
+            Endian::Little => self.read_columns(h, cols, AnyDatatype::read_le, get_width),
         }
     }
 }
@@ -429,7 +418,7 @@ impl WriteBuffer {
     where
         W: Write,
         Fp: FnMut(&C, SrcIndex, &mut [u8], DstIndex),
-        Fw: Fn(usize) -> usize,
+        Fw: Fn(&C) -> usize,
     {
         // Write groups of rows in outer loop
         let mut dst_col_offset;
@@ -437,10 +426,10 @@ impl WriteBuffer {
         for _ in 0..self.whole_row_number() {
             dst_col_offset = 0;
             // Once we have a buffer, iterate through each column and write data
-            for (ci, c) in columns.iter().enumerate() {
+            for c in columns {
                 // Within each column, write rows, striding the row buffer and
                 // indexing consecutively in the current column
-                let src_width = fwidth(ci);
+                let src_width = fwidth(c);
                 for row in 0..self.rows_per_buffer {
                     let src_idx = SrcIndex(src_row_offset + row);
                     let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
@@ -455,13 +444,13 @@ impl WriteBuffer {
         // Read remaining rows if they exist
         let remainder_rows = self.remainder_row_number();
         dst_col_offset = 0;
-        for (ci, c) in columns.iter().enumerate() {
+        for c in columns {
             for row in 0..remainder_rows {
                 let src_idx = SrcIndex(src_row_offset + row);
                 let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
                 fpush(c, src_idx, &mut self.bytes, dst_idx);
             }
-            dst_col_offset += fwidth(ci);
+            dst_col_offset += fwidth(c);
         }
 
         self.write_remainder(h)?;
@@ -584,10 +573,6 @@ impl WriteBuffer {
         h: &mut BufWriter<W>,
         cols: &[NativeSeries<FixedAsciiRange>],
     ) -> io::Result<()> {
-        let ranges: Vec<_> = cols
-            .iter()
-            .map(|c| usize::from(u8::from(c.column_schema().chars())))
-            .collect();
         self.write_columns(
             h,
             cols,
@@ -595,7 +580,7 @@ impl WriteBuffer {
                 let v = src.as_ref()[src_index.0];
                 src.column_schema().as_slice_unchecked(v, dst, &dst_index);
             },
-            |i| ranges[i],
+            |c| usize::from(u8::from(c.column_schema().chars())),
         )
     }
 
@@ -606,13 +591,10 @@ impl WriteBuffer {
         cols: &[VariableUintSeries],
         endian: Endian,
     ) -> io::Result<()> {
-        let src_widths: Vec<_> = cols
-            .iter()
-            .map(|c| usize::from(u8::from(c.bytes())))
-            .collect();
+        let get_width = |c: &VariableUintSeries| usize::from(u8::from(c.bytes()));
         match endian {
-            Endian::Big => self.write_columns(h, cols, AnyUint::write_be, |i| src_widths[i]),
-            Endian::Little => self.write_columns(h, cols, AnyUint::write_le, |i| src_widths[i]),
+            Endian::Big => self.write_columns(h, cols, AnyUint::write_be, get_width),
+            Endian::Little => self.write_columns(h, cols, AnyUint::write_le, get_width),
         }
     }
 
@@ -623,18 +605,15 @@ impl WriteBuffer {
         cols: &[MixedSeries],
         endian: Endian,
     ) -> io::Result<()> {
-        let src_widths: Vec<_> = cols
-            .iter()
-            .map(|c| match c {
-                AnyDatatype::Ascii(x) => usize::from(u8::from(x.column_schema().chars())),
-                AnyDatatype::Uint(x) => usize::from(u8::from(x.bytes())),
-                AnyDatatype::F32(_) => 4,
-                AnyDatatype::F64(_) => 8,
-            })
-            .collect();
+        let get_width = |c: &MixedSeries| match c {
+            AnyDatatype::Ascii(x) => usize::from(u8::from(x.column_schema().chars())),
+            AnyDatatype::Uint(x) => usize::from(u8::from(x.bytes())),
+            AnyDatatype::F32(_) => 4,
+            AnyDatatype::F64(_) => 8,
+        };
         match endian {
-            Endian::Big => self.write_columns(h, cols, AnyDatatype::write_be, |i| src_widths[i]),
-            Endian::Little => self.write_columns(h, cols, AnyDatatype::write_le, |i| src_widths[i]),
+            Endian::Big => self.write_columns(h, cols, AnyDatatype::write_be, get_width),
+            Endian::Little => self.write_columns(h, cols, AnyDatatype::write_le, get_width),
         }
     }
 }

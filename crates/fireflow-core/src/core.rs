@@ -2962,34 +2962,31 @@ impl HasUnstainedCenters for InnerMetaroot3_2 {
 
 // Implement private mutable access for gating keywords (3.0/3.1)
 
-pub trait HasAppliedGates3_0 {
+pub trait HasAppliedGates {
+    type Gates;
     // private as_mut
-    fn applied_gates3_0_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_0;
+    fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates;
 }
 
-impl HasAppliedGates3_0 for InnerMetaroot3_0 {
-    fn applied_gates3_0_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_0 {
+impl HasAppliedGates for InnerMetaroot3_0 {
+    type Gates = AppliedGates3_0;
+    fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates {
         &mut self.applied_gates
     }
 }
 
-impl HasAppliedGates3_0 for InnerMetaroot3_1 {
-    fn applied_gates3_0_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_0 {
+impl HasAppliedGates for InnerMetaroot3_1 {
+    type Gates = AppliedGates3_0;
+    fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates {
         &mut self.applied_gates
     }
 }
 
-// Implement private mutable access for gating keywords (3.2)
-
-impl HasAppliedGates3_2 for InnerMetaroot3_2 {
-    fn applied_gates3_2_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_2 {
+impl HasAppliedGates for InnerMetaroot3_2 {
+    type Gates = AppliedGates3_2;
+    fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates {
         &mut self.applied_gates
     }
-}
-
-pub trait HasAppliedGates3_2 {
-    // private as_mut
-    fn applied_gates3_2_mut(&mut self, _: private::NoTouchy) -> &mut AppliedGates3_2;
 }
 
 // Implement mapping from metadata type to generalized scale transform
@@ -7676,15 +7673,12 @@ where
         ag: AppliedGates3_0,
     ) -> GroupResult<(), BrokenRegionLinkError<MeasOrGateIndex>, SetAppliedGatesSummary>
     where
-        V::Metaroot: HasAppliedGates3_0,
+        V::Metaroot: HasAppliedGates<Gates = AppliedGates3_0>,
     {
         let p = self.par();
         let es = ag.invalid_link_errors(&p);
         ErrorGroup::try_new(es)?;
-        *self
-            .metaroot
-            .specific
-            .applied_gates3_0_mut(private::NoTouchy) = ag;
+        *self.metaroot.specific.applied_gates_mut(private::NoTouchy) = ag;
         Ok(())
     }
 
@@ -7694,15 +7688,12 @@ where
         ag: AppliedGates3_2,
     ) -> GroupResult<(), BrokenRegionLinkError<PrefixedMeasIndex>, SetAppliedGatesSummary>
     where
-        V::Metaroot: HasAppliedGates3_2,
+        V::Metaroot: HasAppliedGates<Gates = AppliedGates3_2>,
     {
         let p = self.par();
         let es = ag.invalid_link_errors(&p);
         ErrorGroup::try_new(es)?;
-        *self
-            .metaroot
-            .specific
-            .applied_gates3_2_mut(private::NoTouchy) = ag;
+        *self.metaroot.specific.applied_gates_mut(private::NoTouchy) = ag;
         Ok(())
     }
 

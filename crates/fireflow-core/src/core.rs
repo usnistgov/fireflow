@@ -8,6 +8,7 @@ use crate::config::{
     TemporalHasOpticalKeyError, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
     WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
+use crate::convert::UsizeExt as _;
 use crate::data::{
     CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
     DataFrame3_1, DataFrame3_2, DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0,
@@ -1494,7 +1495,7 @@ impl WriteHeaderAndTextConfig<'_> {
     pub(crate) fn other_lens(&self) -> Vec<u64> {
         self.other_segs
             .iter()
-            .map(|s| u64::try_from(s.0.len()).expect("OTHER segment length exceeds 2^64"))
+            .map(|s| s.0.len().usize_to_u64())
             .collect()
     }
 }
@@ -2464,13 +2465,6 @@ pub type Key0LossError<T> = KeyLossError<DKey0<T>>;
 pub type Key1LossError<T> = KeyLossError<DKey1<T>>;
 pub type Key2LossError<T> = KeyLossError<DKey2<T>>;
 
-// TODO this shouldn't be necessary
-impl<T> Default for Key0LossError<T> {
-    fn default() -> Self {
-        Self(DKey0::default())
-    }
-}
-
 /// Error when $PnE is log and $PnG is not 1.0 or None
 #[derive(Debug, Error)]
 #[error(
@@ -3199,7 +3193,6 @@ impl PrivVersionSet for Version3_2 {}
 // Implement method to look up $PnN from a hash table
 
 pub trait LookupShortname: Sized {
-    // TODO this can be forked off in a separate trait
     fn lookup_shortname(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -4866,7 +4859,6 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
         // don't check specific indices for $COMP since this keyword links
         // all indices
         let comp = self.comp.as_ref().and_then(|_| {
-            // TODO there may be a cleaner way to do this with nonzerousize
             (0..par.0)
                 .map(IndexFromOne::from)
                 .try_into_nonempty_iter()
@@ -6090,22 +6082,6 @@ impl<O> Optical<O> {
             .chain(self.specific.opt_keywords_inner(i))
     }
 
-    // TODO useless
-    fn req_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>
-    where
-        O: VersionedOptical,
-    {
-        self.req_keywords(i)
-    }
-
-    // TODO useless
-    fn opt_indexed_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptMeasKeyword<'_>>
-    where
-        O: VersionedOptical,
-    {
-        self.opt_keywords(i).map(OptMeasKeyword::from)
-    }
-
     fn opt_and_nonstd_keywords(
         &self,
         i: MeasIndex,
@@ -6119,7 +6095,8 @@ impl<O> Optical<O> {
             .iter()
             .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
             .map(StdOrNonStdOptMeasKeyword::from);
-        self.opt_indexed_keywords(i)
+        self.opt_keywords(i)
+            .map(OptMeasKeyword::from)
             .map(StdOrNonStdOptMeasKeyword::from)
             .chain(cs)
     }
@@ -6224,7 +6201,6 @@ impl<T> Temporal<T> {
             .map_deferred_value(|specific| Temporal::new(self.common, specific))
     }
 
-    // TODO not necessary
     fn req_meas_keywords(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>>
     where
         T: VersionedTemporal,
@@ -8179,12 +8155,8 @@ where
         let lv = self.layout.req_meas_keywords().into_iter().flatten();
         self.measurements
             .iter_with(
-                &|i, x| {
-                    Temporal::req_meas_keywords(&x.value, i)
-                        .into_iter()
-                        .collect()
-                },
-                &|i, x| Optical::req_indexed_keywords(&x.value, i).collect::<Vec<_>>(),
+                &|i, x| x.value.req_meas_keywords(i).into_iter().collect(),
+                &|i, x| x.value.req_keywords(i).collect::<Vec<_>>(),
             )
             .flatten()
             .chain(ns)
@@ -8356,7 +8328,7 @@ where
                     .chain(shortname(*n, j))
                     .chain(req_l.map(MeasKeyword::from))
                     .chain(opt_l.fmap(MeasKeyword::from))
-                    .chain(m.req_indexed_keywords(j).map(MeasKeyword::from))
+                    .chain(m.req_keywords(j).map(MeasKeyword::from))
                     .chain(m.opt_keywords(j).map(MeasKeyword::from));
                 for x in xs {
                     x.assign(&header[..], &mut row);
@@ -9217,8 +9189,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     {
         let delim = conf.text.delim;
         let tot = Tot(self.layout.nrows());
-        let analysis_len =
-            u64::try_from(self.analysis.0.len()).expect("ANALYSIS segment length exceeds 2^64");
+        let analysis_len = self.analysis.0.len().usize_to_u64();
         let others = &self.others.0[..];
 
         self.layout

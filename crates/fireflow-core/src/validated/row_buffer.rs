@@ -1,6 +1,7 @@
+use crate::convert::{U64Ext as _, UsizeExt as _};
 use crate::data::{
     AnyDatatype, AnyUint, AnyUintVec, AsciiToUintError, ColumnIsBinary as _, MixedSeries, MixedVec,
-    NativeSeries, RangedVec, VariableUintSeries, ascii_to_uint, u64_to_usize, usize_to_u64,
+    NativeSeries, RangedVec, VariableUintSeries, ascii_to_uint,
 };
 use crate::logging::{IOResult, ImpureError};
 use crate::text::byteord::{ArrayByteOrd, Endian};
@@ -78,7 +79,7 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
         let new = Self {
             nrows,
             rows_per_buffer,
-            buf_size: usize_to_u64(buf_size),
+            buf_size: buf_size.usize_to_u64(),
             row_width,
             bytes,
         };
@@ -140,7 +141,7 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
     /// therefore no jmp ops) in the main loop in release code.
     fn debug_assert_in_bounds(&self, idx: usize, len: usize) {
         debug_assert!(
-            idx + len <= u64_to_usize(self.buf_size),
+            idx + len <= self.buf_size.u64_to_usize(),
             "need to read [{}..{}] but buffer is only {} bytes long",
             idx,
             idx + len,
@@ -161,7 +162,7 @@ impl ReadBuffer {
     }
 
     fn read_remainder<R: Read>(&mut self, h: &mut BufReader<R>) -> io::Result<()> {
-        let n = usize_to_u64(self.remainder_bytes());
+        let n = self.remainder_bytes().usize_to_u64();
         self.read_size(h, n)
     }
 

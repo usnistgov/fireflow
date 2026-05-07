@@ -110,6 +110,7 @@ use crate::config::{
     AllowTotMismatch, ConfigFlag as _, DisallowOverRange, DisallowRangeTrunc, DummyTriFlag,
     ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
+use crate::convert::{U64Ext as _, UsizeExt as _};
 use crate::core::{
     AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, TemporalOrOptical,
     VersionSet,
@@ -811,6 +812,25 @@ pub struct EventsDiagnostics {
     pub overrange_columns: Vec<OverrangeColumn>,
 }
 
+/// Diagnostic output from reading DATA segment
+#[derive(new)]
+struct PreEventsDiagnostics {
+    pub event_width: Option<u64>,
+    pub event_data_remainder: Option<u64>,
+    pub tot_event_mismatch: Option<bool>,
+}
+
+impl PreEventsDiagnostics {
+    fn add_overrange(self, cs: Vec<OverrangeColumn>) -> EventsDiagnostics {
+        EventsDiagnostics::new(
+            self.event_width,
+            self.event_data_remainder,
+            self.tot_event_mismatch,
+            cs,
+        )
+    }
+}
+
 pub type OverrangeColumn = Option<(usize, bool)>;
 
 /// Output of converting $PnR to native rust type.
@@ -851,13 +871,19 @@ pub struct DataFrameResult<D> {
     pub(crate) diagnostics: EventsDiagnostics,
 }
 
-impl_kind1!(pub DataFrameResultFamily, DataFrameResult);
+#[derive(new)]
+pub struct PreDataFrameResult<D> {
+    dataframe: D,
+    diagnostics: PreEventsDiagnostics,
+}
+
+impl_kind1!(pub PreDataFrameResultFamily, PreDataFrameResult);
 
 impl_functor_once!(
-    DataFrameResult,
+    PreDataFrameResult,
     self,
     mut f,
-    DataFrameResult::new(f(self.dataframe), self.diagnostics)
+    PreDataFrameResult::new(f(self.dataframe), self.diagnostics)
 );
 
 /// Error when keywords cannot be used to make new column schema.
@@ -1516,13 +1542,12 @@ pub struct UnderspecifiedUintRangeError;
 /// Error when inserting typed uint into mismatching single-width schema
 #[derive(Debug, Error, new)]
 #[error(
-    "tried to insert integer range into type='{}' schema",
+    "tried to insert integer range into schema where $DATATYPE={}",
     self.schema_type.as_displayable()
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct OverspecifiedUintRangeError {
-    // TODO this isn't the best way to print the datatype, it's one letter...
     schema_type: AlphaNumType,
 }
 
@@ -1681,13 +1706,19 @@ pub enum DataSchemaToDataFrameError {
     Cast(CastSeriesErrors),
 }
 
-// TODO which columns?
 def_summary!(
     pub CastSeriesSummary,
-    "one or more series could not be cast into correct type"
+    "series could not be cast into correct type"
 );
 
-pub type CastSeriesErrors = ErrorGroup<CastSeriesError, CastSeriesSummary>;
+pub type CastSeriesErrors = ErrorGroup<IndexedCastSeriesError, CastSeriesSummary>;
+
+/// Error when casting one series type to another which results in loss (with index).
+#[derive(From, Debug, Error)]
+#[error("{} for column {}", self.0.error, self.0.index)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::DataLossError))]
+pub struct IndexedCastSeriesError(IndexedError<CastSeriesError>);
 
 /// Inner helper type to add index data to an error message.
 ///
@@ -1870,9 +1901,6 @@ macro_rules! match_map_endian_uint {
 //
 // This is the main trait that public-facing APIs will use.
 
-// TODO add a method/trait to convert DataSchema -> DataFrame via a primitive
-// dataframe, and also check that this won't fail
-
 /// A version-specific data layout with just data schema (no DATA).
 pub trait VersionedDataSchema
 where
@@ -1952,8 +1980,9 @@ where
                             .map_error(IOErrorGroup::new_pure_one)
                             .map_commutative_warnings(ReadCheckedDataframeWarning::from)
                             .map_ok_value(|overrange| {
-                                res.diagnostics.overrange_columns = overrange;
-                                res
+                                let df = res.dataframe;
+                                let diag = res.diagnostics;
+                                DataFrameResult::new(df, diag.add_overrange(overrange))
                             })
                     })
             }
@@ -2480,7 +2509,7 @@ where
     C: ColumnIsFixed,
 {
     fn nbytes(&self) -> u64 {
-        usize_to_u64(self.event_width() * self.nrows())
+        (self.event_width() * self.nrows()).usize_to_u64()
     }
 }
 
@@ -2500,7 +2529,7 @@ impl<I, L, M, const ORD: bool> LayoutSize
                 .sum()
         };
         let ndigits: u64 = self.container.as_ref().iter().map(go).sum();
-        ndigits + usize_to_u64(ndelim)
+        ndigits + ndelim.usize_to_u64()
     }
 }
 
@@ -2982,7 +3011,9 @@ where
             .container
             .iter()
             .zip(Vec::from(df))
-            .map(|(h, c)| h.with_series(c));
+            .map(|(h, c)| h.with_series(c))
+            .enumerate()
+            .map(|(i, r)| r.map_err(|e| IndexedCastSeriesError(IndexedError::new(i, e))));
         let new_cols = Result::sequence_results(rs).map_err(ErrorGroup::deanonymize)?;
         let new_df = DataFrame::try_new(new_cols).expect("number of columns was checked already");
         Ok(Layout::new(new_df, self.byteord.clone()))
@@ -2993,7 +3024,9 @@ where
             .container
             .iter()
             .zip(df.iter())
-            .filter_map(|(h, c)| h.is_lossless(c).err());
+            .enumerate()
+            .filter_map(|(i, (h, c))| h.is_lossless(c).err().map(|x| (i, x)))
+            .map(|(i, e)| IndexedCastSeriesError(IndexedError::new(i, e)));
         ErrorGroup::try_new(es)?;
         Ok(())
     }
@@ -3016,7 +3049,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         tot: T,
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
-    ) -> WarningsAndIOGroupResult<DataFrameResult<X>, ReadDataframeWarning, ReadDataframeError, ()>
+    ) -> WarningsAndIOGroupResult<PreDataFrameResult<X>, ReadDataframeWarning, ReadDataframeError, ()>
     where
         R: Read,
         T: IsTot,
@@ -3033,7 +3066,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3050,7 +3083,7 @@ impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3080,7 +3113,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3106,7 +3139,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3129,7 +3162,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3169,7 +3202,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3197,7 +3230,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3223,18 +3256,16 @@ where
                     .map_ok_value(|tot_not_eq| (tot_not_eq, nrow_out))
             })
             .and_then_commutative(|(tot_not_eq, nrow_out)| {
-                let n = u64_to_usize(nrow_out.total_events);
+                let n = nrow_out.total_events.u64_to_usize();
                 self.h_read_fixed_df(h, n, conf)
                     .map_err(IOErrorGroup::from)
                     .map(|df| {
-                        let out = EventsDiagnostics::new(
+                        let out = PreEventsDiagnostics::new(
                             Some(nrow_out.event_width),
                             Some(nrow_out.remainder),
                             tot_not_eq,
-                            // TODO this is awkward
-                            vec![],
                         );
-                        DataFrameResult::new(df, out)
+                        PreDataFrameResult::new(df, out)
                     })
                     .into_log()
             })
@@ -3261,7 +3292,7 @@ where
         seg: &mut AnyDataSegment,
         _: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<Self::DfTarget>,
+        PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
         ReadDataframeError,
         (),
@@ -3279,7 +3310,7 @@ where
             };
         }
         let rs = &self.container[..];
-        let nbytes = u64_to_usize(seg.len());
+        let nbytes = seg.len().u64_to_usize();
         if rs.is_empty() && nbytes > 0 {
             let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
             return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
@@ -3303,8 +3334,8 @@ where
                     .zip(&self.container)
                     .map(|(vec, &range)| NativeSeries::new(range, vec));
                 let df = DataFrame::try_new(cs).unwrap();
-                let out = EventsDiagnostics::new(None, None, None, vec![]);
-                DataFrameResult::new(Layout::new_ascii(df), out)
+                let out = PreEventsDiagnostics::new(None, None, None);
+                PreDataFrameResult::new(Layout::new_ascii(df), out)
             })
             .into_log()
     }
@@ -4960,8 +4991,6 @@ where
 // Ambassador won't handle the default method properly (which means normalize
 // won't be called) so impl enums manually.
 
-// TODO return type of mixed type which was removed?
-
 /// A type which can have a column removed from it.
 pub trait LayoutRemove<C>: Sized + LayoutNormalize {
     /// Remove a column.
@@ -5065,7 +5094,6 @@ where
             "Index should be less than/equal to column number"
         );
         let c = self.container.remove(index.into());
-        // TODO clone shouldn't be necessary
         (c.clone().into(), c.into())
     }
 }
@@ -5074,8 +5102,6 @@ where
 //
 // Only used for non-ascii layouts, which also means these are not implemented
 // for composite layouts that include ASCII.
-
-// TODO these are only used for python interface
 
 pub trait LayoutByteOrder {
     type ByteOrder;
@@ -6404,7 +6430,7 @@ macro_rules! impl_col_into {
     ($from:path, $to:path) => {
         impl ColInto<$to> for $from {
             fn col_into(self) -> $to {
-                self.try_into().unwrap()
+                self.try_into().expect("this is assumed to be checked")
             }
         }
     };
@@ -6510,8 +6536,7 @@ pub trait IsTot: Sized + MightHave<Tot> {
         tot: Tot,
         flag: AllowTotMismatch,
     ) -> SwitchableErrorResult<bool, (), AllowTotMismatch, TotEventMismatchError> {
-        let count = usize::try_from(total_events)
-            .expect("event count exceeded maximum platform pointer size");
+        let count = total_events.u64_to_usize();
         let i = TotEventMismatchError { tot, total_events };
         let tot_eq = tot.0 == count;
         LogResult::new_switchable_ok_if3(tot_eq, !tot_eq, (), i, flag)
@@ -6791,9 +6816,6 @@ where
         }
     }
 
-    // TODO these errors could be cleaned up; we know that the highest range
-    // that can be truncated is u64 or f64 so it isn't necessary to return a
-    // rang object. Furthermore it shouldn't be necessary to pass the calling index.
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
@@ -7480,7 +7502,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
         L: Clone,
     {
         let n = seg.len();
-        let w = usize_to_u64(self.event_width());
+        let w = self.event_width().usize_to_u64();
         if w == 0 {
             LogResult::new_err(EventWidthError::from(ZeroEventWidthError::new(n)))
         } else {
@@ -7757,34 +7779,6 @@ where
 }
 
 impl DataSchema3_2 {
-    // #[must_use]
-    // pub fn new_mixed(rs: Vec<MixedRange>, endian: Endian) -> Self {
-    //     // Check if the mixed types are all the same, in which case we can use a
-    //     // simpler layout. This clone thing is not ideal but it will only be
-    //     // cloning big-decimals for floats and will use Copy for everything else
-    //     // (not a huge deal).
-    //     macro_rules! go {
-    //         ($t:ident) => {
-    //             rs.iter()
-    //                 .map(|x| $t::try_from(x.clone()))
-    //                 .collect::<Result<Vec<_>, _>>()
-    //         };
-    //     }
-    //     let mut ret: Self = if let Ok(xs) = go!(FixedAsciiRange) {
-    //         NonMixedEndianHeaders::new_ascii_fixed(xs).into()
-    //     } else if let Ok(xs) = go!(VariableBitmask) {
-    //         NonMixedEndianHeaders::new_uint(xs, endian).into()
-    //     } else if let Ok(xs) = go!(F32Range) {
-    //         NonMixedEndianHeaders::new_f32(xs, endian).into()
-    //     } else if let Ok(xs) = go!(F64Range) {
-    //         NonMixedEndianHeaders::new_f64(xs, endian).into()
-    //     } else {
-    //         Layout::new(rs, endian).into()
-    //     };
-    //     ret.normalize();
-    //     ret
-    // }
-
     fn lookup_inner(
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
@@ -7860,27 +7854,6 @@ impl<T> AnyOrderedDataSchema<T> {
     pub fn new_ascii_delim(ranges: Vec<DelimAsciiRange>) -> Self {
         AnyAsciiDataSchema::new_delim(ranges).into()
     }
-
-    // #[must_use]
-    // pub fn new_uint<I>(columns: Vec<I::Inner>, byte_layout: I::Layout) -> Self
-    // where
-    //     I: IsCol<VecFamily, true>,
-    //     I::Inner: ColumnHasNativeType,
-    //     <I::Inner as ColumnHasNativeType>::Native: FCSRepr,
-    //     AnyOrderedUintDataSchema<T>: From<DataSchema_<I, true, ColumnMarkers<T, Nothing<NumType>>>>,
-    // {
-    //     Self::Uint(Layout::new(columns, byte_layout).into())
-    // }
-
-    // #[must_use]
-    // pub fn new_f32(ranges: Vec<F32Range>, byte_layout: ArrayByteOrd<[u8; 4]>) -> Self {
-    //     Layout::new(ranges, byte_layout).into()
-    // }
-
-    // #[must_use]
-    // pub fn new_f64(ranges: Vec<F64Range>, byte_layout: ArrayByteOrd<[u8; 8]>) -> Self {
-    //     Layout::new(ranges, byte_layout).into()
-    // }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
         match datatype {
@@ -8040,23 +8013,6 @@ impl<D> NonMixedDataSchema<D> {
     #[must_use]
     pub fn new_ascii_delim(ranges: Vec<DelimAsciiRange>) -> Self {
         AnyAsciiDataSchema::new_delim(ranges).into()
-    }
-
-    // TODO make fixed width versions of this?
-
-    #[must_use]
-    pub fn new_uint(columns: Vec<VariableBitmask>, endian: Endian) -> Self {
-        AnyBigLittleUint::Multi(Layout::new(columns, endian)).into()
-    }
-
-    #[must_use]
-    pub fn new_f32(ranges: Vec<F32Range>, endian: Endian) -> Self {
-        Layout::new(ranges, endian).into()
-    }
-
-    #[must_use]
-    pub fn new_f64(ranges: Vec<F64Range>, endian: Endian) -> Self {
-        Layout::new(ranges, endian).into()
     }
 }
 
@@ -8423,15 +8379,6 @@ pub(crate) fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
     } else {
         Err(NotAsciiError(buf.to_vec()).into())
     }
-}
-
-// TODO put these in a more general place
-pub(crate) fn u64_to_usize(x: u64) -> usize {
-    usize::try_from(x).expect("overflow")
-}
-
-pub(crate) fn usize_to_u64(x: usize) -> u64 {
-    u64::try_from(x).expect("overflow")
 }
 
 mod private {

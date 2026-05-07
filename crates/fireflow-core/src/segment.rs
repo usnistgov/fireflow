@@ -1569,7 +1569,7 @@ impl OtherSegment20 {
             }
             true
         };
-        // TODO use NZU8 directly
+        // TODO use NZU8 directly (this is not yet stable)
         let candidates = (MIN_OTHER_WIDTH.get()..=MAX_CHARS.get())
             .filter_map(|w| OtherWidth::try_from(w).ok())
             .filter(|&w| go(w));

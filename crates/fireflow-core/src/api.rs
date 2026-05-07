@@ -831,7 +831,6 @@ pub enum DelimVerifyError {
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimCharError(u8);
 
-// TODO also for supp text
 /// Error when primary TEXT segment is empty
 #[derive(Debug, Error)]
 #[error("Primary TEXT segment is empty")]

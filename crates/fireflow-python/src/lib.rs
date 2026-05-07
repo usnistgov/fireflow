@@ -1244,7 +1244,7 @@ impl PyFCSDataFrame {
             // ASSUME this will not fail because the we know that any of the 6
             // allowed types will be valid columns and we don't add a NULL array
             // when making the array
-            pl::Series::from_arrow(name.as_ref().into(), as_array(c))
+            pl::Series::from_arrow(AsRef::<str>::as_ref(&name).into(), as_array(c))
                 .unwrap()
                 .into()
         }

@@ -1,6 +1,7 @@
 use ambassador::delegatable_trait;
 use derive_more::{Display, FromStr, Into};
 use derive_new::new;
+use fireflow_types::nonempty_string::{NEStr, NEString};
 use thiserror::Error;
 
 #[cfg(feature = "python")]
@@ -43,21 +44,22 @@ pub(crate) trait HasDelim {
 #[cfg_attr(feature = "python", pyerr(py::WriteFCSError))]
 pub struct DelimCollisionError {
     all_delim: bool,
-    value: String,
+    value: NEString,
 }
 
-impl<T: AsRef<str>> HasDelim for T {
+impl<T: AsRef<NEStr>> HasDelim for T {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
-        let s = self.as_ref();
+        self.as_ref().has_delim(d)
+    }
+}
+
+impl HasDelim for NEStr {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         let c = char::from(d);
-        let ret = |all_delim: bool| Some(DelimCollisionError::new(all_delim, s.to_owned()));
-        if s.is_empty() {
-            // TODO in theory this method should only be called on keys or
-            // values which should always be non-empty
-            None
-        } else if s.chars().all(|x| x == c) {
+        let ret = |all_delim: bool| Some(DelimCollisionError::new(all_delim, self.to_owned()));
+        if self.as_str().chars().all(|x| x == c) {
             ret(true)
-        } else if s.starts_with(c) || s.ends_with(c) {
+        } else if self.as_str().starts_with(c) || self.as_str().ends_with(c) {
             ret(false)
         } else {
             None

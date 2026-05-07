@@ -1690,7 +1690,7 @@ pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) 
             w.write_all(&[delim])?;
         }
         first = false;
-        w.write_all(n.as_ref().as_bytes())?;
+        w.write_all(AsRef::<str>::as_ref(&n).as_bytes())?;
     }
     writeln!(w)?;
 

@@ -1,7 +1,7 @@
 use crate::text::index::MeasIndex;
 
 use fireflow_types::ne_str;
-use fireflow_types::nonempty_string::NEString;
+use fireflow_types::nonempty_string::{NEStr, NEString};
 use fireflow_types::{
     config::DEDUP_PNN_SEP,
     nonempty_string::{NonEmptyStringError, ToDisplayNE, ambassador_impl_ToDisplayNE},
@@ -27,7 +27,7 @@ use {
 #[derive(Clone, Eq, PartialEq, Hash, Debug, AsRef, Display, Into, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
-#[as_ref(str)]
+#[as_ref(str, NEStr)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Shortname(NEString);
 

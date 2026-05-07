@@ -77,7 +77,7 @@ impl<'a> ToDisplayNE<'a> for StdKey {
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-#[as_ref(KeyString, str)]
+#[as_ref(KeyString, str, NEStr)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct NonStdKey(KeyString);
 
@@ -94,6 +94,12 @@ impl<'a> ToDisplayNE<'a> for KeyString {
     type NE = &'a NEString;
     fn to_ne(&'a self) -> Self::NE {
         &self.0
+    }
+}
+
+impl AsRef<NEStr> for KeyString {
+    fn as_ref(&self) -> &NEStr {
+        (*self.0).as_ref()
     }
 }
 
@@ -867,7 +873,7 @@ impl FromStr for NonStdKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ks = s.parse::<KeyString>().map_err(NonStdKeyError::Ascii)?;
-        if has_no_std_prefix(ks.as_ref().as_bytes()) {
+        if has_no_std_prefix(AsRef::<str>::as_ref(&ks).as_bytes()) {
             Ok(Self(ks))
         } else {
             Err(NonStdKeyError::Prefix(ks))

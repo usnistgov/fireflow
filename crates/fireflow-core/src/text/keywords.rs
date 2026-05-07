@@ -2424,7 +2424,7 @@ impl TryFrom<f64> for TextRange {
 #[derive(Clone, From, FromStr, PartialEq, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[as_ref(str)]
+#[as_ref(str, NEStr)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct GateShortname(pub Shortname);
 
@@ -2506,7 +2506,7 @@ impl FromStrWith for GateScale {
 #[derive(Clone, FromStr, PartialEq, Into, Debug, AsRef, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[as_ref(str)]
+#[as_ref(str, NEStr)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Cyt3_2(pub NEString);
 

@@ -95,18 +95,6 @@ pub struct TrimmedKeyword<T> {
     pub trimmed: Trimmed,
 }
 
-impl<T> TrimmedKeyword<T> {
-    pub(crate) fn new1(t: T) -> Self {
-        Self::new(t, None)
-    }
-}
-
-impl<T> TrimmedKeyword<T> {
-    pub(crate) fn lift(self) -> DiagnosedKeyword<T, Trimmed> {
-        DiagnosedKeyword::new(self.native, self.trimmed)
-    }
-}
-
 impl_kind1!(pub StrDelimOutputFamily, TrimmedKeyword);
 
 impl_functor_once!(
@@ -190,27 +178,32 @@ pub trait FromStrDelim: Sized {
 
     fn from_iter<'a>(iter: impl Iterator<Item = &'a str>) -> Result<Self, Self::Err>;
 
+    fn from_str_delim_diagnosed(
+        s: &NEStr,
+        trim_whitespace: TrimIntraValueWhitespace,
+    ) -> Result<DiagnosedKeyword<Self, Trimmed>, Self::Err> {
+        let (res, trimmed) = Self::from_str_delim(s, trim_whitespace);
+        res.map(|x| DiagnosedKeyword::new(x, trimmed))
+    }
+
     fn from_str_delim(
         s: &NEStr,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<TrimmedKeyword<Self>, Self::Err> {
+    ) -> (Result<Self, Self::Err>, Trimmed) {
         let it = s.as_ref().split(Self::DELIM);
         if trim_whitespace.is_set() {
             let mut was_trimmed = false;
-            Self::from_iter(it.map(|x| {
+            let res = Self::from_iter(it.map(|x| {
                 let y = str::trim(x);
                 was_trimmed = was_trimmed || y.len() < x.len();
                 y
-            }))
-            .map(|x| TrimmedKeyword::new(x, was_trimmed.then(|| s.to_owned())))
+            }));
+            (res, was_trimmed.then(|| s.to_owned()))
         } else {
-            Self::from_iter(it).map(TrimmedKeyword::new1)
+            (Self::from_iter(it), None)
         }
     }
 }
-
-pub type FromStrWithResult<T> =
-    Result<DiagnosedKeyword<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
 
 /// Parse a string based on external data and config
 pub trait FromStrWith: Sized {
@@ -221,6 +214,9 @@ pub trait FromStrWith: Sized {
 
     fn from_str_with(_: &NEStr, _: Self::Payload<'_>, _: &Self::Config) -> FromStrWithResult<Self>;
 }
+
+pub type FromStrWithResult<T> =
+    Result<DiagnosedKeyword<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
 
 // this won't be necessary once rust gets specialization
 macro_rules! impl_from_str_with_delim {
@@ -242,7 +238,8 @@ macro_rules! impl_from_str_with_delim {
                 >,
                 Self::Err,
             > {
-                Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(|x| x.lift())
+                let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
+                res.map(|x| DiagnosedKeyword::new(x, trimmed))
             }
         }
     };

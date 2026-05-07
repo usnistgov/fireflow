@@ -41,7 +41,7 @@ use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use nonempty_collections::{NEMap, NESlice};
-use type_families::{BifunctorOnce, FunctorOnce as _, impl_functor, impl_kind1};
+use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use fireflow_types::config::{CheckedRangeDatatypes, ForceLinearScale, TemporalOpticalKey};
 use fireflow_types::keywords::{
@@ -77,9 +77,7 @@ use serde::Serialize;
 
 use super::byteord::ArrayByteOrd;
 use super::index::IndexFromOne;
-use super::lookup::{
-    DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed, TrimmedKeyword,
-};
+use super::lookup::{DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed};
 
 #[cfg(feature = "python")]
 use {
@@ -259,22 +257,23 @@ impl Scale {
         s: &NEStr,
         conf: &ReadStdKeywordsConfig,
     ) -> Result<DiagnosedKeyword<Self, ScaleFix>, ScaleError> {
-        let go = |x: TrimmedKeyword<_>| {
-            let d = x.trimmed.map(ScaleFix::Trimmed).unwrap_or_default();
-            DiagnosedKeyword::new(x.native, d)
+        let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
+        let go = |x, t: Trimmed| {
+            let d = t.map(ScaleFix::Trimmed).unwrap_or_default();
+            DiagnosedKeyword::new(x, d)
         };
-        let res = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
         if conf.fix_log_scale_offsets.is_set() {
             match res {
-                Ok(x) => Ok(go(x)),
+                Ok(x) => Ok(go(x, trimmed)),
                 Err(e) => {
                     if let ScaleError::LogRange(le) = e {
                         le.try_fix_offset()
                             .map(Self::Log)
                             .map(|x| {
-                                // TODO there is no way to tell if the
-                                // previous value was trimmed
-                                let d = ScaleFix::LogFixed(s.to_owned());
+                                let d = trimmed.map_or(
+                                    ScaleFix::LogFixed(s.to_owned()),
+                                    ScaleFix::TrimmedLogFixed,
+                                );
                                 DiagnosedKeyword::new(x, d)
                             })
                             .map_err(ScaleError::LogRange)
@@ -284,7 +283,7 @@ impl Scale {
                 }
             }
         } else {
-            res.map(go)
+            res.map(|x| go(x, trimmed))
         }
     }
 }
@@ -965,9 +964,10 @@ impl FromStrWith for TemporalScale3_0 {
             Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
         } else {
             let flag = conf.trim_intra_value_whitespace;
-            TemporalScaleInner::from_str_delim(s, flag).map(|x| {
-                let d = x.trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
-                DiagnosedKeyword::new(Self(x.native), d)
+            let (res, trimmed) = TemporalScaleInner::from_str_delim(s, flag);
+            res.map(|x| {
+                let d = trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
+                DiagnosedKeyword::new(Self(x), d)
             })
         }
     }
@@ -1360,7 +1360,7 @@ impl FromStrWith for Compensation3_0 {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
+        Self::from_str_delim_diagnosed(s, conf.trim_intra_value_whitespace)
     }
 }
 
@@ -1709,7 +1709,7 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
-        Self::from_str_delim(s, conf.trim_intra_value_whitespace).map(TrimmedKeyword::lift)
+        Self::from_str_delim_diagnosed(s, conf.trim_intra_value_whitespace)
     }
 }
 
@@ -1958,18 +1958,18 @@ impl RegionWindow {
         if let Some(head) = it.next() {
             let ne_head = NEStr::try_new(head).ok_or(RegionWindowError::Format)?;
             if it.by_ref().peek().is_none() {
-                UniGate::from_str_delim(ne_head, trim_whitespace)
-                    .map(|x| x.fmap_once(RegionWindow::Univariate))
-                    .map(|x| DiagnosedKeyword::new(x.native, x.trimmed))
+                let (res, trimmed) = UniGate::from_str_delim(ne_head, trim_whitespace);
+                res.map(RegionWindow::Univariate)
+                    .map(|x| DiagnosedKeyword::new(x, trimmed))
             } else {
                 let mut was_trimmed = false;
                 let ys = once(head)
                     .chain(it)
                     .map(|x| {
                         let ne = NEStr::try_new(x).ok_or(RegionWindowError::Format)?;
-                        let y = Vertex::from_str_delim(ne, trim_whitespace)?;
-                        was_trimmed = was_trimmed || y.trimmed.is_some();
-                        Ok(y.native)
+                        let (res, trimmed) = Vertex::from_str_delim(ne, trim_whitespace);
+                        was_trimmed = was_trimmed || trimmed.is_some();
+                        res
                     })
                     .collect::<Result<_, _>>()?;
                 let d = was_trimmed.then(|| original.to_owned());
@@ -3344,9 +3344,10 @@ impl FromStrWith for TemporalScale2_0 {
             Ok(DiagnosedKeyword::new(go(TemporalScaleInner), d))
         } else {
             let flag = conf.trim_intra_value_whitespace;
-            TemporalScaleInner::from_str_delim(s, flag).map(|x| {
-                let d = x.trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
-                DiagnosedKeyword::new(go(x.native), d)
+            let (res, trimmed) = TemporalScaleInner::from_str_delim(s, flag);
+            res.map(|x| {
+                let d = trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
+                DiagnosedKeyword::new(go(x), d)
             })
         }
     }
@@ -3848,8 +3849,8 @@ impl KeywordOptimizer {
                 MeasKeywordClass::Shortname => self.n_pnn += 1,
                 MeasKeywordClass::Wavelength => {
                     // TODO what to do on failure?
-                    if let Ok(w) = Wavelengths::from_str_delim(value, true.into()) {
-                        if w.native.0.len() > 1 {
+                    if let Ok(w) = Wavelengths::from_str_delim(value, true.into()).0 {
+                        if w.0.len() > 1 {
                             self.n_opt_min3_1 += 1;
                         } else {
                             self.n_any += 1;
@@ -3868,11 +3869,20 @@ impl KeywordOptimizer {
             AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
             AnyKeywordClass::RegionWindow => self.n_any += 1,
             AnyKeywordClass::RegionIndex => {
-                if RegionGateIndex2_0::from_str_delim(value, true.into()).is_ok() {
+                if RegionGateIndex2_0::from_str_delim(value, true.into())
+                    .0
+                    .is_ok()
+                {
                     self.n_opt_eq2_0 += 1;
-                } else if RegionGateIndex3_0::from_str_delim(value, true.into()).is_ok() {
+                } else if RegionGateIndex3_0::from_str_delim(value, true.into())
+                    .0
+                    .is_ok()
+                {
                     self.n_opt_eq3_0or3_1 += 1;
-                } else if RegionGateIndex3_2::from_str_delim(value, true.into()).is_ok() {
+                } else if RegionGateIndex3_2::from_str_delim(value, true.into())
+                    .0
+                    .is_ok()
+                {
                     self.n_opt_eq3_2 += 1;
                 }
             }

@@ -786,21 +786,13 @@ pub enum ParseFlatTEXTWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseFlatTEXTError {
     Delim(DelimVerifyError),
-    Primary(ParsePrimaryTEXTError),
+    Primary(ParseKeywordsIssue),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextSegmentError),
     Nextdata(ReadNextdataError),
     InvalidKeyword(InvalidKeywordCharsError),
     InvalidChars(StdPresent),
     NextdataOffset(NextdataOffsetsError),
-}
-
-/// Error when parsing primary TEXT
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ParsePrimaryTEXTError {
-    Keywords(ParseKeywordsIssue),
-    Empty(NoTEXTWordsError),
 }
 
 /// Error when parsing supplemental TEXT
@@ -846,14 +838,6 @@ pub struct DelimCharError(u8);
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct EmptyTEXTError;
-
-// TODO also for supp text
-/// Error when primary TEXT segment only has a delimiter
-#[derive(Debug, Error)]
-#[error("Primary TEXT has a delimiter and no tokens")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct NoTEXTWordsError;
 
 /// Error when blank key is encountered in TEXT
 #[derive(Debug, Error, new)]
@@ -1349,43 +1333,33 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         bytes: &[u8],
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> WarningsAndErrorsResult<
-        (ParsedKeywords, Self),
-        (),
-        ParseKeywordsIssue,
-        ParsePrimaryTEXTError,
-    > {
-        if bytes.is_empty() {
-            LogResult::new_err(NoTEXTWordsError.into())
-        } else {
-            let raw_segs = Self::split_bytes(delim, bytes);
-            let raw_slice = raw_segs.as_nonempty_slice();
-            // We are about to insert a massive amount of data into two hash
-            // tables, so make a guess as to how big they need to be to avoid
-            // reallocation.
-            //
-            // Assume that the number of inserts to each hash table will be
-            // roughly half the the number of segments since they come in pairs.
-            // In practice, this will almost always be true, and may be a bit
-            // less if some escapes are present.
-            //
-            // Also assume that the number of non-standard and standard keywords
-            // is roughly equal. This probably varies quite a bit but it is hard
-            // to know without scanning each token first which is also costly.
-            //
-            // Finally, assume the STEXT is almost never present and therefore
-            // not worth considering. This makes the estimation much simpler
-            // since we can't read STEXT without TEXT first.
-            let cap = raw_segs.len().get() / 2;
-            let mut kws = ParsedKeywords {
-                std: HashMap::with_capacity(cap / 2),
-                nonstd: HashMap::with_capacity(cap / 2),
-                diag: ParsedKeywordsDiagnostic::default(),
-            };
-            Self::from_bytes_inner(&mut kws, delim, &raw_slice, TEXTKind::Primary, conf)
-                .map_errors(ParsePrimaryTEXTError::from)
-                .map_ok_value(|ret| (kws, ret))
-        }
+    ) -> WarningsAndErrorsResult<(ParsedKeywords, Self), (), ParseKeywordsIssue, ParseKeywordsIssue>
+    {
+        let raw_segs = Self::split_bytes(delim, bytes);
+        let raw_slice = raw_segs.as_nonempty_slice();
+        // We are about to insert a massive amount of data into two hash tables,
+        // so make a guess as to how big they need to be to avoid reallocation.
+        //
+        // Assume that the number of inserts to each hash table will be roughly
+        // half the the number of segments since they come in pairs. In
+        // practice, this will almost always be true, and may be a bit less if
+        // some escapes are present.
+        //
+        // Also assume that the number of non-standard and standard keywords is
+        // roughly equal. This probably varies quite a bit but it is hard to
+        // know without scanning each token first which is also costly.
+        //
+        // Finally, assume the STEXT is almost never present and therefore not
+        // worth considering. This makes the estimation much simpler since we
+        // can't read STEXT without TEXT first.
+        let cap = raw_segs.len().get() / 2;
+        let mut kws = ParsedKeywords {
+            std: HashMap::with_capacity(cap / 2),
+            nonstd: HashMap::with_capacity(cap / 2),
+            diag: ParsedKeywordsDiagnostic::default(),
+        };
+        Self::from_bytes_inner(&mut kws, delim, &raw_slice, TEXTKind::Primary, conf)
+            .map_ok_value(|ret| (kws, ret))
     }
 
     /// Read supp TEXT from bytes and store keywords in hash table.
@@ -1635,7 +1609,8 @@ impl SplitTEXTDiagnostics {
         }) {
             segment0.to_ne_vec()
         } else {
-            // No segments found, which means TEXT is entirely delimiters.
+            // No segments found, which means TEXT is entirely delimiters
+            // (which includes TEXT being just one delim and otherwise empty).
             out.extra_leading_delims = segs.len().get();
             return LogResult::new_ok(out);
         };

@@ -52,6 +52,11 @@ use std::vec;
 #[cfg(feature = "python")]
 use fireflow_core_proc::AllIntoPyErr;
 
+// NOTE many of these are commented out because they are not used (for now);
+// however, keeping them here helps reveal the overall pattern of how
+// cardinality and commutativity interact. It's easier to see the full set and
+// uncomment if anything is needed later.
+
 //
 // Group Results to be used at library boundaries
 //
@@ -59,15 +64,18 @@ use fireflow_core_proc::AllIntoPyErr;
 pub type WarningsAndIOGroupResult<V, W, E, G> =
     WarningsAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
 
-pub type WarningAndIOGroupResult<V, W, E, G> = WarningAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
+// pub(crate) type WarningAndIOGroupResult<V, W, E, G> =
+//     WarningAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
 
-pub type WarningsAndGroupResult<V, W, E, S> = WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
+pub(crate) type WarningsAndGroupResult<V, W, E, S> =
+    WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
-pub type WarningAndGroupResult<V, W, E, S> = WarningAndErrorResult<V, (), W, ErrorGroup<E, S>>;
+// pub(crate) type WarningAndGroupResult<V, W, E, S> =
+//     WarningAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
 pub type GroupResult<V, E, S> = Result<V, ErrorGroup<E, S>>;
 
-pub type IOGroupResult<V, E, G> = Result<V, IOErrorGroup<E, G>>;
+pub(crate) type IOGroupResult<V, E, G> = Result<V, IOErrorGroup<E, G>>;
 
 //
 // Boring regular result which may have an IO error
@@ -75,14 +83,14 @@ pub type IOGroupResult<V, E, G> = Result<V, IOErrorGroup<E, G>>;
 
 pub type IOResult<T, E> = Result<T, ImpureError<E>>;
 
-pub type WarningAndIOResult<V, W, E> = WarningAndErrorResult<V, (), W, ImpureError<E>>;
-pub type WarningsAndIOResult<V, W, E> = WarningsAndErrorResult<V, (), W, ImpureError<E>>;
+// pub(crate) type WarningAndIOResult<V, W, E> = WarningAndErrorResult<V, (), W, ImpureError<E>>;
+// pub(crate) type WarningsAndIOResult<V, W, E> = WarningsAndErrorResult<V, (), W, ImpureError<E>>;
 
 //
 // Results with only warnings
 //
 
-pub type WarningsResult<V, W> = Success<V, (), Vec<W>>;
+// pub(crate) type WarningsResult<V, W> = Success<V, (), Vec<W>>;
 
 //
 // Results without warnings
@@ -106,15 +114,18 @@ pub(crate) type DeferredSwitchableErrors<V, X, E> = SwitchableErrorsResult<V, V,
 //
 
 pub type WarningOrErrorResult<V, P, W, E> = NonCommutativeResult<V, P, Option<W>, E, Nothing<E>>;
-pub type WarningsOrErrorResult<V, P, W, E> = NonCommutativeResult<V, P, Vec<W>, E, Nothing<E>>;
-pub type WarningOrErrorsResult<V, P, W, E> = NonCommutativeResult<V, P, Option<W>, E, Vec<E>>;
-pub type WarningsOrErrorsResult<V, P, W, E> = NonCommutativeResult<V, P, Vec<W>, E, Vec<E>>;
+// pub(crate) type WarningsOrErrorResult<V, P, W, E> =
+//     NonCommutativeResult<V, P, Vec<W>, E, Nothing<E>>;
+// pub(crate) type WarningOrErrorsResult<V, P, W, E> =
+//     NonCommutativeResult<V, P, Option<W>, E, Vec<E>>;
+// pub(crate) type WarningsOrErrorsResult<V, P, W, E> = NonCommutativeResult<V, P, Vec<W>, E, Vec<E>>;
 
 //
 // Results with warnings and errors of differing types which are commutable
 //
 
-pub type WarningAndErrorResult<V, P, W, E> = CommutativeResult<V, P, Option<W>, E, Nothing<E>>;
+pub(crate) type WarningAndErrorResult<V, P, W, E> =
+    CommutativeResult<V, P, Option<W>, E, Nothing<E>>;
 pub type WarningsAndErrorResult<V, P, W, E> = CommutativeResult<V, P, Vec<W>, E, Nothing<E>>;
 pub type WarningAndErrorsResult<V, P, W, E> = CommutativeResult<V, P, Option<W>, E, Vec<E>>;
 pub type WarningsAndErrorsResult<V, P, W, E> = CommutativeResult<V, P, Vec<W>, E, Vec<E>>;
@@ -127,8 +138,8 @@ pub type DeferredError<V, E> = ErrorResult<V, V, E>;
 pub type DeferredErrors<V, E> = ErrorsResult<V, V, E>;
 
 pub type DeferredWarningAndError<V, W, E> = WarningAndErrorResult<V, V, W, E>;
-pub type DeferredWarningsAndError<V, W, E> = WarningsAndErrorResult<V, V, W, E>;
-pub type DeferredWarningAndErrors<V, W, E> = WarningAndErrorsResult<V, V, W, E>;
+// pub(crate) type DeferredWarningsAndError<V, W, E> = WarningsAndErrorResult<V, V, W, E>;
+// pub(crate) type DeferredWarningAndErrors<V, W, E> = WarningAndErrorsResult<V, V, W, E>;
 pub type DeferredWarningsAndErrors<V, W, E> = WarningsAndErrorsResult<V, V, W, E>;
 
 //

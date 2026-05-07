@@ -32,24 +32,22 @@ impl SubPattern {
         // To do this, look for all capture references and 'blank' them in 'to'.
         // If 'to' is valid, it should have no more references (ie no unescaped
         // '$' characters).
-        let mut tmp = to.clone();
+        let mut tmp = to.as_bytes().to_vec();
         let mut key;
         let mut blank_match = |k: &str| {
-            let xs: Vec<_> = tmp.match_indices(k).map(|x| x.0).collect();
+            let xs: Vec<_> = tmp
+                .windows(k.len())
+                .enumerate()
+                .filter_map(|(i, x)| (x == k.as_bytes()).then_some(i))
+                .collect();
             for i0 in xs {
                 // Check for dollar signs in front of this reference. If number
                 // is odd, one of them escapes this one which makes the match
                 // not a real reference.
-                let preceeding_dollar = &tmp.as_bytes()[0..i0]
-                    .iter()
-                    .rev()
-                    .take_while(|&&c| c == b'$')
-                    .count();
+                let preceeding_dollar =
+                    &tmp[0..i0].iter().rev().take_while(|&&c| c == b'$').count();
                 if preceeding_dollar & 1 == 0 {
-                    // SAFETY: We can get away using raw bytes to access 'to' in
-                    // the blanking step since we know that the only characters
-                    // that should match will be ASCII characters.
-                    unsafe { tmp.as_bytes_mut()[i0] = 32 }
+                    tmp[i0] = b' ';
                 }
             }
         };
@@ -62,7 +60,7 @@ impl SubPattern {
             blank_match(key.as_str());
         }
         let mut ndollar: u8 = 0;
-        for &c in tmp.as_bytes() {
+        for c in tmp {
             if c == b'$' {
                 ndollar += 1;
             } else if ndollar & 1 == 1 {

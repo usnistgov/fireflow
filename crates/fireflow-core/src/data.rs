@@ -190,9 +190,8 @@ use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::marker::PhantomData;
 use std::mem;
-use std::num::{NonZeroU8, ParseIntError};
+use std::num::NonZeroU8;
 use std::ops::Shr;
-use std::str;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -1288,22 +1287,28 @@ pub enum ReadAsciiError {
 pub enum ReadFixedAsciiError {
     Uneven(UnevenEventWidthError),
     Tot(TotEventMismatchError),
-    ToUint(AsciiToUintError),
+    ToUint(DataAsciiNumToUintError),
 }
 
 /// Error when reading event value in ASCII layout
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::EventDataError))]
-pub enum AsciiToUintError {
-    NotAscii(NotAsciiError),
-    Int(ParseIntError),
+pub struct DataAsciiNumToUintError(AsciiNumToUintError);
+
+/// Error when parsing numeric ASCII to uint
+#[derive(From, Error, Debug)]
+pub(crate) enum AsciiNumToUintError {
+    #[error("{0}")]
+    NotAscii(NotNumAsciiError),
+    #[error("ASCII number is larger than u64")]
+    Overflow,
 }
 
-/// Error when encountering characters when parsing DATA as ASCII
+/// Error when bytestring is not all ASCII numbers
 #[derive(Debug, Display)]
-#[display("bytestring is not valid ASCII: {_0:?}")]
-pub struct NotAsciiError(Vec<u8>);
+#[display("bytestring does not have valid ASCII numbers: {_0:?}")]
+pub struct NotNumAsciiError(Vec<u8>);
 
 /// Error when $TOT mismatches with number of computed events for DATA.
 ///
@@ -1343,7 +1348,7 @@ pub struct ReadDelimNoColumnError;
 pub enum ReadDelimWithRowsAsciiError {
     RowsExceeded(RowsExceededError),
     Incomplete(DelimIncompleteError),
-    Parse(AsciiToUintError),
+    Parse(DataAsciiNumToUintError),
 }
 
 /// Error when reading [`DelimAsciiDataSchema`] where DATA is exhausted.
@@ -1378,7 +1383,7 @@ pub struct DelimIncompleteError {
 #[derive(From, Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiWithoutRowsError {
-    Parse(AsciiToUintError),
+    Parse(DataAsciiNumToUintError),
     Unequal(ReadDelimAsciiUnequalColumnsError),
 }
 
@@ -3370,7 +3375,8 @@ fn h_read_delim_with_rows<R: Read>(
     // consecutive delimiter counts as one, and delimiters can be mixed.
     macro_rules! go {
         () => {
-            data[col][row] = ascii_to_uint(&buf)
+            data[col][row] = numeric_ascii_to_uint(&buf)
+                .map_err(DataAsciiNumToUintError)
                 .map_err(ReadDelimWithRowsAsciiError::Parse)
                 .map_err(ImpureError::Pure)?;
             if col == ncols - 1 {
@@ -3426,7 +3432,8 @@ fn h_read_delim_without_rows<R: Read>(
     let mut col = 0;
     let mut last_was_delim = false;
     let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
-        ascii_to_uint(buf_)
+        numeric_ascii_to_uint(buf_)
+            .map_err(DataAsciiNumToUintError)
             .map_err(ReadDelimAsciiWithoutRowsError::Parse)
             .map_err(ImpureError::Pure)
             .map(|x| data_[col_].push(x))
@@ -3690,7 +3697,8 @@ impl<M, const ORD: bool> DataSchemaReadFixed
                 .collect();
 
             row_buf.read_char_matrix(h, &mut columns).map_err(|e| {
-                e.fmap_once(ReadFixedAsciiError::from)
+                e.fmap_once(DataAsciiNumToUintError)
+                    .fmap_once(ReadFixedAsciiError::from)
                     .fmap_once(ReadAsciiError::from)
                     .fmap_once(ReadDataframeError::from)
             })?;
@@ -8091,12 +8099,12 @@ macro_rules! decl_mixed_read {
             dst_index: DstIndex,
             src: &[u8],
             src_index: SrcIndex,
-        ) -> Result<(), AsciiToUintError> {
+        ) -> Result<(), DataAsciiNumToUintError> {
             match self {
                 Self::Ascii(xs) => {
                     let src_width = usize::from(u8::from(xs.range.chars()));
                     xs.data[dst_index.0] =
-                        ascii_to_uint(&src[src_index.0..src_index.0 + src_width])?;
+                        numeric_ascii_to_uint(&src[src_index.0..src_index.0 + src_width])?;
                     return Ok(());
                 }
                 Self::Uint(xs) => xs.$int_fun(dst_index, src, src_index),
@@ -8379,16 +8387,21 @@ impl VariableBitmask {
     }
 }
 
-// Misc functions used throughout module
+// Misc functions for this module
 
-pub(crate) fn ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiToUintError> {
-    if buf.is_ascii() {
-        // SAFETY: we just checked that all bytes are ASCII
-        let s = unsafe { str::from_utf8_unchecked(buf) };
-        s.parse().map_err(AsciiToUintError::from)
-    } else {
-        Err(NotAsciiError(buf.to_vec()).into())
+pub(crate) fn numeric_ascii_to_uint(buf: &[u8]) -> Result<u64, AsciiNumToUintError> {
+    let mut acc: u64 = 0;
+    for &b in buf {
+        let d = b
+            .checked_sub(b'0')
+            .filter(|d| *d <= 9)
+            .ok_or_else(|| NotNumAsciiError(buf.to_vec()))?;
+        acc = acc
+            .checked_mul(10)
+            .and_then(|a| a.checked_add(u64::from(d)))
+            .ok_or(AsciiNumToUintError::Overflow)?;
     }
+    Ok(acc)
 }
 
 mod private {

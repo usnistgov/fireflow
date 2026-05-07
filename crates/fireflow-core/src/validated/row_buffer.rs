@@ -1,7 +1,8 @@
 use crate::convert::{U64Ext as _, UsizeExt as _};
 use crate::data::{
-    AnyDatatype, AnyUint, AnyUintVec, AsciiToUintError, ColumnIsBinary as _, MixedSeries, MixedVec,
-    NativeSeries, RangedVec, VariableUintSeries, ascii_to_uint,
+    AnyDatatype, AnyUint, AnyUintVec, AsciiNumToUintError, ColumnIsBinary as _,
+    DataAsciiNumToUintError, MixedSeries, MixedVec, NativeSeries, RangedVec, VariableUintSeries,
+    numeric_ascii_to_uint,
 };
 use crate::logging::{IOResult, ImpureError};
 use crate::text::byteord::{ArrayByteOrd, Endian};
@@ -261,6 +262,10 @@ impl ReadBuffer {
                     // - 1) + (column_number - 1) * LEN. Adding LEN to the end
                     // of this exactly equals the size of the buffer itself in
                     // bytes, which means what follows can never overflow.
+                    //
+                    // NOTE using the safe version of this does not work because
+                    // the compiler is not smart enough to figure out that the
+                    // bounds check is unnecessary.
                     let buf = unsafe { T::array_from_slice(&self.bytes, &src_idx) };
                     *value = from_buf(&buf);
                 }
@@ -330,13 +335,13 @@ impl ReadBuffer {
         &mut self,
         h: &mut BufReader<R>,
         cols: &mut [RangedVec<FixedAsciiRange, u64>],
-    ) -> IOResult<(), AsciiToUintError> {
+    ) -> IOResult<(), AsciiNumToUintError> {
         self.read_columns(
             h,
             cols,
             |dst, dst_index, src, src_index| {
                 let src_width = usize::from(u8::from(dst.range.chars()));
-                let x = ascii_to_uint(&src[src_index.0..src_index.0 + src_width])?;
+                let x = numeric_ascii_to_uint(&src[src_index.0..src_index.0 + src_width])?;
                 dst.data[dst_index.0] = x;
                 Ok(())
             },
@@ -384,7 +389,7 @@ impl ReadBuffer {
         h: &mut BufReader<R>,
         cols: &mut [MixedVec],
         endian: Endian,
-    ) -> IOResult<(), AsciiToUintError> {
+    ) -> IOResult<(), DataAsciiNumToUintError> {
         let get_width = |c: &MixedVec| match c {
             MixedVec::Ascii(x) => usize::from(u8::from(x.range.chars())),
             MixedVec::Uint(x) => usize::from(u8::from(x.bytes())),
@@ -498,6 +503,10 @@ impl WriteBuffer {
                     // - 1) + (column_number - 1) * LEN. Adding LEN to the end
                     // of this exactly equals the size of the buffer itself in
                     // bytes, which means what follows can never overflow.
+                    //
+                    // NOTE using the safe version of this does not work because
+                    // the compiler is not smart enough to figure out that the
+                    // bounds check is unnecessary.
                     unsafe {
                         T::array_to_slice(&buf, &mut self.bytes, &dst_idx);
                     };

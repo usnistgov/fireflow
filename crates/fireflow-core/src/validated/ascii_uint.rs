@@ -216,15 +216,6 @@ impl TryFrom<u64> for UintSpacePad8 {
     }
 }
 
-pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAsciiError> {
-    if xs.is_ascii() {
-        // SAFETY: we just checked that all bytes are ASCII
-        Ok(unsafe { str::from_utf8_unchecked(xs) })
-    } else {
-        Err(BytesNotAsciiError(xs.to_vec()))
-    }
-}
-
 /// Error when parsing fixed unsigned integer from ASCII
 ///
 /// Used internally to create other errors
@@ -232,7 +223,6 @@ pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAsciiError
 pub(crate) enum ParseFixedUintError {
     Int(ParseIntError),
     NotAscii(BytesNotAsciiError),
-    // Negative(NegativeOffsetError),
 }
 
 /// Error when unsigned integer exceeds 8 digits
@@ -250,6 +240,10 @@ pub struct BytesNotAsciiError(Vec<u8>);
 #[derive(Debug, Error)]
 #[error("HEADER offset is negative: {0}")]
 pub struct NegativeOffsetError(pub i128);
+
+fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAsciiError> {
+    str::from_utf8(xs).map_err(|_| BytesNotAsciiError(xs.to_vec()))
+}
 
 #[cfg(test)]
 mod tests {

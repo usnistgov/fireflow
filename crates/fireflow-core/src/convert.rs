@@ -1,3 +1,11 @@
+pub(crate) trait U32Ext: Sized {
+    fn into_u32(self) -> u32;
+
+    fn u32_to_usize(self) -> usize {
+        usize::try_from(self.into_u32()).expect("overflow")
+    }
+}
+
 pub(crate) trait U64Ext: Sized {
     fn into_u64(self) -> u64;
 
@@ -11,6 +19,12 @@ pub(crate) trait UsizeExt: Sized {
 
     fn usize_to_u64(self) -> u64 {
         u64::try_from(self.into_usize()).expect("overflow")
+    }
+}
+
+impl U32Ext for u32 {
+    fn into_u32(self) -> u32 {
+        self
     }
 }
 

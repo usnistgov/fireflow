@@ -1,5 +1,6 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
+use crate::convert::U32Ext as _;
 use crate::text::byteord::PrivBytes;
 use crate::text::keywords::TextRange;
 use crate::validated::unaligned::FCSRepr;
@@ -129,8 +130,7 @@ impl<T> Bitmask<T> {
         } else if value_bits == max_bits {
             T::max_value()
         } else {
-            // TODO u32 wrapper
-            T::max_value() >> usize::try_from(max_bits - value_bits).unwrap()
+            T::max_value() >> (max_bits - value_bits).u32_to_usize()
         };
         Self::new(value, mask)
     }

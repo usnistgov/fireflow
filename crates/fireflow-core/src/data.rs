@@ -249,8 +249,10 @@ pub type DataSchema3_2 = Any3_2Layout<VecFamily>;
 pub type DataFrame3_2 = Any3_2Layout<DataFrameFamily>;
 
 /// Generic container for 3.2 DATA configurations.
-// TODO false positive lint
-#[allow(clippy::duplicated_attributes)]
+#[allow(
+    clippy::duplicated_attributes,
+    reason = "false positive, see: https://github.com/rust-lang/rust-clippy/issues/12923"
+)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasWidth)]
@@ -298,8 +300,10 @@ pub type VariableUintDataSchema<D> = VariableUintLayout<VecFamily, D>;
 
 type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
 
-// TODO false positive lint
-#[allow(clippy::duplicated_attributes)]
+#[allow(
+    clippy::duplicated_attributes,
+    reason = "false positive, see: https://github.com/rust-lang/rust-clippy/issues/12923"
+)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasWidth)]
@@ -439,8 +443,10 @@ pub struct ColumnMarkers<T, D> {
     meas_data_def: PhantomData<D>,
 }
 
-// TODO false positive lint
-#[allow(clippy::duplicated_attributes)]
+#[allow(
+    clippy::duplicated_attributes,
+    reason = "false positive, see: https://github.com/rust-lang/rust-clippy/issues/12923"
+)]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasWidth)]
@@ -550,8 +556,10 @@ where
 }
 
 /// Generic container for anything that can be categorized by $DATATYPE.
-// TODO false positive lint
-#[allow(clippy::duplicated_attributes)]
+#[allow(
+    clippy::duplicated_attributes,
+    reason = "false positive, see: https://github.com/rust-lang/rust-clippy/issues/12923"
+)]
 #[derive(Debug, PartialEq, Clone, Copy, Delegate, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(ColumnIsFixed)]
@@ -622,8 +630,10 @@ pub type MixedSeries = AnyDatatype<
 >;
 
 /// A big or little-endian integer column of some size (1-8 bytes)
-// TODO false positive lint
-#[allow(clippy::duplicated_attributes)]
+#[allow(
+    clippy::duplicated_attributes,
+    reason = "false positive, see: https://github.com/rust-lang/rust-clippy/issues/12923"
+)]
 #[derive(Debug, PartialEq, Clone, Copy, Delegate, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasLen)]

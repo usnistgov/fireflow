@@ -74,7 +74,7 @@ impl<T> ToNE<T> {
     pub fn on_inner_slice(s: NESlice<'_, T>) -> NESlice<'_, Self> {
         let n = s.len().get();
         let p = s.as_ref().as_ptr();
-        // SAFETY: target is a zero-sized type so this is a noop
+        // SAFETY: target is a transparent type so this is a noop
         let ne = unsafe { slice::from_raw_parts(p.cast::<Self>(), n) };
         NESlice::try_from_slice(ne).unwrap()
     }

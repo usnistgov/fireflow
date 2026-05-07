@@ -78,15 +78,8 @@ pub trait FCSRepr {
     /// Length of type in bytes when in a file (as enum 1-8)
     const FILE_BYTES: Bytes;
 
-    // TODO these are only going to be powers of 2
-    /// Length of type in bytes when in memory (as enum 1-8)
-    const MEM_BYTES: Bytes;
-
     /// Byte buffer for type within FCS file.
     type FileBuf;
-
-    /// Byte buffer for type in memory (may not be same size as that in file).
-    type MemBuf;
 
     /// The order the bytes appear in the file if not little/big endian.
     type ByteOrd;
@@ -99,11 +92,6 @@ pub trait FCSRepr {
     #[must_use]
     fn file_len() -> usize {
         usize::from(u8::from(Self::FILE_BYTES))
-    }
-
-    #[must_use]
-    fn mem_len() -> usize {
-        usize::from(u8::from(Self::MEM_BYTES))
     }
 
     #[must_use]
@@ -208,9 +196,7 @@ macro_rules! impl_file_bytes {
     ($t:ident, $prim:ident, $file_bytes:ident, $mem_bytes:ident, $file_len:expr, $mem_len:expr) => {
         impl FCSRepr for $t {
             const FILE_BYTES: Bytes = Bytes(PrivBytes::$file_bytes);
-            const MEM_BYTES: Bytes = Bytes(PrivBytes::$mem_bytes);
             type FileBuf = [u8; $file_len];
-            type MemBuf = [u8; $mem_len];
             type ByteOrd = Self::FileBuf;
             type Prim = $prim;
 

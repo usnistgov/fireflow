@@ -1,7 +1,3 @@
-use crate::core::{Key1LossError, KeyLossError};
-use crate::text::index::IndexFromOne;
-use crate::validated::keys::DKey1;
-
 use type_families::{Monoid, Pointed, Semigroup, Sibling1, impl_functor_once, impl_kind1};
 
 use derive_more::{AsMut, AsRef, From};
@@ -95,39 +91,6 @@ impl<T> From<OptionalZST<T>> for bool {
     fn from(value: OptionalZST<T>) -> Self {
         value.0.is_some()
     }
-}
-
-pub(crate) trait IsDefault {
-    fn is_default(&self) -> bool;
-}
-
-impl<T: Default + PartialEq> IsDefault for T {
-    fn is_default(&self) -> bool {
-        self == &T::default()
-    }
-}
-
-pub(crate) trait CheckMaybe: Sized + IsDefault {
-    type Inner;
-
-    // fn root_key_loss_error<E>(&self) -> Option<E>
-    // where
-    //     E: From<Key0LossError<Self::Inner>>,
-    // {
-    //     (!self.is_default()).then_some(Key0LossError::<Self::Inner>::default().into())
-    // }
-
-    fn indexed_key_loss_error<E>(&self, i: impl Into<IndexFromOne>) -> Option<E>
-    where
-        E: From<Key1LossError<Self::Inner>>,
-    {
-        let k = DKey1::new_i1(i.into());
-        (!self.is_default()).then_some(KeyLossError(k).into())
-    }
-}
-
-impl<T: PartialEq> CheckMaybe for Option<T> {
-    type Inner = T;
 }
 
 /// Encodes a type which might have something in it.

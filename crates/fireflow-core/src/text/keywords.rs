@@ -17,7 +17,7 @@ use crate::text::lookup::{
     ParseKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey, Required, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
-use crate::text::optional::{CheckMaybe, OptionalZST};
+use crate::text::optional::OptionalZST;
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::relational::{
     ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, LinkName,
@@ -1190,10 +1190,6 @@ impl<'a> ToDisplayNE<'a> for NEWavelengths<'_> {
         let xs = ToNE::on_inner_slice(self.0.by_ref());
         NEDelim::new(',', xs)
     }
-}
-
-impl CheckMaybe for Wavelengths {
-    type Inner = Self;
 }
 
 impl From<Wavelengths> for Vec<f32> {
@@ -2646,10 +2642,6 @@ impl FromStrDelim for UnstainedCenters {
 
 impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
 
-impl CheckMaybe for UnstainedCenters {
-    type Inner = Self;
-}
-
 /// Leftover standard keyword after parsing
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
@@ -2831,10 +2823,6 @@ macro_rules! newtype_string {
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
         #[as_ref(str)]
         pub struct $t(pub String);
-
-        impl CheckMaybe for $t {
-            type Inner = Self;
-        }
     };
 }
 
@@ -2861,15 +2849,6 @@ macro_rules! newtype_int {
     };
 }
 
-// TODO refactor
-macro_rules! impl_display_maybe_self {
-    ($t:ident) => {
-        impl CheckMaybe for $t {
-            type Inner = Self;
-        }
-    };
-}
-
 macro_rules! newtype_opt_u32 {
     ($t:ident) => {
         #[derive(Clone, Copy, Default, PartialEq, Eq, FromStr, Debug, AsRef)]
@@ -2877,8 +2856,6 @@ macro_rules! newtype_opt_u32 {
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         pub struct $t(pub u32);
-
-        impl_display_maybe_self!($t);
     };
 }
 
@@ -2891,8 +2868,6 @@ macro_rules! newtype_opt_bool {
         #[into(bool)]
         #[as_ref(Option<$inner>)]
         pub struct $t(pub OptionalZST<$inner>);
-
-        impl_display_maybe_self!($t);
     };
 }
 
@@ -3291,7 +3266,6 @@ kw_opt_meas_string!(Analyte, tk::ANALYTE_KW_SUFFIX, tk::PNANALYTE_VERS);
 kw_opt_meas_string!(Tag, tk::TAG_KW_SUFFIX, tk::PNTAG_VERS);
 kw_opt_meas_string!(DetectorName, tk::DET_NAME_KW_SUFFIX, tk::PNDET_VERS);
 
-impl_display_maybe_self!(OpticalType);
 kw_opt_meas!(OpticalType, tk::TYPE_KW_SUFFIX, tk::PNTYPE_VERS, Self);
 
 // version specific
@@ -3408,7 +3382,6 @@ impl VersionedKey for CSVFlag {
     const VERS: VersionMembership = CSV_VERS;
 }
 
-// TODO use macro for this
 impl IndexedKey for CSVFlag {
     const C: PrefixSuffix = PrefixSuffix::Both(ne_str!("CSV"), ne_str!("FLAG"));
 }
@@ -3432,7 +3405,6 @@ impl IndexedKey for PeakBin {
 newtype_int!(PeakIndex, MeasIndex);
 opt_meas!(PeakIndex, Option<Self>);
 
-// TODO make macro for both of these
 impl VersionedKey for PeakIndex {
     const VERS: VersionMembership = PKN_VERS;
 }
@@ -3830,7 +3802,8 @@ impl KeywordOptimizer {
                 MeasKeywordClass::Scale => self.n_pne += 1,
                 MeasKeywordClass::Shortname => self.n_pnn += 1,
                 MeasKeywordClass::Wavelength => {
-                    // TODO what to do on failure?
+                    // if this fails, do nothing since we would end up dropping
+                    // this keyword for any version
                     if let Ok(w) = Wavelengths::from_str_delim(value, true.into()).0 {
                         if w.0.len() > 1 {
                             self.n_opt_min3_1 += 1;

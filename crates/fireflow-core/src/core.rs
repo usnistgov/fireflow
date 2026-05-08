@@ -82,7 +82,7 @@ use crate::text::named_vec::{
     NamedVec, NewNamedVecError, NonCenterElement, PushCenterError, RenameError, SetCenterError,
     SetElementsError, SetKeysError, SetNamesError, SetValuesError, uniquify_names,
 };
-use crate::text::optional::{CheckMaybe as _, Identity, MightHave, Nothing};
+use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
 use crate::text::relational::{
     AnyExistingIndexLinkError, AnyExistingNamedLinkError, BrokenIndexedLinkError,
@@ -5269,8 +5269,8 @@ impl VersionedTemporal for InnerTemporal3_2 {
     }
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error> {
-        self.measurement_type
-            .indexed_key_loss_error(i)
+        OptTemporalKeyword::from_opt_zst(self.measurement_type, i)
+            .and_then(|x| x.as_optical_loss_error())
             .map_or(Ok(()), Err)
     }
 }

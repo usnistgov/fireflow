@@ -302,7 +302,9 @@ macro_rules! impl_internal_as_ref_unaligned {
     ($t:ident, $raw:ident) => {
         impl AsRef<[$raw]> for InternalSeries<$t, $raw> {
             fn as_ref(&self) -> &[$raw] {
-                self.as_raw_slice()
+                // SAFETY: the series is validated such that the primitive type
+                // only contains values that are also valid as the target type
+                unsafe { self.as_raw_slice() }
             }
         }
     };
@@ -1195,7 +1197,13 @@ impl<C> DataFrame<C> {
 }
 
 impl<T, Raw> InternalSeries<T, Raw> {
-    fn as_raw_slice(&self) -> &[Raw] {
+    /// Return reference to underlying data, cast in terms of raw type.
+    ///
+    /// # Safety
+    ///
+    /// The caller must ensure that all the values in the series are valid
+    /// bit configurations when cast into the raw type.
+    unsafe fn as_raw_slice(&self) -> &[Raw] {
         debug_assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
         let xs = self.inner.as_ref();
         let p = xs.as_ptr().cast::<Raw>();

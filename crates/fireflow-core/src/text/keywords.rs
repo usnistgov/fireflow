@@ -45,7 +45,8 @@ use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use fireflow_types::config::{CheckedRangeDatatypes, ForceLinearScale, TemporalOpticalKey};
 use fireflow_types::keywords::{
-    self as tk, MeasKeywordClass, RootKeywordClass, Version, VersionMembership,
+    self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
+    VersionMembership,
 };
 use fireflow_types::nonempty_string::{
     NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr, NEString, ToDisplayNE,
@@ -1523,7 +1524,6 @@ impl FromStr for OpticalType {
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct TemporalTypeInner;
 
-// TODO combine with the other ZST in macro
 impl ToDisplayNE<'_> for TemporalTypeInner {
     type NE = &'static NEStr;
     fn to_ne(&self) -> Self::NE {
@@ -1589,7 +1589,7 @@ impl FromStr for Feature {
         // throw away diagnostic flag here since this is only for python
         // conversion
         if let Some(ne) = NEStr::try_new(s) {
-            Self::from_str_with(ne, (), &conf).map(|x| x.native)
+            Ok(Self::from_str_with(ne, (), &conf).map(|x| x.native)?)
         } else {
             Err(FeatureError::Other)
         }
@@ -1597,7 +1597,7 @@ impl FromStr for Feature {
 }
 
 impl FromStrWith for Feature {
-    type Err = FeatureError;
+    type Err = OpticalFeatureError;
     type Payload<'a> = ();
     type Diagnostic = bool;
     type Config = ReadStdKeywordsConfig;
@@ -1607,39 +1607,21 @@ impl FromStrWith for Feature {
             Ok(f) => Ok(DiagnosedKeyword::new(Self::Optical(f), false)),
             Err(e) => {
                 if conf.allow_other_feature.is_set() {
-                    let out = Self::Other(s.parse().map_err(|_| FeatureError::Other)?);
+                    let out = Self::Other(s.to_owned());
                     Ok(DiagnosedKeyword::new(out, true))
                 } else {
-                    Err(FeatureError::Optical(e))
+                    Err(e)
                 }
             }
         }
     }
 }
 
-// TODO this does too much, we only need this inside another enum, and the
-// error struct is useless
-impl_str_enum_kw!(
-    /// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
-    #[derive(PartialEq, Debug)]
-    #[cfg_attr(feature = "serde", derive(Serialize))]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
-    pub OpticalFeature,
-    /// Error when parsing [`Feature`] (optical only)
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-    pub OpticalFeatureError,
-    Area   => ne_str!("Area"),
-    Width  => ne_str!("Width"),
-    Height => ne_str!("Height")
-);
-
 /// Error when parsing [`Feature`]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, From)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum FeatureError {
-    // TODO this is misleading
     #[error("{0}")]
     Optical(OpticalFeatureError),
     #[error("non-area/width/height feature must not be empty")]

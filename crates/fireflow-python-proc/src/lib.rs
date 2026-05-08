@@ -6789,8 +6789,8 @@ impl PyLiteral {
     }
 
     fn new_awh_feature() -> Self {
-        let path = keyword_path("OpticalFeature");
-        Self::new1(["Area", "Width", "Height"]).rstype(path)
+        let path = parse_quote!(fireflow_types::keywords::OpticalFeature);
+        Self::new1(tk::OpticalFeature::iter_str()).rstype(path)
     }
 
     fn new_endian() -> Self {
@@ -10545,9 +10545,9 @@ const NAN: &str = code!("NaN");
 const INF: &str = code!("inf");
 const NEG_INF: &str = code!("-inf");
 const DOLLAR_STR: &str = code_str!("$");
-const FEATURE_AREA_STR: &str = code_str!("Area");
-const FEATURE_WIDTH_STR: &str = code_str!("Width");
-const FEATURE_HEIGHT_STR: &str = code_str!("Height");
+const FEATURE_AREA_STR: &str = code_str!(tk::OPT_FEATURE_AREA.as_str());
+const FEATURE_WIDTH_STR: &str = code_str!(tk::OPT_FEATURE_WIDTH.as_str());
+const FEATURE_HEIGHT_STR: &str = code_str!(tk::OPT_FEATURE_HEIGHT.as_str());
 const BYTEORD_LITTLE_STR: &str = code_str!(tk::BYTEORD_LITTLE);
 const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 

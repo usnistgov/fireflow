@@ -64,8 +64,8 @@ use crate::text::keywords::{
     GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale,
     GateShortname, HyperGateError, HyperParError, Inst, KeywordOtherVersionError, LastModified,
     LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalFeature, OpticalScaleFix,
-    OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
+    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalScaleFix, OpticalType,
+    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
     PrefixedMeasIndex, Proj, PseudostandardError, Scale, ScaleFix, Smno, Src, Sys, Tag,
     TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded,
     TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
@@ -112,7 +112,7 @@ use fireflow_types::config::{
     CheckedRangeDatatypes, IncludeReqOrOpt, IncludeRootOrMeas, OverRangeAction, TemporalOpticalKey,
 };
 use fireflow_types::keywords::{
-    HasVersion, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use fireflow_types::nonempty_string::{DisplayableNE as _, NEString};
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};

@@ -124,7 +124,7 @@ macro_rules! impl_str_enum_kw {
             $($(#[$var_meta])* $var => $strlit),*
         );
 
-        impl ToDisplayNE<'_> for $flag_name {
+        impl $crate::nonempty_string::ToDisplayNE<'_> for $flag_name {
             type NE = &'static $crate::nonempty_string::NEStr;
             fn to_ne(&self) -> Self::NE {
                 $crate::config::EnumStrIter::as_ne_str(self)

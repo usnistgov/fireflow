@@ -1,5 +1,6 @@
 use crate::config::EnumStrIter as _;
-use crate::{impl_str_enum, ne_str};
+use crate::nonempty_string::NEStr;
+use crate::{impl_str_enum, impl_str_enum_kw, ne_str};
 
 use const_format::formatcp;
 use derive_more::Display;
@@ -242,3 +243,52 @@ pub const ISO_DATETIME_NO_TZ: &str = "%Y-%m-%dT%H:%M:%S%.f";
 pub const ISO_DATETIME_TZ_HH_MAYBE_MM: &str = formatcp!("{ISO_DATETIME_NO_TZ}%#z");
 pub const ISO_DATETIME_TZ_HH_MM: &str = formatcp!("{ISO_DATETIME_NO_TZ}%:z");
 pub const ISO_DATETIME_TZ_HH: &str = formatcp!("{ISO_DATETIME_NO_TZ}%:::z");
+
+// PnFEATURE flags
+
+pub const OPT_FEATURE_AREA: &NEStr = ne_str!("Area");
+pub const OPT_FEATURE_WIDTH: &NEStr = ne_str!("Width");
+pub const OPT_FEATURE_HEIGHT: &NEStr = ne_str!("Height");
+
+impl_str_enum_kw!(
+    /// The value of the $PnFEATURE key when restricted to area/width/height (3.2+)
+    #[derive(PartialEq, Debug)]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "python", derive(FromPyString))]
+    pub OpticalFeature,
+    /// Error when parsing [`Feature`] (optical only)
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
+    pub OpticalFeatureError,
+    Area   => OPT_FEATURE_AREA,
+    Width  => OPT_FEATURE_WIDTH,
+    Height => OPT_FEATURE_HEIGHT
+);
+
+#[cfg(feature = "python")]
+mod python {
+    use crate::nonempty_string::DisplayableNE as _;
+
+    use super::OpticalFeature;
+
+    use pyo3::prelude::*;
+    use pyo3::types::PyString;
+    use std::convert::Infallible;
+
+    // can't use derive for this since the derive macro points to this crate and
+    // isn't smart enough to use $crate instead of the full path (without lots of
+    // complexity, might rewrite if this problem happens more)
+    impl<'py> IntoPyObject<'py> for OpticalFeature {
+        type Target = PyString;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(
+            self,
+            py: Python<'py>,
+        ) -> Result<<Self as IntoPyObject<'py>>::Output, <Self as IntoPyObject<'py>>::Error>
+        {
+            self.as_string().into_pyobject(py)
+        }
+    }
+}

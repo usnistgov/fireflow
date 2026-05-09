@@ -7565,8 +7565,6 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
 
 // Implement methods on specific aliases of column group
 
-// TODO these could be used internally when parsing from keywords
-
 impl<D> AnySingleUintDataSchema<D> {
     /// Make a new big/little endian uint layout with a given width in bytes.
     ///

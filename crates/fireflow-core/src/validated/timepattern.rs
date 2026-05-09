@@ -118,7 +118,7 @@ impl FromStr for TimePattern {
                     Numeric::Minute => minute += 1,
                     Numeric::Second => second += 1,
                     Numeric::Nanosecond => frac_second += 1,
-                    Numeric::Internal(_) => debug_assert!(false, "this should never happen"),
+                    Numeric::Internal(_) => panic!("this should never happen"),
                     _ => invalid += 1,
                 },
                 Item::Fixed(y) => match y {
@@ -127,13 +127,15 @@ impl FromStr for TimePattern {
                     | Fixed::Nanosecond3
                     | Fixed::Nanosecond6
                     | Fixed::Nanosecond9 => frac_second += 1,
-                    Fixed::Internal(_) => debug_assert!(false, "this should never happen"),
+                    Fixed::Internal(_) => panic!("this should never happen"),
                     _ => invalid += 1,
                 },
-                // No errors because we used lenient above. Only owned values
-                // because we converted to owned above.
                 Item::Error | Item::Literal(_) | Item::Space(_) => {
-                    debug_assert!(false, "this should never happen");
+                    panic!(
+                        "this should never happen because we used lenient \
+                         above and we should only have owned values because \
+                         we converted to owned above"
+                    );
                 }
             }
         }

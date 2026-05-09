@@ -1071,6 +1071,13 @@ impl<C> DataFrame<C> {
         }
     }
 
+    pub(crate) fn new_unchecked(series: impl IntoIterator<Item = C>) -> Self
+    where
+        C: HasLen,
+    {
+        Self::try_new(series).expect("caller should ensure columns are all same length")
+    }
+
     #[must_use]
     pub fn new1(series: C) -> Self
     where

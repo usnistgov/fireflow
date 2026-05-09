@@ -3022,7 +3022,7 @@ where
             .enumerate()
             .map(|(i, r)| r.map_err(|e| IndexedCastSeriesError(IndexedError::new(i, e))));
         let new_cols = Result::sequence_results(rs).map_err(ErrorGroup::deanonymize)?;
-        let new_df = DataFrame::try_new(new_cols).expect("number of columns was checked already");
+        let new_df = DataFrame::new_unchecked(new_cols);
         Ok(Layout::new(new_df, self.byteord.clone()))
     }
 
@@ -3340,7 +3340,7 @@ where
                     .map(InternalSeries::from)
                     .zip(&self.container)
                     .map(|(vec, &range)| NativeSeries::new(range, vec));
-                let df = DataFrame::try_new(cs).unwrap();
+                let df = DataFrame::new_unchecked(cs);
                 let out = PreEventsDiagnostics::new(None, None, None);
                 PreDataFrameResult::new(Layout::new_ascii(df), out)
             })
@@ -3649,7 +3649,7 @@ where
                 .map(InternalSeries::from)
                 .zip(self.container.iter().cloned())
                 .map(|(data, range)| NativeSeries::new(range, data));
-            DataFrame::try_new(data).expect("column lengths are the same")
+            DataFrame::new_unchecked(data)
         } else {
             DataFrame::default()
         };
@@ -3696,7 +3696,7 @@ impl<M, const ORD: bool> DataSchemaReadFixed
             })?;
 
             let data = columns.into_iter().map(NativeSeries::from);
-            DataFrame::try_new(data).unwrap()
+            DataFrame::new_unchecked(data)
         } else {
             DataFrame::default()
         };
@@ -3728,7 +3728,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
             row_buf.read_any_uint_df(h, &mut columns, self.byteord)?;
 
             let data = columns.into_iter().map(VariableUintSeries::from);
-            DataFrame::try_new(data).unwrap()
+            DataFrame::new_unchecked(data)
         } else {
             DataFrame::default()
         };
@@ -3788,7 +3788,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
         };
 
         let data = columns.into_iter().map(MixedSeries::from);
-        let df = DataFrame::try_new(data).unwrap();
+        let df = DataFrame::new_unchecked(data);
 
         Ok(Layout::new(df, self.byteord))
     }

@@ -7637,7 +7637,7 @@ impl DocArgRWIvar {
     }
 
     fn new_comp_ivar(is_2_0: bool) -> Self {
-        let rstype: Path = parse_quote!(fireflow_core::text::compensation::Compensation);
+        let rstype: Path = parse_quote!(fireflow_core::validated::compensation::Compensation);
         let desc = if is_2_0 {
             format!(
                 "The compensation matrix. Must be a square array with number of \

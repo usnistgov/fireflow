@@ -40,7 +40,6 @@ use crate::segment::{
     OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchError,
     SegmentOverlapError, UncorrectedSegment,
 };
-use crate::text::compensation::{Compensation, Compensation2_0, LookupComp2_0Error};
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
 };
@@ -58,18 +57,18 @@ use crate::text::keyword_enum::{
 };
 use crate::text::keywords::{
     Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
-    Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation3_0, Cyt,
-    Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage, Dfc, Display, Exp,
-    ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, GateDetectorType,
+    Calibration3_2, CalibrationLossError, Carrierid, Carriertype, Cells, Com, Compensation2_0,
+    Compensation3_0, Cyt, Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage, Dfc, Display,
+    Exp, ExtraStdKeywords, Feature, Fil, Filter, Flowrate, Gain, Gate, GateDetectorType,
     GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted, GateRange, GateScale,
     GateShortname, HyperGateError, HyperParError, Inst, KeywordOtherVersionError, LastModified,
-    LastModifier, Locationid, LogScale, Longname, LookupTemporalGainError, Lost, MeasOrGateIndex,
-    Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalScaleFix, OpticalType,
-    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Proj, PseudostandardError, Scale, ScaleFix, Smno, Src, Sys, Tag,
-    TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep, TimestepAdded,
-    TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wavelength,
-    Wavelengths, WavelengthsLossError, Wellid,
+    LastModifier, Locationid, LogScale, Longname, LookupComp2_0Error, LookupTemporalGainError,
+    Lost, MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op,
+    OpticalScaleFix, OpticalType, Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid,
+    Platename, Power, PrefixedMeasIndex, Proj, PseudostandardError, Scale, ScaleFix, Smno, Src,
+    Sys, Tag, TemporalScale2_0, TemporalScale3_0, TemporalScaleFix, TemporalType, Timestep,
+    TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
+    Wavelength, Wavelengths, WavelengthsLossError, Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptKeyStError,
@@ -98,6 +97,7 @@ use crate::text::timestamps::{
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
+use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, HasWidth, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
@@ -7452,7 +7452,7 @@ where
         V::Metaroot: HasCompensation,
     {
         if let Some(m) = matrix.as_ref() {
-            let comp = m.as_ref().ncols();
+            let comp = m.matrix().ncols();
             let par = self.measurements.len();
             if comp != par {
                 return Err(CompParMismatchError { par, comp });

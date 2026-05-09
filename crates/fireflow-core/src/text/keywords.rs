@@ -1,6 +1,7 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig,
-    ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _,
+    TrimIntraValueWhitespace,
 };
 use crate::data::RangeCheckLevel;
 use crate::logging::{
@@ -8,20 +9,21 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::{HasRegion, TEXTSegment};
+use crate::text::byteord::ArrayByteOrd;
 use crate::text::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes};
-use crate::text::compensation::{Compensation, NewCompError};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::index::{GateIndex, MeasIndex, RegionIndex};
+use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::lookup::{
-    FromStrDelim, FromStrWith, OptIndexedKey, OptIndexedKeyError, OptMetarootKey, Optional,
-    ParseKeyError, ReqIndexedKey, ReqKeyError, ReqMetarootKey, Required, impl_from_str_with_delim,
+    DiagnosedKeyword, FromStrDelim, FromStrWith, FromStrWithResult, OptIndexedKey,
+    OptIndexedKeyError, OptMetarootKey, Optional, ParseKeyError, ReqIndexedKey, ReqKeyError,
+    ReqKeyErrorInner, ReqMetarootKey, Required, Trimmed, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
 use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::relational::{
-    ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError, LinkName,
-    OpticalNamedLinkError, OpticalNamesToRemove, RemovedIndexLink, RemovedNamedLink,
+    BiIndexedKeyToIndexLinkError, ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError,
+    LinkName, OpticalNamedLinkError, OpticalNamesToRemove, RemovedIndexLink, RemovedNamedLink,
     TemporalNamedLinkError,
 };
 use crate::text::spillover::Spillover;
@@ -29,18 +31,19 @@ use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime10
 use crate::validated::ascii_range::AsciiRangeValue;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
+use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::header_segments::NextdataOffsetsError;
 use crate::validated::keys::{
-    AsStdKey as _, BiIndex, BiIndexedKey, DKey0, IndexedKey, Key1, Key2, NonStdKeywords,
-    NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords, TruncatedNEString,
-    VersionedKey,
+    AsStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey2, DollarKey, IndexedKey, Key1, Key2,
+    NonStdKeywords, NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords,
+    TruncatedNEString, VersionedKey,
 };
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use nonempty_collections::{NEMap, NESlice};
+use nonempty_collections::{NEMap, NESlice, NonEmptyArrayExt as _};
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use fireflow_types::config::{CheckedRangeDatatypes, ForceLinearScale, TemporalOpticalKey};
@@ -76,9 +79,10 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::byteord::ArrayByteOrd;
-use super::index::IndexFromOne;
-use super::lookup::{DiagnosedKeyword, FromStrWithResult, ReqKeyErrorInner, Trimmed};
+use super::keyword_enum::SplitKeyword;
+use super::relational::{
+    Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
+};
 
 #[cfg(feature = "python")]
 use {
@@ -1341,6 +1345,158 @@ impl_str_enum_kw!(
     Appended        => ne_str!("Appended"),
     DataModified    => ne_str!("DataModified")
 );
+
+/// The aggregated values of the $DFCiTOj keywords (2.0 only)
+#[derive(Clone, From, Into, AsRef, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
+#[as_ref(DMatrix<f32>, Compensation)]
+pub struct Compensation2_0(pub Compensation);
+
+impl<'a> ToDisplayNE<'a> for Compensation {
+    type NE = NEConcat3<NonZeroUsize, char, NEDelim<NEVec<f32>>>;
+    fn to_ne(&'a self) -> Self::NE {
+        let xs = self.row_major_ne_vec();
+        NEConcat::new(self.dim(), ',').append(NEDelim::new(',', xs))
+    }
+}
+
+/// The value of one $DFCmTOn keyword.
+#[derive(Clone)]
+pub struct DfcKeyword {
+    pub(crate) row: MeasIndex,
+    pub(crate) col: MeasIndex,
+    pub(crate) value: Dfc,
+}
+
+impl Compensation2_0 {
+    pub(crate) fn lookup(
+        kws: &mut StdKeywords,
+        par: Par,
+        conf: &ReadDataKeywordsConfig,
+    ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
+        // column = src measurement
+        // row = target measurement
+        // These are "flipped" in 2.0, where "column" goes TO the "row"
+        let n = par.0;
+        let flag = conf.process_optional_failure;
+        let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
+            .cartesian_product(0..n)
+            .map(|(r, c)| {
+                let k = SpecificKey::new_i2(c, r);
+                match Dfc::lookup(kws, k) {
+                    Ok(x) => (x, None),
+                    Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
+                }
+            })
+            .unzip();
+        let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
+            LogResult::new_switchable_ok(None, flag)
+        } else {
+            let ys = xs.into_iter().map(Option::unwrap_or_default).map(f32::from);
+            let matrix = DMatrix::from_row_iterator(n, n, ys);
+            Compensation::try_from(matrix)
+                .map(|x| Some(Self(x)))
+                .map_err(LookupComp2_0Error::Matrix)
+                .into_deferred_switchable(flag)
+        };
+        res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
+    }
+
+    pub fn non_zero_indices(&self) -> impl Iterator<Item = DfcKeyword> {
+        let m = self.0.matrix();
+        m.iter().enumerate().filter_map(|(i, &value)| {
+            let n = m.ncols();
+            if value == 0.0 {
+                None
+            } else {
+                let row = i / n;
+                let col = i % n;
+                Some(DfcKeyword {
+                    col: col.into(),
+                    row: row.into(),
+                    value: Dfc(value),
+                })
+            }
+        })
+    }
+
+    pub(crate) fn invalid_link_errors(
+        &self,
+        par: &Par,
+    ) -> impl Iterator<Item = BiIndexedKeyToIndexLinkError<Dfc>> {
+        // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
+        // since the entire matrix must be removed.
+        self.non_zero_indices().filter_map(|kw| {
+            // TODO throw error if temporal measurement is anything other than ID
+            let n = self.0.matrix().nrows();
+            let bad_matrix = n < par.0 || par.0 < 2;
+            let cutoff = if bad_matrix { 0 } else { par.0 };
+            let k = DKey2::new_i2(kw.col, kw.row);
+            let r = (usize::from(kw.row) >= cutoff).then_some(kw.row);
+            let c = (usize::from(kw.col) >= cutoff).then_some(kw.col);
+            [r, c]
+                .into_iter()
+                .flatten()
+                .try_into_nonempty_iter()
+                .map(|js| BiIndexedKeyToIndexLinkError::new(js.collect(), k))
+        })
+    }
+
+    // NOTE this shouldn't do anything for a freshly made comp matrix since
+    // the DFCmTOn lookups are bound by $PAR, so it impossible for the matrix
+    // to be greater than $PAR. This will fire whenever we assign an external
+    // matrix to the Core data struct.
+    pub(crate) fn remove_invalid_link(src: &mut Option<Self>, par: Par) -> Option<RemovedLink> {
+        // TODO throw error if temporal measurement is anything other than ID
+        let c = src.as_mut()?;
+        let n = c.0.matrix().nrows();
+        // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
+        // since the entire matrix must be removed.
+        let cutoff = if n < par.0 || par.0 < 2 { 0 } else { par.0 };
+        // Scan through matrix and pull out all cells in rows/columns greater
+        // or equal to cutoff and whose value is not zero. These are the keywords
+        // to return.
+        let es = c.non_zero_indices().filter_map(|kw| {
+            let which = match (usize::from(kw.row) >= cutoff, usize::from(kw.col) >= cutoff) {
+                (true, true) => Some(Comp2_0Missing::Both),
+                (true, false) => Some(Comp2_0Missing::Row),
+                (false, true) => Some(Comp2_0Missing::Col),
+                (false, false) => None,
+            };
+            let k = DollarKey::new_i2(kw.row, kw.col);
+            which.map(|b| RemovedComp2_0Cell::new(SplitKeyword::new(k, kw.value), b))
+        });
+        let ret = es
+            .try_into_nonempty_iter()
+            .map(|js| RemovedLink::Comp2_0(js.collect()));
+        // Truncate the matrix down to $PAR.
+        *src = c.0.square_view(par.0).map(Self);
+        ret
+    }
+
+    pub(crate) fn existing_links(
+        &self,
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
+        self.non_zero_indices().map(|kw| {
+            let xs = [kw.col.into(), kw.row.into()].into_nonempty_vec();
+            ExistingIndexedLinkError::new(DKey2::new_i2(kw.col, kw.row), xs)
+        })
+    }
+
+    // pub(crate) fn loss_errors(&self) -> impl Iterator<Item = Key2LossError<Dfc>> {
+    //     self.non_zero_indices()
+    //         .map(|kw| KeyLossError(DKey2::new_i2(kw.col, kw.row)))
+    // }
+}
+
+/// Error when parsing $DFCiTOj keywords for compensation matrix (2.0)
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupComp2_0Error {
+    Dfc(LookupDfcError),
+    Matrix(NewCompError),
+}
 
 /// The value of the $COMP keyword (3.0 only)
 #[derive(Clone, From, Into, AsRef, PartialEq, Debug, Delegate)]

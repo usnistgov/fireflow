@@ -4,6 +4,7 @@ pub mod ascii_range;
 pub mod ascii_uint;
 pub mod bitmask;
 pub mod case_ins_regex;
+pub mod compensation;
 pub mod dataframe;
 pub mod datepattern;
 pub mod finite_float;

@@ -1,7 +1,6 @@
 //! Specialized parsing and error checking functions for keywords in TEXT
 
 pub mod byteord;
-pub mod compensation;
 pub mod datetimes;
 pub mod gating;
 pub mod index;

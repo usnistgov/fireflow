@@ -6773,6 +6773,9 @@ where
     }
 
     /// Set the measurement matching given name to be the time measurement.
+    // TODO all set_temporal* or replace_temporal* methods need to check if an
+    // optical measurement is being changed, and if that measurement has a link
+    // that would be broken
     pub fn set_temporal(
         &mut self,
         n: &Shortname,
@@ -9381,6 +9384,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_err(SetNamedMeasurementsError::from)?;
         self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)
             .map_err(SetNamedMeasurementsError::from)?;
+        // TODO this validates against the old measurements
         self.set_data_schema(data_schema)?;
         self.measurements = meas;
         Ok(())

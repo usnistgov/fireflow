@@ -497,14 +497,6 @@ impl<M, T, R> Series<M, T, R> {
         Ok(Self::new(metadata, series.try_into()?))
     }
 
-    pub fn to_prim(&self) -> AnyPrimitiveSeries
-    where
-        InternalSeries<T, R>: Into<PrimitiveSeries<T>> + Clone,
-        PrimitiveSeries<T>: Into<AnyPrimitiveSeries>,
-    {
-        PrimitiveSeries::from(self.series.clone()).into()
-    }
-
     pub fn column_schema(&self) -> &M {
         &self.column_schema
     }

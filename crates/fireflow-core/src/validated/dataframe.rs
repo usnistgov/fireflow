@@ -1071,7 +1071,7 @@ impl<C> DataFrame<C> {
         }
     }
 
-    pub(crate) fn new_unchecked(series: impl IntoIterator<Item = C>) -> Self
+    pub fn new_unchecked(series: impl IntoIterator<Item = C>) -> Self
     where
         C: HasLen,
     {

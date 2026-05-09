@@ -1043,9 +1043,9 @@ impl TryFrom<PyDataFrame> for PyFCSDataFrame {
                 .collect::<Result<Vec<_>, _>>()?;
         // ASSUME this won't fail because all columns will have the same
         // length after pulling from a valid polars dataframe
-        Ok(Self(
-            PrimitiveDataFrame::try_new(cs.into_iter().map(|c| c.0)).unwrap(),
-        ))
+        Ok(Self(PrimitiveDataFrame::new_unchecked(
+            cs.into_iter().map(|c| c.0),
+        )))
     }
 }
 

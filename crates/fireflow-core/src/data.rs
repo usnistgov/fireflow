@@ -2695,7 +2695,7 @@ where
 
     fn empty(&self) -> Self::DfTarget {
         let cs = self.container.iter().map(DataSchemaToEmptySeries::empty);
-        Layout::new(DataFrame::try_new(cs).unwrap(), self.byteord.clone())
+        Layout::new(DataFrame::new_unchecked(cs), self.byteord.clone())
     }
 }
 

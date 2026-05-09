@@ -853,14 +853,21 @@ pub fn impl_py_uncorrected_header_segments(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    // TODO use enum for seg identity here
-    let text = DocArg::new_uncorrected_seg_param("text_seg", "TEXT", UncorrSegmentSrc::Header)
-        .into_ro(|_, _| quote!(self.0.text));
-    let data = DocArg::new_uncorrected_seg_param("data_seg", "DATA", UncorrSegmentSrc::Header)
-        .into_ro(|_, _| quote!(self.0.data));
-    let analysis =
-        DocArg::new_uncorrected_seg_param("analysis_seg", "ANALYSIS", UncorrSegmentSrc::Header)
-            .into_ro(|_, _| quote!(self.0.analysis));
+    let text = DocArg::new_uncorrected_seg_param(
+        "text_seg",
+        AnySegment::PrimaryTEXT,
+        UncorrSegmentSrc::Header,
+    )
+    .into_ro(|_, _| quote!(self.0.text));
+    let data =
+        DocArg::new_uncorrected_seg_param("data_seg", AnySegment::Data, UncorrSegmentSrc::Header)
+            .into_ro(|_, _| quote!(self.0.data));
+    let analysis = DocArg::new_uncorrected_seg_param(
+        "analysis_seg",
+        AnySegment::Analysis,
+        UncorrSegmentSrc::Header,
+    )
+    .into_ro(|_, _| quote!(self.0.analysis));
 
     let other = DocArg::new_param(
         "other_segs",
@@ -921,7 +928,7 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
         |n, _| quote!(self.0.#n.clone().into()),
     );
 
-    let dataset = DocArgROIvar::new_flat_dataset_ivar();
+    let dataset = DocArgROIvar::new_dataset_ivar(false);
 
     let scores = DocArg::new_version_scores_param();
 
@@ -981,7 +988,7 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let dataset = DocArgROIvar::new_flat_dataset_ivar();
+    let dataset = DocArgROIvar::new_dataset_ivar(false);
 
     let header = DocArgROIvar::new_ivar_ro(
         "header",
@@ -1244,12 +1251,15 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     let data = DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data));
     let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
         .into_ro(|_, _| quote!(self.0.analysis));
-    let data_uncorrected =
-        DocArg::new_uncorrected_seg_param("data_seg_uncorrected", "DATA", UncorrSegmentSrc::Text)
-            .into_ro(|_, _| quote!(self.0.data_uncorrected));
+    let data_uncorrected = DocArg::new_uncorrected_seg_param(
+        "data_seg_uncorrected",
+        AnySegment::Data,
+        UncorrSegmentSrc::Text,
+    )
+    .into_ro(|_, _| quote!(self.0.data_uncorrected));
     let analysis_uncorrected = DocArg::new_uncorrected_seg_param(
         "analysis_seg_uncorrected",
-        "ANALYSIS",
+        AnySegment::Analysis,
         UncorrSegmentSrc::Text,
     )
     .into_ro(|_, _| quote!(self.0.analysis_uncorrected));
@@ -1317,7 +1327,7 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let dataset = DocArgROIvar::new_std_dataset_ivar();
+    let dataset = DocArgROIvar::new_dataset_ivar(true);
 
     let flat = DocArg::new_flat_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
@@ -1379,7 +1389,7 @@ pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStrea
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let dataset = DocArgROIvar::new_std_dataset_ivar();
+    let dataset = DocArgROIvar::new_dataset_ivar(true);
 
     let header = DocArgROIvar::new_ivar_ro(
         "header",
@@ -2930,7 +2940,6 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
 
     let rng = DocArg::new_any_range_param(version);
 
-    // TODO not DRY
     let insert_meas_doc = |is_optical: bool, hasdata: bool| {
         let (meas_type, what) = if is_optical {
             (PyClass::new_optical(version), "optical")
@@ -4629,9 +4638,8 @@ pub fn impl_new_mixed_data_schema(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
 
     let dt_ascii = code("A");
-    let dt_int = code("I");
-    let dt_f32 = code("F");
-    let dt_f64 = code("D");
+    let dt_int = code("I**");
+    let dt_float = code("F**");
 
     let range_pytype = PyList::new1(PyUnion::new_mixed_range());
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
@@ -4641,10 +4649,13 @@ pub fn impl_new_mixed_data_schema(input: TokenStream) -> TokenStream {
             "The type and range for each measurement corresponding to {DATATYPE} \
              and/or {PNDATATYPE} and {PNR} respectively. These are given \
              as 2-tuples like {tuple_pattern} where {tuple_first} is one of \
-             {dt_ascii}, {dt_int}, {dt_f32}, or {dt_f64} corresponding to Ascii, \
-             Integer, Float, or Double datatypes respectively.",
+             {dt_ascii}, {dt_int}, or {dt_float} corresponding to Ascii, \
+             unsigned integer, or float datatypes respectively. For integers and \
+             floats, the {stars} encode the size, which must be 08-64 (in multiples \
+             of 8) and 32/64 respectively.",
             tuple_pattern = code("(<type>, <range>)"),
             tuple_first = code("type"),
+            stars = code("**"),
         ),
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
@@ -7125,12 +7136,18 @@ impl<E: From<PyException>> PyUnion<E> {
         Self::new2(PyStr::default(), PyBytes::default(), path)
     }
 
-    // TODO this should be obsolete
     fn new_mixed_range() -> Self {
         let path = quote!(fireflow_core::data::MixedRange);
         Self::new2(
-            PyTuple::new1(PyLiteral::new1(IntegerWidth::iter_str().chain(["A"]))).add(RsInt::U64),
-            PyTuple::new1(PyLiteral::new1(["F", "D"])).add(RsFloat::F64),
+            PyTuple::new1(PyLiteral::new1(
+                IntegerWidth::iter_str().chain([COL_TYPE_ASCII.as_str()]),
+            ))
+            .add(RsInt::U64),
+            PyTuple::new1(PyLiteral::new1([
+                COL_TYPE_F32.as_str(),
+                COL_TYPE_F64.as_str(),
+            ]))
+            .add(RsFloat::F64),
             parse_quote!(#path),
         )
     }
@@ -7159,16 +7176,9 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_range_or_mixed_range() -> Self {
         let path = quote!(fireflow_core::data::MaybeTypedMixedRange);
-        let int_literals = once(COL_TYPE_ASCII.as_str()).chain(IntegerWidth::iter_str());
-        let float_literals = [COL_TYPE_F32.as_str(), COL_TYPE_F64.as_str()];
-        let ints = PyTuple::new1(PyLiteral::new1(int_literals))
-            .add(RsInt::U64)
-            .into();
-        let floats = PyTuple::new1(PyLiteral::new1(float_literals))
-            .add(PyDecimal::default())
-            .into();
+        let mixed = PyType::from(Self::new_mixed_range());
         let rng = PyType::from(Self::new_full_range());
-        Self::new1([ints, floats, rng], parse_quote!(#path))
+        Self::new1([mixed, rng], parse_quote!(#path))
     }
 }
 
@@ -7181,10 +7191,6 @@ impl<E> PyClass<E> {
         Self::new(self.pyname, Some(rstype), None)
     }
 
-    fn exc(self, exc: impl Into<E>) -> Self {
-        Self::new(self.pyname, self.rstype, Some(exc.into()))
-    }
-
     fn new_py(
         modpath: impl IntoIterator<Item = impl fmt::Display>,
         name: impl fmt::Display,
@@ -7195,6 +7201,10 @@ impl<E> PyClass<E> {
             .chain([format!("{name}")])
             .join(".");
         Self::new1(m).rstype(parse_quote!(#pyname))
+    }
+
+    fn exc(self, e: impl Into<E>) -> Self {
+        Self::new(self.pyname, self.rstype, Some(e.into()))
     }
 
     fn map_exc<F: FnOnce(E) -> E1, E1>(self, f: F) -> PyClass<E1> {
@@ -7919,21 +7929,16 @@ impl DocArgROIvar {
         })
     }
 
-    fn new_flat_dataset_ivar() -> Self {
+    fn new_dataset_ivar(is_std: bool) -> Self {
+        let (class_name, dataset_type) = if is_std {
+            ("StdDatasetFromKwsOutput", "std")
+        } else {
+            ("FlatDatasetFromKwsOutput", "flat")
+        };
         Self::new_ivar_ro(
             "dataset",
-            PyClass::new_py(["api"], "FlatDatasetFromKwsOutput"),
-            format!("Output when making flat {TEXT} and {DATA}."),
-            |n, _| quote!(self.0.#n.clone().into()),
-        )
-    }
-
-    // TODO not dry
-    fn new_std_dataset_ivar() -> Self {
-        Self::new_ivar_ro(
-            "dataset",
-            PyClass::new_py(["api"], "StdDatasetFromKwsOutput"),
-            format!("Output when making standardized {TEXT} and {DATA}."),
+            PyClass::new_py(["api"], class_name),
+            format!("Output when making {dataset_type} {TEXT} and {DATA}."),
             |n, _| quote!(self.0.#n.clone().into()),
         )
     }
@@ -8125,11 +8130,7 @@ impl DocArgParam {
         Self::new_param("events_diagnostics", p, d)
     }
 
-    fn new_uncorrected_seg_param(
-        argname: &str,
-        which: impl fmt::Display,
-        src: UncorrSegmentSrc,
-    ) -> Self {
+    fn new_uncorrected_seg_param(argname: &str, seg: AnySegment, src: UncorrSegmentSrc) -> Self {
         let optional = matches!(src, UncorrSegmentSrc::Text);
         let (pt, end) = if optional {
             (
@@ -8139,7 +8140,7 @@ impl DocArgParam {
         } else {
             (PyTuple::new_uncorrected_segment().into(), "")
         };
-        let desc = format!("The uncorrected *{which}* segment from {src}{end}.");
+        let desc = format!("The uncorrected {} segment from {src}{end}.", seg.name());
         Self::new_param(argname, pt, desc)
     }
 

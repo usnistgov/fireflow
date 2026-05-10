@@ -3817,8 +3817,8 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
         PyFloat::new_timestep(),
         format!("Value of {TIMESTEP}."),
         false,
-        |_, _| quote!(self.0.specific.timestep),
-        |_, _| quote!(self.0.specific.timestep = timestep),
+        |_, _| quote!(*self.0.as_ref()),
+        |_, _| quote!(*self.0.as_mut() = timestep),
     );
 
     let longname = DocArg::new_meas_kw_ivar1(MeasKw::PnS);
@@ -7820,8 +7820,8 @@ impl DocArgRWIvar {
                  decades and offset for log scale"
             ),
             false,
-            |_, _| quote!(self.0.specific.scale.as_ref().map(|&x| x)),
-            |n, _| quote!(self.0.specific.scale = #n.into()),
+            |_, _| quote!(*self.0.as_ref()),
+            |n, _| quote!(*self.0.scale_mut() = #n.into()),
         )
     }
 
@@ -7837,8 +7837,8 @@ impl DocArgRWIvar {
             PyUnion::new_transform(),
             d,
             false,
-            |_, _| quote!(self.0.specific.scale),
-            |n, _| quote!(self.0.specific.scale = #n),
+            |_, _| quote!(*self.0.as_ref()),
+            |n, _| quote!(*self.0.scale_mut() = #n),
         )
     }
 
@@ -7860,10 +7860,11 @@ impl DocArgRWIvar {
              prefixing with {p} followed by the index. This is not enforced.",
             p = code_str("P"),
         );
+        let path = quote!(fireflow_core::validated::keys::NonStdKeywords);
         Self::new_nonstandard_keywords_ivar(
             d.as_str(),
-            |_, _| quote!(self.0.common.nonstandard_keywords.clone()),
-            |n, _| quote!(self.0.common.nonstandard_keywords = #n),
+            |_, _| quote!(AsRef::<#path>::as_ref(&self.0).clone()),
+            |n, _| quote!(*self.0.as_mut() = #n),
         )
     }
 

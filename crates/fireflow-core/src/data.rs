@@ -2001,7 +2001,7 @@ where
         meas: &Measurements<N, T, O>,
     ) -> Result<(), ScaleDatatypeMismatchError>
     where
-        O::S: CheckedScaleTransform,
+        O::S: CheckedScaleTransform + Default,
         <O::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<
             ErrorGroup<
@@ -2012,7 +2012,7 @@ where
     {
         let xforms: Vec<_> = meas
             .iter_with(&|_, _| O::S::default(), &|_, m| {
-                m.value.specific.as_scale_or_transform()
+                m.value.as_scale_or_transform()
             })
             .collect();
         self.check_transforms(&xforms[..])?;
@@ -2344,7 +2344,7 @@ pub trait LayoutDatatype: Sized {
     where
         Self: HasWidth,
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<
             ErrorGroup<
@@ -2358,7 +2358,7 @@ pub trait LayoutDatatype: Sized {
             .map(|m| {
                 m.as_ref().both(
                     |_| <V::Optical as AsScaleOrTransform>::S::default(),
-                    |r| r.specific.as_scale_or_transform(),
+                    |r| r.as_scale_or_transform(),
                 )
             })
             .collect();
@@ -2371,7 +2371,7 @@ pub trait LayoutDatatype: Sized {
     ) -> Result<(), MeasLayoutMismatchError>
     where
         Self: HasWidth,
-        Opt::S: CheckedScaleTransform,
+        Opt::S: CheckedScaleTransform + Default,
         <Opt::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<
             ErrorGroup<
@@ -2382,7 +2382,7 @@ pub trait LayoutDatatype: Sized {
     {
         let xforms: Vec<_> = meas
             .iter_with(&|_, _| Opt::S::default(), &|_, m| {
-                m.value.specific.as_scale_or_transform()
+                m.value.as_scale_or_transform()
             })
             .collect();
         self.check_transforms_and_len(&xforms[..])
@@ -2396,7 +2396,7 @@ pub trait LayoutDatatype: Sized {
     where
         Self: HasWidth,
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<
             ErrorGroup<

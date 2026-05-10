@@ -275,82 +275,82 @@ pub struct Metaroot<X> {
     #[as_ref(Option<Abrt>)]
     #[as_mut(Option<Abrt>)]
     #[new(into)]
-    pub abrt: Option<Abrt>,
+    abrt: Option<Abrt>,
 
     /// Value of $COM
     #[as_ref(Com)]
     #[as_mut(Com)]
     #[new(into)]
-    pub com: Com,
+    com: Com,
 
     /// Value of $CELLS
     #[as_ref(Cells)]
     #[as_mut(Cells)]
     #[new(into)]
-    pub cells: Cells,
+    cells: Cells,
 
     /// Value of $EXP
     #[as_ref(Exp)]
     #[as_mut(Exp)]
     #[new(into)]
-    pub exp: Exp,
+    exp: Exp,
 
     /// Value of $FIL
     #[as_ref(Fil)]
     #[as_mut(Fil)]
     #[new(into)]
-    pub fil: Fil,
+    fil: Fil,
 
     /// Value of $INST
     #[as_ref(Inst)]
     #[as_mut(Inst)]
     #[new(into)]
-    pub inst: Inst,
+    inst: Inst,
 
     /// Value of $LOST
     #[as_ref(Option<Lost>)]
     #[as_mut(Option<Lost>)]
     #[new(into)]
-    pub lost: Option<Lost>,
+    lost: Option<Lost>,
 
     /// Value of $OP
     #[as_ref(Op)]
     #[as_mut(Op)]
     #[new(into)]
-    pub op: Op,
+    op: Op,
 
     /// Value of $PROJ
     #[as_ref(Proj)]
     #[as_mut(Proj)]
     #[new(into)]
-    pub proj: Proj,
+    proj: Proj,
 
     /// Value of $SMNO
     #[as_ref(Smno)]
     #[as_mut(Smno)]
     #[new(into)]
-    pub smno: Smno,
+    smno: Smno,
 
     /// Value of $SRC
     #[as_ref(Src)]
     #[as_mut(Src)]
     #[new(into)]
-    pub src: Src,
+    src: Src,
 
     /// Value of $SYS
     #[as_ref(Sys)]
     #[as_mut(Sys)]
     #[new(into)]
-    pub sys: Sys,
+    sys: Sys,
 
     /// Value of $TR
     #[as_ref(Option<Trigger>)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub tr: Option<Trigger>,
+    tr: Option<Trigger>,
 
     /// Version-specific data
-    pub specific: X,
+    specific: X,
 
     /// Non-standard keywords.
     ///
@@ -360,7 +360,9 @@ pub struct Metaroot<X> {
     /// considered 'pseudostandard' and stored elsewhere since this structure
     /// will also be used to write FCS-compliant files (which do not allow
     /// nonstandard keywords starting with '$')
-    pub nonstandard_keywords: NonStdKeywords,
+    #[as_ref(NonStdKeywords)]
+    #[as_mut(NonStdKeywords)]
+    nonstandard_keywords: NonStdKeywords,
 }
 
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
@@ -370,14 +372,14 @@ pub struct CommonMeasurement {
     #[as_ref(Longname)]
     #[as_mut(Longname)]
     #[new(into)]
-    pub longname: Longname,
+    longname: Longname,
 
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
     #[as_ref(NonStdKeywords)]
     #[as_mut(NonStdKeywords)]
-    pub nonstandard_keywords: NonStdKeywords,
+    nonstandard_keywords: NonStdKeywords,
 }
 
 /// Structured data for time keywords.
@@ -390,10 +392,10 @@ pub struct Temporal<X> {
     /// Fields shared with optical measurements
     #[as_ref(forward)]
     #[as_mut(forward)]
-    pub common: CommonMeasurement,
+    common: CommonMeasurement,
 
     /// Version specific data
-    pub specific: X,
+    specific: X,
 }
 
 /// Structured data for optical keywords.
@@ -406,40 +408,40 @@ pub struct Optical<X> {
     /// Fields shared with optical measurements
     #[as_ref(forward)]
     #[as_mut(forward)]
-    pub common: CommonMeasurement,
+    common: CommonMeasurement,
 
     /// Value for $PnF
     #[as_ref(Filter)]
     #[as_mut(Filter)]
     #[new(into)]
-    pub filter: Filter,
+    filter: Filter,
 
     /// Value for $PnO
     #[as_ref(Option<Power>)]
     #[as_mut(Option<Power>)]
     #[new(into)]
-    pub power: Option<Power>,
+    power: Option<Power>,
 
     /// Value for $PnD
     #[as_ref(DetectorType)]
     #[as_mut(DetectorType)]
     #[new(into)]
-    pub detector_type: DetectorType,
+    detector_type: DetectorType,
 
     /// Value for $PnP
     #[as_ref(Option<PercentEmitted>)]
     #[as_mut(Option<PercentEmitted>)]
     #[new(into)]
-    pub percent_emitted: Option<PercentEmitted>,
+    percent_emitted: Option<PercentEmitted>,
 
     /// Value for $PnV
     #[as_ref(Option<DetectorVoltage>)]
     #[as_mut(Option<DetectorVoltage>)]
     #[new(into)]
-    pub detector_voltage: Option<DetectorVoltage>,
+    detector_voltage: Option<DetectorVoltage>,
 
     /// Version specific data
-    pub specific: X,
+    specific: X,
 }
 
 /// Standardized FCS dataset for any version
@@ -650,30 +652,30 @@ pub struct InnerMetaroot2_0 {
     /// Value of $MODE
     #[as_ref(Mode)]
     #[as_mut(Mode)]
-    pub mode: Mode,
+    mode: Mode,
 
     /// Value of $CYT
     #[as_ref(Cyt)]
     #[as_mut(Cyt)]
     #[new(into)]
-    pub cyt: Cyt,
+    cyt: Cyt,
 
     /// Compensation matrix derived from 'DFCnTOm' key/value pairs
     #[as_ref(Option<Compensation2_0>)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub comp: Option<Compensation2_0>,
+    comp: Option<Compensation2_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps2_0, Option<FCSDate>)]
     #[as_mut(Timestamps2_0)]
-    pub timestamps: Timestamps2_0,
+    timestamps: Timestamps2_0,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates2_0)]
     #[as_mut(AppliedGates2_0)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub applied_gates: AppliedGates2_0,
+    applied_gates: AppliedGates2_0,
 }
 
 /// Metaroot fields specific to version 3.0
@@ -684,36 +686,36 @@ pub struct InnerMetaroot3_0 {
     /// Value of $MODE
     #[as_ref(Mode)]
     #[as_mut(Mode)]
-    pub mode: Mode,
+    mode: Mode,
 
     /// Value of $CYT
     #[as_ref(Cyt)]
     #[as_mut(Cyt)]
     #[new(into)]
-    pub cyt: Cyt,
+    cyt: Cyt,
 
     /// Value of $COMP
     #[as_ref(Option<Compensation3_0>)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub comp: Option<Compensation3_0>,
+    comp: Option<Compensation3_0>,
 
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_0, Option<FCSDate>)]
     #[as_mut(Timestamps3_0)]
-    pub timestamps: Timestamps3_0,
+    timestamps: Timestamps3_0,
 
     /// Value of $CYTSN
     #[as_ref(Cytsn)]
     #[as_mut(Cytsn)]
     #[new(into)]
-    pub cytsn: Cytsn,
+    cytsn: Cytsn,
 
     /// Value of $UNICODE
     #[as_ref(Option<Unicode>)]
     #[as_mut(Option<Unicode>)]
     #[new(into)]
-    pub unicode: Option<Unicode>,
+    unicode: Option<Unicode>,
 
     /// Aggregated values for $CS* keywords
     #[as_ref(CSVBits)]
@@ -722,13 +724,13 @@ pub struct InnerMetaroot3_0 {
     #[as_mut(CSTot)]
     #[as_ref(CSVFlags)]
     #[as_mut(CSVFlags)]
-    pub subset: SubsetData,
+    subset: SubsetData,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates3_0)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub applied_gates: AppliedGates3_0,
+    applied_gates: AppliedGates3_0,
 }
 
 /// Metaroot fields specific to version 3.1
@@ -739,46 +741,46 @@ pub struct InnerMetaroot3_1 {
     /// Value of $MODE
     #[as_ref(Mode)]
     #[as_mut(Mode)]
-    pub mode: Mode,
+    mode: Mode,
 
     /// Value of $CYT
     #[as_ref(Cyt)]
     #[as_mut(Cyt)]
     #[new(into)]
-    pub cyt: Cyt,
+    cyt: Cyt,
 
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_1, Option<FCSDate>)]
     #[as_mut(Timestamps3_1)]
-    pub timestamps: Timestamps3_1,
+    timestamps: Timestamps3_1,
 
     /// Value of $CYTSN
     #[as_ref(Cytsn)]
     #[as_mut(Cytsn)]
     #[new(into)]
-    pub cytsn: Cytsn,
+    cytsn: Cytsn,
 
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub spillover: Option<Spillover>,
+    spillover: Option<Spillover>,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     #[as_ref(LastModifier, Option<LastModified>, Option<Originality>)]
     #[as_mut(LastModifier, Option<LastModified>, Option<Originality>)]
-    pub modification: ModificationData,
+    modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
     #[as_ref(Plateid, Wellid, Platename)]
     #[as_mut(Plateid, Wellid, Platename)]
-    pub plate: PlateData,
+    plate: PlateData,
 
     /// Value of $VOL
     #[as_ref(Option<Vol>)]
     #[as_mut(Option<Vol>)]
     #[new(into)]
-    pub vol: Option<Vol>,
+    vol: Option<Vol>,
 
     /// Aggregated values for $CS* keywords
     #[as_ref(CSVBits)]
@@ -787,13 +789,13 @@ pub struct InnerMetaroot3_1 {
     #[as_mut(CSTot)]
     #[as_ref(CSVFlags)]
     #[as_mut(CSVFlags)]
-    pub subset: SubsetData,
+    subset: SubsetData,
 
     /// Values of $Gm*/$RnI/$RnW/$GATING/$GATE
     #[as_ref(AppliedGates3_0)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub applied_gates: AppliedGates3_0,
+    applied_gates: AppliedGates3_0,
 }
 
 /// Metaroot fields specific to version 3.2
@@ -805,71 +807,71 @@ pub struct InnerMetaroot3_2 {
     #[as_ref(Option<Mode3_2>)]
     #[as_mut(Option<Mode3_2>)]
     #[new(into)]
-    pub mode: Option<Mode3_2>,
+    mode: Option<Mode3_2>,
 
     /// Values of $BTIM/ETIM/$DATE
     #[as_ref(Timestamps3_1, Option<FCSDate>)]
     #[as_mut(Timestamps3_1)]
-    pub timestamps: Timestamps3_1,
+    timestamps: Timestamps3_1,
 
     /// Values of $BEGINDATETIME/$ENDDATETIME
     #[as_ref(Option<BeginDateTime>, Option<EndDateTime>, Datetimes)]
     #[as_mut(Datetimes)]
-    pub datetimes: Datetimes,
+    datetimes: Datetimes,
 
     /// Value of $CYT
     #[as_ref(Cyt3_2)]
     #[as_mut(Cyt3_2)]
-    pub cyt: Cyt3_2,
+    cyt: Cyt3_2,
 
     /// Value of $SPILLOVER
     #[as_ref(Option<Spillover>)]
     #[new(into)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub spillover: Option<Spillover>,
+    spillover: Option<Spillover>,
 
     /// Value of $CYTSN
     #[as_ref(Cytsn)]
     #[as_mut(Cytsn)]
     #[new(into)]
-    pub cytsn: Cytsn,
+    cytsn: Cytsn,
 
     /// Values of $LAST_MODIFIED/$LAST_MODIFIER/$ORIGINALITY
     #[as_ref(LastModifier, Option<LastModified>, Option<Originality>)]
     #[as_mut(LastModifier, Option<LastModified>, Option<Originality>)]
-    pub modification: ModificationData,
+    modification: ModificationData,
 
     /// Values of $PLATEID/$PLATENAME/$WELLID
     #[as_ref(Plateid, Wellid, Platename)]
     #[as_mut(Plateid, Wellid, Platename)]
-    pub plate: PlateData,
+    plate: PlateData,
 
     /// Value of $VOL
     #[as_ref(Option<Vol>)]
     #[as_mut(Option<Vol>)]
     #[new(into)]
-    pub vol: Option<Vol>,
+    vol: Option<Vol>,
 
     /// Values of $CARRIERID/$CARRIERTYPE/$LOCATIONID
     #[as_ref(Carrierid, Carriertype, Locationid)]
     #[as_mut(Carrierid, Carriertype, Locationid)]
-    pub carrier: CarrierData,
+    carrier: CarrierData,
 
     /// Values of $UNSTAINEDINFO/$UNSTAINEDCENTERS
     #[as_ref(UnstainedCenters, UnstainedInfo)]
     #[as_mut(UnstainedInfo)]
-    pub unstained: UnstainedData,
+    unstained: UnstainedData,
 
     /// Value of $FLOWRATE
     #[as_ref(Flowrate)]
     #[as_mut(Flowrate)]
     #[new(into)]
-    pub flowrate: Flowrate,
+    flowrate: Flowrate,
 
     /// Values of $RnI/$RnW/$GATING
     #[as_ref(AppliedGates3_2)]
     // NOTE not mutable to prevent mutation when part of Core
-    pub applied_gates: AppliedGates3_2,
+    applied_gates: AppliedGates3_2,
 }
 
 /// Temporal measurement fields specific to version 2.0
@@ -883,14 +885,14 @@ pub struct InnerTemporal2_0 {
     #[as_ref(TemporalScale2_0)]
     #[as_mut(TemporalScale2_0)]
     #[new(into)]
-    pub scale: TemporalScale2_0,
+    scale: TemporalScale2_0,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    pub peak: PeakData,
+    peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.0
@@ -902,14 +904,14 @@ pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
     #[as_mut(Timestep)]
-    pub timestep: Timestep,
+    timestep: Timestep,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    pub peak: PeakData,
+    peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.1
@@ -921,20 +923,20 @@ pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
     #[as_mut(Timestep)]
-    pub timestep: Timestep,
+    timestep: Timestep,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    pub display: Option<Display>,
+    display: Option<Display>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    pub peak: PeakData,
+    peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.2
@@ -946,19 +948,19 @@ pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
     #[as_mut(Timestep)]
-    pub timestep: Timestep,
+    timestep: Timestep,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    pub display: Option<Display>,
+    display: Option<Display>,
 
     /// Value for $PnTYPE
     #[as_ref(TemporalType)]
     #[as_mut(TemporalType)]
     #[new(into)]
-    pub measurement_type: TemporalType,
+    measurement_type: TemporalType,
 }
 
 /// Optical measurement fields specific to version 2.0
@@ -976,20 +978,20 @@ pub struct InnerOptical2_0 {
     /// however, so it is still public.
     #[as_ref(Option<Scale>)]
     #[new(into)]
-    pub scale: Option<Scale>,
+    scale: Option<Scale>,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
     #[as_mut(Option<Wavelength>)]
     #[new(into)]
-    pub wavelength: Option<Wavelength>,
+    wavelength: Option<Wavelength>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    pub peak: PeakData,
+    peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.0
@@ -1007,20 +1009,20 @@ pub struct InnerOptical3_0 {
     /// however, so it is still public.
     #[as_ref(ScaleTransform)]
     #[new(into)]
-    pub scale: ScaleTransform,
+    scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
     #[as_mut(Option<Wavelength>)]
     #[new(into)]
-    pub wavelength: Option<Wavelength>,
+    wavelength: Option<Wavelength>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    pub peak: PeakData,
+    peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.1
@@ -1038,32 +1040,32 @@ pub struct InnerOptical3_1 {
     /// however, so it is still public.
     #[as_ref(ScaleTransform)]
     #[new(into)]
-    pub scale: ScaleTransform,
+    scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Wavelengths)]
     #[as_mut(Wavelengths)]
     #[new(into)]
-    pub wavelengths: Wavelengths,
+    wavelengths: Wavelengths,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_1>)]
     #[as_mut(Option<Calibration3_1>)]
     #[new(into)]
-    pub calibration: Option<Calibration3_1>,
+    calibration: Option<Calibration3_1>,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    pub display: Option<Display>,
+    display: Option<Display>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    pub peak: PeakData,
+    peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.2
@@ -1082,55 +1084,55 @@ pub struct InnerOptical3_2 {
     /// however, so it is still public.
     #[as_ref(ScaleTransform)]
     #[new(into)]
-    pub scale: ScaleTransform,
+    scale: ScaleTransform,
 
     /// Value for $PnL
     #[as_ref(Wavelengths)]
     #[as_mut(Wavelengths)]
     #[new(into)]
-    pub wavelengths: Wavelengths,
+    wavelengths: Wavelengths,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_2>)]
     #[as_mut(Option<Calibration3_2>)]
     #[new(into)]
-    pub calibration: Option<Calibration3_2>,
+    calibration: Option<Calibration3_2>,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    pub display: Option<Display>,
+    display: Option<Display>,
 
     /// Value for $PnANALYTE
     #[as_ref(Analyte)]
     #[as_mut(Analyte)]
     #[new(into)]
-    pub analyte: Analyte,
+    analyte: Analyte,
 
     /// Value for $PnFEATURE
     #[as_ref(Option<Feature>)]
     #[as_mut(Option<Feature>)]
     #[new(into)]
-    pub feature: Option<Feature>,
+    feature: Option<Feature>,
 
     /// Value for $PnTYPE
     #[as_ref(OpticalType)]
     #[as_mut(OpticalType)]
     #[new(into)]
-    pub measurement_type: OpticalType,
+    measurement_type: OpticalType,
 
     /// Value for $PnTAG
     #[as_ref(Tag)]
     #[as_mut(Tag)]
     #[new(into)]
-    pub tag: Tag,
+    tag: Tag,
 
     /// Value for $PnDET
     #[as_ref(DetectorName)]
     #[as_mut(DetectorName)]
     #[new(into)]
-    pub detector_name: DetectorName,
+    detector_name: DetectorName,
 }
 
 /// Segment offsets and $TOT as read from TEXT segment
@@ -2910,39 +2912,43 @@ impl HasSpillover for InnerMetaroot3_2 {
     }
 }
 
-// Implement private mutable access for $PnE (2.0)
+// Implement mutable access for $PnE (and/or $PnG for 3.0+)
+//
+// We use AsMut to mutate deeply nested structure in Core*, but this only works
+// for things that can be mutated independent of other values in Core*. Since
+// $PnE and $PnG relate to the datatype of the column in question, these need to
+// be kept in sync and therefore can't use AsMut. This trait is basically AsMut
+// by a different name which allows it to be independently implemented in
+// methods with the proper checks.
+//
+// It can also be used to mutate a free-floating optical struct (ie not in
+// *Core) where these relationships don't exist, which allows the inner fields
+// of the Optical types to be private.
 
-pub trait HasScale {
-    // private as_mut
-    fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale>;
+pub trait HasScale<S> {
+    fn scale_mut(&mut self) -> &mut S;
 }
 
-impl HasScale for InnerOptical2_0 {
-    fn scale_mut(&mut self, _: private::NoTouchy) -> &mut Option<Scale> {
+impl HasScale<Option<Scale>> for InnerOptical2_0 {
+    fn scale_mut(&mut self) -> &mut Option<Scale> {
         &mut self.scale
     }
 }
 
-// Implement private mutable access for $PnE/$PnG (3.0+)
-
-pub trait HasScaleTransform {
-    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform;
-}
-
-impl HasScaleTransform for InnerOptical3_0 {
-    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+impl HasScale<ScaleTransform> for InnerOptical3_0 {
+    fn scale_mut(&mut self) -> &mut ScaleTransform {
         &mut self.scale
     }
 }
 
-impl HasScaleTransform for InnerOptical3_1 {
-    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+impl HasScale<ScaleTransform> for InnerOptical3_1 {
+    fn scale_mut(&mut self) -> &mut ScaleTransform {
         &mut self.scale
     }
 }
 
-impl HasScaleTransform for InnerOptical3_2 {
-    fn transform_mut(&mut self, _: private::NoTouchy) -> &mut ScaleTransform {
+impl HasScale<ScaleTransform> for InnerOptical3_2 {
+    fn scale_mut(&mut self) -> &mut ScaleTransform {
         &mut self.scale
     }
 }
@@ -2994,7 +3000,7 @@ impl HasAppliedGates for InnerMetaroot3_2 {
 // Used for checking transforms against the datatype for a measurement.
 
 pub trait AsScaleOrTransform {
-    type S: Default;
+    type S;
     fn as_scale_or_transform(&self) -> Self::S;
 }
 
@@ -5997,6 +6003,20 @@ impl<O> Optical<O> {
         *self.as_mut() = v.map(Feature::Optical);
     }
 
+    pub fn scale_mut<S>(&mut self) -> &mut S
+    where
+        O: HasScale<S>,
+    {
+        self.specific.scale_mut()
+    }
+
+    pub(crate) fn as_scale_or_transform(&self) -> O::S
+    where
+        O: AsScaleOrTransform,
+    {
+        self.specific.as_scale_or_transform()
+    }
+
     fn try_convert<Of: ConvertFromOptical<O>>(
         self,
         i: MeasIndex,
@@ -7590,7 +7610,7 @@ where
         scales: Vec<Option<Scale>>,
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
-        V::Optical: HasScale,
+        V::Optical: HasScale<Option<Scale>>,
         L: LayoutDatatype + HasWidth,
     {
         let center_scale_not_linear = || {
@@ -7619,11 +7639,7 @@ where
                     "Input scales vector should be same length as existing measurements"
                 );
                 self.measurements
-                    .alter_values_zip(
-                        scales,
-                        |_, _| (),
-                        |m, x| *m.value.specific.scale_mut(private::NoTouchy) = x,
-                    )
+                    .alter_values_zip(scales, |_, _| (), |m, x| *m.value.specific.scale_mut() = x)
                     .unwrap();
             })
             .group()
@@ -7636,7 +7652,7 @@ where
         xforms: Vec<ScaleTransform>,
     ) -> GroupResult<(), SetTransformsError, SetTransformsSummary>
     where
-        V::Optical: HasScaleTransform,
+        V::Optical: HasScale<ScaleTransform>,
         L: LayoutDatatype + HasWidth,
     {
         let center_xform_not_noop = || {
@@ -7659,11 +7675,7 @@ where
                     "Input transforms vector should be same length as existing measurements"
                 );
                 self.measurements
-                    .alter_values_zip(
-                        xforms,
-                        |_, _| (),
-                        |m, x| *m.value.specific.transform_mut(private::NoTouchy) = x,
-                    )
+                    .alter_values_zip(xforms, |_, _| (), |m, x| *m.value.specific.scale_mut() = x)
                     .unwrap();
             })
             .group()
@@ -7789,7 +7801,7 @@ where
     ) -> Result<(), SetNamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: LayoutDatatype + HasWidth,
@@ -7804,7 +7816,7 @@ where
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype,
@@ -8009,7 +8021,7 @@ where
     ) -> Result<(), SetNamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: LayoutDatatype + HasWidth,
@@ -8026,7 +8038,7 @@ where
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype,
@@ -8043,7 +8055,7 @@ where
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
@@ -8626,7 +8638,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -8666,7 +8678,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -8692,7 +8704,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -8838,7 +8850,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> Result<(), MeasLayoutMismatchError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -8855,7 +8867,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataSchema: HasWidth + LayoutDatatype + LayoutNormalize,
@@ -8877,7 +8889,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> Result<(), SetNamedMeasurementsError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -8949,7 +8961,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::DataSchema: HasWidth,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -9002,7 +9014,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> ErrorsResult<Self, (), NewCoreError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -9077,7 +9089,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>
             + AsRef<ReadSharedConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -9120,7 +9132,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
@@ -9309,7 +9321,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     ) -> Result<(), DatasetSetDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
@@ -9334,7 +9346,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
@@ -9373,7 +9385,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     ) -> Result<(), DatasetSetNamedMeasAndDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
@@ -9445,7 +9457,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     ) -> Result<(), SetMeasurementsAndDataError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
@@ -9466,7 +9478,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
@@ -9489,7 +9501,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
         V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,

@@ -5,6 +5,9 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
+use crate::text::relational::{
+    KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
+};
 use crate::validated::shortname::Shortname;
 
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
@@ -14,12 +17,12 @@ use type_families::{
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
+use hashbrown::{HashMap, HashSet};
 use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::borrow::Cow;
-use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet, hash_map::Entry};
+use std::cmp::Ordering::{Equal, Greater, Less};
 use std::convert::Infallible;
 use std::fmt;
 use std::hash::Hash;
@@ -36,12 +39,6 @@ use pyo3::prelude::*;
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
-};
-
-use Ordering::{Equal, Greater, Less};
-
-use super::relational::{
-    KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
 };
 
 /// A list of potentially named values with an optional "center value".
@@ -62,21 +59,22 @@ use super::relational::{
 #[new(visibility(""))]
 pub struct NamedVec<K, U, V> {
     left: PairedVec<K, V>,
-    right: Option<TailVec<K, U, V>>,
-}
-
-#[derive(Clone, PartialEq, new)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[new(visibility(""))]
-struct TailVec<K, U, V> {
-    center: Center<U>,
-    right: PairedVec<K, V>,
+    center_right: Option<CenterRightVec<K, U, V>>,
 }
 
 impl<K, U, V> Default for NamedVec<K, U, V> {
     fn default() -> Self {
         Self::new(vec![], None)
     }
+}
+
+/// The center and right elements of a [`NamedVec`].
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[new(visibility(""))]
+struct CenterRightVec<K, U, V> {
+    center: Center<U>,
+    right: PairedVec<K, V>,
 }
 
 /// An key/value pair with an index
@@ -126,12 +124,6 @@ pub struct Pair<K, V> {
 pub struct NamedSet<'a> {
     center: Option<&'a Shortname>,
     non_center: HashSet<&'a Shortname>,
-}
-
-pub(crate) enum NamedSetMembership {
-    Center,
-    NonCenter,
-    None,
 }
 
 type Center<U> = Pair<Shortname, U>;
@@ -330,71 +322,7 @@ pub struct InputLengthError {
     include_center: bool,
 }
 
-impl NamedSet<'_> {
-    pub(crate) fn membership(&self, name: &Shortname) -> NamedSetMembership {
-        if self.contains_non_center_name(name) {
-            NamedSetMembership::NonCenter
-        } else if self.contains_center_name(name) {
-            NamedSetMembership::Center
-        } else {
-            NamedSetMembership::None
-        }
-    }
-
-    pub(crate) fn error_names<'a>(
-        &self,
-        names: impl IntoIterator<Item = &'a Shortname>,
-    ) -> (Option<Shortname>, Option<NEVec<Shortname>>) {
-        let mut t = None;
-        let ns = names
-            .into_iter()
-            .filter(|&n| match self.membership(n) {
-                NamedSetMembership::None => true,
-                NamedSetMembership::Center => {
-                    t = Some(n.clone());
-                    false
-                }
-                NamedSetMembership::NonCenter => false,
-            })
-            .cloned()
-            .try_into_nonempty_iter()
-            .map(|n| n.collect());
-        (t, ns)
-    }
-
-    pub(crate) fn invalid_link_errors<'a, T>(
-        &self,
-        names: impl IntoIterator<Item = &'a Shortname>,
-    ) -> impl Iterator<Item = KeyToNameLinkError<T>> {
-        let (t, o) = self.error_names(names);
-        let te = t
-            .map(TemporalNamedLinkError::new_i0)
-            .map(KeyToNameLinkError::Temporal);
-        let oe = o
-            .map(OpticalNamedLinkError::new_i0)
-            .map(KeyToNameLinkError::Optical);
-        [te, oe].into_iter().flatten()
-    }
-
-    pub(crate) fn error_link_name<'a>(
-        &self,
-        names: impl IntoIterator<Item = &'a Shortname>,
-    ) -> Option<LinkName> {
-        let (t, o) = self.error_names(names);
-        match o {
-            None => t.map(LinkName::Temporal),
-            Some(ns) => Some(LinkName::Both(ns, t)),
-        }
-    }
-
-    pub(crate) fn contains_non_center_name(&self, name: &Shortname) -> bool {
-        self.non_center.contains(name)
-    }
-
-    fn contains_center_name(&self, name: &Shortname) -> bool {
-        self.center.as_ref().is_some_and(|n| n == &name)
-    }
-}
+// Implement methods for NamedVec
 
 impl<K, U, V> NamedVec<K, U, V> {
     /// Build new NamedVec using either center or non-center values.
@@ -453,7 +381,7 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Return reference to center
     pub(crate) fn as_center(&self) -> Option<IndexedElement<&Shortname, &U>> {
-        let right = self.right.as_ref()?;
+        let right = self.center_right.as_ref()?;
         Some(IndexedElement::new(
             self.left.len().into(),
             &right.center.key,
@@ -463,7 +391,7 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Return mutable reference to center
     pub fn as_center_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut U>> {
-        let right = self.right.as_mut()?;
+        let right = self.center_right.as_mut()?;
         Some(IndexedElement::new(
             self.left.len().into(),
             &mut right.center.key,
@@ -487,7 +415,7 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Return iterator over all elements with indices
     pub fn iter(&self) -> impl Iterator<Item = Element<&Pair<Shortname, U>, &Pair<K, V>>> {
-        let right = self.right.iter().flat_map(|r| {
+        let right = self.center_right.iter().flat_map(|r| {
             once(Element::Center(&r.center)).chain(r.right.iter().map(Element::NonCenter))
         });
         self.left.iter().map(Element::NonCenter).chain(right)
@@ -497,7 +425,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub fn iter_mut(
         &mut self,
     ) -> impl Iterator<Item = Element<&mut Pair<Shortname, U>, &mut Pair<K, V>>> {
-        let right = self.right.iter_mut().flat_map(|r| {
+        let right = self.center_right.iter_mut().flat_map(|r| {
             once(Element::Center(&mut r.center)).chain(r.right.iter_mut().map(Element::NonCenter))
         });
         self.left.iter_mut().map(Element::NonCenter).chain(right)
@@ -649,7 +577,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let mut it = xs.into_iter();
         let mut ret: Vec<_> =
             Self::alter_paired_vec(&mut self.left, it.by_ref().take(nleft), 0, &g).collect();
-        if let Some(r) = self.right.as_mut() {
+        if let Some(r) = self.center_right.as_mut() {
             let nright = r.right.len();
             let c = &mut r.center;
             let center_r = f(
@@ -693,7 +621,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let xs_left = it.by_ref().take(nleft).collect();
         let left_res = check_optical(xs_left, 0);
 
-        let res = if let Some(r) = self.right.as_mut() {
+        let res = if let Some(r) = self.center_right.as_mut() {
             let x_center = it.by_ref().next().expect("length was checked above");
             let xs_right = it.collect();
             let center_res = x_center
@@ -788,7 +716,7 @@ impl<K, U, V> NamedVec<K, U, V> {
 
     /// Return position of center, if it exists
     pub(crate) fn center_index(&self) -> Option<MeasIndex> {
-        self.right.is_some().then(|| self.left.len().into())
+        self.center_right.is_some().then(|| self.left.len().into())
     }
 
     /// Apply function over center value, possibly changing it's type
@@ -802,7 +730,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         EC: Functor<E>,
         LWC: Default,
     {
-        if let Some(r) = self.right {
+        if let Some(r) = self.center_right {
             let c = r.center;
             let index = self.left.len().into();
             let ckey = c.key;
@@ -835,7 +763,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 })
                 .sequence_commutative()
         };
-        if let Some(r) = self.right {
+        if let Some(r) = self.center_right {
             let nleft = self.left.len();
             let lres = go(self.left, 0);
             let rres = go(r.right, nleft + 1);
@@ -871,7 +799,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     ) -> Result<Element<(&Shortname, &U), (&K, &V)>, ElementIndexError> {
         let i = self.check_element_index(index, true)?;
         let l = &self.left;
-        let r = &self.right.as_ref();
+        let r = &self.center_right.as_ref();
         let left_len = l.len();
         let ret = match i.cmp(&left_len) {
             Less => Element::NonCenter(&l[i]),
@@ -989,7 +917,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     {
         debug_assert!(self.check_push(&key).is_ok(), "Name is not unique");
         let p = Pair::new(key, value);
-        if let Some(r) = self.right.as_mut() {
+        if let Some(r) = self.center_right.as_mut() {
             r.right.push(p);
         } else {
             self.left.push(p);
@@ -1011,7 +939,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         match i.cmp(&ln) {
             Less | Equal => self.left.insert(i, p),
             Greater => {
-                let r = self.right.as_mut().expect("no center/right present");
+                let r = self.center_right.as_mut().expect("no center/right present");
                 r.right.insert(i - ln - 1, p);
             }
         }
@@ -1044,14 +972,14 @@ impl<K, U, V> NamedVec<K, U, V> {
         match i.cmp(&ln) {
             Less => Element::NonCenter(mem::replace(&mut self.left[i].value, value)),
             Equal => {
-                let r = mem::take(&mut self.right).expect("index out of bounds");
+                let r = mem::take(&mut self.center_right).expect("index out of bounds");
                 let key = K::wrap(r.center.key);
                 self.left.push(Pair::new(key, value));
                 self.left.extend(r.right);
                 Element::Center(r.center.value)
             }
             Greater => {
-                let r = self.right.as_mut().expect("index out of bounds");
+                let r = self.center_right.as_mut().expect("index out of bounds");
                 let ret = mem::replace(&mut r.right[i - ln - 1].value, value);
                 Element::NonCenter(ret)
             }
@@ -1104,11 +1032,18 @@ impl<K, U, V> NamedVec<K, U, V> {
         let old = match i.cmp(&ln) {
             Less => mem::replace(&mut self.left[i].key, key),
             Equal => {
-                let ck = &mut self.right.as_mut().expect("index was checked").center.key;
+                let ck = &mut self
+                    .center_right
+                    .as_mut()
+                    .expect("index was checked")
+                    .center
+                    .key;
                 K::wrap(mem::replace(ck, k.clone()))
             }
             Greater => {
-                let rk = &mut self.right.as_mut().expect("index was checked").right[i - ln - 1].key;
+                let rk = &mut self.center_right.as_mut().expect("index was checked").right
+                    [i - ln - 1]
+                    .key;
                 mem::replace(rk, key)
             }
         };
@@ -1120,7 +1055,10 @@ impl<K, U, V> NamedVec<K, U, V> {
     ///
     /// Return previous name if center exists.
     pub(crate) fn rename_center(&mut self, name: Shortname) -> Option<Shortname> {
-        Some(mem::replace(&mut self.right.as_mut()?.center.key, name))
+        Some(mem::replace(
+            &mut self.center_right.as_mut()?.center.key,
+            name,
+        ))
     }
 
     /// Test if new center with name can be pushed
@@ -1133,7 +1071,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     {
         let a = self.check_name(name).map_err(PushCenterError::from);
         let b = self
-            .right
+            .center_right
             .is_some()
             .then_some(CenterPresentError.into())
             .map_or(Ok(()), Err);
@@ -1168,8 +1106,8 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
-        debug_assert!(self.right.is_none(), "Center already present");
-        self.right = Some(TailVec::new(Pair::new(name, value), vec![]));
+        debug_assert!(self.center_right.is_none(), "Center already present");
+        self.center_right = Some(CenterRightVec::new(Pair::new(name, value), vec![]));
     }
 
     /// Insert a new center element at a given position.
@@ -1181,11 +1119,11 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
-        debug_assert!(self.right.is_none(), "Center already present");
+        debug_assert!(self.center_right.is_none(), "Center already present");
         let i = usize::from(index);
         debug_assert!(i <= self.len(), "Index is out of bounds");
         let p = Pair::new(name, value);
-        self.right = Some(TailVec::new(p, self.left.split_off(i)));
+        self.center_right = Some(CenterRightVec::new(p, self.left.split_off(i)));
     }
 
     /// Remove key/value pair by name.
@@ -1198,12 +1136,12 @@ impl<K, U, V> NamedVec<K, U, V> {
         let ret = match i.cmp(&nleft) {
             Less => Element::NonCenter(self.left.remove(i)),
             Equal => {
-                let r = mem::take(&mut self.right).expect("index was checked");
+                let r = mem::take(&mut self.center_right).expect("index was checked");
                 self.left.extend(r.right);
                 Element::Center(r.center)
             }
             Greater => {
-                let r = self.right.as_mut().expect("index was checked");
+                let r = self.center_right.as_mut().expect("index was checked");
                 Element::NonCenter(r.right.remove(i - nleft - 1))
             }
         };
@@ -1229,7 +1167,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         match go(&mut self.left) {
             Ok((i, x)) => Ok((i, Element::NonCenter(x))),
             Err(e) => {
-                if let Some(mut r) = mem::take(&mut self.right) {
+                if let Some(mut r) = mem::take(&mut self.center_right) {
                     if &r.center.key == n {
                         // if name matches center, return center and extend the
                         // left vector with the right vector
@@ -1240,7 +1178,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                         // if name matches in right vector, remove from right
                         // and put center+right back on tail of parent struct
                         let res = go(&mut r.right);
-                        self.right = Some(r);
+                        self.center_right = Some(r);
                         res.map(|(i, x)| (i, Element::NonCenter(x)))
                     }
                 } else {
@@ -1277,7 +1215,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let mut it = ks.into_iter();
         let ks_left = it.by_ref().take(self.left.len()).collect();
 
-        if let Some(r) = self.right.as_mut() {
+        if let Some(r) = self.center_right.as_mut() {
             let center = it.by_ref().next().expect("length was checked above");
             let ks_right = it.collect();
             if let Some(center_name) = K::to_opt(center) {
@@ -1364,7 +1302,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         let mut it = ns.into_iter();
         let ns_left = it.by_ref().take(self.left.len()).collect();
         go(&mut self.left, ns_left);
-        if let Some(r) = self.right.as_mut() {
+        if let Some(r) = self.center_right.as_mut() {
             let n_center = it.next().expect("length was checked above");
             let ns_right = it.collect();
             go(&mut r.right, ns_right);
@@ -1676,7 +1614,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         LWC: Default,
         K: Pointed<Shortname>,
     {
-        if let Some(r) = mem::take(&mut self.right) {
+        if let Some(r) = mem::take(&mut self.center_right) {
             let index = self.left.len().into();
             to_v(index, r.center.value)
                 .inject_value((r.center.key, r.right))
@@ -1688,7 +1626,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 })
                 .map_err_value(|(value, (center_key, right))| {
                     let center = Pair::new(center_key, value);
-                    self.right = Some(TailVec::new(center, right));
+                    self.center_right = Some(CenterRightVec::new(center, right));
                 })
         } else {
             LogResult::new_ok(None)
@@ -1711,7 +1649,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .sequence_commutative()
         };
 
-        if let Some(r) = self.right {
+        if let Some(r) = self.center_right {
             let offset = self.left.len() + 1;
             let lres = go(self.left, 0);
             let rres = go(r.right, offset);
@@ -1864,7 +1802,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     fn new_split(left: PairedVec<K, V>, center: Center<U>, right: PairedVec<K, V>) -> Self {
-        Self::new(left, Some(TailVec::new(center, right)))
+        Self::new(left, Some(CenterRightVec::new(center, right)))
     }
 
     fn new_split_from_left(
@@ -1948,7 +1886,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     fn try_into_split(self) -> Result<PairedVec<K, V>, SplitVec<K, U, V>> {
-        if let Some(r) = self.right {
+        if let Some(r) = self.center_right {
             Err(SplitVec::new(self.left, r.center, r.right))
         } else {
             Ok(self.left)
@@ -1965,13 +1903,89 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         self.try_into_split()
-            .map(|x| split_paired_vec(x, index).expect("index points to existing name"))
+            .map(|x| PairedSplit::from_paired(x, index).expect("index points to existing name"))
             .map_err(|x| {
                 x.split_at_index(index)
                     .expect("index points to existing name")
             })
     }
 }
+
+// Implement methods for NamedSet
+
+pub(crate) enum NamedSetMembership {
+    Center,
+    NonCenter,
+    None,
+}
+
+impl NamedSet<'_> {
+    pub(crate) fn membership(&self, name: &Shortname) -> NamedSetMembership {
+        if self.contains_non_center_name(name) {
+            NamedSetMembership::NonCenter
+        } else if self.contains_center_name(name) {
+            NamedSetMembership::Center
+        } else {
+            NamedSetMembership::None
+        }
+    }
+
+    pub(crate) fn error_names<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a Shortname>,
+    ) -> (Option<Shortname>, Option<NEVec<Shortname>>) {
+        let mut t = None;
+        let ns = names
+            .into_iter()
+            .filter(|&n| match self.membership(n) {
+                NamedSetMembership::None => true,
+                NamedSetMembership::Center => {
+                    t = Some(n.clone());
+                    false
+                }
+                NamedSetMembership::NonCenter => false,
+            })
+            .cloned()
+            .try_into_nonempty_iter()
+            .map(|n| n.collect());
+        (t, ns)
+    }
+
+    pub(crate) fn invalid_link_errors<'a, T>(
+        &self,
+        names: impl IntoIterator<Item = &'a Shortname>,
+    ) -> impl Iterator<Item = KeyToNameLinkError<T>> {
+        let (t, o) = self.error_names(names);
+        let te = t
+            .map(TemporalNamedLinkError::new_i0)
+            .map(KeyToNameLinkError::Temporal);
+        let oe = o
+            .map(OpticalNamedLinkError::new_i0)
+            .map(KeyToNameLinkError::Optical);
+        [te, oe].into_iter().flatten()
+    }
+
+    pub(crate) fn error_link_name<'a>(
+        &self,
+        names: impl IntoIterator<Item = &'a Shortname>,
+    ) -> Option<LinkName> {
+        let (t, o) = self.error_names(names);
+        match o {
+            None => t.map(LinkName::Temporal),
+            Some(ns) => Some(LinkName::Both(ns, t)),
+        }
+    }
+
+    pub(crate) fn contains_non_center_name(&self, name: &Shortname) -> bool {
+        self.non_center.contains(name)
+    }
+
+    fn contains_center_name(&self, name: &Shortname) -> bool {
+        self.center.as_ref().is_some_and(|n| n == &name)
+    }
+}
+
+// Implement methods for Element
 
 impl<A, B> BifunctorOnce<A, B> for Element<A, B> {
     fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Element<C, B> {
@@ -2063,6 +2077,14 @@ impl<X> Element<X, X> {
     }
 }
 
+// Implement data types and methods to replace elements
+//
+// We have some methods which involve replacing an element with a new center
+// element and converting the old center element to a non-center element using
+// a fallible function. Since this is easiest to do with owned values, we need
+// a way of deconstructing the named vec to "split" counterparts which also
+// can be easily reconstructed into the original vector upon failure.
+
 #[derive(new)]
 struct SplitVec<K, U, V> {
     left: PairedVec<K, V>,
@@ -2131,7 +2153,7 @@ impl<K, U, V> SplitVec<K, U, V> {
         let nleft = self.left.len();
         match index.cmp(&nleft) {
             Less => {
-                let split_left = split_paired_vec(self.left, index)?;
+                let split_left = PairedSplit::from_paired(self.left, index)?;
                 let stable = LeftSplitStable::new(
                     split_left.left,
                     split_left.selected_name,
@@ -2145,7 +2167,7 @@ impl<K, U, V> SplitVec<K, U, V> {
             }
             Equal => Some(PartialSplit::Center(self)),
             Greater => {
-                let split_right = split_paired_vec(self.right, index)?;
+                let split_right = PairedSplit::from_paired(self.right, index)?;
                 let stable = RightSplitStable::new(
                     self.left,
                     self.center.key,
@@ -2161,26 +2183,30 @@ impl<K, U, V> SplitVec<K, U, V> {
     }
 }
 
-fn split_paired_vec<K, V>(xs: PairedVec<K, V>, index: usize) -> Option<PairedSplit<K, V>>
-where
-    K: MightHave<Shortname>,
-{
-    let mut it = xs.into_iter();
-    let left = it.by_ref().take(index).collect();
-    let p = it.by_ref().next()?;
-    Some(PairedSplit {
-        left,
-        selected_name: K::to_opt(p.key)?,
-        selected_value: p.value,
-        right: it.collect(),
-    })
+impl<K, V> PairedSplit<K, V> {
+    fn from_paired(xs: PairedVec<K, V>, index: usize) -> Option<Self>
+    where
+        K: MightHave<Shortname>,
+    {
+        let mut it = xs.into_iter();
+        let left = it.by_ref().take(index).collect();
+        let p = it.by_ref().next()?;
+        Some(Self {
+            left,
+            selected_name: K::to_opt(p.key)?,
+            selected_value: p.value,
+            right: it.collect(),
+        })
+    }
 }
+
+// Misc functions
 
 fn to_opt_or_indexed(x: Option<&Shortname>, i: MeasIndex) -> Shortname {
     x.cloned().unwrap_or(i.into())
 }
 
-fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Shortname>>) -> bool {
+pub(crate) fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Shortname>>) -> bool {
     all_unique(
         xs.into_iter()
             .enumerate()
@@ -2189,130 +2215,8 @@ fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Shortname>>) -> 
 }
 
 fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
-    let mut unique = HashSet::new();
-    for x in xs {
-        if unique.contains(&x) {
-            return false;
-        }
-        unique.insert(x);
-    }
-    true
-}
-
-/// Make all keys unique if they are not already.
-///
-/// Do this by appending "~X" to keys which are not unique and incrementing "X"
-/// starting at 0.
-///
-/// Return vector of original names if they were changed.
-pub(crate) fn uniquify_names<K>(xs: &mut [K]) -> Vec<Option<Shortname>>
-where
-    K: MightHave<Shortname>,
-{
-    // First get list of all duplicates by collecting all names and pairing with
-    // their indices. Any key with more than one index is duplicated and should
-    // be processed later.
-    let mut counts: HashMap<&Shortname, NEVec<usize>> = HashMap::new();
-    let mut original = vec![];
-    original.resize_with(xs.len(), || None); // Avoid using Clone for Option<K>
-    for (i, k) in xs.iter().enumerate() {
-        if let Some(n) = k.as_opt() {
-            match counts.entry(n) {
-                Entry::Occupied(mut z) => {
-                    z.get_mut().push(i);
-                }
-                Entry::Vacant(z) => {
-                    z.insert_entry(NEVec::new(i));
-                }
-            }
-        }
-    }
-
-    // Next make a list of replacement names corresponding to each index. For
-    // each duplicated name, init a counter at 0 and increment this counter
-    // until it results in a unique name. Once it is unique, save this with
-    // its index and repeat for remaining indices under the duplicated name.
-    // Finally, repeat this process for all duplicated names.
-    //
-    // ASSUME: we don't need to check "ghost names" (ie names that will be made
-    // in place of missing names) because they will have a different prefix.
-    // Ghost names will be like "P1", "P2", etc and deduped names (here) will be
-    // like "P~1", "P~2", etc.
-    let mut replacements: Vec<(usize, Shortname)> = vec![];
-    for (key, indices) in counts.iter().filter(|(_, v)| usize::from(v.len()) > 1) {
-        let mut n = 0;
-        for i in indices {
-            let mut new = key.increment(n);
-            while counts.contains_key(&new) {
-                n += 1;
-                new = key.increment(n);
-            }
-            replacements.push((*i, new));
-            n += 1;
-        }
-    }
-
-    // Finally, replace the names themselves
-    for (i, r) in replacements {
-        // ASSUME this will never fail because these indices were obtained from
-        // .enumerate and we are not changing the length of the slice
-        original[i] = mem::replace(&mut xs[i], K::wrap(r)).to_opt();
-    }
-
-    debug_assert!(
-        all_unique_names(xs.iter().map(|k| k.as_opt())),
-        "names are still not unique"
-    );
-
-    original
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn uniquify_empty() {
-        let mut xs: Vec<Option<Shortname>> = vec![];
-        uniquify_names(&mut xs[..]);
-        assert_eq!(xs, vec![]);
-    }
-
-    #[test]
-    fn uniquify_good() {
-        let mut xs = vec![
-            Some("a".parse::<Shortname>().unwrap()),
-            None,
-            Some("b".parse::<Shortname>().unwrap()),
-        ];
-        uniquify_names(&mut xs[..]);
-        assert_eq!(
-            xs,
-            vec![
-                Some("a".parse::<Shortname>().unwrap()),
-                None,
-                Some("b".parse::<Shortname>().unwrap()),
-            ]
-        );
-    }
-
-    #[test]
-    fn uniquify_bad() {
-        let mut xs = vec![
-            Some("a".parse::<Shortname>().unwrap()),
-            None,
-            Some("a".parse::<Shortname>().unwrap()),
-        ];
-        uniquify_names(&mut xs[..]);
-        assert_eq!(
-            xs,
-            vec![
-                Some("a~0".parse::<Shortname>().unwrap()),
-                None,
-                Some("a~1".parse::<Shortname>().unwrap()),
-            ]
-        );
-    }
+    let mut seen = HashSet::new();
+    xs.into_iter().all(|x| seen.insert(x))
 }
 
 #[cfg(feature = "python")]

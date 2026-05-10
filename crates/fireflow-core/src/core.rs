@@ -79,7 +79,7 @@ use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
     InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedSet,
     NamedVec, NewNamedVecError, NonCenterElement, PushCenterError, RenameError, SetCenterError,
-    SetElementsError, SetKeysError, SetNamesError, SetValuesError, uniquify_names,
+    SetElementsError, SetKeysError, SetNamesError, SetValuesError, all_unique_names,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -120,9 +120,9 @@ use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnc
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
-use hashbrown::HashMap;
+use hashbrown::{HashMap, hash_map::Entry};
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, iter::NonEmptyIterator as _};
+use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use num_traits::identities::{One as _, Zero};
 use regex::Regex;
 use thiserror::Error;
@@ -9500,6 +9500,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     }
 }
 
+// Implement methods for misc types
+
 impl UnstainedData {
     fn lookup<C>(
         std: &mut StdKeywords,
@@ -9788,8 +9790,128 @@ impl DatasetSegments {
     }
 }
 
+// Misc functions
+
+/// Make all keys unique if they are not already.
+///
+/// Do this by appending "~X" to keys which are not unique and incrementing "X"
+/// starting at 0.
+///
+/// Return vector of original names if they were changed.
+pub(crate) fn uniquify_names<K>(xs: &mut [K]) -> Vec<Option<Shortname>>
+where
+    K: MightHave<Shortname>,
+{
+    // First get list of all duplicates by collecting all names and pairing with
+    // their indices. Any key with more than one index is duplicated and should
+    // be processed later.
+    let mut counts: HashMap<&Shortname, NEVec<usize>> = HashMap::new();
+    let mut original = vec![];
+    original.resize_with(xs.len(), || None); // Avoid using Clone for Option<K>
+    for (i, k) in xs.iter().enumerate() {
+        if let Some(n) = k.as_opt() {
+            match counts.entry(n) {
+                Entry::Occupied(mut z) => {
+                    z.get_mut().push(i);
+                }
+                Entry::Vacant(z) => {
+                    z.insert_entry(NEVec::new(i));
+                }
+            }
+        }
+    }
+
+    // Next make a list of replacement names corresponding to each index. For
+    // each duplicated name, init a counter at 0 and increment this counter
+    // until it results in a unique name. Once it is unique, save this with
+    // its index and repeat for remaining indices under the duplicated name.
+    // Finally, repeat this process for all duplicated names.
+    //
+    // ASSUME: we don't need to check "ghost names" (ie names that will be made
+    // in place of missing names) because they will have a different prefix.
+    // Ghost names will be like "P1", "P2", etc and deduped names (here) will be
+    // like "P~1", "P~2", etc.
+    let mut replacements: Vec<(usize, Shortname)> = vec![];
+    for (key, indices) in counts.iter().filter(|(_, v)| usize::from(v.len()) > 1) {
+        let mut n = 0;
+        for i in indices {
+            let mut new = key.increment(n);
+            while counts.contains_key(&new) {
+                n += 1;
+                new = key.increment(n);
+            }
+            replacements.push((*i, new));
+            n += 1;
+        }
+    }
+
+    drop(counts);
+
+    // Finally, replace the names themselves
+    for (i, r) in replacements {
+        // ASSUME this will never fail because these indices were obtained from
+        // .enumerate and we are not changing the length of the slice
+        original[i] = mem::replace(&mut xs[i], K::wrap(r)).to_opt();
+    }
+
+    debug_assert!(
+        all_unique_names(xs.iter().map(|k| k.as_opt())),
+        "names are still not unique"
+    );
+
+    original
+}
+
 mod private {
     pub struct NoTouchy;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn uniquify_empty() {
+        let mut xs: Vec<Option<Shortname>> = vec![];
+        uniquify_names(&mut xs[..]);
+        assert_eq!(xs, vec![]);
+    }
+
+    #[test]
+    fn uniquify_good() {
+        let mut xs = vec![
+            Some("a".parse::<Shortname>().unwrap()),
+            None,
+            Some("b".parse::<Shortname>().unwrap()),
+        ];
+        uniquify_names(&mut xs[..]);
+        assert_eq!(
+            xs,
+            vec![
+                Some("a".parse::<Shortname>().unwrap()),
+                None,
+                Some("b".parse::<Shortname>().unwrap()),
+            ]
+        );
+    }
+
+    #[test]
+    fn uniquify_bad() {
+        let mut xs = vec![
+            Some("a".parse::<Shortname>().unwrap()),
+            None,
+            Some("a".parse::<Shortname>().unwrap()),
+        ];
+        uniquify_names(&mut xs[..]);
+        assert_eq!(
+            xs,
+            vec![
+                Some("a~0".parse::<Shortname>().unwrap()),
+                None,
+                Some("a~1".parse::<Shortname>().unwrap()),
+            ]
+        );
+    }
 }
 
 #[cfg(feature = "serde")]

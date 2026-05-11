@@ -1,19 +1,22 @@
 use crate::config::{
-    AllowLoss, ReadDataKeywordsConfig, ReadStdKeywordsConfig, TemporalHasOpticalKeyError,
+    AllowLoss, ReadDataKeywordsConfig, ReadEventsConfig, ReadStdKeywordsConfig,
+    TemporalHasOpticalKeyError,
 };
-use crate::core::{TemporalOrOptical, TemporalsAndOpticals, TrimmedKeywords, Versioned};
+use crate::core::{TrimmedKeywords, Versioned};
 use crate::data::{
     self, CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrameAsDataSchema,
-    DataFrameCheckRanges as _, DataSchemaToDataFrameError, EventOverRangeError, LayoutConvertError,
-    LayoutDatatype, LayoutInsert, LayoutNormalize, LayoutRemove, MeasLayoutMismatchError,
-    OverrangeColumn, ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame,
-    VersionedDataSchema, WithPrimitiveDataFrame,
+    DataFrameCheckRanges as _, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
+    EventOverRangeError, LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutNormalize,
+    LayoutRemove, MeasLayoutMismatchError, OverrangeColumn, ReadCheckedDataframeError,
+    ReadCheckedDataframeWarning, ReadDataFrameResult, ScaleDatatypeMismatchError, ScaleErrorGroup,
+    VersionedDataFrame, VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
     ErrorsResult, LogResult, OptionExt as _, ResultExt as _, SwitchableErrorResult,
-    WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
 };
+use crate::segment::AnyDataSegment;
 use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
@@ -30,12 +33,13 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, ReqIndexedKey as _,
-    ReqIndexedStKeyError, ReqKeyError,
+    ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
 };
 use crate::text::named_vec::{
-    EitherPair, Element, ElementIndexError, IndexedElement, InputLengthError, InsertCenterError,
-    InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec, PushCenterError,
-    RenameError, SetCenterError, SetElementsError, SetKeysError, SetNamesError, SetValuesError,
+    EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
+    InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec,
+    NewNamedVecError, PushCenterError, RenameError, SetCenterError, SetElementsError, SetKeysError,
+    SetNamesError, SetValuesError,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -53,10 +57,12 @@ use type_families::{ApplyOnce as _, Functor};
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
 use num_traits::One as _;
+use regex::Regex;
 use thiserror::Error;
 
 use std::borrow::Cow;
 use std::convert::Infallible;
+use std::io::{BufReader, Read, Seek};
 use std::iter::{empty, once};
 use std::marker::PhantomData;
 use std::mem;
@@ -502,6 +508,43 @@ pub struct DiagnosedTemporal<M> {
     pub(crate) timestep_added: TimestepAdded,
 }
 
+/// Error when looking up [`CoreLayout`] from keywords
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NewMeasError {
+    /// Measurement vector has more than one time element
+    Meas(NewNamedVecError),
+    /// Measurement and layout are incompatible
+    Layout(MeasLayoutMismatchError),
+}
+
+/// Error when looking up [`CoreLayout`] from keywords
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupMeasError {
+    /// Measurement vector has more than one time element
+    Meas(NewNamedVecError),
+    /// Measurement and layout are incompatible
+    Layout(ScaleDatatypeMismatchError),
+    /// Time channel is missing entirely
+    Time(MissingTimeError),
+}
+
+/// Error triggered when time measurement is missing but required.
+#[derive(Debug, Error)]
+#[error("Could not find time measurement matching '{0}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct MissingTimeError(pub Regex);
+
+/// Error when parsing $PnN
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupShortnameError {
+    Req(ReqIndexedKeyError<Shortname>),
+    Opt(OptIndexedKeyError<Shortname>),
+}
+
 /// Error when parsing any optical measurement keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -755,9 +798,6 @@ pub enum DatasetSetDataSchemaError {
     Cast(CastSeriesErrors),
 }
 
-pub(crate) type NamedTemporalOrOptical<V> =
-    EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
-
 pub(crate) type VersionedCoreLayout<L, V> = CoreLayout<
     L,
     <V as VersionLayoutSet>::Temporal,
@@ -777,6 +817,22 @@ type VersionedElement<V> =
 
 type VTemporal<V> = Temporal<<V as VersionLayoutSet>::Temporal>;
 type VOptical<V> = Optical<<V as VersionLayoutSet>::Optical>;
+
+pub(crate) type TemporalOrOptical<V> =
+    Element<Temporal<<V as VersionLayoutSet>::Temporal>, Optical<<V as VersionLayoutSet>::Optical>>;
+
+pub(crate) type NamedTemporalOrOptical<V> =
+    EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
+
+pub(crate) type TemporalsAndOpticals<V> = Vec<TemporalOrOptical<V>>;
+
+pub(crate) type NamedTemporalsAndOpticals<V> =
+    Eithers<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
+
+pub(crate) type TemporalsAndOpticals2_0 = NamedTemporalsAndOpticals<Version2_0>;
+pub(crate) type TemporalsAndOpticals3_0 = NamedTemporalsAndOpticals<Version3_0>;
+pub(crate) type TemporalsAndOpticals3_1 = NamedTemporalsAndOpticals<Version3_1>;
+pub(crate) type TemporalsAndOpticals3_2 = NamedTemporalsAndOpticals<Version3_2>;
 
 // Implement version mapping for types that belong together
 
@@ -1500,6 +1556,48 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
             DetectorName::default(),
         );
         (new, t.timestep)
+    }
+}
+
+// Implement method to look up $PnN from a hash table
+
+type LookupShortnameResult<V> =
+    WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
+
+pub trait LookupShortname: Sized {
+    fn lookup_shortname(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupShortnameResult<Self>;
+}
+
+impl LookupShortname for Option<Shortname> {
+    fn lookup_shortname(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        conf: &ReadDataKeywordsConfig,
+    ) -> LookupShortnameResult<Self> {
+        Shortname::remove_or_drop_meas_opt(std, nonstd, i, conf)
+            .set_err_value(())
+            .switchable_into_commutative()
+            .map_errors(LookupShortnameError::from)
+    }
+}
+
+impl LookupShortname for Identity<Shortname> {
+    fn lookup_shortname(
+        std: &mut StdKeywords,
+        _: &mut NonStdKeywords,
+        i: MeasIndex,
+        _: &ReadDataKeywordsConfig,
+    ) -> LookupShortnameResult<Self> {
+        Shortname::remove_meas_req(std, i)
+            .map(Identity)
+            .map_err(LookupShortnameError::from)
+            .into_log()
     }
 }
 
@@ -3235,6 +3333,71 @@ impl<V> VersionedCoreLayout<<V as VersionLayoutSet>::DataSchema, V>
 where
     V: VersionLayoutSet,
 {
+    // only meant to be called during lookup when keywords are being read from
+    // a hashtable
+    pub(crate) fn try_new(
+        measurements: NamedTemporalsAndOpticals<V>,
+        data_schema: V::DataSchema,
+        conf: &ReadStdKeywordsConfig,
+    ) -> WarningsAndErrorsResult<Self, (), MissingTimeError, LookupMeasError>
+    where
+        V::DataSchema: HasWidth,
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+    {
+        // this should be true since the length of both is derived from $PAR
+        assert!(
+            measurements.len() == data_schema.width(),
+            "measurements and data schema should be same length"
+        );
+        let go = |ms: &NamedVec<_, _, _>| {
+            if let Some(pat) = conf.time_meas_pattern.0.as_ref()
+                && ms.as_center().is_none()
+                && !ms.is_empty()
+            {
+                return Some(MissingTimeError(pat.clone()));
+            }
+            None
+        };
+        let missing_flag = conf.allow_missing_time;
+        Measurements::try_new(measurements)
+            .map_err(LookupMeasError::from)
+            .into_log()
+            .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
+            .and_then_commutative(|meas| {
+                data_schema
+                    .check_measurement_vector_nolen(&meas)
+                    .map_err(LookupMeasError::from)
+                    .into_log()
+                    .set_ok_value(Self::new(meas, data_schema))
+            })
+    }
+
+    pub(crate) fn try_new_nodrop(
+        measurements: NamedTemporalsAndOpticals<V>,
+        data_schema: V::DataSchema,
+    ) -> ErrorsResult<Self, (), NewMeasError>
+    where
+        V::DataSchema: HasWidth,
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+    {
+        Measurements::try_new(measurements)
+            .map_err(NewMeasError::from)
+            .into_nowarn()
+            .and_then_commutative(|meas| {
+                data_schema
+                    .check_meas_named_vec(&meas)
+                    .map_err(NewMeasError::from)
+                    .into_log()
+                    .set_ok_value(Self::new(meas, data_schema))
+            })
+    }
+
     pub(crate) fn set_data_schema(
         &mut self,
         data_schema: V::DataSchema,
@@ -3262,6 +3425,30 @@ where
     {
         let typed_df = self.layout.with_data(df)?;
         Ok(CoreLayout::new(self.measurements, typed_df))
+    }
+
+    pub(crate) fn h_read_df<R>(
+        mut self,
+        h: &mut BufReader<R>,
+        tot: <V::DataSchema as VersionedDataSchema>::Tot,
+        seg: &mut AnyDataSegment,
+        conf: &ReadEventsConfig,
+    ) -> WarningsAndIOGroupResult<
+        ReadDataFrameResult<VersionedCoreLayout<<V as VersionLayoutSet>::DataFrame, V>>,
+        ReadCheckedDataframeWarning,
+        ReadCheckedDataframeError,
+        (),
+    >
+    where
+        R: Read + Seek,
+        V::DataSchema: VersionedDataSchema + DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
+    {
+        self.layout
+            .h_read_df(h, tot, seg, conf)
+            .map_ok_value(|df_out| {
+                let new = CoreLayout::new(self.measurements, df_out.inner);
+                ReadDataFrameResult::new(new, df_out.diagnostics)
+            })
     }
 }
 

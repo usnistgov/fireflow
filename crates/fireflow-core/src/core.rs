@@ -28,8 +28,8 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningsAndErrors, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, ImpureError,
-    LogResult, ResultExt as _, Success, WarningAndErrorResult, WarningOrErrorResult,
-    WarningsAndErrorsResult, WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
+    LogResult, ResultExt as _, Success, WarningOrErrorResult, WarningsAndErrorsResult,
+    WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
@@ -68,12 +68,12 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError, OptMetarootKey as _,
-    ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError, ReqMetarootKey as _,
+    ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
-    Eithers, Element, ElementIndexError, IndexedElement, InputLengthError, NameMapping,
-    NameNotFoundError, NamedSet, NamedVec, NewNamedVecError, NonCenterElement, RenameError,
-    SetCenterError, SetElementsError, SetKeysError, SetNamesError, all_unique_names,
+    Element, ElementIndexError, IndexedElement, InputLengthError, NameMapping, NameNotFoundError,
+    NamedSet, NonCenterElement, RenameError, SetCenterError, SetElementsError, SetKeysError,
+    SetNamesError, all_unique_names,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::relational::{
@@ -95,14 +95,16 @@ use crate::validated::core_layout::{
     AsScaleOrTransform, ConvertFromOptical, ConvertFromShortname, ConvertFromTemporal, CoreLayout,
     DatasetSetDataSchemaError, HasScale, InnerOptical2_0, InnerOptical3_0, InnerOptical3_1,
     InnerOptical3_2, InnerTemporal2_0, InnerTemporal3_0, InnerTemporal3_1, InnerTemporal3_2,
-    InsertOpticalError, InsertTemporalError, LookupOptical, LookupOpticalError,
-    LookupOpticalWarning, LookupTemporal, LookupTemporalError, LookupTemporalWarning,
-    MeasConvertError, MeasConvertWarning, Measurements, NamedTemporalOrOptical, Optical,
+    InsertOpticalError, InsertTemporalError, LookupMeasError, LookupOptical, LookupOpticalError,
+    LookupOpticalWarning, LookupShortname, LookupShortnameError, LookupTemporal,
+    LookupTemporalError, LookupTemporalWarning, MeasConvertError, MeasConvertWarning, Measurements,
+    MissingTimeError, NamedTemporalOrOptical, NamedTemporalsAndOpticals, NewMeasError, Optical,
     OpticalFromTemporal, PushOpticalError, PushTemporalError, ReplaceTemporalErrorByIndex,
     ReplaceTemporalErrorByName, ScaleTransform, SetTemporalByIndexError, SetTemporalByNameError,
     SetTemporalError, SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal,
-    TemporalFromOptical, VersionLayoutSet, VersionedTemporal, impl_ref_specific_ro,
-    impl_ref_specific_rw,
+    TemporalFromOptical, TemporalOrOptical, TemporalsAndOpticals, TemporalsAndOpticals2_0,
+    TemporalsAndOpticals3_0, TemporalsAndOpticals3_1, TemporalsAndOpticals3_2, VersionLayoutSet,
+    VersionedTemporal, impl_ref_specific_ro, impl_ref_specific_rw,
 };
 use crate::validated::dataframe::{AnyPrimitiveSeries, HasWidth, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
@@ -130,7 +132,6 @@ use hashbrown::{HashMap, hash_map::Entry};
 use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
-use regex::Regex;
 use thiserror::Error;
 
 use std::collections::HashSet;
@@ -956,22 +957,6 @@ pub type CoreDataset3_0 = VersionedCoreDataset<Version3_0>;
 pub type CoreDataset3_1 = VersionedCoreDataset<Version3_1>;
 pub type CoreDataset3_2 = VersionedCoreDataset<Version3_2>;
 
-pub(crate) type TemporalOrOptical<V> =
-    Element<Temporal<<V as VersionLayoutSet>::Temporal>, Optical<<V as VersionLayoutSet>::Optical>>;
-
-pub(crate) type TemporalsAndOpticals<V> = Vec<TemporalOrOptical<V>>;
-
-pub(crate) type NamedTemporalsAndOpticals<M> = Eithers<
-    <M as VersionLayoutSet>::Name,
-    Temporal<<M as VersionLayoutSet>::Temporal>,
-    Optical<<M as VersionLayoutSet>::Optical>,
->;
-
-pub(crate) type TemporalsAndOpticals2_0 = NamedTemporalsAndOpticals<Version2_0>;
-pub(crate) type TemporalsAndOpticals3_0 = NamedTemporalsAndOpticals<Version3_0>;
-pub(crate) type TemporalsAndOpticals3_1 = NamedTemporalsAndOpticals<Version3_1>;
-pub(crate) type TemporalsAndOpticals3_2 = NamedTemporalsAndOpticals<Version3_2>;
-
 pub(crate) type VersionedCore<A, L, O, V> = Core<
     A,
     L,
@@ -1487,21 +1472,17 @@ pub enum NewCoreTEXTError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreError {
     /// Measurement vector has more than one time element
-    Meas(NewNamedVecError),
-    /// Measurement and layout are incompatible
-    Layout(MeasLayoutMismatchError),
-    /// Any other warning which is configured to be a fatal error
-    Warn(NewCoreWarning),
+    Meas(NewMeasError),
+    /// A keyword has invalid links (and is dropped in the case of a warning)
+    Link(BrokenOrDependentLinkError),
 }
 
 /// Error when looking up [`CoreTEXT`] or [`CoreDataset`] from keywords
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupCoreError {
-    /// Measurement vector has more than one time element
-    Meas(NewNamedVecError),
-    /// Measurement and layout are incompatible
-    Layout(ScaleDatatypeMismatchError),
+    /// Error when looking up measurement keywords
+    Meas(LookupMeasError),
     /// Any other warning which is configured to be a fatal error
     Warn(NewCoreWarning),
 }
@@ -1514,7 +1495,7 @@ pub enum LookupCoreError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreWarning {
     /// Time channel is missing entirely
-    Time(MissingTime),
+    Time(MissingTimeError),
     /// A keyword has invalid links (and is dropped in the case of a warning)
     Link(BrokenOrDependentLinkError),
 }
@@ -1587,18 +1568,7 @@ pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
     Optical(LookupOpticalWarning),
-    MissingTime(MissingTime),
-}
-
-type LookupShortnameResult<V> =
-    WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
-
-/// Error when parsing $PnN
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum LookupShortnameError {
-    Req(ReqIndexedKeyError<Shortname>),
-    Opt(OptIndexedKeyError<Shortname>),
+    MissingTime(MissingTimeError),
 }
 
 /// Error when parsing $CS* keywords.
@@ -1627,13 +1597,6 @@ pub enum LookupModifiedDataError {
     LastModTime(OptKeyStError<LastModified>),
     Originality(OptKeyError<Originality>),
 }
-
-/// Error triggered when time measurement is missing but required.
-#[derive(Debug, Error)]
-#[error("Could not find time measurement matching '{0}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct MissingTime(pub Regex);
 
 type LookupTEXTOffsetsResult<T> =
     WarningsAndErrorsResult<T, (), LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
@@ -2053,7 +2016,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|df_out| {
                         ar.h_read(h)
-                            .map(|a| (df_out.dataframe.into(), a, offsets.segs, df_out.diagnostics))
+                            .map(|a| (df_out.inner.into(), a, offsets.segs, df_out.diagnostics))
                             .map_err(IOErrorGroup::from)
                             .into_log()
                     })
@@ -2065,45 +2028,6 @@ impl PrivVersionSet for Version2_0 {}
 impl PrivVersionSet for Version3_0 {}
 impl PrivVersionSet for Version3_1 {}
 impl PrivVersionSet for Version3_2 {}
-
-// Implement method to look up $PnN from a hash table
-
-pub trait LookupShortname: Sized {
-    fn lookup_shortname(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
-    ) -> LookupShortnameResult<Self>;
-}
-
-impl LookupShortname for Option<Shortname> {
-    fn lookup_shortname(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
-    ) -> LookupShortnameResult<Self> {
-        Shortname::remove_or_drop_meas_opt(std, nonstd, i, conf)
-            .set_err_value(())
-            .switchable_into_commutative()
-            .map_errors(LookupShortnameError::from)
-    }
-}
-
-impl LookupShortname for Identity<Shortname> {
-    fn lookup_shortname(
-        std: &mut StdKeywords,
-        _: &mut NonStdKeywords,
-        i: MeasIndex,
-        _: &ReadDataKeywordsConfig,
-    ) -> LookupShortnameResult<Self> {
-        Shortname::remove_meas_req(std, i)
-            .map(Identity)
-            .map_err(LookupShortnameError::from)
-            .into_log()
-    }
-}
 
 // Implement method to look up root keywords from a hash table
 
@@ -6080,45 +6004,19 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        // this should be true since the length of both is derived from $PAR
-        debug_assert!(
-            measurements.len() == data_schema.width(),
-            "measurements and data schema should be same length"
-        );
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
-
-        let go = |ms: &NamedVec<_, _, _>| {
-            if let Some(pat) = sconf.time_meas_pattern.0.as_ref()
-                && ms.as_center().is_none()
-                && !ms.is_empty()
-            {
-                return Some(NewCoreWarning::from(MissingTime(pat.clone())));
-            }
-            None
-        };
-
         let opt_flag = rconf.process_optional_failure;
-        let missing_flag = sconf.allow_missing_time;
-        Measurements::try_new(measurements)
-            .map_err(LookupCoreError::from)
-            .into_log()
-            .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
-            .and_then_commutative(|ms| {
-                data_schema
-                    .check_measurement_vector_nolen(&ms)
-                    .map_err(LookupCoreError::from)
-                    .into_log()
-                    .set_ok_value(ms)
-            })
-            .and_then_commutative(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, opt_flag.is_demote())
+        CoreLayout::try_new(measurements, data_schema, conf.as_ref())
+            .map_errors(LookupCoreError::from)
+            .map_commutative_warnings(NewCoreWarning::from)
+            .and_then_commutative(|ml| {
+                Self::check_relationships(&mut metaroot, ml.measurements(), opt_flag.is_demote())
                     .map_errors(NewCoreWarning::from)
                     .nowarn_into_switchable(opt_flag)
                     .switchable_into_commutative()
                     .map_errors(LookupCoreError::from)
                     .map_commutative_warnings(NewCoreWarning::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, data_schema, (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ml, (), ()))
             })
     }
 
@@ -6133,21 +6031,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        Measurements::try_new(measurements)
-            .map_err(NewCoreError::from)
-            .into_nowarn()
-            .and_then_commutative(|ms| {
-                data_schema
-                    .check_meas_named_vec(&ms)
-                    .map_err(NewCoreError::from)
-                    .into_nowarn()
-                    .set_ok_value(ms)
-            })
-            .and_then_commutative(|ms| {
-                Self::check_relationships(&mut metaroot, &ms, false)
-                    .map_errors(NewCoreWarning::from)
+        CoreLayout::try_new_nodrop(measurements, data_schema)
+            .map_errors(NewCoreError::from)
+            .and_then_commutative(|ml| {
+                Self::check_relationships(&mut metaroot, ml.measurements(), false)
                     .map_errors(NewCoreError::from)
-                    .map_ok_value(|()| Self::new(metaroot, ms, data_schema, (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ml, (), ()))
             })
     }
 
@@ -6248,34 +6137,20 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_errors(StdDatasetFromFlatTextErrorInner::from)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(mut text, extra, mut offsets)| {
+            .and_then_commutative(|(text, extra, mut offsets)| {
                 let or = hns.header.segments.others_reader();
                 let ar = AnalysisReader::new(offsets.segs.analysis);
+                let other = io_to_log!(or.h_read(h));
+                let analysis = io_to_log!(ar.h_read(h));
                 text.meas_layout
-                    .layout()
                     .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
-                    .and_then_commutative(|df_out| {
-                        ar.h_read(h)
-                            .and_then(|analysis| {
-                                let others = or.h_read(h)?;
-                                let new = Self::new(
-                                    text.metaroot,
-                                    text.measurements,
-                                    df_out.dataframe,
-                                    analysis,
-                                    others,
-                                );
-                                let out = StdDatasetFromKwsOutput::new(
-                                    offsets.segs,
-                                    extra,
-                                    df_out.diagnostics,
-                                );
-                                Ok((new, out))
-                            })
-                            .map_err(IOErrorGroup::from)
-                            .into_log()
+                    .map_ok_value(|df_out| {
+                        let new = Self::new(text.metaroot, df_out.inner, analysis, other);
+                        let diag =
+                            StdDatasetFromKwsOutput::new(offsets.segs, extra, df_out.diagnostics);
+                        (new, diag)
                     })
             })
     }

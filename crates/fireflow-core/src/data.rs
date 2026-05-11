@@ -111,7 +111,7 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
-use crate::core::{NamedTemporalsAndOpticals, TemporalOrOptical, VersionSet};
+use crate::core::VersionSet;
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
@@ -150,7 +150,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskValue, NewBitmaskError,
 };
 use crate::validated::core_layout::{
-    AsScaleOrTransform, Measurements, ScaleTransform, VersionLayoutSet,
+    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, TemporalOrOptical,
+    VersionLayoutSet,
 };
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
@@ -867,8 +868,8 @@ impl TruncatedResult {
 }
 
 #[derive(Default, new)]
-pub struct DataFrameResult<D> {
-    pub(crate) dataframe: D,
+pub struct ReadDataFrameResult<D> {
+    pub(crate) inner: D,
     pub(crate) diagnostics: EventsDiagnostics,
 }
 
@@ -1945,26 +1946,27 @@ where
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>;
 
-    fn h_read_df<R: Read + Seek>(
+    fn h_read_df<R>(
         &mut self,
         h: &mut BufReader<R>,
         tot: Self::Tot,
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
+        ReadDataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
         ReadCheckedDataframeWarning,
         ReadCheckedDataframeError,
         (),
     >
     where
+        R: Read + Seek,
         <Self as DataSchemaToEmptyDataFrame>::DfTarget: DataFrameCheckRanges,
     {
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
             None => {
-                let ret = DataFrameResult::new(self.empty(), EventsDiagnostics::default());
+                let ret = ReadDataFrameResult::new(self.empty(), EventsDiagnostics::default());
                 LogResult::new_ok(ret)
             }
             Some((begin, _)) => {
@@ -1989,7 +1991,7 @@ where
                             .map_ok_value(|overrange| {
                                 let df = res.dataframe;
                                 let diag = res.diagnostics;
-                                DataFrameResult::new(df, diag.add_overrange(overrange))
+                                ReadDataFrameResult::new(df, diag.add_overrange(overrange))
                             })
                     })
             }

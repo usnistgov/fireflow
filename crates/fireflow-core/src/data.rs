@@ -111,10 +111,7 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
-use crate::core::{
-    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, Optical, ScaleTransform,
-    TemporalOrOptical, VersionSet,
-};
+use crate::core::{NamedTemporalsAndOpticals, TemporalOrOptical, VersionSet};
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
@@ -151,6 +148,9 @@ use crate::validated::ascii_range::{
 use crate::validated::bitmask::{
     Bitmask, Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56,
     Bitmask64, BitmaskValue, NewBitmaskError,
+};
+use crate::validated::core_layout::{
+    AsScaleOrTransform, Measurements, ScaleTransform, VersionLayoutSet,
 };
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
@@ -1627,8 +1627,8 @@ pub struct MeasLayoutLengthsError {
 }
 
 pub type ScaleErrorGroup<V> = ErrorGroup<
-    <<<V as VersionSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
-    <<<V as VersionSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
+    <<<V as VersionLayoutSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
+    <<<V as VersionLayoutSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
 >;
 
 pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
@@ -2337,7 +2337,7 @@ pub trait LayoutDatatype: Sized {
         Ok(())
     }
 
-    fn check_meas_vec<V: VersionSet>(
+    fn check_meas_vec<V: VersionLayoutSet>(
         &self,
         meas: &[TemporalOrOptical<V>],
     ) -> Result<(), MeasLayoutMismatchError>
@@ -2389,7 +2389,7 @@ pub trait LayoutDatatype: Sized {
     }
 
     #[allow(clippy::type_complexity)]
-    fn try_new_measurements<V: VersionSet>(
+    fn try_new_measurements<V: VersionLayoutSet>(
         &self,
         measurements: NamedTemporalsAndOpticals<V>,
     ) -> Result<Measurements<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>

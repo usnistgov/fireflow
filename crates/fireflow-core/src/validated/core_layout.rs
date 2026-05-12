@@ -1,3 +1,5 @@
+//! The DATA segment and metadata for measurements.
+
 use crate::config::{
     AllowLoss, ReadDataKeywordsConfig, ReadEventsConfig, ReadStdKeywordsConfig,
     TemporalHasOpticalKeyError,
@@ -78,22 +80,49 @@ use {
     pyo3::prelude::*,
 };
 
+/// Metadata and event data for all measurements.
+///
+/// This consists of two entities:
+///
+/// 1. `meta`: non-DATA $PnN keywords and $TIMESTEP
+/// 2. `data`: DATA $PnN keywords + $BYTEORD + $DATATYPE, possibly with
+///    DATA itself
+///
+/// $PnN keywords are split across (1) and (2) since only a few are necessary
+/// for reading DATA itself, and this allows us to skip reading most of the
+/// keywords if desired.
+///
+/// $PnE and $PnG belong to (1) but need to match (2) since their values depend
+/// on the datatype used for the columns (ie $DATATYPE and possibly
+/// $PnDATATYPE).
+///
+/// This struct is sealed in order to keep these data structures consistent with
+/// each other. Namely, the following must always hold:
+///
+/// 1. The column number of meta and `data` must match
+/// 2. The $PnE/$PnG configuration in meta must match the datatypes in `data`
+///    for each corresponding column.
+///
+/// Additionally, the data structures in meta and `data` have their own internal
+/// consistency guarantees.
+///
+/// NOTE: this struct has methods that allow internal mutation for metadata that
+/// is accessible via [`AsMut`]. This trait is implemented for all keyword types
+/// except for $PnE/$PnG, which ensures that constraint (2) is always true.
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
-pub struct CoreLayout<L, T, P, N, V> {
-    /// All measurement TEXT keywords.
-    ///
-    /// Specifically these are denoted by "$Pn*" keywords where "n" is the index
-    /// of the measurement which also corresponds to its column in the DATA
-    /// segment. The index of each measurement in this vector is n - 1.
-    measurements: NamedVec<N, Temporal<T>, Optical<P>>,
+pub struct CoreMeasurements<L, T, P, N, V> {
+    /// All non-DATA measurement TEXT keywords.
+    meta: NamedVec<N, Temporal<T>, Optical<P>>,
 
-    /// The DATA segment
+    /// The DATA segment + associated TEXT keywords.
     ///
     /// This is derived from $BYTEORD, $DATATYPE, $PnB, $PnR and maybe
     /// $PnDATATYPE for version 3.2.
-    layout: L,
+    ///
+    /// DATA may or may not be included depending on the exact type.
+    data: L,
 
     /// Marker for FCS version. Used to lock the types for other fields.
     _version: PhantomData<V>,
@@ -109,12 +138,12 @@ pub type Temporal3_0 = Temporal<InnerTemporal3_0>;
 pub type Temporal3_1 = Temporal<InnerTemporal3_1>;
 pub type Temporal3_2 = Temporal<InnerTemporal3_2>;
 
-pub type Measurements2_0 = Measurements<Option<Shortname>, InnerTemporal2_0, InnerOptical2_0>;
-pub type Measurements3_0 = Measurements<Option<Shortname>, InnerTemporal3_0, InnerOptical3_0>;
-pub type Measurements3_1 = Measurements<Identity<Shortname>, InnerTemporal3_1, InnerOptical3_1>;
-pub type Measurements3_2 = Measurements<Identity<Shortname>, InnerTemporal3_2, InnerOptical3_2>;
+pub type MeasMeta2_0 = MeasMeta<Option<Shortname>, InnerTemporal2_0, InnerOptical2_0>;
+pub type MeasMeta3_0 = MeasMeta<Option<Shortname>, InnerTemporal3_0, InnerOptical3_0>;
+pub type MeasMeta3_1 = MeasMeta<Identity<Shortname>, InnerTemporal3_1, InnerOptical3_1>;
+pub type MeasMeta3_2 = MeasMeta<Identity<Shortname>, InnerTemporal3_2, InnerOptical3_2>;
 
-pub(crate) type Measurements<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
+pub(crate) type MeasMeta<N, T, O> = NamedVec<N, Temporal<T>, Optical<O>>;
 
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -509,7 +538,7 @@ pub struct DiagnosedTemporal<M> {
     pub(crate) timestep_added: TimestepAdded,
 }
 
-/// Error when looking up [`CoreLayout`] from keywords
+/// Error when looking up [`CoreMeasurements`] from keywords
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewMeasError {
@@ -519,7 +548,7 @@ pub enum NewMeasError {
     Layout(MeasLayoutMismatchError),
 }
 
-/// Error when looking up [`CoreLayout`] from keywords
+/// Error when looking up [`CoreMeasurements`] from keywords
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasError {
@@ -618,7 +647,7 @@ pub enum LookupPeakError {
     Index(OptIndexedKeyError<PeakIndex>),
 }
 
-/// Error when converting [`CoreLayout`] to new FCS version
+/// Error when converting [`CoreMeasurements`] to new FCS version
 #[derive(Debug, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasConvertError {
@@ -628,7 +657,7 @@ pub enum MeasConvertError {
     Layout(LayoutConvertError),
 }
 
-/// Warning when converting [`CoreLayout`] to new FCS version
+/// Warning when converting [`CoreMeasurements`] to new FCS version
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasConvertWarning {
@@ -747,7 +776,7 @@ pub struct NoScaleError(MeasIndex);
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct GainLossError(MeasIndex);
 
-/// Error when pushing a temporal measurement into [`CoreLayout`]
+/// Error when pushing a temporal measurement into [`CoreMeasurements`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -756,7 +785,7 @@ pub enum PushTemporalError<E> {
     Layout(E),
 }
 
-/// Error when inserting a temporal measurement into [`CoreLayout`]
+/// Error when inserting a temporal measurement into [`CoreMeasurements`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -765,7 +794,7 @@ pub enum InsertTemporalError<E> {
     Layout(E),
 }
 
-/// Error when pushing an optical measurement into [`CoreLayout`]
+/// Error when pushing an optical measurement into [`CoreMeasurements`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -774,7 +803,7 @@ pub enum PushOpticalError<E> {
     Layout(E),
 }
 
-/// Error when inserting an optical measurement into [`CoreLayout`]
+/// Error when inserting an optical measurement into [`CoreMeasurements`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -815,7 +844,7 @@ pub enum SetUnnamdMeasurementsAndDataError {
     Mismatch(DataSchemaToDataFrameError),
 }
 
-pub(crate) type VersionedCoreLayout<L, V> = CoreLayout<
+pub(crate) type VersionedCoreLayout<L, V> = CoreMeasurements<
     L,
     <V as VersionLayoutSet>::Temporal,
     <V as VersionLayoutSet>::Optical,
@@ -2829,15 +2858,15 @@ impl<T> Temporal<T> {
 
 // Implement methods for core*
 
-impl<L, T, P, N, V> CoreLayout<L, T, P, N, V> {
+impl<L, T, P, N, V> CoreMeasurements<L, T, P, N, V> {
     /// Get read-only reference to measurements
     pub(crate) fn measurements(&self) -> &NamedVec<N, Temporal<T>, Optical<P>> {
-        &self.measurements
+        &self.meta
     }
 
     /// Get read-only reference to layout
     pub(crate) fn layout(&self) -> &L {
-        &self.layout
+        &self.data
     }
 }
 
@@ -2850,7 +2879,7 @@ where
         &mut self,
         ns: Vec<Shortname>,
     ) -> Result<NameMapping, SetNamesError> {
-        self.measurements.set_names(ns)
+        self.meta.set_names(ns)
     }
 
     /// Set shortnames when wrapper key type is Option
@@ -2861,7 +2890,7 @@ where
     where
         V: VersionLayoutSet<Name = Option<Shortname>>,
     {
-        self.measurements.set_keys(ns)
+        self.meta.set_keys(ns)
     }
 
     #[allow(clippy::type_complexity)]
@@ -2883,7 +2912,7 @@ where
         Lf: ConvertFromLayout<L> + LayoutNormalize,
     {
         let meas_res = self
-            .measurements
+            .meta
             .map_center_value(|v| {
                 v.value
                     .try_convert(v.index, allow_loss)
@@ -2902,12 +2931,12 @@ where
                     .map_errors(MeasConvertError::Rewrap)
                     .nowarn_into_warn()
             });
-        let layout_res = ConvertFromLayout::convert_from_layout(self.layout)
+        let layout_res = ConvertFromLayout::convert_from_layout(self.data)
             .map_errors(MeasConvertError::Layout)
             .nowarn_into_warn();
         meas_res
             .zip_commutative(layout_res)
-            .map_ok_value(|(measurements, layout)| CoreLayout::new(measurements, layout))
+            .map_ok_value(|(measurements, layout)| CoreMeasurements::new(measurements, layout))
     }
 
     pub(crate) fn set_temporal(
@@ -2920,7 +2949,7 @@ where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
     {
-        self.measurements.set_center_by_name(
+        self.meta.set_center_by_name(
             n,
             |old, new| {
                 V::Optical::swap_optical_temporal(old, new, allow_loss)
@@ -2947,7 +2976,7 @@ where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
     {
-        self.measurements.set_center_by_index(
+        self.meta.set_center_by_index(
             index,
             |old, new| {
                 V::Optical::swap_optical_temporal(old, new, allow_loss)
@@ -2984,7 +3013,7 @@ where
         >,
         LWC: Default,
     {
-        self.measurements.unset_center(to_v)
+        self.meta.unset_center(to_v)
     }
 
     pub(crate) fn rename(
@@ -2992,15 +3021,15 @@ where
         index: MeasIndex,
         key: V::Name,
     ) -> Result<(Shortname, Shortname), RenameError> {
-        self.measurements.rename(index, key)
+        self.meta.rename(index, key)
     }
 
     pub(crate) fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
-        self.measurements.rename_center(name)
+        self.meta.rename_center(name)
     }
 
     pub fn as_temporal_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut VTemporal<V>>> {
-        self.measurements.as_center_mut()
+        self.meta.as_center_mut()
     }
 
     pub(crate) fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
@@ -3008,7 +3037,7 @@ where
         F: Fn(IndexedElement<&Shortname, &mut VTemporal<V>>) -> R,
         G: Fn(IndexedElement<&V::Name, &mut VOptical<V>>) -> R,
     {
-        self.measurements.alter_values(f, g)
+        self.meta.alter_values(f, g)
     }
 
     pub(crate) fn alter_values_zip<G, F, X, R>(
@@ -3021,7 +3050,7 @@ where
         F: Fn(IndexedElement<&Shortname, &mut VTemporal<V>>, X) -> R,
         G: Fn(IndexedElement<&V::Name, &mut VOptical<V>>, X) -> R,
     {
-        self.measurements.alter_values_zip(xs, f, g)
+        self.meta.alter_values_zip(xs, f, g)
     }
 
     pub(crate) fn alter_elements_zip<Fo, Ft, Fe, X, Y, R, E, G>(
@@ -3037,8 +3066,7 @@ where
         Fo: Fn(IndexedElement<&V::Name, &mut VOptical<V>>, Y) -> R,
         Fe: Fn(MeasIndex, bool) -> E,
     {
-        self.measurements
-            .alter_elements_zip(xs, g, f_tmp, f_opt, f_err)
+        self.meta.alter_elements_zip(xs, g, f_tmp, f_opt, f_err)
     }
 
     pub(crate) fn alter_common_values_zip<F, X, R, T>(
@@ -3051,7 +3079,7 @@ where
         Temporal<V::Temporal>: AsMut<T>,
         Optical<V::Optical>: AsMut<T>,
     {
-        self.measurements.alter_common_values_zip(xs, f)
+        self.meta.alter_common_values_zip(xs, f)
     }
 
     pub(crate) fn replace_at(
@@ -3059,7 +3087,7 @@ where
         index: MeasIndex,
         value: Optical<V::Optical>,
     ) -> Result<VersionedElement<V>, ElementIndexError> {
-        self.measurements.replace_at(index, value)
+        self.meta.replace_at(index, value)
     }
 
     pub(crate) fn replace_named(
@@ -3067,7 +3095,7 @@ where
         name: &Shortname,
         value: VOptical<V>,
     ) -> Result<VersionedElement<V>, NameNotFoundError> {
-        self.measurements.replace_named(name, value)
+        self.meta.replace_named(name, value)
     }
 
     pub(crate) fn replace_temporal_at_nofail<F>(
@@ -3079,8 +3107,7 @@ where
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
-        self.measurements
-            .replace_center_at_nofail(index, value, to_v)
+        self.meta.replace_center_at_nofail(index, value, to_v)
     }
 
     pub(crate) fn replace_center_at<F, LWC, RWC, E, EC>(
@@ -3099,7 +3126,7 @@ where
         RWC: Default,
         EC: Default,
     {
-        self.measurements.replace_center_at(index, value, to_v)
+        self.meta.replace_center_at(index, value, to_v)
     }
 
     pub(crate) fn replace_center_by_name_nofail<F>(
@@ -3111,8 +3138,7 @@ where
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
-        self.measurements
-            .replace_center_by_name_nofail(n, value, to_v)
+        self.meta.replace_center_by_name_nofail(n, value, to_v)
     }
 
     pub(crate) fn replace_center_by_name<F, LWC, RWC, E, EC>(
@@ -3131,7 +3157,7 @@ where
         LWC: Default,
         RWC: Default,
     {
-        self.measurements.replace_center_by_name(n, value, to_v)
+        self.meta.replace_center_by_name(n, value, to_v)
     }
 
     pub(crate) fn push_temporal_inner<C>(
@@ -3143,16 +3169,16 @@ where
     where
         L: LayoutInsert<C>,
     {
-        self.measurements
+        self.meta
             .check_push_center(&n)
             .map_errors(PushTemporalError::Center)
             .nowarn_and_then(|()| {
-                self.layout
+                self.data
                     .push(r)
                     .map_err(PushTemporalError::Layout)
                     .into_log()
             })
-            .when_ok(|| self.measurements.push_center_nocheck(n, m))
+            .when_ok(|| self.meta.push_center_nocheck(n, m))
     }
 
     pub(crate) fn insert_temporal_inner<C>(
@@ -3165,16 +3191,16 @@ where
     where
         L: LayoutInsert<C>,
     {
-        self.measurements
+        self.meta
             .check_insert_center(i, &n)
             .map_errors(InsertTemporalError::Center)
             .nowarn_and_then(|()| {
-                self.layout
+                self.data
                     .insert_nocheck(i, r)
                     .map_err(InsertTemporalError::Layout)
                     .into_log()
             })
-            .when_ok(|| self.measurements.insert_center_nocheck(i, n, m))
+            .when_ok(|| self.meta.insert_center_nocheck(i, n, m))
     }
 
     pub(crate) fn push_optical_inner<C>(
@@ -3186,20 +3212,20 @@ where
     where
         L: LayoutInsert<C>,
     {
-        self.measurements
+        self.meta
             .check_push(&n)
             .map(Cow::into_owned)
             .map_err(PushOpticalError::Unique)
             .into_nowarn()
             .nowarn_and_then(|ret| {
-                self.layout
+                self.data
                     .push(r)
                     .map_err(PushOpticalError::Layout)
                     .into_log()
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
-                self.measurements.push_nocheck(n, m);
+                self.meta.push_nocheck(n, m);
                 ret
             })
     }
@@ -3214,19 +3240,19 @@ where
     where
         L: LayoutInsert<C>,
     {
-        self.measurements
+        self.meta
             .check_insert(i, &n)
             .map_ok_value(Cow::into_owned)
             .map_errors(InsertOpticalError::Insert)
             .nowarn_and_then(|ret| {
-                self.layout
+                self.data
                     .insert_nocheck(i, r)
                     .map_err(InsertOpticalError::Layout)
                     .into_log()
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
-                self.measurements.insert_nocheck(i, n, m);
+                self.meta.insert_nocheck(i, n, m);
                 ret
             })
     }
@@ -3238,8 +3264,8 @@ where
     where
         L: LayoutRemove<C>,
     {
-        let (i, e) = self.measurements.remove_name(name)?;
-        let r = self.layout.remove_nocheck(i);
+        let (i, e) = self.meta.remove_name(name)?;
+        let r = self.data.remove_nocheck(i);
         Ok((i, e, r))
     }
 
@@ -3250,8 +3276,8 @@ where
     where
         L: LayoutRemove<C>,
     {
-        let p = self.measurements.remove_index(index)?;
-        let r = self.layout.remove_nocheck(index);
+        let p = self.meta.remove_index(index)?;
+        let r = self.data.remove_nocheck(index);
         Ok((p, r))
     }
 
@@ -3266,8 +3292,10 @@ where
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype,
     {
-        self.layout.check_meas_vec::<V>(&measurements[..])?;
-        self.measurements.set_values(measurements)?;
+        self.data
+            .check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
+        self.meta.set_values(measurements)?;
+        self.validate("measurements should match length and scale/datatype of data");
         Ok(())
     }
 
@@ -3285,9 +3313,10 @@ where
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
     {
-        let meas = self.layout.try_new_measurements::<V>(measurements)?;
-        f(&self.measurements, &meas)?;
-        self.measurements = meas;
+        let meas = self.data.try_new_measmeta::<V>(measurements)?;
+        f(&self.meta, &meas)?;
+        self.meta = meas;
+        self.validate("measurements should match length and scale/datatype of data");
         Ok(())
     }
 
@@ -3306,10 +3335,11 @@ where
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
     {
-        let meas = layout.try_new_measurements::<V>(measurements)?;
-        f(&self.measurements, &meas)?;
-        self.measurements = meas;
+        let meas = layout.try_new_measmeta::<V>(measurements)?;
+        f(&self.meta, &meas)?;
+        self.meta = meas;
         self.set_layout_inner(layout);
+        self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
@@ -3325,9 +3355,10 @@ where
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
-        layout.check_meas_vec::<V>(&measurements[..])?;
-        self.measurements.set_values(measurements)?;
+        layout.check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
+        self.meta.set_values(measurements)?;
         self.set_layout_inner(layout);
+        self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
@@ -3335,8 +3366,8 @@ where
     where
         L: HasWidth,
     {
-        self.measurements = NamedVec::default();
-        self.layout.clear();
+        self.meta = NamedVec::default();
+        self.data.clear();
     }
 
     fn set_layout_inner(&mut self, mut layout: L)
@@ -3344,7 +3375,19 @@ where
         L: LayoutNormalize,
     {
         layout.normalize();
-        self.layout = layout;
+        self.data = layout;
+    }
+
+    fn validate(&self, msg: &'static str)
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        L: LayoutDatatype,
+    {
+        assert!(
+            self.data.check_measmeta_xforms_and_len_ok(&self.meta),
+            "{msg}",
+        );
     }
 }
 
@@ -3381,7 +3424,7 @@ where
             None
         };
         let missing_flag = conf.allow_missing_time;
-        Measurements::try_new(measurements)
+        MeasMeta::try_new(measurements)
             .map_err(LookupMeasError::from)
             .into_log()
             .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
@@ -3390,7 +3433,11 @@ where
                     .check_measurement_vector_nolen(&meas)
                     .map_err(LookupMeasError::from)
                     .into_log()
-                    .set_ok_value(Self::new(meas, data_schema))
+                    .map_ok_value(|()| {
+                        let ret = Self::new(meas, data_schema);
+                        ret.validate("inputs should have matching length and scale/datatype");
+                        ret
+                    })
             })
     }
 
@@ -3405,15 +3452,19 @@ where
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        Measurements::try_new(measurements)
+        MeasMeta::try_new(measurements)
             .map_err(NewMeasError::from)
             .into_nowarn()
             .and_then_commutative(|meas| {
                 data_schema
-                    .check_meas_named_vec(&meas)
+                    .check_measmeta_xforms_and_len(&meas)
                     .map_err(NewMeasError::from)
                     .into_log()
-                    .set_ok_value(Self::new(meas, data_schema))
+                    .map_ok_value(|()| {
+                        let ret = Self::new(meas, data_schema);
+                        ret.validate("inputs should have matching length and scale/datatype");
+                        ret
+                    })
             })
     }
 
@@ -3427,8 +3478,9 @@ where
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        data_schema.check_meas_named_vec(&self.measurements)?;
+        data_schema.check_measmeta_xforms_and_len(&self.meta)?;
         self.set_layout_inner(data_schema);
+        self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
@@ -3440,10 +3492,15 @@ where
         DataSchemaToDataFrameError,
     >
     where
-        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame> + HasWidth,
     {
-        let typed_df = self.layout.with_data(df)?;
-        Ok(CoreLayout::new(self.measurements, typed_df))
+        // scale is not necessary to check since this does not touch metadata
+        let typed_df = self.data.with_data(df)?;
+        assert!(
+            typed_df.width() == self.meta.len(),
+            "new df columns should match meas length"
+        );
+        Ok(CoreMeasurements::new(self.meta, typed_df))
     }
 
     pub(crate) fn h_read_df<R>(
@@ -3462,10 +3519,10 @@ where
         R: Read + Seek,
         V::DataSchema: VersionedDataSchema + DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
     {
-        self.layout
+        self.data
             .h_read_df(h, tot, seg, conf)
             .map_ok_value(|df_out| {
-                let new = CoreLayout::new(self.measurements, df_out.inner);
+                let new = CoreMeasurements::new(self.meta, df_out.inner);
                 ReadDataFrameResult::new(new, df_out.diagnostics)
             })
     }
@@ -3479,7 +3536,7 @@ where
     where
         V::DataFrame: DataFrameAsDataSchema<DataSchema = V::DataSchema>,
     {
-        CoreLayout::new(self.measurements, self.layout.as_data_schema())
+        CoreMeasurements::new(self.meta, self.data.as_data_schema())
     }
 
     pub(crate) fn check_ranges(
@@ -3488,7 +3545,7 @@ where
         over_range_action: OverRangeAction,
     ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
     {
-        self.layout
+        self.data
             .check_ranges_mut(check_range_datatypes, over_range_action)
     }
 
@@ -3504,12 +3561,11 @@ where
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        data_schema.check_meas_named_vec(&self.measurements)?;
-        data_schema.check_data_loss_generic(&self.layout)?;
-        let new_data_schema = data_schema
-            .with_data_generic(mem::take(&mut self.layout))
-            .expect("data loss and dimensions were checked above");
-        self.set_layout_inner(new_data_schema);
+        data_schema.check_measmeta_xforms_and_len(&self.meta)?;
+        // TODO check length
+        data_schema.check_data_loss_generic(&self.data)?;
+        self.set_data_schema_unchecked(data_schema);
+        self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
@@ -3526,17 +3582,19 @@ where
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        // ensures length of new data schema == length of new measurements
         data_schema
-            .check_meas_vec::<V>(&measurements[..])
+            .check_unmamed_meas_xforms_and_len::<V>(&measurements[..])
             .map_err(SetUnnamedMeasurementsError::from)?;
         // length is not checked here, just data loss
-        data_schema.check_data_loss_generic(&self.layout)?;
-        // ensures length of new measurements == length of old measurements
-        self.measurements
+        data_schema.check_data_loss_generic(&self.data)?;
+        // additionally check that the new metadata/schema are the same width as
+        // the existing schema since we have existing data columns that need to
+        // remain consistent.
+        self.meta
             .set_values(measurements)
             .map_err(SetUnnamedMeasurementsError::from)?;
         self.set_data_schema_unchecked(data_schema);
+        self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
@@ -3559,11 +3617,13 @@ where
             + From<DatasetSetDataSchemaError>
             + From<CastSeriesErrors>,
     {
-        let meas = data_schema.try_new_measurements::<V>(measurements)?;
-        data_schema.check_data_loss_generic(&self.layout)?;
-        f(&self.measurements, &meas)?;
+        let meas = data_schema.try_new_measmeta::<V>(measurements)?;
+        // TODO need to check that data schema length matches current schema length
+        data_schema.check_data_loss_generic(&self.data)?;
+        f(&self.meta, &meas)?;
         self.set_data_schema_unchecked(data_schema);
-        self.measurements = meas;
+        self.meta = meas;
+        self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
@@ -3582,9 +3642,10 @@ where
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError> + From<DataSchemaToDataFrameError>,
     {
-        let new_df = self.layout.with_data(df)?;
+        let new_df = self.data.with_data(df)?;
         self.set_named_measurements_with::<_, E, Ei>(measurements, f)?;
-        self.layout = new_df;
+        self.data = new_df;
+        self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
@@ -3595,7 +3656,11 @@ where
     where
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        self.layout = self.layout.with_data(df)?;
+        self.data = self.data.with_data(df)?;
+        assert!(
+            self.meta.len() == self.data.width(),
+            "metadata and data should have same number of colunms"
+        );
         Ok(())
     }
 
@@ -3614,7 +3679,7 @@ where
     {
         // TODO check xforms
         // self.layout.check_meas_vec::<V>(&measurements[..])?;
-        self.layout = self.layout.with_data(df)?;
+        self.data = self.data.with_data(df)?;
         self.set_measurements(measurements)?;
         Ok(())
     }
@@ -3625,7 +3690,7 @@ where
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         let new_data_schema = data_schema
-            .with_data_generic(mem::take(&mut self.layout))
+            .with_data_generic(mem::take(&mut self.data))
             .expect("data loss and dimensions were checked by caller");
         self.set_layout_inner(new_data_schema);
     }

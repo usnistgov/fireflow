@@ -149,7 +149,7 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskValue, NewBitmaskError,
 };
 use crate::validated::core_layout::{
-    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, Optical, ScaleTransform,
+    AsScaleOrTransform, MeasMeta, NamedTemporalsAndOpticals, Optical, ScaleTransform,
     TemporalOrOptical, VersionLayoutSet,
 };
 use crate::validated::dataframe::{
@@ -1999,7 +1999,7 @@ where
 
     fn check_measurement_vector_nolen<N, T, O: AsScaleOrTransform>(
         &self,
-        meas: &Measurements<N, T, O>,
+        meas: &MeasMeta<N, T, O>,
     ) -> Result<(), ScaleDatatypeMismatchError>
     where
         O::S: CheckedScaleTransform + Default,
@@ -2296,49 +2296,13 @@ pub trait LayoutDatatype: Sized {
 
     // fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)>;
 
-    fn check_transforms<S, G>(&self, xforms: &[S]) -> GroupResult<(), S::Err, G>
-    where
-        S: CheckedScaleTransform,
-        G: Default,
-    {
-        let ds = self.datatypes();
-        debug_assert!(
-            xforms.len() == ds.len(),
-            "transforms length must be same as column number"
-        );
-        let es = ds
-            .iter()
-            .zip(xforms)
-            .enumerate()
-            // Only integers are allowed to have gain and log scaling, so
-            // everything else should be a "noop" transform (ie a linear
-            // transform with slope of 1.0). NOTE the standard itself is
-            // vague about what should happen to ASCII values (presumably
-            // since nobody cares) so here we just treat them like we treat
-            // floating point types to keep the logic simple.
-            .filter_map(|(i, (&datatype, s))| s.matches_datatype(datatype, i.into()).err());
-        ErrorGroup::try_new(es)
-    }
-
-    fn check_transforms_and_len<S, G>(&self, xforms: &[S]) -> Result<(), MeasLayoutMismatchError>
-    where
-        Self: HasWidth,
-        G: Default,
-        S: CheckedScaleTransform,
-        ScaleDatatypeMismatchError: From<ErrorGroup<S::Err, G>>,
-    {
-        let meas_n = xforms.len();
-        let layout_n = self.width();
-        if meas_n != layout_n {
-            let e = MeasLayoutLengthsError { meas_n, layout_n };
-            return Err(e.into());
-        }
-        self.check_transforms(xforms)
-            .map_err(ScaleDatatypeMismatchError::from)?;
-        Ok(())
-    }
-
-    fn check_meas_vec<V: VersionLayoutSet>(
+    /// Check that unnamed measurement metadata matches this data schema.
+    ///
+    /// Check the following:
+    ///
+    /// 1. length must match the data schema
+    /// 2. transforms in metadata must match data schema
+    fn check_unmamed_meas_xforms_and_len<V: VersionLayoutSet>(
         &self,
         meas: &[TemporalOrOptical<V>],
     ) -> Result<(), MeasLayoutMismatchError>
@@ -2366,9 +2330,15 @@ pub trait LayoutDatatype: Sized {
         self.check_transforms_and_len(&xforms[..])
     }
 
-    fn check_meas_named_vec<Name, Tmp, Opt: AsScaleOrTransform>(
+    /// Check that meas metadata is compatible with this data schema.
+    ///
+    /// Check the following:
+    ///
+    /// 1. length must match the data schema
+    /// 2. transforms in metadata must match data schema
+    fn check_measmeta_xforms_and_len<Name, Tmp, Opt: AsScaleOrTransform>(
         &self,
-        meas: &Measurements<Name, Tmp, Opt>,
+        meas: &MeasMeta<Name, Tmp, Opt>,
     ) -> Result<(), MeasLayoutMismatchError>
     where
         Self: HasWidth,
@@ -2389,11 +2359,38 @@ pub trait LayoutDatatype: Sized {
         self.check_transforms_and_len(&xforms[..])
     }
 
+    fn check_measmeta_xforms_and_len_ok<Name, Tmp, Opt: AsScaleOrTransform>(
+        &self,
+        meas: &MeasMeta<Name, Tmp, Opt>,
+    ) -> bool
+    where
+        Self: LayoutDatatype,
+        Opt::S: CheckedScaleTransform + Default,
+    {
+        let ds = self.datatypes();
+        let n = meas
+            .iter_with(&|_, _| Opt::S::default(), &|_, m| {
+                m.value.as_scale_or_transform()
+            })
+            .zip(ds.iter())
+            .filter(|(x, d)| x.matches_datatype(d))
+            .count();
+        n == ds.len()
+    }
+
+    /// Convert vector of names + metadata to validated meas metadata.
+    ///
+    /// Check the following:
+    ///
+    /// 1. there is only one temporal measurement
+    /// 2. names must be unique
+    /// 3. length must match the data schema
+    /// 4. transforms in metadata must match data schema
     #[allow(clippy::type_complexity)]
-    fn try_new_measurements<V: VersionLayoutSet>(
+    fn try_new_measmeta<V: VersionLayoutSet>(
         &self,
         measurements: NamedTemporalsAndOpticals<V>,
-    ) -> Result<Measurements<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>
+    ) -> Result<MeasMeta<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>
     where
         Self: HasWidth,
         V::Optical: AsScaleOrTransform,
@@ -2407,9 +2404,51 @@ pub trait LayoutDatatype: Sized {
         >,
     {
         let ms = NamedVec::try_new(measurements)?;
-        self.check_meas_named_vec(&ms)
+        self.check_measmeta_xforms_and_len(&ms)
             .map_err(MeasurementsWithLayoutError::from)?;
         Ok(ms)
+    }
+
+    fn check_transforms_and_len<S, G>(&self, xforms: &[S]) -> Result<(), MeasLayoutMismatchError>
+    where
+        Self: HasWidth,
+        G: Default,
+        S: CheckedScaleTransform,
+        ScaleDatatypeMismatchError: From<ErrorGroup<S::Err, G>>,
+    {
+        let meas_n = xforms.len();
+        let layout_n = self.width();
+        if meas_n != layout_n {
+            let e = MeasLayoutLengthsError { meas_n, layout_n };
+            return Err(e.into());
+        }
+        self.check_transforms(xforms)
+            .map_err(ScaleDatatypeMismatchError::from)?;
+        Ok(())
+    }
+
+    fn check_transforms<S, G>(&self, xforms: &[S]) -> GroupResult<(), S::Err, G>
+    where
+        S: CheckedScaleTransform,
+        G: Default,
+    {
+        let ds = self.datatypes();
+        debug_assert!(
+            xforms.len() == ds.len(),
+            "transforms length must be same as column number"
+        );
+        let es = ds
+            .iter()
+            .zip(xforms)
+            .enumerate()
+            // Only integers are allowed to have gain and log scaling, so
+            // everything else should be a "noop" transform (ie a linear
+            // transform with slope of 1.0). NOTE the standard itself is
+            // vague about what should happen to ASCII values (presumably
+            // since nobody cares) so here we just treat them like we treat
+            // floating point types to keep the logic simple.
+            .filter_map(|(i, (&datatype, s))| s.matches_datatype_ok(datatype, i.into()).err());
+        ErrorGroup::try_new(es)
     }
 }
 
@@ -7000,18 +7039,24 @@ pub trait CheckedScaleTransform {
     type Err;
     type Summary;
 
-    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
+    fn matches_datatype_ok(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
+
+    fn matches_datatype(&self, datatype: &AlphaNumType) -> bool;
 }
 
 impl CheckedScaleTransform for Scale {
     type Err = ScaleMismatchError;
     type Summary = ScaleMismatchSummary;
 
-    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
-        if datatype != AlphaNumType::Integer && matches!(self, Self::Log(_)) {
+    fn matches_datatype_ok(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
+        if !self.matches_datatype(&datatype) {
             return Err(ScaleMismatchError::new(i, datatype, *self));
         }
         Ok(())
+    }
+
+    fn matches_datatype(&self, datatype: &AlphaNumType) -> bool {
+        datatype == &AlphaNumType::Integer || !matches!(self, Self::Log(_))
     }
 }
 
@@ -7019,11 +7064,15 @@ impl CheckedScaleTransform for ScaleTransform {
     type Err = ScaleTransformMismatchError;
     type Summary = ScaleTransformMismatchSummary;
 
-    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
-        if datatype != AlphaNumType::Integer && !self.is_noop() {
+    fn matches_datatype_ok(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
+        if !self.matches_datatype(&datatype) {
             return Err(ScaleTransformMismatchError::new(i, datatype, *self));
         }
         Ok(())
+    }
+
+    fn matches_datatype(&self, datatype: &AlphaNumType) -> bool {
+        datatype == &AlphaNumType::Integer || self.is_noop()
     }
 }
 

@@ -1600,12 +1600,12 @@ pub enum MeasLayoutMismatchError {
 
 /// Error when measurement vector is not the same length as columns in DATA/dataframe
 #[derive(Debug, Error)]
-#[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
+#[error("new and old dataframes have different widths ({old} vs {new})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct MeasDataMismatchError {
-    meas_n: usize,
-    data_n: usize,
+pub struct OldNewDataframeMismatchError {
+    old: usize,
+    new: usize,
 }
 
 // /// Error when scales do not match datatypes in layout.
@@ -1691,7 +1691,7 @@ impl fmt::Display for ScaleDatatypeMismatchError {
 #[derive(From, Error, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DataSchemaToDataFrameError {
-    ColMismatch(MeasDataMismatchError),
+    ColMismatch(OldNewDataframeMismatchError),
     Cast(CastSeriesErrors),
 }
 
@@ -2253,7 +2253,23 @@ pub trait LayoutDatatype: Sized {
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
 
-    // fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)>;
+    /// Check that unnamed measurement metadata matches this data schema (no length)
+    fn check_unmamed_meas_xforms<V: VersionLayoutSet>(
+        &self,
+        meas: &[TemporalOrOptical<V>],
+    ) -> Result<(), ScaleDatatypeMismatchErrors>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+    {
+        let xforms = meas.iter().map(|m| {
+            m.as_ref().both(
+                |_| <V::Optical as AsScaleOrTransform>::S::default(),
+                Optical::as_scale_or_transform,
+            )
+        });
+        self.check_transforms(xforms)
+    }
 
     /// Check that unnamed measurement metadata matches this data schema.
     ///
@@ -2805,18 +2821,15 @@ pub trait WithPrimitiveDataFrame {
         self.with_data(df.into())
     }
 
-    fn check_width<T>(&self, df: &T) -> Result<(), MeasDataMismatchError>
+    fn check_width<T>(&self, df: &T) -> Result<(), OldNewDataframeMismatchError>
     where
         Self: HasWidth,
         T: HasWidth,
     {
-        let df_width = df.width();
-        let this_width = self.width();
-        if df_width != this_width {
-            return Err(MeasDataMismatchError {
-                meas_n: this_width,
-                data_n: df_width,
-            });
+        let old = self.width();
+        let new = df.width();
+        if new != old {
+            return Err(OldNewDataframeMismatchError { old, new });
         }
         Ok(())
     }
@@ -2835,6 +2848,17 @@ pub trait WithPrimitiveDataFrame {
         T: Clone + Into<PrimitiveDataFrame>,
     {
         self.check_data_loss(&df.clone().into())
+    }
+
+    fn check_data_loss_and_width_generic<T>(&self, df: &T) -> Result<(), DataSchemaToDataFrameError>
+    where
+        Self: HasWidth,
+        T: Clone + Into<PrimitiveDataFrame>,
+    {
+        let d = df.clone().into();
+        self.check_data_loss(&d)?;
+        self.check_width(&d)?;
+        Ok(())
     }
 }
 
@@ -5066,7 +5090,7 @@ where
     C: Into<R>,
 {
     fn remove_nocheck_inner(&mut self, index: MeasIndex, _: private::NoTouchy) -> R {
-        debug_assert!(
+        assert!(
             usize::from(index) <= self.container.len(),
             "Index should be less than/equal to column number"
         );
@@ -5084,7 +5108,7 @@ where
         index: MeasIndex,
         _: private::NoTouchy,
     ) -> RangeAndSeries<R> {
-        debug_assert!(
+        assert!(
             usize::from(index) <= self.container.ncols(),
             "Index should be less than/equal to column number"
         );
@@ -6718,7 +6742,7 @@ impl<T> EffectiveRange<T> {
     where
         T: PartialOrd + Copy,
     {
-        debug_assert!(
+        assert!(
             self.bitmask.is_none_or(|r| self.numeric_range <= r),
             "bitmask less than numeric range"
         );

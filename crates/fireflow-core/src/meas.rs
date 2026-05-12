@@ -18,6 +18,7 @@ use crate::logging::{
     ErrorsResult, LogResult, OptionExt as _, ResultExt as _, SwitchableErrorResult,
     WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
 };
+use crate::macros::assert_eq_len;
 use crate::segment::AnyDataSegment;
 use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
@@ -823,6 +824,14 @@ pub enum DatasetSetDataSchemaError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetUnnamedMeasurementsError {
+    New(ScaleDatatypeMismatchErrors),
+    Set(SetValuesError),
+}
+
+/// Error when setting measurements vector without names
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetUnnamedMeasurementsAndDataSchemaError {
     New(MeasLayoutMismatchError),
     Set(SetValuesError),
 }
@@ -832,7 +841,7 @@ pub enum SetUnnamedMeasurementsError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DatasetSetUnnamedMeasAndDataSchemaError {
     Cast(CastSeriesErrors),
-    Meas(SetUnnamedMeasurementsError),
+    Meas(SetUnnamedMeasurementsAndDataSchemaError),
 }
 
 /// Error when setting measurements without $PnN and DATA/dataframe simultaneously
@@ -3280,7 +3289,7 @@ where
         Ok((p, r))
     }
 
-    pub(crate) fn set_measurements(
+    pub(crate) fn set_unnamed_measurements(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
     ) -> Result<(), SetUnnamedMeasurementsError>
@@ -3289,8 +3298,10 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype,
     {
+        // Ensure new measurement scales match existing schema
         self.data
-            .check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
+            .check_unmamed_meas_xforms::<V>(&measurements[..])?;
+        // This will ensure the new measurements have the same length as the old
         self.meta.set_values(measurements)?;
         self.validate("measurements should match length and scale/datatype of data");
         Ok(())
@@ -3308,7 +3319,9 @@ where
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
     {
+        // Ensure new measurement length and scales match existing schema.
         let meas = self.data.try_new_measmeta::<V>(measurements)?;
+        // Check other stuff before committing (links, etc)
         f(&self.meta, &meas)?;
         self.meta = meas;
         self.validate("measurements should match length and scale/datatype of data");
@@ -3328,7 +3341,11 @@ where
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
     {
+        // Ensure new layout and measurements have matching length and scales.
+        // No need to check these with existing data since these two inputs will
+        // totally override everything.
         let meas = layout.try_new_measmeta::<V>(measurements)?;
+        // Check other stuff before committing (links, etc)
         f(&self.meta, &meas)?;
         self.meta = meas;
         self.set_layout_inner(layout);
@@ -3336,17 +3353,19 @@ where
         Ok(())
     }
 
-    pub(crate) fn set_measurements_and_layout(
+    pub(crate) fn set_unnamed_measurements_and_layout(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
         layout: L,
-    ) -> Result<(), SetUnnamedMeasurementsError>
+    ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
+        // ensure new layout and measurements have matching length and scales
         layout.check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
+        // this will check that new measurements have same length as old
         self.meta.set_values(measurements)?;
         self.set_layout_inner(layout);
         self.validate("inputs should have matching length and scale/datatype");
@@ -3398,12 +3417,12 @@ where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
-        let mn = measurements.len();
-        let dn = data_schema.width();
-        assert!(
-            mn == dn,
-            "measurements and data schema should be same length since both \
-             should depend on $PAR, instead got {mn} and {dn}"
+        // this should be true since both depend on $PAR
+        assert_eq_len!(
+            measurements.len(),
+            data_schema.width(),
+            "measurements",
+            "data schema"
         );
         let go = |ms: &NamedVec<_, _, _>| {
             if let Some(pat) = conf.time_meas_pattern.0.as_ref()
@@ -3420,6 +3439,8 @@ where
             .into_log()
             .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|meas| {
+                // Check that new metadata and schema have compatible scales and
+                // datatypes. Length is assumed to be fine (see assert above)
                 data_schema
                     .check_measmeta_xforms(&meas)
                     .map_err(LookupMeasError::from)
@@ -3445,6 +3466,8 @@ where
             .map_err(NewMeasError::from)
             .into_nowarn()
             .and_then_commutative(|meas| {
+                // Check that schema and measurements have compatible length
+                // and scale/datatypes.
                 data_schema
                     .check_measmeta_xforms_and_len(&meas)
                     .map_err(NewMeasError::from)
@@ -3465,6 +3488,8 @@ where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
+        // Ensure that new schema has same length and compatible datatypes
+        // compared to existing measurements.
         data_schema.check_measmeta_xforms_and_len(&self.meta)?;
         self.set_layout_inner(data_schema);
         self.validate("inputs should have matching length and scale/datatype");
@@ -3481,7 +3506,8 @@ where
     where
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame> + HasWidth,
     {
-        // scale is not necessary to check since this does not touch metadata
+        // Check that width of new dataframe matches current schema. Do not
+        // check datatypes/scale since this is metadata-independent.
         let typed_df = self.data.with_data(df)?;
         assert!(
             typed_df.width() == self.meta.len(),
@@ -3509,6 +3535,9 @@ where
         self.data
             .h_read_df(h, tot, seg, conf)
             .map_ok_value(|df_out| {
+                // New dataframe should have same metadata and column number
+                // compared to old schema, so calling new with no checks should
+                // be valid.
                 let new = CoreMeasurements::new(self.meta, df_out.inner);
                 ReadDataFrameResult::new(new, df_out.diagnostics)
             })
@@ -3523,6 +3552,7 @@ where
     where
         V::DataFrame: DataFrameAsDataSchema<DataSchema = V::DataSchema>,
     {
+        // This simply removes the data, metadata should still be in sync
         CoreMeasurements::new(self.meta, self.data.as_data_schema())
     }
 
@@ -3532,6 +3562,8 @@ where
         over_range_action: OverRangeAction,
     ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
     {
+        // This mutates range values which do not have to be kept in sync, so
+        // no consistency checks are required.
         self.data
             .check_ranges_mut(check_range_datatypes, over_range_action)
     }
@@ -3546,15 +3578,17 @@ where
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
+        // Ensure new data schema has matching length and datatypes compared
+        // to existing measurements.
         data_schema.check_measmeta_xforms_and_len(&self.meta)?;
-        // TODO check length
+        // Check for any data loss that may happen within the dataframe itself.
         data_schema.check_data_loss_generic(&self.data)?;
         self.set_data_schema_unchecked(data_schema);
         self.validate("inputs should have matching length and scale/datatype");
         Ok(())
     }
 
-    pub(crate) fn set_measurements_dataframe_schema(
+    pub(crate) fn set_unnamed_measurements_dataframe_schema(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
         data_schema: &V::DataSchema,
@@ -3565,17 +3599,18 @@ where
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
+        // Check that new measurements and new data schema are in sync.
         data_schema
             .check_unmamed_meas_xforms_and_len::<V>(&measurements[..])
-            .map_err(SetUnnamedMeasurementsError::from)?;
-        // length is not checked here, just data loss
+            .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
+        // This checks for data loss due to type conversions in the dataframe.
         data_schema.check_data_loss_generic(&self.data)?;
-        // additionally check that the new metadata/schema are the same width as
-        // the existing schema since we have existing data columns that need to
-        // remain consistent.
+        // This additionally checks that the new measurements are the same
+        // length as existing, so that the new meas+schema will remain
+        // consistent with the dataframe.
         self.meta
             .set_values(measurements)
-            .map_err(SetUnnamedMeasurementsError::from)?;
+            .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
         self.set_data_schema_unchecked(data_schema);
         self.validate("inputs should have matching length and scale/datatype");
         Ok(())
@@ -3596,11 +3631,13 @@ where
         E: From<Ei>
             + From<MeasurementsWithLayoutError>
             + From<DatasetSetDataSchemaError>
-            + From<CastSeriesErrors>,
+            + From<DataSchemaToDataFrameError>,
     {
+        // Length b/t new meas and new schema is checked here
         let meas = data_schema.try_new_measmeta::<V>(measurements)?;
-        // TODO need to check that data schema length matches current schema length
-        data_schema.check_data_loss_generic(&self.data)?;
+        // Length b/t new schema and existing schema is checked here
+        data_schema.check_data_loss_and_width_generic(&self.data)?;
+        // Anything else (links, etc) are checked here
         f(&self.meta, &meas)?;
         self.set_data_schema_unchecked(data_schema);
         self.meta = meas;
@@ -3621,7 +3658,10 @@ where
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError> + From<DataSchemaToDataFrameError>,
     {
+        // This checks that the length of the new dataframe is same as the old
         let new_df = self.data.with_data(df)?;
+        // This checks that the new measurements are the same length as existing
+        // and that the scales match
         self.set_named_measurements_with::<_, E, Ei>(measurements, f)?;
         self.data = new_df;
         self.validate("inputs should have matching length and scale/datatype");
@@ -3635,6 +3675,7 @@ where
     where
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
+        // This checks that old and new column number are the same
         self.data = self.data.with_data(df)?;
         assert!(
             self.meta.len() == self.data.width(),
@@ -3643,7 +3684,7 @@ where
         Ok(())
     }
 
-    pub(crate) fn set_measurements_and_data(
+    pub(crate) fn set_unnamed_measurements_and_data(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
         df: PrimitiveDataFrame,
@@ -3651,13 +3692,14 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        // V::DataFrame: HasWidth + LayoutDatatype,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        // TODO check xforms
-        // self.layout.check_meas_vec::<V>(&measurements[..])?;
-        self.data = self.data.with_data(df)?;
-        self.set_measurements(measurements)?;
+        // This ensures new dataframe has same width as existing schema.
+        let new_df = self.data.with_data(df)?;
+        // This ensures new measurements have matching length and scale datatype
+        // compared to existing schema.
+        self.set_unnamed_measurements(measurements)?;
+        self.data = new_df;
         Ok(())
     }
 

@@ -10,15 +10,15 @@ use crate::config::{
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
-    CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0,
-    DataFrame3_1, DataFrame3_2, DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0,
-    DataSchema3_0, DataSchema3_1, DataSchema3_2, DataSchemaToDataFrameError,
-    DataSchemaToEmptyDataFrame, EventOverRangeError, EventOverRangeSummary, EventsDiagnostics,
-    IsTot, LayoutDatatype, LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize,
-    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
-    LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    NewDataSchemaError, RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
-    VersionedDataFrame as _, VersionedDataSchema, WithPrimitiveDataFrame,
+    CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1,
+    DataFrame3_2, DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0,
+    DataSchema3_1, DataSchema3_2, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
+    EventOverRangeError, EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype,
+    LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
+    LayoutRemove, LayoutSize as _, LookupDataSchemaError, LookupDataSchemaWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataSchemaError, RangeAndSeries,
+    ReadCheckedDataframeError, ReadCheckedDataframeWarning, VersionedDataFrame as _,
+    VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -43,11 +43,11 @@ use crate::meas::{
     NamedTemporalsAndOpticals, NewMeasError, Optical, OpticalFromTemporal, PushOpticalError,
     PushTemporalError, ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaleTransform,
     SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
-    SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsError, SwapOpticalWithTemporal,
-    Temporal, TemporalFromOptical, TemporalOrOptical, TemporalsAndOpticals,
-    TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
-    TemporalsAndOpticals3_2, VersionLayoutSet, VersionedTemporal, impl_ref_specific_ro,
-    impl_ref_specific_rw,
+    SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
+    SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
+    TemporalOrOptical, TemporalsAndOpticals, TemporalsAndOpticals2_0, TemporalsAndOpticals3_0,
+    TemporalsAndOpticals3_1, TemporalsAndOpticals3_2, VersionLayoutSet, VersionedTemporal,
+    impl_ref_specific_ro, impl_ref_specific_rw,
 };
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
@@ -1224,6 +1224,14 @@ pub enum SetNamedMeasurementsAndDataError {
     Link(SetMeasurementLinkErrors),
 }
 
+/// Error when setting measurements and DATA/dataframe simultaneously
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetUnnamdMeasurementsAndDataSchemaAndDataFrameError {
+    Data(DataSchemaToDataFrameError),
+    Meas(SetUnnamedMeasurementsAndDataSchemaError),
+}
+
 /// Error when setting measurements vector
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1238,7 +1246,7 @@ pub enum SetNamedMeasurementsError {
 pub enum DatasetSetNamedMeasAndDataSchemaError {
     Layout(MeasurementsWithLayoutError),
     DataSchema(DatasetSetDataSchemaError),
-    Meas(CastSeriesErrors),
+    DataFrame(DataSchemaToDataFrameError),
     Link(SetMeasurementLinkErrors),
 }
 
@@ -4941,7 +4949,7 @@ where
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype,
     {
-        self.meas.set_measurements(measurements)
+        self.meas.set_unnamed_measurements(measurements)
     }
 
     #[cfg(feature = "serde")]
@@ -5092,13 +5100,14 @@ where
         &mut self,
         measurements: TemporalsAndOpticals<V>,
         layout: L,
-    ) -> Result<(), SetUnnamedMeasurementsError>
+    ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
-        self.meas.set_measurements_and_layout(measurements, layout)
+        self.meas
+            .set_unnamed_measurements_and_layout(measurements, layout)
     }
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors>
@@ -5804,7 +5813,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         &mut self,
         measurements: TemporalsAndOpticals<V>,
         data_schema: V::DataSchema,
-    ) -> Result<(), SetUnnamedMeasurementsError>
+    ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
@@ -6219,7 +6228,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     {
         // NOTE no check for broken links since this doesn't touch names
         self.meas
-            .set_measurements_dataframe_schema(measurements, &data_schema)
+            .set_unnamed_measurements_dataframe_schema(measurements, &data_schema)
     }
 
     /// Set measurements and data schema
@@ -6333,7 +6342,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        self.meas.set_measurements_and_data(measurements, df)
+        self.meas
+            .set_unnamed_measurements_and_data(measurements, df)
     }
 
     /// Set measurements without $PnN, data schema, and data itself together
@@ -6345,7 +6355,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         measurements: TemporalsAndOpticals<V>,
         data_schema: V::DataSchema,
         df: PrimitiveDataFrame,
-    ) -> Result<(), SetUnnamdMeasurementsAndDataError>
+    ) -> Result<(), SetUnnamdMeasurementsAndDataSchemaAndDataFrameError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,

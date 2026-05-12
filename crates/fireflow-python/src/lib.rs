@@ -65,6 +65,7 @@ use fireflow_core::text::gating::{self, Region};
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
 use fireflow_core::text::named_vec::{Eithers, Element};
+use fireflow_core::validated::core_layout as cl;
 use fireflow_core::validated::dataframe::{
     AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries,
 };
@@ -152,10 +153,10 @@ fpp::impl_new_core!(core::CoreTEXT3_2, core::CoreDataset3_2);
 //
 // This will include the __new__ methods and all attributes corresponding to
 // "instance variables" supplied to __new__
-fpp::impl_new_meas!(core::Optical2_0);
-fpp::impl_new_meas!(core::Optical3_0);
-fpp::impl_new_meas!(core::Optical3_1);
-fpp::impl_new_meas!(core::Optical3_2);
+fpp::impl_new_meas!(cl::Optical2_0);
+fpp::impl_new_meas!(cl::Optical3_0);
+fpp::impl_new_meas!(cl::Optical3_1);
+fpp::impl_new_meas!(cl::Optical3_2);
 
 // Implement $PnFEATURE (area/width/height) get/set for 3.2
 fpp::impl_meas_awh_pnfeature!(PyOptical3_2);
@@ -164,10 +165,10 @@ fpp::impl_meas_awh_pnfeature!(PyOptical3_2);
 //
 // This will include the __new__ methods and all attributes corresponding to
 // "instance variables" supplied to __new__
-fpp::impl_new_meas!(core::Temporal2_0);
-fpp::impl_new_meas!(core::Temporal3_0);
-fpp::impl_new_meas!(core::Temporal3_1);
-fpp::impl_new_meas!(core::Temporal3_2);
+fpp::impl_new_meas!(cl::Temporal2_0);
+fpp::impl_new_meas!(cl::Temporal3_0);
+fpp::impl_new_meas!(cl::Temporal3_1);
+fpp::impl_new_meas!(cl::Temporal3_2);
 
 // Common methods for all Core* versions. Some of these macros will implement a
 // slightly different method depending on version.

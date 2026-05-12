@@ -18,7 +18,7 @@ use crate::data::{
     LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
     LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
     NewDataSchemaError, RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
-    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataSchema,
+    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame as _, VersionedDataSchema,
     WithPrimitiveDataFrame,
 };
 use crate::header::{
@@ -51,20 +51,18 @@ use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
     AnyKeyword, AnyMetarootKeyLossError, AnyTemporalToOpticalKeyLossError, AsKeywordPair as _,
     HasMembership as _, Keyword0FromValue as _, Keyword1FromValue as _, NonStdKeyword, OptKeyword,
-    OptMeasKeyword, OptOpticalKeyword, OptRootKeyword, ReqKeyword, ReqMeasKeyword, ReqRootKeyword,
-    SplitKeyword, SplitKeyword1, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword,
+    OptMeasKeyword, OptRootKeyword, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, SplitKeyword,
+    SplitKeyword1, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
-    Abrt, AlphaNumType, Analyte, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Calibration3_1,
-    Calibration3_2, Carrierid, Carriertype, Cells, Com, Compensation2_0, Compensation3_0, Cyt,
-    Cyt3_2, Cytsn, DetectorName, DetectorType, DetectorVoltage, Display, Exp, ExtraStdKeywords,
-    Feature, Fil, Filter, Flowrate, Gain, Gate, HyperGateError, HyperParError, Inst,
-    KeywordOtherVersionError, LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost,
-    MeasOrGateIndex, Mode, Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, OpticalType,
-    Originality, Par, PeakBin, PeakIndex, PercentEmitted, Plateid, Platename, Power,
-    PrefixedMeasIndex, Proj, PseudostandardError, Scale, ScaleFix, Smno, Src, Sys, Tag, Timestep,
+    Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
+    Cells, Com, Compensation2_0, Compensation3_0, Cyt, Cyt3_2, Cytsn, Exp, ExtraStdKeywords,
+    Feature, Fil, Flowrate, Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError,
+    LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex, Mode,
+    Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename,
+    PrefixedMeasIndex, Proj, PseudostandardError, Scale, ScaleFix, Smno, Src, Sys, Timestep,
     TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
-    Wavelength, Wellid,
+    Wellid,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError, OptMetarootKey as _,
@@ -93,18 +91,20 @@ use crate::validated::ascii_uint::{
 use crate::validated::compensation::Compensation;
 use crate::validated::core_layout::{
     AsScaleOrTransform, ConvertFromOptical, ConvertFromShortname, ConvertFromTemporal, CoreLayout,
-    DatasetSetDataSchemaError, HasScale, InnerOptical2_0, InnerOptical3_0, InnerOptical3_1,
-    InnerOptical3_2, InnerTemporal2_0, InnerTemporal3_0, InnerTemporal3_1, InnerTemporal3_2,
-    InsertOpticalError, InsertTemporalError, LookupMeasError, LookupOptical, LookupOpticalError,
-    LookupOpticalWarning, LookupShortname, LookupShortnameError, LookupTemporal,
-    LookupTemporalError, LookupTemporalWarning, MeasConvertError, MeasConvertWarning, Measurements,
-    MissingTimeError, NamedTemporalOrOptical, NamedTemporalsAndOpticals, NewMeasError, Optical,
-    OpticalFromTemporal, PushOpticalError, PushTemporalError, ReplaceTemporalErrorByIndex,
-    ReplaceTemporalErrorByName, ScaleTransform, SetTemporalByIndexError, SetTemporalByNameError,
-    SetTemporalError, SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal,
-    TemporalFromOptical, TemporalOrOptical, TemporalsAndOpticals, TemporalsAndOpticals2_0,
-    TemporalsAndOpticals3_0, TemporalsAndOpticals3_1, TemporalsAndOpticals3_2, VersionLayoutSet,
-    VersionedTemporal, impl_ref_specific_ro, impl_ref_specific_rw,
+    DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError, HasScale, InnerOptical2_0,
+    InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0, InnerTemporal3_0,
+    InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError, LookupMeasError,
+    LookupOptical, LookupOpticalError, LookupOpticalWarning, LookupShortname, LookupShortnameError,
+    LookupTemporal, LookupTemporalError, LookupTemporalWarning, MeasConvertError,
+    MeasConvertWarning, Measurements, MissingTimeError, NamedTemporalOrOptical,
+    NamedTemporalsAndOpticals, NewMeasError, Optical, OpticalFromTemporal, PushOpticalError,
+    PushTemporalError, ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaleTransform,
+    SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
+    SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsError, SwapOpticalWithTemporal,
+    Temporal, TemporalFromOptical, TemporalOrOptical, TemporalsAndOpticals,
+    TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
+    TemporalsAndOpticals3_2, VersionLayoutSet, VersionedTemporal, impl_ref_specific_ro,
+    impl_ref_specific_rw,
 };
 use crate::validated::dataframe::{AnyPrimitiveSeries, HasWidth, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
@@ -144,8 +144,8 @@ use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use {
-    crate::text::keyword_enum::{AsHeader as _, RefKeyword1},
-    crate::text::keywords::{NumType, TextRange, Width},
+    crate::text::keyword_enum::{AsHeader as _, OptOpticalKeyword, RefKeyword1},
+    crate::text::keywords as kws,
     nalgebra::DMatrix,
     serde::Serialize,
     std::string::ToString as _,
@@ -1182,14 +1182,6 @@ pub enum StdWriterError {
     HeaderText(WriteTEXTHeaderError),
 }
 
-/// Error when setting measurements vector
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetNamedMeasurementsError {
-    New(MeasurementsWithLayoutError),
-    Link(SetMeasurementLinkErrors),
-}
-
 /// Link error when setting new measurements
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1226,33 +1218,29 @@ pub enum SetTransformsError {
 /// Error when setting measurements and DATA/dataframe simultaneously
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetMeasurementsAndDataError {
+pub enum SetNamedMeasurementsAndDataError {
     Meas(SetNamedMeasurementsError),
+    Layout(MeasurementsWithLayoutError),
     Mismatch(DataSchemaToDataFrameError),
+    Link(SetMeasurementLinkErrors),
 }
 
-/// Error when setting measurements without $PnN and DATA/dataframe simultaneously
+/// Error when setting measurements vector
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetUnnamdMeasurementsAndDataError {
-    Meas(SetUnnamedMeasurementsError),
-    Mismatch(DataSchemaToDataFrameError),
-}
-
-/// Error when setting named measurements and data schema for a dataset.
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DatasetSetUnnamedMeasAndDataSchemaError {
-    Cast(CastSeriesErrors),
-    Meas(SetUnnamedMeasurementsError),
+pub enum SetNamedMeasurementsError {
+    New(MeasurementsWithLayoutError),
+    Link(SetMeasurementLinkErrors),
 }
 
 /// Error when setting named measurements and data schema for a dataset.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DatasetSetNamedMeasAndDataSchemaError {
+    Layout(MeasurementsWithLayoutError),
     DataSchema(DatasetSetDataSchemaError),
-    Meas(SetNamedMeasurementsError),
+    Meas(CastSeriesErrors),
+    Link(SetMeasurementLinkErrors),
 }
 
 /// Error when removing measurement by name ($PnN)
@@ -1714,11 +1702,6 @@ def_summary!(
 //
 // Note that mutable references are never used for types that must be internally
 // validated for consistency with other values.
-
-// impl_ref!(Metaroot, InnerMetaroot2_0);
-// impl_ref!(Metaroot, InnerMetaroot3_0);
-// impl_ref!(Metaroot, InnerMetaroot3_1);
-// impl_ref!(Metaroot, InnerMetaroot3_2);
 
 impl_ref_specific_rw!(
     Metaroot,
@@ -3352,6 +3335,75 @@ impl<M: VersionedMetaroot> Metaroot<M> {
         }
         es
     }
+
+    /// Check that links will not be broken when setting new measurement names.
+    ///
+    /// This is useful when setting the measurements in bulk and the names may
+    /// change all at once.
+    ///
+    /// For named links, assume by default that new measurements are
+    /// incompatible with old measurements (despite possibly sharing names) and
+    /// thus any existing links are considered broken. If `allow_shared_names`
+    /// is true, check that named links are within the new measurement names and
+    /// return error if not. Do not include time when doing this since this
+    /// cannot be linked.
+    ///
+    /// For indexed links, assume by default that new measurement order does not
+    /// correspond to new measurement order, in which case any existing links
+    /// will be broken. If `skip_index_check` is true, bypass this assumption
+    /// and only check that the indices in the final result are valid. This
+    /// should only be true when the user knows that measurements that have
+    /// links are in the same order b/t new and old.
+    ///
+    /// The number of measurements is assumed to be correct; this should be
+    /// checked elsewhere.
+    fn new_meas_link_errors<N, X, Y>(
+        &self,
+        cur_meas: &Measurements<N, X, Y>,
+        new_meas: &Measurements<N, X, Y>,
+        allow_shared_names: bool,
+        skip_index_check: bool,
+    ) -> Result<(), SetMeasurementLinkErrors>
+    where
+        N: MightHave<Shortname>,
+    {
+        let n = cur_meas.len();
+        debug_assert!(
+            n == new_meas.len(),
+            "measurement vector are not same length"
+        );
+        let (js, ns) = cur_meas.all_indices_and_names_to_remove();
+        let s = &self.specific;
+        let named_errs: Vec<_> = if allow_shared_names {
+            // If name sharing is allowed, treat this as if keywords that have
+            // references ($SPILLOVER, etc) are being added to the new
+            // measurement, in which case we only need to ensure that links in
+            // the final configuration match
+            let nset = new_meas.named_set();
+            self.invalid_named_links(&nset)
+                .map(SetMeasurementLinkError::from)
+                .collect()
+        } else {
+            // If name sharing is not allowed, act as if all measurement will be
+            // unset and replaced in two discrete steps, and any existing links
+            // will be broken after the unset step. This effectively means we
+            // can't have any links.
+            self.meas_has_existing_named_links_with(&ns)
+                .map(SetMeasurementLinkError::from)
+                .collect()
+        };
+        let par = n.into();
+        let index_errs: Vec<_> = if skip_index_check {
+            s.meas_invalid_indexed_links_inner(&par)
+                .map(SetMeasurementLinkError::from)
+                .collect()
+        } else {
+            s.meas_has_existing_index_links_with_inner(par, &js)
+                .map(SetMeasurementLinkError::from)
+                .collect()
+        };
+        SetMeasurementLinkErrors::try_new(named_errs.into_iter().chain(index_errs))
+    }
 }
 
 // Implement methods for Core*
@@ -4867,7 +4919,7 @@ where
     /// data schema length.
     pub fn set_named_measurements(
         &mut self,
-        xs: NamedTemporalsAndOpticals<V>,
+        measurements: NamedTemporalsAndOpticals<V>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetNamedMeasurementsError>
@@ -4878,7 +4930,16 @@ where
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: LayoutDatatype + HasWidth,
     {
-        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)
+        let go = |cur_meas: &_, new_meas: &_| {
+            self.metaroot.new_meas_link_errors(
+                cur_meas,
+                new_meas,
+                allow_shared_names,
+                skip_index_check,
+            )
+        };
+        self.meas_layout
+            .set_named_measurements_with(measurements, go)
     }
 
     /// Set measurements without $PnN.
@@ -4893,7 +4954,7 @@ where
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype,
     {
-        self.set_measurements_inner(measurements)
+        self.meas_layout.set_measurements(measurements)
     }
 
     #[cfg(feature = "serde")]
@@ -4936,7 +4997,7 @@ where
     where
         L: LayoutRemove<C>,
     {
-        if let Some(&index) = self.measurement_named_indices().get(name) {
+        if let Some(&index) = self.meas_layout.measurements().named_indices().get(name) {
             // NOTE if the meas to be removed is temporal, this name shouldn't
             // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
             // $TR should never link to a temporal measurement
@@ -4958,7 +5019,12 @@ where
     where
         L: LayoutRemove<C>,
     {
-        if let Some(&name) = self.measurement_indexed_names().get(&index) {
+        if let Some(&name) = self
+            .meas_layout
+            .measurements()
+            .indexed_name_map()
+            .get(&index)
+        {
             // NOTE (ditto previous function)
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
@@ -5042,42 +5108,6 @@ where
             })
     }
 
-    fn set_named_measurements_inner(
-        &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
-        allow_shared_names: bool,
-        skip_index_check: bool,
-    ) -> Result<(), SetNamedMeasurementsError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: LayoutDatatype + HasWidth,
-    {
-        let meas = self
-            .meas_layout
-            .layout()
-            .try_new_measurements::<V>(measurements)?;
-        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
-        self.measurements = meas;
-        Ok(())
-    }
-
-    fn set_measurements_inner(
-        &mut self,
-        measurements: TemporalsAndOpticals<V>,
-    ) -> Result<(), SetUnnamedMeasurementsError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
-        L: HasWidth + LayoutDatatype,
-    {
-        self.meas_layout.set_measurements(measurements)
-    }
-
     fn set_measurements_and_layout_inner(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
@@ -5099,20 +5129,15 @@ where
         L: HasWidth,
     {
         let p = self.par();
-        let (js, ns) = self.all_indices_and_names_to_remove();
+        let (js, ns) = self
+            .meas_layout
+            .measurements()
+            .all_indices_and_names_to_remove();
         let es = self.metaroot.meas_has_existing_links_with(p, &ns, &js);
         ExistingLinkErrors::try_new(es)?;
         self.meas_layout.clear();
         Ok(())
     }
-
-    // fn set_layout_inner(&mut self, mut layout: L)
-    // where
-    //     L: LayoutNormalize,
-    // {
-    //     layout.normalize();
-    //     self.meas_layout = layout;
-    // }
 
     fn header_and_flat_keywords<T>(
         &self,
@@ -5233,7 +5258,7 @@ where
             Index(MeasIndex),
             Req(ReqMeasKeyword<'a>),
             Optical(OptOpticalKeyword<'a>),
-            NumType(SplitKeyword1<NumType>),
+            NumType(SplitKeyword1<kws::NumType>),
         }
 
         impl<'a> MeasKeyword<'a> {
@@ -5270,19 +5295,19 @@ where
         let common = [
             INDEX.into(),
             Shortname::std_blank(),
-            Width::std_blank(),
-            TextRange::std_blank(),
+            kws::Width::std_blank(),
+            kws::TextRange::std_blank(),
             Scale::std_blank(),
-            Filter::std_blank(),
+            kws::Filter::std_blank(),
             // NOTE same for Wavelengths
-            Wavelength::std_blank(),
-            Power::std_blank(),
-            DetectorType::std_blank(),
-            PercentEmitted::std_blank(),
-            DetectorVoltage::std_blank(),
+            kws::Wavelength::std_blank(),
+            kws::Power::std_blank(),
+            kws::DetectorType::std_blank(),
+            kws::PercentEmitted::std_blank(),
+            kws::DetectorVoltage::std_blank(),
         ];
 
-        let peak = [PeakBin::std_blank(), PeakIndex::std_blank()];
+        let peak = [kws::PeakBin::std_blank(), kws::PeakIndex::std_blank()];
 
         header.extend(common);
 
@@ -5291,25 +5316,25 @@ where
                 header.extend(peak);
             }
             Version::FCS3_0 => {
-                header.push(Gain::std_blank());
+                header.push(kws::Gain::std_blank());
                 header.extend(peak);
             }
             Version::FCS3_1 => {
-                header.push(Gain::std_blank());
-                header.push(Calibration3_1::std_blank());
-                header.push(Display::std_blank());
+                header.push(kws::Gain::std_blank());
+                header.push(kws::Calibration3_1::std_blank());
+                header.push(kws::Display::std_blank());
                 header.extend(peak);
             }
             Version::FCS3_2 => {
-                header.push(Gain::std_blank());
-                header.push(Calibration3_2::std_blank());
-                header.push(Display::std_blank());
-                header.push(DetectorName::std_blank());
-                header.push(Tag::std_blank());
-                header.push(OpticalType::std_blank());
-                header.push(Feature::std_blank());
-                header.push(Analyte::std_blank());
-                header.push(NumType::std_blank());
+                header.push(kws::Gain::std_blank());
+                header.push(kws::Calibration3_2::std_blank());
+                header.push(kws::Display::std_blank());
+                header.push(kws::DetectorName::std_blank());
+                header.push(kws::Tag::std_blank());
+                header.push(kws::OpticalType::std_blank());
+                header.push(kws::Feature::std_blank());
+                header.push(kws::Analyte::std_blank());
+                header.push(kws::NumType::std_blank());
             }
         }
 
@@ -5572,92 +5597,6 @@ where
                 let d = MeasurementDiagnostics::new(ds, trimmed, tops, timestep_added);
                 (ms, d)
             })
-    }
-
-    fn measurement_indexed_names(&self) -> HashMap<MeasIndex, &Shortname> {
-        self.meas_layout.measurements().indexed_names().collect()
-    }
-
-    fn measurement_named_indices(&self) -> HashMap<&Shortname, MeasIndex> {
-        self.meas_layout
-            .measurements()
-            .indexed_names()
-            .map(|(i, m)| (m, i))
-            .collect()
-    }
-
-    fn all_indices_and_names_to_remove(&self) -> (IndicesToRemove, OpticalNamesToRemove<'_>) {
-        let (js, ns): (HashSet<_>, HashSet<_>) = self
-            .meas_layout
-            .measurements()
-            .indexed_non_center_names()
-            .unzip();
-        (js.into(), ns.into())
-    }
-
-    /// Check that links will not be broken when setting new measurement names.
-    ///
-    /// This is useful when setting the measurements in bulk and the names may
-    /// change all at once.
-    ///
-    /// For named links, assume by default that new measurements are
-    /// incompatible with old measurements (despite possibly sharing names) and
-    /// thus any existing links are considered broken. If `allow_shared_names`
-    /// is true, check that named links are within the new measurement names and
-    /// return error if not. Do not include time when doing this since this
-    /// cannot be linked.
-    ///
-    /// For indexed links, assume by default that new measurement order does not
-    /// correspond to new measurement order, in which case any existing links
-    /// will be broken. If `skip_index_check` is true, bypass this assumption
-    /// and only check that the indices in the final result are valid. This
-    /// should only be true when the user knows that measurements that have
-    /// links are in the same order b/t new and old.
-    ///
-    /// The number of measurements is assumed to be correct; this should be
-    /// checked elsewhere.
-    fn new_meas_link_errors<X, Y>(
-        &self,
-        measurements: &Measurements<V::Name, X, Y>,
-        allow_shared_names: bool,
-        skip_index_check: bool,
-    ) -> Result<(), SetMeasurementLinkErrors> {
-        debug_assert!(
-            self.meas_layout.measurements().len() == measurements.len(),
-            "measurement vector are not same length"
-        );
-        let (js, ns) = self.all_indices_and_names_to_remove();
-        let m = &self.metaroot;
-        let s = &m.specific;
-        let named_errs: Vec<_> = if allow_shared_names {
-            // If name sharing is allowed, treat this as if keywords that have
-            // references ($SPILLOVER, etc) are being added to the new
-            // measurement, in which case we only need to ensure that links in
-            // the final configuration match
-            let nset = measurements.named_set();
-            m.invalid_named_links(&nset)
-                .map(SetMeasurementLinkError::from)
-                .collect()
-        } else {
-            // If name sharing is not allowed, act as if all measurement will be
-            // unset and replaced in two discrete steps, and any existing links
-            // will be broken after the unset step. This effectively means we
-            // can't have any links.
-            m.meas_has_existing_named_links_with(&ns)
-                .map(SetMeasurementLinkError::from)
-                .collect()
-        };
-        let par = self.par();
-        let index_errs: Vec<_> = if skip_index_check {
-            s.meas_invalid_indexed_links_inner(&par)
-                .map(SetMeasurementLinkError::from)
-                .collect()
-        } else {
-            s.meas_has_existing_index_links_with_inner(par, &js)
-                .map(SetMeasurementLinkError::from)
-                .collect()
-        };
-        SetMeasurementLinkErrors::try_new(named_errs.into_iter().chain(index_errs))
     }
 }
 
@@ -5933,11 +5872,16 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        let meas = data_schema.try_new_measurements::<V>(measurements)?;
-        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)?;
-        self.measurements = meas;
-        self.set_layout_inner(data_schema);
-        Ok(())
+        let go = |cur_meas: &_, new_meas: &_| {
+            self.metaroot.new_meas_link_errors(
+                cur_meas,
+                new_meas,
+                allow_shared_names,
+                skip_index_check,
+            )
+        };
+        self.meas_layout
+            .set_named_measurements_and_layout_with(measurements, data_schema, go)
     }
 
     /// Remove a measurement matching the given name.
@@ -5984,8 +5928,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     where
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        let df = self.meas_layout.with_data(df)?;
-        Ok(Core::new(self.metaroot, df, analysis, others))
+        let layout = self.meas_layout.with_data(df)?;
+        Ok(Core::new(self.metaroot, layout, analysis, others))
     }
 
     // only meant to be called during lookup when keywords are being read from
@@ -6251,8 +6195,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        self.meas_layout = self.meas_layout.with_data(df)?;
-        Ok(())
+        self.meas_layout.set_data(df)
     }
 
     /// Remove all measurements and data
@@ -6310,7 +6253,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        self.meas_layout.set_dataframe_schema(data_schema)
+        self.meas_layout.set_dataframe_schema(&data_schema)
     }
 
     /// Set measurements without $PnN and data_schema
@@ -6329,23 +6272,9 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        // TODO check broken links here
-
-        // ensures length of new data schema == length of new measurements
-        data_schema
-            .check_meas_vec::<V>(&measurements[..])
-            .map_err(SetUnnamedMeasurementsError::from)?;
-        // length is not checked here, just data loss
-        data_schema.check_data_loss_generic(&self.meas_layout)?;
-        // ensures length of new measurements == length of old measurements
-        self.measurements
-            .set_values(measurements)
-            .map_err(SetUnnamedMeasurementsError::from)?;
-        let new_data_schema = data_schema
-            .with_data(mem::take(&mut self.meas_layout).into())
-            .expect("data loss and dimensions were checked above");
-        self.set_layout_inner(new_data_schema);
-        Ok(())
+        // NOTE no check for broken links since this doesn't touch names
+        self.meas_layout
+            .set_measurements_dataframe_schema(measurements, &data_schema)
     }
 
     /// Set measurements and data schema
@@ -6370,15 +6299,16 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        let meas = data_schema
-            .try_new_measurements::<V>(measurements)
-            .map_err(SetNamedMeasurementsError::from)?;
-        self.new_meas_link_errors(&meas, allow_shared_names, skip_index_check)
-            .map_err(SetNamedMeasurementsError::from)?;
-        // TODO this validates against the old measurements
-        self.set_data_schema(data_schema)?;
-        self.measurements = meas;
-        Ok(())
+        let go = |cur_meas: &_, new_meas: &_| {
+            self.metaroot.new_meas_link_errors(
+                cur_meas,
+                new_meas,
+                allow_shared_names,
+                skip_index_check,
+            )
+        };
+        self.meas_layout
+            .set_named_measurements_and_dataframe_schema_with(measurements, &data_schema, go)
     }
 
     /// Remove a measurement matching the given name.
@@ -6425,11 +6355,11 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// Length of measurements must match the width of the input dataframe.
     pub fn set_named_measurements_and_data(
         &mut self,
-        xs: NamedTemporalsAndOpticals<V>,
+        measurements: NamedTemporalsAndOpticals<V>,
         df: PrimitiveDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Result<(), SetMeasurementsAndDataError>
+    ) -> Result<(), SetNamedMeasurementsAndDataError>
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
@@ -6437,10 +6367,16 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        let new_df = self.meas_layout.with_data(df)?;
-        self.set_named_measurements_inner(xs, allow_shared_names, skip_index_check)?;
-        self.meas_layout = new_df;
-        Ok(())
+        let go = |cur_meas: &_, new_meas: &_| {
+            self.metaroot.new_meas_link_errors(
+                cur_meas,
+                new_meas,
+                allow_shared_names,
+                skip_index_check,
+            )
+        };
+        self.meas_layout
+            .set_named_measurements_and_data_with(measurements, df, go)
     }
 
     /// Set measurements without $PnN and dataframe together
@@ -6458,10 +6394,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        let new_df = self.meas_layout.with_data(df)?;
-        self.set_measurements_inner(measurements)?;
-        self.meas_layout = new_df;
-        Ok(())
+        self.meas_layout.set_measurements_and_data(measurements, df)
     }
 
     /// Set measurements without $PnN, data schema, and data itself together

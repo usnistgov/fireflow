@@ -7,9 +7,10 @@ use crate::data::{
     self, CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrameAsDataSchema,
     DataFrameCheckRanges as _, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
     EventOverRangeError, LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutNormalize,
-    LayoutRemove, MeasLayoutMismatchError, OverrangeColumn, ReadCheckedDataframeError,
-    ReadCheckedDataframeWarning, ReadDataFrameResult, ScaleDatatypeMismatchError, ScaleErrorGroup,
-    VersionedDataFrame, VersionedDataSchema, WithPrimitiveDataFrame,
+    LayoutRemove, MeasLayoutMismatchError, MeasurementsWithLayoutError, OverrangeColumn,
+    ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataFrameResult,
+    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataSchema,
+    WithPrimitiveDataFrame,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
@@ -52,7 +53,7 @@ use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use fireflow_types::nonempty_string::{DisplayableNE as _, NEString};
-use type_families::{ApplyOnce as _, Functor};
+use type_families::ApplyOnce as _;
 
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
@@ -746,7 +747,7 @@ pub struct NoScaleError(MeasIndex);
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct GainLossError(MeasIndex);
 
-/// Error when pushing a temporal measurement into [`CoreTEXT`]
+/// Error when pushing a temporal measurement into [`CoreLayout`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -755,7 +756,7 @@ pub enum PushTemporalError<E> {
     Layout(E),
 }
 
-/// Error when inserting a temporal measurement into [`CoreTEXT`]
+/// Error when inserting a temporal measurement into [`CoreLayout`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -764,7 +765,7 @@ pub enum InsertTemporalError<E> {
     Layout(E),
 }
 
-/// Error when pushing an optical measurement into [`CoreTEXT`]
+/// Error when pushing an optical measurement into [`CoreLayout`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
@@ -773,13 +774,21 @@ pub enum PushOpticalError<E> {
     Layout(E),
 }
 
-/// Error when inserting an optical measurement into [`CoreTEXT`]
+/// Error when inserting an optical measurement into [`CoreLayout`]
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
 pub enum InsertOpticalError<E> {
     Insert(InsertError),
     Layout(E),
+}
+
+/// Error when setting data schema for a dataset.
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum DatasetSetDataSchemaError {
+    DataSchema(MeasLayoutMismatchError),
+    Cast(CastSeriesErrors),
 }
 
 /// Error when setting measurements vector without names
@@ -790,12 +799,20 @@ pub enum SetUnnamedMeasurementsError {
     Set(SetValuesError),
 }
 
-/// Error when setting data schema for a dataset.
+/// Error when setting named measurements and data schema for a dataset.
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DatasetSetDataSchemaError {
-    DataSchema(MeasLayoutMismatchError),
+pub enum DatasetSetUnnamedMeasAndDataSchemaError {
     Cast(CastSeriesErrors),
+    Meas(SetUnnamedMeasurementsError),
+}
+
+/// Error when setting measurements without $PnN and DATA/dataframe simultaneously
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetUnnamdMeasurementsAndDataError {
+    Meas(SetUnnamedMeasurementsError),
+    Mismatch(DataSchemaToDataFrameError),
 }
 
 pub(crate) type VersionedCoreLayout<L, V> = CoreLayout<
@@ -901,24 +918,6 @@ impl_version_set!(
 // Note that mutable references are never used for types that must be internally
 // validated for consistency with other values.
 
-// macro_rules! impl_ref {
-//     ($outer:ident, $inner:ident) => {
-//         impl AsRef<$inner> for $outer<$inner> {
-//             fn as_ref(&self) -> &$inner {
-//                 &self.specific
-//             }
-//         }
-
-//         impl AsMut<$inner> for $outer<$inner> {
-//             fn as_mut(&mut self) -> &mut $inner {
-//                 &mut self.specific
-//             }
-//         }
-//     };
-// }
-
-// pub(crate) use impl_ref;
-
 macro_rules! impl_ref_specific_ro {
     ($outer:ident, $inner:ident, $($ref:path),*) => {
         $(
@@ -948,16 +947,6 @@ macro_rules! impl_ref_specific_rw {
 }
 
 pub(crate) use impl_ref_specific_rw;
-
-// impl_ref!(Optical, InnerOptical2_0);
-// impl_ref!(Optical, InnerOptical3_0);
-// impl_ref!(Optical, InnerOptical3_1);
-// impl_ref!(Optical, InnerOptical3_2);
-
-// impl_ref!(Temporal, InnerTemporal2_0);
-// impl_ref!(Temporal, InnerTemporal3_0);
-// impl_ref!(Temporal, InnerTemporal3_1);
-// impl_ref!(Temporal, InnerTemporal3_2);
 
 impl_ref_specific_rw!(
     Optical,
@@ -3052,18 +3041,6 @@ where
             .alter_elements_zip(xs, g, f_tmp, f_opt, f_err)
     }
 
-    pub(crate) fn map_temporal_value<F, Tf, P, LWC, RWC, E, EC>(
-        self,
-        f: F,
-    ) -> LogResult<NamedVec<V::Name, Tf, VOptical<V>>, P, LWC, RWC, (), E, EC>
-    where
-        F: Fn(IndexedElement<&Shortname, VTemporal<V>>) -> LogResult<Tf, P, LWC, RWC, (), E, EC>,
-        EC: Functor<E>,
-        LWC: Default,
-    {
-        self.measurements.map_center_value(f)
-    }
-
     pub(crate) fn alter_common_values_zip<F, X, R, T>(
         &mut self,
         xs: impl IntoIterator<Item = X>,
@@ -3294,6 +3271,48 @@ where
         Ok(())
     }
 
+    pub(crate) fn set_named_measurements_with<F, E, Ei>(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<V>,
+        f: F,
+    ) -> Result<(), E>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        L: LayoutDatatype + HasWidth,
+        F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
+        E: From<Ei> + From<MeasurementsWithLayoutError>,
+    {
+        let meas = self.layout.try_new_measurements::<V>(measurements)?;
+        f(&self.measurements, &meas)?;
+        self.measurements = meas;
+        Ok(())
+    }
+
+    pub(crate) fn set_named_measurements_and_layout_with<F, E, Ei>(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<V>,
+        layout: L,
+        f: F,
+    ) -> Result<(), E>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        L: LayoutDatatype + HasWidth + LayoutNormalize,
+        F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
+        E: From<Ei> + From<MeasurementsWithLayoutError>,
+    {
+        let meas = layout.try_new_measurements::<V>(measurements)?;
+        f(&self.measurements, &meas)?;
+        self.measurements = meas;
+        self.set_layout_inner(layout);
+        Ok(())
+    }
+
     pub(crate) fn set_measurements_and_layout(
         &mut self,
         measurements: TemporalsAndOpticals<V>,
@@ -3475,7 +3494,7 @@ where
 
     pub(crate) fn set_dataframe_schema(
         &mut self,
-        data_schema: V::DataSchema,
+        data_schema: &V::DataSchema,
     ) -> Result<(), DatasetSetDataSchemaError>
     where
         V::Optical: AsScaleOrTransform,
@@ -3492,6 +3511,123 @@ where
             .expect("data loss and dimensions were checked above");
         self.set_layout_inner(new_data_schema);
         Ok(())
+    }
+
+    pub(crate) fn set_measurements_dataframe_schema(
+        &mut self,
+        measurements: TemporalsAndOpticals<V>,
+        data_schema: &V::DataSchema,
+    ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+    {
+        // ensures length of new data schema == length of new measurements
+        data_schema
+            .check_meas_vec::<V>(&measurements[..])
+            .map_err(SetUnnamedMeasurementsError::from)?;
+        // length is not checked here, just data loss
+        data_schema.check_data_loss_generic(&self.layout)?;
+        // ensures length of new measurements == length of old measurements
+        self.measurements
+            .set_values(measurements)
+            .map_err(SetUnnamedMeasurementsError::from)?;
+        self.set_data_schema_unchecked(data_schema);
+        Ok(())
+    }
+
+    pub(crate) fn set_named_measurements_and_dataframe_schema_with<F, E, Ei>(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<V>,
+        data_schema: &V::DataSchema,
+        f: F,
+    ) -> Result<(), E>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
+        E: From<Ei>
+            + From<MeasurementsWithLayoutError>
+            + From<DatasetSetDataSchemaError>
+            + From<CastSeriesErrors>,
+    {
+        let meas = data_schema.try_new_measurements::<V>(measurements)?;
+        data_schema.check_data_loss_generic(&self.layout)?;
+        f(&self.measurements, &meas)?;
+        self.set_data_schema_unchecked(data_schema);
+        self.measurements = meas;
+        Ok(())
+    }
+
+    pub(crate) fn set_named_measurements_and_data_with<F, E, Ei>(
+        &mut self,
+        measurements: NamedTemporalsAndOpticals<V>,
+        df: PrimitiveDataFrame,
+        f: F,
+    ) -> Result<(), E>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+        F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
+        E: From<Ei> + From<MeasurementsWithLayoutError> + From<DataSchemaToDataFrameError>,
+    {
+        let new_df = self.layout.with_data(df)?;
+        self.set_named_measurements_with::<_, E, Ei>(measurements, f)?;
+        self.layout = new_df;
+        Ok(())
+    }
+
+    pub(crate) fn set_data(
+        &mut self,
+        df: PrimitiveDataFrame,
+    ) -> Result<(), DataSchemaToDataFrameError>
+    where
+        V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+    {
+        self.layout = self.layout.with_data(df)?;
+        Ok(())
+    }
+
+    pub(crate) fn set_measurements_and_data(
+        &mut self,
+        measurements: TemporalsAndOpticals<V>,
+        df: PrimitiveDataFrame,
+    ) -> Result<(), SetUnnamdMeasurementsAndDataError>
+    where
+        V::Optical: AsScaleOrTransform,
+        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
+        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
+        // V::DataFrame: HasWidth + LayoutDatatype,
+        V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+    {
+        // TODO check xforms
+        // self.layout.check_meas_vec::<V>(&measurements[..])?;
+        self.layout = self.layout.with_data(df)?;
+        self.set_measurements(measurements)?;
+        Ok(())
+    }
+
+    fn set_data_schema_unchecked(&mut self, data_schema: &V::DataSchema)
+    where
+        V::DataFrame: Into<PrimitiveDataFrame> + Default,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
+    {
+        let new_data_schema = data_schema
+            .with_data_generic(mem::take(&mut self.layout))
+            .expect("data loss and dimensions were checked by caller");
+        self.set_layout_inner(new_data_schema);
     }
 }
 

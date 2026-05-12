@@ -111,7 +111,6 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
-use crate::core::VersionSet;
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
@@ -150,8 +149,8 @@ use crate::validated::bitmask::{
     Bitmask64, BitmaskValue, NewBitmaskError,
 };
 use crate::validated::core_layout::{
-    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, TemporalOrOptical,
-    VersionLayoutSet,
+    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, Optical, ScaleTransform,
+    TemporalOrOptical, VersionLayoutSet,
 };
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,

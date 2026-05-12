@@ -3421,7 +3421,7 @@ where
             .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|meas| {
                 data_schema
-                    .check_measmeta_nolen(&meas)
+                    .check_measmeta_xforms(&meas)
                     .map_err(LookupMeasError::from)
                     .into_log()
                     .map_ok_value(|()| {

@@ -1977,19 +1977,6 @@ where
             }
         }
     }
-
-    fn check_measmeta_nolen<N, T, O: AsScaleOrTransform>(
-        &self,
-        meas: &MeasMeta<N, T, O>,
-    ) -> Result<(), ScaleDatatypeMismatchErrors>
-    where
-        O::S: CheckedScaleTransform + Default,
-    {
-        let xforms = meas.iter_with(&|_, _| O::S::default(), &|_, m| {
-            m.value.as_scale_or_transform()
-        });
-        self.check_transforms(xforms)
-    }
 }
 
 impl VersionedDataSchema for DataSchema2_0 {
@@ -2309,6 +2296,21 @@ pub trait LayoutDatatype: Sized {
             m.value.as_scale_or_transform()
         });
         self.check_transforms_and_len(xforms)
+    }
+
+    /// Check that meas metadata is compatible with this data schema (no length).
+    fn check_measmeta_xforms<Name, Tmp, Opt: AsScaleOrTransform>(
+        &self,
+        meas: &MeasMeta<Name, Tmp, Opt>,
+    ) -> Result<(), ScaleDatatypeMismatchErrors>
+    where
+        Self: LayoutDatatype,
+        Opt::S: CheckedScaleTransform + Default,
+    {
+        let xforms = meas.iter_with(&|_, _| Opt::S::default(), &|_, m| {
+            m.value.as_scale_or_transform()
+        });
+        self.check_transforms(xforms)
     }
 
     /// Convert vector of names + metadata to validated meas metadata.

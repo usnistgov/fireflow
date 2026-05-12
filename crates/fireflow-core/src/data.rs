@@ -167,6 +167,7 @@ use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U5
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{CheckedRangeDatatypes, OverRangeAction};
 use fireflow_types::nonempty_string::DisplayableNE as _;
+use nonempty_collections::NESlice;
 use type_families::{
     Functor, FunctorOnce, Kind1, Sibling1, VecFamily, impl_functor_once, impl_kind1,
 };
@@ -3297,21 +3298,18 @@ where
                 })
             };
         }
-        let rs = &self.container[..];
-        let nbytes = seg.len().u64_to_usize();
-        if rs.is_empty() && nbytes > 0 {
-            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
-            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
-        }
-        let res = TotType::with_tot(
-            h,
-            tot,
-            |h_, t| go!(h_read_delim_with_rows(rs, h_, t, nbytes)),
-            |h_| go!(h_read_delim_without_rows(rs, h_, nbytes)),
-        );
 
-        res.map_err(IOErrorGroup::from)
-            .map(|data| {
+        let nbytes = seg.len().u64_to_usize();
+
+        let res = if let Some(rs) = NESlice::try_from_slice(&self.container[..]) {
+            let res = TotType::with_tot(
+                h,
+                tot,
+                |h_, t| go!(h_read_delim_with_rows(&rs, h_, t, nbytes)),
+                |h_| go!(h_read_delim_without_rows(&rs, h_, nbytes)),
+            );
+
+            res.map(|data| {
                 debug_assert!(
                     data.iter().map(Vec::len).unique().count() < 2,
                     "columns must all be same length"
@@ -3321,16 +3319,24 @@ where
                     .map(InternalSeries::from)
                     .zip(&self.container)
                     .map(|(vec, &range)| NativeSeries::new(range, vec));
-                let df = DataFrame::new_unchecked(cs);
-                let out = PreEventsDiagnostics::new(None, None, None);
-                PreDataFrameResult::new(Layout::new_ascii(df), out)
+                DataFrame::new_unchecked(cs)
             })
+        } else if nbytes > 0 {
+            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
+            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
+        } else {
+            Ok(DataFrame::default())
+        };
+
+        let diag = PreEventsDiagnostics::new(None, None, None);
+        res.map(|df| PreDataFrameResult::new(Layout::new_ascii(df), diag))
+            .map_err(IOErrorGroup::from)
             .into_log()
     }
 }
 
 fn h_read_delim_with_rows<R: Read>(
-    ranges: &[DelimAsciiRange],
+    ranges: &NESlice<DelimAsciiRange>,
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
@@ -3339,9 +3345,8 @@ fn h_read_delim_with_rows<R: Read>(
     let mut last_was_delim = false;
     let nrows = tot.0;
     let ncols = ranges.len();
-    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     // Here we have $TOT so initialize vectors to required length
-    let mut data = vec![vec![0; nrows]; ncols];
+    let mut data = vec![vec![0; nrows]; ncols.get()];
     let mut row = 0;
     let mut col = 0;
     // Delimiters are tab, newline, carriage return, space, or comma. Any
@@ -3352,7 +3357,7 @@ fn h_read_delim_with_rows<R: Read>(
                 .map_err(DataAsciiNumToUintError)
                 .map_err(ReadDelimWithRowsAsciiError::Parse)
                 .map_err(ImpureError::Pure)?;
-            if col == ncols - 1 {
+            if col == ncols.get() - 1 {
                 col = 0;
                 row += 1;
             } else {
@@ -3393,7 +3398,7 @@ fn h_read_delim_with_rows<R: Read>(
 }
 
 fn h_read_delim_without_rows<R: Read>(
-    ranges: &[DelimAsciiRange],
+    ranges: &NESlice<DelimAsciiRange>,
     h: &mut BufReader<R>,
     nbytes: usize,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
@@ -3401,7 +3406,6 @@ fn h_read_delim_without_rows<R: Read>(
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
     let ncols = data.len();
-    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     let mut col = 0;
     let mut last_was_delim = false;
     let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {

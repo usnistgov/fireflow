@@ -4182,7 +4182,7 @@ where
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
     {
-        self.meas.replace_center_at(index, m, |i, old_t| {
+        self.meas.replace_temporal_at(index, m, |i, old_t| {
             V::Optical::from_temporal(old_t, i, allow_loss)
                 .switchable_into_non_commutative()
                 .map_ok_value(|(x, _)| x)
@@ -4201,7 +4201,7 @@ where
         V::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
     {
         self.meas
-            .replace_center_by_name_nofail(name, m, |i, old_t| {
+            .replace_temporal_by_name_nofail(name, m, |i, old_t| {
                 V::Optical::from_temporal(old_t, i, ())
                     .set_err_value(())
                     .infallible_nowarn_into()
@@ -4228,7 +4228,7 @@ where
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
     {
-        self.meas.replace_center_by_name(name, m, |i, old_t| {
+        self.meas.replace_temporal_by_name(name, m, |i, old_t| {
             V::Optical::from_temporal(old_t, i, allow_loss)
                 .switchable_into_non_commutative()
                 .map_ok_value(|(x, _)| x)

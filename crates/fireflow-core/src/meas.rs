@@ -3004,7 +3004,7 @@ where
     /// Unset temporal measurement.
     pub(crate) fn unset_temporal<F, X, LWC, RWC, E, EC>(
         &mut self,
-        to_v: F,
+        to_opt: F,
     ) -> LogResult<Option<X>, (), LWC, RWC, (), E, EC>
     where
         F: FnOnce(
@@ -3021,7 +3021,8 @@ where
         >,
         LWC: Default,
     {
-        self.meta.unset_center(to_v)
+        // TODO nothing enforces that the scale will remain linear
+        self.meta.unset_center(to_opt)
     }
 
     pub(crate) fn rename(
@@ -3040,6 +3041,7 @@ where
         self.meta.as_center_mut()
     }
 
+    // TODO consistency can be broken via &mut Optical
     pub(crate) fn alter_values<F, G, R>(&mut self, f: F, g: G) -> Vec<R>
     where
         F: Fn(IndexedElement<&Shortname, &mut VTemporal<V>>) -> R,
@@ -3048,6 +3050,7 @@ where
         self.meta.alter_values(f, g)
     }
 
+    // TODO consistency can be broken via &mut Optical
     pub(crate) fn alter_values_zip<G, F, X, R>(
         &mut self,
         xs: Vec<X>,
@@ -3061,6 +3064,7 @@ where
         self.meta.alter_values_zip(xs, f, g)
     }
 
+    // TODO consistency can be broken via &mut Optical
     pub(crate) fn alter_elements_zip<Fo, Ft, Fe, X, Y, R, E, G>(
         &mut self,
         xs: Vec<Element<X, Y>>,
@@ -3095,6 +3099,7 @@ where
         index: MeasIndex,
         value: Optical<V::Optical>,
     ) -> Result<VersionedElement<V>, ElementIndexError> {
+        // TODO check scale
         self.meta.replace_at(index, value)
     }
 
@@ -3103,6 +3108,7 @@ where
         name: &Shortname,
         value: VOptical<V>,
     ) -> Result<VersionedElement<V>, NameNotFoundError> {
+        // TODO check scale
         self.meta.replace_named(name, value)
     }
 
@@ -3110,19 +3116,20 @@ where
         &mut self,
         index: MeasIndex,
         value: VTemporal<V>,
-        to_v: F,
+        to_opt: F,
     ) -> Result<VersionedElement<V>, SetCenterError>
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
-        self.meta.replace_center_at_nofail(index, value, to_v)
+        // TODO check scale
+        self.meta.replace_center_at_nofail(index, value, to_opt)
     }
 
-    pub(crate) fn replace_center_at<F, LWC, RWC, E, EC>(
+    pub(crate) fn replace_temporal_at<F, LWC, RWC, E, EC>(
         &mut self,
         index: MeasIndex,
         value: VTemporal<V>,
-        to_v: F,
+        to_opt: F,
     ) -> LogResult<VersionedElement<V>, (), LWC, RWC, (), E, EC>
     where
         F: FnOnce(
@@ -3134,26 +3141,28 @@ where
         RWC: Default,
         EC: Default,
     {
-        self.meta.replace_center_at(index, value, to_v)
+        // TODO check scale
+        self.meta.replace_center_at(index, value, to_opt)
     }
 
-    pub(crate) fn replace_center_by_name_nofail<F>(
+    pub(crate) fn replace_temporal_by_name_nofail<F>(
         &mut self,
         n: &Shortname,
         value: VTemporal<V>,
-        to_v: F,
+        to_opt: F,
     ) -> Result<VersionedElement<V>, NameNotFoundError>
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
-        self.meta.replace_center_by_name_nofail(n, value, to_v)
+        // TODO check scale
+        self.meta.replace_center_by_name_nofail(n, value, to_opt)
     }
 
-    pub(crate) fn replace_center_by_name<F, LWC, RWC, E, EC>(
+    pub(crate) fn replace_temporal_by_name<F, LWC, RWC, E, EC>(
         &mut self,
         n: &Shortname,
         value: VTemporal<V>,
-        to_v: F,
+        to_opt: F,
     ) -> LogResult<VersionedElement<V>, (), LWC, RWC, (), E, EC>
     where
         F: FnOnce(
@@ -3165,7 +3174,8 @@ where
         LWC: Default,
         RWC: Default,
     {
-        self.meta.replace_center_by_name(n, value, to_v)
+        // TODO check scale
+        self.meta.replace_center_by_name(n, value, to_opt)
     }
 
     pub(crate) fn push_temporal_inner<C>(
@@ -3211,6 +3221,7 @@ where
             .when_ok(|| self.meta.insert_center_nocheck(i, n, m))
     }
 
+    // TODO cross check optical with datatype of column
     pub(crate) fn push_optical_inner<C>(
         &mut self,
         n: V::Name,
@@ -3238,6 +3249,7 @@ where
             })
     }
 
+    // TODO cross check optical with datatype of column
     pub(crate) fn insert_optical_inner<C>(
         &mut self,
         i: MeasIndex,

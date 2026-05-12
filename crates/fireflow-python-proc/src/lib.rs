@@ -7135,7 +7135,7 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_transform() -> Self {
-        let path = parse_quote! {fireflow_core::validated::core_layout::ScaleTransform};
+        let path = parse_quote! {fireflow_core::meas::ScaleTransform};
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
         // TODO the linear gain should also be positive

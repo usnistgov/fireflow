@@ -11,8 +11,7 @@ use crate::data::{
     EventOverRangeError, LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutNormalize,
     LayoutRemove, MeasLayoutMismatchError, MeasurementsWithLayoutError, OverrangeColumn,
     ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataFrameResult,
-    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame, VersionedDataSchema,
-    WithPrimitiveDataFrame,
+    ScaleDatatypeMismatchErrors, VersionedDataFrame, VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
@@ -555,7 +554,7 @@ pub enum LookupMeasError {
     /// Measurement vector has more than one time element
     Meas(NewNamedVecError),
     /// Measurement and layout are incompatible
-    Layout(ScaleDatatypeMismatchError),
+    Layout(ScaleDatatypeMismatchErrors),
     /// Time channel is missing entirely
     Time(MissingTimeError),
 }
@@ -3288,8 +3287,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype,
     {
         self.data
@@ -3307,8 +3304,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: LayoutDatatype + HasWidth,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
@@ -3329,8 +3324,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: LayoutDatatype + HasWidth + LayoutNormalize,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
@@ -3351,8 +3344,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
         layout.check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
@@ -3385,7 +3376,7 @@ where
         L: LayoutDatatype,
     {
         assert!(
-            self.data.check_measmeta_xforms_and_len_ok(&self.meta),
+            self.data.check_measmeta_xforms_and_len(&self.meta).is_ok(),
             "{msg}",
         );
     }
@@ -3406,13 +3397,13 @@ where
         V::DataSchema: HasWidth,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
-        // this should be true since the length of both is derived from $PAR
+        let mn = measurements.len();
+        let dn = data_schema.width();
         assert!(
-            measurements.len() == data_schema.width(),
-            "measurements and data schema should be same length"
+            mn == dn,
+            "measurements and data schema should be same length since both \
+             should depend on $PAR, instead got {mn} and {dn}"
         );
         let go = |ms: &NamedVec<_, _, _>| {
             if let Some(pat) = conf.time_meas_pattern.0.as_ref()
@@ -3430,7 +3421,7 @@ where
             .eval_warning_or_error3(missing_flag, |_| (), |()| (), go)
             .and_then_commutative(|meas| {
                 data_schema
-                    .check_measurement_vector_nolen(&meas)
+                    .check_measmeta_nolen(&meas)
                     .map_err(LookupMeasError::from)
                     .into_log()
                     .map_ok_value(|()| {
@@ -3449,8 +3440,6 @@ where
         V::DataSchema: HasWidth,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         MeasMeta::try_new(measurements)
             .map_err(NewMeasError::from)
@@ -3475,8 +3464,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         data_schema.check_measmeta_xforms_and_len(&self.meta)?;
         self.set_layout_inner(data_schema);
@@ -3556,8 +3543,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -3577,8 +3562,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -3607,8 +3590,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
@@ -3636,8 +3617,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError> + From<DataSchemaToDataFrameError>,
@@ -3672,8 +3651,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         // V::DataFrame: HasWidth + LayoutDatatype,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {

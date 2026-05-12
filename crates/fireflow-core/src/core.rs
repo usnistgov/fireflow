@@ -18,8 +18,7 @@ use crate::data::{
     LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LookupDataSchemaError,
     LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
     NewDataSchemaError, RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
-    ScaleDatatypeMismatchError, ScaleErrorGroup, VersionedDataFrame as _, VersionedDataSchema,
-    WithPrimitiveDataFrame,
+    VersionedDataFrame as _, VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -33,6 +32,23 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
+use crate::meas::{
+    AsScaleOrTransform, ConvertFromOptical, ConvertFromShortname, ConvertFromTemporal,
+    CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError, HasScale,
+    InnerOptical2_0, InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0,
+    InnerTemporal3_0, InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError,
+    LookupMeasError, LookupOptical, LookupOpticalError, LookupOpticalWarning, LookupShortname,
+    LookupShortnameError, LookupTemporal, LookupTemporalError, LookupTemporalWarning,
+    MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError, NamedTemporalOrOptical,
+    NamedTemporalsAndOpticals, NewMeasError, Optical, OpticalFromTemporal, PushOpticalError,
+    PushTemporalError, ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaleTransform,
+    SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
+    SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsError, SwapOpticalWithTemporal,
+    Temporal, TemporalFromOptical, TemporalOrOptical, TemporalsAndOpticals,
+    TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
+    TemporalsAndOpticals3_2, VersionLayoutSet, VersionedTemporal, impl_ref_specific_ro,
+    impl_ref_specific_rw,
+};
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
     KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _, OptSegmentWithDefaultWarning,
@@ -89,23 +105,6 @@ use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::compensation::Compensation;
-use crate::validated::core_layout::{
-    AsScaleOrTransform, ConvertFromOptical, ConvertFromShortname, ConvertFromTemporal,
-    CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError, HasScale,
-    InnerOptical2_0, InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0,
-    InnerTemporal3_0, InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError,
-    LookupMeasError, LookupOptical, LookupOpticalError, LookupOpticalWarning, LookupShortname,
-    LookupShortnameError, LookupTemporal, LookupTemporalError, LookupTemporalWarning,
-    MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError, NamedTemporalOrOptical,
-    NamedTemporalsAndOpticals, NewMeasError, Optical, OpticalFromTemporal, PushOpticalError,
-    PushTemporalError, ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaleTransform,
-    SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
-    SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsError, SwapOpticalWithTemporal,
-    Temporal, TemporalFromOptical, TemporalOrOptical, TemporalsAndOpticals,
-    TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
-    TemporalsAndOpticals3_2, VersionLayoutSet, VersionedTemporal, impl_ref_specific_ro,
-    impl_ref_specific_rw,
-};
 use crate::validated::dataframe::{AnyPrimitiveSeries, HasWidth, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
@@ -4744,7 +4743,7 @@ where
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
         V::Optical: HasScale<Option<Scale>>,
-        L: LayoutDatatype + HasWidth,
+        L: LayoutDatatype,
     {
         let center_scale_not_linear = || {
             self.meas
@@ -4758,12 +4757,11 @@ where
         };
 
         let l = &self.meas.layout();
-        let xforms: Vec<_> = scales
+        let xforms = scales
             .iter()
             .copied()
-            .map(|s| s.map(ScaleTransform::from).unwrap_or_default())
-            .collect();
-        l.check_transforms_and_len(&xforms[..])
+            .map(|s| s.map(ScaleTransform::from).unwrap_or_default());
+        l.check_transforms_and_len(xforms)
             .map_err(SetScalesError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_scale_not_linear())
@@ -4800,12 +4798,12 @@ where
         };
 
         let l = &self.meas.layout();
-        l.check_transforms_and_len(&xforms[..])
+        l.check_transforms_and_len(xforms.iter().copied())
             .map_err(SetTransformsError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_xform_not_noop())
             .when_ok(|| {
-                debug_assert!(
+                assert!(
                     self.meas.measurements().len() == xforms.len(),
                     "Input transforms vector should be same length as existing measurements"
                 );
@@ -4920,8 +4918,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: LayoutDatatype + HasWidth,
     {
         let go = |cur_meas: &_, new_meas: &_| {
@@ -4943,8 +4939,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype,
     {
         self.meas.set_measurements(measurements)
@@ -5102,8 +5096,6 @@ where
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
         self.meas.set_measurements_and_layout(measurements, layout)
@@ -5597,8 +5589,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
@@ -5637,8 +5627,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         Self::lookup_inner(kws, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
@@ -5663,8 +5651,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
@@ -5809,8 +5795,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         self.meas.set_data_schema(data_schema)
     }
@@ -5824,8 +5808,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataSchema: HasWidth + LayoutDatatype + LayoutNormalize,
     {
         self.set_measurements_and_layout_inner(measurements, data_schema)
@@ -5846,8 +5828,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         let go = |cur_meas: &_, new_meas: &_| {
             self.rootmeta.new_meas_link_errors(
@@ -5922,8 +5902,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let opt_flag = rconf.process_optional_failure;
@@ -5949,8 +5927,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         CoreMeasurements::try_new_nodrop(measurements, data_schema)
             .map_errors(NewCoreError::from)
@@ -6007,8 +5983,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadEventsConfig>
             + AsRef<ReadSharedConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
@@ -6050,8 +6024,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
     {
         VersionedCoreTEXT::<V>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -6225,8 +6197,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -6244,8 +6214,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -6271,8 +6239,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -6340,8 +6306,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         let go = |cur_meas: &_, new_meas: &_| {
@@ -6367,8 +6331,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         self.meas.set_measurements_and_data(measurements, df)
@@ -6387,8 +6349,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::Optical: AsScaleOrTransform,
         <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<ScaleErrorGroup<V>>,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         let new_df = data_schema.with_data(df)?;

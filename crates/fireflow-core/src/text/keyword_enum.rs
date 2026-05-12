@@ -3,12 +3,12 @@
 //! Used to iterate over keywords without converting to strings first, allowing
 //! fast access and easy filtering if required.
 
+use crate::meas::GainLossError;
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::core_layout::GainLossError;
 use crate::validated::keys::{AnyKey, DKey0, DKey1, DKey2, DollarKey, NonStdKey, VersionedKey};
 use crate::validated::keys::{AsStdKey, StdKey};
 use crate::validated::shortname::Shortname;

@@ -120,8 +120,8 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::match_many_to_one;
 use crate::meas::{
-    AsScaleOrTransform, MeasMeta, NamedTemporalsAndOpticals, Optical, ScaleTransform,
-    TemporalOrOptical, VersionLayoutSet,
+    MeasMeta, NamedTemporalsAndOpticals, Optical, OpticalTransform3_0, ScaledOptical,
+    TemporalOrOptical, VMeasMeta, VersionLayoutSet,
 };
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
@@ -1655,7 +1655,7 @@ pub struct ScaleDatatypeMismatchError {
 #[derive(Debug)]
 enum ScaleOrTransform {
     Scale(Scale),
-    ScaleTransform(ScaleTransform),
+    ScaleTransform(OpticalTransform3_0),
 }
 
 impl fmt::Display for ScaleDatatypeMismatchError {
@@ -2257,18 +2257,12 @@ pub trait LayoutDatatype: Sized {
     fn check_unmamed_meas_xforms<V: VersionLayoutSet>(
         &self,
         meas: &[TemporalOrOptical<V>],
-    ) -> Result<(), ScaleDatatypeMismatchErrors>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-    {
-        let xforms = meas.iter().map(|m| {
-            m.as_ref().both(
-                |_| <V::Optical as AsScaleOrTransform>::S::default(),
-                Optical::as_scale_or_transform,
-            )
-        });
-        self.check_transforms(xforms)
+    ) -> Result<(), ScaleDatatypeMismatchErrors> {
+        unimplemented!()
+        // let xforms = meas
+        //     .iter()
+        //     .map(|m| m.as_ref().both(|_| V::Xform::default(), |o| *o.xform()));
+        // self.check_transforms(xforms)
     }
 
     /// Check that unnamed measurement metadata matches this data schema.
@@ -2283,16 +2277,15 @@ pub trait LayoutDatatype: Sized {
     ) -> Result<(), MeasLayoutMismatchError>
     where
         Self: HasWidth,
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+        // V::Optical: AsScaleOrTransform,
+        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
-        let xforms = meas.iter().map(|m| {
-            m.as_ref().both(
-                |_| <V::Optical as AsScaleOrTransform>::S::default(),
-                Optical::as_scale_or_transform,
-            )
-        });
-        self.check_transforms_and_len(xforms)
+        unimplemented!()
+        // let xforms = meas.iter().map(|m| {
+        //     m.as_ref()
+        //         .both(|_| V::Xform::default(), Optical::as_scale_or_transform)
+        // });
+        // self.check_transforms_and_len(xforms)
     }
 
     /// Check that meas metadata is compatible with this data schema.
@@ -2301,32 +2294,28 @@ pub trait LayoutDatatype: Sized {
     ///
     /// 1. length must match the data schema
     /// 2. transforms in metadata must match data schema
-    fn check_measmeta_xforms_and_len<Name, Tmp, Opt: AsScaleOrTransform>(
+    fn check_measmeta_xforms_and_len<Name, Tmp, Opt, Xform>(
         &self,
-        meas: &MeasMeta<Name, Tmp, Opt>,
+        meas: &MeasMeta<Name, Tmp, Opt, Xform>,
     ) -> Result<(), MeasLayoutMismatchError>
     where
+        Xform: Default + Copy + CheckedScaleTransform,
         Self: LayoutDatatype,
-        Opt::S: CheckedScaleTransform + Default,
     {
-        let xforms = meas.iter_with(&|_, _| Opt::S::default(), &|_, m| {
-            m.value.as_scale_or_transform()
-        });
+        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.xform());
         self.check_transforms_and_len(xforms)
     }
 
     /// Check that meas metadata is compatible with this data schema (no length).
-    fn check_measmeta_xforms<Name, Tmp, Opt: AsScaleOrTransform>(
+    fn check_measmeta_xforms<Name, Tmp, Opt, Xform>(
         &self,
-        meas: &MeasMeta<Name, Tmp, Opt>,
+        meas: &MeasMeta<Name, Tmp, Opt, Xform>,
     ) -> Result<(), ScaleDatatypeMismatchErrors>
     where
+        Xform: Default + Copy + CheckedScaleTransform,
         Self: LayoutDatatype,
-        Opt::S: CheckedScaleTransform + Default,
     {
-        let xforms = meas.iter_with(&|_, _| Opt::S::default(), &|_, m| {
-            m.value.as_scale_or_transform()
-        });
+        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.xform());
         self.check_transforms(xforms)
     }
 
@@ -2342,16 +2331,15 @@ pub trait LayoutDatatype: Sized {
     fn try_new_measmeta<V: VersionLayoutSet>(
         &self,
         measurements: NamedTemporalsAndOpticals<V>,
-    ) -> Result<MeasMeta<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>
+    ) -> Result<VMeasMeta<V>, MeasurementsWithLayoutError>
     where
         Self: HasWidth,
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
-        let ms = NamedVec::try_new(measurements)?;
-        self.check_measmeta_xforms_and_len(&ms)
-            .map_err(MeasurementsWithLayoutError::from)?;
-        Ok(ms)
+        unimplemented!()
+        // let ms = NamedVec::try_new(measurements)?;
+        // self.check_measmeta_xforms_and_len(&ms)
+        //     .map_err(MeasurementsWithLayoutError::from)?;
+        // Ok(ms)
     }
 
     fn check_transforms_and_len<S>(
@@ -7032,7 +7020,7 @@ impl CheckedScaleTransform for Scale {
     }
 }
 
-impl CheckedScaleTransform for ScaleTransform {
+impl CheckedScaleTransform for OpticalTransform3_0 {
     fn matches_datatype_ok(
         &self,
         datatype: AlphaNumType,

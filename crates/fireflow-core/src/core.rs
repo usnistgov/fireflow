@@ -33,15 +33,15 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::match_many_to_one;
 use crate::meas::{
-    AsScaleOrTransform, ConvertFromOptical, ConvertFromShortname, ConvertFromTemporal,
-    CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError, HasScale,
-    InnerOptical2_0, InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0,
-    InnerTemporal3_0, InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError,
-    LookupMeasError, LookupOptical, LookupOpticalError, LookupOpticalWarning, LookupShortname,
-    LookupShortnameError, LookupTemporal, LookupTemporalError, LookupTemporalWarning,
-    MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError, NamedTemporalOrOptical,
-    NamedTemporalsAndOpticals, NewMeasError, Optical, OpticalFromTemporal, PushOpticalError,
-    PushTemporalError, ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaleTransform,
+    ConvertFromOptical, ConvertFromShortname, ConvertFromTemporal, CoreMeasurements,
+    DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError, InnerOptical2_0,
+    InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0, InnerTemporal3_0,
+    InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError, LookupMeasError,
+    LookupOptical, LookupOpticalError, LookupOpticalWarning, LookupShortname, LookupShortnameError,
+    LookupTemporal, LookupTemporalError, LookupTemporalWarning, MeasConvertError,
+    MeasConvertWarning, MeasMeta, MissingTimeError, NamedTemporalOrOptical,
+    NamedTemporalsAndOpticals, NewMeasError, Optical, OpticalFromTemporal, OpticalTransform3_0,
+    PushOpticalError, PushTemporalError, ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName,
     SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
     SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
@@ -221,21 +221,21 @@ use {
 #[new(visibility(""))]
 // NOTE fields are private since metaroot, measurements, and data schema are all
 // related to each other and must be kept in sync
-pub struct Core<A, L, O, M, T, P, N, V> {
+pub struct Core<Analysis, Layout, Other, Root, Temporal, Optical, Xform, Name, Version> {
     /// Metaroot TEXT keywords.
     ///
     /// This includes all keywords that are not part of measurements or the data
     /// schema (ie the "root" of the metadata if thought of as a hierarchy)
-    rootmeta: RootMeta<M>,
+    rootmeta: RootMeta<Root>,
 
     /// Measurement TEXT keywords and DATA if applicable.
-    meas: CoreMeasurements<L, T, P, N, V>,
+    meas: CoreMeasurements<Layout, Temporal, Optical, Xform, Name, Version>,
 
     /// ANALYSIS segment (if applicable)
-    analysis: A,
+    analysis: Analysis,
 
     /// Other segments (if applicable)
-    others: O,
+    others: Other,
 }
 
 /// The ANALYSIS segment, which is just a string of bytes
@@ -560,7 +560,7 @@ impl AnyCoreDataset {
 /// Metaroot fields specific to version 2.0
 #[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct InnerMetaroot2_0 {
+pub struct InnerRootMeta2_0 {
     /// Value of $MODE
     #[as_ref(Mode)]
     #[as_mut(Mode)]
@@ -594,7 +594,7 @@ pub struct InnerMetaroot2_0 {
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct InnerMetaroot3_0 {
+pub struct InnerRootMeta3_0 {
     /// Value of $MODE
     #[as_ref(Mode)]
     #[as_mut(Mode)]
@@ -649,7 +649,7 @@ pub struct InnerMetaroot3_0 {
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct InnerMetaroot3_1 {
+pub struct InnerRootMeta3_1 {
     /// Value of $MODE
     #[as_ref(Mode)]
     #[as_mut(Mode)]
@@ -714,7 +714,7 @@ pub struct InnerMetaroot3_1 {
 #[allow(clippy::too_many_arguments)]
 #[derive(Clone, AsRef, AsMut, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct InnerMetaroot3_2 {
+pub struct InnerRootMeta3_2 {
     /// Value of $MODE
     #[as_ref(Option<Mode3_2>)]
     #[as_mut(Option<Mode3_2>)]
@@ -926,20 +926,20 @@ pub struct CarrierData {
     pub locationid: Locationid,
 }
 
-pub type Metaroot2_0 = RootMeta<InnerMetaroot2_0>;
-pub type Metaroot3_0 = RootMeta<InnerMetaroot3_0>;
-pub type Metaroot3_1 = RootMeta<InnerMetaroot3_1>;
-pub type Metaroot3_2 = RootMeta<InnerMetaroot3_2>;
+pub type Metaroot2_0 = RootMeta<InnerRootMeta2_0>;
+pub type Metaroot3_0 = RootMeta<InnerRootMeta3_0>;
+pub type Metaroot3_1 = RootMeta<InnerRootMeta3_1>;
+pub type Metaroot3_2 = RootMeta<InnerRootMeta3_2>;
 
 type Timestamps2_0 = Timestamps<FCSTime>;
 type Timestamps3_0 = Timestamps<FCSTime60>;
 type Timestamps3_1 = Timestamps<FCSTime100>;
 
 /// A standardized TEXT segment
-pub type CoreTEXT<M, L, T, P, N, V> = Core<(), L, (), M, T, P, N, V>;
+pub type CoreTEXT<M, L, T, O, X, N, V> = Core<(), L, (), M, T, O, X, N, V>;
 
 /// A standardized FCS dataset (TEXT+DATA+ANALYSIS+OTHER)
-pub type CoreDataset<M, L, T, P, N, V> = Core<Analysis, L, Others, M, T, P, N, V>;
+pub type CoreDataset<M, L, T, O, X, N, V> = Core<Analysis, L, Others, M, T, O, X, N, V>;
 
 pub type Core2_0<A, L, O> = VersionedCore<A, L, O, Version2_0>;
 pub type Core3_0<A, L, O> = VersionedCore<A, L, O, Version3_0>;
@@ -960,9 +960,10 @@ pub(crate) type VersionedCore<A, L, O, V> = Core<
     A,
     L,
     O,
-    <V as VersionSet>::Metaroot,
+    <V as VersionSet>::RootMeta,
     <V as VersionLayoutSet>::Temporal,
     <V as VersionLayoutSet>::Optical,
+    <V as VersionLayoutSet>::Xform,
     <V as VersionLayoutSet>::Name,
     V,
 >;
@@ -1712,7 +1713,7 @@ def_summary!(
 
 impl_ref_specific_rw!(
     RootMeta,
-    InnerMetaroot2_0,
+    InnerRootMeta2_0,
     Mode,
     Cyt,
     Timestamps2_0,
@@ -1721,7 +1722,7 @@ impl_ref_specific_rw!(
 
 impl_ref_specific_rw!(
     RootMeta,
-    InnerMetaroot3_0,
+    InnerRootMeta3_0,
     Mode,
     Cyt,
     Cytsn,
@@ -1734,7 +1735,7 @@ impl_ref_specific_rw!(
 
 impl_ref_specific_rw!(
     RootMeta,
-    InnerMetaroot3_1,
+    InnerRootMeta3_1,
     Mode,
     Cyt,
     Cytsn,
@@ -1753,7 +1754,7 @@ impl_ref_specific_rw!(
 
 impl_ref_specific_rw!(
     RootMeta,
-    InnerMetaroot3_2,
+    InnerRootMeta3_2,
     Cyt3_2,
     Datetimes,
     Option<Mode3_2>,
@@ -1775,24 +1776,24 @@ impl_ref_specific_rw!(
 
 impl_ref_specific_ro!(
     RootMeta,
-    InnerMetaroot2_0,
+    InnerRootMeta2_0,
     Option<FCSDate>,
     Option<Compensation2_0>
 );
 
 impl_ref_specific_ro!(
     RootMeta,
-    InnerMetaroot3_0,
+    InnerRootMeta3_0,
     Option<FCSDate>,
     Option<Compensation3_0>,
     AppliedGates3_0
 );
 
-impl_ref_specific_ro!(RootMeta, InnerMetaroot3_1, Option<FCSDate>, AppliedGates3_0);
+impl_ref_specific_ro!(RootMeta, InnerRootMeta3_1, Option<FCSDate>, AppliedGates3_0);
 
 impl_ref_specific_ro!(
     RootMeta,
-    InnerMetaroot3_2,
+    InnerRootMeta3_2,
     Option<FCSDate>,
     Option<BeginDateTime>,
     Option<EndDateTime>,
@@ -1830,7 +1831,7 @@ pub trait HasCompensation: AsRef<Option<Self::Comp>> {
     fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp>;
 }
 
-impl HasCompensation for InnerMetaroot2_0 {
+impl HasCompensation for InnerRootMeta2_0 {
     type Comp = Compensation2_0;
 
     fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp> {
@@ -1838,7 +1839,7 @@ impl HasCompensation for InnerMetaroot2_0 {
     }
 }
 
-impl HasCompensation for InnerMetaroot3_0 {
+impl HasCompensation for InnerRootMeta3_0 {
     type Comp = Compensation3_0;
 
     fn comp_mut(&mut self, _: private::NoTouchy) -> &mut Option<Self::Comp> {
@@ -1853,13 +1854,13 @@ pub trait HasSpillover {
     fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover>;
 }
 
-impl HasSpillover for InnerMetaroot3_1 {
+impl HasSpillover for InnerRootMeta3_1 {
     fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover> {
         &mut self.spillover
     }
 }
 
-impl HasSpillover for InnerMetaroot3_2 {
+impl HasSpillover for InnerRootMeta3_2 {
     fn spill_mut(&mut self, _: private::NoTouchy) -> &mut Option<Spillover> {
         &mut self.spillover
     }
@@ -1872,7 +1873,7 @@ pub trait HasUnstainedCenters {
     fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut UnstainedCenters;
 }
 
-impl HasUnstainedCenters for InnerMetaroot3_2 {
+impl HasUnstainedCenters for InnerRootMeta3_2 {
     fn unstainedcenters_mut(&mut self, _: private::NoTouchy) -> &mut UnstainedCenters {
         &mut self.unstained.unstainedcenters
     }
@@ -1886,21 +1887,21 @@ pub trait HasAppliedGates {
     fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates;
 }
 
-impl HasAppliedGates for InnerMetaroot3_0 {
+impl HasAppliedGates for InnerRootMeta3_0 {
     type Gates = AppliedGates3_0;
     fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates {
         &mut self.applied_gates
     }
 }
 
-impl HasAppliedGates for InnerMetaroot3_1 {
+impl HasAppliedGates for InnerRootMeta3_1 {
     type Gates = AppliedGates3_0;
     fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates {
         &mut self.applied_gates
     }
 }
 
-impl HasAppliedGates for InnerMetaroot3_2 {
+impl HasAppliedGates for InnerRootMeta3_2 {
     type Gates = AppliedGates3_2;
     fn applied_gates_mut(&mut self, _: private::NoTouchy) -> &mut Self::Gates {
         &mut self.applied_gates
@@ -1921,10 +1922,10 @@ macro_rules! impl_versioned {
     };
 }
 
-impl_versioned!(InnerMetaroot2_0, Version2_0);
-impl_versioned!(InnerMetaroot3_0, Version3_0);
-impl_versioned!(InnerMetaroot3_1, Version3_1);
-impl_versioned!(InnerMetaroot3_2, Version3_2);
+impl_versioned!(InnerRootMeta2_0, Version2_0);
+impl_versioned!(InnerRootMeta3_0, Version3_0);
+impl_versioned!(InnerRootMeta3_1, Version3_1);
+impl_versioned!(InnerRootMeta3_2, Version3_2);
 impl_versioned!(InnerOptical2_0, Version2_0);
 impl_versioned!(InnerOptical3_0, Version3_0);
 impl_versioned!(InnerOptical3_1, Version3_1);
@@ -1937,23 +1938,23 @@ impl_versioned!(InnerTemporal3_2, Version3_2);
 // Implement mapping between FCS version and all metadata types
 
 pub trait VersionSet: VersionLayoutSet {
-    type Metaroot: VersionedMetaroot;
+    type RootMeta: VersionedRootMeta;
     type Offsets: LookupTEXTOffsets<TotDef = <Self::DataSchema as VersionedDataSchema>::Tot>;
 }
 
 macro_rules! impl_version_set {
     ($v:ident, $m:path,  $ofs:path) => {
         impl VersionSet for $v {
-            type Metaroot = $m;
+            type RootMeta = $m;
             type Offsets = $ofs;
         }
     };
 }
 
-impl_version_set!(Version2_0, InnerMetaroot2_0, TEXTOffsets2_0);
-impl_version_set!(Version3_0, InnerMetaroot3_0, TEXTOffsets3_0);
-impl_version_set!(Version3_1, InnerMetaroot3_1, TEXTOffsets3_0);
-impl_version_set!(Version3_2, InnerMetaroot3_2, TEXTOffsets3_2);
+impl_version_set!(Version2_0, InnerRootMeta2_0, TEXTOffsets2_0);
+impl_version_set!(Version3_0, InnerRootMeta3_0, TEXTOffsets3_0);
+impl_version_set!(Version3_1, InnerRootMeta3_1, TEXTOffsets3_0);
+impl_version_set!(Version3_2, InnerRootMeta3_2, TEXTOffsets3_2);
 
 // Implement misc methods for a given version
 //
@@ -2032,7 +2033,7 @@ pub trait LookupMetaroot<N>: Sized {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
 
-impl LookupMetaroot<Option<Shortname>> for InnerMetaroot2_0 {
+impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -2063,7 +2064,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerMetaroot2_0 {
     }
 }
 
-impl LookupMetaroot<Option<Shortname>> for InnerMetaroot3_0 {
+impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -2112,7 +2113,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerMetaroot3_0 {
     }
 }
 
-impl LookupMetaroot<Identity<Shortname>> for InnerMetaroot3_1 {
+impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -2164,7 +2165,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerMetaroot3_1 {
     }
 }
 
-impl LookupMetaroot<Identity<Shortname>> for InnerMetaroot3_2 {
+impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -2418,7 +2419,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
 
 // Implement method to convert root keyword values between versions
 
-pub trait ConvertFromMetaroot<M: VersionedMetaroot>: Sized + VersionedMetaroot {
+pub trait ConvertFromMetaroot<M: VersionedRootMeta>: Sized + VersionedRootMeta {
     fn convert_from_metaroot_inner(value: M, flag: AllowLoss) -> MetarootConvertResult<Self>;
 
     fn convert_from_metaroot(value: M, flag: AllowLoss) -> MetarootConvertResult<Self> {
@@ -2440,9 +2441,9 @@ pub trait ConvertFromMetaroot<M: VersionedMetaroot>: Sized + VersionedMetaroot {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
+impl ConvertFromMetaroot<InnerRootMeta3_0> for InnerRootMeta2_0 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_0,
+        value: InnerRootMeta3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         value
@@ -2464,9 +2465,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot2_0 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
+impl ConvertFromMetaroot<InnerRootMeta3_1> for InnerRootMeta2_0 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_1,
+        value: InnerRootMeta3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let ts = value.timestamps.map(Into::into);
@@ -2481,9 +2482,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot2_0 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
+impl ConvertFromMetaroot<InnerRootMeta3_2> for InnerRootMeta2_0 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_2,
+        value: InnerRootMeta3_2,
         _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
@@ -2496,9 +2497,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot2_0 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
+impl ConvertFromMetaroot<InnerRootMeta2_0> for InnerRootMeta3_0 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot2_0,
+        value: InnerRootMeta2_0,
         _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
@@ -2514,9 +2515,9 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_0 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
+impl ConvertFromMetaroot<InnerRootMeta3_1> for InnerRootMeta3_0 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_1,
+        value: InnerRootMeta3_1,
         _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
@@ -2532,9 +2533,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_0 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
+impl ConvertFromMetaroot<InnerRootMeta3_2> for InnerRootMeta3_0 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_2,
+        value: InnerRootMeta3_2,
         _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
@@ -2550,9 +2551,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_0 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
+impl ConvertFromMetaroot<InnerRootMeta2_0> for InnerRootMeta3_1 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot2_0,
+        value: InnerRootMeta2_0,
         _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
@@ -2570,9 +2571,9 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_1 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
+impl ConvertFromMetaroot<InnerRootMeta3_0> for InnerRootMeta3_1 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_0,
+        value: InnerRootMeta3_0,
         _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
@@ -2590,9 +2591,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_1 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
+impl ConvertFromMetaroot<InnerRootMeta3_2> for InnerRootMeta3_1 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_2,
+        value: InnerRootMeta3_2,
         _: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         LogResult::new_ok(Self::new(
@@ -2610,9 +2611,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_2> for InnerMetaroot3_1 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
+impl ConvertFromMetaroot<InnerRootMeta2_0> for InnerRootMeta3_2 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot2_0,
+        value: InnerRootMeta2_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let mode_res = Mode3_2::try_from(value.mode)
@@ -2649,9 +2650,9 @@ impl ConvertFromMetaroot<InnerMetaroot2_0> for InnerMetaroot3_2 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
+impl ConvertFromMetaroot<InnerRootMeta3_0> for InnerRootMeta3_2 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_0,
+        value: InnerRootMeta3_0,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let ag_res = value
@@ -2693,9 +2694,9 @@ impl ConvertFromMetaroot<InnerMetaroot3_0> for InnerMetaroot3_2 {
     }
 }
 
-impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
+impl ConvertFromMetaroot<InnerRootMeta3_1> for InnerRootMeta3_2 {
     fn convert_from_metaroot_inner(
-        value: InnerMetaroot3_1,
+        value: InnerRootMeta3_1,
         flag: AllowLoss,
     ) -> MetarootConvertResult<Self> {
         let ag_res = value
@@ -2739,7 +2740,7 @@ impl ConvertFromMetaroot<InnerMetaroot3_1> for InnerMetaroot3_2 {
 
 // Implement common methods to manipulate root keywords
 
-pub trait VersionedMetaroot: Sized + Versioned {
+pub trait VersionedRootMeta: Sized + Versioned {
     /// Return value of $GATE if it exists.
     fn gate(&self) -> Option<Gate>;
 
@@ -2790,7 +2791,7 @@ pub trait VersionedMetaroot: Sized + Versioned {
     fn keywords_opt_inner(&self) -> impl Iterator<Item = OptRootKeyword<'_>>;
 }
 
-impl VersionedMetaroot for InnerMetaroot2_0 {
+impl VersionedRootMeta for InnerRootMeta2_0 {
     fn gate(&self) -> Option<Gate> {
         let g: &GatedMeasurements = self.applied_gates.as_ref();
         g.gate()
@@ -2869,7 +2870,7 @@ impl VersionedMetaroot for InnerMetaroot2_0 {
     }
 }
 
-impl VersionedMetaroot for InnerMetaroot3_0 {
+impl VersionedRootMeta for InnerRootMeta3_0 {
     fn gate(&self) -> Option<Gate> {
         let g: &GatedMeasurements = self.applied_gates.as_ref();
         g.gate()
@@ -2962,7 +2963,7 @@ impl VersionedMetaroot for InnerMetaroot3_0 {
     }
 }
 
-impl VersionedMetaroot for InnerMetaroot3_1 {
+impl VersionedRootMeta for InnerRootMeta3_1 {
     fn gate(&self) -> Option<Gate> {
         let g: &GatedMeasurements = self.applied_gates.as_ref();
         g.gate()
@@ -3051,7 +3052,7 @@ impl VersionedMetaroot for InnerMetaroot3_1 {
     }
 }
 
-impl VersionedMetaroot for InnerMetaroot3_2 {
+impl VersionedRootMeta for InnerRootMeta3_2 {
     fn gate(&self) -> Option<Gate> {
         None
     }
@@ -3160,7 +3161,7 @@ impl VersionedMetaroot for InnerMetaroot3_2 {
 
 // Implement methods for root keyword type
 
-impl<M: VersionedMetaroot> RootMeta<M> {
+impl<M: VersionedRootMeta> RootMeta<M> {
     fn try_convert<ToM: ConvertFromMetaroot<M>>(
         self,
         flag: AllowLoss,
@@ -3364,10 +3365,10 @@ impl<M: VersionedMetaroot> RootMeta<M> {
     ///
     /// The number of measurements is assumed to be correct; this should be
     /// checked elsewhere.
-    fn new_meas_link_errors<N, X, Y>(
+    fn new_meas_link_errors<N, X0, X1, X2>(
         &self,
-        cur_meas: &MeasMeta<N, X, Y>,
-        new_meas: &MeasMeta<N, X, Y>,
+        cur_meas: &MeasMeta<N, X0, X1, X2>,
+        new_meas: &MeasMeta<N, X0, X1, X2>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetMeasurementLinkErrors>
@@ -3449,7 +3450,7 @@ impl CoreTEXT2_0 {
             .into_semigroup()
             .and_then_commutative(|ts| {
                 let specific =
-                    InnerMetaroot2_0::new(mode, cyt, comp.map(Into::into), ts, applied_gates);
+                    InnerRootMeta2_0::new(mode, cyt, comp.map(Into::into), ts, applied_gates);
                 let metaroot = RootMeta::new(
                     abrt,
                     com,
@@ -3512,7 +3513,7 @@ impl CoreTEXT3_0 {
             .set_err_value(())
             .into_semigroup()
             .and_then_commutative(|ts| {
-                let specific = InnerMetaroot3_0::new(
+                let specific = InnerRootMeta3_0::new(
                     mode,
                     cyt,
                     comp.map(Into::into),
@@ -3590,7 +3591,7 @@ impl CoreTEXT3_1 {
             .set_err_value(())
             .into_semigroup()
             .and_then_commutative(|ts| {
-                let specific = InnerMetaroot3_1::new(
+                let specific = InnerRootMeta3_1::new(
                     mode,
                     cyt,
                     ts,
@@ -3678,7 +3679,7 @@ impl CoreTEXT3_2 {
         ts_res
             .zip_commutative(dt_res)
             .and_then_commutative(|(ts, dt)| {
-                let specific = InnerMetaroot3_2::new(
+                let specific = InnerRootMeta3_2::new(
                     mode,
                     ts,
                     dt,
@@ -3716,32 +3717,13 @@ impl CoreTEXT3_2 {
     }
 }
 
-impl<A, L, O, M, T, P, N, V> Core<A, L, O, M, T, P, N, V> {
+impl<Anal, Layout, Other, Root, Tmp, Opt, Xform, Name, Ver>
+    Core<Anal, Layout, Other, Root, Tmp, Opt, Xform, Name, Ver>
+{
     /// Return $PAR, which is simply the number of measurements in this struct
     pub fn par(&self) -> Par {
         Par(self.meas.measurements().len())
     }
-
-    // fn new(
-    //     metaroot: Metaroot<M>,
-    //     mut meas_layout: CoreLayout<L, Temporal<T>, Optical<P>, N, V>,
-    //     analysis: A,
-    //     others: O,
-    // ) -> Self
-    // where
-    //     L: LayoutNormalize,
-    // {
-    //     unimplemented!()
-    //     // layout.normalize();
-    //     // Self {
-    //     //     metaroot,
-    //     //     measurements,
-    //     //     meas_layout: layout,
-    //     //     analysis,
-    //     //     others,
-    //     //     _version: PhantomData,
-    //     // }
-    // }
 }
 
 impl<V, A, L, O> VersionedCore<A, L, O, V>
@@ -4297,7 +4279,7 @@ where
     /// Return a reference to a field in metaroot
     pub fn metaroot<X>(&self) -> &X
     where
-        RootMeta<V::Metaroot>: AsRef<X>,
+        RootMeta<V::RootMeta>: AsRef<X>,
     {
         self.rootmeta.as_ref()
     }
@@ -4305,7 +4287,7 @@ where
     /// Return a reference to an optional field in metaroot
     pub fn metaroot_opt<X>(&self) -> Option<&X>
     where
-        RootMeta<V::Metaroot>: AsRef<Option<X>>,
+        RootMeta<V::RootMeta>: AsRef<Option<X>>,
     {
         self.metaroot().as_ref()
     }
@@ -4313,7 +4295,7 @@ where
     /// Set a field in metaroot
     pub fn set_metaroot<X>(&mut self, x: X)
     where
-        RootMeta<V::Metaroot>: AsMut<X>,
+        RootMeta<V::RootMeta>: AsMut<X>,
     {
         *self.rootmeta.as_mut() = x;
     }
@@ -4455,7 +4437,7 @@ where
     where
         X: Copy,
         NaiveTime: From<X>,
-        RootMeta<V::Metaroot>: AsRef<Option<Btim<X>>>,
+        RootMeta<V::RootMeta>: AsRef<Option<Btim<X>>>,
     {
         self.time_naive()
     }
@@ -4465,7 +4447,7 @@ where
     where
         X: Copy,
         NaiveTime: From<X>,
-        RootMeta<V::Metaroot>: AsRef<Option<Etim<X>>>,
+        RootMeta<V::RootMeta>: AsRef<Option<Etim<X>>>,
     {
         self.time_naive()
     }
@@ -4480,7 +4462,7 @@ where
     ) -> Result<(), ReversedTimestampsError>
     where
         X: PartialOrd + From<NaiveTime>,
-        RootMeta<V::Metaroot>: AsMut<Timestamps<X>>,
+        RootMeta<V::RootMeta>: AsMut<Timestamps<X>>,
     {
         let t = self.rootmeta.as_mut();
         t.set_btim(time.map(|x| Xtim(x.into())))
@@ -4496,7 +4478,7 @@ where
     ) -> Result<(), ReversedTimestampsError>
     where
         X: PartialOrd + From<NaiveTime>,
-        RootMeta<V::Metaroot>: AsMut<Timestamps<X>>,
+        RootMeta<V::RootMeta>: AsMut<Timestamps<X>>,
     {
         let t = self.rootmeta.as_mut();
         t.set_etim(time.map(|x| Xtim(x.into())))
@@ -4505,7 +4487,7 @@ where
     /// Get $DATE as a [`NaiveDate`]
     pub fn date_naive(&self) -> Option<NaiveDate>
     where
-        RootMeta<V::Metaroot>: AsRef<Option<FCSDate>>,
+        RootMeta<V::RootMeta>: AsRef<Option<FCSDate>>,
     {
         self.rootmeta.as_ref().as_ref().map(|&x| x.into())
     }
@@ -4520,7 +4502,7 @@ where
     ) -> Result<(), ReversedTimestampsError>
     where
         X: PartialOrd,
-        RootMeta<V::Metaroot>: AsMut<Timestamps<X>>,
+        RootMeta<V::RootMeta>: AsMut<Timestamps<X>>,
     {
         self.rootmeta.as_mut().set_date(date.map(Into::into))
     }
@@ -4528,7 +4510,7 @@ where
     /// Get $BEGINDATETIME as a [`DateTime<FixedOffset>`]
     pub fn begindatetime(&self) -> Option<DateTime<FixedOffset>>
     where
-        RootMeta<V::Metaroot>: AsRef<Option<BeginDateTime>>,
+        RootMeta<V::RootMeta>: AsRef<Option<BeginDateTime>>,
     {
         self.rootmeta.as_ref().as_ref().copied().map(Into::into)
     }
@@ -4536,7 +4518,7 @@ where
     /// Get $ENDDATETIME as a [`DateTime<FixedOffset>`]
     pub fn enddatetime(&self) -> Option<DateTime<FixedOffset>>
     where
-        RootMeta<V::Metaroot>: AsRef<Option<EndDateTime>>,
+        RootMeta<V::RootMeta>: AsRef<Option<EndDateTime>>,
     {
         self.rootmeta.as_ref().as_ref().copied().map(Into::into)
     }
@@ -4549,7 +4531,7 @@ where
         date: Option<DateTime<FixedOffset>>,
     ) -> Result<(), ReversedDatetimesError>
     where
-        RootMeta<V::Metaroot>: AsMut<Datetimes>,
+        RootMeta<V::RootMeta>: AsMut<Datetimes>,
     {
         self.rootmeta.as_mut().set_begin(date.map(Into::into))
     }
@@ -4562,7 +4544,7 @@ where
         date: Option<DateTime<FixedOffset>>,
     ) -> Result<(), ReversedDatetimesError>
     where
-        RootMeta<V::Metaroot>: AsMut<Datetimes>,
+        RootMeta<V::RootMeta>: AsMut<Datetimes>,
     {
         self.rootmeta.as_mut().set_end(date.map(Into::into))
     }
@@ -4597,7 +4579,7 @@ where
     /// Show $COMP.
     pub fn compensation(&self) -> Option<&Compensation>
     where
-        V::Metaroot: HasCompensation,
+        V::RootMeta: HasCompensation,
     {
         self.rootmeta.specific.comp(private::NoTouchy)
     }
@@ -4611,7 +4593,7 @@ where
         matrix: Option<Compensation>,
     ) -> Result<(), CompParMismatchError>
     where
-        V::Metaroot: HasCompensation,
+        V::RootMeta: HasCompensation,
     {
         if let Some(m) = matrix.as_ref() {
             let comp = m.matrix().ncols();
@@ -4627,7 +4609,7 @@ where
     /// Show $SPILLOVER
     pub fn spillover(&self) -> Option<&Spillover>
     where
-        V::Metaroot: AsRef<Option<Spillover>>,
+        V::RootMeta: AsRef<Option<Spillover>>,
     {
         self.rootmeta.specific.as_ref().as_ref()
     }
@@ -4638,7 +4620,7 @@ where
     /// if supplied matrix is invalid.
     pub fn set_spillover(&mut self, spillover: Option<Spillover>) -> Result<(), SetSpilloverErrors>
     where
-        V::Metaroot: HasSpillover,
+        V::RootMeta: HasSpillover,
     {
         if let Some(s) = spillover.as_ref() {
             let ns = self.meas.measurements().named_set();
@@ -4657,7 +4639,7 @@ where
         us: UnstainedCenters,
     ) -> Result<(), SetUnstainedCentersErrors>
     where
-        V::Metaroot: HasUnstainedCenters,
+        V::RootMeta: HasUnstainedCenters,
     {
         let ns = self.meas.measurements().named_set();
         SetUnstainedCentersErrors::try_new(us.invalid_link_error(&ns))?;
@@ -4668,29 +4650,29 @@ where
         Ok(())
     }
 
-    /// Return $PnE (2.0)
-    pub fn scales(&self) -> impl Iterator<Item = Option<Scale>>
-    where
-        Optical<V::Optical>: AsRef<Option<Scale>>,
-    {
-        self.meas.measurements().iter().map(|x| {
-            x.both(
-                |_| Some(Scale::Linear),
-                |m| m.value.as_ref().as_ref().copied(),
-            )
-        })
-    }
+    // /// Return $PnE (2.0)
+    // pub fn scales(&self) -> impl Iterator<Item = Option<Scale>>
+    // where
+    //     Optical<V::Optical>: AsRef<Option<Scale>>,
+    // {
+    //     self.meas.measurements().iter().map(|x| {
+    //         x.both(
+    //             |_| Some(Scale::Linear),
+    //             |m| m.value.as_ref().as_ref().copied(),
+    //         )
+    //     })
+    // }
 
-    /// Return $PnE/$PnG (3.0+)
-    pub fn transforms(&self) -> impl Iterator<Item = ScaleTransform>
-    where
-        Optical<V::Optical>: AsRef<ScaleTransform>,
-    {
-        self.meas
-            .measurements()
-            .iter()
-            .map(|x| x.both(|_| ScaleTransform::default(), |m| *m.value.as_ref()))
-    }
+    // /// Return $PnE/$PnG (3.0+)
+    // pub fn transforms(&self) -> impl Iterator<Item = OpticalTransform3_0>
+    // where
+    //     Optical<V::Optical>: AsRef<OpticalTransform3_0>,
+    // {
+    //     self.meas
+    //         .measurements()
+    //         .iter()
+    //         .map(|x| x.both(|_| OpticalTransform3_0::default(), |m| *m.value.as_ref()))
+    // }
 
     /// Return $PnFEATURE if it is area/width/height (3.2+)
     ///
@@ -4750,7 +4732,7 @@ where
         scales: Vec<Option<Scale>>,
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
-        V::Optical: HasScale<Option<Scale>>,
+        // V::Optical: HasScale<Option<Scale>>,
         L: LayoutDatatype,
     {
         let center_scale_not_linear = || {
@@ -4768,7 +4750,7 @@ where
         let xforms = scales
             .iter()
             .copied()
-            .map(|s| s.map(ScaleTransform::from).unwrap_or_default());
+            .map(|s| s.map(OpticalTransform3_0::from).unwrap_or_default());
         l.check_transforms_and_len(xforms)
             .map_err(SetScalesError::from)
             .into_nowarn()
@@ -4789,10 +4771,10 @@ where
     /// Set $PnE/$PnG (3.0+)
     pub fn set_transforms(
         &mut self,
-        xforms: Vec<ScaleTransform>,
+        xforms: Vec<OpticalTransform3_0>,
     ) -> GroupResult<(), SetTransformsError, SetTransformsSummary>
     where
-        V::Optical: HasScale<ScaleTransform>,
+        // V::Optical: HasScale<OpticalTransform3_0>,
         L: LayoutDatatype + HasWidth,
     {
         let center_xform_not_noop = || {
@@ -4801,7 +4783,7 @@ where
                 .center_index()
                 .map(usize::from)
                 .and_then(|i| xforms.get(i))
-                .is_some_and(|s| !ScaleTransform::is_noop(s))
+                .is_some_and(|s| !OpticalTransform3_0::is_noop(s))
                 .then_some(NonLinearTemporalTransformError.into())
         };
 
@@ -4829,7 +4811,7 @@ where
         ag: AppliedGates3_0,
     ) -> GroupResult<(), BrokenRegionLinkError<MeasOrGateIndex>, SetAppliedGatesSummary>
     where
-        V::Metaroot: HasAppliedGates<Gates = AppliedGates3_0>,
+        V::RootMeta: HasAppliedGates<Gates = AppliedGates3_0>,
     {
         let p = self.par();
         let es = ag.invalid_link_errors(&p);
@@ -4844,7 +4826,7 @@ where
         ag: AppliedGates3_2,
     ) -> GroupResult<(), BrokenRegionLinkError<PrefixedMeasIndex>, SetAppliedGatesSummary>
     where
-        V::Metaroot: HasAppliedGates<Gates = AppliedGates3_2>,
+        V::RootMeta: HasAppliedGates<Gates = AppliedGates3_2>,
     {
         let p = self.par();
         let es = ag.invalid_link_errors(&p);
@@ -4879,7 +4861,7 @@ where
     >
     where
         Vf: VersionSet,
-        Vf::Metaroot: ConvertFromMetaroot<V::Metaroot>,
+        Vf::RootMeta: ConvertFromMetaroot<V::RootMeta>,
         Vf::Optical: ConvertFromOptical<V::Optical>,
         Vf::Temporal: ConvertFromTemporal<V::Temporal>,
         Vf::Name: MightHave<Shortname> + Clone + ConvertFromShortname<V::Name>,
@@ -4908,7 +4890,7 @@ where
     }
 
     /// Get reference to measurement vector.
-    pub fn measurements(&self) -> &MeasMeta<V::Name, V::Temporal, V::Optical> {
+    pub fn measurements(&self) -> &MeasMeta<V::Name, V::Temporal, V::Optical, V::Xform> {
         self.meas.measurements()
     }
 
@@ -4924,8 +4906,6 @@ where
         skip_index_check: bool,
     ) -> Result<(), SetNamedMeasurementsError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: LayoutDatatype + HasWidth,
     {
         let go = |cur_meas: &_, new_meas: &_| {
@@ -4945,8 +4925,6 @@ where
         measurements: TemporalsAndOpticals<V>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype,
     {
         self.meas.set_unnamed_measurements(measurements)
@@ -4955,7 +4933,7 @@ where
     #[cfg(feature = "serde")]
     fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
     where
-        V::Metaroot: HasCompensation,
+        V::RootMeta: HasCompensation,
     {
         self.compensation().as_ref().map(|c| {
             let m: &DMatrix<f32> = c.as_ref();
@@ -4966,7 +4944,7 @@ where
     #[cfg(feature = "serde")]
     fn named_spillover(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
     where
-        V::Metaroot: AsRef<Option<Spillover>>,
+        V::RootMeta: AsRef<Option<Spillover>>,
     {
         self.spillover().as_ref().map(|c| {
             let ns: &[Shortname] = c.as_ref();
@@ -4979,7 +4957,7 @@ where
     where
         X: Copy,
         NaiveTime: From<X>,
-        RootMeta<V::Metaroot>: AsRef<Option<Xtim<IS_ETIM, X>>>,
+        RootMeta<V::RootMeta>: AsRef<Option<Xtim<IS_ETIM, X>>>,
     {
         let t: &Option<Xtim<IS_ETIM, X>> = self.rootmeta.as_ref();
         t.as_ref().map(|&x| x.0.into())
@@ -5102,8 +5080,6 @@ where
         layout: L,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
         self.meas
@@ -5449,7 +5425,7 @@ where
     >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
-        V::Metaroot: LookupMetaroot<V::Name>,
+        V::RootMeta: LookupMetaroot<V::Name>,
         V::Name: LookupShortname,
     {
         nonstd
@@ -5482,7 +5458,7 @@ where
     ) -> LookupMeasurementResult<(NamedTemporalsAndOpticals<V>, MeasurementDiagnostics)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
-        V::Metaroot: LookupMetaroot<V::Name>,
+        V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical,
         V::Name: Pointed<Shortname>,
@@ -5591,13 +5567,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         StdTEXTFromFlatTEXTErrorInner,
     >
     where
-        V::Metaroot: LookupMetaroot<V::Name>,
+        V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
-        V::Optical: LookupOptical + AsScaleOrTransform,
+        V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
@@ -5629,13 +5604,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         CoreTEXTFromKeywordsSummary,
     >
     where
-        V::Metaroot: LookupMetaroot<V::Name>,
+        V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
-        V::Optical: LookupOptical + AsScaleOrTransform,
+        V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig> + AsRef<ReadSharedConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         Self::lookup_inner(kws, conf)
             .map_errors(StdTEXTFromKeywordsError::from)
@@ -5653,13 +5627,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         StdTEXTFromFlatTEXTErrorInner,
     >
     where
-        V::Metaroot: LookupMetaroot<V::Name>,
+        V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
-        V::Optical: LookupOptical + AsScaleOrTransform,
+        V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
@@ -5800,11 +5773,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     pub fn set_data_schema(
         &mut self,
         data_schema: V::DataSchema,
-    ) -> Result<(), MeasLayoutMismatchError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-    {
+    ) -> Result<(), MeasLayoutMismatchError> {
         self.meas.set_data_schema(data_schema)
     }
 
@@ -5815,8 +5784,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         data_schema: V::DataSchema,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataSchema: HasWidth + LayoutDatatype + LayoutNormalize,
     {
         self.set_measurements_and_layout_inner(measurements, data_schema)
@@ -5833,11 +5800,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         data_schema: V::DataSchema,
         allow_shared_names: bool,
         skip_index_check: bool,
-    ) -> Result<(), SetNamedMeasurementsError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-    {
+    ) -> Result<(), SetNamedMeasurementsError> {
         let go = |cur_meas: &_, new_meas: &_| {
             self.rootmeta.new_meas_link_errors(
                 cur_meas,
@@ -5901,7 +5864,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     // only meant to be called during lookup when keywords are being read from
     // a hashtable
     pub(crate) fn try_new<C>(
-        mut metaroot: RootMeta<V::Metaroot>,
+        mut metaroot: RootMeta<V::RootMeta>,
         measurements: NamedTemporalsAndOpticals<V>,
         data_schema: V::DataSchema,
         conf: &C,
@@ -5909,8 +5872,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     where
         V::DataSchema: HasWidth,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let opt_flag = rconf.process_optional_failure;
@@ -5929,14 +5890,10 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     }
 
     pub(crate) fn try_new_nodrop(
-        mut metaroot: RootMeta<V::Metaroot>,
+        mut metaroot: RootMeta<V::RootMeta>,
         measurements: NamedTemporalsAndOpticals<V>,
         data_schema: V::DataSchema,
-    ) -> ErrorsResult<Self, (), NewCoreError>
-    where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-    {
+    ) -> ErrorsResult<Self, (), NewCoreError> {
         CoreMeasurements::try_new_nodrop(measurements, data_schema)
             .map_errors(NewCoreError::from)
             .and_then_commutative(|ml| {
@@ -5953,13 +5910,10 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ///
     /// If allow_dropping is true, remove keywords with invalid relationships.
     fn check_relationships(
-        metaroot: &mut RootMeta<V::Metaroot>,
-        measurements: &MeasMeta<V::Name, V::Temporal, V::Optical>,
+        metaroot: &mut RootMeta<V::RootMeta>,
+        measurements: &MeasMeta<V::Name, V::Temporal, V::Optical, V::Xform>,
         demote: bool,
-    ) -> ErrorsResult<(), (), BrokenOrDependentLinkError>
-    where
-        V::Optical: AsScaleOrTransform,
-    {
+    ) -> ErrorsResult<(), (), BrokenOrDependentLinkError> {
         let ns = measurements.named_set();
         let par = Par(measurements.len());
         let link_errs = metaroot.remove_invalid_links(par, &ns, demote);
@@ -5981,9 +5935,9 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         StdDatasetWithKwsSummary,
     >
     where
-        V::Metaroot: LookupMetaroot<V::Name>,
+        V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
-        V::Optical: LookupOptical + AsScaleOrTransform,
+        V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
         C: AsRef<ReadStdKeywordsConfig>
@@ -5991,7 +5945,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>
             + AsRef<ReadSharedConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         ReadState::open(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
@@ -6023,16 +5976,15 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     >
     where
         R: Read + Seek,
-        V::Metaroot: LookupMetaroot<V::Name>,
+        V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
-        V::Optical: LookupOptical + AsScaleOrTransform,
+        V::Optical: LookupOptical,
         V::Name: LookupShortname,
         V::DataSchema: DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         VersionedCoreTEXT::<V>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -6204,8 +6156,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         data_schema: V::DataSchema,
     ) -> Result<(), DatasetSetDataSchemaError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -6221,8 +6171,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         data_schema: V::DataSchema,
     ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -6246,8 +6194,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         skip_index_check: bool,
     ) -> Result<(), DatasetSetNamedMeasAndDataSchemaError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -6313,8 +6259,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         skip_index_check: bool,
     ) -> Result<(), SetNamedMeasurementsAndDataError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         let go = |cur_meas: &_, new_meas: &_| {
@@ -6338,8 +6282,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         self.meas
@@ -6357,8 +6299,6 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataSchemaAndDataFrameError>
     where
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         let new_df = data_schema.with_data(df)?;
@@ -6738,7 +6678,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::ScaleTransform;
+    use super::OpticalTransform3_0;
 
     use crate::text::ranged_float::PositiveFloat;
 
@@ -6748,7 +6688,7 @@ mod python {
     use pyo3::prelude::*;
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
-    impl<'py> FromPyObject<'py> for ScaleTransform {
+    impl<'py> FromPyObject<'py> for OpticalTransform3_0 {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             if let Ok(gain) = ob.extract::<PositiveFloat>() {
                 Ok(Self::Lin(gain))
@@ -6763,7 +6703,7 @@ mod python {
         }
     }
 
-    impl<'py> IntoPyObject<'py> for ScaleTransform {
+    impl<'py> IntoPyObject<'py> for OpticalTransform3_0 {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;

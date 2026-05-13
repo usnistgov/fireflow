@@ -1009,7 +1009,7 @@ impl OptOpticalKeyword<'_> {
                 return (!matches!(kw.value, kws::Scale::Linear))
                     .then_some(NonLinearScaleError(i).into());
             }
-            // $PnG must be 1.0 is it exists since temporal measurement does not
+            // $PnG must be 1.0 if it exists since temporal measurement does not
             // have gain
             Self::Gain(kw) => {
                 let i = kw.key.index().into();

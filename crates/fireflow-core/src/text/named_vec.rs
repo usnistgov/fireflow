@@ -576,7 +576,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             })
             .filter_map(|x| x.map(|(i, is_center)| ElementMismatchError::new(i.into(), is_center)));
         ErrorGroup::try_new(errs)?;
-        let _ = self.alter_values_zip(
+        let _ = self.alter_values_zip_nocheck(
             xs,
             |e, y| y.both(|z| *e.value = z, |_| ()),
             |e, y| y.both(|_| (), |z| *e.value = z),
@@ -600,6 +600,19 @@ impl<K, U, V> NamedVec<K, U, V> {
         G: Fn(IndexedElement<&K, &mut V>, X) -> R,
     {
         self.check_keys_length(&xs[..], true)?;
+        Ok(self.alter_values_zip_nocheck(xs, f, g))
+    }
+
+    fn alter_values_zip_nocheck<G, F, X, R>(
+        &mut self,
+        xs: impl IntoIterator<Item = X>,
+        f: F,
+        g: G,
+    ) -> Vec<R>
+    where
+        F: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        G: Fn(IndexedElement<&K, &mut V>, X) -> R,
+    {
         let nleft = self.left.len();
         let mut it = xs.into_iter();
         let mut ret: Vec<_> =
@@ -616,7 +629,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             ret.push(center_r);
             ret.extend(right_r);
         }
-        Ok(ret)
+        ret
     }
 
     pub(crate) fn alter_elements_zip<Fnoncenter, Fcenter, Ferror, X, Y, R, E, G>(

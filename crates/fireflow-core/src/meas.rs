@@ -6,12 +6,13 @@ use crate::config::{
 };
 use crate::core::{TrimmedKeywords, Versioned};
 use crate::data::{
-    self, CastSeriesErrors, CheckedScaleTransform, ConvertFromLayout, DataFrameAsDataSchema,
+    self, CastSeriesErrors, ColumnHasDatatype, ConvertFromLayout, DataFrameAsDataSchema,
     DataFrameCheckRanges as _, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
     EventOverRangeError, LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutNormalize,
     LayoutRemove, MeasLayoutMismatchError, MeasurementsWithLayoutError, OverrangeColumn,
     ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataFrameResult,
-    ScaleDatatypeMismatchErrors, VersionedDataFrame, VersionedDataSchema, WithPrimitiveDataFrame,
+    ScaleColumnDatatypeMismatchError, ScaleDatatypeMismatchErrors, VersionedDataFrame,
+    VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
@@ -24,8 +25,8 @@ use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
     AnyTemporalToOpticalKeyLossError, HasMembership as _, Keyword1FromValue as _, NonStdKeyword,
-    OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptTemporalKeyword, ReqMeasKeyword,
-    StdOrNonStdOptMeasKeyword,
+    OptMeasKeyword, OptOpticalKeyword, OptPeakKeyword, OptScaleKeyword, OptScaledOpticalKeyword,
+    OptTemporalKeyword, ReqMeasKeyword, StdOrNonStdOptMeasKeyword,
 };
 use crate::text::keywords::{
     AlphaNumType, Analyte, Calibration3_1, Calibration3_2, CalibrationLossError, DetectorName,
@@ -35,14 +36,14 @@ use crate::text::keywords::{
     Timestep, TimestepAdded, Wavelength, Wavelengths, WavelengthsLossError,
 };
 use crate::text::lookup::{
-    OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, ReqIndexedKey as _,
-    ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
+    DiagnosedKeyword, OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError,
+    ReqIndexedKey as _, ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
 };
 use crate::text::named_vec::{
     EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
     InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec,
-    NewNamedVecError, PushCenterError, RenameError, SetCenterError, SetElementsError, SetKeysError,
-    SetNamesError, SetValuesError,
+    NewNamedVecError, Pair, PushCenterError, RenameError, SetCenterError, SetElementsError,
+    SetKeysError, SetNamesError, SetValuesError,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -55,7 +56,7 @@ use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2,
 };
 use fireflow_types::nonempty_string::{DisplayableNE as _, NEString};
-use type_families::ApplyOnce as _;
+use type_families::{ApplyOnce as _, BifunctorOnce as _};
 
 use derive_more::{AsMut, AsRef, Display, From};
 use derive_new::new;
@@ -65,6 +66,7 @@ use thiserror::Error;
 
 use std::borrow::Cow;
 use std::convert::Infallible;
+use std::fmt;
 use std::io::{BufReader, Read, Seek};
 use std::iter::{empty, once};
 use std::marker::PhantomData;
@@ -196,8 +198,8 @@ pub struct Temporal<T> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ScaledOptical<X, O> {
     xform: X,
-    #[as_ref(Optical<O>)]
-    #[as_mut(Optical<O>)]
+    #[as_ref(forward)]
+    #[as_mut(forward)]
     inner: Optical<O>,
 }
 
@@ -499,9 +501,15 @@ pub struct PeakData {
 }
 
 #[derive(new)]
+pub struct DiagnosedScaledOptical<M> {
+    pub(crate) this: M,
+    pub(crate) scale: OpticalScaleFix,
+    pub(crate) trimmed: TrimmedKeywords,
+}
+
+#[derive(new)]
 pub struct DiagnosedOptical<M> {
     pub(crate) this: M,
-    // pub(crate) scale: OpticalScaleFix,
     pub(crate) trimmed: TrimmedKeywords,
 }
 
@@ -551,6 +559,22 @@ pub enum LookupShortnameError {
     Opt(OptIndexedKeyError<Shortname>),
 }
 
+/// Error when parsing any optical or scale keyword
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupScaledOpticalError {
+    Optical(LookupOpticalError),
+    Scale(LookupScaleError),
+}
+
+/// Warning when parsing any optical or scale keyword
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupScaledOpticalWarning {
+    Optical(LookupOpticalWarning),
+    Scale(LookupScaleWarning),
+}
+
 /// Error when parsing any optical measurement keyword
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -558,6 +582,40 @@ pub enum LookupOpticalError {
     Xform(ScaleTransformError),
     Scale(ReqIndexedStKeyError<Scale>),
     Warn(LookupOpticalWarning),
+}
+
+/// Warning when parsing any optical measurement keyword
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupOpticalWarning {
+    Feature(OptIndexedKeyStError<Feature>),
+    Wavelengths(OptIndexedKeyStError<Wavelengths>),
+    Wavelength(OptIndexedKeyError<Wavelength>),
+    Calibration3_1(OptIndexedKeyStError<Calibration3_1>),
+    Calibration3_2(OptIndexedKeyStError<Calibration3_2>),
+    OpticalType(OptIndexedKeyError<OpticalType>),
+    Display(OptIndexedKeyStError<Display>),
+    Power(OptIndexedKeyError<Power>),
+    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
+    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
+    Peak(LookupPeakError),
+}
+
+/// Error when parsing any optical scale keyword
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupScaleError {
+    Xform(ScaleTransformError),
+    Scale(ReqIndexedStKeyError<Scale>),
+    Warn(LookupScaleWarning),
+}
+
+/// Warning when parsing any optical scale keyword
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupScaleWarning {
+    Scale(OptIndexedKeyStError<Scale>),
+    Gain(OptIndexedKeyError<Gain>),
 }
 
 /// Error when $PnE is log and $PnG is not 1.0 or None
@@ -573,25 +631,6 @@ pub enum LookupOpticalError {
 pub struct ScaleTransformError {
     scale: Scale,
     gain: Gain,
-}
-
-/// Warning when parsing any optical measurement keyword
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum LookupOpticalWarning {
-    Scale(OptIndexedKeyStError<Scale>),
-    Gain(OptIndexedKeyError<Gain>),
-    Feature(OptIndexedKeyStError<Feature>),
-    Wavelengths(OptIndexedKeyStError<Wavelengths>),
-    Wavelength(OptIndexedKeyError<Wavelength>),
-    Calibration3_1(OptIndexedKeyStError<Calibration3_1>),
-    Calibration3_2(OptIndexedKeyStError<Calibration3_2>),
-    OpticalType(OptIndexedKeyError<OpticalType>),
-    Display(OptIndexedKeyStError<Display>),
-    Power(OptIndexedKeyError<Power>),
-    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
-    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
-    Peak(LookupPeakError),
 }
 
 /// Error when parsing any temporal measurement keyword
@@ -628,7 +667,7 @@ pub enum LookupPeakError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasConvertError {
     Rewrap(NameConversionError),
-    Optical(OpticalConvertError),
+    Optical(ScaledOpticalConvertError),
     Temporal(AnyTemporalKeyLossError),
     Layout(LayoutConvertError),
 }
@@ -637,8 +676,24 @@ pub enum MeasConvertError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasConvertWarning {
-    Optical(OpticalConvertWarning),
+    Optical(ScaledOpticalConvertWarning),
     Temporal(AnyTemporalKeyLossError),
+}
+
+/// Error when converting scaled optical measurement to new FCS version
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ScaledOpticalConvertError {
+    Scale(ScaleConvertError),
+    Optical(OpticalConvertError),
+}
+
+/// Warning when converting scaled optical measurement to new FCS version
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ScaledOpticalConvertWarning {
+    Scale(GainLossError),
+    Optical(OpticalConvertWarning),
 }
 
 /// Error when converting optical measurement to new FCS version
@@ -656,6 +711,14 @@ pub enum OpticalConvertWarning {
     Wavelengths(WavelengthsLossError),
     Calibration(CalibrationLossError),
     Xfer(AnyOpticalKeyLossError),
+}
+
+/// Error when converting scale to new FCS version
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ScaleConvertError {
+    NoScale(NoScaleError),
+    Gain(GainLossError),
 }
 
 /// Error when $PnN is optional and missing in current version and required in target
@@ -705,6 +768,37 @@ pub enum SetTemporalError {
     Swap(SwapOpticalTemporalErrors),
     /// Temporal does not exist, in which case one optical measurement must be converted
     ToOptical(OpticalToTemporalErrors),
+}
+
+/// Error when $PnE/$PnG do not match the datatype for a given column
+#[derive(Debug, Error, new)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct ScaleDatatypeMismatchError {
+    index: MeasIndex,
+    datatype: AlphaNumType,
+    scale: LogScale,
+    has_gain: bool,
+}
+
+impl fmt::Display for ScaleDatatypeMismatchError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = self.index;
+        let ekey = Scale::std(i);
+        let dt = self.datatype.as_displayable();
+        let s = self.scale.as_displayable();
+        let g = if self.has_gain {
+            let gkey = Gain::std(i);
+            format!(" and {gkey} 1.0 or not set")
+        } else {
+            "".into()
+        };
+        write!(
+            f,
+            "only integer columns may have non-linear scale, \
+             column is '{dt}' where {ekey} is '{s}'{g}"
+        )
+    }
 }
 
 type SwapOpticalTemporalErrors = ErrorGroup<SwapOpticalTemporalError, SwapOpticalTemporalSummary>;
@@ -776,6 +870,7 @@ pub enum InsertTemporalError<E> {
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
 pub enum PushOpticalError<E> {
     Unique(NamePresentError),
+    Scale(ScaleColumnDatatypeMismatchError),
     Layout(E),
 }
 
@@ -785,6 +880,7 @@ pub enum PushOpticalError<E> {
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
 pub enum InsertOpticalError<E> {
     Insert(InsertError),
+    Scale(ScaleColumnDatatypeMismatchError),
     Layout(E),
 }
 
@@ -840,23 +936,42 @@ pub(crate) type VersionedCoreLayout<L, V> = CoreMeasurements<
 type VersionedMeasurements<V> =
     NamedVec<<V as VersionLayoutSet>::Name, VTemporal<V>, VScaledOptical<V>>;
 
-type VersionedElement<V> = Element<VTemporal<V>, VScaledOptical<V>>;
+type VersionedElement<V> = Element<VTemporal<V>, VOptical<V>>;
+
+type VElementWithScale<V> = (VersionedElement<V>, <V as VersionLayoutSet>::Xform);
 
 type VTemporal<V> = Temporal<<V as VersionLayoutSet>::Temporal>;
 type VOptical<V> = Optical<<V as VersionLayoutSet>::Optical>;
 type VScaledOptical<V> =
     ScaledOptical<<V as VersionLayoutSet>::Xform, <V as VersionLayoutSet>::Optical>;
 
-pub(crate) type TemporalOrOptical<V> =
-    Element<Temporal<<V as VersionLayoutSet>::Temporal>, Optical<<V as VersionLayoutSet>::Optical>>;
+type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;
+
+type TemporalsAndOpticals<T, O> = Vec<TemporalOrOptical<T, O>>;
+
+type TemporalOrScaledOptical<T, S, O> = Element<Temporal<T>, ScaledOptical<S, O>>;
+
+type TemporalsAndScaledOpticals<T, S, O> = Vec<TemporalOrScaledOptical<T, S, O>>;
+
+pub(crate) type VTemporalOrOptical<V> = Element<VTemporal<V>, VOptical<V>>;
+
+pub(crate) type VTemporalOrOpticalWithScale<V> = (
+    Element<VTemporal<V>, VOptical<V>>,
+    <V as VersionLayoutSet>::Xform,
+);
 
 pub(crate) type NamedTemporalOrOptical<V> =
     EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
 
-pub(crate) type TemporalsAndOpticals<V> = Vec<TemporalOrOptical<V>>;
+pub(crate) type NamedTemporalOrOpticalWithScale<V> = (
+    EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>,
+    <V as VersionLayoutSet>::Xform,
+);
+
+pub(crate) type VTemporalsAndOpticals<V> = Vec<VTemporalOrOptical<V>>;
 
 pub(crate) type NamedTemporalsAndOpticals<V> =
-    Eithers<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
+    Eithers<<V as VersionLayoutSet>::Name, VTemporal<V>, VScaledOptical<V>>;
 
 pub(crate) type TemporalsAndOpticals2_0 = NamedTemporalsAndOpticals<Version2_0>;
 pub(crate) type TemporalsAndOpticals3_0 = NamedTemporalsAndOpticals<Version3_0>;
@@ -869,7 +984,7 @@ pub trait VersionLayoutSet: HasVersion {
     type Optical: OpticalKeywords;
     type Temporal: VersionedTemporal;
     type Name: MightHave<Shortname>;
-    type Xform: Default;
+    type Xform: Default + Copy + CheckedScaleTransform + LookupOpticalScale + OpticalScaleKeywords;
     type DataSchema: VersionedDataSchema;
     type DataFrame: VersionedDataFrame;
 }
@@ -1008,7 +1123,6 @@ impl_ref_specific_rw!(
 impl_ref_specific_rw!(
     Temporal,
     InnerTemporal2_0,
-    TemporalScale2_0,
     Option<PeakBin>,
     Option<PeakIndex>
 );
@@ -1038,17 +1152,9 @@ impl_ref_specific_rw!(
     TemporalType
 );
 
-impl_ref_specific_ro!(Optical, InnerOptical2_0, Option<Scale>);
-
-impl_ref_specific_ro!(Optical, InnerOptical3_0, OpticalTransform3_0);
-
-impl_ref_specific_ro!(Optical, InnerOptical3_1, OpticalTransform3_0);
-
-impl_ref_specific_ro!(Optical, InnerOptical3_2, OpticalTransform3_0);
-
-impl<X> AsMut<CommonMeasurement> for Optical<X> {
+impl<X, O> AsMut<CommonMeasurement> for ScaledOptical<X, O> {
     fn as_mut(&mut self) -> &mut CommonMeasurement {
-        &mut self.common
+        &mut self.inner.common
     }
 }
 
@@ -1058,9 +1164,9 @@ impl<X> AsMut<CommonMeasurement> for Temporal<X> {
     }
 }
 
-impl<X> AsRef<CommonMeasurement> for Optical<X> {
+impl<X, O> AsRef<CommonMeasurement> for ScaledOptical<X, O> {
     fn as_ref(&self) -> &CommonMeasurement {
-        &self.common
+        &self.inner.common
     }
 }
 
@@ -1070,32 +1176,32 @@ impl<X> AsRef<CommonMeasurement> for Temporal<X> {
     }
 }
 
-// Implement transform -> $Pn* keywords methods
+// Implement Scale -> $Pn* keywords methods
 
-pub trait XformKeywords: Sized {
-    fn req_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>;
+pub trait OpticalScaleKeywords: Sized {
+    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>;
 
-    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptOpticalKeyword<'_>>;
+    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptScaleKeyword>;
 }
 
-impl XformKeywords for OpticalTransform2_0 {
-    fn req_keywords_inner(&self, _: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+impl OpticalScaleKeywords for OpticalTransform2_0 {
+    fn req_keywords(&self, _: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword> {
         empty()
     }
 
-    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptOpticalKeyword<'_>> {
+    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptScaleKeyword> {
         self.0
-            .map(|v| OptOpticalKeyword::from_value(v, i))
+            .map(|s| OptScaleKeyword::from_value(s, i))
             .into_iter()
     }
 }
 
-impl XformKeywords for OpticalTransform3_0 {
-    fn req_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
+impl OpticalScaleKeywords for OpticalTransform3_0 {
+    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword> {
         once(self.req_keyword(i))
     }
 
-    fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptOpticalKeyword<'_>> {
+    fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptScaleKeyword> {
         self.opt_keyword(i).into_iter()
     }
 }
@@ -1609,6 +1715,72 @@ impl LookupShortname for Identity<Shortname> {
     }
 }
 
+// Implement method to look up $PnE/$PnG from a hash table
+
+type LookupOpticalScaleResult<S> =
+    WarningsAndErrorsResult<S, (), LookupScaleWarning, LookupScaleError>;
+
+pub trait LookupOpticalScale: Sized {
+    fn lookup_optical_scale<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        dt: AlphaNumType,
+        conf: &C,
+    ) -> LookupOpticalScaleResult<DiagnosedKeyword<Self, OpticalScaleFix>>
+    where
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
+}
+
+impl LookupOpticalScale for OpticalTransform2_0 {
+    fn lookup_optical_scale<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        dt: AlphaNumType,
+        conf: &C,
+    ) -> LookupOpticalScaleResult<DiagnosedKeyword<Self, OpticalScaleFix>>
+    where
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+    {
+        Scale::remove_or_drop_meas_opt_with(std, nonstd, i, dt, conf)
+            .map_switchable_errors(LookupScaleWarning::from)
+            .switchable_into_commutative()
+            .map_errors(LookupScaleError::from)
+            .map_ok_value(|diag| diag.first_once(|x: Option<Scale>| Self(x)))
+            .set_err_value(())
+            .into_semigroup()
+    }
+}
+
+impl LookupOpticalScale for OpticalTransform3_0 {
+    fn lookup_optical_scale<C>(
+        std: &mut StdKeywords,
+        nonstd: &mut NonStdKeywords,
+        i: MeasIndex,
+        dt: AlphaNumType,
+        conf: &C,
+    ) -> LookupOpticalScaleResult<DiagnosedKeyword<Self, OpticalScaleFix>>
+    where
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+    {
+        let gain = Gain::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+            .map_switchable_errors(LookupScaleWarning::from)
+            .switchable_into_commutative()
+            .map_errors(LookupScaleError::from)
+            .into_semigroup();
+        let scale = Scale::remove_meas_req_with(std, i, dt, conf.as_ref())
+            .map_err(LookupScaleError::from)
+            .into_log();
+        gain.zip_commutative(scale).and_then_commutative(|(g, s)| {
+            Self::try_from((s.native, g))
+                .map(|x| DiagnosedKeyword::new(x, s.diagnostic))
+                .map_err(LookupScaleError::from)
+                .into_log()
+        })
+    }
+}
+
 // Implement method to look up optical keywords from a hash table
 
 type LookupOpticalResult<V> =
@@ -1635,10 +1807,6 @@ impl LookupOptical for InnerOptical2_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        // let scale = Scale::remove_or_drop_meas_opt_with(std, nonstd, i, dt, conf)
-        //     .map_switchable_errors(LookupOpticalWarning::from)
-        //     .switchable_into_commutative()
-        //     .into_semigroup();
         let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
@@ -2299,6 +2467,44 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
     }
 }
 
+// Implement method to convert between different scale types
+
+type ScaleConvertResult<S> = WarningAndErrorResult<S, (), GainLossError, ScaleConvertError>;
+
+pub trait ConvertFromScale<S>: Sized {
+    fn convert_from_scale(value: S, i: MeasIndex, flag: AllowLoss) -> ScaleConvertResult<Self>;
+}
+
+impl ConvertFromScale<OpticalTransform2_0> for OpticalTransform3_0 {
+    fn convert_from_scale(
+        value: OpticalTransform2_0,
+        i: MeasIndex,
+        _: AllowLoss,
+    ) -> ScaleConvertResult<Self> {
+        if let Some(s) = value.0 {
+            LogResult::new_ok(s.into())
+        } else {
+            LogResult::new_err(NoScaleError(i).into())
+        }
+    }
+}
+
+impl ConvertFromScale<OpticalTransform3_0> for OpticalTransform2_0 {
+    fn convert_from_scale(
+        value: OpticalTransform3_0,
+        i: MeasIndex,
+        flag: AllowLoss,
+    ) -> ScaleConvertResult<Self> {
+        value
+            .try_convert_to_scale(i)
+            .nowarn_into_switchable3(flag)
+            .switchable_into_commutative()
+            .map_errors(ScaleConvertError::from)
+            .map_ok_value(|s| Self(Some(s)))
+            .set_err_value(())
+    }
+}
+
 // // Implement mapping from metadata type to generalized scale transform
 // //
 // // Used for checking transforms against the datatype for a measurement.
@@ -2377,22 +2583,187 @@ impl ConvertFromTemporal<InnerTemporal3_1> for InnerTemporal3_2 {
 //     }
 // }
 
+// Implement checks for scale transform against $DATATYPE
+//
+// Log scale transforms can only be used when $DATATYPE=I
+
+/// A scale transform which may be checked against a datatype to ensure compatibility
+pub trait CheckedScaleTransform {
+    const HAS_GAIN: bool;
+
+    fn matches_datatype(
+        &self,
+        datatype: &AlphaNumType,
+        i: MeasIndex,
+    ) -> Result<(), ScaleDatatypeMismatchError> {
+        self.matches_datatype_log(datatype)
+            .map_err(|s| ScaleDatatypeMismatchError::new(i, *datatype, s, Self::HAS_GAIN))
+    }
+
+    fn matches_datatype_log(&self, datatype: &AlphaNumType) -> Result<(), LogScale> {
+        // Only integers are allowed to have gain and log scaling, so everything
+        // else should be a "noop" transform (ie a linear transform with slope
+        // of 1.0). NOTE the standard itself is vague about what should happen
+        // to ASCII values (presumably since nobody cares) so here we just treat
+        // them like we treat floating point types to keep the logic simple.
+        if let Some(s) = self.as_log()
+            && datatype != &AlphaNumType::Integer
+        {
+            Err(s)
+        } else {
+            Ok(())
+        }
+    }
+
+    fn as_log(&self) -> Option<LogScale>;
+}
+
+impl CheckedScaleTransform for OpticalTransform2_0 {
+    const HAS_GAIN: bool = false;
+
+    fn as_log(&self) -> Option<LogScale> {
+        if let Some(Scale::Log(s)) = self.0 {
+            Some(s)
+        } else {
+            None
+        }
+    }
+}
+
+impl CheckedScaleTransform for OpticalTransform3_0 {
+    const HAS_GAIN: bool = true;
+
+    fn as_log(&self) -> Option<LogScale> {
+        if let Self::Log(s) = self {
+            Some(*s)
+        } else {
+            None
+        }
+    }
+}
+
 // Implement methods for scaled optical wrapper type
 
+type ScaledOpticalConvertResult<X, O> = WarningsAndErrorsResult<
+    ScaledOptical<X, O>,
+    (),
+    ScaledOpticalConvertWarning,
+    ScaledOpticalConvertError,
+>;
+
 impl<X, O> ScaledOptical<X, O> {
+    pub fn inner(&self) -> &Optical<O> {
+        &self.inner
+    }
+
     pub fn xform(&self) -> &X {
         &self.xform
     }
 
-    fn new_identity(inner: Optical<O>) -> Self
+    pub(crate) fn new_identity(inner: Optical<O>) -> Self
     where
         X: Default,
     {
         Self::new(X::default(), inner)
     }
-}
 
-impl<X, O> ScaledOptical<X, O> {
+    pub(crate) fn lookup_scaled_optical<C>(
+        std: &mut StdKeywords,
+        mut nonstd: NonStdKeywords,
+        i: MeasIndex,
+        dt: AlphaNumType,
+        conf: &C,
+    ) -> WarningsAndErrorsResult<
+        DiagnosedScaledOptical<Self>,
+        (),
+        LookupScaledOpticalWarning,
+        LookupScaledOpticalError,
+    >
+    where
+        X: LookupOpticalScale,
+        O: LookupOptical,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+    {
+        let s_res = X::lookup_optical_scale(std, &mut nonstd, i, dt, conf)
+            .map_errors(LookupScaledOpticalError::from)
+            .map_commutative_warnings(LookupScaledOpticalWarning::from);
+        let o_res = Optical::lookup_optical(std, nonstd, i, conf)
+            .map_errors(LookupScaledOpticalError::from)
+            .map_commutative_warnings(LookupScaledOpticalWarning::from);
+        s_res.zip_commutative(o_res).map_ok_value(|(s, o)| {
+            DiagnosedScaledOptical::new(Self::new(s.native, o.this), s.diagnostic, o.trimmed)
+        })
+    }
+
+    pub(crate) fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>>
+    where
+        O: OpticalKeywords,
+        X: OpticalScaleKeywords,
+    {
+        self.xform.req_keywords(i)
+    }
+
+    pub(crate) fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptScaledOpticalKeyword>
+    where
+        O: OpticalKeywords,
+        X: OpticalScaleKeywords,
+    {
+        let os = self
+            .inner
+            .opt_keywords(i)
+            .map(OptScaledOpticalKeyword::from);
+        let ss = self
+            .xform
+            .opt_keywords(i)
+            .map(OptScaledOpticalKeyword::from);
+        os.chain(ss)
+    }
+
+    pub(crate) fn opt_and_nonstd_keywords(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>>
+    where
+        O: OpticalKeywords,
+        X: OpticalScaleKeywords,
+    {
+        let cs = self
+            .inner
+            .common
+            .nonstandard_keywords
+            .iter()
+            .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
+            .map(StdOrNonStdOptMeasKeyword::from);
+        self.opt_keywords(i)
+            .map(OptMeasKeyword::from)
+            .map(StdOrNonStdOptMeasKeyword::from)
+            .chain(cs)
+    }
+
+    fn try_convert<Xf, Of>(
+        self,
+        i: MeasIndex,
+        flag: AllowLoss,
+    ) -> ScaledOpticalConvertResult<Xf, Of>
+    where
+        O: OpticalKeywords,
+        Of: ConvertFromOptical<O>,
+        Xf: ConvertFromScale<X>,
+    {
+        let new_opt = self
+            .inner
+            .try_convert(i, flag)
+            .map_commutative_warnings(ScaledOpticalConvertWarning::from)
+            .map_errors(ScaledOpticalConvertError::from);
+        let new_scale = Xf::convert_from_scale(self.xform, i, flag)
+            .map_commutative_warnings(ScaledOpticalConvertWarning::from)
+            .map_errors(ScaledOpticalConvertError::from)
+            .into_semigroup();
+        new_opt
+            .zip_commutative(new_scale)
+            .map_ok_value(|(o, s)| ScaledOptical::new(s, o))
+    }
+
     fn swap_optical_temporal<T>(
         old: (MeasIndex, Temporal<T>),
         new: (MeasIndex, Self),
@@ -2572,8 +2943,8 @@ impl<O> Optical<O> {
 
     pub(crate) fn lookup_optical<C>(
         std: &mut StdKeywords,
-        i: MeasIndex,
         mut nonstd: NonStdKeywords,
+        i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
@@ -2622,32 +2993,6 @@ impl<O> Optical<O> {
             .flatten()
             .chain(self.specific.opt_keywords_inner(i))
     }
-
-    pub(crate) fn opt_and_nonstd_keywords(
-        &self,
-        i: MeasIndex,
-    ) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>>
-    where
-        O: OpticalKeywords,
-    {
-        let cs = self
-            .common
-            .nonstandard_keywords
-            .iter()
-            .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
-            .map(StdOrNonStdOptMeasKeyword::from);
-        self.opt_keywords(i)
-            .map(OptMeasKeyword::from)
-            .map(StdOrNonStdOptMeasKeyword::from)
-            .chain(cs)
-    }
-
-    // pub(crate) fn as_scale_or_transform(&self) -> O::S
-    // where
-    //     O: AsScaleOrTransform,
-    // {
-    //     self.specific.as_scale_or_transform()
-    // }
 
     fn try_convert<Of: ConvertFromOptical<O>>(
         self,
@@ -2817,6 +3162,34 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
     pub(crate) fn layout(&self) -> &L {
         &self.data
     }
+
+    pub(crate) fn scales(&self) -> impl IntoIterator<Item = X>
+    where
+        X: Default + Copy,
+    {
+        // TODO not DRY, used in lots of scale checks for the named vec
+        self.meta
+            .iter()
+            .map(|m| m.both(|_| X::default(), |o| o.value.xform))
+    }
+
+    // TODO lots of allocations, there should be a better way to do this
+    fn add_scales(
+        &self,
+        measurements: TemporalsAndOpticals<T, O>,
+    ) -> TemporalsAndScaledOpticals<T, X, O>
+    where
+        X: Default + Copy,
+    {
+        measurements
+            .into_iter()
+            // TODO this will truncate the measurements to the length of
+            // scales, which will result in now throwing an error in the caller
+            // if the length is later checked
+            .zip(self.scales())
+            .map(|(m, s)| m.bimap_once(|t| t, |o| ScaledOptical::new(s, o)))
+            .collect()
+    }
 }
 
 impl<L, V> VersionedCoreLayout<L, V>
@@ -2856,6 +3229,7 @@ where
         Vf: VersionLayoutSet,
         Vf::Optical: ConvertFromOptical<V::Optical>,
         Vf::Temporal: ConvertFromTemporal<V::Temporal>,
+        Vf::Xform: ConvertFromScale<V::Xform>,
         Vf::Name: MightHave<Shortname> + Clone + ConvertFromShortname<V::Name>,
         // TODO technically normalize shouldn't be needed here but it won't hurt anything
         Lf: ConvertFromLayout<L> + LayoutNormalize,
@@ -3048,19 +3422,28 @@ where
         &mut self,
         index: MeasIndex,
         value: Optical<V::Optical>,
-    ) -> Result<VersionedElement<V>, ElementIndexError> {
-        // TODO check scale
-        self.meta
-            .replace_at(index, ScaledOptical::new_identity(value))
+    ) -> Result<VElementWithScale<V>, ElementIndexError> {
+        let ret = self
+            .meta
+            .replace_at(index, ScaledOptical::new_identity(value))?;
+        Ok(ret.both(
+            |t| (Element::Center(t), V::Xform::default()),
+            |o| (Element::NonCenter(o.inner), o.xform),
+        ))
     }
 
     pub(crate) fn replace_named(
         &mut self,
         name: &Shortname,
         value: VOptical<V>,
-    ) -> Result<VersionedElement<V>, NameNotFoundError> {
-        self.meta
-            .replace_named(name, ScaledOptical::new_identity(value))
+    ) -> Result<VElementWithScale<V>, NameNotFoundError> {
+        let ret = self
+            .meta
+            .replace_named(name, ScaledOptical::new_identity(value))?;
+        Ok(ret.both(
+            |t| (Element::Center(t), V::Xform::default()),
+            |o| (Element::NonCenter(o.inner), o.xform),
+        ))
     }
 
     pub(crate) fn replace_temporal_at_nofail<F>(
@@ -3068,13 +3451,18 @@ where
         index: MeasIndex,
         value: VTemporal<V>,
         to_opt: F,
-    ) -> Result<VersionedElement<V>, SetCenterError>
+    ) -> Result<VElementWithScale<V>, SetCenterError>
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
         let to_scaled_opt = |i, t| ScaledOptical::new_identity(to_opt(i, t));
-        self.meta
-            .replace_center_at_nofail(index, value, to_scaled_opt)
+        let ret = self
+            .meta
+            .replace_center_at_nofail(index, value, to_scaled_opt)?;
+        Ok(ret.both(
+            |t| (Element::Center(t), V::Xform::default()),
+            |o| (Element::NonCenter(o.inner), o.xform),
+        ))
     }
 
     pub(crate) fn replace_temporal_at<F, LWC, RWC, E, EC>(
@@ -3082,7 +3470,7 @@ where
         index: MeasIndex,
         value: VTemporal<V>,
         to_opt: F,
-    ) -> LogResult<VersionedElement<V>, (), LWC, RWC, (), E, EC>
+    ) -> LogResult<VElementWithScale<V>, (), LWC, RWC, (), E, EC>
     where
         F: FnOnce(
             MeasIndex,
@@ -3094,7 +3482,14 @@ where
         EC: Default,
     {
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
-        self.meta.replace_center_at(index, value, to_scaled_opt)
+        self.meta
+            .replace_center_at(index, value, to_scaled_opt)
+            .map_ok_value(|ret| {
+                ret.both(
+                    |t| (Element::Center(t), V::Xform::default()),
+                    |o| (Element::NonCenter(o.inner), o.xform),
+                )
+            })
     }
 
     pub(crate) fn replace_temporal_by_name_nofail<F>(
@@ -3102,13 +3497,18 @@ where
         n: &Shortname,
         value: VTemporal<V>,
         to_opt: F,
-    ) -> Result<VersionedElement<V>, NameNotFoundError>
+    ) -> Result<VElementWithScale<V>, NameNotFoundError>
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
         let to_scaled_opt = |i, t| ScaledOptical::new_identity(to_opt(i, t));
-        self.meta
-            .replace_center_by_name_nofail(n, value, to_scaled_opt)
+        let ret = self
+            .meta
+            .replace_center_by_name_nofail(n, value, to_scaled_opt)?;
+        Ok(ret.both(
+            |t| (Element::Center(t), V::Xform::default()),
+            |o| (Element::NonCenter(o.inner), o.xform),
+        ))
     }
 
     pub(crate) fn replace_temporal_by_name<F, LWC, RWC, E, EC>(
@@ -3116,7 +3516,7 @@ where
         n: &Shortname,
         value: VTemporal<V>,
         to_opt: F,
-    ) -> LogResult<VersionedElement<V>, (), LWC, RWC, (), E, EC>
+    ) -> LogResult<VElementWithScale<V>, (), LWC, RWC, (), E, EC>
     where
         F: FnOnce(
             MeasIndex,
@@ -3128,104 +3528,127 @@ where
         RWC: Default,
     {
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
-        self.meta.replace_center_by_name(n, value, to_scaled_opt)
+        self.meta
+            .replace_center_by_name(n, value, to_scaled_opt)
+            .map_ok_value(|ret| {
+                ret.both(
+                    |t| (Element::Center(t), V::Xform::default()),
+                    |o| (Element::NonCenter(o.inner), o.xform),
+                )
+            })
     }
 
     pub(crate) fn push_temporal_inner<C>(
         &mut self,
-        n: Shortname,
-        m: Temporal<V::Temporal>,
-        r: C,
+        name: Shortname,
+        temporal: Temporal<V::Temporal>,
+        data_column: C,
     ) -> ErrorsResult<(), (), PushTemporalError<L::Error>>
     where
         L: LayoutInsert<C>,
     {
         self.meta
-            .check_push_center(&n)
+            .check_push_center(&name)
             .map_errors(PushTemporalError::Center)
             .nowarn_and_then(|()| {
                 self.data
-                    .push(r)
+                    .push(data_column)
                     .map_err(PushTemporalError::Layout)
                     .into_log()
             })
-            .when_ok(|| self.meta.push_center_nocheck(n, m))
+            .when_ok(|| self.meta.push_center_nocheck(name, temporal))
     }
 
     pub(crate) fn insert_temporal_inner<C>(
         &mut self,
         i: MeasIndex,
-        n: Shortname,
-        m: Temporal<V::Temporal>,
-        r: C,
+        name: Shortname,
+        temporal: Temporal<V::Temporal>,
+        data_column: C,
     ) -> ErrorsResult<(), (), InsertTemporalError<L::Error>>
     where
         L: LayoutInsert<C>,
     {
         self.meta
-            .check_insert_center(i, &n)
+            .check_insert_center(i, &name)
             .map_errors(InsertTemporalError::Center)
             .nowarn_and_then(|()| {
                 self.data
-                    .insert_nocheck(i, r)
+                    .insert_nocheck(i, data_column)
                     .map_err(InsertTemporalError::Layout)
                     .into_log()
             })
-            .when_ok(|| self.meta.insert_center_nocheck(i, n, m))
+            .when_ok(|| self.meta.insert_center_nocheck(i, name, temporal))
     }
 
-    // TODO cross check optical with datatype of column
     pub(crate) fn push_optical_inner<C>(
         &mut self,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
+        name: V::Name,
+        optical: Optical<V::Optical>,
+        scale: V::Xform,
+        data_column: C,
     ) -> ErrorsResult<Shortname, (), PushOpticalError<L::Error>>
     where
+        C: ColumnHasDatatype,
         L: LayoutInsert<C>,
     {
-        self.meta
-            .check_push(&n)
+        let scale_res = data_column
+            .matches_scale(scale)
+            .map_err(PushOpticalError::Scale);
+        let push_res = self
+            .meta
+            .check_push(&name)
             .map(Cow::into_owned)
-            .map_err(PushOpticalError::Unique)
-            .into_nowarn()
-            .nowarn_and_then(|ret| {
+            .map_err(PushOpticalError::Unique);
+        scale_res
+            .zip(push_res)
+            .nowarn_and_then(|((), ret)| {
                 self.data
-                    .push(r)
+                    .push(data_column)
                     .map_err(PushOpticalError::Layout)
                     .into_log()
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
-                self.meta.push_nocheck(n, m);
+                let s = ScaledOptical::new(scale, optical);
+                self.meta.push_nocheck(name, s);
                 ret
             })
     }
 
-    // TODO cross check optical with datatype of column
     pub(crate) fn insert_optical_inner<C>(
         &mut self,
         i: MeasIndex,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
+        name: V::Name,
+        optical: Optical<V::Optical>,
+        scale: V::Xform,
+        data_column: C,
     ) -> ErrorsResult<Shortname, (), InsertOpticalError<L::Error>>
     where
+        C: ColumnHasDatatype,
         L: LayoutInsert<C>,
     {
-        self.meta
-            .check_insert(i, &n)
+        let scale_res = data_column
+            .matches_scale(scale)
+            .map_err(InsertOpticalError::Scale)
+            .into_nowarn();
+        let insert_res = self
+            .meta
+            .check_insert(i, &name)
             .map_ok_value(Cow::into_owned)
-            .map_errors(InsertOpticalError::Insert)
-            .nowarn_and_then(|ret| {
+            .map_errors(InsertOpticalError::Insert);
+        scale_res
+            .zip_commutative(insert_res)
+            .nowarn_and_then(|((), ret)| {
                 self.data
-                    .insert_nocheck(i, r)
+                    .insert_nocheck(i, data_column)
                     .map_err(InsertOpticalError::Layout)
                     .into_log()
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
-                self.meta.insert_nocheck(i, n, m);
+                let s = ScaledOptical::new(scale, optical);
+                self.meta.insert_nocheck(i, name, s);
                 ret
             })
     }
@@ -3233,41 +3656,52 @@ where
     pub(crate) fn remove_measurement_by_name<C>(
         &mut self,
         name: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<V>, C), NameNotFoundError>
+    ) -> Result<(MeasIndex, VTemporalOrOpticalWithScale<V>, C), NameNotFoundError>
     where
         L: LayoutRemove<C>,
     {
         let (i, e) = self.meta.remove_name(name)?;
         let r = self.data.remove_nocheck(i);
-        Ok((i, e, r))
+        let m = e.both(
+            |t| (Element::Center(t), V::Xform::default()),
+            |o| (Element::NonCenter(o.inner), o.xform),
+        );
+        Ok((i, m, r))
     }
 
     pub(crate) fn remove_measurement_by_index<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<V>, C), ElementIndexError>
+    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, C), ElementIndexError>
     where
         L: LayoutRemove<C>,
     {
         let p = self.meta.remove_index(index)?;
         let r = self.data.remove_nocheck(index);
-        Ok((p, r))
+        let m = p.both(
+            |t| (Element::Center(t), V::Xform::default()),
+            |o| {
+                (
+                    Element::NonCenter(Pair::new(o.key, o.value.inner)),
+                    o.value.xform,
+                )
+            },
+        );
+        Ok((m, r))
     }
 
     pub(crate) fn set_unnamed_measurements(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         // V::Optical: AsScaleOrTransform,
         // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype,
     {
-        // Ensure new measurement scales match existing schema
-        self.data
-            .check_unmamed_meas_xforms::<V>(&measurements[..])?;
         // This will ensure the new measurements have the same length as the old
-        self.meta.set_values(measurements)?;
+        // and that the temporal/optical types are in the same spot
+        self.meta.set_values(self.add_scales(measurements))?;
         self.validate("measurements should match length and scale/datatype of data");
         Ok(())
     }
@@ -3320,7 +3754,7 @@ where
 
     pub(crate) fn set_unnamed_measurements_and_layout(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         layout: L,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
@@ -3328,10 +3762,11 @@ where
         // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
-        // ensure new layout and measurements have matching length and scales
-        layout.check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
+        // TODO check length match b/t meas and layout
+        // // ensure new layout and measurements have matching length and scales
+        // layout.check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
         // this will check that new measurements have same length as old
-        self.meta.set_values(measurements)?;
+        self.meta.set_values(self.add_scales(measurements))?;
         self.set_layout_inner(layout);
         self.validate("inputs should have matching length and scale/datatype");
         Ok(())
@@ -3555,7 +3990,7 @@ where
 
     pub(crate) fn set_unnamed_measurements_dataframe_schema(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         data_schema: &V::DataSchema,
     ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
     where
@@ -3564,17 +3999,18 @@ where
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        // Check that new measurements and new data schema are in sync.
-        data_schema
-            .check_unmamed_meas_xforms_and_len::<V>(&measurements[..])
-            .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
+        // TODO check length b/t meas and schema
+        // // Check that new measurements and new data schema are in sync.
+        // data_schema
+        //     .check_unmamed_meas_xforms_and_len::<V>(&measurements[..])
+        //     .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
         // This checks for data loss due to type conversions in the dataframe.
         data_schema.check_data_loss_generic(&self.data)?;
         // This additionally checks that the new measurements are the same
         // length as existing, so that the new meas+schema will remain
         // consistent with the dataframe.
         self.meta
-            .set_values(measurements)
+            .set_values(self.add_scales(measurements))
             .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
         self.set_data_schema_unchecked(data_schema);
         self.validate("inputs should have matching length and scale/datatype");
@@ -3651,7 +4087,7 @@ where
 
     pub(crate) fn set_unnamed_measurements_and_data(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
@@ -3769,42 +4205,16 @@ impl OpticalTransform3_0 {
         }
     }
 
-    fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
-        i: MeasIndex,
-        dt: AlphaNumType,
-        conf: &C,
-    ) -> LookupOpticalResult<(Self, OpticalScaleFix)>
-    where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
-    {
-        let gain = Gain::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
-            .map_switchable_errors(LookupOpticalWarning::from)
-            .switchable_into_commutative()
-            .map_errors(LookupOpticalError::from)
-            .into_semigroup();
-        let scale = Scale::remove_meas_req_with(std, i, dt, conf.as_ref())
-            .map_err(LookupOpticalError::from)
-            .into_log();
-        gain.zip_commutative(scale).and_then_commutative(|(g, s)| {
-            Self::try_from((s.native, g))
-                .map(|x| (x, s.diagnostic))
-                .map_err(LookupOpticalError::from)
-                .into_log()
-        })
-    }
-
     fn req_keyword(&self, i: MeasIndex) -> ReqMeasKeyword<'_> {
         let (scale, _): (Scale, _) = (*self).into();
         ReqMeasKeyword::from_value(scale, i)
     }
 
-    fn opt_keyword(&self, i: MeasIndex) -> Option<OptOpticalKeyword<'_>> {
+    fn opt_keyword(&self, i: MeasIndex) -> Option<OptScaleKeyword> {
         if let (_, Some(gain)) = (*self).into()
             && !gain.0.is_one()
         {
-            Some(OptOpticalKeyword::from_value(gain, i))
+            Some(OptScaleKeyword::from_value(gain, i))
         } else {
             None
         }

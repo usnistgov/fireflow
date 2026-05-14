@@ -10,15 +10,15 @@ use crate::config::{
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
-    CheckedScaleTransform, ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1,
-    DataFrame3_2, DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0,
-    DataSchema3_1, DataSchema3_2, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
-    EventOverRangeError, EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype,
-    LayoutHeight as _, LayoutInsert, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
-    LayoutRemove, LayoutSize as _, LookupDataSchemaError, LookupDataSchemaWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataSchemaError, RangeAndSeries,
-    ReadCheckedDataframeError, ReadCheckedDataframeWarning, VersionedDataFrame as _,
-    VersionedDataSchema, WithPrimitiveDataFrame,
+    ColumnHasDatatype, ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
+    DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0, DataSchema3_1,
+    DataSchema3_2, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
+    EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype, LayoutHeight as _,
+    LayoutInsert, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords, LayoutRemove,
+    LayoutSize as _, LookupDataSchemaError, LookupDataSchemaWarning, MeasLayoutMismatchError,
+    MeasurementsWithLayoutError, NewDataSchemaError, RangeAndSeries, ReadCheckedDataframeError,
+    ReadCheckedDataframeWarning, VersionedDataFrame as _, VersionedDataSchema,
+    WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -33,21 +33,22 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::match_many_to_one;
 use crate::meas::{
-    ConvertFromOptical, ConvertFromShortname, ConvertFromTemporal, CoreMeasurements,
-    DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError, InnerOptical2_0,
-    InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0, InnerTemporal3_0,
-    InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError, LookupMeasError,
-    LookupOptical, LookupOpticalError, LookupOpticalWarning, LookupShortname, LookupShortnameError,
-    LookupTemporal, LookupTemporalError, LookupTemporalWarning, MeasConvertError,
-    MeasConvertWarning, MeasMeta, MissingTimeError, NamedTemporalOrOptical,
-    NamedTemporalsAndOpticals, NewMeasError, Optical, OpticalFromTemporal, OpticalTransform3_0,
-    PushOpticalError, PushTemporalError, ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName,
+    ConvertFromOptical, ConvertFromScale, ConvertFromShortname, ConvertFromTemporal,
+    CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError,
+    InnerOptical2_0, InnerOptical3_0, InnerOptical3_1, InnerOptical3_2, InnerTemporal2_0,
+    InnerTemporal3_0, InnerTemporal3_1, InnerTemporal3_2, InsertOpticalError, InsertTemporalError,
+    LookupMeasError, LookupOptical, LookupScaledOpticalError, LookupScaledOpticalWarning,
+    LookupShortname, LookupShortnameError, LookupTemporal, LookupTemporalError,
+    LookupTemporalWarning, MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError,
+    NamedTemporalOrOpticalWithScale, NamedTemporalsAndOpticals, NewMeasError, Optical,
+    OpticalFromTemporal, OpticalTransform3_0, PushOpticalError, PushTemporalError,
+    ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaledOptical,
     SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
     SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
-    TemporalOrOptical, TemporalsAndOpticals, TemporalsAndOpticals2_0, TemporalsAndOpticals3_0,
-    TemporalsAndOpticals3_1, TemporalsAndOpticals3_2, VersionLayoutSet, VersionedTemporal,
-    impl_ref_specific_ro, impl_ref_specific_rw,
+    TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
+    TemporalsAndOpticals3_2, VTemporalOrOpticalWithScale, VTemporalsAndOpticals, VersionLayoutSet,
+    VersionedTemporal, impl_ref_specific_ro, impl_ref_specific_rw,
 };
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
@@ -143,7 +144,7 @@ use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use {
-    crate::text::keyword_enum::{AsHeader as _, OptOpticalKeyword, RefKeyword1},
+    crate::text::keyword_enum::{AsHeader as _, OptScaledOpticalKeyword, RefKeyword1},
     crate::text::keywords as kws,
     nalgebra::DMatrix,
     serde::Serialize,
@@ -1542,7 +1543,7 @@ type LookupMeasurementResult<V> =
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementError {
     Temporal(LookupTemporalError),
-    Optical(LookupOpticalError),
+    Optical(LookupScaledOpticalError),
     TimeName(DuplicateTimeNameError),
     Warn(LookupMeasurementWarning),
 }
@@ -1563,7 +1564,7 @@ pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
-    Optical(LookupOpticalWarning),
+    Optical(LookupScaledOpticalWarning),
     MissingTime(MissingTimeError),
 }
 
@@ -4049,14 +4050,18 @@ where
     /// Return error if name is non-unique or range is incompatible.
     pub fn push_optical<C>(
         &mut self,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
+        name: V::Name,
+        opt: Optical<V::Optical>,
+        scale: V::Xform,
+        data_column: C,
     ) -> GroupResult<Shortname, PushOpticalError<<L as LayoutInsert<C>>::Error>, PushOpticalSummary>
     where
+        C: ColumnHasDatatype,
         L: LayoutInsert<C>,
     {
-        self.push_optical_inner(n, m, r).group().resolve_nowarn()
+        self.push_optical_inner(name, opt, scale, data_column)
+            .group()
+            .resolve_nowarn()
     }
 
     /// Add optical measurement at a given position
@@ -4066,18 +4071,20 @@ where
     pub fn insert_optical<C>(
         &mut self,
         i: MeasIndex,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
+        name: V::Name,
+        opt: Optical<V::Optical>,
+        scale: V::Xform,
+        data_column: C,
     ) -> GroupResult<
         Shortname,
         InsertOpticalError<<L as LayoutInsert<C>>::Error>,
         InsertOpticalSummary,
     >
     where
+        C: ColumnHasDatatype,
         L: LayoutInsert<C>,
     {
-        self.insert_optical_inner(i, n, m, r)
+        self.insert_optical_inner(i, name, opt, scale, data_column)
             .group()
             .resolve_nowarn()
     }
@@ -4110,7 +4117,7 @@ where
         &mut self,
         index: MeasIndex,
         m: Optical<V::Optical>,
-    ) -> Result<TemporalOrOptical<V>, ElementIndexError> {
+    ) -> Result<VTemporalOrOpticalWithScale<V>, ElementIndexError> {
         self.meas.replace_at(index, m)
     }
 
@@ -4123,7 +4130,7 @@ where
         &mut self,
         name: &Shortname,
         m: Optical<V::Optical>,
-    ) -> Result<TemporalOrOptical<V>, NameNotFoundError> {
+    ) -> Result<VTemporalOrOpticalWithScale<V>, NameNotFoundError> {
         self.meas.replace_named(name, m)
     }
 
@@ -4132,7 +4139,7 @@ where
         &mut self,
         index: MeasIndex,
         m: Temporal<V::Temporal>,
-    ) -> Result<TemporalOrOptical<V>, SetCenterError>
+    ) -> Result<VTemporalOrOpticalWithScale<V>, SetCenterError>
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = ()>,
         V::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
@@ -4152,7 +4159,7 @@ where
         m: Temporal<V::Temporal>,
         allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
-        TemporalOrOptical<V>,
+        VTemporalOrOpticalWithScale<V>,
         (),
         AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalErrorByIndex,
@@ -4177,7 +4184,7 @@ where
         &mut self,
         name: &Shortname,
         m: Temporal<V::Temporal>,
-    ) -> Result<TemporalOrOptical<V>, NameNotFoundError>
+    ) -> Result<VTemporalOrOpticalWithScale<V>, NameNotFoundError>
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = ()>,
         V::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
@@ -4198,7 +4205,7 @@ where
         m: Temporal<V::Temporal>,
         allow_loss: AllowLoss,
     ) -> WarningOrErrorResult<
-        TemporalOrOptical<V>,
+        VTemporalOrOpticalWithScale<V>,
         (),
         AnyTemporalToOpticalKeyLossError,
         ReplaceTemporalErrorByName,
@@ -4309,7 +4316,7 @@ where
         self.meas
             .measurements()
             .iter()
-            .map(|x| x.both(|t| t.value.as_ref(), |m| m.value.as_ref()))
+            .map(|x| x.both(|t| t.value.as_ref(), |m| m.value.inner().as_ref()))
     }
 
     /// Get an optional field from all measurements as an interator
@@ -4344,7 +4351,7 @@ where
         self.meas
             .measurements()
             .iter()
-            .map(|e| e.bimap_once(|_| (), |v| v.value.as_ref()).into())
+            .map(|e| e.bimap_once(|_| (), |v| v.value.inner().as_ref()).into())
     }
 
     /// Return optional field from all optical measurements as an iterator
@@ -4395,7 +4402,7 @@ where
         self.meas
             .measurements()
             .iter()
-            .map(|x| x.bimap_once(|m| m.value.as_ref(), |m| m.value.as_ref()))
+            .map(|x| x.bimap_once(|m| m.value.as_ref(), |m| m.value.inner().as_ref()))
     }
 
     /// Set field which is on both optical and temporal measurement types
@@ -4864,6 +4871,7 @@ where
         Vf::RootMeta: ConvertFromMetaroot<V::RootMeta>,
         Vf::Optical: ConvertFromOptical<V::Optical>,
         Vf::Temporal: ConvertFromTemporal<V::Temporal>,
+        Vf::Xform: ConvertFromScale<V::Xform>,
         Vf::Name: MightHave<Shortname> + Clone + ConvertFromShortname<V::Name>,
         // TODO technically normalize shouldn't be needed here but it won't hurt anything
         Lf: ConvertFromLayout<L> + LayoutNormalize,
@@ -4922,7 +4930,7 @@ where
     /// Set measurements without $PnN.
     pub fn set_measurements(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
         L: HasWidth + LayoutDatatype,
@@ -4966,7 +4974,7 @@ where
     fn remove_measurement_by_name_inner<C>(
         &mut self,
         name: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<V>, C), RemoveMeasByNameError>
+    ) -> Result<(MeasIndex, VTemporalOrOpticalWithScale<V>, C), RemoveMeasByNameError>
     where
         L: LayoutRemove<C>,
     {
@@ -4988,7 +4996,7 @@ where
     fn remove_measurement_by_index_inner<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<V>, C), RemoveMeasByIndexError>
+    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, C), RemoveMeasByIndexError>
     where
         L: LayoutRemove<C>,
     {
@@ -5042,32 +5050,38 @@ where
 
     fn push_optical_inner<C>(
         &mut self,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
+        name: V::Name,
+        opt: Optical<V::Optical>,
+        scale: V::Xform,
+        data_column: C,
     ) -> ErrorsResult<Shortname, (), PushOpticalError<L::Error>>
     where
+        C: ColumnHasDatatype,
         L: LayoutInsert<C>,
     {
-        self.meas.push_optical_inner(n, m, r).map_ok_value(|ret| {
-            let i = self.par().0.into();
-            self.rootmeta.specific.insert_meas_index_inner(i);
-            ret
-        })
+        self.meas
+            .push_optical_inner(name, opt, scale, data_column)
+            .map_ok_value(|ret| {
+                let i = self.par().0.into();
+                self.rootmeta.specific.insert_meas_index_inner(i);
+                ret
+            })
     }
 
     fn insert_optical_inner<C>(
         &mut self,
         i: MeasIndex,
-        n: V::Name,
-        m: Optical<V::Optical>,
-        r: C,
+        name: V::Name,
+        opt: Optical<V::Optical>,
+        scale: V::Xform,
+        data_column: C,
     ) -> ErrorsResult<Shortname, (), InsertOpticalError<L::Error>>
     where
+        C: ColumnHasDatatype,
         L: LayoutInsert<C>,
     {
         self.meas
-            .insert_optical_inner(i, n, m, r)
+            .insert_optical_inner(i, name, opt, scale, data_column)
             .map_ok_value(|ret| {
                 self.rootmeta.specific.insert_meas_index_inner(i);
                 ret
@@ -5076,7 +5090,7 @@ where
 
     fn set_measurements_and_layout_inner(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         layout: L,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
@@ -5151,7 +5165,7 @@ where
             .measurements()
             .iter_with(
                 &|i, x| Temporal::opt_and_nonstd_keywords(&x.value, i).collect::<Vec<_>>(),
-                &|i, x| Optical::opt_and_nonstd_keywords(&x.value, i).collect(),
+                &|i, x| ScaledOptical::opt_and_nonstd_keywords(&x.value, i).collect(),
             )
             .flatten()
             .chain(ns)
@@ -5211,7 +5225,7 @@ where
         enum MeasKeyword<'a> {
             Index(MeasIndex),
             Req(ReqMeasKeyword<'a>),
-            Optical(OptOpticalKeyword<'a>),
+            Optical(OptScaledOpticalKeyword<'a>),
             NumType(SplitKeyword1<kws::NumType>),
         }
 
@@ -5309,7 +5323,7 @@ where
                 m.both(
                     |t| {
                         let (o, _) = V::Optical::from_temporal_unchecked(t.value.clone());
-                        (Some(&t.key), o)
+                        (Some(&t.key), ScaledOptical::new_identity(o))
                     },
                     |o| (V::Name::as_opt(&o.key), o.value.clone()),
                 )
@@ -5518,7 +5532,7 @@ where
                                 .map_ok_value(|x| Element::Center((name, x)))
                         }
                         Element::NonCenter(k) => {
-                            Optical::lookup_optical(std, j, meas_nonstd, *dt, conf)
+                            ScaledOptical::lookup_scaled_optical(std, meas_nonstd, j, *dt, conf)
                                 .map_errors(LookupMeasurementError::from)
                                 .map_commutative_warnings(LookupMeasurementWarning::from)
                                 .map_ok_value(|x| Element::NonCenter((k, x)))
@@ -5780,7 +5794,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// Set measurements without $PnN and data schema
     pub fn set_measurements_and_data_schema(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         data_schema: V::DataSchema,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
@@ -5819,7 +5833,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     pub fn remove_measurement_by_name<R>(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<V>, R), RemoveMeasByNameError>
+    ) -> Result<(MeasIndex, VTemporalOrOpticalWithScale<V>, R), RemoveMeasByNameError>
     where
         V::DataSchema: LayoutRemove<R>,
     {
@@ -5832,7 +5846,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<V>, R), RemoveMeasByIndexError>
+    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, R), RemoveMeasByIndexError>
     where
         V::DataSchema: LayoutRemove<R>,
     {
@@ -6167,7 +6181,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     // pass by value here to keep api consistent b/t coretext and coredataset
     pub fn set_measurements_and_data_schema(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         data_schema: V::DataSchema,
     ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
     where
@@ -6215,7 +6229,15 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn remove_measurement_by_name<R>(
         &mut self,
         n: &Shortname,
-    ) -> Result<(MeasIndex, TemporalOrOptical<V>, AnyPrimitiveSeries, R), RemoveMeasByNameError>
+    ) -> Result<
+        (
+            MeasIndex,
+            VTemporalOrOpticalWithScale<V>,
+            AnyPrimitiveSeries,
+            R,
+        ),
+        RemoveMeasByNameError,
+    >
     where
         V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
     {
@@ -6229,7 +6251,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOptical<V>, AnyPrimitiveSeries, R), RemoveMeasByIndexError>
+    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, AnyPrimitiveSeries, R), RemoveMeasByIndexError>
     where
         V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
     {
@@ -6278,7 +6300,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// Length of measurements must match the width of the input dataframe.
     pub fn set_measurements_and_data(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
@@ -6294,7 +6316,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn set_measurements_data_schema_and_data(
         &mut self,
-        measurements: TemporalsAndOpticals<V>,
+        measurements: VTemporalsAndOpticals<V>,
         data_schema: V::DataSchema,
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataSchemaAndDataFrameError>

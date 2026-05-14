@@ -120,8 +120,8 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::match_many_to_one;
 use crate::meas::{
-    MeasMeta, NamedTemporalsAndOpticals, Optical, OpticalTransform3_0, ScaledOptical,
-    TemporalOrOptical, VMeasMeta, VersionLayoutSet,
+    CheckedScaleTransform, MeasMeta, NamedTemporalsAndOpticals, ScaleDatatypeMismatchError,
+    VMeasMeta, VersionLayoutSet,
 };
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
@@ -135,14 +135,14 @@ use crate::text::keyword_enum::{
     SplitKeyword1,
 };
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, NumType, Par, RangeToIntError, RangeToIntErrorKind,
-    Scale, TextRange, Tot, Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, LogScale, NumType, Par, RangeToIntError,
+    RangeToIntErrorKind, TextRange, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
     ReqMetarootKey as _,
 };
-use crate::text::named_vec::{NamedVec, NewNamedVecError};
+use crate::text::named_vec::NewNamedVecError;
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
     AsciiRangeFromKeywordsError, AsciiRangeValue, Chars, DelimAsciiRange, FixedAsciiRange,
@@ -1642,51 +1642,6 @@ pub enum MeasurementsWithLayoutError {
     Layout(MeasLayoutMismatchError),
 }
 
-/// Error when $PnE does not match the datatype in its corresponding column (2.0)
-#[derive(Debug, Error, new)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct ScaleDatatypeMismatchError {
-    index: MeasIndex,
-    datatype: AlphaNumType,
-    scale: ScaleOrTransform,
-}
-
-#[derive(Debug)]
-enum ScaleOrTransform {
-    Scale(Scale),
-    ScaleTransform(OpticalTransform3_0),
-}
-
-impl fmt::Display for ScaleDatatypeMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let i = self.index;
-        let ekey = Scale::std(i);
-        let gkey = Gain::std(i);
-        let dt = self.datatype.as_displayable();
-        match &self.scale {
-            ScaleOrTransform::Scale(s) => {
-                let eval = s.as_displayable();
-                write!(
-                    f,
-                    "only integer columns may have non-linear scale, \
-                     column is '{dt}' where {ekey} is '{eval}'"
-                )
-            }
-            ScaleOrTransform::ScaleTransform(s) => {
-                let (eval, g): (Scale, Option<Gain>) = (*s).into();
-                let gval = g.map_or("not set".into(), |x| format!("'{}'", x.as_displayable()));
-                write!(
-                    f,
-                    "only integer columns may have non-unitary scale transforms, \
-                     column is '{dt}' where {ekey} is '{}' and {gkey} is {gval}",
-                    eval.as_displayable(),
-                )
-            }
-        }
-    }
-}
-
 /// Error when converting a primitive dataframe into a versioned dataframe
 #[derive(From, Error, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1718,6 +1673,20 @@ pub(crate) struct IndexedError<E> {
     #[new(into)]
     pub(crate) index: IndexFromOne,
     pub(crate) error: E,
+}
+
+/// Error when scale does not match the datatype for a given column
+#[derive(Debug, Error, new)]
+#[error(
+    "scale is log ({}) when datatype is '{}'",
+    self.scale.as_displayable(),
+    self.datatype.as_displayable(),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct ScaleColumnDatatypeMismatchError {
+    datatype: AlphaNumType,
+    scale: LogScale,
 }
 
 #[derive(new)]
@@ -2253,40 +2222,40 @@ pub trait LayoutDatatype: Sized {
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
 
-    /// Check that unnamed measurement metadata matches this data schema (no length)
-    fn check_unmamed_meas_xforms<V: VersionLayoutSet>(
-        &self,
-        meas: &[TemporalOrOptical<V>],
-    ) -> Result<(), ScaleDatatypeMismatchErrors> {
-        unimplemented!()
-        // let xforms = meas
-        //     .iter()
-        //     .map(|m| m.as_ref().both(|_| V::Xform::default(), |o| *o.xform()));
-        // self.check_transforms(xforms)
-    }
+    // /// Check that unnamed measurement metadata matches this data schema (no length)
+    // fn check_unmamed_meas_xforms<V: VersionLayoutSet>(
+    //     &self,
+    //     meas: &[VTemporalOrOptical<V>],
+    // ) -> Result<(), ScaleDatatypeMismatchErrors> {
+    //     unimplemented!()
+    //     // let xforms = meas
+    //     //     .iter()
+    //     //     .map(|m| m.as_ref().both(|_| V::Xform::default(), |o| *o.xform()));
+    //     // self.check_transforms(xforms)
+    // }
 
-    /// Check that unnamed measurement metadata matches this data schema.
-    ///
-    /// Check the following:
-    ///
-    /// 1. length must match the data schema
-    /// 2. transforms in metadata must match data schema
-    fn check_unmamed_meas_xforms_and_len<V: VersionLayoutSet>(
-        &self,
-        meas: &[TemporalOrOptical<V>],
-    ) -> Result<(), MeasLayoutMismatchError>
-    where
-        Self: HasWidth,
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-    {
-        unimplemented!()
-        // let xforms = meas.iter().map(|m| {
-        //     m.as_ref()
-        //         .both(|_| V::Xform::default(), Optical::as_scale_or_transform)
-        // });
-        // self.check_transforms_and_len(xforms)
-    }
+    // /// Check that unnamed measurement metadata matches this data schema.
+    // ///
+    // /// Check the following:
+    // ///
+    // /// 1. length must match the data schema
+    // /// 2. transforms in metadata must match data schema
+    // fn check_unmamed_meas_xforms_and_len<V: VersionLayoutSet>(
+    //     &self,
+    //     meas: &[VTemporalOrOptical<V>],
+    // ) -> Result<(), MeasLayoutMismatchError>
+    // where
+    //     Self: HasWidth,
+    //     // V::Optical: AsScaleOrTransform,
+    //     // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+    // {
+    //     unimplemented!()
+    //     // let xforms = meas.iter().map(|m| {
+    //     //     m.as_ref()
+    //     //         .both(|_| V::Xform::default(), Optical::as_scale_or_transform)
+    //     // });
+    //     // self.check_transforms_and_len(xforms)
+    // }
 
     /// Check that meas metadata is compatible with this data schema.
     ///
@@ -2363,7 +2332,7 @@ pub trait LayoutDatatype: Sized {
             // floating point types to keep the logic simple.
             .filter_map(|(i, (&datatype, s))| {
                 meas_n += 1;
-                s.matches_datatype_ok(datatype, i.into()).err()
+                s.matches_datatype(&datatype, i.into()).err()
             });
 
         ErrorGroup::try_new(es)?;
@@ -2387,13 +2356,7 @@ pub trait LayoutDatatype: Sized {
             .iter()
             .zip(xforms)
             .enumerate()
-            // Only integers are allowed to have gain and log scaling, so
-            // everything else should be a "noop" transform (ie a linear
-            // transform with slope of 1.0). NOTE the standard itself is
-            // vague about what should happen to ASCII values (presumably
-            // since nobody cares) so here we just treat them like we treat
-            // floating point types to keep the logic simple.
-            .filter_map(|(i, (&datatype, s))| s.matches_datatype_ok(datatype, i.into()).err());
+            .filter_map(|(i, (datatype, s))| s.matches_datatype(datatype, i.into()).err());
         ErrorGroup::try_new(es)
     }
 }
@@ -5870,10 +5833,20 @@ impl<M: ColumnHasOneDatatype, T, R> ColumnHasOneDatatype for Series<M, T, R> {
 // Implement datatype for columns which might map to more than one datatype
 
 /// A column which has a $DATATYPE keyword
-trait ColumnHasDatatype: Sized {
+pub trait ColumnHasDatatype: Sized {
     fn col_datatype(&self) -> AlphaNumType;
 
     fn datatype_from_columns(cs: &[Self]) -> AlphaNumType;
+
+    fn matches_scale<S>(&self, scale: S) -> Result<(), ScaleColumnDatatypeMismatchError>
+    where
+        S: CheckedScaleTransform,
+    {
+        let dt = self.col_datatype();
+        scale
+            .matches_datatype_log(&dt)
+            .map_err(|s| ScaleColumnDatatypeMismatchError::new(dt, s))
+    }
 }
 
 impl<T: ColumnHasOneDatatype> ColumnHasDatatype for T {
@@ -6986,57 +6959,6 @@ impl_endian_layout_io!(Bitmask56);
 impl_endian_layout_io!(Bitmask64);
 impl_endian_layout_io!(F32Range);
 impl_endian_layout_io!(F64Range);
-
-// Implement checks for scale transform against $DATATYPE
-//
-// Log scale transforms can only be used when $DATATYPE=I
-
-/// A scale transform which may be checked against a datatype to ensure compatibility
-pub trait CheckedScaleTransform {
-    fn matches_datatype_ok(
-        &self,
-        datatype: AlphaNumType,
-        i: MeasIndex,
-    ) -> Result<(), ScaleDatatypeMismatchError>;
-
-    fn matches_datatype(&self, datatype: &AlphaNumType) -> bool;
-}
-
-impl CheckedScaleTransform for Scale {
-    fn matches_datatype_ok(
-        &self,
-        datatype: AlphaNumType,
-        i: MeasIndex,
-    ) -> Result<(), ScaleDatatypeMismatchError> {
-        if !self.matches_datatype(&datatype) {
-            let s = ScaleOrTransform::Scale(*self);
-            return Err(ScaleDatatypeMismatchError::new(i, datatype, s));
-        }
-        Ok(())
-    }
-
-    fn matches_datatype(&self, datatype: &AlphaNumType) -> bool {
-        datatype == &AlphaNumType::Integer || !matches!(self, Self::Log(_))
-    }
-}
-
-impl CheckedScaleTransform for OpticalTransform3_0 {
-    fn matches_datatype_ok(
-        &self,
-        datatype: AlphaNumType,
-        i: MeasIndex,
-    ) -> Result<(), ScaleDatatypeMismatchError> {
-        if !self.matches_datatype(&datatype) {
-            let s = ScaleOrTransform::ScaleTransform(*self);
-            return Err(ScaleDatatypeMismatchError::new(i, datatype, s));
-        }
-        Ok(())
-    }
-
-    fn matches_datatype(&self, datatype: &AlphaNumType) -> bool {
-        datatype == &AlphaNumType::Integer || self.is_noop()
-    }
-}
 
 // Implement default for layout types
 //

@@ -194,8 +194,30 @@ pub enum ReqMeasKeyword<'a> {
 pub enum OptMeasKeyword<'a> {
     Shortname(RefKeyword1<'a, Shortname>),
     NumType(SplitKeyword1<kws::NumType>),
-    Optical(OptOpticalKeyword<'a>),
+    Optical(OptScaledOpticalKeyword<'a>),
     Temporal(OptTemporalKeyword<'a>),
+}
+
+/// Any optional optical keyword type
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum OptScaledOpticalKeyword<'a> {
+    Scale(OptScaleKeyword),
+    Optical(OptOpticalKeyword<'a>),
+}
+
+/// Any optional scale keyword type
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum OptScaleKeyword {
+    Scale(SplitKeyword1<kws::Scale>),
+    Gain(SplitKeyword1<kws::Gain>),
 }
 
 /// Any optional optical keyword type
@@ -670,6 +692,7 @@ impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptOpticalKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptScaleKeyword {}
 impl<'a> Keyword1FromValue<'a> for OptTemporalKeyword<'a> {}
 impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
@@ -789,6 +812,15 @@ impl HasDelim for OptMeasKeyword<'_> {
             Self::Optical(x) => x.has_delim(d),
             Self::Temporal(x) => x.has_delim(d),
             Self::NumType(_) => None,
+        }
+    }
+}
+
+impl HasDelim for OptScaledOpticalKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
+            Self::Optical(x) => x.has_delim(d),
+            Self::Scale(_) => None,
         }
     }
 }

@@ -15,6 +15,7 @@ _C = TypeVar("_C")
 _N = TypeVar("_N")
 _L = TypeVar("_L")
 _R = TypeVar("_R")
+_S = TypeVar("_S")
 
 _OpticalKeyVals = list[_X | tuple[()] | None]
 
@@ -190,19 +191,13 @@ class _OpticalCommon:
     power: float | None
     percent_emitted: float | None
 
-class _OpticalScaleTransform:
-    transform: pft.ScaleTransform
-
 class _TemporalTimestep:
     timestep: pft.Timestep
 
 @final
 class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
-    scale: pft.Scale | None
-
     def __new__(
         cls,
-        scale: pft.Scale | None = None,
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
@@ -216,12 +211,9 @@ class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
     ) -> Self: ...
 
 @final
-class Optical3_0(
-    _MeasCommon, _OpticalCommon, _OpticalScaleTransform, _OpticalWavelength, _PeakCommon
-):
+class Optical3_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
     def __new__(
         cls,
-        transform: pft.ScaleTransform,
         wavelength: float | None = None,
         bin: int | None = None,
         size: int | None = None,
@@ -238,7 +230,6 @@ class Optical3_0(
 class Optical3_1(
     _MeasCommon,
     _OpticalCommon,
-    _OpticalScaleTransform,
     _OpticalWavelengths,
     _MeasDisplay,
     _PeakCommon,
@@ -247,7 +238,6 @@ class Optical3_1(
 
     def __new__(
         cls,
-        transform: pft.ScaleTransform,
         wavelengths: list[float] = [],
         calibration: pft.Calibration3_1 | None = None,
         display: pft.Display | None = None,
@@ -266,7 +256,6 @@ class Optical3_1(
 class Optical3_2(
     _MeasCommon,
     _OpticalCommon,
-    _OpticalScaleTransform,
     _OpticalWavelengths,
     _MeasDisplay,
 ):
@@ -280,7 +269,6 @@ class Optical3_2(
 
     def __new__(
         cls,
-        transform: pft.ScaleTransform,
         wavelengths: list[float] = [],
         calibration: pft.Calibration3_2 | None = None,
         display: pft.Display | None = None,
@@ -302,14 +290,11 @@ class Optical3_2(
 class Temporal2_0(_MeasCommon, _PeakCommon):
     def __new__(
         cls,
-        has_scale: bool = False,
         bin: int | None = None,
         size: int | None = None,
         longname: str = "",
         nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
-
-    has_scale: bool
 
 @final
 class Temporal3_0(_MeasCommon, _TemporalTimestep, _PeakCommon):
@@ -660,19 +645,51 @@ class _CoreReplaceTemporal3_2:
         allow_loss: pft.TriFlag = "false",
     ) -> Optical3_2 | Temporal3_2 | None: ...
 
-class _CoreTEXTGetSetMeas(Generic[_N, _T, _O, _R]):
+class _CoreTEXTInsertMeas2_0:
+    def push_optical(
+        self,
+        name: pft.Shortname | None,
+        meas: Optical2_0,
+        range: pft.Range,
+        scale: pft.OpticalScale2_0 = (),
+    ) -> None: ...
+    def insert_optical(
+        self,
+        index: pft.MeasIndex,
+        name: pft.Shortname | None,
+        meas: Optical2_0,
+        range: pft.Range,
+        scale: pft.OpticalScale2_0 = (),
+    ) -> None: ...
+    def push_temporal(
+        self,
+        name: pft.Shortname,
+        meas: Temporal2_0,
+        range: pft.Range,
+    ) -> None: ...
+    def insert_temporal(
+        self,
+        index: pft.MeasIndex,
+        name: pft.Shortname,
+        meas: Temporal2_0,
+        range: pft.Range,
+    ) -> None: ...
+
+class _CoreTEXTInsertMeas3_0(Generic[_N, _T, _O, _R]):
     def push_optical(
         self,
         name: _N,
         meas: _O,
         range: _R,
+        scale: pft.OpticalScale3_0 = 1.0,
     ) -> None: ...
     def insert_optical(
         self,
-        index: pft.MeasIndex,
+        index: _N,
         name: _N,
         meas: _O,
         range: _R,
+        scale: pft.OpticalScale3_0 = 1.0,
     ) -> None: ...
     def push_temporal(
         self,
@@ -687,42 +704,82 @@ class _CoreTEXTGetSetMeas(Generic[_N, _T, _O, _R]):
         meas: _T,
         range: _R,
     ) -> None: ...
+
+class _CoreDatasetInsertMeas2_0:
+    def push_optical(
+        self,
+        name: pft.Shortname | None,
+        meas: Optical2_0,
+        range: _R,
+        col: Series,
+        scale: pft.OpticalScale2_0 = (),
+    ) -> None: ...
+    def insert_optical(
+        self,
+        index: pft.MeasIndex,
+        name: pft.Shortname | None,
+        meas: Optical2_0,
+        range: _R,
+        col: Series,
+        scale: pft.OpticalScale2_0 = (),
+    ) -> None: ...
+    def push_temporal(
+        self,
+        name: pft.Shortname,
+        meas: _T,
+        range: _R,
+        col: Series,
+    ) -> None: ...
+    def insert_temporal(
+        self,
+        index: pft.MeasIndex,
+        name: pft.Shortname,
+        meas: _T,
+        range: _R,
+        col: Series,
+    ) -> None: ...
+
+class _CoreDatasetInsertMeas3_0(Generic[_N, _T, _O, _R]):
+    def push_optical(
+        self,
+        name: _N,
+        meas: _O,
+        range: _R,
+        col: Series,
+        scale: pft.OpticalScale3_0 = 1.0,
+    ) -> None: ...
+    def insert_optical(
+        self,
+        index: pft.MeasIndex,
+        name: _N,
+        meas: _O,
+        range: _R,
+        col: Series,
+        scale: pft.OpticalScale3_0 = 1.0,
+    ) -> None: ...
+    def push_temporal(
+        self,
+        name: pft.Shortname,
+        meas: _T,
+        range: _R,
+        col: Series,
+    ) -> None: ...
+    def insert_temporal(
+        self,
+        index: pft.MeasIndex,
+        name: pft.Shortname,
+        meas: _T,
+        range: _R,
+        col: Series,
+    ) -> None: ...
+
+class _CoreTEXTGetSetMeas:
     def unset_measurements(self) -> None: ...
 
-class _CoreDatasetGetSetMeas(Generic[_N, _T, _O, _R]):
+class _CoreDatasetGetSetMeas(Generic[_T, _O]):
     analysis: pft.AnalysisBytes
     others: list[pft.OtherBytes]
 
-    def push_optical(
-        self,
-        name: _N,
-        meas: _O,
-        range: _R,
-        col: Series,
-    ) -> None: ...
-    def insert_optical(
-        self,
-        index: pft.MeasIndex,
-        name: _N,
-        meas: _O,
-        range: _R,
-        col: Series,
-    ) -> None: ...
-    def push_temporal(
-        self,
-        name: pft.Shortname,
-        meas: _T,
-        range: _R,
-        col: Series,
-    ) -> None: ...
-    def insert_temporal(
-        self,
-        index: pft.MeasIndex,
-        name: pft.Shortname,
-        meas: _T,
-        range: _R,
-        col: Series,
-    ) -> None: ...
     def unset_data(self) -> None: ...
     def check_ranges(
         self,
@@ -816,10 +873,10 @@ class _CoreSetShortnamesMaybe:
     ) -> None: ...
 
 class _CoreScaleMethods:
-    all_scales: list[pft.Scale | None]
+    all_scales: list[pft.OpticalScale2_0]
 
 class _CoreScaleTransformMethods:
-    all_scale_transforms: list[pft.ScaleTransform]
+    all_scales: list[pft.OpticalScale3_0]
 
 class _CoreTimestepMethods:
     @property
@@ -935,7 +992,8 @@ class CoreTEXT2_0(
     _CoreGetSetMeas[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreTEXTRemove2_0[Optical2_0, Temporal2_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTGetSetMeas[pft.Shortname | None, Temporal2_0, Optical2_0, pft.Range],
+    _CoreTEXTInsertMeas2_0,
+    _CoreTEXTGetSetMeas,
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreSetShortnamesMaybe,
     _CoreScaleMethods,
@@ -1015,7 +1073,8 @@ class CoreTEXT3_0(
     _CoreGetSetMeas[pft.Shortname | None, Optical3_0, Temporal3_0],
     _CoreTEXTRemove2_0[Optical3_0, Temporal3_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTGetSetMeas[pft.Shortname | None, Temporal3_0, Optical3_0, pft.Range],
+    _CoreTEXTInsertMeas3_0[pft.Shortname | None, Temporal3_0, Optical3_0, pft.Range],
+    _CoreTEXTGetSetMeas,
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreSetShortnamesMaybe,
     _CoreScaleTransformMethods,
@@ -1109,12 +1168,13 @@ class CoreTEXT3_1(
     _CoreGetSetMeas[pft.Shortname, Optical3_1, Temporal3_1],
     _CoreTEXTRemove3_1,
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreTEXTGetSetMeas[
+    _CoreTEXTInsertMeas3_0[
         pft.Shortname,
         Temporal3_1,
         Optical3_1,
         pft.MaybeTypedVariableBitmask,
     ],
+    _CoreTEXTGetSetMeas,
     _CoreGetSetMeasEndian[_AnyNonMixedDataSchema, Optical3_1, Temporal3_1],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
@@ -1216,12 +1276,13 @@ class CoreTEXT3_2(
     _CoreGetSetMeas[pft.Shortname, Optical3_2, Temporal3_2],
     _CoreTEXTRemove3_2,
     _CoreReplaceTemporal3_2,
-    _CoreTEXTGetSetMeas[
+    _CoreTEXTInsertMeas3_0[
         pft.Shortname,
         Temporal3_2,
         Optical3_2,
         pft.MaybeTypedMixedRange,
     ],
+    _CoreTEXTGetSetMeas,
     _CoreGetSetMeasEndian[_AnyMixedDataSchema, Optical3_2, Temporal3_2],
     _CoreScaleTransformMethods,
     _CoreTimestepMethods,
@@ -1329,12 +1390,8 @@ class CoreDataset2_0(
     _CoreGetSetMeas[pft.Shortname | None, Optical2_0, Temporal2_0],
     _CoreDatasetRemove2_0[Optical2_0, Temporal2_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetGetSetMeas[
-        pft.Shortname | None,
-        Temporal2_0,
-        Optical2_0,
-        pft.Range,
-    ],
+    _CoreDatasetInsertMeas2_0,
+    _CoreDatasetGetSetMeas[Temporal2_0, Optical2_0],
     _CoreGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreDatasetGetSetMeasOrdered[Optical2_0, Temporal2_0],
     _CoreScaleMethods,
@@ -1428,12 +1485,8 @@ class CoreDataset3_0(
     _CoreGetSetMeas[pft.Shortname | None, Optical3_0, Temporal3_0],
     _CoreDatasetRemove2_0[Optical3_0, Temporal3_0],
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetGetSetMeas[
-        pft.Shortname | None,
-        Temporal3_0,
-        Optical3_0,
-        pft.Range,
-    ],
+    _CoreDatasetInsertMeas3_0[pft.Shortname | None, Temporal3_0, Optical3_0, pft.Range],
+    _CoreDatasetGetSetMeas[Temporal3_0, Optical3_0],
     _CoreGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreDatasetGetSetMeasOrdered[Optical3_0, Temporal3_0],
     _CoreSetShortnamesMaybe,
@@ -1548,12 +1601,13 @@ class CoreDataset3_1(
     _CoreGetSetMeas[pft.Shortname, Optical3_1, Temporal3_1],
     _CoreDatasetRemove3_1,
     _CoreReplaceTemporal2_0[pft.Shortname | None, Optical2_0, Temporal2_0],
-    _CoreDatasetGetSetMeas[
+    _CoreDatasetInsertMeas3_0[
         pft.Shortname,
         Temporal3_1,
         Optical3_1,
         pft.MaybeTypedVariableBitmask,
     ],
+    _CoreDatasetGetSetMeas[Temporal3_1, Optical3_1],
     _CoreGetSetMeasEndian[_AnyNonMixedDataSchema, Optical3_1, Temporal3_1],
     _CoreDatasetGetSetMeasEndian[Optical3_1, Temporal3_1, _AnyNonMixedDataSchema],
     _CoreScaleTransformMethods,
@@ -1676,12 +1730,13 @@ class CoreDataset3_2(
     _CoreGetSetMeas[pft.Shortname, Optical3_2, Temporal3_2],
     _CoreDatasetRemove3_2,
     _CoreReplaceTemporal3_2,
-    _CoreDatasetGetSetMeas[
+    _CoreDatasetInsertMeas3_0[
         pft.Shortname,
         Temporal3_2,
         Optical3_2,
         pft.MaybeTypedMixedRange,
     ],
+    _CoreDatasetGetSetMeas[Temporal3_2, Optical3_2],
     _CoreGetSetMeasEndian[_AnyMixedDataSchema, Optical3_2, Temporal3_2],
     _CoreDatasetGetSetMeasEndian[Optical3_2, Temporal3_2, _AnyMixedDataSchema],
     _CoreScaleTransformMethods,

@@ -120,8 +120,8 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::match_many_to_one;
 use crate::meas::{
-    CheckedScaleTransform, MeasMeta, NamedTemporalsAndOpticals, ScaleDatatypeMismatchError,
-    VMeasMeta, VersionLayoutSet,
+    CheckedScaleTransform, MeasMeta, ScaleDatatypeMismatchError, VMeasMeta,
+    VNamedTemporalsAndOpticalsWithScale, VersionLayoutSet, wrap_scaled_opticals,
 };
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
@@ -142,7 +142,7 @@ use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
     ReqMetarootKey as _,
 };
-use crate::text::named_vec::NewNamedVecError;
+use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
     AsciiRangeFromKeywordsError, AsciiRangeValue, Chars, DelimAsciiRange, FixedAsciiRange,
@@ -2271,7 +2271,7 @@ pub trait LayoutDatatype: Sized {
         Xform: Default + Copy + CheckedScaleTransform,
         Self: LayoutDatatype,
     {
-        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.xform());
+        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.scale());
         self.check_transforms_and_len(xforms)
     }
 
@@ -2284,7 +2284,7 @@ pub trait LayoutDatatype: Sized {
         Xform: Default + Copy + CheckedScaleTransform,
         Self: LayoutDatatype,
     {
-        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.xform());
+        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.scale());
         self.check_transforms(xforms)
     }
 
@@ -2299,16 +2299,15 @@ pub trait LayoutDatatype: Sized {
     #[allow(clippy::type_complexity)]
     fn try_new_measmeta<V: VersionLayoutSet>(
         &self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
     ) -> Result<VMeasMeta<V>, MeasurementsWithLayoutError>
     where
         Self: HasWidth,
     {
-        unimplemented!()
-        // let ms = NamedVec::try_new(measurements)?;
-        // self.check_measmeta_xforms_and_len(&ms)
-        //     .map_err(MeasurementsWithLayoutError::from)?;
-        // Ok(ms)
+        let nv = NamedVec::try_new(wrap_scaled_opticals::<V>(measurements))?;
+        self.check_measmeta_xforms_and_len(&nv)
+            .map_err(MeasurementsWithLayoutError::from)?;
+        Ok(nv)
     }
 
     fn check_transforms_and_len<S>(
@@ -4953,6 +4952,90 @@ where
     }
 }
 
+// Implement check for scale insertion into layout.
+//
+// This is tricky since we don't know the datatype of the column based on the
+// range to be inserted if the layout is mixed. Therefore we need to check all
+// three together, but just for this one case.
+
+pub trait LayoutInsertScaleCheck<Column> {
+    fn matches_scale<S>(
+        &self,
+        col: &Column,
+        scale: &S,
+    ) -> Result<(), ScaleColumnDatatypeMismatchError>
+    where
+        S: CheckedScaleTransform;
+}
+
+impl<R, A, I, F32, F64> LayoutInsertScaleCheck<R> for AnyDatatype<A, I, F32, F64>
+where
+    Self: LayoutDatatype,
+{
+    fn matches_scale<S>(&self, _: &R, scale: &S) -> Result<(), ScaleColumnDatatypeMismatchError>
+    where
+        S: CheckedScaleTransform,
+    {
+        let dt = self.datatype();
+        scale
+            .matches_datatype_log(&dt)
+            .map_err(|s| ScaleColumnDatatypeMismatchError::new(dt, s))
+    }
+}
+
+impl<F, R, A, I, F32, F64> LayoutInsertScaleCheck<MaybeTypedRange<R, AnyDatatype<A, I, F32, F64>>>
+    for Any3_2Layout<F>
+where
+    F: Kind1,
+    UvarCol: IsCol<F, false>,
+    U08Col: IsCol<F, false>,
+    U16Col: IsCol<F, false>,
+    U24Col: IsCol<F, false>,
+    U32Col: IsCol<F, false>,
+    U40Col: IsCol<F, false>,
+    U48Col: IsCol<F, false>,
+    U56Col: IsCol<F, false>,
+    U64Col: IsCol<F, false>,
+    F32Col: IsCol<F, false>,
+    F64Col: IsCol<F, false>,
+    DelimAsciiCol: IsCol<F, false>,
+    FixedAsciiCol: IsCol<F, false>,
+    MixedCol: IsCol<F, false>,
+    NonMixedLayout<F, Option<NumType>>: LayoutDatatype,
+{
+    fn matches_scale<S>(
+        &self,
+        col: &MaybeTypedRange<R, AnyDatatype<A, I, F32, F64>>,
+        scale: &S,
+    ) -> Result<(), ScaleColumnDatatypeMismatchError>
+    where
+        S: CheckedScaleTransform,
+    {
+        let col_dt = match col {
+            MaybeTypedRange::Typed(r) => Some(r.col_datatype()),
+            MaybeTypedRange::Untyped(_) => None,
+        };
+        let schema_dt = match self {
+            Self::NonMixed(s) => Some(s.datatype()),
+            Self::Mixed(_) => None,
+        };
+        let dt = match (col_dt, schema_dt) {
+            (Some(a), Some(b)) if a == b => a,
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            // If we hit this case it means the layout and range to insert
+            // contradict each other. We could throw an error here but this is
+            // already taken care of with the LayoutInsert trait itself, which
+            // we can assume is always run in parallel with this one. Just
+            // return no error here and let the other trait do the rest.
+            _ => return Ok(()),
+        };
+        scale
+            .matches_datatype_log(&dt)
+            .map_err(|s| ScaleColumnDatatypeMismatchError::new(dt, s))
+    }
+}
+
 // Implement removable operations for layouts.
 //
 // Unlike insertions, this cannot fail which makes this trait simpler.
@@ -5833,20 +5916,10 @@ impl<M: ColumnHasOneDatatype, T, R> ColumnHasOneDatatype for Series<M, T, R> {
 // Implement datatype for columns which might map to more than one datatype
 
 /// A column which has a $DATATYPE keyword
-pub trait ColumnHasDatatype: Sized {
+trait ColumnHasDatatype: Sized {
     fn col_datatype(&self) -> AlphaNumType;
 
     fn datatype_from_columns(cs: &[Self]) -> AlphaNumType;
-
-    fn matches_scale<S>(&self, scale: S) -> Result<(), ScaleColumnDatatypeMismatchError>
-    where
-        S: CheckedScaleTransform,
-    {
-        let dt = self.col_datatype();
-        scale
-            .matches_datatype_log(&dt)
-            .map_err(|s| ScaleColumnDatatypeMismatchError::new(dt, s))
-    }
 }
 
 impl<T: ColumnHasOneDatatype> ColumnHasDatatype for T {

@@ -88,6 +88,7 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
+// TODO use itertools::Either
 /// A member in [`NamedVec`], either a "center" or "non-center" value
 #[derive(Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
@@ -131,7 +132,7 @@ pub struct NamedSet<'a> {
 
 type Center<U> = Pair<Shortname, U>;
 
-type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
+pub(crate) type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
 
 pub type EitherPair<K, U, V> = Element<Pair<Shortname, U>, Pair<K, V>>;
 
@@ -332,16 +333,12 @@ impl<K, U, V> NamedVec<K, U, V> {
     ///
     /// Must contain either one or zero center values, otherwise return error.
     /// All names within keys (including center) must be unique.
-    pub(crate) fn try_new(xs: Eithers<K, U, V>) -> Result<Self, NewNamedVecError>
+    pub(crate) fn try_new(
+        xs: impl IntoIterator<Item = Either<K, U, V>>,
+    ) -> Result<Self, NewNamedVecError>
     where
         K: MightHave<Shortname>,
     {
-        let names = xs
-            .iter()
-            .map(|x| x.as_ref().both(|e| Some(&e.0), |o| o.0.as_opt()));
-        if !all_unique_names(names) {
-            return Err(NonUniqueKeysError.into());
-        }
         let mut left = vec![];
         let mut center = None;
         let mut right = vec![];
@@ -369,6 +366,13 @@ impl<K, U, V> NamedVec<K, U, V> {
         } else {
             Self::new_unsplit(left)
         };
+        // TODO make this a method
+        let names = s
+            .iter()
+            .map(|x| x.as_ref().both(|e| Some(&e.key), |o| o.key.as_opt()));
+        if !all_unique_names(names) {
+            return Err(NonUniqueKeysError.into());
+        }
         Ok(s)
     }
 
@@ -2022,6 +2026,20 @@ impl NamedSet<'_> {
 
     fn contains_center_name(&self, name: &Shortname) -> bool {
         self.center.as_ref().is_some_and(|n| n == &name)
+    }
+}
+
+// Implement methods for Pair
+
+impl_kind2!(pub PairFamily, Pair);
+
+impl<A, B> BifunctorOnce<A, B> for Pair<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Pair<C, B> {
+        Pair::new(f(self.key), self.value)
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Pair<A, C> {
+        Pair::new(self.key, f(self.value))
     }
 }
 

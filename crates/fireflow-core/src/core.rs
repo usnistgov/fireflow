@@ -10,15 +10,15 @@ use crate::config::{
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
-    ColumnHasDatatype, ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
+    ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
     DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0, DataSchema3_1,
     DataSchema3_2, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
     EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype, LayoutHeight as _,
-    LayoutInsert, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords, LayoutRemove,
-    LayoutSize as _, LookupDataSchemaError, LookupDataSchemaWarning, MeasLayoutMismatchError,
-    MeasurementsWithLayoutError, NewDataSchemaError, RangeAndSeries, ReadCheckedDataframeError,
-    ReadCheckedDataframeWarning, VersionedDataFrame as _, VersionedDataSchema,
-    WithPrimitiveDataFrame,
+    LayoutInsert, LayoutInsertScaleCheck, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
+    LayoutRemove, LayoutSize as _, LookupDataSchemaError, LookupDataSchemaWarning,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataSchemaError, RangeAndSeries,
+    ReadCheckedDataframeError, ReadCheckedDataframeWarning, VersionedDataFrame as _,
+    VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -40,15 +40,15 @@ use crate::meas::{
     LookupMeasError, LookupOptical, LookupScaledOpticalError, LookupScaledOpticalWarning,
     LookupShortname, LookupShortnameError, LookupTemporal, LookupTemporalError,
     LookupTemporalWarning, MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError,
-    NamedTemporalOrOpticalWithScale, NamedTemporalsAndOpticals, NewMeasError, Optical,
-    OpticalFromTemporal, OpticalTransform3_0, PushOpticalError, PushTemporalError,
+    NewMeasError, Optical, OpticalFromTemporal, PushOpticalError, PushTemporalError,
     ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaledOptical, SetScalesError,
     SetScalesSummary, SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
     SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
     TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
-    TemporalsAndOpticals3_2, VTemporalOrOpticalWithScale, VTemporalsAndOpticals, VersionLayoutSet,
-    VersionedTemporal, impl_ref_specific_ro, impl_ref_specific_rw,
+    TemporalsAndOpticals3_2, VNamedTemporalOrOpticalWithScale, VNamedTemporalsAndOpticalsWithScale,
+    VNamedTemporalsAndScaledOpticals, VTemporalOrOpticalWithScale, VTemporalsAndOpticals,
+    VersionLayoutSet, VersionedTemporal, impl_ref_specific_ro, impl_ref_specific_rw,
 };
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
@@ -77,7 +77,7 @@ use crate::text::keywords::{
     Feature, Fil, Flowrate, Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError,
     LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex, Mode,
     Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename,
-    PrefixedMeasIndex, Proj, PseudostandardError, Scale, ScaleFix, Smno, Src, Sys, Timestep,
+    PrefixedMeasIndex, Proj, PseudostandardError, ScaleFix, Smno, Src, Sys, Timestep,
     TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
     Wellid,
 };
@@ -192,10 +192,10 @@ use {
 ///
 /// | version | `M`                  | `T`                  | `P`                 | `N`                     | `L` (no DATA)     | `L` (with DATA)      |
 /// |---------|----------------------|----------------------|---------------------|-------------------------|-------------------|----------------------|
-/// |     2.0 | [`InnerMetaroot2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataSchema2_0`] | [`DataFrame2_0`] |
-/// |     3.0 | [`InnerMetaroot3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataSchema3_0`] | [`DataFrame3_0`] |
-/// |     3.1 | [`InnerMetaroot3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataSchema3_1`] | [`DataFrame3_1`] |
-/// |     3.2 | [`InnerMetaroot3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataSchema3_2`] | [`DataFrame3_2`] |
+/// |     2.0 | [`InnerRootMeta2_0`] | [`InnerTemporal2_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataSchema2_0`] | [`DataFrame2_0`] |
+/// |     3.0 | [`InnerRootMeta3_0`] | [`InnerTemporal3_0`] | [`InnerOptical2_0`] | [`Option<Shortname>`]   | [`DataSchema3_0`] | [`DataFrame3_0`] |
+/// |     3.1 | [`InnerRootMeta3_1`] | [`InnerTemporal3_1`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataSchema3_1`] | [`DataFrame3_1`] |
+/// |     3.2 | [`InnerRootMeta3_2`] | [`InnerTemporal3_2`] | [`InnerOptical2_0`] | [`Identity<Shortname>`] | [`DataSchema3_2`] | [`DataFrame3_2`] |
 ///
 /// # Generic parameters for data
 ///
@@ -4016,8 +4016,7 @@ where
         data_column: C,
     ) -> GroupResult<Shortname, PushOpticalError<<L as LayoutInsert<C>>::Error>, PushOpticalSummary>
     where
-        C: ColumnHasDatatype,
-        L: LayoutInsert<C>,
+        L: LayoutInsert<C> + LayoutInsertScaleCheck<C>,
     {
         self.push_optical_inner(name, opt, scale, data_column)
             .group()
@@ -4041,8 +4040,7 @@ where
         InsertOpticalSummary,
     >
     where
-        C: ColumnHasDatatype,
-        L: LayoutInsert<C>,
+        L: LayoutInsert<C> + LayoutInsertScaleCheck<C>,
     {
         self.insert_optical_inner(i, name, opt, scale, data_column)
             .group()
@@ -4617,29 +4615,10 @@ where
         Ok(())
     }
 
-    // /// Return $PnE (2.0)
-    // pub fn scales(&self) -> impl Iterator<Item = Option<Scale>>
-    // where
-    //     Optical<V::Optical>: AsRef<Option<Scale>>,
-    // {
-    //     self.meas.measurements().iter().map(|x| {
-    //         x.both(
-    //             |_| Some(Scale::Linear),
-    //             |m| m.value.as_ref().as_ref().copied(),
-    //         )
-    //     })
-    // }
-
-    // /// Return $PnE/$PnG (3.0+)
-    // pub fn transforms(&self) -> impl Iterator<Item = OpticalTransform3_0>
-    // where
-    //     Optical<V::Optical>: AsRef<OpticalTransform3_0>,
-    // {
-    //     self.meas
-    //         .measurements()
-    //         .iter()
-    //         .map(|x| x.both(|_| OpticalTransform3_0::default(), |m| *m.value.as_ref()))
-    // }
+    /// Return scale keywords
+    pub fn scales(&self) -> impl Iterator<Item = V::Xform> {
+        self.meas.scales()
+    }
 
     /// Return $PnFEATURE if it is area/width/height (3.2+)
     ///
@@ -4801,7 +4780,7 @@ where
     /// data schema length.
     pub fn set_named_measurements(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         allow_shared_names: bool,
         skip_index_check: bool,
     ) -> Result<(), SetNamedMeasurementsError>
@@ -4888,7 +4867,7 @@ where
     fn remove_measurement_by_index_inner<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, C), RemoveMeasByIndexError>
+    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, C), RemoveMeasByIndexError>
     where
         L: LayoutRemove<C>,
     {
@@ -4948,8 +4927,7 @@ where
         data_column: C,
     ) -> ErrorsResult<Shortname, (), PushOpticalError<L::Error>>
     where
-        C: ColumnHasDatatype,
-        L: LayoutInsert<C>,
+        L: LayoutInsert<C> + LayoutInsertScaleCheck<C>,
     {
         self.meas
             .push_optical_inner(name, opt, scale, data_column)
@@ -4969,8 +4947,7 @@ where
         data_column: C,
     ) -> ErrorsResult<Shortname, (), InsertOpticalError<L::Error>>
     where
-        C: ColumnHasDatatype,
-        L: LayoutInsert<C>,
+        L: LayoutInsert<C> + LayoutInsertScaleCheck<C>,
     {
         self.meas
             .insert_optical_inner(i, name, opt, scale, data_column)
@@ -5157,7 +5134,7 @@ where
             Shortname::std_blank(),
             kws::Width::std_blank(),
             kws::TextRange::std_blank(),
-            Scale::std_blank(),
+            kws::Scale::std_blank(),
             kws::Filter::std_blank(),
             // NOTE same for Wavelengths
             kws::Wavelength::std_blank(),
@@ -5361,7 +5338,7 @@ where
         nonstd: Vec<NonStdKeywords>,
         dts: &[AlphaNumType],
         conf: &C,
-    ) -> LookupMeasurementResult<(NamedTemporalsAndOpticals<V>, MeasurementDiagnostics)>
+    ) -> LookupMeasurementResult<(VNamedTemporalsAndScaledOpticals<V>, MeasurementDiagnostics)>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
         V::RootMeta: LookupMetaroot<V::Name>,
@@ -5702,7 +5679,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// lengths.
     pub fn set_named_measurements_and_data_schema(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: V::DataSchema,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -5738,7 +5715,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, R), RemoveMeasByIndexError>
+    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, R), RemoveMeasByIndexError>
     where
         V::DataSchema: LayoutRemove<R>,
     {
@@ -5771,7 +5748,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     // a hashtable
     pub(crate) fn try_new<C>(
         mut metaroot: RootMeta<V::RootMeta>,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndScaledOpticals<V>,
         data_schema: V::DataSchema,
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
@@ -5797,7 +5774,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
     pub(crate) fn try_new_nodrop(
         mut metaroot: RootMeta<V::RootMeta>,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: V::DataSchema,
     ) -> ErrorsResult<Self, (), NewCoreError> {
         CoreMeasurements::try_new_nodrop(measurements, data_schema)
@@ -6094,7 +6071,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     #[allow(clippy::needless_pass_by_value)]
     pub fn set_named_measurements_and_data_schema(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: V::DataSchema,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -6143,7 +6120,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, AnyPrimitiveSeries, R), RemoveMeasByIndexError>
+    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, AnyPrimitiveSeries, R), RemoveMeasByIndexError>
     where
         V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
     {
@@ -6167,7 +6144,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// Length of measurements must match the width of the input dataframe.
     pub fn set_named_measurements_and_data(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         df: PrimitiveDataFrame,
         allow_shared_names: bool,
         skip_index_check: bool,
@@ -6586,47 +6563,6 @@ mod serialize {
                 }
             }
             state.end()
-        }
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::OpticalTransform3_0;
-
-    use crate::text::ranged_float::PositiveFloat;
-
-    use fireflow_types::python::InvalidKeywordValueError;
-
-    use pyo3::IntoPyObjectExt as _;
-    use pyo3::prelude::*;
-
-    // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
-    impl<'py> FromPyObject<'py> for OpticalTransform3_0 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Ok(gain) = ob.extract::<PositiveFloat>() {
-                Ok(Self::Lin(gain))
-            } else if let Ok(log) = ob.extract::<(f32, f32)>() {
-                Ok(Self::Log(log.try_into()?))
-            } else {
-                Err(InvalidKeywordValueError::new_err(
-                    "scale transform must be a positive \
-                     float or a 2-tuple of positive floats",
-                ))
-            }
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for OpticalTransform3_0 {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            match self {
-                Self::Lin(gain) => f32::from(gain).into_bound_py_any(py),
-                Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
-            }
         }
     }
 }

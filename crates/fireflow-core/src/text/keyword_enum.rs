@@ -692,7 +692,7 @@ impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptOpticalKeyword<'a> {}
-impl<'a> Keyword1FromValue<'a> for OptScaleKeyword {}
+impl Keyword1FromValue<'_> for OptScaleKeyword {}
 impl<'a> Keyword1FromValue<'a> for OptTemporalKeyword<'a> {}
 impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}

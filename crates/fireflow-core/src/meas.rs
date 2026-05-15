@@ -6,9 +6,9 @@ use crate::config::{
 };
 use crate::core::{TrimmedKeywords, Versioned};
 use crate::data::{
-    self, CastSeriesErrors, ColumnHasDatatype, ConvertFromLayout, DataFrameAsDataSchema,
-    DataFrameCheckRanges as _, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
-    EventOverRangeError, LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutNormalize,
+    self, CastSeriesErrors, ConvertFromLayout, DataFrameAsDataSchema, DataFrameCheckRanges as _,
+    DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
+    LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutInsertScaleCheck, LayoutNormalize,
     LayoutRemove, MeasLayoutMismatchError, MeasurementsWithLayoutError, OverrangeColumn,
     ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataFrameResult,
     ScaleColumnDatatypeMismatchError, ScaleDatatypeMismatchErrors, VersionedDataFrame,
@@ -40,7 +40,7 @@ use crate::text::lookup::{
     ReqIndexedKey as _, ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
 };
 use crate::text::named_vec::{
-    EitherPair, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
+    Either, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
     InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec,
     NewNamedVecError, Pair, PushCenterError, RenameError, SetCenterError, SetElementsError,
     SetKeysError, SetNamesError, SetValuesError,
@@ -77,7 +77,7 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
@@ -197,10 +197,10 @@ pub struct Temporal<T> {
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ScaledOptical<X, O> {
-    xform: X,
     #[as_ref(forward)]
     #[as_mut(forward)]
     inner: Optical<O>,
+    xform: X,
 }
 
 /// Structured data for optical keywords.
@@ -459,9 +459,16 @@ pub struct InnerOptical3_2 {
 }
 
 /// A scale transform derived from $PnE (2.0+).
-#[derive(Clone, Copy, PartialEq, Default, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct OpticalTransform2_0(pub Option<Scale>);
+
+impl Default for OpticalTransform2_0 {
+    fn default() -> Self {
+        Self(Some(Scale::default()))
+    }
+}
 
 /// A scale transform derived from $PnE/$PnG.
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -791,7 +798,7 @@ impl fmt::Display for ScaleDatatypeMismatchError {
             let gkey = Gain::std(i);
             format!(" and {gkey} 1.0 or not set")
         } else {
-            "".into()
+            String::new()
         };
         write!(
             f,
@@ -956,14 +963,18 @@ pub struct NonIdentityTemporalScaleError;
 type VersionedMeasurements<V> =
     NamedVec<<V as VersionLayoutSet>::Name, VTemporal<V>, VScaledOptical<V>>;
 
-type VersionedElement<V> = Element<VTemporal<V>, VOptical<V>>;
+// type VersionedElement<V> = Element<VTemporal<V>, VOptical<V>>;
 
-type VElementWithScale<V> = (VersionedElement<V>, <V as VersionLayoutSet>::Xform);
+type VElementWithScale<V> = Element<VTemporal<V>, (VOptical<V>, <V as VersionLayoutSet>::Xform)>;
 
 type VTemporal<V> = Temporal<<V as VersionLayoutSet>::Temporal>;
 type VOptical<V> = Optical<<V as VersionLayoutSet>::Optical>;
 type VScaledOptical<V> =
     ScaledOptical<<V as VersionLayoutSet>::Xform, <V as VersionLayoutSet>::Optical>;
+// type VOpticalWithScale<V> = (
+//     Optical<<V as VersionLayoutSet>::Optical>,
+//     <V as VersionLayoutSet>::Xform,
+// );
 
 type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;
 
@@ -971,32 +982,48 @@ type TemporalsAndOpticals<T, O> = Vec<TemporalOrOptical<T, O>>;
 
 type TemporalOrScaledOptical<T, S, O> = Element<Temporal<T>, ScaledOptical<S, O>>;
 
+type NamedTemporalOrOpticalWithScale<K, T, S, O> =
+    Element<(Shortname, Temporal<T>), (K, Optical<O>, S)>;
+
+pub type NamedTemporalsAndOpticalsWithScale<K, T, S, O> =
+    Vec<NamedTemporalOrOpticalWithScale<K, T, S, O>>;
+
 type TemporalsAndScaledOpticals<T, S, O> = Vec<TemporalOrScaledOptical<T, S, O>>;
 
 pub(crate) type VTemporalOrOptical<V> = Element<VTemporal<V>, VOptical<V>>;
 
-pub(crate) type VTemporalOrOpticalWithScale<V> = (
-    Element<VTemporal<V>, VOptical<V>>,
-    <V as VersionLayoutSet>::Xform,
-);
+pub(crate) type VTemporalOrOpticalWithScale<V> =
+    Element<VTemporal<V>, (VOptical<V>, <V as VersionLayoutSet>::Xform)>;
 
-pub(crate) type NamedTemporalOrOptical<V> =
-    EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
+pub(crate) type VNamedTemporalOrOpticalWithScale<V> = Element<
+    Pair<Shortname, VTemporal<V>>,
+    Pair<<V as VersionLayoutSet>::Name, (VOptical<V>, <V as VersionLayoutSet>::Xform)>,
+>;
 
-pub(crate) type NamedTemporalOrOpticalWithScale<V> = (
-    EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>,
-    <V as VersionLayoutSet>::Xform,
-);
+// pub(crate) type VNamedTemporalOrOptical<V> =
+//     EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
 
 pub(crate) type VTemporalsAndOpticals<V> = Vec<VTemporalOrOptical<V>>;
 
-pub(crate) type NamedTemporalsAndOpticals<V> =
+// TODO dry me off
+pub(crate) type VNamedTemporalsAndOpticalsWithScale<V> = Vec<
+    Element<
+        (Shortname, VTemporal<V>),
+        (
+            <V as VersionLayoutSet>::Name,
+            VOptical<V>,
+            <V as VersionLayoutSet>::Xform,
+        ),
+    >,
+>;
+
+pub(crate) type VNamedTemporalsAndScaledOpticals<V> =
     Eithers<<V as VersionLayoutSet>::Name, VTemporal<V>, VScaledOptical<V>>;
 
-pub(crate) type TemporalsAndOpticals2_0 = NamedTemporalsAndOpticals<Version2_0>;
-pub(crate) type TemporalsAndOpticals3_0 = NamedTemporalsAndOpticals<Version3_0>;
-pub(crate) type TemporalsAndOpticals3_1 = NamedTemporalsAndOpticals<Version3_1>;
-pub(crate) type TemporalsAndOpticals3_2 = NamedTemporalsAndOpticals<Version3_2>;
+pub(crate) type TemporalsAndOpticals2_0 = VNamedTemporalsAndOpticalsWithScale<Version2_0>;
+pub(crate) type TemporalsAndOpticals3_0 = VNamedTemporalsAndOpticalsWithScale<Version3_0>;
+pub(crate) type TemporalsAndOpticals3_1 = VNamedTemporalsAndOpticalsWithScale<Version3_1>;
+pub(crate) type TemporalsAndOpticals3_2 = VNamedTemporalsAndOpticalsWithScale<Version3_2>;
 
 // Implement version mapping for types that belong together
 
@@ -1205,7 +1232,7 @@ pub trait OpticalScaleKeywords: Sized {
 }
 
 impl OpticalScaleKeywords for OpticalTransform2_0 {
-    fn req_keywords(&self, _: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword> {
+    fn req_keywords(&self, _: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         empty()
     }
 
@@ -1217,7 +1244,7 @@ impl OpticalScaleKeywords for OpticalTransform2_0 {
 }
 
 impl OpticalScaleKeywords for OpticalTransform3_0 {
-    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword> {
+    fn req_keywords(&self, i: MeasIndex) -> impl Iterator<Item = ReqMeasKeyword<'_>> {
         once(self.req_keyword(i))
     }
 
@@ -1236,7 +1263,7 @@ impl OpticalKeywords for InnerOptical2_0 {
     fn opt_keywords_inner(&self, i: MeasIndex) -> impl Iterator<Item = OptOpticalKeyword<'_>> {
         let x1 = self.wavelength.map(|v| OptOpticalKeyword::from_value(v, i));
         let ps = self.peak.opt_keywords(i).map(OptOpticalKeyword::from);
-        once(x1).into_iter().flatten().chain(ps)
+        once(x1).flatten().chain(ps)
     }
 }
 
@@ -2495,6 +2522,12 @@ pub trait ConvertFromScale<S>: Sized {
     fn convert_from_scale(value: S, i: MeasIndex, flag: AllowLoss) -> ScaleConvertResult<Self>;
 }
 
+impl<T> ConvertFromScale<T> for T {
+    fn convert_from_scale(value: T, _: MeasIndex, _: AllowLoss) -> ScaleConvertResult<Self> {
+        LogResult::new_ok(value)
+    }
+}
+
 impl ConvertFromScale<OpticalTransform2_0> for OpticalTransform3_0 {
     fn convert_from_scale(
         value: OpticalTransform2_0,
@@ -2609,7 +2642,7 @@ impl<X, O> ScaledOptical<X, O> {
         &self.inner
     }
 
-    pub fn xform(&self) -> &X {
+    pub fn scale(&self) -> &X {
         &self.xform
     }
 
@@ -2617,7 +2650,7 @@ impl<X, O> ScaledOptical<X, O> {
     where
         X: Default,
     {
-        Self::new(X::default(), inner)
+        Self::new(inner, X::default())
     }
 
     pub(crate) fn lookup_scaled_optical<C>(
@@ -2644,7 +2677,7 @@ impl<X, O> ScaledOptical<X, O> {
             .map_errors(LookupScaledOpticalError::from)
             .map_commutative_warnings(LookupScaledOpticalWarning::from);
         s_res.zip_commutative(o_res).map_ok_value(|(s, o)| {
-            DiagnosedScaledOptical::new(Self::new(s.native, o.this), s.diagnostic, o.trimmed)
+            DiagnosedScaledOptical::new(Self::new(o.this, s.native), s.diagnostic, o.trimmed)
         })
     }
 
@@ -2656,7 +2689,10 @@ impl<X, O> ScaledOptical<X, O> {
         self.xform.req_keywords(i)
     }
 
-    pub(crate) fn opt_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptScaledOpticalKeyword>
+    pub(crate) fn opt_keywords(
+        &self,
+        i: MeasIndex,
+    ) -> impl Iterator<Item = OptScaledOpticalKeyword<'_>>
     where
         O: OpticalKeywords,
         X: OpticalScaleKeywords,
@@ -2714,9 +2750,10 @@ impl<X, O> ScaledOptical<X, O> {
             .into_semigroup();
         new_opt
             .zip_commutative(new_scale)
-            .map_ok_value(|(o, s)| ScaledOptical::new(s, o))
+            .map_ok_value(|(o, s)| ScaledOptical::new(o, s))
     }
 
+    #[allow(clippy::type_complexity)]
     fn swap_optical_temporal<T>(
         old: (MeasIndex, Temporal<T>),
         new: (MeasIndex, Self),
@@ -2734,8 +2771,8 @@ impl<X, O> ScaledOptical<X, O> {
         let (new_i, new_o) = new;
         O::swap_optical_temporal(old, (new_i, new_o.inner), allow_loss)
             .inject_value(new_o.xform)
-            .map_ok_value(|((o, t), s)| (Self::new(s, o), t))
-            .map_err_value(|((t, o), s)| (t, Self::new(s, o)))
+            .map_ok_value(|((o, t), s)| (Self::new(o, s), t))
+            .map_err_value(|((t, o), s)| (t, Self::new(o, s)))
     }
 }
 
@@ -3116,7 +3153,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
         &self.data
     }
 
-    pub(crate) fn scales(&self) -> impl IntoIterator<Item = X>
+    pub(crate) fn scales(&self) -> impl Iterator<Item = X>
     where
         X: Default + Copy,
     {
@@ -3140,7 +3177,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
             // scales, which will result in now throwing an error in the caller
             // if the length is later checked
             .zip(self.scales())
-            .map(|(m, s)| m.bimap_once(|t| t, |o| ScaledOptical::new(s, o)))
+            .map(|(m, s)| m.bimap_once(|t| t, |o| ScaledOptical::new(o, s)))
             .collect()
     }
 
@@ -3320,7 +3357,7 @@ where
         LWC: Default,
     {
         let go = |i, t| {
-            to_opt(i, t).map_ok_value(|(o, x)| (ScaledOptical::new(V::Xform::default(), o), x))
+            to_opt(i, t).map_ok_value(|(o, s)| (ScaledOptical::new(o, V::Xform::default()), s))
         };
         self.meta.unset_center(go)
     }
@@ -3409,10 +3446,7 @@ where
         let ret = self
             .meta
             .replace_at(index, ScaledOptical::new_identity(value))?;
-        Ok(ret.both(
-            |t| (Element::Center(t), V::Xform::default()),
-            |o| (Element::NonCenter(o.inner), o.xform),
-        ))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
     }
 
     pub(crate) fn replace_named(
@@ -3423,10 +3457,7 @@ where
         let ret = self
             .meta
             .replace_named(name, ScaledOptical::new_identity(value))?;
-        Ok(ret.both(
-            |t| (Element::Center(t), V::Xform::default()),
-            |o| (Element::NonCenter(o.inner), o.xform),
-        ))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
     }
 
     pub(crate) fn replace_temporal_at_nofail<F>(
@@ -3442,10 +3473,7 @@ where
         let ret = self
             .meta
             .replace_center_at_nofail(index, value, to_scaled_opt)?;
-        Ok(ret.both(
-            |t| (Element::Center(t), V::Xform::default()),
-            |o| (Element::NonCenter(o.inner), o.xform),
-        ))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
     }
 
     pub(crate) fn replace_temporal_at<F, LWC, RWC, E, EC>(
@@ -3467,12 +3495,7 @@ where
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
         self.meta
             .replace_center_at(index, value, to_scaled_opt)
-            .map_ok_value(|ret| {
-                ret.both(
-                    |t| (Element::Center(t), V::Xform::default()),
-                    |o| (Element::NonCenter(o.inner), o.xform),
-                )
-            })
+            .map_ok_value(|ret| ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
     }
 
     pub(crate) fn replace_temporal_by_name_nofail<F>(
@@ -3488,10 +3511,7 @@ where
         let ret = self
             .meta
             .replace_center_by_name_nofail(n, value, to_scaled_opt)?;
-        Ok(ret.both(
-            |t| (Element::Center(t), V::Xform::default()),
-            |o| (Element::NonCenter(o.inner), o.xform),
-        ))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
     }
 
     pub(crate) fn replace_temporal_by_name<F, LWC, RWC, E, EC>(
@@ -3513,12 +3533,7 @@ where
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
         self.meta
             .replace_center_by_name(n, value, to_scaled_opt)
-            .map_ok_value(|ret| {
-                ret.both(
-                    |t| (Element::Center(t), V::Xform::default()),
-                    |o| (Element::NonCenter(o.inner), o.xform),
-                )
-            })
+            .map_ok_value(|ret| ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
     }
 
     pub(crate) fn push_temporal_inner<C>(
@@ -3572,11 +3587,11 @@ where
         data_column: C,
     ) -> ErrorsResult<Shortname, (), PushOpticalError<L::Error>>
     where
-        C: ColumnHasDatatype,
-        L: LayoutInsert<C>,
+        L: LayoutInsert<C> + LayoutInsertScaleCheck<C>,
     {
-        let scale_res = data_column
-            .matches_scale(scale)
+        let scale_res = self
+            .data
+            .matches_scale(&data_column, &scale)
             .map_err(PushOpticalError::Scale);
         let push_res = self
             .meta
@@ -3593,7 +3608,7 @@ where
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
-                let s = ScaledOptical::new(scale, optical);
+                let s = ScaledOptical::new(optical, scale);
                 self.meta.push_nocheck(name, s);
                 ret
             })
@@ -3608,11 +3623,11 @@ where
         data_column: C,
     ) -> ErrorsResult<Shortname, (), InsertOpticalError<L::Error>>
     where
-        C: ColumnHasDatatype,
-        L: LayoutInsert<C>,
+        L: LayoutInsert<C> + LayoutInsertScaleCheck<C>,
     {
-        let scale_res = data_column
-            .matches_scale(scale)
+        let scale_res = self
+            .data
+            .matches_scale(&data_column, &scale)
             .map_err(InsertOpticalError::Scale)
             .into_nowarn();
         let insert_res = self
@@ -3630,7 +3645,7 @@ where
                     .set_ok_value(ret)
             })
             .map_ok_value(|ret| {
-                let s = ScaledOptical::new(scale, optical);
+                let s = ScaledOptical::new(optical, scale);
                 self.meta.insert_nocheck(i, name, s);
                 ret
             })
@@ -3645,31 +3660,20 @@ where
     {
         let (i, e) = self.meta.remove_name(name)?;
         let r = self.data.remove_nocheck(i);
-        let m = e.both(
-            |t| (Element::Center(t), V::Xform::default()),
-            |o| (Element::NonCenter(o.inner), o.xform),
-        );
+        let m = e.bimap_once(|t| t, |o| (o.inner, o.xform));
         Ok((i, m, r))
     }
 
     pub(crate) fn remove_measurement_by_index<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(NamedTemporalOrOpticalWithScale<V>, C), ElementIndexError>
+    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, C), ElementIndexError>
     where
         L: LayoutRemove<C>,
     {
         let p = self.meta.remove_index(index)?;
         let r = self.data.remove_nocheck(index);
-        let m = p.both(
-            |t| (Element::Center(t), V::Xform::default()),
-            |o| {
-                (
-                    Element::NonCenter(Pair::new(o.key, o.value.inner)),
-                    o.value.xform,
-                )
-            },
-        );
+        let m = p.bimap_once(|t| t, |o| o.second_once(|v| (v.inner, v.xform)));
         Ok((m, r))
     }
 
@@ -3689,7 +3693,7 @@ where
 
     pub(crate) fn set_named_measurements_with<F, E, Ei>(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         f: F,
     ) -> Result<(), E>
     where
@@ -3708,7 +3712,7 @@ where
 
     pub(crate) fn set_named_measurements_and_layout_with<F, E, Ei>(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         layout: L,
         f: F,
     ) -> Result<(), E>
@@ -3781,7 +3785,7 @@ where
     // only meant to be called during lookup when keywords are being read from
     // a hashtable
     pub(crate) fn try_new(
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndScaledOpticals<V>,
         data_schema: V::DataSchema,
         conf: &ReadStdKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), MissingTimeError, LookupMeasError>
@@ -3825,13 +3829,13 @@ where
     }
 
     pub(crate) fn try_new_nodrop(
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: V::DataSchema,
     ) -> ErrorsResult<Self, (), NewMeasError>
     where
         V::DataSchema: HasWidth,
     {
-        MeasMeta::try_new(measurements)
+        MeasMeta::try_new(wrap_scaled_opticals::<V>(measurements))
             .map_err(NewMeasError::from)
             .into_nowarn()
             .and_then_commutative(|meas| {
@@ -3980,7 +3984,7 @@ where
 
     pub(crate) fn set_named_measurements_and_dataframe_schema_with<F, E, Ei>(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: &V::DataSchema,
         f: F,
     ) -> Result<(), E>
@@ -4007,7 +4011,7 @@ where
 
     pub(crate) fn set_named_measurements_and_data_with<F, E, Ei>(
         &mut self,
-        measurements: NamedTemporalsAndOpticals<V>,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         df: PrimitiveDataFrame,
         f: F,
     ) -> Result<(), E>
@@ -4180,5 +4184,56 @@ impl CommonMeasurement {
     fn lookup(std: &mut StdKeywords, nonstd: NonStdKeywords, i: MeasIndex) -> Self {
         let longname = Longname::remove_meas_opt_nofail(std, i);
         Self::new(longname, nonstd)
+    }
+}
+
+// Misc functions
+
+pub(crate) fn wrap_scaled_opticals<V: VersionLayoutSet>(
+    measurements: VNamedTemporalsAndOpticalsWithScale<V>,
+) -> impl Iterator<Item = Either<V::Name, VTemporal<V>, VScaledOptical<V>>> {
+    measurements
+        .into_iter()
+        .map(|e| e.bimap_once(|t| t, |(n, o, s)| (n, ScaledOptical::new(o, s))))
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::OpticalTransform3_0;
+
+    use crate::text::ranged_float::PositiveFloat;
+
+    use fireflow_types::python::InvalidKeywordValueError;
+
+    use pyo3::IntoPyObjectExt as _;
+    use pyo3::prelude::*;
+
+    // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
+    impl<'py> FromPyObject<'py> for OpticalTransform3_0 {
+        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+            if let Ok(gain) = ob.extract::<PositiveFloat>() {
+                Ok(Self::Lin(gain))
+            } else if let Ok(log) = ob.extract::<(f32, f32)>() {
+                Ok(Self::Log(log.try_into()?))
+            } else {
+                Err(InvalidKeywordValueError::new_err(
+                    "scale transform must be a positive \
+                     float or a 2-tuple of positive floats",
+                ))
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for OpticalTransform3_0 {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Lin(gain) => f32::from(gain).into_bound_py_any(py),
+                Self::Log(l) => (f32::from(l.decades), f32::from(l.offset)).into_bound_py_any(py),
+            }
+        }
     }
 }

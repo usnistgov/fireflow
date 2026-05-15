@@ -119,17 +119,17 @@ def blank_optical_2_0() -> pf.Optical2_0:
 
 @pytest.fixture
 def blank_optical_3_0() -> pf.Optical3_0:
-    return pf.Optical3_0(1.0)
+    return pf.Optical3_0()
 
 
 @pytest.fixture
 def blank_optical_3_1() -> pf.Optical3_1:
-    return pf.Optical3_1(1.0)
+    return pf.Optical3_1()
 
 
 @pytest.fixture
 def blank_optical_3_2() -> pf.Optical3_2:
-    return pf.Optical3_2(1.0)
+    return pf.Optical3_2()
 
 
 @pytest.fixture
@@ -692,6 +692,7 @@ class TestCore:
             "$P1B": "32",
             "$P1N": LINK_NAME1,
             "$P1R": "9002",
+            "$P1E": "0,0",
         }
         for k, v in expected.items():
             assert k in kws
@@ -1289,9 +1290,9 @@ class TestCore:
         Optical scales must be either '()' (linear) or '(float, float)' (log),
         or None. Temporal scales must be '()' or None.
         """
-        assert core.all_scales == [None, ()]
-        core.all_scales = [(), ()]
         assert core.all_scales == [(), ()]
+        core.all_scales = [None, ()]
+        assert core.all_scales == [None, ()]
         core.all_scales = [(1.0, 4.0), ()]
         assert core.all_scales == [(1.0, 4.0), ()]
         # TODO fixme, setting temporal to None doesn't actually work, it stays as '()'
@@ -1301,7 +1302,7 @@ class TestCore:
             core.all_scales = [(), (1.0, 4.0)]
 
     @parameterize_versions("core", ["3_0", "3_1", "3_2"], ["text2", "dataset2"])
-    def test_meas_all_transforms(
+    def test_meas_all_scales3_0(
         self,
         core: pf.CoreTEXT3_0
         | pf.CoreTEXT3_1
@@ -1317,23 +1318,23 @@ class TestCore:
         corresponds to $PnG) or '(float, float)' (log, floats correspond to $PnE
         values).
         """
-        assert core.all_scale_transforms == [1.0, 1.0]
-        core.all_scale_transforms = [(1.0, 2.0), 1.0]
-        assert core.all_scale_transforms == [(1.0, 2.0), 1.0]
+        assert core.all_scales == [1.0, 1.0]
+        core.all_scales = [(1.0, 2.0), 1.0]
+        assert core.all_scales == [(1.0, 2.0), 1.0]
         with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_scale_transforms = [0.0, 1.0]
+            core.all_scales = [0.0, 1.0]
         with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_scale_transforms = [-1.0, 1.0]
+            core.all_scales = [-1.0, 1.0]
         with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_scale_transforms = [(0.0, 2.0), 1.0]
+            core.all_scales = [(0.0, 2.0), 1.0]
         with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_scale_transforms = [(-1.0, 2.0), 1.0]
+            core.all_scales = [(-1.0, 2.0), 1.0]
         with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_scale_transforms = [(1.0, 0.0), 1.0]
+            core.all_scales = [(1.0, 0.0), 1.0]
         with pytest.raises(pf.InvalidKeywordValueError):
-            core.all_scale_transforms = [(1.0, -1.0), 1.0]
+            core.all_scales = [(1.0, -1.0), 1.0]
         with pytest.RaisesGroup(pf.RelationalError):
-            core.all_scale_transforms = [1.0, 2.0]
+            core.all_scales = [1.0, 2.0]
 
     # each of these should be strings or None
     @all_core2
@@ -2917,6 +2918,7 @@ class TestCore:
         self, core: pf.CoreTEXT2_0 | pf.CoreDataset2_0, target: type
     ) -> None:
         """Test 2.0 to 3.0 conversion."""
+        core.all_scales = [None, ()]
         # should fail if $PnE are missing
         with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_0()
@@ -2942,6 +2944,7 @@ class TestCore:
     ) -> None:
         """Test 2.0 to 3.1 conversion."""
         # should fail if $PnE are missing
+        core.all_scales = [None, ()]
         with pytest.RaisesGroup(pf.PyreflowError):
             core.to_version_3_1()
         # and should still fail when forced since $PnE is missing
@@ -2966,6 +2969,7 @@ class TestCore:
     ) -> None:
         """Test 2.0 to 3.2 conversion."""
         # should fail if $PnE and $CYT are missing
+        core.all_scales = [None, ()]
         with pytest.RaisesGroup(pf.ConversionError, pf.ConversionError):
             core.to_version_3_2()
         # and should still fail if we force since $CYT and $PnE are missing
@@ -3424,55 +3428,6 @@ class TestMeas:
             meas.display = (True, 1.0, -1.0)
         with pytest.raises(TypeError):
             meas.display = 999  # type: ignore
-
-    @parameterize_versions("meas", ["2_0"], ["blank_optical"])
-    def test_scale(self, meas: pf.Optical2_0) -> None:
-        """Test $PnE keyword property (2.0).
-
-        This must be like '()' or (float, float) where the two floats must be
-        positive.
-        """
-        assert meas.scale is None
-        meas.scale = ()
-        assert meas.scale == ()
-        meas.scale = (1.0, 1.0)
-        assert meas.scale == (1.0, 1.0)
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.scale = (0.0, 1.0)
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.scale = (-1.0, 1.0)
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.scale = (1.0, 0.0)
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.scale = (1.0, -1.0)
-        with pytest.raises(TypeError):
-            meas.scale = "the summit"  # type: ignore
-
-    @parameterize_versions("meas", ["3_0", "3_1", "3_2"], ["blank_optical"])
-    def test_transform(
-        self, meas: pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
-    ) -> None:
-        """Test $PnE keyword property (3.0/3.1/3.2).
-
-        This must be like float or (float, float) where floats must be positive.
-
-        """
-        assert meas.transform == 1.0
-        new = (4.0, 0.5)
-        meas.transform = new
-        assert meas.transform == new
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.transform = 0.0
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.transform = -1.0
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.transform = (0.0, 1.0)
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.transform = (-1.0, 1.0)
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.transform = (1.0, 0.0)
-        with pytest.raises(pf.InvalidKeywordValueError):
-            meas.transform = (1.0, -1.0)
 
     @parameterize_versions("meas", ["3_0", "3_1", "3_2"], ["blank_temporal"])
     def test_timestep(
@@ -5196,7 +5151,7 @@ class TestConfig:
                     for s in core.all_scales
                 ]
                 if isinstance(core, pf.CoreTEXT2_0)
-                else core.all_scale_transforms
+                else core.all_scales
             )
             ds = uncore.std_diagnostics.scale
             return (ss, ds)

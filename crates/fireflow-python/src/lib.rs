@@ -65,7 +65,7 @@ use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
 use fireflow_core::text::gating::{self, Region};
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::{Eithers, Element};
+use fireflow_core::text::named_vec::Element;
 use fireflow_core::validated::dataframe::{
     AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries,
 };
@@ -77,7 +77,7 @@ use fireflow_python_proc as fpp;
 
 use fireflow_types::keywords as ftk;
 use fireflow_types::python::{ColumnType, EventDataError, IntegerWidth};
-use type_families::Functor as _;
+use type_families::{BifunctorOnce as _, Functor as _};
 
 use derive_more::{From, Into};
 use polars::prelude as pl;
@@ -513,27 +513,33 @@ fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::MeasOrGateIndex>);
 // Implement __new__ and attributes for PyBivariate3_2
 fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::PrefixedMeasIndex>);
 
-struct PyEithers<K, U, V>(Eithers<K, U, V>);
+type MeasElements<K, U, V, S> = Vec<Element<(sn::Shortname, U), (K, V, S)>>;
 
-impl<'py, K, U, V> FromPyObject<'py> for PyEithers<K, U, V>
+struct PyEithers<K, U, V, S>(MeasElements<K, U, V, S>);
+
+impl<'py, K, U, V, S> FromPyObject<'py> for PyEithers<K, U, V, S>
 where
-    K: FromPyObject<'py>,
-    U: FromPyObject<'py>,
     V: FromPyObject<'py>,
+    U: FromPyObject<'py>,
+    S: FromPyObject<'py>,
+    K: FromPyObject<'py>,
 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Eithers<K, U, V> = ob.extract()?;
-        Ok(Self(xs))
+        let ret = ob.extract()?;
+        Ok(Self(ret))
     }
 }
 
-impl<K, U, V, X, Y> From<PyEithers<K, U, V>> for Eithers<K, X, Y>
+impl<K, U, V, S, Uf, Vf> From<PyEithers<K, U, V, S>> for MeasElements<K, Uf, Vf, S>
 where
-    X: From<U>,
-    Y: From<V>,
+    U: Into<Uf>,
+    V: Into<Vf>,
 {
-    fn from(value: PyEithers<K, U, V>) -> Self {
-        value.0.fmap(Element::values_into)
+    fn from(value: PyEithers<K, U, V, S>) -> Self {
+        value.0.fmap(|x| {
+            x.first_once(|(k, v)| (k, v.into()))
+                .second_once(|(k, v, s)| (k, v.into(), s))
+        })
     }
 }
 

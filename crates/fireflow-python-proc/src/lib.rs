@@ -3995,7 +3995,7 @@ pub fn impl_core_all_pntype(input: TokenStream) -> TokenStream {
         parse_quote!(fireflow_core::text::named_vec::Element<#inner_tmp_rstype, #inner_opt_rstype>);
 
     // TODO exception if time channel in the wrong spot
-    let full_pytype = PyUnion::new2(opt_pytype, tmp_pytype, nce_path);
+    let full_pytype = PyUnion::new2(opt_pytype, tmp_pytype).rstype(nce_path);
 
     let doc = DocString::new_ivar(doc_summary, PyList::new1(full_pytype)).para(doc_middle);
 
@@ -4037,7 +4037,7 @@ pub fn impl_core_all_awh_pnfeature(input: TokenStream) -> TokenStream {
     let nce_path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement<#inner_rstype>);
 
     // TODO exception if time channel is in the wrong spot
-    let full_pytype = PyUnion::new2(inner_pytype, PyTuple::default(), nce_path);
+    let full_pytype = PyUnion::new2(inner_pytype, PyTuple::default()).rstype(nce_path);
 
     let doc = DocString::new_ivar(doc_summary, PyList::new1(full_pytype)).paras([p0, p1]);
 
@@ -4067,7 +4067,7 @@ pub fn impl_core_get_all_other_pnfeature(input: TokenStream) -> TokenStream {
 
     let nce_path = parse_quote!(fireflow_core::text::named_vec::NonCenterElement<#inner_rstype>);
 
-    let full_pytype = PyUnion::new2(inner_pytype, PyTuple::default(), nce_path);
+    let full_pytype = PyUnion::new2(inner_pytype, PyTuple::default()).rstype(nce_path);
 
     let doc = DocString::new_ivar(doc_summary, PyList::new1(full_pytype)).paras([p0, p1]);
 
@@ -4141,7 +4141,9 @@ fn core_all_meas_attr(t: &Ident, kw: MeasKw) -> TokenStream {
 
     // TODO exception if time channel is in the wrong spot
     let full_pytype = if optical_only {
-        PyUnion::new2(inner_pytype, PyTuple::default(), nce_path).into()
+        PyUnion::new2(inner_pytype, PyTuple::default())
+            .rstype(nce_path)
+            .into()
     } else {
         inner_pytype
     };
@@ -5324,7 +5326,7 @@ struct PyUnion<E> {
     #[new(into)]
     head1: PyType<E>,
     tail: Vec<PyType<E>>,
-    rstype: Path,
+    rstype: Option<Path>,
     exc: Option<E>,
 }
 
@@ -5646,7 +5648,10 @@ impl HasRustPath for PyLiteral {
 
 impl<E> HasRustPath for PyUnion<E> {
     fn as_rust_type(&self) -> Type {
-        let x = &self.rstype;
+        let x = &self
+            .rstype
+            .as_ref()
+            .expect("PyUnion does not have a rust type");
         parse_quote!(#x)
     }
 }
@@ -7015,21 +7020,27 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 }
 
-impl<E> PyUnion<E> {
-    fn new1<T, A>(iter: T, rstype: Path) -> Self
-    where
-        T: IntoIterator<Item = A>,
-        A: Into<PyType<E>>,
-    {
+impl<T, E> FromIterator<T> for PyUnion<E>
+where
+    T: Into<PyType<E>>,
+{
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut it = iter.into_iter();
         let x0 = it.next().expect("Union cannot be empty");
         let x1 = it.next().expect("Union must have at least 2 types");
         let xs = it.map(Into::into).collect();
-        Self::new(x0, x1, xs, rstype, None)
+        Self::new(x0, x1, xs, None, None)
+    }
+}
+
+impl<E> PyUnion<E> {
+    fn new2(x: impl Into<PyType<E>>, y: impl Into<PyType<E>>) -> Self {
+        Self::new(x, y, vec![], None, None)
     }
 
-    fn new2(x: impl Into<PyType<E>>, y: impl Into<PyType<E>>, rstype: Path) -> Self {
-        Self::new(x, y, vec![], rstype, None)
+    fn rstype(mut self, rstype: Path) -> Self {
+        self.rstype = Some(rstype);
+        self
     }
 
     fn exc(self, exc: impl Into<E>) -> Self {
@@ -7062,20 +7073,17 @@ impl<E: From<PyException>> PyUnion<E> {
         Self::new2(
             PyClass::new_optical(version),
             PyClass::new_temporal(version),
-            element_path,
         )
+        .rstype(element_path)
     }
 
     fn new_scale(is_gate: bool) -> Self {
         let name = if is_gate { "GateScale" } else { "Scale" };
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
-        Self::new2(
-            PyTuple::default(),
-            PyTuple::new2(vec![RsFloat::F32; 2]),
-            keyword_path(name),
-        )
-        .exc(exc)
+        Self::new2(PyTuple::default(), PyTuple::new2(vec![RsFloat::F32; 2]))
+            .rstype(keyword_path(name))
+            .exc(exc)
     }
 
     fn new_transform() -> Self {
@@ -7083,7 +7091,9 @@ impl<E: From<PyException>> PyUnion<E> {
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
         // TODO the linear gain should also be positive
-        Self::new2(RsFloat::F32, PyTuple::new2(vec![RsFloat::F32; 2]), path).exc(exc)
+        Self::new2(RsFloat::F32, PyTuple::new2(vec![RsFloat::F32; 2]))
+            .rstype(path)
+            .exc(exc)
     }
 
     fn new_byteord(nbytes: Option<usize>) -> Self {
@@ -7104,36 +7114,40 @@ impl<E: From<PyException>> PyUnion<E> {
             (p, d)
         };
         let exc = PyException::new_invalid_keyword().desc(exc_desc);
-        Self::new2(PyLiteral::new_endian(), PyList::new1(RsInt::U32), path).exc(exc)
+        Self::new2(PyLiteral::new_endian(), PyList::new1(RsInt::U32))
+            .rstype(path)
+            .exc(exc)
     }
 
     fn new_anycoretext() -> Self {
-        Self::new1(
-            ALL_VERSIONS.into_iter().map(PyClass::new_coretext),
-            parse_quote!(PyAnyCoreTEXT),
-        )
+        ALL_VERSIONS
+            .into_iter()
+            .map(PyClass::new_coretext)
+            .collect::<Self>()
+            .rstype(parse_quote!(PyAnyCoreTEXT))
     }
 
     fn new_anycoredataset() -> Self {
-        Self::new1(
-            ALL_VERSIONS.into_iter().map(PyClass::new_coredataset),
-            parse_quote!(PyAnyCoreDataset),
-        )
+        ALL_VERSIONS
+            .into_iter()
+            .map(PyClass::new_coredataset)
+            .collect::<Self>()
+            .rstype(parse_quote!(PyAnyCoreDataset))
     }
 
     fn new_ne_string_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::NEStringOrBytes);
-        Self::new2(PyStr::default(), PyBytes::default(), path)
+        Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
     }
 
     fn new_string_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
-        Self::new2(PyStr::default(), PyBytes::default(), path)
+        Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
     }
 
     fn new_key_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::KeyOrBytes);
-        Self::new2(PyStr::default(), PyBytes::default(), path)
+        Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
     }
 
     fn new_mixed_range() -> Self {
@@ -7148,8 +7162,8 @@ impl<E: From<PyException>> PyUnion<E> {
                 COL_TYPE_F64.as_str(),
             ]))
             .add(RsFloat::F64),
-            parse_quote!(#path),
         )
+        .rstype(parse_quote!(#path))
     }
 
     fn new_any_range(version: Version) -> Self {
@@ -7162,7 +7176,7 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_full_range() -> Self {
         let path = parse_quote!(fireflow_core::data::FullRange);
-        Self::new2(RsInt::U64, RsFloat::F64, path)
+        Self::new2(RsInt::U64, RsFloat::F64).rstype(path)
     }
 
     fn new_range_or_bitmask_range() -> Self {
@@ -7171,14 +7185,14 @@ impl<E: From<PyException>> PyUnion<E> {
             .add(RsInt::U64)
             .into();
         let rng = PyType::from(Self::new_full_range());
-        Self::new1([ints, rng], parse_quote!(#path))
+        Self::from_iter([ints, rng]).rstype(parse_quote!(#path))
     }
 
     fn new_range_or_mixed_range() -> Self {
         let path = quote!(fireflow_core::data::MaybeTypedMixedRange);
         let mixed = PyType::from(Self::new_mixed_range());
         let rng = PyType::from(Self::new_full_range());
-        Self::new1([mixed, rng], parse_quote!(#path))
+        Self::from_iter([mixed, rng]).rstype(parse_quote!(#path))
     }
 }
 
@@ -7288,7 +7302,7 @@ impl<E> PyType<E> {
                 (format!("\"{}\"", x.head), quote!(#rt::default()))
             }
             Self::Union(x) => {
-                let rt = path_strip_args(x.rstype.clone());
+                let rt = x.rstype.as_ref().map(|p| path_strip_args(p.clone()));
                 let (pt, _) = x.head0.doc_default();
                 (pt, quote!(#rt::default()))
             }
@@ -7505,26 +7519,29 @@ impl DocArgRWIvar {
 
         let data_schema_pytype = match version {
             Version::FCS3_2 => {
-                let ys = ascii_schema
+                let u: PyUnion<_> = ascii_schema
                     .into_iter()
                     .chain(non_mixed_schema)
                     .chain(["MixedDataSchema"])
-                    .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyDataSchema3_2))
+                    .map(PyClass::new1)
+                    .collect();
+                u.rstype(parse_quote!(PyDataSchema3_2))
             }
             Version::FCS3_1 => {
-                let ys = ascii_schema
+                let u: PyUnion<_> = ascii_schema
                     .into_iter()
                     .chain(non_mixed_schema)
-                    .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyNonMixedDataSchema))
+                    .map(PyClass::new1)
+                    .collect();
+                u.rstype(parse_quote!(PyNonMixedDataSchema))
             }
             _ => {
-                let ys = ascii_schema
+                let u: PyUnion<_> = ascii_schema
                     .into_iter()
                     .chain(ordered_schema)
-                    .map(PyClass::new1);
-                PyUnion::new1(ys, parse_quote!(PyOrderedDataSchema))
+                    .map(PyClass::new1)
+                    .collect();
+                u.rstype(parse_quote!(PyOrderedDataSchema))
             }
         };
         let data_schema_desc = if version == Version::FCS3_2 {
@@ -7737,7 +7754,7 @@ impl DocArgRWIvar {
         let map_rstype = parse_quote!(PyRegionMapping<#reg_rstype>);
         let reg_pytype = PyDict::new(
             RsInt::NonZeroUsize,
-            PyUnion::new2(ur_pytype, bv_pytype, parse_quote!(#reg_rstype)),
+            PyUnion::new2(ur_pytype, bv_pytype).rstype(parse_quote!(#reg_rstype)),
             Some(map_rstype),
             None,
         )

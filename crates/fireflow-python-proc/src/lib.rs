@@ -7004,7 +7004,7 @@ impl<E: From<PyException>> PyTuple<E> {
         let meas_argtype =
             parse_quote!(PyEithers<#name_rstype, #meas_tmp_pyname, #meas_opt_pyname>);
         Self::new1(name_pytype)
-            .add(PyUnion::new_measurement(version))
+            .add(PyUnion::new_measurement_nopath(version))
             .rstype(meas_argtype)
     }
 
@@ -7068,13 +7068,16 @@ impl<E> PyUnion<E> {
 }
 
 impl<E: From<PyException>> PyUnion<E> {
-    fn new_measurement(version: Version) -> Self {
-        let element_path = element_path(version);
+    fn new_measurement_nopath(version: Version) -> Self {
         Self::new2(
             PyClass::new_optical(version),
             PyClass::new_temporal(version),
         )
-        .rstype(element_path)
+    }
+
+    fn new_measurement(version: Version) -> Self {
+        let element_path = element_path(version);
+        Self::new_measurement_nopath(version).rstype(element_path)
     }
 
     fn new_scale(is_gate: bool) -> Self {
@@ -7754,7 +7757,7 @@ impl DocArgRWIvar {
         let map_rstype = parse_quote!(PyRegionMapping<#reg_rstype>);
         let reg_pytype = PyDict::new(
             RsInt::NonZeroUsize,
-            PyUnion::new2(ur_pytype, bv_pytype).rstype(parse_quote!(#reg_rstype)),
+            PyUnion::new2(ur_pytype, bv_pytype),
             Some(map_rstype),
             None,
         )

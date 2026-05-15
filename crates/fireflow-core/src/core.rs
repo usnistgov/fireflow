@@ -42,8 +42,8 @@ use crate::meas::{
     LookupTemporalWarning, MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError,
     NamedTemporalOrOpticalWithScale, NamedTemporalsAndOpticals, NewMeasError, Optical,
     OpticalFromTemporal, OpticalTransform3_0, PushOpticalError, PushTemporalError,
-    ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaledOptical,
-    SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
+    ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaledOptical, SetScalesError,
+    SetScalesSummary, SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
     SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
     TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
@@ -1200,22 +1200,6 @@ def_summary!(
     "link errors when setting measurements"
 );
 
-/// Error when setting $PnE for all measurements (3.0+)
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetScalesError {
-    Layout(MeasLayoutMismatchError),
-    Temporal(NonLinearTemporalScaleError),
-}
-
-/// Error when setting $PnE/PnG for all measurements (3.0+)
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum SetTransformsError {
-    Layout(MeasLayoutMismatchError),
-    Temporal(NonLinearTemporalTransformError),
-}
-
 /// Error when setting measurements and DATA/dataframe simultaneously
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1267,20 +1251,6 @@ pub enum RemoveMeasByIndexError {
     Link(ExistingLinkErrors),
     Index(ElementIndexError),
 }
-
-/// Error when attempting to set temporal $PnE to log (2.0)
-#[derive(Debug, Error)]
-#[error("tried to set temporal $PnE to nonlinear scale")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct NonLinearTemporalScaleError;
-
-/// Error when attempting to set temporal $PnE/$PnG to non-unitary transform (3.0+)
-#[derive(Debug, Error)]
-#[error("tried to set temporal $PnE/$PnG to nonlinear transform")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct NonLinearTemporalTransformError;
 
 /// Error when reading standardized TEXT from keyword pairs
 #[derive(From, Display, Debug, Error)]
@@ -1667,16 +1637,6 @@ pub struct ConvertSummary {
     from: Version,
     to: Version,
 }
-
-def_summary!(
-    pub SetScalesSummary,
-    "could not set scales for optical measurements"
-);
-
-def_summary!(
-    pub SetTransformsSummary,
-    "could not set scale transforms for optical measurements"
-);
 
 def_summary!(pub PushTemporalSummary, "could not push temporal measurement");
 
@@ -4733,83 +4693,15 @@ where
         self.set_optical(ys)
     }
 
-    /// Set $PnE (2.0)
+    /// Set scale keywords
     pub fn set_scales(
         &mut self,
-        scales: Vec<Option<Scale>>,
+        scales: Vec<V::Xform>,
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
-        // V::Optical: HasScale<Option<Scale>>,
         L: LayoutDatatype,
     {
-        let center_scale_not_linear = || {
-            self.meas
-                .measurements()
-                .center_index()
-                .map(usize::from)
-                .and_then(|i| scales.get(i).map(Option::as_ref))
-                .flatten()
-                .is_some_and(|&s| s != Scale::Linear)
-                .then_some(NonLinearTemporalScaleError.into())
-        };
-
-        let l = &self.meas.layout();
-        let xforms = scales
-            .iter()
-            .copied()
-            .map(|s| s.map(OpticalTransform3_0::from).unwrap_or_default());
-        l.check_transforms_and_len(xforms)
-            .map_err(SetScalesError::from)
-            .into_nowarn()
-            .eval_deferred_error(|()| center_scale_not_linear())
-            .when_ok(|| {
-                debug_assert!(
-                    self.meas.measurements().len() == scales.len(),
-                    "Input scales vector should be same length as existing measurements"
-                );
-                self.meas
-                    .alter_values_zip(scales, |_, _| (), |m, x| *m.value.scale_mut() = x)
-                    .unwrap();
-            })
-            .group()
-            .resolve_nowarn()
-    }
-
-    /// Set $PnE/$PnG (3.0+)
-    pub fn set_transforms(
-        &mut self,
-        xforms: Vec<OpticalTransform3_0>,
-    ) -> GroupResult<(), SetTransformsError, SetTransformsSummary>
-    where
-        // V::Optical: HasScale<OpticalTransform3_0>,
-        L: LayoutDatatype + HasWidth,
-    {
-        let center_xform_not_noop = || {
-            self.meas
-                .measurements()
-                .center_index()
-                .map(usize::from)
-                .and_then(|i| xforms.get(i))
-                .is_some_and(|s| !OpticalTransform3_0::is_noop(s))
-                .then_some(NonLinearTemporalTransformError.into())
-        };
-
-        let l = &self.meas.layout();
-        l.check_transforms_and_len(xforms.iter().copied())
-            .map_err(SetTransformsError::from)
-            .into_nowarn()
-            .eval_deferred_error(|()| center_xform_not_noop())
-            .when_ok(|| {
-                assert!(
-                    self.meas.measurements().len() == xforms.len(),
-                    "Input transforms vector should be same length as existing measurements"
-                );
-                self.meas
-                    .alter_values_zip(xforms, |_, _| (), |m, x| *m.value.scale_mut() = x)
-                    .unwrap();
-            })
-            .group()
-            .resolve_nowarn()
+        self.meas.set_scales(scales).group().resolve_nowarn()
     }
 
     /// Set gating keywords (3.0/3.1)

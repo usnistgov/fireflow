@@ -19,7 +19,7 @@ use crate::logging::{
     ErrorsResult, LogResult, OptionExt as _, ResultExt as _, SwitchableErrorResult,
     WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
 };
-use crate::macros::assert_eq_len;
+use crate::macros::{assert_eq_len, def_summary};
 use crate::segment::AnyDataSegment;
 use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
@@ -932,6 +932,26 @@ pub(crate) type VersionedCoreLayout<L, V> = CoreMeasurements<
     <V as VersionLayoutSet>::Name,
     V,
 >;
+
+def_summary!(
+    pub SetScalesSummary,
+    "could not set scales for optical measurements"
+);
+
+/// Error when setting $PnE for all measurements (3.0+)
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetScalesError {
+    Layout(MeasLayoutMismatchError),
+    Temporal(NonIdentityTemporalScaleError),
+}
+
+/// Error when attempting to set temporal scale to something other than identity
+#[derive(Debug, Error)]
+#[error("tried to set temporal scale to non-identity")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct NonIdentityTemporalScaleError;
 
 type VersionedMeasurements<V> =
     NamedVec<<V as VersionLayoutSet>::Name, VTemporal<V>, VScaledOptical<V>>;
@@ -2505,84 +2525,6 @@ impl ConvertFromScale<OpticalTransform3_0> for OpticalTransform2_0 {
     }
 }
 
-// // Implement mapping from metadata type to generalized scale transform
-// //
-// // Used for checking transforms against the datatype for a measurement.
-
-// pub trait AsScaleOrTransform {
-//     type S;
-//     fn as_scale_or_transform(&self) -> Self::S;
-// }
-
-// impl AsScaleOrTransform for InnerOptical2_0 {
-//     type S = Scale;
-//     fn as_scale_or_transform(&self) -> Self::S {
-//         self.scale.unwrap_or(Scale::Linear)
-//     }
-// }
-
-// impl AsScaleOrTransform for InnerOptical3_0 {
-//     type S = OpticalTransform3_0;
-//     fn as_scale_or_transform(&self) -> Self::S {
-//         self.scale
-//     }
-// }
-
-// impl AsScaleOrTransform for InnerOptical3_1 {
-//     type S = OpticalTransform3_0;
-//     fn as_scale_or_transform(&self) -> Self::S {
-//         self.scale
-//     }
-// }
-
-// impl AsScaleOrTransform for InnerOptical3_2 {
-//     type S = OpticalTransform3_0;
-//     fn as_scale_or_transform(&self) -> Self::S {
-//         self.scale
-//     }
-// }
-
-// Implement mutable access for $PnE (and/or $PnG for 3.0+)
-//
-// We use AsMut to mutate deeply nested structure in Core*, but this only works
-// for things that can be mutated independent of other values in Core*. Since
-// $PnE and $PnG relate to the datatype of the column in question, these need to
-// be kept in sync and therefore can't use AsMut. This trait is basically AsMut
-// by a different name which allows it to be independently implemented in
-// methods with the proper checks.
-//
-// It can also be used to mutate a free-floating optical struct (ie not in
-// *Core) where these relationships don't exist, which allows the inner fields
-// of the Optical types to be private.
-
-// pub trait HasScale<S> {
-//     fn scale_mut(&mut self) -> &mut S;
-// }
-
-// impl HasScale<Option<Scale>> for InnerOptical2_0 {
-//     fn scale_mut(&mut self) -> &mut Option<Scale> {
-//         &mut self.scale
-//     }
-// }
-
-// impl HasScale<OpticalTransform3_0> for InnerOptical3_0 {
-//     fn scale_mut(&mut self) -> &mut OpticalTransform3_0 {
-//         &mut self.scale
-//     }
-// }
-
-// impl HasScale<OpticalTransform3_0> for InnerOptical3_1 {
-//     fn scale_mut(&mut self) -> &mut OpticalTransform3_0 {
-//         &mut self.scale
-//     }
-// }
-
-// impl HasScale<OpticalTransform3_0> for InnerOptical3_2 {
-//     fn scale_mut(&mut self) -> &mut OpticalTransform3_0 {
-//         &mut self.scale
-//     }
-// }
-
 // Implement checks for scale transform against $DATATYPE
 //
 // Log scale transforms can only be used when $DATATYPE=I
@@ -2616,6 +2558,8 @@ pub trait CheckedScaleTransform {
     }
 
     fn as_log(&self) -> Option<LogScale>;
+
+    fn is_identity(&self) -> bool;
 }
 
 impl CheckedScaleTransform for OpticalTransform2_0 {
@@ -2628,6 +2572,11 @@ impl CheckedScaleTransform for OpticalTransform2_0 {
             None
         }
     }
+
+    fn is_identity(&self) -> bool {
+        // TODO we assume blank == linear, is this right?
+        self.0.is_none_or(|s| s == Scale::Linear)
+    }
 }
 
 impl CheckedScaleTransform for OpticalTransform3_0 {
@@ -2639,6 +2588,10 @@ impl CheckedScaleTransform for OpticalTransform3_0 {
         } else {
             None
         }
+    }
+
+    fn is_identity(&self) -> bool {
+        *self == Self::default()
     }
 }
 
@@ -3190,6 +3143,36 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
             .map(|(m, s)| m.bimap_once(|t| t, |o| ScaledOptical::new(s, o)))
             .collect()
     }
+
+    pub fn set_scales(&mut self, scales: Vec<X>) -> ErrorsResult<(), (), SetScalesError>
+    where
+        X: Copy + CheckedScaleTransform,
+        L: LayoutDatatype,
+    {
+        let center_scale_not_linear = || {
+            self.meta
+                .center_index()
+                .map(|i| {
+                    assert_eq_len!(scales.len(), self.meta.len(), "scales", "measurements");
+                    scales[usize::from(i)]
+                })
+                .is_some_and(|s| !s.is_identity())
+                .then_some(NonIdentityTemporalScaleError.into())
+        };
+
+        let l = &self.data;
+        let xforms = scales.iter().copied();
+        l.check_transforms_and_len(xforms)
+            .map_err(SetScalesError::from)
+            .into_nowarn()
+            .eval_deferred_error(|()| center_scale_not_linear())
+            .when_ok(|| {
+                assert_eq_len!(scales.len(), self.meta.len(), "scales", "measurements");
+                self.meta
+                    .alter_values_zip(scales, |_, _| (), |m, x| m.value.xform = x)
+                    .unwrap();
+            })
+    }
 }
 
 impl<L, V> VersionedCoreLayout<L, V>
@@ -3695,8 +3678,6 @@ where
         measurements: VTemporalsAndOpticals<V>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype,
     {
         // This will ensure the new measurements have the same length as the old
@@ -3712,8 +3693,6 @@ where
         f: F,
     ) -> Result<(), E>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: LayoutDatatype + HasWidth,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
@@ -3734,8 +3713,6 @@ where
         f: F,
     ) -> Result<(), E>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: LayoutDatatype + HasWidth + LayoutNormalize,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
@@ -3758,8 +3735,6 @@ where
         layout: L,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: HasWidth + LayoutDatatype + LayoutNormalize,
     {
         // TODO check length match b/t meas and layout
@@ -3790,8 +3765,6 @@ where
 
     fn validate(&self, msg: &'static str)
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         L: LayoutDatatype,
     {
         assert!(
@@ -3814,8 +3787,6 @@ where
     ) -> WarningsAndErrorsResult<Self, (), MissingTimeError, LookupMeasError>
     where
         V::DataSchema: HasWidth,
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         // this should be true since both depend on $PAR
         assert_eq_len!(
@@ -3859,8 +3830,6 @@ where
     ) -> ErrorsResult<Self, (), NewMeasError>
     where
         V::DataSchema: HasWidth,
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
     {
         MeasMeta::try_new(measurements)
             .map_err(NewMeasError::from)
@@ -3883,11 +3852,7 @@ where
     pub(crate) fn set_data_schema(
         &mut self,
         data_schema: V::DataSchema,
-    ) -> Result<(), MeasLayoutMismatchError>
-where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-    {
+    ) -> Result<(), MeasLayoutMismatchError> {
         // Ensure that new schema has same length and compatible datatypes
         // compared to existing measurements.
         data_schema.check_measmeta_xforms_and_len(&self.meta)?;
@@ -3973,8 +3938,6 @@ where
         data_schema: &V::DataSchema,
     ) -> Result<(), DatasetSetDataSchemaError>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -3994,8 +3957,6 @@ where
         data_schema: &V::DataSchema,
     ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
@@ -4024,8 +3985,6 @@ where
         f: F,
     ) -> Result<(), E>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
@@ -4053,8 +4012,6 @@ where
         f: F,
     ) -> Result<(), E>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError> + From<DataSchemaToDataFrameError>,
@@ -4091,8 +4048,6 @@ where
         df: PrimitiveDataFrame,
     ) -> Result<(), SetUnnamdMeasurementsAndDataError>
     where
-        // V::Optical: AsScaleOrTransform,
-        // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
         V::DataFrame: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         // This ensures new dataframe has same width as existing schema.
@@ -4218,10 +4173,6 @@ impl OpticalTransform3_0 {
         } else {
             None
         }
-    }
-
-    pub(crate) fn is_noop(&self) -> bool {
-        *self == Self::default()
     }
 }
 

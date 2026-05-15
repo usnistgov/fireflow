@@ -112,8 +112,8 @@ use crate::config::{
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
 use crate::core::{
-    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, ScaleTransform, TemporalOrOptical,
-    VersionSet,
+    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, Optical, ScaleTransform,
+    TemporalOrOptical, VersionSet,
 };
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -2358,7 +2358,7 @@ pub trait LayoutDatatype: Sized {
             .map(|m| {
                 m.as_ref().both(
                     |_| <V::Optical as AsScaleOrTransform>::S::default(),
-                    |r| r.as_scale_or_transform(),
+                    Optical::as_scale_or_transform,
                 )
             })
             .collect();

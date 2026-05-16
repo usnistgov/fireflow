@@ -2824,22 +2824,8 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let name_arg = by_name_doc.fun_args();
     let index_arg = by_index_doc.fun_args();
 
-    let name_ident = by_name_doc.idents();
-    let index_ident = by_index_doc.idents();
-
     let name_ret = by_name_doc.ret_path();
     let index_ret = by_index_doc.ret_path();
-
-    let scale2_path = quote!(fireflow_core::meas::OpticalScale2_0::none());
-    let e = quote!(fireflow_core::text::named_vec::Element);
-
-    let map_meas2 = quote! {
-        both(|t| (#e::Center(t.into()), #scale2_path), |(o, s)| (#e::NonCenter(o.into()), s))
-    };
-
-    let map_meas3 = quote! {
-        both(|t| (#e::Center(t.into()), None), |(o, s)| (#e::NonCenter(o.into()), Some(s)))
-    };
 
     // split the range into FullRange (either float or int) and its type if it
     // exists. This will minimize "surprises" when data schemas are
@@ -2850,130 +2836,58 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     // desired (which will be most of the type probably).
     //
     // This only applies to 3.1 and 3.2
-    let name_mapper = if is_dataset {
+    let index_body = if is_dataset {
         match version {
-            Version::FCS2_0 => quote! {
-                |(i, m, c, r)| {
-                    let (mm, s) = m.#map_meas2;
-                    (i, mm, c.into(), r, s)
-                }
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (n, e, c, r, s) = self.0.py_remove_measurement_by_index(index)?;
+                Ok((n, e.bimap_into_once(), c.into(), r, s))
             },
-            Version::FCS3_0 => quote! {
-                |(i, m, c, r)| {
-                    let (mm, s) = m.#map_meas3;
-                    (i, mm, c.into(), r, s)
-                }
-            },
-            Version::FCS3_1 => quote! {
-                |(i, m, c, r)| {
-                    let (rr, t) = split_bitmask_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (i, mm, c.into(), rr, s, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(i, m, c, r)| {
-                    let (rr, t) = split_mixed_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (i, mm, c.into(), rr, s, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (n, e, c, r, s, t) = self.0.py_remove_measurement_by_index_typed(index)?;
+                Ok((n, e.bimap_into_once(), c.into(), r, s, t))
             },
         }
     } else {
         match version {
-            Version::FCS2_0 => quote! {
-                |(i, m, r)| {
-                    let (mm, s) = m.#map_meas2;
-                    (i, mm, r, s)
-                }
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (n, e, r, s) = self.0.py_remove_measurement_by_index(index)?;
+                Ok((n, e.bimap_into_once(), r, s))
             },
-            Version::FCS3_0 => quote! {
-                |(i, m, r)| {
-                    let (mm, s) = m.#map_meas3;
-                    (i, mm, r, s)
-                }
-            },
-            Version::FCS3_1 => quote! {
-                |(i, m, r)| {
-                    let (rr, t) = split_bitmask_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (i, mm, rr, s, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(i, m, r)| {
-                    let (rr, t) = split_mixed_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (i, mm, rr, s, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (n, e, r, s, t) = self.0.py_remove_measurement_by_index_typed(index)?;
+                Ok((n, e.bimap_into_once(), r, s, t))
             },
         }
     };
 
-    let index_mapper = if is_dataset {
+    let name_body = if is_dataset {
         match version {
-            Version::FCS2_0 => quote! {
-                |(p, c, r)| {
-                    let (n, m) = p.unzip();
-                    let (mm, s) = m.#map_meas2;
-                    (n, mm, c.into(), r, s)
-                }
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (i, e, c, r, s) = self.0.py_remove_measurement_by_name(&name)?;
+                Ok((i, e.bimap_into_once(), c.into(), r, s))
             },
-            Version::FCS3_0 => quote! {
-                |(p, c, r)| {
-                    let (n, m) = p.unzip();
-                    let (mm, s) = m.#map_meas3;
-                    (n, mm, c.into(), r, s)
-                }
-            },
-            Version::FCS3_1 => quote! {
-                |(p, c, r)| {
-                    let (n, m) = p.unzip();
-                    let (rr, t) = split_bitmask_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (n, mm, c.into(), rr, s, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(p, c, r)| {
-                    let (n, m) = p.unzip();
-                    let (rr, t) = split_mixed_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (n, mm, c.into(), rr, s, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (i, e, c, r, s, t) = self.0.py_remove_measurement_by_name_typed(&name)?;
+                Ok((i, e.bimap_into_once(), c.into(), r, s, t))
             },
         }
     } else {
         match version {
-            Version::FCS2_0 => quote! {
-                |(p, r)| {
-                    let (n, m) = p.unzip();
-                    let (mm, s) = m.#map_meas2;
-                    (n, mm, r, s)
-                }
+            Version::FCS2_0 | Version::FCS3_0 => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (i, e, r, s) = self.0.py_remove_measurement_by_name(&name)?;
+                Ok((i, e.bimap_into_once(), r, s))
             },
-            Version::FCS3_0 => quote! {
-                |(p, r)| {
-                    let (n, m) = p.unzip();
-                    let (mm, s) = m.#map_meas3;
-                    (n, mm, r, s)
-                }
-            },
-            Version::FCS3_1 => quote! {
-                |(p, r)| {
-                    let (n, m) = p.unzip();
-                    let (rr, t) = split_bitmask_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (n, mm, rr, s, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(p, r)| {
-                    let (n, m) = p.unzip();
-                    let (rr, t) = split_mixed_range(r);
-                    let (mm, s) = m.#map_meas3;
-                    (n, mm, rr, s, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (i, e, r, s, t) = self.0.py_remove_measurement_by_name_typed(&name)?;
+                Ok((i, e.bimap_into_once(), r, s, t))
             },
         }
     };
@@ -2986,7 +2900,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #name_arg
             ) -> #name_ret {
-                Ok(self.0.remove_measurement_by_name(&#name_ident).map(#name_mapper)?)
+                #name_body
             }
 
             #by_index_doc
@@ -2994,7 +2908,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_arg
             ) -> #index_ret {
-                Ok(self.0.remove_measurement_by_index(#index_ident).map(#index_mapper)?)
+                #index_body
             }
         }
     }

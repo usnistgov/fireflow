@@ -980,7 +980,9 @@ type VOptical<V> = Optical<<V as VersionMeasSet>::Optical>;
 type VScaledOptical<V> =
     ScaledOptical<<V as VersionMeasSet>::OpticalScale, <V as VersionMeasSet>::Optical>;
 
-type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;
+pub(crate) type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;
+
+pub(crate) type TemporalOrOpticalWithScale<T, O, S> = Element<Temporal<T>, (Optical<O>, S)>;
 
 type TemporalsAndOpticals<T, O> = Vec<TemporalOrOptical<T, O>>;
 

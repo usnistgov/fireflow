@@ -9,6 +9,8 @@ use crate::config::{
     WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
+#[cfg(feature = "python")]
+use crate::data::FullRange;
 use crate::data::{
     ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
     DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0, DataSchema3_1,
@@ -32,6 +34,8 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
+#[cfg(feature = "python")]
+use crate::meas::VTemporalOrOptical;
 use crate::meas::{
     ConvertFromOptical, ConvertFromScale, ConvertFromShortname, ConvertFromTemporal,
     CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError,
@@ -154,9 +158,11 @@ use {
 
 #[cfg(feature = "python")]
 use {
+    crate::text::named_vec::EitherPair,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
     pyo3::prelude::*,
+    python::{PyRangeType, PySplitScale},
 };
 
 /// A standardized representation of one FCS dataset.
@@ -5709,6 +5715,59 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         self.remove_measurement_by_name_inner(n)
     }
 
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_name<R>(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<
+        (
+            MeasIndex,
+            VTemporalOrOptical<V>,
+            R,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+        ),
+        RemoveMeasByNameError,
+    >
+    where
+        V::DataSchema: LayoutRemove<R>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(i, m, r)| {
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            (i, mm, r, s)
+        };
+        self.remove_measurement_by_name(n).map(go)
+    }
+
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_name_typed<R>(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<
+        (
+            MeasIndex,
+            VTemporalOrOptical<V>,
+            FullRange,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+            Option<R>,
+        ),
+        RemoveMeasByNameError,
+    >
+    where
+        R: PyRangeType,
+        V::DataSchema: LayoutRemove<R::Range>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(i, m, r)| {
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            let (rr, t) = R::split_range(r);
+            (i, mm, rr, s, t)
+        };
+        self.remove_measurement_by_name(n).map(go)
+    }
+
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
@@ -5720,6 +5779,63 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::DataSchema: LayoutRemove<R>,
     {
         self.remove_measurement_by_index_inner(index)
+    }
+
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_index<R>(
+        &mut self,
+        index: MeasIndex,
+    ) -> Result<
+        (
+            V::Name,
+            VTemporalOrOptical<V>,
+            R,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+        ),
+        RemoveMeasByIndexError,
+    >
+    where
+        V::Name: MightHave<Shortname>,
+        V::DataSchema: LayoutRemove<R>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(p, r): (EitherPair<_, _, _>, _)| {
+            let (n, m) = p.unzip();
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            (n, mm, r, s)
+        };
+        self.remove_measurement_by_index(index).map(go)
+    }
+
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_index_typed<R>(
+        &mut self,
+        index: MeasIndex,
+    ) -> Result<
+        (
+            V::Name,
+            VTemporalOrOptical<V>,
+            FullRange,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+            Option<R>,
+        ),
+        RemoveMeasByIndexError,
+    >
+    where
+        V::Name: MightHave<Shortname>,
+        R: PyRangeType,
+        V::DataSchema: LayoutRemove<R::Range>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(p, r): (EitherPair<_, _, _>, _)| {
+            let (n, m) = p.unzip();
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            let (rr, t) = R::split_range(r);
+            (n, mm, rr, s, t)
+        };
+        self.remove_measurement_by_index(index).map(go)
     }
 
     /// Remove measurements
@@ -6114,6 +6230,61 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         Ok((index, meas, col, rng))
     }
 
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_name<R>(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<
+        (
+            MeasIndex,
+            VTemporalOrOptical<V>,
+            AnyPrimitiveSeries,
+            R,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+        ),
+        RemoveMeasByNameError,
+    >
+    where
+        V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(i, m, c, r)| {
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            (i, mm, c, r, s)
+        };
+        self.remove_measurement_by_name(n).map(go)
+    }
+
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_name_typed<R>(
+        &mut self,
+        n: &Shortname,
+    ) -> Result<
+        (
+            MeasIndex,
+            VTemporalOrOptical<V>,
+            AnyPrimitiveSeries,
+            FullRange,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+            Option<R>,
+        ),
+        RemoveMeasByNameError,
+    >
+    where
+        R: PyRangeType,
+        V::DataFrame: LayoutRemove<RangeAndSeries<R::Range>>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(i, m, c, r)| {
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            let (rr, t) = R::split_range(r);
+            (i, mm, c, rr, s, t)
+        };
+        self.remove_measurement_by_name(n).map(go)
+    }
+
     /// Remove a measurement at a given position
     ///
     /// Return removed measurement and its name if found.
@@ -6126,6 +6297,65 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     {
         let (meas, (rng, col)) = self.remove_measurement_by_index_inner(index)?;
         Ok((meas, col, rng))
+    }
+
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_index<R>(
+        &mut self,
+        index: MeasIndex,
+    ) -> Result<
+        (
+            V::Name,
+            VTemporalOrOptical<V>,
+            AnyPrimitiveSeries,
+            R,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+        ),
+        RemoveMeasByIndexError,
+    >
+    where
+        V::Name: MightHave<Shortname>,
+        V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(p, c, r): (EitherPair<_, _, _>, _, _)| {
+            let (n, m) = p.unzip();
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            (n, mm, c, r, s)
+        };
+        self.remove_measurement_by_index(index).map(go)
+    }
+
+    #[allow(clippy::type_complexity)]
+    #[cfg(feature = "python")]
+    pub fn py_remove_measurement_by_index_typed<R>(
+        &mut self,
+        index: MeasIndex,
+    ) -> Result<
+        (
+            V::Name,
+            VTemporalOrOptical<V>,
+            AnyPrimitiveSeries,
+            FullRange,
+            <V::OpticalScale as PySplitScale>::MaybeScale,
+            Option<R>,
+        ),
+        RemoveMeasByIndexError,
+    >
+    where
+        V::Name: MightHave<Shortname>,
+        R: PyRangeType,
+        V::DataFrame: LayoutRemove<RangeAndSeries<R::Range>>,
+        V::OpticalScale: PySplitScale,
+    {
+        let go = |(p, c, r): (EitherPair<_, _, _>, _, _)| {
+            let (n, m) = p.unzip();
+            let (mm, s) = V::OpticalScale::split_scale(m);
+            let (rr, t) = R::split_range(r);
+            (n, mm, c, rr, s, t)
+        };
+        self.remove_measurement_by_index(index).map(go)
     }
 
     /// Convert this struct into [`CoreTEXT`].
@@ -6563,6 +6793,111 @@ mod serialize {
                 }
             }
             state.end()
+        }
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use fireflow_types::python::{ColumnType, IntegerWidth};
+
+    use crate::data::{
+        AnyDatatype, AnyUint, FullRange, MaybeTypedMixedRange, MaybeTypedRange,
+        MaybeTypedVariableBitmask,
+    };
+    use crate::meas::{
+        OpticalScale2_0, OpticalScale3_0, TemporalOrOptical, TemporalOrOpticalWithScale,
+    };
+    use crate::text::named_vec::Element;
+
+    pub trait PySplitScale: Sized {
+        type MaybeScale;
+
+        fn split_scale<T, O>(
+            e: TemporalOrOpticalWithScale<T, O, Self>,
+        ) -> (TemporalOrOptical<T, O>, Self::MaybeScale);
+    }
+
+    impl PySplitScale for OpticalScale2_0 {
+        type MaybeScale = Self;
+
+        fn split_scale<T, O>(
+            e: TemporalOrOpticalWithScale<T, O, Self>,
+        ) -> (TemporalOrOptical<T, O>, Self::MaybeScale) {
+            e.both(
+                |t| (Element::Center(t), Self::none()),
+                |(o, s)| (Element::NonCenter(o), s),
+            )
+        }
+    }
+
+    impl PySplitScale for OpticalScale3_0 {
+        type MaybeScale = Option<Self>;
+
+        fn split_scale<T, O>(
+            e: TemporalOrOpticalWithScale<T, O, Self>,
+        ) -> (TemporalOrOptical<T, O>, Self::MaybeScale) {
+            e.both(
+                |t| (Element::Center(t), None),
+                |(o, s)| (Element::NonCenter(o), Some(s)),
+            )
+        }
+    }
+
+    pub trait PyRangeType: Sized {
+        type Range;
+
+        fn split_range(range: Self::Range) -> (FullRange, Option<Self>);
+    }
+
+    impl PyRangeType for IntegerWidth {
+        type Range = MaybeTypedVariableBitmask;
+
+        fn split_range(range: Self::Range) -> (FullRange, Option<Self>) {
+            match range {
+                MaybeTypedRange::Untyped(x) => (x, None),
+                MaybeTypedRange::Typed(x) => {
+                    let w = match x {
+                        AnyUint::Uint08(_) => Self::U08,
+                        AnyUint::Uint16(_) => Self::U16,
+                        AnyUint::Uint24(_) => Self::U24,
+                        AnyUint::Uint32(_) => Self::U32,
+                        AnyUint::Uint40(_) => Self::U40,
+                        AnyUint::Uint48(_) => Self::U48,
+                        AnyUint::Uint56(_) => Self::U56,
+                        AnyUint::Uint64(_) => Self::U64,
+                    };
+                    (x.into(), Some(w))
+                }
+            }
+        }
+    }
+
+    impl PyRangeType for ColumnType {
+        type Range = MaybeTypedMixedRange;
+
+        fn split_range(range: Self::Range) -> (FullRange, Option<Self>) {
+            match range {
+                MaybeTypedRange::Untyped(x) => (x, None),
+                MaybeTypedRange::Typed(x) => {
+                    let w = match x {
+                        AnyDatatype::Ascii(_) => Self::A,
+                        AnyDatatype::Uint(y) => match y {
+                            AnyUint::Uint08(_) => Self::U08,
+                            AnyUint::Uint16(_) => Self::U16,
+                            AnyUint::Uint24(_) => Self::U24,
+                            AnyUint::Uint32(_) => Self::U32,
+                            AnyUint::Uint40(_) => Self::U40,
+                            AnyUint::Uint48(_) => Self::U48,
+                            AnyUint::Uint56(_) => Self::U56,
+                            AnyUint::Uint64(_) => Self::U64,
+                        },
+                        AnyDatatype::F32(_) => Self::F32,
+                        AnyDatatype::F64(_) => Self::F64,
+                    };
+                    (x.into(), Some(w))
+                }
+            }
         }
     }
 }

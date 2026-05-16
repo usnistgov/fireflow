@@ -76,7 +76,7 @@ use fireflow_core::validated::shortname as sn;
 use fireflow_python_proc as fpp;
 
 use fireflow_types::keywords as ftk;
-use fireflow_types::python::{ColumnType, EventDataError, IntegerWidth};
+use fireflow_types::python::EventDataError;
 use type_families::{BifunctorOnce as _, Functor as _};
 
 use derive_more::{From, Into};
@@ -1145,55 +1145,6 @@ impl PyAnyFCSColumn {
                 };
                 Ok(data::MaybeTypedRange::Typed(c))
             }
-        }
-    }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn split_bitmask_range(
-    r: data::MaybeTypedVariableBitmask,
-) -> (data::FullRange, Option<IntegerWidth>) {
-    match r {
-        data::MaybeTypedVariableBitmask::Untyped(x) => (x, None),
-        data::MaybeTypedVariableBitmask::Typed(x) => {
-            let w = match x {
-                data::AnyUint::Uint08(_) => IntegerWidth::U08,
-                data::AnyUint::Uint16(_) => IntegerWidth::U16,
-                data::AnyUint::Uint24(_) => IntegerWidth::U24,
-                data::AnyUint::Uint32(_) => IntegerWidth::U32,
-                data::AnyUint::Uint40(_) => IntegerWidth::U40,
-                data::AnyUint::Uint48(_) => IntegerWidth::U48,
-                data::AnyUint::Uint56(_) => IntegerWidth::U56,
-                data::AnyUint::Uint64(_) => IntegerWidth::U64,
-            };
-            let f: data::FullRange = x.into();
-            (f, Some(w))
-        }
-    }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn split_mixed_range(r: data::MaybeTypedMixedRange) -> (data::FullRange, Option<ColumnType>) {
-    match r {
-        data::MaybeTypedMixedRange::Untyped(x) => (x, None),
-        data::MaybeTypedMixedRange::Typed(x) => {
-            let w = match x {
-                data::AnyDatatype::Ascii(_) => ColumnType::A,
-                data::AnyDatatype::Uint(y) => match y {
-                    data::AnyUint::Uint08(_) => ColumnType::U08,
-                    data::AnyUint::Uint16(_) => ColumnType::U16,
-                    data::AnyUint::Uint24(_) => ColumnType::U24,
-                    data::AnyUint::Uint32(_) => ColumnType::U32,
-                    data::AnyUint::Uint40(_) => ColumnType::U40,
-                    data::AnyUint::Uint48(_) => ColumnType::U48,
-                    data::AnyUint::Uint56(_) => ColumnType::U56,
-                    data::AnyUint::Uint64(_) => ColumnType::U64,
-                },
-                data::AnyDatatype::F32(_) => ColumnType::F32,
-                data::AnyDatatype::F64(_) => ColumnType::F64,
-            };
-            let f: data::FullRange = x.into();
-            (f, Some(w))
         }
     }
 }

@@ -703,61 +703,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             .unwrap()
     }
 
-    // /// Apply function to non-center values, altering them in place
-    // pub(crate) fn alter_non_center_values<F, X>(&mut self, f: F) -> Vec<X>
-    // where
-    //     F: Fn(&mut V) -> X,
-    // {
-    //     match self {
-    //         NamedVec::Split(s, _) => s
-    //             .left
-    //             .iter_mut()
-    //             .map(|p| f(&mut p.value))
-    //             .chain(s.right.iter_mut().map(|p| f(&mut p.value)))
-    //             .collect(),
-    //         NamedVec::Unsplit(u) => u.members.iter_mut().map(|p| f(&mut p.value)).collect(),
-    //     }
-    // }
-
-    // /// Apply function to non-center values with values, altering them in place
-    // pub(crate) fn alter_non_center_values_zip<E, F, X>(
-    //     &mut self,
-    //     xs: Vec<X>,
-    //     f: F,
-    // ) -> Result<Vec<E>, KeyLengthError>
-    // where
-    //     F: Fn(&mut V, X) -> E,
-    // {
-    //     self.check_keys_length(&xs[..], false)?;
-    //     let res = match self {
-    //         NamedVec::Split(s, _) => {
-    //             let nleft = s.left.len();
-    //             let nright = s.right.len();
-    //             let mut it = xs.into_iter();
-    //             let left_r: Vec<_> = s
-    //                 .left
-    //                 .iter_mut()
-    //                 .zip(it.by_ref().take(nleft))
-    //                 .map(|(y, x)| f(&mut y.value, x))
-    //                 .collect();
-    //             let right_r: Vec<_> = s
-    //                 .right
-    //                 .iter_mut()
-    //                 .zip(it.by_ref().take(nright))
-    //                 .map(|(y, x)| f(&mut y.value, x))
-    //                 .collect();
-    //             left_r.into_iter().chain(right_r).collect()
-    //         }
-    //         NamedVec::Unsplit(u) => u
-    //             .members
-    //             .iter_mut()
-    //             .zip(xs)
-    //             .map(|(p, x)| f(&mut p.value, x))
-    //             .collect(),
-    //     };
-    //     Ok(res)
-    // }
-
     /// Return position of center, if it exists
     pub(crate) fn center_index(&self) -> Option<MeasIndex> {
         self.center_right.is_some().then(|| self.left.len().into())
@@ -1274,49 +1219,6 @@ impl<K, U, V> NamedVec<K, U, V> {
         }
         Ok(mapping)
     }
-
-    // /// Set non-center keys to list
-    // ///
-    // /// The center key cannot be replaced by this method since the list will
-    // /// contain wrapped names which may or may not have a name inside, and
-    // /// the center value always has a name.
-    // ///
-    // /// List must be the same length as all non-center keys and must be unique
-    // /// (including the center key).
-    // pub(crate) fn set_non_center_keys(
-    //     &mut self,
-    //     ks: Vec<K>,
-    // ) -> Result<NameMapping, SetNamesError>
-    // where
-    //     K: Clone,
-    // {
-    //     self.check_keys_length(&ks[..], false)
-    //         .map_err(SetNamesError::Length)?;
-    //     let center = self.as_center().map(|x| K::wrap(x.key));
-    //     let all_keys = ks.iter().map(K::as_ref).chain(center).collect();
-    //     if !self.as_prefix().all_unique::<K>(all_keys) {
-    //         return Err(SetNamesError::NonUnique);
-    //     }
-    //     let mut mapping = HashMap::new();
-    //     let mut go = |side: &mut PairedVec<K, V>, ks_side: Vec<K>| {
-    //         for (p, k) in side.iter_mut().zip(ks_side) {
-    //             let old = mem::replace(&mut p.key, k.clone());
-    //             if let (Some(old_name), Some(new_name)) = (K::to_opt(old), K::to_opt(k)) {
-    //                 mapping.insert(old_name, new_name);
-    //             }
-    //         }
-    //     };
-    //     match self {
-    //         Self::Split(s) => {
-    //             let mut ks_left = ks;
-    //             let ks_right = ks_left.split_off(s.left.len());
-    //             go(&mut s.left, ks_left);
-    //             go(&mut s.right, ks_right);
-    //         }
-    //         Self::Unsplit(u) => go(&mut u.members, ks),
-    //     }
-    //     Ok(mapping)
-    // }
 
     /// Set all names to list of Shortnames
     ///

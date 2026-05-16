@@ -10,9 +10,9 @@ use crate::data::{
     DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
     LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutInsertScaleCheck, LayoutNormalize,
     LayoutRemove, LayoutWidth, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    OverrangeColumn, ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataFrameResult,
-    ScaleColumnDatatypeMismatchError, ScaleDatatypeMismatchErrors, VersionedDataFrame,
-    VersionedDataSchema, WithPrimitiveDataFrame,
+    OldNewDataframeMismatchError, OverrangeColumn, ReadCheckedDataframeError,
+    ReadCheckedDataframeWarning, ReadDataFrameResult, ScaleColumnDatatypeMismatchError,
+    ScaleDatatypeMismatchErrors, VersionedDataFrame, VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
@@ -68,7 +68,7 @@ use std::borrow::Cow;
 use std::convert::Infallible;
 use std::fmt;
 use std::io::{BufReader, Read, Seek};
-use std::iter::{empty, once};
+use std::iter::{empty, once, repeat};
 use std::marker::PhantomData;
 use std::mem;
 
@@ -918,7 +918,7 @@ pub enum SetUnnamedMeasurementsError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetUnnamedMeasurementsAndDataSchemaError {
-    New(MeasLayoutMismatchError),
+    New(OldNewDataframeMismatchError),
     Set(SetValuesError),
 }
 
@@ -994,7 +994,7 @@ type NamedTemporalOrOpticalWithScale<K, T, S, O> =
 pub type NamedTemporalsAndOpticalsWithScale<K, T, S, O> =
     Vec<NamedTemporalOrOpticalWithScale<K, T, S, O>>;
 
-type TemporalsAndScaledOpticals<T, S, O> = Vec<TemporalOrScaledOptical<T, S, O>>;
+// type TemporalsAndScaledOpticals<T, S, O> = Vec<TemporalOrScaledOptical<T, S, O>>;
 
 pub(crate) type VTemporalOrOptical<V> = Element<VTemporal<V>, VOptical<V>>;
 
@@ -3185,22 +3185,21 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
             .map(|m| m.both(|_| X::default(), |o| o.value.scale))
     }
 
-    // TODO lots of allocations, there should be a better way to do this
     fn add_scales(
         &self,
         measurements: TemporalsAndOpticals<T, O>,
-    ) -> TemporalsAndScaledOpticals<T, X, O>
+    ) -> impl Iterator<Item = TemporalOrScaledOptical<T, X, O>>
     where
         X: Default + Copy,
     {
+        // NOTE this won't check length. If measurements is longer than the
+        // scale vector, add identity scales to the end. We assume the length
+        // will be checked by the caller somewhere else.
+        let scales = self.scales().chain(repeat(X::default()));
         measurements
             .into_iter()
-            // TODO this will truncate the measurements to the length of
-            // scales, which will result in now throwing an error in the caller
-            // if the length is later checked
-            .zip(self.scales())
+            .zip(scales)
             .map(|(m, s)| m.bimap_once(|t| t, |o| ScaledOptical::new(o, s)))
-            .collect()
     }
 
     pub fn set_scales(&mut self, scales: Vec<X>) -> ErrorsResult<(), (), SetScalesError>
@@ -3708,7 +3707,8 @@ where
     {
         // This will ensure the new measurements have the same length as the old
         // and that the temporal/optical types are in the same spot
-        self.meta.set_values(self.add_scales(measurements))?;
+        self.meta
+            .set_values(self.add_scales(measurements).collect())?;
         self.validate("measurements should match length and scale/datatype of data");
         Ok(())
     }
@@ -3763,11 +3763,11 @@ where
     where
         L: LayoutWidth + LayoutDatatype + LayoutNormalize,
     {
-        // TODO check length match b/t meas and layout
-        // // ensure new layout and measurements have matching length and scales
-        // layout.check_unmamed_meas_xforms_and_len::<V>(&measurements[..])?;
-        // this will check that new measurements have same length as old
-        self.meta.set_values(self.add_scales(measurements))?;
+        // Check that new measurements and schema have same width
+        layout.check_width(&measurements)?;
+        // Check that new measurements have same length as old
+        self.meta
+            .set_values(self.add_scales(measurements).collect())?;
         self.set_layout_inner(layout);
         self.validate("inputs should have matching length and scale/datatype");
         Ok(())
@@ -3980,21 +3980,20 @@ where
         data_schema: &V::DataSchema,
     ) -> Result<(), DatasetSetUnnamedMeasAndDataSchemaError>
     where
-        V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default,
+        V::DataFrame: Clone + Into<PrimitiveDataFrame> + Default + LayoutWidth,
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
-        // TODO check length b/t meas and schema
-        // // Check that new measurements and new data schema are in sync.
-        // data_schema
-        //     .check_unmamed_meas_xforms_and_len::<V>(&measurements[..])
-        //     .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
+        // Check that new measurements and schema have same width
+        data_schema
+            .check_width(&measurements)
+            .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
         // This checks for data loss due to type conversions in the dataframe.
         data_schema.check_data_loss_generic(&self.data)?;
         // This additionally checks that the new measurements are the same
         // length as existing, so that the new meas+schema will remain
         // consistent with the dataframe.
         self.meta
-            .set_values(self.add_scales(measurements))
+            .set_values(self.add_scales(measurements).collect())
             .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
         self.set_data_schema_unchecked(data_schema);
         self.validate("inputs should have matching length and scale/datatype");

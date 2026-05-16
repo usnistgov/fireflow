@@ -2307,12 +2307,6 @@ pub trait LayoutDatatype: Sized {
             .iter()
             .zip(xforms)
             .enumerate()
-            // Only integers are allowed to have gain and log scaling, so
-            // everything else should be a "noop" transform (ie a linear
-            // transform with slope of 1.0). NOTE the standard itself is
-            // vague about what should happen to ASCII values (presumably
-            // since nobody cares) so here we just treat them like we treat
-            // floating point types to keep the logic simple.
             .filter_map(|(i, (&datatype, s))| {
                 meas_n += 1;
                 s.matches_datatype(&datatype, i.into()).err()

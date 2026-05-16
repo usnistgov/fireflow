@@ -1310,7 +1310,7 @@ impl TemporalKeywords for InnerTemporal2_0 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OptTemporalKeyword<'_>> {
-        // TODO awkward
+        // write $PnE for temporal channel always
         let s = OptTemporalKeyword::from_opt_zst(TemporalScale2_0::from(true), i);
         let ps = self.peak.opt_keywords(i).map(OptTemporalKeyword::from);
         ps.chain(s)
@@ -2591,6 +2591,11 @@ pub trait CheckedScaleTransform {
     fn is_identity(&self) -> bool;
 }
 
+// NOTE $PnE is optional in 2.0, and it isn't clear what a blank value is
+// supposed to mean. The easiest thing to do here is to assume blank = linear.
+// We could also assume blank = log (which makes no sense) or assume it means
+// undefined, in which case the only logical thing to do is reject the entire
+// layout since no conclusions can be reached.
 impl CheckedScaleTransform for OpticalScale2_0 {
     const HAS_GAIN: bool = false;
 
@@ -2603,7 +2608,6 @@ impl CheckedScaleTransform for OpticalScale2_0 {
     }
 
     fn is_identity(&self) -> bool {
-        // TODO we assume blank == linear, is this right?
         self.0.is_none_or(|s| s == Scale::Linear)
     }
 }
@@ -3153,10 +3157,8 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
     where
         X: Default + Copy,
     {
-        // TODO not DRY, used in lots of scale checks for the named vec
         self.meta
-            .iter()
-            .map(|m| m.both(|_| X::default(), |o| o.value.scale))
+            .iter_with(&|_, _| X::default(), &|_, o| o.value.scale)
     }
 
     fn add_scales(

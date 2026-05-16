@@ -15,7 +15,7 @@ use crate::data::{
     DataSchema3_2, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
     EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype, LayoutHeight as _,
     LayoutInsert, LayoutInsertScaleCheck, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
-    LayoutRemove, LayoutSize as _, LookupDataSchemaError, LookupDataSchemaWarning,
+    LayoutRemove, LayoutSize as _, LayoutWidth, LookupDataSchemaError, LookupDataSchemaWarning,
     MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataSchemaError, RangeAndSeries,
     ReadCheckedDataframeError, ReadCheckedDataframeWarning, VersionedDataFrame as _,
     VersionedDataSchema, WithPrimitiveDataFrame,
@@ -107,7 +107,7 @@ use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::compensation::Compensation;
-use crate::validated::dataframe::{AnyPrimitiveSeries, HasWidth, PrimitiveDataFrame};
+use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_segments::ParsedHeaderSegments;
 use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
@@ -4786,7 +4786,7 @@ where
         skip_index_check: bool,
     ) -> Result<(), SetNamedMeasurementsError>
     where
-        L: LayoutDatatype + HasWidth,
+        L: LayoutDatatype + LayoutWidth,
     {
         let go = |cur_meas: &_, new_meas: &_| {
             self.rootmeta.new_meas_link_errors(
@@ -4805,7 +4805,7 @@ where
         measurements: VTemporalsAndOpticals<V>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        L: HasWidth + LayoutDatatype,
+        L: LayoutWidth + LayoutDatatype,
     {
         self.meas.set_unnamed_measurements(measurements)
     }
@@ -4964,7 +4964,7 @@ where
         layout: L,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
-        L: HasWidth + LayoutDatatype + LayoutNormalize,
+        L: LayoutWidth + LayoutDatatype + LayoutNormalize,
     {
         self.meas
             .set_unnamed_measurements_and_layout(measurements, layout)
@@ -4972,7 +4972,7 @@ where
 
     fn unset_measurements_inner(&mut self) -> Result<(), ExistingLinkErrors>
     where
-        L: HasWidth,
+        L: LayoutWidth,
     {
         let p = self.par();
         let (js, ns) = self.meas.measurements().all_indices_and_names_to_remove();
@@ -5668,7 +5668,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         data_schema: V::DataSchema,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
-        V::DataSchema: HasWidth + LayoutDatatype + LayoutNormalize,
+        V::DataSchema: LayoutDatatype + LayoutNormalize,
     {
         self.set_measurements_and_layout_inner(measurements, data_schema)
     }
@@ -5754,7 +5754,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
-        V::DataSchema: HasWidth,
+        V::DataSchema: LayoutWidth,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();

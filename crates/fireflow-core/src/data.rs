@@ -154,7 +154,7 @@ use crate::validated::bitmask::{
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
     HasFCSType, HasLen, HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries,
-    ambassador_impl_HasLen, ambassador_impl_HasWidth,
+    ambassador_impl_HasLen,
 };
 use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
@@ -254,11 +254,11 @@ pub type DataFrame3_2 = Any3_2Layout<DataFrameFamily>;
 )]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutDatatype, where = "M: HasWidth, N: HasWidth")]
-#[delegate(LayoutKeywords, where = "M: HasWidth, N: HasWidth")]
+#[delegate(LayoutDatatype, where = "M: LayoutWidth, N: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "M: LayoutWidth, N: LayoutWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
@@ -305,11 +305,11 @@ type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
 )]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutDatatype, where = "Delim: HasWidth, Fixed: HasWidth")]
-#[delegate(LayoutKeywords, where = "Delim: HasWidth, Fixed: HasWidth")]
+#[delegate(LayoutDatatype, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -448,11 +448,11 @@ pub struct ColumnMarkers<T, D> {
 )]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutDatatype, where = "Single: HasWidth, Multi: HasWidth")]
-#[delegate(LayoutKeywords, where = "Single: HasWidth, Multi: HasWidth")]
+#[delegate(LayoutDatatype, where = "Single: LayoutWidth, Multi: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "Single: LayoutWidth, Multi: LayoutWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -555,22 +555,22 @@ where
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(ColumnIsFixed)]
 #[delegate(HasLen)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(
     LayoutDatatype,
-    where = "A: HasWidth, \
-             U: HasWidth, \
-             F: HasWidth, \
-             D: HasWidth"
+    where = "A: LayoutWidth, \
+             U: LayoutWidth, \
+             F: LayoutWidth, \
+             D: LayoutWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "A: HasWidth, \
-             U: HasWidth, \
-             F: HasWidth, \
-             D: HasWidth"
+    where = "A: LayoutWidth, \
+             U: LayoutWidth, \
+             F: LayoutWidth, \
+             D: LayoutWidth"
 )]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -629,30 +629,30 @@ pub type MixedSeries = AnyDatatype<
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasLen)]
 #[delegate(ColumnIsBinary)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(
     LayoutDatatype,
-    where = "C08: HasWidth, \
-             C16: HasWidth, \
-             C24: HasWidth, \
-             C32: HasWidth, \
-             C40: HasWidth, \
-             C48: HasWidth, \
-             C56: HasWidth, \
-             C64: HasWidth"
+    where = "C08: LayoutWidth, \
+             C16: LayoutWidth, \
+             C24: LayoutWidth, \
+             C32: LayoutWidth, \
+             C40: LayoutWidth, \
+             C48: LayoutWidth, \
+             C56: LayoutWidth, \
+             C64: LayoutWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "C08: HasWidth, \
-             C16: HasWidth, \
-             C24: HasWidth, \
-             C32: HasWidth, \
-             C40: HasWidth, \
-             C48: HasWidth, \
-             C56: HasWidth, \
-             C64: HasWidth"
+    where = "C08: LayoutWidth, \
+             C16: LayoutWidth, \
+             C24: LayoutWidth, \
+             C32: LayoutWidth, \
+             C40: LayoutWidth, \
+             C48: LayoutWidth, \
+             C56: LayoutWidth, \
+             C64: LayoutWidth"
 )]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -1865,7 +1865,7 @@ where
     for<'a> Self: Sized
         + DataSchemaReadOps<Self::Tot>
         + LayoutDatatype
-        + HasWidth
+        + LayoutWidth
         + LayoutNormalize
         + LayoutKeywords
         + LayoutOptMeasKeywords
@@ -2146,7 +2146,7 @@ where
     for<'a> Self: Sized
         + DataFrameWriteOps
         + LayoutDatatype
-        + HasWidth
+        + LayoutWidth
         + LayoutHeight
         + LayoutSize
         + LayoutKeywords
@@ -2183,15 +2183,15 @@ impl VersionedDataFrame for DataFrame3_2 {}
 // These traits are simple because they can be fractally delegated to inner
 // types without any special tricks.
 
-impl<C: HasWidth, F, I, L, M, const ORD: bool> HasWidth for Layout<C, F, I, L, M, ORD> {
-    fn width(&self) -> usize {
-        self.container.width()
-    }
+// impl<C: HasWidth, F, I, L, M, const ORD: bool> HasWidth for Layout<C, F, I, L, M, ORD> {
+//     fn width(&self) -> usize {
+//         self.container.width()
+//     }
 
-    fn clear(&mut self) {
-        self.container.clear();
-    }
-}
+//     fn clear(&mut self) {
+//         self.container.clear();
+//     }
+// }
 
 /// A layout which has ranges.
 #[delegatable_trait]
@@ -2302,7 +2302,7 @@ pub trait LayoutDatatype: Sized {
         measurements: VNamedTemporalsAndOpticalsWithScale<V>,
     ) -> Result<VMeasMeta<V>, MeasurementsWithLayoutError>
     where
-        Self: HasWidth,
+        Self: LayoutWidth,
     {
         let nv = NamedVec::try_new(wrap_scaled_opticals::<V>(measurements))?;
         self.check_measmeta_xforms_and_len(&nv)
@@ -2432,6 +2432,48 @@ where
     }
 }
 
+/// A layout which has a width.
+#[delegatable_trait]
+pub trait LayoutWidth: Sized {
+    fn width(&self) -> usize;
+
+    fn clear(&mut self);
+
+    fn check_width<T>(&self, df: &T) -> Result<(), OldNewDataframeMismatchError>
+    where
+        T: HasWidth,
+    {
+        let old = self.width();
+        let new = df.width();
+        if new != old {
+            return Err(OldNewDataframeMismatchError { old, new });
+        }
+        Ok(())
+    }
+}
+
+impl<C, I, L, M, const ORD: bool> LayoutWidth for Layout<Vec<C>, VecFamily, I, L, M, ORD> {
+    fn width(&self) -> usize {
+        self.container.len()
+    }
+
+    fn clear(&mut self) {
+        self.container.clear();
+    }
+}
+
+impl<C, I, L, M, const ORD: bool> LayoutWidth
+    for Layout<DataFrame<C>, DataFrameFamily, I, L, M, ORD>
+{
+    fn width(&self) -> usize {
+        self.container.width()
+    }
+
+    fn clear(&mut self) {
+        self.container.clear();
+    }
+}
+
 /// A layout which has a height.
 #[delegatable_trait]
 pub trait LayoutHeight: Sized {
@@ -2508,7 +2550,7 @@ pub trait LayoutOptMeasKeywords {
 
 impl<C, I, F, S, M, const ORD: bool> LayoutOptMeasKeywords for Layout<C, F, I, S, M, ORD>
 where
-    Self: HasWidth,
+    Self: LayoutWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         vec![None; self.width()]
@@ -2521,7 +2563,7 @@ where
     C: AsRef<[I::Inner]>,
     I::Inner: ColumnHasDatatype,
     Self: LayoutDatatype,
-    N: HasWidth,
+    N: LayoutWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
@@ -2771,18 +2813,18 @@ pub trait WithPrimitiveDataFrame {
         self.with_data(df.into())
     }
 
-    fn check_width<T>(&self, df: &T) -> Result<(), OldNewDataframeMismatchError>
-    where
-        Self: HasWidth,
-        T: HasWidth,
-    {
-        let old = self.width();
-        let new = df.width();
-        if new != old {
-            return Err(OldNewDataframeMismatchError { old, new });
-        }
-        Ok(())
-    }
+    // fn check_width<T>(&self, df: &T) -> Result<(), OldNewDataframeMismatchError>
+    // where
+    //     Self: LayoutWidth,
+    //     T: HasWidth,
+    // {
+    //     let old = self.width();
+    //     let new = df.width();
+    //     if new != old {
+    //         return Err(OldNewDataframeMismatchError { old, new });
+    //     }
+    //     Ok(())
+    // }
 
     fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors>;
 
@@ -2802,7 +2844,7 @@ pub trait WithPrimitiveDataFrame {
 
     fn check_data_loss_and_width_generic<T>(&self, df: &T) -> Result<(), DataSchemaToDataFrameError>
     where
-        Self: HasWidth,
+        Self: LayoutWidth,
         T: Clone + Into<PrimitiveDataFrame>,
     {
         let d = df.clone().into();

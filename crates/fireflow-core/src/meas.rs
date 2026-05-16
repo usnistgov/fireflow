@@ -9,8 +9,8 @@ use crate::data::{
     self, CastSeriesErrors, ConvertFromLayout, DataFrameAsDataSchema, DataFrameCheckRanges as _,
     DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
     LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutInsertScaleCheck, LayoutNormalize,
-    LayoutRemove, MeasLayoutMismatchError, MeasurementsWithLayoutError, OverrangeColumn,
-    ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataFrameResult,
+    LayoutRemove, LayoutWidth, MeasLayoutMismatchError, MeasurementsWithLayoutError,
+    OverrangeColumn, ReadCheckedDataframeError, ReadCheckedDataframeWarning, ReadDataFrameResult,
     ScaleColumnDatatypeMismatchError, ScaleDatatypeMismatchErrors, VersionedDataFrame,
     VersionedDataSchema, WithPrimitiveDataFrame,
 };
@@ -47,7 +47,7 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
-use crate::validated::dataframe::{HasWidth, PrimitiveDataFrame};
+use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::keys::{IndexedKey as _, Key1, NonStdKeywords, StdKey, StdKeywords};
 use crate::validated::shortname::Shortname;
 
@@ -3701,7 +3701,7 @@ where
         measurements: VTemporalsAndOpticals<V>,
     ) -> Result<(), SetUnnamedMeasurementsError>
     where
-        L: HasWidth + LayoutDatatype,
+        L: LayoutWidth + LayoutDatatype,
     {
         // This will ensure the new measurements have the same length as the old
         // and that the temporal/optical types are in the same spot
@@ -3716,7 +3716,7 @@ where
         f: F,
     ) -> Result<(), E>
     where
-        L: LayoutDatatype + HasWidth,
+        L: LayoutDatatype + LayoutWidth,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
     {
@@ -3736,7 +3736,7 @@ where
         f: F,
     ) -> Result<(), E>
     where
-        L: LayoutDatatype + HasWidth + LayoutNormalize,
+        L: LayoutDatatype + LayoutWidth + LayoutNormalize,
         F: FnOnce(&VersionedMeasurements<V>, &VersionedMeasurements<V>) -> Result<(), Ei>,
         E: From<Ei> + From<MeasurementsWithLayoutError>,
     {
@@ -3758,7 +3758,7 @@ where
         layout: L,
     ) -> Result<(), SetUnnamedMeasurementsAndDataSchemaError>
     where
-        L: HasWidth + LayoutDatatype + LayoutNormalize,
+        L: LayoutWidth + LayoutDatatype + LayoutNormalize,
     {
         // TODO check length match b/t meas and layout
         // // ensure new layout and measurements have matching length and scales
@@ -3772,7 +3772,7 @@ where
 
     pub(crate) fn clear(&mut self)
     where
-        L: HasWidth,
+        L: LayoutWidth,
     {
         self.meta = NamedVec::default();
         self.data.clear();
@@ -3809,7 +3809,7 @@ where
         conf: &ReadStdKeywordsConfig,
     ) -> WarningsAndErrorsResult<Self, (), MissingTimeError, LookupMeasError>
     where
-        V::DataSchema: HasWidth,
+        V::DataSchema: LayoutWidth,
     {
         // this should be true since both depend on $PAR
         assert_eq_len!(
@@ -3852,7 +3852,7 @@ where
         data_schema: V::DataSchema,
     ) -> ErrorsResult<Self, (), NewMeasError>
     where
-        V::DataSchema: HasWidth,
+        V::DataSchema: LayoutWidth,
     {
         MeasMeta::try_new(wrap_scaled_opticals::<V>(measurements))
             .map_err(NewMeasError::from)
@@ -3892,7 +3892,7 @@ where
         DataSchemaToDataFrameError,
     >
     where
-        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame> + HasWidth,
+        V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame> + LayoutWidth,
     {
         // Check that width of new dataframe matches current schema. Do not
         // check datatypes/scale since this is metadata-independent.

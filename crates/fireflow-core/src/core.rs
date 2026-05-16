@@ -4684,7 +4684,7 @@ where
         scales: Vec<V::OpticalScale>,
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
-        L: LayoutDatatype,
+        L: LayoutDatatype + LayoutWidth,
     {
         self.meas.set_scales(scales).group().resolve_nowarn()
     }

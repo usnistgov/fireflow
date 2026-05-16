@@ -314,16 +314,12 @@ impl fmt::Display for ElementIndexError {
 
 /// Error when input collection does not match number of elements in [`NamedVec`]
 #[derive(Debug, Error)]
-#[error(
-    "input must be {this_len} ({c}including center) elements long, got {other_len}",
-    c = if self.include_center { "" } else { "not " }
-)]
+#[error("input must be {this_len} elements long, got {other_len}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct InputLengthError {
     this_len: usize,
     other_len: usize,
-    include_center: bool,
 }
 
 // Implement methods for NamedVec
@@ -568,7 +564,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn set_values(&mut self, xs: Vec<Element<U, V>>) -> Result<(), SetValuesError> {
         // check length and center position before doing anything, otherwise
         // we would need to reset the new vector if any error is found
-        self.check_keys_length(&xs[..], true)?;
+        self.check_keys_length(&xs[..])?;
         let errs = self
             .iter()
             .zip(xs.iter())
@@ -603,7 +599,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         F: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
         G: Fn(IndexedElement<&K, &mut V>, X) -> R,
     {
-        self.check_keys_length(&xs[..], true)?;
+        self.check_keys_length(&xs[..])?;
         Ok(self.alter_values_zip_nocheck(xs, f, g))
     }
 
@@ -768,12 +764,12 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.iter().count()
     }
 
-    /// Return number of non-center elements.
-    pub(crate) fn len_non_center(&self) -> usize {
-        self.iter()
-            .filter(|e| matches!(e, Element::NonCenter(_)))
-            .count()
-    }
+    // /// Return number of non-center elements.
+    // pub(crate) fn len_non_center(&self) -> usize {
+    //     self.iter()
+    //         .filter(|e| matches!(e, Element::NonCenter(_)))
+    //         .count()
+    // }
 
     /// Return true if there are no contained elements.
     pub(crate) fn is_empty(&self) -> bool {
@@ -1187,7 +1183,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: Clone + MightHave<Shortname>,
     {
-        self.check_keys_length(&ks[..], true)
+        self.check_keys_length(&ks[..])
             .map_err(SetNamesError::Length)?;
         if !all_unique_names(ks.iter().map(MightHave::as_opt)) {
             return Err(SetNamesError::NonUnique(NonUniqueKeysError).into());
@@ -1231,7 +1227,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
-        self.check_keys_length(&ns[..], true)
+        self.check_keys_length(&ns[..])
             .map_err(SetNamesError::Length)?;
         if !all_unique(&ns) {
             return Err(NonUniqueKeysError.into());
@@ -1715,18 +1711,13 @@ impl<K, U, V> NamedVec<K, U, V> {
         IndexFromOne::from(index).check_boundary_index(self.len())
     }
 
-    fn check_keys_length<X>(&self, xs: &[X], include_center: bool) -> Result<(), InputLengthError> {
-        let this_len = if include_center {
-            self.len()
-        } else {
-            self.len_non_center()
-        };
+    fn check_keys_length<X>(&self, xs: &[X]) -> Result<(), InputLengthError> {
+        let this_len = self.len();
         let other_len = xs.len();
         if this_len != other_len {
             return Err(InputLengthError {
                 this_len,
                 other_len,
-                include_center,
             });
         }
         Ok(())

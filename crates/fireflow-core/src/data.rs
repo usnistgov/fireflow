@@ -1594,30 +1594,19 @@ impl fmt::Display for RangeToNewBitmaskError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasLayoutMismatchError {
-    Lengths(MeasLayoutLengthsError),
+    Lengths(LayoutLengthMismatchError),
     Scale(ScaleDatatypeMismatchErrors),
 }
 
-// TODO make these sane by wrapping old and new in Newtypes and changing the
-// message bases on that; there are too many "length a vs length b" errors
 /// Error when measurement vector is not the same length as columns in DATA/dataframe
 #[derive(Debug, Error)]
-#[error("new and old dataframes have different widths ({old} vs {new})")]
+#[error("data layout has different width ({df_width}) then {other_name} ({other_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct OldNewDataframeMismatchError {
-    old: usize,
-    new: usize,
-}
-
-/// Error when measurement vector and layout have different lengths.
-#[derive(Debug, Error)]
-#[error("measurement number ({meas_n}) does not match layout column number ({layout_n})")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct MeasLayoutLengthsError {
-    meas_n: usize,
-    layout_n: usize,
+pub struct LayoutLengthMismatchError {
+    df_width: usize,
+    other_len: usize,
+    other_name: &'static str,
 }
 
 pub type ScaleDatatypeMismatchErrors =
@@ -1640,7 +1629,7 @@ pub enum MeasurementsWithLayoutError {
 #[derive(From, Error, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DataSchemaToDataFrameError {
-    ColMismatch(OldNewDataframeMismatchError),
+    ColMismatch(LayoutLengthMismatchError),
     Cast(CastSeriesErrors),
 }
 
@@ -2263,7 +2252,7 @@ pub trait LayoutDatatype: Sized {
     ) -> Result<(), MeasLayoutMismatchError>
     where
         Xform: Default + Copy + CheckedScaleTransform,
-        Self: LayoutDatatype,
+        Self: LayoutDatatype + LayoutWidth,
     {
         let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.scale());
         self.check_transforms_and_len(xforms)
@@ -2310,6 +2299,7 @@ pub trait LayoutDatatype: Sized {
     ) -> Result<(), MeasLayoutMismatchError>
     where
         S: CheckedScaleTransform,
+        Self: LayoutWidth,
     {
         let ds = self.datatypes();
         let mut meas_n = 0;
@@ -2329,11 +2319,7 @@ pub trait LayoutDatatype: Sized {
             });
 
         ErrorGroup::try_new(es)?;
-        let layout_n = ds.len();
-        if meas_n != layout_n {
-            let e = MeasLayoutLengthsError { meas_n, layout_n };
-            return Err(e.into());
-        }
+        self.check_width_n(meas_n, "measurements")?;
         Ok(())
     }
 
@@ -2433,16 +2419,31 @@ pub trait LayoutWidth: Sized {
 
     fn clear(&mut self);
 
-    fn check_width<T>(&self, df: &T) -> Result<(), OldNewDataframeMismatchError>
+    fn check_width_n(
+        &self,
+        other_len: usize,
+        other_name: &'static str,
+    ) -> Result<(), LayoutLengthMismatchError> {
+        let df_width = self.width();
+        if other_len != df_width {
+            return Err(LayoutLengthMismatchError {
+                df_width,
+                other_len,
+                other_name,
+            });
+        }
+        Ok(())
+    }
+
+    fn check_width<T>(
+        &self,
+        other: &T,
+        other_name: &'static str,
+    ) -> Result<(), LayoutLengthMismatchError>
     where
         T: HasWidth,
     {
-        let old = self.width();
-        let new = df.width();
-        if new != old {
-            return Err(OldNewDataframeMismatchError { old, new });
-        }
-        Ok(())
+        self.check_width_n(other.width(), other_name)
     }
 }
 
@@ -2807,19 +2808,6 @@ pub trait WithPrimitiveDataFrame {
         self.with_data(df.into())
     }
 
-    // fn check_width<T>(&self, df: &T) -> Result<(), OldNewDataframeMismatchError>
-    // where
-    //     Self: LayoutWidth,
-    //     T: HasWidth,
-    // {
-    //     let old = self.width();
-    //     let new = df.width();
-    //     if new != old {
-    //         return Err(OldNewDataframeMismatchError { old, new });
-    //     }
-    //     Ok(())
-    // }
-
     fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors>;
 
     // Check that generic dataframe won't cause data loss errors with a new
@@ -2843,7 +2831,7 @@ pub trait WithPrimitiveDataFrame {
     {
         let d = df.clone().into();
         self.check_data_loss(&d)?;
-        self.check_width(&d)?;
+        self.check_width(&d, "new dataframe")?;
         Ok(())
     }
 }
@@ -3005,7 +2993,7 @@ where
         &self,
         df: PrimitiveDataFrame,
     ) -> Result<Self::DfTarget, DataSchemaToDataFrameError> {
-        self.check_width(&df)?;
+        self.check_width(&df, "new dataframe")?;
         let rs = self
             .container
             .iter()

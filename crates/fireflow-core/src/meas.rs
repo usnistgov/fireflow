@@ -8,9 +8,9 @@ use crate::core::{TrimmedKeywords, Versioned};
 use crate::data::{
     self, CastSeriesErrors, ConvertFromLayout, DataFrameAsDataSchema, DataFrameCheckRanges as _,
     DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
-    LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutInsertScaleCheck, LayoutNormalize,
-    LayoutRemove, LayoutWidth, MeasLayoutMismatchError, MeasurementsWithLayoutError,
-    OldNewDataframeMismatchError, OverrangeColumn, ReadCheckedDataframeError,
+    LayoutConvertError, LayoutDatatype, LayoutInsert, LayoutInsertScaleCheck,
+    LayoutLengthMismatchError, LayoutNormalize, LayoutRemove, LayoutWidth, MeasLayoutMismatchError,
+    MeasurementsWithLayoutError, OverrangeColumn, ReadCheckedDataframeError,
     ReadCheckedDataframeWarning, ReadDataFrameResult, ScaleColumnDatatypeMismatchError,
     ScaleDatatypeMismatchErrors, VersionedDataFrame, VersionedDataSchema, WithPrimitiveDataFrame,
 };
@@ -918,7 +918,7 @@ pub enum SetUnnamedMeasurementsError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetUnnamedMeasurementsAndDataSchemaError {
-    New(OldNewDataframeMismatchError),
+    New(LayoutLengthMismatchError),
     Set(SetValuesError),
 }
 
@@ -3205,7 +3205,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
     pub fn set_scales(&mut self, scales: Vec<X>) -> ErrorsResult<(), (), SetScalesError>
     where
         X: Copy + CheckedScaleTransform,
-        L: LayoutDatatype,
+        L: LayoutDatatype + LayoutWidth,
     {
         let center_scale_not_linear = || {
             self.meta
@@ -3764,7 +3764,7 @@ where
         L: LayoutWidth + LayoutDatatype + LayoutNormalize,
     {
         // Check that new measurements and schema have same width
-        layout.check_width(&measurements)?;
+        layout.check_width(&measurements, "new measurements")?;
         // Check that new measurements have same length as old
         self.meta
             .set_values(self.add_scales(measurements).collect())?;
@@ -3791,7 +3791,7 @@ where
 
     fn validate(&self, msg: &'static str)
     where
-        L: LayoutDatatype,
+        L: LayoutDatatype + LayoutWidth,
     {
         assert!(
             self.data.check_measmeta_scales_and_len(&self.meta).is_ok(),
@@ -3985,7 +3985,7 @@ where
     {
         // Check that new measurements and schema have same width
         data_schema
-            .check_width(&measurements)
+            .check_width(&measurements, "new measurements")
             .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
         // This checks for data loss due to type conversions in the dataframe.
         data_schema.check_data_loss_generic(&self.data)?;

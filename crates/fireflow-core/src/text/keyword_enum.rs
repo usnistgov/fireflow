@@ -235,11 +235,9 @@ pub enum OptOpticalKeyword<'a> {
     Analyte(NEStringKeyword1<'a, kws::Analyte>),
     OpticalType(NEStringKeyword1<'a, kws::OpticalType>),
     Wavelengths(SplitKeyword<DKey1<kws::Wavelengths>, kws::NEWavelengths<'a>>),
-    Scale(SplitKeyword1<kws::Scale>),
     Power(SplitKeyword1<kws::Power>),
     PercentEmitted(SplitKeyword1<kws::PercentEmitted>),
     DetectorVoltage(SplitKeyword1<kws::DetectorVoltage>),
-    Gain(SplitKeyword1<kws::Gain>),
     Wavelength(SplitKeyword1<kws::Wavelength>),
     Display(SplitKeyword1<kws::Display>),
     Feature(RefKeyword1<'a, kws::Feature>),
@@ -1008,9 +1006,7 @@ impl OptOpticalKeyword<'_> {
             | Self::Power(_)
             | Self::PercentEmitted(_)
             | Self::DetectorVoltage(_)
-            | Self::Longname(_)
-            | Self::Gain(_)
-            | Self::Scale(_) => return None,
+            | Self::Longname(_) => return None,
         };
         Some(ret)
     }
@@ -1031,27 +1027,37 @@ impl OptOpticalKeyword<'_> {
             Self::Power(kw) => KeyLossError(kw.key).into(),
             Self::PercentEmitted(kw) => KeyLossError(kw.key).into(),
             Self::DetectorVoltage(kw) => KeyLossError(kw.key).into(),
-            // $PnE and $PnG are dealt with here because the temporal structs
-            // don't actually hold anything for scale and gain since these values
-            // are always the same.
-            //
-            // $PnE must always be linear for temporal measurement
-            Self::Scale(kw) => {
-                let i = kw.key.index().into();
-                return (!matches!(kw.value, kws::Scale::Linear))
-                    .then_some(NonLinearScaleError(i).into());
-            }
-            // $PnG must be 1.0 if it exists since temporal measurement does not
-            // have gain
-            Self::Gain(kw) => {
-                let i = kw.key.index().into();
-                return (!kw.value.0.is_one()).then_some(NonUnitGainError(i).into());
-            }
             // These are shared b/t temporal and optical so cannot result in
             // loss.
             Self::Peak(_) | Self::Display(_) | Self::Longname(_) => return None,
         };
         Some(ret)
+    }
+}
+
+impl OptScaledOpticalKeyword<'_> {
+    pub(crate) fn as_temporal_loss_error(&self) -> Option<AnyOpticalToTemporalKeyLossError> {
+        match self {
+            Self::Optical(x) => x.as_temporal_loss_error(),
+            Self::Scale(x) => match x {
+                // $PnE and $PnG are dealt with here because the temporal
+                // structs don't actually hold anything for scale and gain since
+                // these values are always the same.
+                //
+                // $PnE must always be linear for temporal measurement
+                OptScaleKeyword::Scale(kw) => {
+                    let i = kw.key.index().into();
+                    (!matches!(kw.value, kws::Scale::Linear))
+                        .then_some(NonLinearScaleError(i).into())
+                }
+                // $PnG must be 1.0 if it exists since temporal measurement does
+                // not have gain
+                OptScaleKeyword::Gain(kw) => {
+                    let i = kw.key.index().into();
+                    (!kw.value.0.is_one()).then_some(NonUnitGainError(i).into())
+                }
+            },
+        }
     }
 }
 

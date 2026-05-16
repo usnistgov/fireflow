@@ -1549,10 +1549,11 @@ pub trait TemporalFromOptical<O: OpticalKeywords>: Sized {
         ScaledOptical<X, O>,
         AllowLoss,
         OpticalToTemporalErrors,
-    > {
-        // TODO this won't check xform, need to impl opt keywords on scaledoptical
+    >
+    where
+        X: OpticalScaleKeywords,
+    {
         let es = opt
-            .inner
             .opt_keywords(i)
             .filter_map(|x| x.as_temporal_loss_error());
 

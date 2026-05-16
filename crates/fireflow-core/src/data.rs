@@ -121,7 +121,7 @@ use crate::macros::def_summary;
 use crate::match_many_to_one;
 use crate::meas::{
     CheckedScaleTransform, MeasMeta, ScaleDatatypeMismatchError, VMeasMeta,
-    VNamedTemporalsAndOpticalsWithScale, VersionLayoutSet, wrap_scaled_opticals,
+    VNamedTemporalsAndOpticalsWithScale, VersionMeasSet, wrap_scaled_opticals,
 };
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
@@ -1598,6 +1598,8 @@ pub enum MeasLayoutMismatchError {
     Scale(ScaleDatatypeMismatchErrors),
 }
 
+// TODO make these sane by wrapping old and new in Newtypes and changing the
+// message bases on that; there are too many "length a vs length b" errors
 /// Error when measurement vector is not the same length as columns in DATA/dataframe
 #[derive(Debug, Error)]
 #[error("new and old dataframes have different widths ({old} vs {new})")]
@@ -1607,14 +1609,6 @@ pub struct OldNewDataframeMismatchError {
     old: usize,
     new: usize,
 }
-
-// /// Error when scales do not match datatypes in layout.
-// #[derive(From, Display, Debug, Error)]
-// #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-// pub enum ScaleDatatypeMismatchError {
-//     Scale(ScaleMismatchErrors),
-//     ScaleTransform(ScaleTransformMismatchErrors),
-// }
 
 /// Error when measurement vector and layout have different lengths.
 #[derive(Debug, Error)]
@@ -2297,7 +2291,7 @@ pub trait LayoutDatatype: Sized {
     /// 3. length must match the data schema
     /// 4. transforms in metadata must match data schema
     #[allow(clippy::type_complexity)]
-    fn try_new_measmeta<V: VersionLayoutSet>(
+    fn try_new_measmeta<V: VersionMeasSet>(
         &self,
         measurements: VNamedTemporalsAndOpticalsWithScale<V>,
     ) -> Result<VMeasMeta<V>, MeasurementsWithLayoutError>

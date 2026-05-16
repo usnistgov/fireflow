@@ -2830,7 +2830,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let name_ret = by_name_doc.ret_path();
     let index_ret = by_index_doc.ret_path();
 
-    let scale2_path = quote!(fireflow_core::meas::OpticalTransform2_0::none());
+    let scale2_path = quote!(fireflow_core::meas::OpticalScale2_0::none());
     let e = quote!(fireflow_core::text::named_vec::Element);
 
     let map_meas2 = quote! {
@@ -6964,7 +6964,7 @@ impl<E> PyOpt<E> {
 
 impl<E: From<PyException>> PyOpt<E> {
     fn new_scale2_0() -> Self {
-        let path = parse_quote! {fireflow_core::meas::OpticalTransform2_0};
+        let path = parse_quote! {fireflow_core::meas::OpticalScale2_0};
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
         let inner = PyUnion::new2(
@@ -7207,7 +7207,7 @@ impl<E: From<PyException>> PyUnion<E> {
     }
 
     fn new_scale3_0() -> Self {
-        let path = parse_quote! {fireflow_core::meas::OpticalTransform3_0};
+        let path = parse_quote! {fireflow_core::meas::OpticalScale3_0};
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
         // TODO the linear gain should also be positive

@@ -48,7 +48,7 @@ use crate::meas::{
     TemporalMaybeToOptical, TemporalsAndOpticals2_0, TemporalsAndOpticals3_0,
     TemporalsAndOpticals3_1, TemporalsAndOpticals3_2, VNamedTemporalOrOpticalWithScale,
     VNamedTemporalsAndOpticalsWithScale, VNamedTemporalsAndScaledOpticals,
-    VTemporalOrOpticalWithScale, VTemporalsAndOpticals, VersionLayoutSet, impl_ref_specific_ro,
+    VTemporalOrOpticalWithScale, VTemporalsAndOpticals, VersionMeasSet, impl_ref_specific_ro,
     impl_ref_specific_rw,
 };
 use crate::segment::{
@@ -963,18 +963,17 @@ pub(crate) type VersionedCore<A, L, O, V> = Core<
     L,
     O,
     <V as VersionSet>::RootMeta,
-    <V as VersionLayoutSet>::Temporal,
-    <V as VersionLayoutSet>::Optical,
-    <V as VersionLayoutSet>::Xform,
-    <V as VersionLayoutSet>::Name,
+    <V as VersionMeasSet>::Temporal,
+    <V as VersionMeasSet>::Optical,
+    <V as VersionMeasSet>::OpticalScale,
+    <V as VersionMeasSet>::Name,
     V,
 >;
 
-pub(crate) type VersionedCoreTEXT<V> =
-    VersionedCore<(), <V as VersionLayoutSet>::DataSchema, (), V>;
+pub(crate) type VersionedCoreTEXT<V> = VersionedCore<(), <V as VersionMeasSet>::DataSchema, (), V>;
 
 pub(crate) type VersionedCoreDataset<V> =
-    VersionedCore<Analysis, <V as VersionLayoutSet>::DataFrame, Others, V>;
+    VersionedCore<Analysis, <V as VersionMeasSet>::DataFrame, Others, V>;
 
 /// Reader for ANALYSIS segment
 #[derive(new)]
@@ -1899,7 +1898,7 @@ impl_versioned!(InnerTemporal3_2, Version3_2);
 
 // Implement mapping between FCS version and all metadata types
 
-pub trait VersionSet: VersionLayoutSet {
+pub trait VersionSet: VersionMeasSet {
     type RootMeta: VersionedRootMeta;
     type Offsets: LookupTEXTOffsets<TotDef = <Self::DataSchema as VersionedDataSchema>::Tot>;
 }
@@ -4013,7 +4012,7 @@ where
         &mut self,
         name: V::Name,
         opt: Optical<V::Optical>,
-        scale: V::Xform,
+        scale: V::OpticalScale,
         data_column: C,
     ) -> GroupResult<Shortname, PushOpticalError<<L as LayoutInsert<C>>::Error>, PushOpticalSummary>
     where
@@ -4033,7 +4032,7 @@ where
         i: MeasIndex,
         name: V::Name,
         opt: Optical<V::Optical>,
-        scale: V::Xform,
+        scale: V::OpticalScale,
         data_column: C,
     ) -> GroupResult<
         Shortname,
@@ -4617,7 +4616,7 @@ where
     }
 
     /// Return scale keywords
-    pub fn scales(&self) -> impl Iterator<Item = V::Xform> {
+    pub fn scales(&self) -> impl Iterator<Item = V::OpticalScale> {
         self.meas.scales()
     }
 
@@ -4676,7 +4675,7 @@ where
     /// Set scale keywords
     pub fn set_scales(
         &mut self,
-        scales: Vec<V::Xform>,
+        scales: Vec<V::OpticalScale>,
     ) -> GroupResult<(), SetScalesError, SetScalesSummary>
     where
         L: LayoutDatatype,
@@ -4743,7 +4742,7 @@ where
         Vf::RootMeta: ConvertFromMetaroot<V::RootMeta>,
         Vf::Optical: ConvertFromOptical<V::Optical>,
         Vf::Temporal: ConvertFromTemporal<V::Temporal>,
-        Vf::Xform: ConvertFromScale<V::Xform>,
+        Vf::OpticalScale: ConvertFromScale<V::OpticalScale>,
         Vf::Name: MightHave<Shortname> + Clone + ConvertFromShortname<V::Name>,
         // TODO technically normalize shouldn't be needed here but it won't hurt anything
         Lf: ConvertFromLayout<L> + LayoutNormalize,
@@ -4770,7 +4769,7 @@ where
     }
 
     /// Get reference to measurement vector.
-    pub fn measurements(&self) -> &MeasMeta<V::Name, V::Temporal, V::Optical, V::Xform> {
+    pub fn measurements(&self) -> &MeasMeta<V::Name, V::Temporal, V::Optical, V::OpticalScale> {
         self.meas.measurements()
     }
 
@@ -4924,7 +4923,7 @@ where
         &mut self,
         name: V::Name,
         opt: Optical<V::Optical>,
-        scale: V::Xform,
+        scale: V::OpticalScale,
         data_column: C,
     ) -> ErrorsResult<Shortname, (), PushOpticalError<L::Error>>
     where
@@ -4944,7 +4943,7 @@ where
         i: MeasIndex,
         name: V::Name,
         opt: Optical<V::Optical>,
-        scale: V::Xform,
+        scale: V::OpticalScale,
         data_column: C,
     ) -> ErrorsResult<Shortname, (), InsertOpticalError<L::Error>>
     where
@@ -5795,7 +5794,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// If allow_dropping is true, remove keywords with invalid relationships.
     fn check_relationships(
         metaroot: &mut RootMeta<V::RootMeta>,
-        measurements: &MeasMeta<V::Name, V::Temporal, V::Optical, V::Xform>,
+        measurements: &MeasMeta<V::Name, V::Temporal, V::Optical, V::OpticalScale>,
         demote: bool,
     ) -> ErrorsResult<(), (), BrokenOrDependentLinkError> {
         let ns = measurements.named_set();

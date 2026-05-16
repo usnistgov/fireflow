@@ -1036,7 +1036,7 @@ pub(crate) type TemporalsAndOpticals3_2 = VNamedTemporalsAndOpticalsWithScale<Ve
 
 pub trait VersionLayoutSet: HasVersion {
     type Optical: OpticalKeywords;
-    type Temporal: VersionedTemporal;
+    type Temporal: TemporalKeywords + TemporalMaybeToOptical;
     type Name: MightHave<Shortname>;
     type Xform: Default + Copy + CheckedScaleTransform + LookupOpticalScale + OpticalScaleKeywords;
     type DataSchema: VersionedDataSchema;
@@ -1317,23 +1317,14 @@ impl OpticalKeywords for InnerOptical3_2 {
 
 // Implement common methods to manipulate temporal keywords
 
-// TODO split this into keywords trait + other stuff
-pub trait VersionedTemporal: Sized + Versioned {
-    type Warning;
-    type Error;
-
+pub trait TemporalKeywords: Sized + Versioned {
     fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>>;
 
     fn opt_meas_keywords_inner(&self, i: MeasIndex)
     -> impl Iterator<Item = OptTemporalKeyword<'_>>;
-
-    fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error>;
 }
 
-impl VersionedTemporal for InnerTemporal2_0 {
-    type Warning = Nothing<()>;
-    type Error = Infallible;
-
+impl TemporalKeywords for InnerTemporal2_0 {
     fn req_meas_keywords_inner(&self, _: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
         None
     }
@@ -1347,16 +1338,9 @@ impl VersionedTemporal for InnerTemporal2_0 {
         let ps = self.peak.opt_keywords(i).map(OptTemporalKeyword::from);
         ps.chain(s)
     }
-
-    fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
-        Ok(())
-    }
 }
 
-impl VersionedTemporal for InnerTemporal3_0 {
-    type Warning = Nothing<()>;
-    type Error = Infallible;
-
+impl TemporalKeywords for InnerTemporal3_0 {
     fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
         Some(ReqMeasKeyword::from_value(TemporalScale3_0::default(), i))
     }
@@ -1368,16 +1352,9 @@ impl VersionedTemporal for InnerTemporal3_0 {
         let ps = self.peak.opt_keywords(i).map(OptTemporalKeyword::from);
         ps.chain(once(OptTemporalKeyword::from_timestep(self.timestep)))
     }
-
-    fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
-        Ok(())
-    }
 }
 
-impl VersionedTemporal for InnerTemporal3_1 {
-    type Warning = Nothing<()>;
-    type Error = Infallible;
-
+impl TemporalKeywords for InnerTemporal3_1 {
     fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
         Some(ReqMeasKeyword::from_value(TemporalScale3_0::default(), i))
     }
@@ -1391,16 +1368,9 @@ impl VersionedTemporal for InnerTemporal3_1 {
         let t = OptTemporalKeyword::from_timestep(self.timestep);
         ps.chain(d).chain(once(t))
     }
-
-    fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
-        Ok(())
-    }
 }
 
-impl VersionedTemporal for InnerTemporal3_2 {
-    type Warning = Option<AnyTemporalToOpticalKeyLossError>;
-    type Error = AnyTemporalToOpticalKeyLossError;
-
+impl TemporalKeywords for InnerTemporal3_2 {
     fn req_meas_keywords_inner(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>> {
         Some(ReqMeasKeyword::from_value(TemporalScale3_0::default(), i))
     }
@@ -1413,6 +1383,47 @@ impl VersionedTemporal for InnerTemporal3_2 {
         let t = OptTemporalKeyword::from_timestep(self.timestep);
         d.into_iter().chain(once(t))
     }
+}
+
+// Implement trait to test if temporal can be converted to optical
+
+pub trait TemporalMaybeToOptical: Sized + Versioned {
+    type Warning;
+    type Error;
+
+    fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error>;
+}
+
+impl TemporalMaybeToOptical for InnerTemporal2_0 {
+    type Warning = Nothing<()>;
+    type Error = Infallible;
+
+    fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl TemporalMaybeToOptical for InnerTemporal3_0 {
+    type Warning = Nothing<()>;
+    type Error = Infallible;
+
+    fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl TemporalMaybeToOptical for InnerTemporal3_1 {
+    type Warning = Nothing<()>;
+    type Error = Infallible;
+
+    fn can_convert_to_optical(&self, _: MeasIndex) -> Result<(), Self::Error> {
+        Ok(())
+    }
+}
+
+impl TemporalMaybeToOptical for InnerTemporal3_2 {
+    type Warning = Option<AnyTemporalToOpticalKeyLossError>;
+    type Error = AnyTemporalToOpticalKeyLossError;
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error> {
         OptTemporalKeyword::from_opt_zst(self.measurement_type, i)
@@ -1423,7 +1434,7 @@ impl VersionedTemporal for InnerTemporal3_2 {
 
 // Implement common method to swap optical and temporal measurement
 
-pub trait SwapOpticalWithTemporal<T: VersionedTemporal>: Sized + OpticalKeywords {
+pub trait SwapOpticalWithTemporal<T: TemporalKeywords>: Sized + OpticalKeywords {
     /// Swap convert a temporal and optical channel into the other.
     ///
     /// This is necessary to have in one function since we may want to recover
@@ -1594,7 +1605,7 @@ impl TemporalFromOptical<InnerOptical3_2> for InnerTemporal3_2 {
 
 // Implement method to convert temporal -> optical conversion
 
-pub trait OpticalFromTemporal<T: VersionedTemporal>: Sized {
+pub trait OpticalFromTemporal<T: TemporalMaybeToOptical>: Sized {
     type TData;
     type LossFlag;
 
@@ -1997,7 +2008,7 @@ impl LookupOptical for InnerOptical3_2 {
 type LookupTemporalResult<V> =
     WarningsAndErrorsResult<V, (), LookupTemporalWarning, LookupTemporalError>;
 
-pub trait LookupTemporal: VersionedTemporal {
+pub trait LookupTemporal: TemporalKeywords {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
@@ -2430,7 +2441,7 @@ impl ConvertFromOptical<InnerOptical3_1> for InnerOptical3_2 {
 
 type TemporalConvertResult<M> = DeferredSwitchableErrors<M, AllowLoss, AnyTemporalKeyLossError>;
 
-pub trait ConvertFromTemporal<T: VersionedTemporal>: Sized + VersionedTemporal {
+pub trait ConvertFromTemporal<T: TemporalKeywords>: Sized + TemporalKeywords {
     fn convert_from_temporal_inner(value: T) -> Self;
 
     fn convert_from_temporal(
@@ -2772,7 +2783,7 @@ impl<X, O> ScaledOptical<X, O> {
         SwapOpticalTemporalErrors,
     >
     where
-        T: VersionedTemporal,
+        T: TemporalKeywords,
         O: SwapOpticalWithTemporal<T>,
     {
         let (new_i, new_o) = new;
@@ -3104,7 +3115,7 @@ impl<T> Temporal<T> {
 
     pub(crate) fn req_meas_keywords(&self, i: MeasIndex) -> Option<ReqMeasKeyword<'_>>
     where
-        T: VersionedTemporal,
+        T: TemporalKeywords,
     {
         self.specific.req_meas_keywords_inner(i)
     }
@@ -3114,7 +3125,7 @@ impl<T> Temporal<T> {
         i: MeasIndex,
     ) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>>
     where
-        T: VersionedTemporal,
+        T: TemporalKeywords,
     {
         let cs = self
             .common
@@ -3130,7 +3141,7 @@ impl<T> Temporal<T> {
 
     fn opt_meas_keywords(&self, i: MeasIndex) -> impl Iterator<Item = OptTemporalKeyword<'_>>
     where
-        T: VersionedTemporal,
+        T: TemporalKeywords,
     {
         OptTemporalKeyword::from_str(&self.common.longname, i)
             .into_iter()
@@ -3140,7 +3151,7 @@ impl<T> Temporal<T> {
     fn try_convert<ToT>(self, i: MeasIndex, flag: AllowLoss) -> TemporalConvertResult<Temporal<ToT>>
     where
         ToT: ConvertFromTemporal<T>,
-        T: VersionedTemporal,
+        T: TemporalKeywords,
     {
         ToT::convert_from_temporal(self.specific, i, flag)
             .map_deferred_value(|specific| Temporal::new(self.common, specific))

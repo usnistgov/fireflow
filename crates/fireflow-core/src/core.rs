@@ -45,10 +45,11 @@ use crate::meas::{
     SetScalesSummary, SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
     SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
-    TemporalsAndOpticals2_0, TemporalsAndOpticals3_0, TemporalsAndOpticals3_1,
-    TemporalsAndOpticals3_2, VNamedTemporalOrOpticalWithScale, VNamedTemporalsAndOpticalsWithScale,
-    VNamedTemporalsAndScaledOpticals, VTemporalOrOpticalWithScale, VTemporalsAndOpticals,
-    VersionLayoutSet, VersionedTemporal, impl_ref_specific_ro, impl_ref_specific_rw,
+    TemporalMaybeToOptical, TemporalsAndOpticals2_0, TemporalsAndOpticals3_0,
+    TemporalsAndOpticals3_1, TemporalsAndOpticals3_2, VNamedTemporalOrOpticalWithScale,
+    VNamedTemporalsAndOpticalsWithScale, VNamedTemporalsAndScaledOpticals,
+    VTemporalOrOpticalWithScale, VTemporalsAndOpticals, VersionLayoutSet, impl_ref_specific_ro,
+    impl_ref_specific_rw,
 };
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
@@ -3938,7 +3939,7 @@ where
     ) -> Option<<V::Optical as OpticalFromTemporal<V::Temporal>>::TData>
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = ()>,
-        V::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
+        V::Temporal: TemporalMaybeToOptical<Warning = Nothing<()>, Error = Infallible>,
     {
         self.meas
             .unset_temporal(|i, old_t| V::Optical::from_temporal(old_t, i, ()))
@@ -3961,7 +3962,7 @@ where
     >
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = AllowLoss>,
-        V::Temporal: VersionedTemporal<
+        V::Temporal: TemporalMaybeToOptical<
                 Warning = Option<AnyTemporalToOpticalKeyLossError>,
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
@@ -4100,7 +4101,7 @@ where
     ) -> Result<VTemporalOrOpticalWithScale<V>, SetCenterError>
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = ()>,
-        V::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
+        V::Temporal: TemporalMaybeToOptical<Warning = Nothing<()>, Error = Infallible>,
     {
         self.meas.replace_temporal_at_nofail(index, m, |i, old_t| {
             V::Optical::from_temporal(old_t, i, ())
@@ -4124,7 +4125,7 @@ where
     >
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = AllowLoss>,
-        V::Temporal: VersionedTemporal<
+        V::Temporal: TemporalMaybeToOptical<
                 Warning = Option<AnyTemporalToOpticalKeyLossError>,
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
@@ -4145,7 +4146,7 @@ where
     ) -> Result<VTemporalOrOpticalWithScale<V>, NameNotFoundError>
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = ()>,
-        V::Temporal: VersionedTemporal<Warning = Nothing<()>, Error = Infallible>,
+        V::Temporal: TemporalMaybeToOptical<Warning = Nothing<()>, Error = Infallible>,
     {
         self.meas
             .replace_temporal_by_name_nofail(name, m, |i, old_t| {
@@ -4170,7 +4171,7 @@ where
     >
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = AllowLoss>,
-        V::Temporal: VersionedTemporal<
+        V::Temporal: TemporalMaybeToOptical<
                 Warning = Option<AnyTemporalToOpticalKeyLossError>,
                 Error = AnyTemporalToOpticalKeyLossError,
             >,

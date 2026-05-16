@@ -2257,7 +2257,7 @@ pub trait LayoutDatatype: Sized {
     ///
     /// 1. length must match the data schema
     /// 2. transforms in metadata must match data schema
-    fn check_measmeta_xforms_and_len<Name, Tmp, Opt, Xform>(
+    fn check_measmeta_scales_and_len<Name, Tmp, Opt, Xform>(
         &self,
         meas: &MeasMeta<Name, Tmp, Opt, Xform>,
     ) -> Result<(), MeasLayoutMismatchError>
@@ -2270,7 +2270,7 @@ pub trait LayoutDatatype: Sized {
     }
 
     /// Check that meas metadata is compatible with this data schema (no length).
-    fn check_measmeta_xforms<Name, Tmp, Opt, Xform>(
+    fn check_measmeta_scales<Name, Tmp, Opt, Xform>(
         &self,
         meas: &MeasMeta<Name, Tmp, Opt, Xform>,
     ) -> Result<(), ScaleDatatypeMismatchErrors>
@@ -2299,7 +2299,7 @@ pub trait LayoutDatatype: Sized {
         Self: LayoutWidth,
     {
         let nv = NamedVec::try_new(wrap_scaled_opticals::<V>(measurements))?;
-        self.check_measmeta_xforms_and_len(&nv)
+        self.check_measmeta_scales_and_len(&nv)
             .map_err(MeasurementsWithLayoutError::from)?;
         Ok(nv)
     }

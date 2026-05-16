@@ -200,7 +200,7 @@ pub struct ScaledOptical<X, O> {
     #[as_ref(forward)]
     #[as_mut(forward)]
     inner: Optical<O>,
-    xform: X,
+    scale: X,
 }
 
 /// Structured data for optical keywords.
@@ -593,8 +593,8 @@ pub enum LookupScaledOpticalWarning {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalError {
-    Xform(ScaleTransformError),
-    Scale(ReqIndexedStKeyError<Scale>),
+    New(NewOpticalScaleError),
+    Lookup(ReqIndexedStKeyError<Scale>),
     Warn(LookupOpticalWarning),
 }
 
@@ -619,8 +619,8 @@ pub enum LookupOpticalWarning {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupScaleError {
-    Xform(ScaleTransformError),
-    Scale(ReqIndexedStKeyError<Scale>),
+    New(NewOpticalScaleError),
+    Lookup(ReqIndexedStKeyError<Scale>),
     Warn(LookupScaleWarning),
 }
 
@@ -642,7 +642,7 @@ pub enum LookupScaleWarning {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct ScaleTransformError {
+pub struct NewOpticalScaleError {
     scale: Scale,
     gain: Gain,
 }
@@ -979,10 +979,6 @@ type VTemporal<V> = Temporal<<V as VersionMeasSet>::Temporal>;
 type VOptical<V> = Optical<<V as VersionMeasSet>::Optical>;
 type VScaledOptical<V> =
     ScaledOptical<<V as VersionMeasSet>::OpticalScale, <V as VersionMeasSet>::Optical>;
-// type VOpticalWithScale<V> = (
-//     Optical<<V as VersionLayoutSet>::Optical>,
-//     <V as VersionLayoutSet>::Xform,
-// );
 
 type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;
 
@@ -2667,7 +2663,7 @@ impl<X, O> ScaledOptical<X, O> {
     }
 
     pub fn scale(&self) -> &X {
-        &self.xform
+        &self.scale
     }
 
     pub(crate) fn new_identity(inner: Optical<O>) -> Self
@@ -2710,7 +2706,7 @@ impl<X, O> ScaledOptical<X, O> {
         O: OpticalKeywords,
         X: OpticalScaleKeywords,
     {
-        self.xform.req_keywords(i)
+        self.scale.req_keywords(i)
     }
 
     pub(crate) fn opt_keywords(
@@ -2726,7 +2722,7 @@ impl<X, O> ScaledOptical<X, O> {
             .opt_keywords(i)
             .map(OptScaledOpticalKeyword::from);
         let ss = self
-            .xform
+            .scale
             .opt_keywords(i)
             .map(OptScaledOpticalKeyword::from);
         os.chain(ss)
@@ -2768,7 +2764,7 @@ impl<X, O> ScaledOptical<X, O> {
             .try_convert(i, flag)
             .map_commutative_warnings(ScaledOpticalConvertWarning::from)
             .map_errors(ScaledOpticalConvertError::from);
-        let new_scale = Xf::convert_from_scale(self.xform, i, flag)
+        let new_scale = Xf::convert_from_scale(self.scale, i, flag)
             .map_commutative_warnings(ScaledOpticalConvertWarning::from)
             .map_errors(ScaledOpticalConvertError::from)
             .into_semigroup();
@@ -2794,7 +2790,7 @@ impl<X, O> ScaledOptical<X, O> {
     {
         let (new_i, new_o) = new;
         O::swap_optical_temporal(old, (new_i, new_o.inner), allow_loss)
-            .inject_value(new_o.xform)
+            .inject_value(new_o.scale)
             .map_ok_value(|((o, t), s)| (Self::new(o, s), t))
             .map_err_value(|((t, o), s)| (t, Self::new(o, s)))
     }
@@ -3184,7 +3180,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
         // TODO not DRY, used in lots of scale checks for the named vec
         self.meta
             .iter()
-            .map(|m| m.both(|_| X::default(), |o| o.value.xform))
+            .map(|m| m.both(|_| X::default(), |o| o.value.scale))
     }
 
     // TODO lots of allocations, there should be a better way to do this
@@ -3222,15 +3218,14 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
         };
 
         let l = &self.data;
-        let xforms = scales.iter().copied();
-        l.check_transforms_and_len(xforms)
+        l.check_transforms_and_len(scales.iter().copied())
             .map_err(SetScalesError::from)
             .into_nowarn()
             .eval_deferred_error(|()| center_scale_not_linear())
             .when_ok(|| {
                 assert_eq_len!(scales.len(), self.meta.len(), "scales", "measurements");
                 self.meta
-                    .alter_values_zip(scales, |_, _| (), |m, x| m.value.xform = x)
+                    .alter_values_zip(scales, |_, _| (), |m, x| m.value.scale = x)
                     .unwrap();
             })
     }
@@ -3471,7 +3466,7 @@ where
         let ret = self
             .meta
             .replace_at(index, ScaledOptical::new_identity(value))?;
-        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
     pub(crate) fn replace_named(
@@ -3482,7 +3477,7 @@ where
         let ret = self
             .meta
             .replace_named(name, ScaledOptical::new_identity(value))?;
-        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
     pub(crate) fn replace_temporal_at_nofail<F>(
@@ -3498,7 +3493,7 @@ where
         let ret = self
             .meta
             .replace_center_at_nofail(index, value, to_scaled_opt)?;
-        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
     pub(crate) fn replace_temporal_at<F, LWC, RWC, E, EC>(
@@ -3520,7 +3515,7 @@ where
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
         self.meta
             .replace_center_at(index, value, to_scaled_opt)
-            .map_ok_value(|ret| ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
+            .map_ok_value(|ret| ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
     pub(crate) fn replace_temporal_by_name_nofail<F>(
@@ -3536,7 +3531,7 @@ where
         let ret = self
             .meta
             .replace_center_by_name_nofail(n, value, to_scaled_opt)?;
-        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
+        Ok(ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
     pub(crate) fn replace_temporal_by_name<F, LWC, RWC, E, EC>(
@@ -3558,7 +3553,7 @@ where
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
         self.meta
             .replace_center_by_name(n, value, to_scaled_opt)
-            .map_ok_value(|ret| ret.bimap_once(|t| t, |o| (o.inner, o.xform)))
+            .map_ok_value(|ret| ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
     pub(crate) fn push_temporal_inner<C>(
@@ -3685,7 +3680,7 @@ where
     {
         let (i, e) = self.meta.remove_name(name)?;
         let r = self.data.remove_nocheck(i);
-        let m = e.bimap_once(|t| t, |o| (o.inner, o.xform));
+        let m = e.bimap_once(|t| t, |o| (o.inner, o.scale));
         Ok((i, m, r))
     }
 
@@ -3698,7 +3693,7 @@ where
     {
         let p = self.meta.remove_index(index)?;
         let r = self.data.remove_nocheck(index);
-        let m = p.bimap_once(|t| t, |o| o.second_once(|v| (v.inner, v.xform)));
+        let m = p.bimap_once(|t| t, |o| o.second_once(|v| (v.inner, v.scale)));
         Ok((m, r))
     }
 
@@ -3797,7 +3792,7 @@ where
         L: LayoutDatatype,
     {
         assert!(
-            self.data.check_measmeta_xforms_and_len(&self.meta).is_ok(),
+            self.data.check_measmeta_scales_and_len(&self.meta).is_ok(),
             "{msg}",
         );
     }
@@ -3842,7 +3837,7 @@ where
                 // Check that new metadata and schema have compatible scales and
                 // datatypes. Length is assumed to be fine (see assert above)
                 data_schema
-                    .check_measmeta_xforms(&meas)
+                    .check_measmeta_scales(&meas)
                     .map_err(LookupMeasError::from)
                     .into_log()
                     .map_ok_value(|()| {
@@ -3867,7 +3862,7 @@ where
                 // Check that schema and measurements have compatible length
                 // and scale/datatypes.
                 data_schema
-                    .check_measmeta_xforms_and_len(&meas)
+                    .check_measmeta_scales_and_len(&meas)
                     .map_err(NewMeasError::from)
                     .into_log()
                     .map_ok_value(|()| {
@@ -3884,7 +3879,7 @@ where
     ) -> Result<(), MeasLayoutMismatchError> {
         // Ensure that new schema has same length and compatible datatypes
         // compared to existing measurements.
-        data_schema.check_measmeta_xforms_and_len(&self.meta)?;
+        data_schema.check_measmeta_scales_and_len(&self.meta)?;
         self.set_layout_inner(data_schema);
         self.validate("inputs should have matching length and scale/datatype");
         Ok(())
@@ -3969,7 +3964,7 @@ where
     {
         // Ensure new data schema has matching length and datatypes compared
         // to existing measurements.
-        data_schema.check_measmeta_xforms_and_len(&self.meta)?;
+        data_schema.check_measmeta_scales_and_len(&self.meta)?;
         // Check for any data loss that may happen within the dataframe itself.
         data_schema.check_data_loss_generic(&self.data)?;
         self.set_data_schema_unchecked(data_schema);
@@ -4118,7 +4113,7 @@ impl From<OpticalScale3_0> for (Scale, Option<Gain>) {
 }
 
 impl TryFrom<(Scale, Option<Gain>)> for OpticalScale3_0 {
-    type Error = ScaleTransformError;
+    type Error = NewOpticalScaleError;
 
     /// Convert values for $PnE and $PnG to a scale transform (3.0+)
     ///
@@ -4135,7 +4130,7 @@ impl TryFrom<(Scale, Option<Gain>)> for OpticalScale3_0 {
                 if let Some(g) = gain
                     && !g.0.is_one()
                 {
-                    return Err(ScaleTransformError { scale, gain: g });
+                    return Err(NewOpticalScaleError { scale, gain: g });
                 }
                 Ok(Self::Log(l))
             }

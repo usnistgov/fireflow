@@ -223,7 +223,7 @@ use {
 #[new(visibility(""))]
 // NOTE fields are private since metaroot, measurements, and data schema are all
 // related to each other and must be kept in sync
-pub struct Core<Analysis, Layout, Other, Root, Temporal, Optical, Xform, Name, Version> {
+pub struct Core<Analysis, Layout, Other, Root, Temporal, Optical, Scale, Name, Version> {
     /// Metaroot TEXT keywords.
     ///
     /// This includes all keywords that are not part of measurements or the data
@@ -231,7 +231,7 @@ pub struct Core<Analysis, Layout, Other, Root, Temporal, Optical, Xform, Name, V
     rootmeta: RootMeta<Root>,
 
     /// Measurement TEXT keywords and DATA if applicable.
-    meas: CoreMeasurements<Layout, Temporal, Optical, Xform, Name, Version>,
+    meas: CoreMeasurements<Layout, Temporal, Optical, Scale, Name, Version>,
 
     /// ANALYSIS segment (if applicable)
     analysis: Analysis,
@@ -3678,8 +3678,8 @@ impl CoreTEXT3_2 {
     }
 }
 
-impl<Anal, Layout, Other, Root, Tmp, Opt, Xform, Name, Ver>
-    Core<Anal, Layout, Other, Root, Tmp, Opt, Xform, Name, Ver>
+impl<Anal, Layout, Other, Root, Tmp, Opt, Scale, Name, Ver>
+    Core<Anal, Layout, Other, Root, Tmp, Opt, Scale, Name, Ver>
 {
     /// Return $PAR, which is simply the number of measurements in this struct
     pub fn par(&self) -> Par {

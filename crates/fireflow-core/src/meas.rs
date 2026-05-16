@@ -470,6 +470,13 @@ impl Default for OpticalTransform2_0 {
     }
 }
 
+impl OpticalTransform2_0 {
+    #[must_use]
+    pub fn none() -> Self {
+        Self(None)
+    }
+}
+
 /// A scale transform derived from $PnE/$PnG.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]

@@ -2766,7 +2766,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
-    let meas = PyUnion::new_measurement_with_scale(version);
+    let meas = PyUnion::new_measurement(version);
     let rng = PyUnion::new_full_range();
     let int_widths = PyOpt::new1(PyLiteral::new_integer_width());
     let col_type = PyOpt::new1(PyLiteral::new_column_type());
@@ -2788,10 +2788,12 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 .add(meas.clone())
                 .add(rng.clone())
         };
+        let scale3 = PyOpt::new1(PyUnion::new_scale3_0());
         let ret = match version {
-            Version::FCS2_0 | Version::FCS3_0 => pre_ret,
-            Version::FCS3_1 => pre_ret.add(int_widths.clone()),
-            Version::FCS3_2 => pre_ret.add(col_type.clone()),
+            Version::FCS2_0 => pre_ret.add(PyOpt::new_scale2_0()),
+            Version::FCS3_0 => pre_ret.add(scale3),
+            Version::FCS3_1 => pre_ret.add(scale3).add(int_widths.clone()),
+            Version::FCS3_2 => pre_ret.add(scale3).add(col_type.clone()),
         };
 
         let (which, argname) = if is_index {
@@ -2828,9 +2830,15 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let name_ret = by_name_doc.ret_path();
     let index_ret = by_index_doc.ret_path();
 
-    // NOTE this needs the temporal | (optical | scale) return type bound to 'm'
-    let map_meas = quote! {
-        type_families::BifunctorOnce::bimap_once(m, Into::into, |(o, s)| (o.into(), s))
+    let scale2_path = quote!(fireflow_core::meas::OpticalTransform2_0::none());
+    let e = quote!(fireflow_core::text::named_vec::Element);
+
+    let map_meas2 = quote! {
+        both(|t| (#e::Center(t.into()), #scale2_path), |(o, s)| (#e::NonCenter(o.into()), s))
+    };
+
+    let map_meas3 = quote! {
+        both(|t| (#e::Center(t.into()), None), |(o, s)| (#e::NonCenter(o.into()), Some(s)))
     };
 
     // split the range into FullRange (either float or int) and its type if it
@@ -2844,37 +2852,59 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     // This only applies to 3.1 and 3.2
     let name_mapper = if is_dataset {
         match version {
-            Version::FCS2_0 | Version::FCS3_0 => quote! {
-                |(i, m, c, r)| (i, #map_meas, c.into(), r)
+            Version::FCS2_0 => quote! {
+                |(i, m, c, r)| {
+                    let (mm, s) = m.#map_meas2;
+                    (i, mm, c.into(), r, s)
+                }
+            },
+            Version::FCS3_0 => quote! {
+                |(i, m, c, r)| {
+                    let (mm, s) = m.#map_meas3;
+                    (i, mm, c.into(), r, s)
+                }
             },
             Version::FCS3_1 => quote! {
                 |(i, m, c, r)| {
                     let (rr, t) = split_bitmask_range(r);
-                    (i, #map_meas, c.into(), rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (i, mm, c.into(), rr, s, t)
                 }
             },
             Version::FCS3_2 => quote! {
                 |(i, m, c, r)| {
                     let (rr, t) = split_mixed_range(r);
-                    (i, #map_meas, c.into(), rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (i, mm, c.into(), rr, s, t)
                 }
             },
         }
     } else {
         match version {
-            Version::FCS2_0 | Version::FCS3_0 => quote! {
-                |(i, m, r)| (i, #map_meas, r)
+            Version::FCS2_0 => quote! {
+                |(i, m, r)| {
+                    let (mm, s) = m.#map_meas2;
+                    (i, mm, r, s)
+                }
+            },
+            Version::FCS3_0 => quote! {
+                |(i, m, r)| {
+                    let (mm, s) = m.#map_meas3;
+                    (i, mm, r, s)
+                }
             },
             Version::FCS3_1 => quote! {
                 |(i, m, r)| {
                     let (rr, t) = split_bitmask_range(r);
-                    (i, #map_meas, rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (i, mm, rr, s, t)
                 }
             },
             Version::FCS3_2 => quote! {
                 |(i, m, r)| {
                     let (rr, t) = split_mixed_range(r);
-                    (i, #map_meas, rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (i, mm, rr, s, t)
                 }
             },
         }
@@ -2882,47 +2912,67 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
 
     let index_mapper = if is_dataset {
         match version {
-            Version::FCS2_0 | Version::FCS3_0 => quote! {
+            Version::FCS2_0 => quote! {
                 |(p, c, r)| {
                     let (n, m) = p.unzip();
-                    (n, #map_meas, c.into(), r)
+                    let (mm, s) = m.#map_meas2;
+                    (n, mm, c.into(), r, s)
+                }
+            },
+            Version::FCS3_0 => quote! {
+                |(p, c, r)| {
+                    let (n, m) = p.unzip();
+                    let (mm, s) = m.#map_meas3;
+                    (n, mm, c.into(), r, s)
                 }
             },
             Version::FCS3_1 => quote! {
                 |(p, c, r)| {
                     let (n, m) = p.unzip();
                     let (rr, t) = split_bitmask_range(r);
-                    (n, #map_meas, c.into(), rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (n, mm, c.into(), rr, s, t)
                 }
             },
             Version::FCS3_2 => quote! {
                 |(p, c, r)| {
                     let (n, m) = p.unzip();
                     let (rr, t) = split_mixed_range(r);
-                    (n, #map_meas, c.into(), rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (n, mm, c.into(), rr, s, t)
                 }
             },
         }
     } else {
         match version {
-            Version::FCS2_0 | Version::FCS3_0 => quote! {
+            Version::FCS2_0 => quote! {
                 |(p, r)| {
                     let (n, m) = p.unzip();
-                    (n, #map_meas, r)
+                    let (mm, s) = m.#map_meas2;
+                    (n, mm, r, s)
+                }
+            },
+            Version::FCS3_0 => quote! {
+                |(p, r)| {
+                    let (n, m) = p.unzip();
+                    let (mm, s) = m.#map_meas3;
+                    (n, mm, r, s)
                 }
             },
             Version::FCS3_1 => quote! {
                 |(p, r)| {
                     let (n, m) = p.unzip();
                     let (rr, t) = split_bitmask_range(r);
-                    (n, #map_meas, rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (n, mm, rr, s, t)
                 }
             },
             Version::FCS3_2 => quote! {
                 |(p, r)| {
                     let (n, m) = p.unzip();
                     let (rr, t) = split_mixed_range(r);
-                    (n, #map_meas, rr, t)
+                    let (mm, s) = m.#map_meas3;
+                    (n, mm, rr, s, t)
                 }
             },
         }

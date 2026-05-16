@@ -1942,9 +1942,9 @@ class TestCore:
         """
         assert len(core.measurements) == 2
         core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
-        n0, m0, r0, t0 = core.remove_measurement_by_index(0)
+        n0, m0, r0, s0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
-        n1, m1, r1, t1 = core.remove_measurement_by_index(0)
+        n1, m1, r1, s1, t1 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
@@ -1980,9 +1980,9 @@ class TestCore:
         """
         assert len(core.measurements) == 2
         core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
-        n0, m0, c0, r0, t0 = core.remove_measurement_by_index(0)
+        n0, m0, c0, r0, s0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
-        n1, m1, c1, r1, t1 = core.remove_measurement_by_index(0)
+        n1, m1, c1, r1, s1, t1 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
@@ -2005,9 +2005,9 @@ class TestCore:
         """
         assert len(text2_3_2.measurements) == 2
         text2_3_2.data_schema = pf.MixedDataSchema([("F32", 1000.0), ("U32", 2000)])
-        n0, m0, r0, t0 = text2_3_2.remove_measurement_by_index(0)
+        n0, m0, r0, s0, t0 = text2_3_2.remove_measurement_by_index(0)
         assert isinstance(text2_3_2.data_schema, pf.SingleUintDataSchema)
-        n1, m1, r1, t1 = text2_3_2.remove_measurement_by_index(0)
+        n1, m1, r1, s1, t1 = text2_3_2.remove_measurement_by_index(0)
         assert isinstance(text2_3_2.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
@@ -2028,9 +2028,9 @@ class TestCore:
         """
         assert len(dataset2_3_2.measurements) == 2
         dataset2_3_2.data_schema = pf.MixedDataSchema([("F32", 1000.0), ("U32", 2000)])
-        n0, m0, c0, r0, t0 = dataset2_3_2.remove_measurement_by_index(0)
+        n0, m0, c0, r0, s0, t0 = dataset2_3_2.remove_measurement_by_index(0)
         assert isinstance(dataset2_3_2.data_schema, pf.SingleUintDataSchema)
-        n1, m1, c1, r1, t1 = dataset2_3_2.remove_measurement_by_index(0)
+        n1, m1, c1, r1, s1, t1 = dataset2_3_2.remove_measurement_by_index(0)
         assert isinstance(dataset2_3_2.data_schema, pf.SingleUintDataSchema)
         assert n0 == LINK_NAME1
         assert n1 == LINK_NAME2
@@ -2136,6 +2136,7 @@ class TestCore:
         """Test replacing optical measurement at index."""
         ln = "I am not living"
         optical.longname = ln
+        # TODO test return type
         core.replace_optical_at(0, optical)
         core.measurement_at(0).longname == ln
 
@@ -2159,6 +2160,7 @@ class TestCore:
         """Test replacing optical measurement with a given $PnN."""
         ln = "I'm asleep"
         optical.longname = ln
+        # TODO test return type
         core.replace_optical_named(LINK_NAME1, optical)
         core.measurement_at(0).longname == ln
 
@@ -2182,6 +2184,7 @@ class TestCore:
         """Test replacing temporal measurement at index."""
         ln = "show me wut u got"
         temporal.longname = ln
+        # TODO test return type
         core.replace_temporal_at(1, temporal)
         core.measurement_at(1).longname == ln
 
@@ -2205,6 +2208,7 @@ class TestCore:
         """Test replacing temporal measurement with given $PnN."""
         ln = "the combination is... 1. 2. 3. 4. 5."
         temporal.longname = ln
+        # TODO test return type
         core.replace_temporal_named(LINK_NAME2, temporal)
         core.measurement_at(1).longname == ln
 
@@ -2802,10 +2806,27 @@ class TestCore:
         ],
     )
     def test_ordered_set_measurements(
-        self, core: AnyCoreTEXT | AnyCoreDataset, optical: Any
+        self, core: AnyCoreTEXT | AnyCoreDataset, optical: AnyOptical
     ) -> None:
         """Test set method for named measurements."""
-        core.set_named_measurements([(LINK_NAME1, optical)], False, False)
+        if (
+            isinstance(core, pf.CoreTEXT2_0) or isinstance(core, pf.CoreDataset2_0)
+        ) and isinstance(optical, pf.Optical2_0):
+            core.set_named_measurements([(LINK_NAME1, optical, ())], False, False)
+        elif (
+            isinstance(core, pf.CoreTEXT3_0) or isinstance(core, pf.CoreDataset3_0)
+        ) and isinstance(optical, pf.Optical3_0):
+            core.set_named_measurements([(LINK_NAME1, optical, 1.0)], False, False)
+        elif (
+            isinstance(core, pf.CoreTEXT3_1) or isinstance(core, pf.CoreDataset3_1)
+        ) and isinstance(optical, pf.Optical3_1):
+            core.set_named_measurements([(LINK_NAME1, optical, 1.0)], False, False)
+        elif (
+            isinstance(core, pf.CoreTEXT3_2) or isinstance(core, pf.CoreDataset3_2)
+        ) and isinstance(optical, pf.Optical3_2):
+            core.set_named_measurements([(LINK_NAME1, optical, 1.0)], False, False)
+        else:
+            assert False
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -2822,15 +2843,28 @@ class TestCore:
     def test_ordered_set_measurements_and_data_schema(
         self,
         core: pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        optical: Any,
+        optical: pf.Optical2_0 | pf.Optical3_0,
     ) -> None:
         """Test set method for named measurements and data schema at once (2.0/3.0)."""
         assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
         assert core.data_schema.byte_width == 4
         new = pf.OrderedUintDataSchema([1], byte_width=8)
-        core.set_named_measurements_and_data_schema(
-            [(LINK_NAME1, optical)], new, False, False
-        )
+
+        if (
+            isinstance(core, pf.CoreTEXT2_0) or isinstance(core, pf.CoreDataset2_0)
+        ) and isinstance(optical, pf.Optical2_0):
+            core.set_named_measurements_and_data_schema(
+                [(LINK_NAME1, optical, ())], new, False, False
+            )
+        elif (
+            isinstance(core, pf.CoreTEXT3_0) or isinstance(core, pf.CoreDataset3_0)
+        ) and isinstance(optical, pf.Optical3_0):
+            core.set_named_measurements_and_data_schema(
+                [(LINK_NAME1, optical, 1.0)], new, False, False
+            )
+        else:
+            assert False
+
         assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
         assert core.data_schema.byte_width == 8
 
@@ -2849,14 +2883,27 @@ class TestCore:
     def test_endian_set_measurements_and_data_schema(
         self,
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2 | pf.CoreDataset3_1 | pf.CoreDataset3_2,
-        optical: Any,
+        optical: pf.Optical3_1 | pf.Optical3_2,
     ) -> None:
         """Test set method for named measurements and data schema at once (3.1/3.2)."""
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         new = pf.BigLittleF32DataSchema([1])
-        core.set_named_measurements_and_data_schema(
-            [(LINK_NAME1, optical)], new, False, False
-        )
+
+        if (
+            isinstance(core, pf.CoreTEXT3_1) or isinstance(core, pf.CoreDataset3_1)
+        ) and isinstance(optical, pf.Optical3_1):
+            core.set_named_measurements_and_data_schema(
+                [(LINK_NAME1, optical, 1.0)], new, False, False
+            )
+        elif (
+            isinstance(core, pf.CoreTEXT3_2) or isinstance(core, pf.CoreDataset3_2)
+        ) and isinstance(optical, pf.Optical3_2):
+            core.set_named_measurements_and_data_schema(
+                [(LINK_NAME1, optical, 1.0)], new, False, False
+            )
+        else:
+            assert False
+
         assert isinstance(core.data_schema, pf.BigLittleF32DataSchema)
 
     @pytest.mark.parametrize(
@@ -2873,14 +2920,29 @@ class TestCore:
     )
     def test_set_measurements_and_data(
         self,
-        core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        optical: Any,
+        core: AnyCoreDataset,
+        optical: AnyOptical,
         series2: pl.Series,
     ) -> None:
         """Test set method for named measurements and data at once."""
-        core.set_named_measurements_and_data(
-            [(LINK_NAME1, optical)], pl.DataFrame([series2]), False, False
-        )
+        if isinstance(core, pf.CoreDataset2_0) and isinstance(optical, pf.Optical2_0):
+            core.set_named_measurements_and_data(
+                [(LINK_NAME1, optical, ())], pl.DataFrame([series2]), False, False
+            )
+        elif isinstance(core, pf.CoreDataset3_0) and isinstance(optical, pf.Optical3_0):
+            core.set_named_measurements_and_data(
+                [(LINK_NAME1, optical, 1.0)], pl.DataFrame([series2]), False, False
+            )
+        elif isinstance(core, pf.CoreDataset3_1) and isinstance(optical, pf.Optical3_1):
+            core.set_named_measurements_and_data(
+                [(LINK_NAME1, optical, 1.0)], pl.DataFrame([series2]), False, False
+            )
+        elif isinstance(core, pf.CoreDataset3_2) and isinstance(optical, pf.Optical3_2):
+            core.set_named_measurements_and_data(
+                [(LINK_NAME1, optical, 1.0)], pl.DataFrame([series2]), False, False
+            )
+        else:
+            assert False
 
     @pytest.mark.parametrize(
         "core, optical, temporal",

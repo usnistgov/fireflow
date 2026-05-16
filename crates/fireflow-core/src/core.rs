@@ -49,11 +49,11 @@ use crate::meas::{
     SetScalesSummary, SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
     SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
-    TemporalMaybeToOptical, TemporalsAndOpticals2_0, TemporalsAndOpticals3_0,
-    TemporalsAndOpticals3_1, TemporalsAndOpticals3_2, VNamedTemporalOrOpticalWithScale,
+    TemporalMaybeToOptical, TemporalsAndOpticalsWithScale2_0, TemporalsAndOpticalsWithScale3_0,
+    TemporalsAndOpticalsWithScale3_1, TemporalsAndOpticalsWithScale3_2,
     VNamedTemporalsAndOpticalsWithScale, VNamedTemporalsAndScaledOpticals,
-    VTemporalOrOpticalWithScale, VTemporalsAndOpticals, VersionMeasSet, impl_ref_specific_ro,
-    impl_ref_specific_rw,
+    VPairedTemporalOrOpticalWithScale, VTemporalOrOpticalWithScale, VTemporalsAndOpticals,
+    VersionMeasSet, impl_ref_specific_ro, impl_ref_specific_rw,
 };
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
@@ -3387,7 +3387,7 @@ impl CoreTEXT2_0 {
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn try_new_2_0(
-        measurements: TemporalsAndOpticals2_0,
+        measurements: TemporalsAndOpticalsWithScale2_0,
         data_schema: DataSchema2_0,
         mode: Mode,
         cyt: Cyt,
@@ -3445,7 +3445,7 @@ impl CoreTEXT3_0 {
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn try_new_3_0(
-        measurements: TemporalsAndOpticals3_0,
+        measurements: TemporalsAndOpticalsWithScale3_0,
         data_schema: DataSchema3_0,
         mode: Mode,
         cyt: Cyt,
@@ -3517,7 +3517,7 @@ impl CoreTEXT3_1 {
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn try_new_3_1(
-        measurements: TemporalsAndOpticals3_1,
+        measurements: TemporalsAndOpticalsWithScale3_1,
         data_schema: DataSchema3_1,
         mode: Mode,
         cyt: Cyt,
@@ -3597,7 +3597,7 @@ impl CoreTEXT3_2 {
     #[allow(clippy::too_many_arguments)]
     #[must_use]
     pub fn try_new_3_2(
-        measurements: TemporalsAndOpticals3_2,
+        measurements: TemporalsAndOpticalsWithScale3_2,
         data_schema: DataSchema3_2,
         cyt: Cyt3_2,
         mode: Option<Mode3_2>,
@@ -4873,7 +4873,7 @@ where
     fn remove_measurement_by_index_inner<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, C), RemoveMeasByIndexError>
+    ) -> Result<(VPairedTemporalOrOpticalWithScale<V>, C), RemoveMeasByIndexError>
     where
         L: LayoutRemove<C>,
     {
@@ -5774,7 +5774,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, R), RemoveMeasByIndexError>
+    ) -> Result<(VPairedTemporalOrOpticalWithScale<V>, R), RemoveMeasByIndexError>
     where
         V::DataSchema: LayoutRemove<R>,
     {
@@ -6291,7 +6291,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     pub fn remove_measurement_by_index<R>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, AnyPrimitiveSeries, R), RemoveMeasByIndexError>
+    ) -> Result<(VPairedTemporalOrOpticalWithScale<V>, AnyPrimitiveSeries, R), RemoveMeasByIndexError>
     where
         V::DataFrame: LayoutRemove<RangeAndSeries<R>>,
     {

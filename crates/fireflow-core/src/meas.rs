@@ -130,27 +130,20 @@ pub struct CoreMeasurements<L, T, O, X, N, V> {
     _version: PhantomData<V>,
 }
 
-pub type Optical2_0 = Optical<InnerOptical2_0>;
-pub type Optical3_0 = Optical<InnerOptical3_0>;
-pub type Optical3_1 = Optical<InnerOptical3_1>;
-pub type Optical3_2 = Optical<InnerOptical3_2>;
+pub type Optical2_0 = VOptical<Version2_0>;
+pub type Optical3_0 = VOptical<Version3_0>;
+pub type Optical3_1 = VOptical<Version3_1>;
+pub type Optical3_2 = VOptical<Version3_2>;
 
-pub type Temporal2_0 = Temporal<InnerTemporal2_0>;
-pub type Temporal3_0 = Temporal<InnerTemporal3_0>;
-pub type Temporal3_1 = Temporal<InnerTemporal3_1>;
-pub type Temporal3_2 = Temporal<InnerTemporal3_2>;
+pub type Temporal2_0 = VTemporal<Version2_0>;
+pub type Temporal3_0 = VTemporal<Version3_0>;
+pub type Temporal3_1 = VTemporal<Version3_1>;
+pub type Temporal3_2 = VTemporal<Version3_2>;
 
-pub type MeasMeta2_0 =
-    MeasMeta<Option<Shortname>, InnerTemporal2_0, InnerOptical2_0, OpticalScale2_0>;
-
-pub type MeasMeta3_0 =
-    MeasMeta<Option<Shortname>, InnerTemporal3_0, InnerOptical3_0, OpticalScale3_0>;
-
-pub type MeasMeta3_1 =
-    MeasMeta<Identity<Shortname>, InnerTemporal3_1, InnerOptical3_1, OpticalScale3_0>;
-
-pub type MeasMeta3_2 =
-    MeasMeta<Identity<Shortname>, InnerTemporal3_2, InnerOptical3_2, OpticalScale3_0>;
+pub(crate) type TemporalsAndOpticalsWithScale2_0 = VNamedTemporalsAndOpticalsWithScale<Version2_0>;
+pub(crate) type TemporalsAndOpticalsWithScale3_0 = VNamedTemporalsAndOpticalsWithScale<Version3_0>;
+pub(crate) type TemporalsAndOpticalsWithScale3_1 = VNamedTemporalsAndOpticalsWithScale<Version3_1>;
+pub(crate) type TemporalsAndOpticalsWithScale3_2 = VNamedTemporalsAndOpticalsWithScale<Version3_2>;
 
 pub(crate) type MeasMeta<N, T, O, X> = NamedVec<N, Temporal<T>, ScaledOptical<X, O>>;
 
@@ -970,13 +963,13 @@ pub struct NonIdentityTemporalScaleError;
 type VersionedMeasurements<V> =
     NamedVec<<V as VersionMeasSet>::Name, VTemporal<V>, VScaledOptical<V>>;
 
-// type VersionedElement<V> = Element<VTemporal<V>, VOptical<V>>;
-
 type VElementWithScale<V> =
     Element<VTemporal<V>, (VOptical<V>, <V as VersionMeasSet>::OpticalScale)>;
 
 type VTemporal<V> = Temporal<<V as VersionMeasSet>::Temporal>;
+
 type VOptical<V> = Optical<<V as VersionMeasSet>::Optical>;
+
 type VScaledOptical<V> =
     ScaledOptical<<V as VersionMeasSet>::OpticalScale, <V as VersionMeasSet>::Optical>;
 
@@ -984,52 +977,33 @@ pub(crate) type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;
 
 pub(crate) type TemporalOrOpticalWithScale<T, O, S> = Element<Temporal<T>, (Optical<O>, S)>;
 
-type TemporalsAndOpticals<T, O> = Vec<TemporalOrOptical<T, O>>;
-
 type TemporalOrScaledOptical<T, S, O> = Element<Temporal<T>, ScaledOptical<S, O>>;
-
-type NamedTemporalOrOpticalWithScale<K, T, S, O> =
-    Element<(Shortname, Temporal<T>), (K, Optical<O>, S)>;
-
-pub type NamedTemporalsAndOpticalsWithScale<K, T, S, O> =
-    Vec<NamedTemporalOrOpticalWithScale<K, T, S, O>>;
-
-// type TemporalsAndScaledOpticals<T, S, O> = Vec<TemporalOrScaledOptical<T, S, O>>;
 
 pub(crate) type VTemporalOrOptical<V> = Element<VTemporal<V>, VOptical<V>>;
 
 pub(crate) type VTemporalOrOpticalWithScale<V> =
     Element<VTemporal<V>, (VOptical<V>, <V as VersionMeasSet>::OpticalScale)>;
 
-pub(crate) type VNamedTemporalOrOpticalWithScale<V> = Element<
+pub(crate) type VPairedTemporalOrOpticalWithScale<V> = Element<
     Pair<Shortname, VTemporal<V>>,
     Pair<<V as VersionMeasSet>::Name, (VOptical<V>, <V as VersionMeasSet>::OpticalScale)>,
 >;
 
-// pub(crate) type VNamedTemporalOrOptical<V> =
-//     EitherPair<<V as VersionLayoutSet>::Name, VTemporal<V>, VOptical<V>>;
-
 pub(crate) type VTemporalsAndOpticals<V> = Vec<VTemporalOrOptical<V>>;
 
-// TODO dry me off
-pub(crate) type VNamedTemporalsAndOpticalsWithScale<V> = Vec<
-    Element<
-        (Shortname, VTemporal<V>),
-        (
-            <V as VersionMeasSet>::Name,
-            VOptical<V>,
-            <V as VersionMeasSet>::OpticalScale,
-        ),
-    >,
+pub(crate) type VNamedTemporalOrOpticalWithScale<V> = Element<
+    (Shortname, VTemporal<V>),
+    (
+        <V as VersionMeasSet>::Name,
+        VOptical<V>,
+        <V as VersionMeasSet>::OpticalScale,
+    ),
 >;
+
+pub(crate) type VNamedTemporalsAndOpticalsWithScale<V> = Vec<VNamedTemporalOrOpticalWithScale<V>>;
 
 pub(crate) type VNamedTemporalsAndScaledOpticals<V> =
     Eithers<<V as VersionMeasSet>::Name, VTemporal<V>, VScaledOptical<V>>;
-
-pub(crate) type TemporalsAndOpticals2_0 = VNamedTemporalsAndOpticalsWithScale<Version2_0>;
-pub(crate) type TemporalsAndOpticals3_0 = VNamedTemporalsAndOpticalsWithScale<Version3_0>;
-pub(crate) type TemporalsAndOpticals3_1 = VNamedTemporalsAndOpticalsWithScale<Version3_1>;
-pub(crate) type TemporalsAndOpticals3_2 = VNamedTemporalsAndOpticalsWithScale<Version3_2>;
 
 // Implement version mapping for types that belong together
 
@@ -3187,7 +3161,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
 
     fn add_scales(
         &self,
-        measurements: TemporalsAndOpticals<T, O>,
+        measurements: impl IntoIterator<Item = TemporalOrOptical<T, O>>,
     ) -> impl Iterator<Item = TemporalOrScaledOptical<T, X, O>>
     where
         X: Default + Copy,
@@ -3688,7 +3662,7 @@ where
     pub(crate) fn remove_measurement_by_index<C>(
         &mut self,
         index: MeasIndex,
-    ) -> Result<(VNamedTemporalOrOpticalWithScale<V>, C), ElementIndexError>
+    ) -> Result<(VPairedTemporalOrOpticalWithScale<V>, C), ElementIndexError>
     where
         L: LayoutRemove<C>,
     {

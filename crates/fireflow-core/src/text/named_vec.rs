@@ -950,7 +950,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             .any(|e| e.both(|_| false, |v| K::as_opt(&v.key).is_some_and(|n| n == &name)))
         {
             return Err(NamePresentError { name });
-        };
+        }
         Ok(self
             .center_right
             .as_mut()

@@ -2811,6 +2811,13 @@ pub trait VersionedRootMeta: Sized + Versioned {
     /// Everything after `index` must be incremented by 1.
     fn insert_meas_index_inner(&mut self, i: MeasIndex);
 
+    /// Update linked indices in keywords after inserting a new measurement.
+    ///
+    /// Everything after `index` must be decremented by 1.
+    ///
+    /// Caller is assumed to have checked that nothing points to `i`.
+    fn remove_meas_index_inner(&mut self, i: MeasIndex);
+
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>>;
 
     fn keywords_opt_inner(&self) -> impl Iterator<Item = OptRootKeyword<'_>>;
@@ -2874,6 +2881,13 @@ impl VersionedRootMeta for InnerRootMeta2_0 {
         if let Some(x) = self.comp.as_mut() {
             x.0.insert_identity_by_index_unchecked(i);
         }
+    }
+
+    fn remove_meas_index_inner(&mut self, _: MeasIndex) {
+        assert!(
+            self.comp.is_none(),
+            "tried to remove indices while $COMP present"
+        );
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
@@ -2970,6 +2984,14 @@ impl VersionedRootMeta for InnerRootMeta3_0 {
         self.applied_gates.shift_meas_indices_after_insert(i);
     }
 
+    fn remove_meas_index_inner(&mut self, i: MeasIndex) {
+        assert!(
+            self.comp.is_none(),
+            "tried to remove indices while $COMP present"
+        );
+        self.applied_gates.shift_meas_indices_after_remove(i);
+    }
+
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
         once(ReqRootKeyword::from_value(self.mode))
     }
@@ -3055,6 +3077,10 @@ impl VersionedRootMeta for InnerRootMeta3_1 {
 
     fn insert_meas_index_inner(&mut self, i: MeasIndex) {
         self.applied_gates.shift_meas_indices_after_insert(i);
+    }
+
+    fn remove_meas_index_inner(&mut self, i: MeasIndex) {
+        self.applied_gates.shift_meas_indices_after_remove(i);
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
@@ -3159,6 +3185,10 @@ impl VersionedRootMeta for InnerRootMeta3_2 {
 
     fn insert_meas_index_inner(&mut self, i: MeasIndex) {
         self.applied_gates.shift_meas_indices_after_insert(i);
+    }
+
+    fn remove_meas_index_inner(&mut self, i: MeasIndex) {
+        self.applied_gates.shift_meas_indices_after_remove(i);
     }
 
     fn keywords_req_inner(&self) -> impl Iterator<Item = ReqRootKeyword<'_>> {
@@ -4954,6 +4984,7 @@ where
     {
         self.name_has_existing_links(name)?;
         let ret = self.meas.remove_measurement_by_name(name)?;
+        self.rootmeta.specific.remove_meas_index_inner(ret.0);
         Ok(ret)
     }
 
@@ -4966,6 +4997,7 @@ where
     {
         self.index_has_existing_links(index)?;
         let ret = self.meas.remove_measurement_by_index(index)?;
+        self.rootmeta.specific.remove_meas_index_inner(index);
         Ok(ret)
     }
 

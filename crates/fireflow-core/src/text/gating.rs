@@ -389,6 +389,15 @@ impl AppliedGates3_0 {
         self.scheme.shift_meas_indices_after_insert(i);
     }
 
+    /// Shift indices when a new measurement is removed.
+    ///
+    /// Measurement at `i` is assumed to be removed and should not have any
+    /// regions pointing to it. All regions with measurement indices greater
+    /// than i will be decremented by one.
+    pub(crate) fn shift_meas_indices_after_remove(&mut self, i: MeasIndex) {
+        self.scheme.shift_meas_indices_after_remove(i);
+    }
+
     pub(crate) fn remove_invalid_links(&mut self, par: Par) -> Vec<RemovedLink> {
         self.scheme.remove_invalid_links(par)
     }
@@ -452,6 +461,15 @@ impl AppliedGates3_2 {
     /// measurement indices greater than i will be incremented by one.
     pub(crate) fn shift_meas_indices_after_insert(&mut self, i: MeasIndex) {
         self.0.shift_meas_indices_after_insert(i);
+    }
+
+    /// Shift indices when a new measurement is removed.
+    ///
+    /// Measurement at `i` is assumed to be removed and should not have any
+    /// regions pointing to it. All regions with measurement indices greater
+    /// than i will be decremented by one.
+    pub(crate) fn shift_meas_indices_after_remove(&mut self, i: MeasIndex) {
+        self.0.shift_meas_indices_after_remove(i);
     }
 
     pub(crate) fn existing_link_errors(
@@ -605,6 +623,20 @@ impl<I> GatingScheme<I> {
     {
         for r in self.regions.values_mut() {
             r.shift_after_insert(i);
+        }
+    }
+
+    /// Shift indices when a new measurement is removed.
+    ///
+    /// Measurement at `i` is assumed to be removed and should not have any
+    /// regions pointing to it. All regions with measurement indices greater
+    /// than i will be decremented by one.
+    pub(crate) fn shift_meas_indices_after_remove(&mut self, i: MeasIndex)
+    where
+        I: LinkedMeasIndex,
+    {
+        for r in self.regions.values_mut() {
+            r.shift_after_remove(i);
         }
     }
 
@@ -965,6 +997,28 @@ impl<I> Region<I> {
         let go = |j: &mut MeasIndex| {
             let jx = usize::from(*j);
             *j = if jx >= ix { jx + 1 } else { jx }.into();
+        };
+        match self {
+            Self::Univariate(r) => r.index.meas_index_mut().map(go),
+            Self::Bivariate(r) => {
+                r.index.x.meas_index_mut().map(go);
+                r.index.y.meas_index_mut().map(go)
+            }
+        };
+    }
+
+    fn shift_after_remove(&mut self, i: MeasIndex)
+    where
+        I: LinkedMeasIndex,
+    {
+        let ix = usize::from(i);
+        let go = |j: &mut MeasIndex| {
+            let jx = usize::from(*j);
+            assert!(
+                jx != ix,
+                "removed index should not have any regions pointing to it"
+            );
+            *j = if jx > ix { jx - 1 } else { jx }.into();
         };
         match self {
             Self::Univariate(r) => r.index.meas_index_mut().map(go),

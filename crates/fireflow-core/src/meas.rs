@@ -994,6 +994,7 @@ type VScaledOptical<V> =
 
 pub(crate) type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;
 
+#[cfg(feature = "python")]
 pub(crate) type TemporalOrOpticalWithScale<T, O, S> = Element<Temporal<T>, (Optical<O>, S)>;
 
 type TemporalOrScaledOptical<T, S, O> = Element<Temporal<T>, ScaledOptical<S, O>>;

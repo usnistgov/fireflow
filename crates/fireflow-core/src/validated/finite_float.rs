@@ -167,7 +167,7 @@ pub struct DecimalToFloatError {
 impl DecimalToFloatError {
     pub(crate) fn over(&self) -> bool {
         let s = self.src.sign();
-        debug_assert!(s != Sign::NoSign, "error when zero");
+        assert!(s != Sign::NoSign, "error when zero");
         s == Sign::Plus
     }
 }

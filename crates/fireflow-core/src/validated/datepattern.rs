@@ -35,19 +35,19 @@ impl FromStr for DatePattern {
                     Numeric::Day => day += 1,
                     Numeric::Month => month += 1,
                     Numeric::Year | Numeric::YearMod100 => year += 1,
-                    Numeric::Internal(_) => debug_assert!(false, "this should never happen"),
+                    Numeric::Internal(_) => panic!("this should never happen"),
                     _ => invalid += 1,
                 },
                 Item::Fixed(y) => match y {
                     Fixed::LongMonthName | Fixed::ShortMonthName => month += 1,
-                    Fixed::Internal(_) => debug_assert!(false, "this should never happen"),
+                    Fixed::Internal(_) => panic!("this should never happen"),
                     _ => invalid += 1,
                 },
                 Item::OwnedLiteral(_) | Item::OwnedSpace(_) | Item::Literal(_) | Item::Space(_) => {
                 }
                 // No errors because we parsed above.
                 Item::Error => {
-                    debug_assert!(false, "this should never happen");
+                    panic!("this should never happen");
                 }
             }
         }

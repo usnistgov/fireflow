@@ -218,8 +218,8 @@ impl FixedAsciiRange {
         let i = dst_index.0;
         let width = usize::from(u8::from(self.chars()));
         let str_value = value.to_string();
-        debug_assert!(i + width <= dst.len(), "new value will overflow");
-        debug_assert!(str_value.len() <= width, "ASCII value will be truncated");
+        assert!(i + width <= dst.len(), "new value will overflow");
+        assert!(str_value.len() <= width, "ASCII value will be truncated");
         let n_zero = width - str_value.len();
         for d in &mut dst[i..i + n_zero] {
             *d = b'0';

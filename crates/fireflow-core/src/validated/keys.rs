@@ -761,8 +761,7 @@ impl NonStdKeywordsExt for NonStdKeywords {
         while self.contains_key(&k) {
             k.0.disambiguate();
         }
-        let ret = self.insert(k, value);
-        debug_assert!(ret.is_none(), "key not disambiguated");
+        assert!(self.insert(k, value).is_none(), "key not disambiguated");
     }
 }
 

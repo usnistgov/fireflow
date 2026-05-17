@@ -63,7 +63,7 @@ impl CompiledNonStdMeasPattern {
 impl LiteralNonStdMeasPattern {
     pub(crate) fn get_index(&self, k: &NonStdKey) -> Option<IndexFromOne> {
         let s: &str = k.as_ref();
-        debug_assert!(s.is_ascii(), "key is not ASCII");
+        assert!(s.is_ascii(), "key is not ASCII");
         // ASSUME prefix and suffix were converted to ASCII lowercase
         let bs = s.as_bytes();
         let prefix_len = self.prefix.len();
@@ -145,7 +145,7 @@ impl NonStdMeasPattern {
             };
             let prefix = go();
             let suffix = go();
-            debug_assert!(it.next().is_none(), "literal should have one %n");
+            assert!(it.next().is_none(), "literal should have one %n");
             let ret = LiteralNonStdMeasPattern { prefix, suffix };
             Ok(CompiledNonStdMeasPattern::Literal(ret))
         }

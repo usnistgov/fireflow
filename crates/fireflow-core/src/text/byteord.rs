@@ -227,16 +227,12 @@ impl PrivBytes {
             .and_then(|i| Self::try_from(i).ok())
             .unwrap_or(Self::B1)
     }
-
-    // pub(crate) const fn to_usize(self) -> usize {
-    //     self as usize
-    // }
 }
 
 impl<const LEN: usize> TryFrom<ArrayByteOrd<LEN>> for Endian {
     type Error = OrderedToEndianError;
     fn try_from(value: ArrayByteOrd<LEN>) -> Result<Self, Self::Error> {
-        debug_assert!(value.is_valid_order(), "invalid byte order");
+        assert!(value.is_valid_order(), "invalid byte order");
         match value.as_endian() {
             Some(e) => Ok(e),
             None => Err(OrderedToEndianError),
@@ -273,7 +269,7 @@ impl<const LEN: usize> TryFrom<[NonZeroU8; LEN]> for ArrayByteOrd<LEN> {
 
 impl<const LEN: usize> From<ArrayByteOrd<LEN>> for [NonZeroU8; LEN] {
     fn from(value: ArrayByteOrd<LEN>) -> Self {
-        debug_assert!(value.is_valid_order(), "invalid byte order");
+        assert!(value.is_valid_order(), "invalid byte order");
         value.0.map(|x| NonZeroU8::MIN.saturating_add(x))
     }
 }
@@ -285,7 +281,7 @@ where
 {
     type NE = NEDelim<NEVec<NonZeroU8>>;
     fn to_ne(&'a self) -> Self::NE {
-        debug_assert!(self.is_valid_order(), "invalid byte order");
+        assert!(self.is_valid_order(), "invalid byte order");
         let xs = <[NonZeroU8; LEN]>::from(*self);
         NEDelim::new(',', xs.into_nonempty_iter().collect())
     }
@@ -341,7 +337,7 @@ byteord_from_sized!(8, O8, B8);
 impl<const LEN: usize> ArrayByteOrd<LEN> {
     /// Convert to [`Endian`] if possible.
     pub fn as_endian(&self) -> Option<Endian> {
-        debug_assert!(self.is_valid_order(), "invalid byte order");
+        assert!(self.is_valid_order(), "invalid byte order");
         let mut it = self.0.iter().copied().map(usize::from);
         if it.by_ref().enumerate().all(|(i, x)| i == x) {
             Some(Endian::Little)
@@ -379,7 +375,7 @@ impl<const LEN: usize> Serialize for ArrayByteOrd<LEN> {
         Self: Into<[NonZeroU8; LEN]>,
         S: serde::Serializer,
     {
-        debug_assert!(self.is_valid_order(), "invalid byte order");
+        assert!(self.is_valid_order(), "invalid byte order");
         let xs: [NonZeroU8; LEN] = (*self).into();
         xs.to_vec().serialize(serializer)
     }

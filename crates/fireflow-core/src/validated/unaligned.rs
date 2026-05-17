@@ -306,7 +306,7 @@ fn prim_from_unaligned_be_bytes<
 >(
     bytes: &[u8; FILE_LEN],
 ) -> Prim {
-    debug_assert_len(FILE_LEN, MEM_LEN);
+    assert_len(FILE_LEN, MEM_LEN);
     let mut buf = [0; MEM_LEN];
     let b = MEM_LEN - FILE_LEN;
     buf[b..].copy_from_slice(bytes);
@@ -320,7 +320,7 @@ fn prim_from_unaligned_le_bytes<
 >(
     bytes: &[u8; FILE_LEN],
 ) -> Prim {
-    debug_assert_len(FILE_LEN, MEM_LEN);
+    assert_len(FILE_LEN, MEM_LEN);
     let mut buf = [0; MEM_LEN];
     buf[..FILE_LEN].copy_from_slice(bytes);
     Prim::from_le_bytes(&buf)
@@ -333,7 +333,7 @@ fn prim_to_unaligned_be_bytes<
 >(
     x: &Prim,
 ) -> [u8; FILE_LEN] {
-    debug_assert_len(FILE_LEN, MEM_LEN);
+    assert_len(FILE_LEN, MEM_LEN);
     let mut buf = [0; FILE_LEN];
     let b = MEM_LEN - FILE_LEN;
     buf.copy_from_slice(&x.to_be_bytes()[b..]);
@@ -347,13 +347,15 @@ fn prim_to_unaligned_le_bytes<
 >(
     x: &Prim,
 ) -> [u8; FILE_LEN] {
-    debug_assert_len(FILE_LEN, MEM_LEN);
+    assert_len(FILE_LEN, MEM_LEN);
     let mut buf = [0; FILE_LEN];
     buf.copy_from_slice(&x.to_le_bytes()[..FILE_LEN]);
     buf
 }
 
-fn debug_assert_len(file_len: usize, mem_len: usize) {
+fn assert_len(file_len: usize, mem_len: usize) {
+    // Needs to be debug_assert to ensure that no branches are left in
+    // read/write loops in release builds
     debug_assert!(
         mem_len >= file_len,
         "size in memory ({mem_len}) less than size in file ({file_len})",

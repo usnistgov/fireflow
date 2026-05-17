@@ -140,7 +140,7 @@ impl<const IS_READ: bool> RowBuffer<IS_READ> {
     ///
     /// This must be a debug assert so that there are no bounds checks (and
     /// therefore no jmp ops) in the main loop in release code.
-    fn debug_assert_in_bounds(&self, idx: usize, len: usize) {
+    fn assert_in_bounds(&self, idx: usize, len: usize) {
         debug_assert!(
             idx + len <= self.buf_size.u64_to_usize(),
             "need to read [{}..{}] but buffer is only {} bytes long",
@@ -252,7 +252,7 @@ impl ReadBuffer {
                 let local_c = &mut c[start_row..end_row];
                 for (row, value) in local_c.iter_mut().enumerate() {
                     let src_idx = SrcIndex(src_col_offset + self.row_width * row);
-                    self.debug_assert_in_bounds(src_idx.0, src_len);
+                    self.assert_in_bounds(src_idx.0, src_len);
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
                     // is row index (within the buffer) and C is column index.
                     // Both R and C must be less than the number of rows per
@@ -281,7 +281,7 @@ impl ReadBuffer {
             let local_c = &mut c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter_mut().enumerate() {
                 let src_idx = SrcIndex(src_col_offset + self.row_width * row);
-                self.debug_assert_in_bounds(src_idx.0, src_len);
+                self.assert_in_bounds(src_idx.0, src_len);
                 // SAFETY: see above
                 let buf = unsafe { T::array_from_slice(&self.bytes, &src_idx) };
                 *value = from_buf(&buf);
@@ -492,7 +492,7 @@ impl WriteBuffer {
                 let local_c = &c[start_row..end_row];
                 for (row, value) in local_c.iter().enumerate() {
                     let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
-                    self.debug_assert_in_bounds(dst_idx.0, dst_len);
+                    self.assert_in_bounds(dst_idx.0, dst_len);
                     let buf = to_buf(value);
                     // SAFETY: src_idx given as row_width * R + C * LEN where R
                     // is row index (within the buffer) and C is column index.
@@ -523,7 +523,7 @@ impl WriteBuffer {
             let local_c = &c[dst_row_offset..dst_row_offset + remainder_rows];
             for (row, value) in local_c.iter().enumerate() {
                 let dst_idx = DstIndex(dst_col_offset + self.row_width * row);
-                self.debug_assert_in_bounds(dst_idx.0, dst_len);
+                self.assert_in_bounds(dst_idx.0, dst_len);
                 let buf = to_buf(value);
                 // SAFETY: see above
                 unsafe {

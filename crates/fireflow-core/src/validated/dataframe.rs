@@ -1161,7 +1161,7 @@ impl<C> DataFrame<C> {
     where
         C: HasLen,
     {
-        debug_assert!(
+        assert!(
             self.check_new_series(&col).is_ok(),
             "new series length differs from number of rows"
         );
@@ -1177,7 +1177,7 @@ impl<C> DataFrame<C> {
     where
         C: HasLen,
     {
-        debug_assert!(
+        assert!(
             self.check_new_series(&col).is_ok(),
             "new series length differs from number of rows"
         );
@@ -1211,7 +1211,7 @@ impl<T, Raw> InternalSeries<T, Raw> {
     /// The caller must ensure that all the values in the series are valid
     /// bit configurations when cast into the raw type.
     unsafe fn as_raw_slice(&self) -> &[Raw] {
-        debug_assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
+        assert!(size_of::<T>() == size_of::<Raw>(), "type sizes don't match");
         let xs = self.inner.as_ref();
         let p = xs.as_ptr().cast::<Raw>();
         let n = xs.len();

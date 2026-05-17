@@ -122,7 +122,7 @@ impl UintSpacePad20 {
     ///
     /// Will panic if parsed digit is more than 20 digits long.
     pub(crate) fn from_bytes(bs: &[u8]) -> Result<i128, ParseFixedUintError> {
-        debug_assert!(bs.len() <= 20, "cannot parse more than 20 bytes");
+        assert!(bs.len() <= 20, "cannot parse more than 20 bytes");
         Ok(ascii_str_from_bytes(bs)?.trim_start().parse::<i128>()?)
     }
 }

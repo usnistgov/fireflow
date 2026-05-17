@@ -32,7 +32,7 @@ use crate::logging::{
     LogResult, ResultExt as _, Success, WarningAndGroupResult, WarningOrErrorResult,
     WarningsAndErrorsResult, WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::macros::def_summary;
+use crate::macros::{assert_eq_msg, def_summary};
 use crate::match_many_to_one;
 #[cfg(feature = "python")]
 use crate::meas::VTemporalOrOptical;
@@ -3401,10 +3401,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
         N: MightHave<Shortname>,
     {
         let n = cur_meas.len();
-        debug_assert!(
-            n == new_meas.len(),
-            "measurement vector are not same length"
-        );
+        assert_eq_msg!(n, new_meas.len(), "current measurement", "new measurements");
         let (js, ns) = cur_meas.all_indices_and_names_to_remove();
         let s = &self.specific;
         let named_errs: Vec<_> = if allow_shared_names {
@@ -5323,14 +5320,18 @@ where
         let req_layout = lt.req_meas_keywords();
         let opt_layout = lt.opt_meas_keywords();
 
-        debug_assert!(
-            req_layout.len() == opt_layout.len(),
-            "layout lengths not the same"
+        assert_eq_msg!(
+            req_layout.len(),
+            opt_layout.len(),
+            "required schema columns",
+            "optional schema columns"
         );
 
-        debug_assert!(
-            ms.len() == req_layout.len(),
-            "measurement length not equal to layout length"
+        assert_eq_msg!(
+            ms.len(),
+            req_layout.len(),
+            "measurement length",
+            "schema length"
         );
 
         let ls = req_layout.into_iter().zip(opt_layout);
@@ -5491,10 +5492,7 @@ where
             res.into_log()
         };
 
-        debug_assert!(
-            names.len() == dts.len(),
-            "datatypes and names must be equal length"
-        );
+        assert_eq_msg!(names.len(), dts.len(), "datatypes", "names");
 
         names
             .into_iter()
@@ -6809,7 +6807,7 @@ where
         original[i] = mem::replace(&mut xs[i], K::wrap(r)).to_opt();
     }
 
-    debug_assert!(
+    assert!(
         all_unique_names(xs.iter().map(|k| k.as_opt())),
         "names are still not unique"
     );

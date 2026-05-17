@@ -267,7 +267,7 @@ mod sealed {
                 inner: f,
             };
             let ret = self.fmt_ne_inner(&mut xf);
-            debug_assert!(xf.not_empty, "written string is empty");
+            assert!(xf.not_empty, "written string is empty");
             ret
         }
     }

@@ -799,7 +799,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
-        debug_assert!(self.check_push(&key).is_ok(), "Name is not unique");
+        assert!(self.check_push(&key).is_ok(), "Name is not unique");
         let p = Pair::new(key, value);
         if let Some(r) = self.center_right.as_mut() {
             r.right.push(p);
@@ -816,7 +816,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         K: MightHave<Shortname>,
     {
         // only check key here because index will panic if out of bounds
-        debug_assert!(self.check_key(&key, index).is_ok(), "Name is not unique");
+        assert!(self.check_key(&key, index).is_ok(), "Name is not unique");
         let i = usize::from(index);
         let p = Pair::new(key, value);
         let ln = self.left.len();
@@ -1001,8 +1001,8 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
-        debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
-        debug_assert!(self.center_right.is_none(), "Center already present");
+        assert!(self.check_name(&name).is_ok(), "Name is not unique");
+        assert!(self.center_right.is_none(), "Center already present");
         self.center_right = Some(CenterRightVec::new(Pair::new(name, value), vec![]));
     }
 
@@ -1014,11 +1014,11 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
-        debug_assert!(self.check_name(&name).is_ok(), "Name is not unique");
-        debug_assert!(self.center_right.is_none(), "Center already present");
+        assert!(self.check_name(&name).is_ok(), "Name is not unique");
+        assert!(self.center_right.is_none(), "Center already present");
         let i = usize::from(index);
-        debug_assert!(i <= self.len(), "Index is out of bounds");
         let p = Pair::new(name, value);
+        // NOTE this will panic if index out of bounds, no need to check with assert
         self.center_right = Some(CenterRightVec::new(p, self.left.split_off(i)));
     }
 
@@ -1513,24 +1513,6 @@ impl<K, U, V> NamedVec<K, U, V> {
         }
     }
 
-    // #[allow(clippy::type_complexity)]
-    // fn try_into_wrapper<J>(p: Pair<K, V>) -> Result<Pair<J, V>, <J as TryFrom<K>>::Error>
-    // where
-    //     J: TryFrom<K>,
-    // {
-    //     Ok(Pair::new(p.key.try_into()?, p.value))
-    // }
-
-    // fn from_center(p: Center<U>) -> Pair<K, V>
-    // where
-    //     V: From<U>,
-    // {
-    //     Pair {
-    //         key: K::wrap(p.key),
-    //         value: p.value.into(),
-    //     }
-    // }
-
     fn position_by_name(xs: &PairedVec<K, V>, n: &Shortname) -> Result<usize, NameNotFoundError>
     where
         K: MightHave<Shortname>,
@@ -1539,16 +1521,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             .position(|p| p.key.as_opt().is_some_and(|kn| kn == n))
             .ok_or(NameNotFoundError(n.to_owned()))
     }
-
-    // fn value_by_name_mut<'a>(
-    //     xs: &'a mut PairedVec<K, V>,
-    //     n: &Shortname,
-    // ) -> Option<(usize, &'a mut V)> {
-    //     xs.iter_mut()
-    //         .enumerate()
-    //         .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
-    //         .map(|(i, p)| (i, &mut p.value))
-    // }
 
     fn check_key<'a>(
         &self,

@@ -58,7 +58,7 @@ impl Spillover {
                 *n = (*new).clone();
             }
         }
-        debug_assert!(
+        assert!(
             self.measurements.iter().unique().count() == self.measurements.len(),
             "reassigned names are not unique"
         );

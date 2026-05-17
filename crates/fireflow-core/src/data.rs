@@ -2351,19 +2351,6 @@ where
             .map(ColumnHasDatatype::col_datatype)
             .collect()
     }
-
-    // fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)> {
-    //     self.container
-    //         .as_ref()
-    //         .iter()
-    //         .map(|c| {
-    //             (
-    //                 ColumnHasDatatype::col_datatype(c),
-    //                 ColumnSchemaAsWidth::as_width(c),
-    //             )
-    //         })
-    //         .collect()
-    // }
 }
 
 /// A layout which has FCS keywords.
@@ -3302,10 +3289,6 @@ where
             );
 
             res.map(|data| {
-                debug_assert!(
-                    data.iter().map(Vec::len).unique().count() < 2,
-                    "columns must all be same length"
-                );
                 let cs = data
                     .into_iter()
                     .map(InternalSeries::from)
@@ -7473,7 +7456,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
         C: AsRef<[X]>,
         X: ColumnIsFixed,
     {
-        debug_assert!(!self.columns().is_empty(), "columns must be non-empty");
+        assert!(!self.columns().is_empty(), "columns must be non-empty");
         let ((_, w0), ws) = self
             .widths()
             .try_into_nonempty_iter()
@@ -7498,7 +7481,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
         Self: LayoutDatatype,
     {
         let ds = self.datatypes();
-        debug_assert!(!ds.is_empty(), "columns must be non-empty");
+        assert!(!ds.is_empty(), "columns must be non-empty");
         let d0 = self.datatype();
         let es = ds
             .into_iter()
@@ -8316,7 +8299,7 @@ impl From<BitmaskValue<u64>> for VariableBitmask {
         macro_rules! go {
             ($var:ident, $x:expr) => {{
                 let (ret, truncated) = Bitmask::from_u64($x.0);
-                debug_assert!(!truncated, "AnyBitmask input should never be truncated");
+                assert!(!truncated, "u64 input should never be truncated");
                 Self::$var(ret)
             }};
         }

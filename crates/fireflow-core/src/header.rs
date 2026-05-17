@@ -560,7 +560,7 @@ impl<T> HeaderKeywordsToWrite<T> {
                 // NOTE this will happen because if we made it to this point,
                 // req + opt is too big, and req is small enough, which means
                 // opt must have something in it
-                debug_assert!(
+                assert!(
                     supp_text_len > 1,
                     "supp TEXT should have at least one key/val pair"
                 );

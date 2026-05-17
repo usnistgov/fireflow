@@ -1445,7 +1445,7 @@ impl SplitTEXTDiagnostics {
             // is even.
             (false, Some(_)) => raw_segs.as_ref(),
         };
-        debug_assert!(
+        assert!(
             even_segs.len() & 1 == 0,
             "number of segments should be even"
         );

@@ -1072,7 +1072,7 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
                 // ASSUME this will never fail because
                 // FromPyObject<PySeries> will call rechunk. See
                 // https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
-                debug_assert!(chunks.len() == 1, "Series has more than one chunk");
+                assert!(chunks.len() == 1, "Series has more than one chunk");
                 let buf = chunks[0]
                     .as_any()
                     .downcast_ref::<PrimitiveArray<T>>()
@@ -1206,11 +1206,11 @@ impl PyFCSDataFrame {
                 .unwrap()
                 .into()
         }
-        debug_assert!(
+        assert!(
             names.len() == self.0.ncols(),
             "names is not same length as column number"
         );
-        debug_assert!(
+        assert!(
             names.iter().collect::<HashSet<_>>().len() == names.len(),
             "Names are not unique"
         );

@@ -121,7 +121,7 @@ impl<T> Bitmask<T> {
         T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + FCSRepr,
     {
         // use min_value rather than zero to avoid constraints
-        debug_assert!(T::min_value().into() == 0_u64, "min must be zero");
+        assert!(T::min_value().into() == 0_u64, "min must be zero");
         let value64: u64 = value.0.into();
         let max_bits = u32::from(u8::from(T::FILE_BYTES)) * 8;
         let value_bits = u64::BITS - value64.leading_zeros();

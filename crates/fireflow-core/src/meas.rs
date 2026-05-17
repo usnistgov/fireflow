@@ -20,7 +20,7 @@ use crate::logging::{
     WarningAndErrorResult, WarningAndErrorsResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult,
 };
-use crate::macros::{assert_eq_len, def_summary};
+use crate::macros::{assert_eq_msg, def_summary};
 use crate::segment::AnyDataSegment;
 use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
@@ -3839,7 +3839,7 @@ where
         V::DataSchema: LayoutWidth,
     {
         // this should be true since both depend on $PAR
-        assert_eq_len!(
+        assert_eq_msg!(
             measurements.len(),
             data_schema.width(),
             "measurements",

@@ -91,9 +91,9 @@ use crate::text::lookup::{
     ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
-    Element, ElementIndexError, IndexedElement, InputLengthError, NameMapping, NameNotFoundError,
-    NamePresentError, NamedSet, NonCenterElement, RenameError, SetCenterError, SetElementsError,
-    SetKeysError, SetNamesError, all_unique_names,
+    Element, ElementIndexError, IndexedElement, InputLengthError, KeyIsOptical, NameMapping,
+    NameNotFoundError, NamePresentError, NamedSet, NonCenterElement, RenameError, SetCenterError,
+    SetElementsError, SetKeysError, SetNamesError, all_unique_names,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::relational::{
@@ -1673,7 +1673,7 @@ def_summary!(
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MeasMismatchError {
-    key_is_optical: bool,
+    key_is_optical: KeyIsOptical,
     index: MeasIndex,
 }
 
@@ -1681,7 +1681,7 @@ pub struct MeasMismatchError {
 impl fmt::Display for MeasMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let k = self.index;
-        if self.key_is_optical {
+        if self.key_is_optical.0 {
             write!(f, "optical index {k} must not be assigned temporal type")
         } else {
             write!(f, "temporal index {k} must be assigned empty tuple")

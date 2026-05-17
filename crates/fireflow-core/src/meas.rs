@@ -42,9 +42,9 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{
     Either, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
-    InsertCenterError, InsertError, NameMapping, NameNotFoundError, NamePresentError, NamedVec,
-    NewNamedVecError, Pair, PushCenterError, RenameError, SetCenterError, SetElementsError,
-    SetKeysError, SetNamesError, SetValuesError,
+    InsertCenterError, InsertError, KeyIsOptical, NameMapping, NameNotFoundError, NamePresentError,
+    NamedVec, NewNamedVecError, Pair, PushCenterError, RenameError, SetCenterError,
+    SetElementsError, SetKeysError, SetNamesError, SetValuesError,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
@@ -3448,7 +3448,7 @@ where
     where
         Ft: Fn(IndexedElement<&Shortname, &mut VTemporal<V>>, X) -> R,
         Fo: Fn(IndexedElement<&V::Name, &mut VOptical<V>>, Y) -> R,
-        Fe: Fn(MeasIndex, bool) -> E,
+        Fe: Fn(MeasIndex, KeyIsOptical) -> E,
     {
         let with_scaled_opt = |e: IndexedElement<&_, &mut ScaledOptical<_, _>>, x| {
             with_opt(IndexedElement::new(e.index, e.key, &mut e.value.inner), x)

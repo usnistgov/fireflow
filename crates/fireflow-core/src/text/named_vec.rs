@@ -88,7 +88,6 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
-// TODO use itertools::Either
 /// A member in [`NamedVec`], either a "center" or "non-center" value
 #[derive(Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
@@ -322,6 +321,10 @@ pub struct InputLengthError {
     other_len: usize,
 }
 
+/// Used to indicate if a key was an optical key in errors or other consumers.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct KeyIsOptical(pub(crate) bool);
+
 // Implement methods for NamedVec
 
 impl<K, U, V> NamedVec<K, U, V> {
@@ -362,13 +365,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         } else {
             Self::new_unsplit(left)
         };
-        // TODO make this a method
-        let names = s
-            .iter()
-            .map(|x| x.as_ref().both(|e| Some(&e.key), |o| o.key.as_opt()));
-        if !all_unique_names(names) {
-            return Err(NonUniqueKeysError.into());
-        }
+        s.check_unique()?;
         Ok(s)
     }
 
@@ -607,7 +604,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         Fnoncenter: Fn(IndexedElement<&K, &mut V>, Y) -> R,
         Fcenter: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
-        Ferror: Fn(MeasIndex, bool) -> E,
+        Ferror: Fn(MeasIndex, KeyIsOptical) -> E,
     {
         let go = |zs, ys, offset| Self::alter_paired_vec(zs, ys, offset, &f_noncenter);
 
@@ -616,8 +613,7 @@ impl<K, U, V> NamedVec<K, U, V> {
                 .enumerate()
                 .map(|(i, x)| x.both(|_| ErrorsResult::new_err(i), ErrorsResult::new_ok))
                 .sequence_commutative()
-                // TODO make wrapper for bools like this
-                .map_errors(|i| f_error((i + offset).into(), true))
+                .map_errors(|i| f_error((i + offset).into(), KeyIsOptical(true)))
         };
 
         let nleft = self.left.len();
@@ -630,7 +626,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             let xs_right = it.collect();
             let center_res = x_center
                 .center()
-                .ok_or(f_error(nleft.into(), false))
+                .ok_or(f_error(nleft.into(), KeyIsOptical(false)))
                 .into_log();
             let right_res = check_optical(xs_right, nleft + 1);
             left_res
@@ -1604,6 +1600,20 @@ impl<K, U, V> NamedVec<K, U, V> {
             });
         }
         Ok(())
+    }
+
+    fn check_unique(&self) -> Result<(), NonUniqueKeysError>
+    where
+        K: MightHave<Shortname>,
+    {
+        let names = self
+            .iter()
+            .map(|x| x.as_ref().both(|e| Some(&e.key), |o| o.key.as_opt()));
+        if all_unique_names(names) {
+            Ok(())
+        } else {
+            Err(NonUniqueKeysError)
+        }
     }
 
     fn find_with_name(&self, name: &Shortname) -> Result<MeasIndex, NameNotFoundError>

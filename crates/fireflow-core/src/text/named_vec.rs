@@ -393,11 +393,11 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Return mutable reference to center
-    pub fn as_center_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut U>> {
+    pub fn as_center_mut(&mut self) -> Option<IndexedElement<&Shortname, &mut U>> {
         let right = self.center_right.as_mut()?;
         Some(IndexedElement::new(
             self.left.len().into(),
-            &mut right.center.key,
+            &right.center.key,
             &mut right.center.value,
         ))
     }

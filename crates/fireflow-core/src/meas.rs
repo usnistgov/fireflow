@@ -3402,7 +3402,7 @@ where
         self.meta.rename_center(name)
     }
 
-    pub fn as_temporal_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut VTemporal<V>>> {
+    pub fn as_temporal_mut(&mut self) -> Option<IndexedElement<&Shortname, &mut VTemporal<V>>> {
         self.meta.as_center_mut()
     }
 

@@ -4266,7 +4266,7 @@ where
     /// Return mutable reference to time measurement as a name/value pair.
     pub fn temporal_mut(
         &mut self,
-    ) -> Option<IndexedElement<&mut Shortname, &mut Temporal<V::Temporal>>> {
+    ) -> Option<IndexedElement<&Shortname, &mut Temporal<V::Temporal>>> {
         self.meas.as_temporal_mut()
     }
 

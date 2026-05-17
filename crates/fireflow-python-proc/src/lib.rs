@@ -2319,12 +2319,12 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         quote! {
             #name_doc
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
-                self.0.set_temporal(&name, (), allow_loss).py_resolve_non_commutative()
+                self.0.set_temporal(&name, (), allow_loss).py_resolve_commutative()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
-                self.0.set_temporal_at(index, (), allow_loss).py_resolve_non_commutative()
+                self.0.set_temporal_at(index, (), allow_loss).py_resolve_commutative()
             }
         }
     } else {
@@ -2337,14 +2337,14 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
                 self.0
                     .set_temporal(&name, timestep, allow_loss)
-                    .py_resolve_non_commutative()
+                    .py_resolve_commutative()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
                 self.0
                     .set_temporal_at(index, timestep, allow_loss)
-                    .py_resolve_non_commutative()
+                    .py_resolve_commutative()
             }
         }
     };

@@ -29,8 +29,8 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningsAndErrors, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, ImpureError,
-    LogResult, ResultExt as _, Success, WarningOrErrorResult, WarningsAndErrorsResult,
-    WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
+    LogResult, ResultExt as _, Success, WarningAndGroupResult, WarningOrErrorResult,
+    WarningsAndErrorsResult, WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
@@ -502,12 +502,12 @@ impl AnyCoreTEXT {
 impl AnyCoreDataset {
     #[must_use]
     pub fn as_data(&self) -> PrimitiveDataFrame {
-        match_anycore!(self, x, { x.meas.layout().clone().into() })
+        match_anycore!(self, x, { x.meas.data().clone().into() })
     }
 
     #[must_use]
     pub fn datatypes(&self) -> Vec<AlphaNumType> {
-        match_anycore!(self, x, { x.meas.layout().datatypes() })
+        match_anycore!(self, x, { x.meas.data().datatypes() })
     }
 
     #[must_use]
@@ -1608,6 +1608,16 @@ type SetAllMeasError = SetElementsError<ErrorGroup<MeasMismatchError, SetAllMeas
 def_summary!(
     pub SetAllMeasSummary,
     "attempted to assign incompatible optical and temporal measurement values"
+);
+
+def_summary!(
+    pub SetTemporalByNameSummary,
+    "could not assign temporal measurement at name"
+);
+
+def_summary!(
+    pub SetTemporalByIndexSummary,
+    "could not assign temporal measurement at index"
 );
 
 /// Error when temporal type is assigned to optical measurement and vice versa.
@@ -3689,7 +3699,7 @@ impl<Anal, Layout, Other, Root, Tmp, Opt, Scale, Name, Ver>
 {
     /// Return $PAR, which is simply the number of measurements in this struct
     pub fn par(&self) -> Par {
-        Par(self.meas.measurements().len())
+        Par(self.meas.meta().len())
     }
 }
 
@@ -3842,7 +3852,7 @@ where
     /// Return error if supplied name is not a measurement name (a $PnN) or
     /// if name references temporal measurement.
     pub fn set_trigger(&mut self, tr: Option<Trigger>) -> Result<(), KeyToNameLinkError<Trigger>> {
-        let ns = self.meas.measurements().named_set();
+        let ns = self.meas.meta().named_set();
         tr.as_ref()
             .and_then(|t| t.invalid_link_error(&ns))
             .map_or(Ok(()), Err)?;
@@ -3865,7 +3875,7 @@ where
     /// Return a list of measurement names as stored in $PnN.
     pub fn shortnames_maybe(&self) -> Vec<Option<&Shortname>> {
         self.meas
-            .measurements()
+            .meta()
             .iter()
             .map(|x| x.both(|t| Some(&t.key), |m| V::Name::as_opt(&m.key)))
             .collect()
@@ -3876,7 +3886,7 @@ where
     /// For cases where $PnN is optional and its value is not given, this will
     /// return "Pn" where "n" is the parameter index starting at 1.
     pub fn all_shortnames(&self) -> Vec<Shortname> {
-        self.meas.measurements().iter_all_names().collect()
+        self.meas.meta().iter_all_names().collect()
     }
 
     /// Set all $PnN keywords to list of names.
@@ -3913,12 +3923,17 @@ where
         n: &Shortname,
         timestep: <V::Temporal as TemporalFromOptical<V::Optical>>::TData,
         allow_loss: AllowLoss,
-    ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByNameError>
+    ) -> WarningAndGroupResult<
+        bool,
+        SetTemporalError,
+        SetTemporalByNameError,
+        SetTemporalByNameSummary,
+    >
     where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
     {
-        self.meas.set_temporal(n, timestep, allow_loss)
+        self.meas.set_temporal(n, timestep, allow_loss).group()
     }
 
     /// Set the measurement at given index to the time measurement.
@@ -3927,12 +3942,19 @@ where
         index: MeasIndex,
         timestep: <V::Temporal as TemporalFromOptical<V::Optical>>::TData,
         allow_loss: AllowLoss,
-    ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByIndexError>
+    ) -> WarningAndGroupResult<
+        bool,
+        SetTemporalError,
+        SetTemporalByIndexError,
+        SetTemporalByIndexSummary,
+    >
     where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
     {
-        self.meas.set_temporal_at(index, timestep, allow_loss)
+        self.meas
+            .set_temporal_at(index, timestep, allow_loss)
+            .group()
     }
 
     /// Convert time measurement to optical measurement.
@@ -4057,7 +4079,7 @@ where
     ///
     /// This includes the time measurement if present.
     pub fn get_meas_nonstandard(&self) -> Vec<&HashMap<NonStdKey, NEString>> {
-        self.meas.measurements().iter_common_values().collect()
+        self.meas.meta().iter_common_values().collect()
     }
 
     /// Set nonstandard key/value pairs for each measurement.
@@ -4082,7 +4104,7 @@ where
         index: MeasIndex,
         m: Optical<V::Optical>,
     ) -> Result<VTemporalOrOpticalWithScale<V>, ElementIndexError> {
-        self.meas.replace_at(index, m)
+        self.meas.replace_optical_at(index, m)
     }
 
     /// Replace optical measurement with name.
@@ -4095,7 +4117,7 @@ where
         name: &Shortname,
         m: Optical<V::Optical>,
     ) -> Result<VTemporalOrOpticalWithScale<V>, NameNotFoundError> {
-        self.meas.replace_named(name, m)
+        self.meas.replace_optical_named(name, m)
     }
 
     /// Replace temporal measurement at index.
@@ -4237,7 +4259,7 @@ where
 
     /// Return reference to time measurement as a name/value pair.
     pub fn temporal(&self) -> Option<IndexedElement<&Shortname, &Temporal<V::Temporal>>> {
-        self.meas.measurements().as_center()
+        self.meas.meta().as_center()
     }
 
     /// Return mutable reference to time measurement as a name/value pair.
@@ -4278,7 +4300,7 @@ where
         Optical<V::Optical>: AsRef<X>,
     {
         self.meas
-            .measurements()
+            .meta()
             .iter()
             .map(|x| x.both(|t| t.value.as_ref(), |m| m.value.inner().as_ref()))
     }
@@ -4313,7 +4335,7 @@ where
         Optical<V::Optical>: AsRef<X>,
     {
         self.meas
-            .measurements()
+            .meta()
             .iter()
             .map(|e| e.bimap_once(|_| (), |v| v.value.inner().as_ref()).into())
     }
@@ -4364,7 +4386,7 @@ where
         Optical<V::Optical>: AsRef<Y>,
     {
         self.meas
-            .measurements()
+            .meta()
             .iter()
             .map(|x| x.bimap_once(|m| m.value.as_ref(), |m| m.value.inner().as_ref()))
     }
@@ -4525,10 +4547,7 @@ where
     where
         Temporal<V::Temporal>: AsRef<Timestep>,
     {
-        self.meas
-            .measurements()
-            .as_center()
-            .map(|x| x.value.as_ref())
+        self.meas.meta().as_center().map(|x| x.value.as_ref())
     }
 
     /// Set $TIMESTEP value if the time measurement exists.
@@ -4568,7 +4587,7 @@ where
     {
         if let Some(m) = matrix.as_ref() {
             let comp = m.matrix().ncols();
-            let par = self.meas.measurements().len();
+            let par = self.meas.meta().len();
             if comp != par {
                 return Err(CompParMismatchError { par, comp });
             }
@@ -4594,7 +4613,7 @@ where
         V::RootMeta: HasSpillover,
     {
         if let Some(s) = spillover.as_ref() {
-            let ns = self.meas.measurements().named_set();
+            let ns = self.meas.meta().named_set();
             SetSpilloverErrors::try_new(s.invalid_link_errors(&ns))?;
         }
         *self.rootmeta.specific.spill_mut(private::NoTouchy) = spillover;
@@ -4612,7 +4631,7 @@ where
     where
         V::RootMeta: HasUnstainedCenters,
     {
-        let ns = self.meas.measurements().named_set();
+        let ns = self.meas.meta().named_set();
         SetUnstainedCentersErrors::try_new(us.invalid_link_error(&ns))?;
         *self
             .rootmeta
@@ -4776,7 +4795,7 @@ where
 
     /// Get reference to measurement vector.
     pub fn measurements(&self) -> &MeasMeta<V::Name, V::Temporal, V::Optical, V::OpticalScale> {
-        self.meas.measurements()
+        self.meas.meta()
     }
 
     /// Set measurements.
@@ -4855,7 +4874,7 @@ where
     where
         L: LayoutRemove<C>,
     {
-        if let Some(&index) = self.meas.measurements().named_indices().get(name) {
+        if let Some(&index) = self.meas.meta().named_indices().get(name) {
             // NOTE if the meas to be removed is temporal, this name shouldn't
             // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
             // $TR should never link to a temporal measurement
@@ -4877,7 +4896,7 @@ where
     where
         L: LayoutRemove<C>,
     {
-        if let Some(&name) = self.meas.measurements().indexed_name_map().get(&index) {
+        if let Some(&name) = self.meas.meta().indexed_name_map().get(&index) {
             // NOTE (ditto previous function)
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
@@ -4980,7 +4999,7 @@ where
         L: LayoutWidth,
     {
         let p = self.par();
-        let (js, ns) = self.meas.measurements().all_indices_and_names_to_remove();
+        let (js, ns) = self.meas.meta().all_indices_and_names_to_remove();
         let es = self.rootmeta.meas_has_existing_links_with(p, &ns, &js);
         ExistingLinkErrors::try_new(es)?;
         self.meas.clear();
@@ -5019,7 +5038,7 @@ where
         let ns = (!V::Name::INFALLABLE)
             .then(|| {
                 self.meas
-                    .measurements()
+                    .meta()
                     .indexed_opt_names()
                     .flatten()
                     .enumerate()
@@ -5030,14 +5049,14 @@ where
             .flatten();
         let lv = self
             .meas
-            .layout()
+            .data()
             .opt_meas_keywords()
             .into_iter()
             .flatten()
             .map(OptMeasKeyword::from)
             .map(StdOrNonStdOptMeasKeyword::from);
         self.meas
-            .measurements()
+            .meta()
             .iter_with(
                 &|i, x| Temporal::opt_and_nonstd_keywords(&x.value, i).collect::<Vec<_>>(),
                 &|i, x| ScaledOptical::opt_and_nonstd_keywords(&x.value, i).collect(),
@@ -5054,7 +5073,7 @@ where
         let ns = (V::Name::INFALLABLE)
             .then(|| {
                 self.meas
-                    .measurements()
+                    .meta()
                     .indexed_opt_names()
                     .flatten()
                     .enumerate()
@@ -5062,9 +5081,9 @@ where
             })
             .into_iter()
             .flatten();
-        let lv = self.meas.layout().req_meas_keywords().into_iter().flatten();
+        let lv = self.meas.data().req_meas_keywords().into_iter().flatten();
         self.meas
-            .measurements()
+            .meta()
             .iter_with(
                 &|i, x| x.value.req_meas_keywords(i).into_iter().collect(),
                 &|i, x| x.value.req_keywords(i).collect::<Vec<_>>(),
@@ -5078,7 +5097,7 @@ where
     where
         L: LayoutKeywords,
     {
-        let lv = self.meas.layout().req_keywords();
+        let lv = self.meas.data().req_keywords();
         RootMeta::req_keywords(&self.rootmeta, self.par()).chain(lv)
     }
 
@@ -5192,7 +5211,7 @@ where
         // which won't be shown here
         let ms: Vec<_> = self
             .meas
-            .measurements()
+            .meta()
             .iter()
             .map(|m| {
                 m.both(
@@ -5205,7 +5224,7 @@ where
             })
             .collect();
 
-        let lt = &self.meas.layout();
+        let lt = &self.meas.data();
         let req_layout = lt.req_meas_keywords();
         let opt_layout = lt.opt_meas_keywords();
 
@@ -5652,7 +5671,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
     /// Get reference to data schema
     pub fn data_schema(&self) -> &V::DataSchema {
-        self.meas.layout()
+        self.meas.data()
     }
 
     /// Set data schema.
@@ -5878,7 +5897,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_errors(LookupCoreError::from)
             .map_commutative_warnings(NewCoreWarning::from)
             .and_then_commutative(|ml| {
-                Self::check_relationships(&mut metaroot, ml.measurements(), opt_flag.is_demote())
+                Self::check_relationships(&mut metaroot, ml.meta(), opt_flag.is_demote())
                     .map_errors(NewCoreWarning::from)
                     .nowarn_into_switchable(opt_flag)
                     .switchable_into_commutative()
@@ -5896,7 +5915,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         CoreMeasurements::try_new_nodrop(measurements, data_schema)
             .map_errors(NewCoreError::from)
             .and_then_commutative(|ml| {
-                Self::check_relationships(&mut metaroot, ml.measurements(), false)
+                Self::check_relationships(&mut metaroot, ml.meta(), false)
                     .map_errors(NewCoreError::from)
                     .map_ok_value(|()| Self::new(metaroot, ml, (), ()))
             })
@@ -6029,7 +6048,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         has_nextdata: AppendableFlag,
     ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
     {
-        let df = self.meas.layout();
+        let df = self.meas.data();
         let delim = conf.text.delim;
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len().usize_to_u64();
@@ -6073,7 +6092,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::DataFrame: Clone + Into<PrimitiveDataFrame>,
     {
-        self.meas.layout().clone().into()
+        self.meas.data().clone().into()
     }
 
     /// Return reference to ANALYSIS segment as byte string.
@@ -6141,7 +6160,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::DataFrame: DataFrameAsDataSchema<DataSchema = V::DataSchema>,
     {
-        self.meas.layout().as_data_schema()
+        self.meas.data().as_data_schema()
     }
 
     /// Set data schema.

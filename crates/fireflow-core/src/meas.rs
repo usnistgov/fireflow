@@ -17,7 +17,8 @@ use crate::data::{
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningsAndErrors, ErrorGroup, ErrorResult,
     ErrorsResult, LogResult, OptionExt as _, ResultExt as _, SwitchableErrorResult,
-    WarningAndErrorResult, WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult,
+    WarningAndErrorResult, WarningAndErrorsResult, WarningsAndErrorsResult,
+    WarningsAndIOGroupResult,
 };
 use crate::macros::{assert_eq_len, def_summary};
 use crate::segment::AnyDataSegment;
@@ -772,9 +773,19 @@ pub enum SetTemporalByIndexError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetTemporalError {
     /// Temporal already exists, in which case old one needs to be converted to optical
-    Swap(SwapOpticalTemporalErrors),
+    Swap(SwapScaledOpticalTemporalError),
     /// Temporal does not exist, in which case one optical measurement must be converted
     ToOptical(OpticalToTemporalErrors),
+}
+
+/// Error when swapping temporal and scaled optical measurement
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SwapScaledOpticalTemporalError {
+    /// Error when swapping keywords
+    Swap(SwapOpticalTemporalErrors),
+    /// Error when target index has non-identity scale
+    Scale(SetTemporalToNonIdentityScaleError),
 }
 
 /// Error when $PnE/$PnG do not match the datatype for a given column
@@ -950,7 +961,7 @@ def_summary!(
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetScalesError {
     Layout(MeasLayoutMismatchError),
-    Temporal(NonIdentityTemporalScaleError),
+    Temporal(SetNonIdentityScaleToTemporalError),
 }
 
 /// Error when attempting to set temporal scale to something other than identity
@@ -958,7 +969,14 @@ pub enum SetScalesError {
 #[error("tried to set temporal scale to non-identity")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct NonIdentityTemporalScaleError;
+pub struct SetNonIdentityScaleToTemporalError;
+
+/// Error when attempting to set an index with a non-identity scale to a temporal value.
+#[derive(Debug, Error)]
+#[error("tried to set temporal value to index {0} with non-identity scale")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct SetTemporalToNonIdentityScaleError(MeasIndex);
 
 type VersionedMeasurements<V> =
     NamedVec<<V as VersionMeasSet>::Name, VTemporal<V>, VScaledOptical<V>>;
@@ -1881,10 +1899,8 @@ impl LookupOptical for InnerOptical3_0 {
             .into_semigroup();
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
-        // let scale = OpticalTransform3_0::lookup(std, nonstd, i, dt, conf);
         wave.zip_commutative(peak)
             .map_errors(LookupOpticalError::from)
-            // .zip_commutative(scale)
             .map_ok_value(|(w, p)| {
                 let ret = Self::new(w, p);
                 DiagnosedOptical::new(ret, vec![])
@@ -1914,7 +1930,6 @@ impl LookupOptical for InnerOptical3_1 {
         let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
         let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
-        // let scale = OpticalTransform3_0::lookup(std, nonstd, i, dt, conf);
         go!(wave)
             .zip4_commutative(go!(cal), go!(dpy), peak)
             .map_errors(LookupOpticalError::from)
@@ -1961,8 +1976,6 @@ impl LookupOptical for InnerOptical3_2 {
         let det_name = DetectorName::remove_meas_opt_nofail(std, i);
         let tag = Tag::remove_meas_opt_nofail(std, i);
         let anal = Analyte::remove_meas_opt_nofail(std, i);
-
-        // let scale = OpticalTransform3_0::lookup(std, nonstd, i, dt, conf);
 
         go!(wave)
             .zip5_commutative(go!(cal), go!(dpy), go!(meas), go!(feat))
@@ -2753,26 +2766,43 @@ impl<X, O> ScaledOptical<X, O> {
             .map_ok_value(|(o, s)| ScaledOptical::new(o, s))
     }
 
+    /// Swap temporal and optical measurement, taking scale into account.
+    ///
+    /// In order for a swap to be valid, the scale on the current optical
+    /// measurement which is to be converted to a temporal measurement must be
+    /// identity, and the inner optical and temporal structs must be converted
+    /// without error. The latter is delegated to [`SwapOpticalWithTemporal`]
+    /// trait.
     #[allow(clippy::type_complexity)]
     fn swap_optical_temporal<T>(
         old: (MeasIndex, Temporal<T>),
         new: (MeasIndex, Self),
         allow_loss: AllowLoss,
-    ) -> SwitchableErrorResult<
+    ) -> WarningAndErrorsResult<
         (Self, Temporal<T>),
         (Temporal<T>, Self),
-        AllowLoss,
-        SwapOpticalTemporalErrors,
+        SwapScaledOpticalTemporalError,
+        SwapScaledOpticalTemporalError,
     >
     where
+        X: Default + CheckedScaleTransform + Copy,
         T: TemporalKeywords,
         O: SwapOpticalWithTemporal<T>,
     {
         let (new_i, new_o) = new;
         O::swap_optical_temporal(old, (new_i, new_o.inner), allow_loss)
-            .inject_value(new_o.scale)
-            .map_ok_value(|((o, t), s)| (Self::new(o, s), t))
-            .map_err_value(|((t, o), s)| (t, Self::new(o, s)))
+            .map_switchable_errors(SwapScaledOpticalTemporalError::from)
+            .switchable_into_commutative()
+            .repack_errors()
+            .eval_error(
+                |(o, t)| (t, Self::new(o, new_o.scale)),
+                |(t, o)| (t, Self::new(o, new_o.scale)),
+                |_| {
+                    (!new_o.scale.is_identity())
+                        .then_some(SetTemporalToNonIdentityScaleError(new_i).into())
+                },
+            )
+            .map_ok_value(|(o, t)| (Self::new_identity(o), t))
     }
 }
 
@@ -3144,12 +3174,12 @@ impl<T> Temporal<T> {
 
 impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
     /// Get read-only reference to measurements
-    pub(crate) fn measurements(&self) -> &NamedVec<N, Temporal<T>, ScaledOptical<X, O>> {
+    pub(crate) fn meta(&self) -> &NamedVec<N, Temporal<T>, ScaledOptical<X, O>> {
         &self.meta
     }
 
     /// Get read-only reference to layout
-    pub(crate) fn layout(&self) -> &L {
+    pub(crate) fn data(&self) -> &L {
         &self.data
     }
 
@@ -3183,27 +3213,30 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
         X: Copy + CheckedScaleTransform,
         L: LayoutDatatype + LayoutWidth,
     {
-        let center_scale_not_linear = || {
+        let center_scale_not_identity = || {
             self.meta
                 .center_index()
                 .map(|i| {
-                    assert_eq_len!(scales.len(), self.meta.len(), "scales", "measurements");
-                    scales[usize::from(i)]
+                    scales.get(usize::from(i)).expect(
+                        "scale length should be same as measurement \
+                         length, so index should be valid",
+                    )
                 })
                 .is_some_and(|s| !s.is_identity())
-                .then_some(NonIdentityTemporalScaleError.into())
+                .then_some(SetNonIdentityScaleToTemporalError.into())
         };
 
         let l = &self.data;
+        // Check that new scales have matching length and datatype
         l.check_transforms_and_len(scales.iter().copied())
             .map_err(SetScalesError::from)
             .into_nowarn()
-            .eval_deferred_error(|()| center_scale_not_linear())
+            // Check that the temporal scale value is identity
+            .eval_deferred_error(|()| center_scale_not_identity())
             .when_ok(|| {
-                assert_eq_len!(scales.len(), self.meta.len(), "scales", "measurements");
                 self.meta
                     .alter_values_zip(scales, |_, _| (), |m, x| m.value.scale = x)
-                    .unwrap();
+                    .expect("input length should have been checked");
             })
     }
 }
@@ -3283,7 +3316,7 @@ where
         n: &Shortname,
         timestep: <V::Temporal as TemporalFromOptical<V::Optical>>::TData,
         allow_loss: AllowLoss,
-    ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByNameError>
+    ) -> WarningAndErrorsResult<bool, (), SetTemporalError, SetTemporalByNameError>
     where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
@@ -3292,15 +3325,16 @@ where
             n,
             |old, new| {
                 ScaledOptical::swap_optical_temporal(old, new, allow_loss)
-                    .map_switchable_errors(SetTemporalError::from)
-                    .switchable_into_non_commutative()
+                    .map_commutative_warnings(SetTemporalError::from)
+                    .map_errors(SetTemporalError::from)
                     .map_errors(SetTemporalByNameError::from)
             },
             |i, old_o| {
                 V::Temporal::from_optical(old_o, i, timestep, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
-                    .switchable_into_non_commutative()
+                    .switchable_into_commutative()
                     .map_errors(SetTemporalByNameError::from)
+                    .repack_errors()
             },
         )
     }
@@ -3310,7 +3344,7 @@ where
         index: MeasIndex,
         timestep: <V::Temporal as TemporalFromOptical<V::Optical>>::TData,
         allow_loss: AllowLoss,
-    ) -> WarningOrErrorResult<bool, (), SetTemporalError, SetTemporalByIndexError>
+    ) -> WarningAndErrorsResult<bool, (), SetTemporalError, SetTemporalByIndexError>
     where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
@@ -3319,15 +3353,16 @@ where
             index,
             |old, new| {
                 ScaledOptical::swap_optical_temporal(old, new, allow_loss)
-                    .map_switchable_errors(SetTemporalError::from)
-                    .switchable_into_non_commutative()
+                    .map_commutative_warnings(SetTemporalError::from)
+                    .map_errors(SetTemporalError::from)
                     .map_errors(SetTemporalByIndexError::from)
             },
             |i, old_o| {
                 V::Temporal::from_optical(old_o, i, timestep, allow_loss)
                     .map_switchable_errors(SetTemporalError::from)
-                    .switchable_into_non_commutative()
+                    .switchable_into_commutative()
                     .map_errors(SetTemporalByIndexError::from)
+                    .repack_errors()
             },
         )
     }
@@ -3435,7 +3470,7 @@ where
         self.meta.alter_common_values_zip(xs, f)
     }
 
-    pub(crate) fn replace_at(
+    pub(crate) fn replace_optical_at(
         &mut self,
         index: MeasIndex,
         value: Optical<V::Optical>,
@@ -3446,7 +3481,7 @@ where
         Ok(ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
-    pub(crate) fn replace_named(
+    pub(crate) fn replace_optical_named(
         &mut self,
         name: &Shortname,
         value: VOptical<V>,
@@ -3466,6 +3501,9 @@ where
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
+        // NOTE no need to check scale for this since the old temporal (if it
+        // exists) is being converted to an optical measurement with identity
+        // scale
         let to_scaled_opt = |i, t| ScaledOptical::new_identity(to_opt(i, t));
         let ret = self
             .meta
@@ -3489,6 +3527,9 @@ where
         RWC: Default,
         EC: Default,
     {
+        // NOTE no need to check scale for this since the old temporal (if it
+        // exists) is being converted to an optical measurement with identity
+        // scale
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
         self.meta
             .replace_center_at(index, value, to_scaled_opt)
@@ -3504,6 +3545,9 @@ where
     where
         F: FnOnce(MeasIndex, VTemporal<V>) -> VOptical<V>,
     {
+        // NOTE no need to check scale for this since the old temporal (if it
+        // exists) is being converted to an optical measurement with identity
+        // scale
         let to_scaled_opt = |i, t| ScaledOptical::new_identity(to_opt(i, t));
         let ret = self
             .meta
@@ -3527,6 +3571,9 @@ where
         LWC: Default,
         RWC: Default,
     {
+        // NOTE no need to check scale for this since the old temporal (if it
+        // exists) is being converted to an optical measurement with identity
+        // scale
         let to_scaled_opt = |i, t| to_opt(i, t).map_ok_value(ScaledOptical::new_identity);
         self.meta
             .replace_center_by_name(n, value, to_scaled_opt)

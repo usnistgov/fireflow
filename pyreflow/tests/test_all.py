@@ -2216,10 +2216,14 @@ class TestCore:
     def test_rename_temporal(self, core: AnyCore) -> None:
         """Test renaming the $PnN for the temporal measurement.
 
-        Old name should be returned.
+        Old name should be returned. Setting name to a non-temporal name which
+        already exists should fail.
         """
         new = "they've gone plaid"
         assert core.rename_temporal(new) == LINK_NAME2
+        assert core.rename_temporal(new) == new
+        with pytest.raises(pf.RelationalError):
+            assert core.rename_temporal(LINK_NAME1) == new
 
     @pytest.mark.parametrize(
         "core, optical, data_schema, method",

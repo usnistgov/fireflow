@@ -3398,7 +3398,10 @@ where
         self.meta.rename(index, key)
     }
 
-    pub(crate) fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
+    pub(crate) fn rename_temporal(
+        &mut self,
+        name: Shortname,
+    ) -> Result<Option<Shortname>, NamePresentError> {
         self.meta.rename_center(name)
     }
 

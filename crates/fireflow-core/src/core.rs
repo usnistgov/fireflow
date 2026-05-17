@@ -92,8 +92,8 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{
     Element, ElementIndexError, IndexedElement, InputLengthError, NameMapping, NameNotFoundError,
-    NamedSet, NonCenterElement, RenameError, SetCenterError, SetElementsError, SetKeysError,
-    SetNamesError, all_unique_names,
+    NamePresentError, NamedSet, NonCenterElement, RenameError, SetCenterError, SetElementsError,
+    SetKeysError, SetNamesError, all_unique_names,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::relational::{
@@ -4231,7 +4231,10 @@ where
     }
 
     /// Rename time measurement if it exists
-    pub fn rename_temporal(&mut self, name: Shortname) -> Option<Shortname> {
+    pub fn rename_temporal(
+        &mut self,
+        name: Shortname,
+    ) -> Result<Option<Shortname>, NamePresentError> {
         self.meas.rename_temporal(name)
     }
 

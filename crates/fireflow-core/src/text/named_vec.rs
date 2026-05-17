@@ -402,36 +402,12 @@ impl<K, U, V> NamedVec<K, U, V> {
         ))
     }
 
-    // pub fn into_iter(
-    //     self,
-    // ) -> impl IntoIterator<Item = (MeasIdx, Result<Pair<K, V>, Pair<Shortname, U>>)> {
-    //     let go =
-    //         |xs: Vec<Pair<K, V>>| xs.into_iter().enumerate().map(|(i, p)| (i.into(), Ok(p)));
-    //     match self {
-    //         NamedVec::Split(s, _) => {
-    //             let c = (s.left.len().into(), Err(*s.center));
-    //             go(s.left).chain(vec![c]).chain(go(s.right))
-    //         }
-    //         NamedVec::Unsplit(u) => go(u.members).chain(vec![]).chain(go(vec![])),
-    //     }
-    // }
-
     /// Return iterator over all elements with indices
     pub fn iter(&self) -> impl Iterator<Item = Element<&Pair<Shortname, U>, &Pair<K, V>>> {
         let right = self.center_right.iter().flat_map(|r| {
             once(Element::Center(&r.center)).chain(r.right.iter().map(Element::NonCenter))
         });
         self.left.iter().map(Element::NonCenter).chain(right)
-    }
-
-    /// Return iterator over all elements with indices
-    pub fn iter_mut(
-        &mut self,
-    ) -> impl Iterator<Item = Element<&mut Pair<Shortname, U>, &mut Pair<K, V>>> {
-        let right = self.center_right.iter_mut().flat_map(|r| {
-            once(Element::Center(&mut r.center)).chain(r.right.iter_mut().map(Element::NonCenter))
-        });
-        self.left.iter_mut().map(Element::NonCenter).chain(right)
     }
 
     pub(crate) fn iter_common_values<'a, T: 'a>(&'a self) -> impl Iterator<Item = &'a T> + 'a
@@ -456,18 +432,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             .enumerate()
             .map(|(i, e)| e.both(|x| f(i.into(), x), |x| g(i.into(), x)))
     }
-
-    // /// Return iterator over borrowed non-center values
-    // pub(crate) fn iter_non_center_values(&self) -> impl Iterator<Item = (MeasIndex, &V)> + '_ {
-    //     self.iter()
-    //         .flat_map(|(i, x)| x.non_center().map(|p| (i, &p.value)))
-    // }
-
-    // /// Return iterator over borrowed non-center keys
-    // pub(crate) fn iter_non_center_keys(&self) -> impl Iterator<Item = &K> + '_ {
-    //     self.iter()
-    //         .flat_map(|(_, x)| x.non_center().map(|p| &p.key))
-    // }
 
     /// Return all existing names in the vector with their indices
     pub(crate) fn indexed_opt_names(&self) -> impl Iterator<Item = Option<&Shortname>>
@@ -764,13 +728,6 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.iter().count()
     }
 
-    // /// Return number of non-center elements.
-    // pub(crate) fn len_non_center(&self) -> usize {
-    //     self.iter()
-    //         .filter(|e| matches!(e, Element::NonCenter(_)))
-    //         .count()
-    // }
-
     /// Return true if there are no contained elements.
     pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
@@ -811,64 +768,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             })
             .ok_or_else(|| NameNotFoundError(n.clone()))
     }
-
-    // /// Get mutable reference at position.
-    // #[allow(clippy::type_complexity)]
-    // pub fn get_mut(
-    //     &mut self,
-    //     index: MeasIndex,
-    // ) -> Result<Element<(&Shortname, &mut U), (&K, &mut V)>, ElementIndexError>
-    // {
-    //     let i = self.check_element_index(index, true)?;
-    //     match self {
-    //         Self::Split(s) => {
-    //             let left_len = s.left.len();
-    //             match i.cmp(&left_len) {
-    //                 Less => Ok(Element::NonCenter(&mut s.left[i])),
-    //                 Equal => Ok(Element::Center(&mut s.center)),
-    //                 Greater => Ok(Element::NonCenter(&mut s.left[i - left_len - 1])),
-    //             }
-    //         }
-    //         Self::Unsplit(u) => Ok(Element::NonCenter(&mut u.members[i])),
-    //     }
-    //     .map(|x| x.bimap(|p| (&p.key, &mut p.value), |p| (&p.key, &mut p.value)))
-    // }
-
-    // /// Get reference to value with name.
-    // pub(crate) fn get_name(&self, n: &Shortname) -> Option<(MeasIndex, Element<&U, &V>)> {
-    //     if let Some(c) = self.as_center() {
-    //         if c.key == n {
-    //             return Some((c.index, Element::Center(c.value)));
-    //         }
-    //     }
-    //     self.iter()
-    //         .flat_map(|(i, r)| r.non_center().map(|x| (i, x)))
-    //         .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
-    //         .map(|(i, p)| (i, Element::NonCenter(&p.value)))
-    // }
-
-    // /// Get mutable reference to value with name.
-    // pub(crate) fn get_name_mut(
-    //     &mut self,
-    //     n: &Shortname,
-    // ) -> Option<(MeasIndex, Element<&mut U, &mut V>)> {
-    //     match self {
-    //         Self::Split(s) => {
-    //             let nleft = s.left.len();
-    //             Self::value_by_name_mut(&mut s.left, n)
-    //                 .map(|(i, p)| (i.into(), Element::NonCenter(p)))
-    //                 .or(if &s.center.key == n {
-    //                     Some((nleft.into(), Element::Center(&mut s.center.value)))
-    //                 } else {
-    //                     None
-    //                 })
-    //                 .or(Self::value_by_name_mut(&mut s.right, n)
-    //                     .map(|(i, p)| ((i + nleft + 1).into(), Element::NonCenter(p))))
-    //         }
-    //         Self::Unsplit(u) => Self::value_by_name_mut(&mut u.members, n)
-    //             .map(|(i, p)| (i.into(), Element::NonCenter(p))),
-    //     }
-    // }
 
     /// Check if new name can be pushed
     pub(crate) fn check_push<'a>(&self, name: &'a K) -> Result<Cow<'a, Shortname>, NamePresentError>
@@ -1039,11 +938,23 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Rename center element.
     ///
     /// Return previous name if center exists.
-    pub(crate) fn rename_center(&mut self, name: Shortname) -> Option<Shortname> {
-        Some(mem::replace(
-            &mut self.center_right.as_mut()?.center.key,
-            name,
-        ))
+    pub(crate) fn rename_center(
+        &mut self,
+        name: Shortname,
+    ) -> Result<Option<Shortname>, NamePresentError>
+    where
+        K: MightHave<Shortname>,
+    {
+        if self
+            .iter()
+            .any(|e| e.both(|_| false, |v| K::as_opt(&v.key).is_some_and(|n| n == &name)))
+        {
+            return Err(NamePresentError { name });
+        };
+        Ok(self
+            .center_right
+            .as_mut()
+            .map(|c| mem::replace(&mut c.center.key, name)))
     }
 
     /// Test if new center with name can be pushed

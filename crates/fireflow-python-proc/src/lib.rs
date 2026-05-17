@@ -2433,10 +2433,14 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
+    let exc =
+        PyException::new_pyreflow(PyreflowError::Relational).desc("if name is already present");
     let doc = DocString::new_method("Rename temporal measurement if present.")
         .arg(DocArg::new_name_param("New name to assign."))
         .returns(
-            DocReturn::new(PyOpt::new1(PyStr::new_shortname())).desc("Previous name if present."),
+            DocReturn::new(PyOpt::new1(PyStr::new_shortname()))
+                .desc("Previous name if present.")
+                .exc([exc]),
         );
 
     let fun_args = doc.fun_args();
@@ -2447,7 +2451,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn rename_temporal(&mut self, #fun_args) -> #ret_path {
-                self.0.rename_temporal(name)
+                Ok(self.0.rename_temporal(name)?)
             }
         }
     }

@@ -17,12 +17,13 @@ use type_families::{
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use hashbrown::{HashMap, HashSet};
+use hashbrown::HashMap;
 use itertools::Itertools as _;
 use thiserror::Error;
 
 use std::borrow::Cow;
 use std::cmp::Ordering::{Equal, Greater, Less};
+use std::collections::HashSet;
 use std::convert::Infallible;
 use std::fmt;
 use std::hash::Hash;
@@ -34,6 +35,8 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
+
+use super::relational::{IndicesToRemove, OpticalNamesToRemove};
 
 #[cfg(feature = "python")]
 use {
@@ -85,6 +88,7 @@ pub struct IndexedElement<K, V> {
     pub value: V,
 }
 
+// TODO use itertools::Either
 /// A member in [`NamedVec`], either a "center" or "non-center" value
 #[derive(Clone)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
@@ -128,7 +132,7 @@ pub struct NamedSet<'a> {
 
 type Center<U> = Pair<Shortname, U>;
 
-type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
+pub(crate) type Either<K, U, V> = Element<(Shortname, U), (K, V)>;
 
 pub type EitherPair<K, U, V> = Element<Pair<Shortname, U>, Pair<K, V>>;
 
@@ -310,16 +314,12 @@ impl fmt::Display for ElementIndexError {
 
 /// Error when input collection does not match number of elements in [`NamedVec`]
 #[derive(Debug, Error)]
-#[error(
-    "input must be {this_len} ({c}including center) elements long, got {other_len}",
-    c = if self.include_center { "" } else { "not " }
-)]
+#[error("input must be {this_len} elements long, got {other_len}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct InputLengthError {
     this_len: usize,
     other_len: usize,
-    include_center: bool,
 }
 
 // Implement methods for NamedVec
@@ -329,16 +329,12 @@ impl<K, U, V> NamedVec<K, U, V> {
     ///
     /// Must contain either one or zero center values, otherwise return error.
     /// All names within keys (including center) must be unique.
-    pub(crate) fn try_new(xs: Eithers<K, U, V>) -> Result<Self, NewNamedVecError>
+    pub(crate) fn try_new(
+        xs: impl IntoIterator<Item = Either<K, U, V>>,
+    ) -> Result<Self, NewNamedVecError>
     where
         K: MightHave<Shortname>,
     {
-        let names = xs
-            .iter()
-            .map(|x| x.as_ref().both(|e| Some(&e.0), |o| o.0.as_opt()));
-        if !all_unique_names(names) {
-            return Err(NonUniqueKeysError.into());
-        }
         let mut left = vec![];
         let mut center = None;
         let mut right = vec![];
@@ -366,6 +362,13 @@ impl<K, U, V> NamedVec<K, U, V> {
         } else {
             Self::new_unsplit(left)
         };
+        // TODO make this a method
+        let names = s
+            .iter()
+            .map(|x| x.as_ref().both(|e| Some(&e.key), |o| o.key.as_opt()));
+        if !all_unique_names(names) {
+            return Err(NonUniqueKeysError.into());
+        }
         Ok(s)
     }
 
@@ -390,28 +393,14 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Return mutable reference to center
-    pub fn as_center_mut(&mut self) -> Option<IndexedElement<&mut Shortname, &mut U>> {
+    pub fn as_center_mut(&mut self) -> Option<IndexedElement<&Shortname, &mut U>> {
         let right = self.center_right.as_mut()?;
         Some(IndexedElement::new(
             self.left.len().into(),
-            &mut right.center.key,
+            &right.center.key,
             &mut right.center.value,
         ))
     }
-
-    // pub fn into_iter(
-    //     self,
-    // ) -> impl IntoIterator<Item = (MeasIdx, Result<Pair<K, V>, Pair<Shortname, U>>)> {
-    //     let go =
-    //         |xs: Vec<Pair<K, V>>| xs.into_iter().enumerate().map(|(i, p)| (i.into(), Ok(p)));
-    //     match self {
-    //         NamedVec::Split(s, _) => {
-    //             let c = (s.left.len().into(), Err(*s.center));
-    //             go(s.left).chain(vec![c]).chain(go(s.right))
-    //         }
-    //         NamedVec::Unsplit(u) => go(u.members).chain(vec![]).chain(go(vec![])),
-    //     }
-    // }
 
     /// Return iterator over all elements with indices
     pub fn iter(&self) -> impl Iterator<Item = Element<&Pair<Shortname, U>, &Pair<K, V>>> {
@@ -419,16 +408,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             once(Element::Center(&r.center)).chain(r.right.iter().map(Element::NonCenter))
         });
         self.left.iter().map(Element::NonCenter).chain(right)
-    }
-
-    /// Return iterator over all elements with indices
-    pub fn iter_mut(
-        &mut self,
-    ) -> impl Iterator<Item = Element<&mut Pair<Shortname, U>, &mut Pair<K, V>>> {
-        let right = self.center_right.iter_mut().flat_map(|r| {
-            once(Element::Center(&mut r.center)).chain(r.right.iter_mut().map(Element::NonCenter))
-        });
-        self.left.iter_mut().map(Element::NonCenter).chain(right)
     }
 
     pub(crate) fn iter_common_values<'a, T: 'a>(&'a self) -> impl Iterator<Item = &'a T> + 'a
@@ -454,18 +433,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             .map(|(i, e)| e.both(|x| f(i.into(), x), |x| g(i.into(), x)))
     }
 
-    // /// Return iterator over borrowed non-center values
-    // pub(crate) fn iter_non_center_values(&self) -> impl Iterator<Item = (MeasIndex, &V)> + '_ {
-    //     self.iter()
-    //         .flat_map(|(i, x)| x.non_center().map(|p| (i, &p.value)))
-    // }
-
-    // /// Return iterator over borrowed non-center keys
-    // pub(crate) fn iter_non_center_keys(&self) -> impl Iterator<Item = &K> + '_ {
-    //     self.iter()
-    //         .flat_map(|(_, x)| x.non_center().map(|p| &p.key))
-    // }
-
     /// Return all existing names in the vector with their indices
     pub(crate) fn indexed_opt_names(&self) -> impl Iterator<Item = Option<&Shortname>>
     where
@@ -484,6 +451,30 @@ impl<K, U, V> NamedVec<K, U, V> {
             r.both(|x| Some(&x.key), |x| x.key.as_opt())
                 .map(|x| (i.into(), x))
         })
+    }
+
+    pub(crate) fn indexed_name_map(&self) -> HashMap<MeasIndex, &Shortname>
+    where
+        K: MightHave<Shortname>,
+    {
+        self.indexed_names().collect()
+    }
+
+    pub(crate) fn named_indices(&self) -> HashMap<&Shortname, MeasIndex>
+    where
+        K: MightHave<Shortname>,
+    {
+        self.indexed_names().map(|(i, m)| (m, i)).collect()
+    }
+
+    pub(crate) fn all_indices_and_names_to_remove(
+        &self,
+    ) -> (IndicesToRemove, OpticalNamesToRemove<'_>)
+    where
+        K: MightHave<Shortname>,
+    {
+        let (js, ns): (HashSet<_>, HashSet<_>) = self.indexed_non_center_names().unzip();
+        (js.into(), ns.into())
     }
 
     /// Return all existing non-center names in the vector with their indices
@@ -537,7 +528,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     pub(crate) fn set_values(&mut self, xs: Vec<Element<U, V>>) -> Result<(), SetValuesError> {
         // check length and center position before doing anything, otherwise
         // we would need to reset the new vector if any error is found
-        self.check_keys_length(&xs[..], true)?;
+        self.check_keys_length(&xs[..])?;
         let errs = self
             .iter()
             .zip(xs.iter())
@@ -549,7 +540,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             })
             .filter_map(|x| x.map(|(i, is_center)| ElementMismatchError::new(i.into(), is_center)));
         ErrorGroup::try_new(errs)?;
-        let _ = self.alter_values_zip(
+        let _ = self.alter_values_zip_nocheck(
             xs,
             |e, y| y.both(|z| *e.value = z, |_| ()),
             |e, y| y.both(|_| (), |z| *e.value = z),
@@ -572,7 +563,20 @@ impl<K, U, V> NamedVec<K, U, V> {
         F: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
         G: Fn(IndexedElement<&K, &mut V>, X) -> R,
     {
-        self.check_keys_length(&xs[..], true)?;
+        self.check_keys_length(&xs[..])?;
+        Ok(self.alter_values_zip_nocheck(xs, f, g))
+    }
+
+    fn alter_values_zip_nocheck<G, F, X, R>(
+        &mut self,
+        xs: impl IntoIterator<Item = X>,
+        f: F,
+        g: G,
+    ) -> Vec<R>
+    where
+        F: Fn(IndexedElement<&Shortname, &mut U>, X) -> R,
+        G: Fn(IndexedElement<&K, &mut V>, X) -> R,
+    {
         let nleft = self.left.len();
         let mut it = xs.into_iter();
         let mut ret: Vec<_> =
@@ -589,7 +593,7 @@ impl<K, U, V> NamedVec<K, U, V> {
             ret.push(center_r);
             ret.extend(right_r);
         }
-        Ok(ret)
+        ret
     }
 
     pub(crate) fn alter_elements_zip<Fnoncenter, Fcenter, Ferror, X, Y, R, E, G>(
@@ -659,61 +663,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             .unwrap()
     }
 
-    // /// Apply function to non-center values, altering them in place
-    // pub(crate) fn alter_non_center_values<F, X>(&mut self, f: F) -> Vec<X>
-    // where
-    //     F: Fn(&mut V) -> X,
-    // {
-    //     match self {
-    //         NamedVec::Split(s, _) => s
-    //             .left
-    //             .iter_mut()
-    //             .map(|p| f(&mut p.value))
-    //             .chain(s.right.iter_mut().map(|p| f(&mut p.value)))
-    //             .collect(),
-    //         NamedVec::Unsplit(u) => u.members.iter_mut().map(|p| f(&mut p.value)).collect(),
-    //     }
-    // }
-
-    // /// Apply function to non-center values with values, altering them in place
-    // pub(crate) fn alter_non_center_values_zip<E, F, X>(
-    //     &mut self,
-    //     xs: Vec<X>,
-    //     f: F,
-    // ) -> Result<Vec<E>, KeyLengthError>
-    // where
-    //     F: Fn(&mut V, X) -> E,
-    // {
-    //     self.check_keys_length(&xs[..], false)?;
-    //     let res = match self {
-    //         NamedVec::Split(s, _) => {
-    //             let nleft = s.left.len();
-    //             let nright = s.right.len();
-    //             let mut it = xs.into_iter();
-    //             let left_r: Vec<_> = s
-    //                 .left
-    //                 .iter_mut()
-    //                 .zip(it.by_ref().take(nleft))
-    //                 .map(|(y, x)| f(&mut y.value, x))
-    //                 .collect();
-    //             let right_r: Vec<_> = s
-    //                 .right
-    //                 .iter_mut()
-    //                 .zip(it.by_ref().take(nright))
-    //                 .map(|(y, x)| f(&mut y.value, x))
-    //                 .collect();
-    //             left_r.into_iter().chain(right_r).collect()
-    //         }
-    //         NamedVec::Unsplit(u) => u
-    //             .members
-    //             .iter_mut()
-    //             .zip(xs)
-    //             .map(|(p, x)| f(&mut p.value, x))
-    //             .collect(),
-    //     };
-    //     Ok(res)
-    // }
-
     /// Return position of center, if it exists
     pub(crate) fn center_index(&self) -> Option<MeasIndex> {
         self.center_right.is_some().then(|| self.left.len().into())
@@ -779,13 +728,6 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.iter().count()
     }
 
-    /// Return number of non-center elements.
-    pub(crate) fn len_non_center(&self) -> usize {
-        self.iter()
-            .filter(|e| matches!(e, Element::NonCenter(_)))
-            .count()
-    }
-
     /// Return true if there are no contained elements.
     pub(crate) fn is_empty(&self) -> bool {
         self.len() == 0
@@ -826,64 +768,6 @@ impl<K, U, V> NamedVec<K, U, V> {
             })
             .ok_or_else(|| NameNotFoundError(n.clone()))
     }
-
-    // /// Get mutable reference at position.
-    // #[allow(clippy::type_complexity)]
-    // pub fn get_mut(
-    //     &mut self,
-    //     index: MeasIndex,
-    // ) -> Result<Element<(&Shortname, &mut U), (&K, &mut V)>, ElementIndexError>
-    // {
-    //     let i = self.check_element_index(index, true)?;
-    //     match self {
-    //         Self::Split(s) => {
-    //             let left_len = s.left.len();
-    //             match i.cmp(&left_len) {
-    //                 Less => Ok(Element::NonCenter(&mut s.left[i])),
-    //                 Equal => Ok(Element::Center(&mut s.center)),
-    //                 Greater => Ok(Element::NonCenter(&mut s.left[i - left_len - 1])),
-    //             }
-    //         }
-    //         Self::Unsplit(u) => Ok(Element::NonCenter(&mut u.members[i])),
-    //     }
-    //     .map(|x| x.bimap(|p| (&p.key, &mut p.value), |p| (&p.key, &mut p.value)))
-    // }
-
-    // /// Get reference to value with name.
-    // pub(crate) fn get_name(&self, n: &Shortname) -> Option<(MeasIndex, Element<&U, &V>)> {
-    //     if let Some(c) = self.as_center() {
-    //         if c.key == n {
-    //             return Some((c.index, Element::Center(c.value)));
-    //         }
-    //     }
-    //     self.iter()
-    //         .flat_map(|(i, r)| r.non_center().map(|x| (i, x)))
-    //         .find(|(_, p)| K::as_opt(&p.key).is_some_and(|kn| kn == n))
-    //         .map(|(i, p)| (i, Element::NonCenter(&p.value)))
-    // }
-
-    // /// Get mutable reference to value with name.
-    // pub(crate) fn get_name_mut(
-    //     &mut self,
-    //     n: &Shortname,
-    // ) -> Option<(MeasIndex, Element<&mut U, &mut V>)> {
-    //     match self {
-    //         Self::Split(s) => {
-    //             let nleft = s.left.len();
-    //             Self::value_by_name_mut(&mut s.left, n)
-    //                 .map(|(i, p)| (i.into(), Element::NonCenter(p)))
-    //                 .or(if &s.center.key == n {
-    //                     Some((nleft.into(), Element::Center(&mut s.center.value)))
-    //                 } else {
-    //                     None
-    //                 })
-    //                 .or(Self::value_by_name_mut(&mut s.right, n)
-    //                     .map(|(i, p)| ((i + nleft + 1).into(), Element::NonCenter(p))))
-    //         }
-    //         Self::Unsplit(u) => Self::value_by_name_mut(&mut u.members, n)
-    //             .map(|(i, p)| (i.into(), Element::NonCenter(p))),
-    //     }
-    // }
 
     /// Check if new name can be pushed
     pub(crate) fn check_push<'a>(&self, name: &'a K) -> Result<Cow<'a, Shortname>, NamePresentError>
@@ -1054,11 +938,23 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Rename center element.
     ///
     /// Return previous name if center exists.
-    pub(crate) fn rename_center(&mut self, name: Shortname) -> Option<Shortname> {
-        Some(mem::replace(
-            &mut self.center_right.as_mut()?.center.key,
-            name,
-        ))
+    pub(crate) fn rename_center(
+        &mut self,
+        name: Shortname,
+    ) -> Result<Option<Shortname>, NamePresentError>
+    where
+        K: MightHave<Shortname>,
+    {
+        if self
+            .iter()
+            .any(|e| e.both(|_| false, |v| K::as_opt(&v.key).is_some_and(|n| n == &name)))
+        {
+            return Err(NamePresentError { name });
+        }
+        Ok(self
+            .center_right
+            .as_mut()
+            .map(|c| mem::replace(&mut c.center.key, name)))
     }
 
     /// Test if new center with name can be pushed
@@ -1198,7 +1094,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: Clone + MightHave<Shortname>,
     {
-        self.check_keys_length(&ks[..], true)
+        self.check_keys_length(&ks[..])
             .map_err(SetNamesError::Length)?;
         if !all_unique_names(ks.iter().map(MightHave::as_opt)) {
             return Err(SetNamesError::NonUnique(NonUniqueKeysError).into());
@@ -1231,49 +1127,6 @@ impl<K, U, V> NamedVec<K, U, V> {
         Ok(mapping)
     }
 
-    // /// Set non-center keys to list
-    // ///
-    // /// The center key cannot be replaced by this method since the list will
-    // /// contain wrapped names which may or may not have a name inside, and
-    // /// the center value always has a name.
-    // ///
-    // /// List must be the same length as all non-center keys and must be unique
-    // /// (including the center key).
-    // pub(crate) fn set_non_center_keys(
-    //     &mut self,
-    //     ks: Vec<K>,
-    // ) -> Result<NameMapping, SetNamesError>
-    // where
-    //     K: Clone,
-    // {
-    //     self.check_keys_length(&ks[..], false)
-    //         .map_err(SetNamesError::Length)?;
-    //     let center = self.as_center().map(|x| K::wrap(x.key));
-    //     let all_keys = ks.iter().map(K::as_ref).chain(center).collect();
-    //     if !self.as_prefix().all_unique::<K>(all_keys) {
-    //         return Err(SetNamesError::NonUnique);
-    //     }
-    //     let mut mapping = HashMap::new();
-    //     let mut go = |side: &mut PairedVec<K, V>, ks_side: Vec<K>| {
-    //         for (p, k) in side.iter_mut().zip(ks_side) {
-    //             let old = mem::replace(&mut p.key, k.clone());
-    //             if let (Some(old_name), Some(new_name)) = (K::to_opt(old), K::to_opt(k)) {
-    //                 mapping.insert(old_name, new_name);
-    //             }
-    //         }
-    //     };
-    //     match self {
-    //         Self::Split(s) => {
-    //             let mut ks_left = ks;
-    //             let ks_right = ks_left.split_off(s.left.len());
-    //             go(&mut s.left, ks_left);
-    //             go(&mut s.right, ks_right);
-    //         }
-    //         Self::Unsplit(u) => go(&mut u.members, ks),
-    //     }
-    //     Ok(mapping)
-    // }
-
     /// Set all names to list of Shortnames
     ///
     /// This will update the center value along with everything else. Non-center
@@ -1285,7 +1138,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     where
         K: MightHave<Shortname>,
     {
-        self.check_keys_length(&ns[..], true)
+        self.check_keys_length(&ns[..])
             .map_err(SetNamesError::Length)?;
         if !all_unique(&ns) {
             return Err(NonUniqueKeysError.into());
@@ -1769,18 +1622,13 @@ impl<K, U, V> NamedVec<K, U, V> {
         IndexFromOne::from(index).check_boundary_index(self.len())
     }
 
-    fn check_keys_length<X>(&self, xs: &[X], include_center: bool) -> Result<(), InputLengthError> {
-        let this_len = if include_center {
-            self.len()
-        } else {
-            self.len_non_center()
-        };
+    fn check_keys_length<X>(&self, xs: &[X]) -> Result<(), InputLengthError> {
+        let this_len = self.len();
         let other_len = xs.len();
         if this_len != other_len {
             return Err(InputLengthError {
                 this_len,
                 other_len,
-                include_center,
             });
         }
         Ok(())
@@ -1982,6 +1830,20 @@ impl NamedSet<'_> {
 
     fn contains_center_name(&self, name: &Shortname) -> bool {
         self.center.as_ref().is_some_and(|n| n == &name)
+    }
+}
+
+// Implement methods for Pair
+
+impl_kind2!(pub PairFamily, Pair);
+
+impl<A, B> BifunctorOnce<A, B> for Pair<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Pair<C, B> {
+        Pair::new(f(self.key), self.value)
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Pair<A, C> {
+        Pair::new(self.key, f(self.value))
     }
 }
 

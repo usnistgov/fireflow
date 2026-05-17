@@ -2319,12 +2319,12 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         quote! {
             #name_doc
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
-                self.0.set_temporal(&name, (), allow_loss).py_resolve_non_commutative()
+                self.0.set_temporal(&name, (), allow_loss).py_resolve_commutative()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
-                self.0.set_temporal_at(index, (), allow_loss).py_resolve_non_commutative()
+                self.0.set_temporal_at(index, (), allow_loss).py_resolve_commutative()
             }
         }
     } else {
@@ -2337,14 +2337,14 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
             fn set_temporal(&mut self, #name_fun_args) -> PyResult<bool> {
                 self.0
                     .set_temporal(&name, timestep, allow_loss)
-                    .py_resolve_non_commutative()
+                    .py_resolve_commutative()
             }
 
             #index_doc
             fn set_temporal_at(&mut self, #index_fun_args) -> PyResult<bool> {
                 self.0
                     .set_temporal_at(index, timestep, allow_loss)
-                    .py_resolve_non_commutative()
+                    .py_resolve_commutative()
             }
         }
     };
@@ -2433,10 +2433,14 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
+    let exc =
+        PyException::new_pyreflow(PyreflowError::Relational).desc("if name is already present");
     let doc = DocString::new_method("Rename temporal measurement if present.")
         .arg(DocArg::new_name_param("New name to assign."))
         .returns(
-            DocReturn::new(PyOpt::new1(PyStr::new_shortname())).desc("Previous name if present."),
+            DocReturn::new(PyOpt::new1(PyStr::new_shortname()))
+                .desc("Previous name if present.")
+                .exc([exc]),
         );
 
     let fun_args = doc.fun_args();
@@ -2447,7 +2451,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
         impl #i {
             #doc
             fn rename_temporal(&mut self, #fun_args) -> #ret_path {
-                self.0.rename_temporal(name)
+                Ok(self.0.rename_temporal(name)?)
             }
         }
     }
@@ -2474,7 +2478,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
         );
         let doc = DocString::new_ivar(
             format!("The value for {PNE} for all measurements."),
-            PyList::new1(PyOpt::new1(PyUnion::new_scale(false))),
+            PyList::new1(PyOpt::new_scale2_0()),
         )
         .paras([s0, s1]);
 
@@ -2502,14 +2506,14 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             unity = code("1.0"),
         );
         let ss = [s0.into(), s1, s2.into(), s3];
-        let doc = DocString::new_ivar(sum, PyList::new1(PyUnion::new_transform())).paras(ss);
+        let doc = DocString::new_ivar(sum, PyList::new1(PyUnion::new_scale3_0())).paras(ss);
 
         doc.into_impl_get_set(
             &i,
-            "all_scale_transforms",
+            "all_scales",
             true,
-            |_, _| quote!(self.0.transforms().collect()),
-            |n, _| quote!(Ok(self.0.set_transforms(#n)?)),
+            |_, _| quote!(self.0.scales().collect()),
+            |n, _| quote!(Ok(self.0.set_scales(#n)?)),
         )
     }
     .into()
@@ -2542,7 +2546,7 @@ pub fn impl_core_get_measurements(input: TokenStream) -> TokenStream {
                     .map(|e| {
                         type_families::BifunctorOnce::bimap_once(
                             e,
-                            |t| t.value.clone(), |o| o.value.clone()
+                            |t| t.value.clone(), |o| o.value.inner().clone()
                         )
                     })
                     .map(type_families::BifunctorOnce::bimap_into_once)
@@ -2607,7 +2611,7 @@ pub fn impl_core_get_measurement(input: TokenStream) -> TokenStream {
             fn measurement_at(&self, #fun_args) -> #ret {
                 use type_families::{BifunctorOnce as _};
                 let m = self.0.measurements().get(index)?;
-                Ok(m.bimap_once(|x| x.1.clone(), |x| x.1.clone()).bimap_into_once())
+                Ok(m.bimap_once(|x| x.1.clone(), |x| x.1.inner().clone()).bimap_into_once())
             }
         }
     }
@@ -2634,7 +2638,7 @@ pub fn impl_core_get_named_measurement(input: TokenStream) -> TokenStream {
             fn measurement_named(&self, #fun_args) -> #ret {
                 use type_families::{BifunctorOnce as _};
                 let (_, m) = self.0.measurements().get_name(&name)?;
-                Ok(m.bimap_once(|x| x.clone(), |x| x.clone()).bimap_into_once())
+                Ok(m.bimap_once(|x| x.clone(), |x| x.inner().clone()).bimap_into_once())
             }
         }
     }
@@ -2696,12 +2700,15 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         };
         let param_meas = DocArg::new_param("meas", meas_type, "The measurement to push.");
         let col_param = hasdata.then_some(DocArg::new_col_param());
+        let scale_param = is_optical.then(|| DocArg::new_scale_param(version));
         let summary = format!("Push {what} measurement to end of measurement vector.");
         DocString::new_method(summary)
             .arg(DocArg::new_name_param("Name of new measurement."))
             .arg(param_meas)
             .arg(rng.clone())
             .args(col_param)
+            // this must be last since it has a default
+            .args(scale_param)
     };
 
     let opt_doc = push_meas_doc(true, is_dataset);
@@ -2721,7 +2728,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
                 let rng_col = #range_series_method;
-                let _ = self.0.push_optical(name.into(), meas.into(), rng_col)?;
+                let _ = self.0.push_optical(name.into(), meas.into(), scale, rng_col)?;
                 Ok(())
             }
 
@@ -2736,7 +2743,7 @@ pub fn impl_core_push_measurement(input: TokenStream) -> TokenStream {
         quote! {
             #opt_doc
             fn push_optical(&mut self, #opt_fun_args) -> PyResult<()> {
-                let _ = self.0.push_optical(name.into(), meas.into(), range)?;
+                let _ = self.0.push_optical(name.into(), meas.into(), scale, range)?;
                 Ok(())
             }
 
@@ -2785,10 +2792,12 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 .add(meas.clone())
                 .add(rng.clone())
         };
+        let scale3 = PyOpt::new1(PyUnion::new_scale3_0());
         let ret = match version {
-            Version::FCS2_0 | Version::FCS3_0 => pre_ret,
-            Version::FCS3_1 => pre_ret.add(int_widths.clone()),
-            Version::FCS3_2 => pre_ret.add(col_type.clone()),
+            Version::FCS2_0 => pre_ret.add(PyOpt::new_scale2_0()),
+            Version::FCS3_0 => pre_ret.add(scale3),
+            Version::FCS3_1 => pre_ret.add(scale3).add(int_widths.clone()),
+            Version::FCS3_2 => pre_ret.add(scale3).add(col_type.clone()),
         };
 
         let (which, argname) = if is_index {
@@ -2819,13 +2828,8 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let name_arg = by_name_doc.fun_args();
     let index_arg = by_index_doc.fun_args();
 
-    let name_ident = by_name_doc.idents();
-    let index_ident = by_index_doc.idents();
-
     let name_ret = by_name_doc.ret_path();
     let index_ret = by_index_doc.ret_path();
-
-    let bimap_into_once = quote!(type_families::BifunctorOnce::bimap_into_once);
 
     // split the range into FullRange (either float or int) and its type if it
     // exists. This will minimize "surprises" when data schemas are
@@ -2836,88 +2840,58 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     // desired (which will be most of the type probably).
     //
     // This only applies to 3.1 and 3.2
-    let name_mapper = if is_dataset {
+    let index_body = if is_dataset {
         match version {
             Version::FCS2_0 | Version::FCS3_0 => quote! {
-                |(i, x, c, r)| (i, #bimap_into_once(x), c.into(), r)
+                use type_families::{BifunctorOnce as _};
+                let (n, e, c, r, s) = self.0.py_remove_measurement_by_index(index)?;
+                Ok((n, e.bimap_into_once(), c.into(), r, s))
             },
-            Version::FCS3_1 => quote! {
-                |(i, x, c, r)| {
-                    let (rr, t) = split_bitmask_range(r);
-                    (i, #bimap_into_once(x), c.into(), rr, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(i, x, c, r)| {
-                    let (rr, t) = split_mixed_range(r);
-                    (i, #bimap_into_once(x), c.into(), rr, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (n, e, c, r, s, t) = self.0.py_remove_measurement_by_index_typed(index)?;
+                Ok((n, e.bimap_into_once(), c.into(), r, s, t))
             },
         }
     } else {
         match version {
             Version::FCS2_0 | Version::FCS3_0 => quote! {
-                |(i, x, r)| (i, #bimap_into_once(x), r)
+                use type_families::{BifunctorOnce as _};
+                let (n, e, r, s) = self.0.py_remove_measurement_by_index(index)?;
+                Ok((n, e.bimap_into_once(), r, s))
             },
-            Version::FCS3_1 => quote! {
-                |(i, x, r)| {
-                    let (rr, t) = split_bitmask_range(r);
-                    (i, #bimap_into_once(x), rr, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(i, x, r)| {
-                    let (rr, t) = split_mixed_range(r);
-                    (i, #bimap_into_once(x), rr, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (n, e, r, s, t) = self.0.py_remove_measurement_by_index_typed(index)?;
+                Ok((n, e.bimap_into_once(), r, s, t))
             },
         }
     };
 
-    let index_mapper = if is_dataset {
+    let name_body = if is_dataset {
         match version {
             Version::FCS2_0 | Version::FCS3_0 => quote! {
-                |(p, c, r)| {
-                    let (n, v) = p.unzip();
-                    (n, #bimap_into_once(v), c.into(), r)
-                }
+                use type_families::{BifunctorOnce as _};
+                let (i, e, c, r, s) = self.0.py_remove_measurement_by_name(&name)?;
+                Ok((i, e.bimap_into_once(), c.into(), r, s))
             },
-            Version::FCS3_1 => quote! {
-                |(p, c, r)| {
-                    let (n, v) = p.unzip();
-                    let (rr, t) = split_bitmask_range(r);
-                    (n, #bimap_into_once(v), c.into(), rr, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(p, c, r)| {
-                    let (n, v) = p.unzip();
-                    let (rr, t) = split_mixed_range(r);
-                    (n, #bimap_into_once(v), c.into(), rr, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (i, e, c, r, s, t) = self.0.py_remove_measurement_by_name_typed(&name)?;
+                Ok((i, e.bimap_into_once(), c.into(), r, s, t))
             },
         }
     } else {
         match version {
             Version::FCS2_0 | Version::FCS3_0 => quote! {
-                |(p, r)| {
-                    let (n, v) = p.unzip();
-                    (n, #bimap_into_once(v), r)
-                }
+                use type_families::{BifunctorOnce as _};
+                let (i, e, r, s) = self.0.py_remove_measurement_by_name(&name)?;
+                Ok((i, e.bimap_into_once(), r, s))
             },
-            Version::FCS3_1 => quote! {
-                |(p, r)| {
-                    let (n, v) = p.unzip();
-                    let (rr, t) = split_bitmask_range(r);
-                    (n, #bimap_into_once(v), rr, t)
-                }
-            },
-            Version::FCS3_2 => quote! {
-                |(p, r)| {
-                    let (n, v) = p.unzip();
-                    let (rr, t) = split_mixed_range(r);
-                    (n, #bimap_into_once(v), rr, t)
-                }
+            _ => quote! {
+                use type_families::{BifunctorOnce as _};
+                let (i, e, r, s, t) = self.0.py_remove_measurement_by_name_typed(&name)?;
+                Ok((i, e.bimap_into_once(), r, s, t))
             },
         }
     };
@@ -2930,7 +2904,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #name_arg
             ) -> #name_ret {
-                Ok(self.0.remove_measurement_by_name(&#name_ident).map(#name_mapper)?)
+                #name_body
             }
 
             #by_index_doc
@@ -2938,7 +2912,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_arg
             ) -> #index_ret {
-                Ok(self.0.remove_measurement_by_index(#index_ident).map(#index_mapper)?)
+                #index_body
             }
         }
     }
@@ -2959,7 +2933,8 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             (PyClass::new_temporal(version), "temporal")
         };
         let param_meas = DocArg::new_param("meas", meas_type, "The measurement to insert.");
-        let col_param = hasdata.then_some(DocArg::new_col_param());
+        let col_param = hasdata.then(DocArg::new_col_param);
+        let scale_param = is_optical.then(|| DocArg::new_scale_param(version));
         let summary = format!("Insert {what} measurement at position in measurement vector.");
         DocString::new_method(summary)
             .arg(DocArg::new_index_param(
@@ -2969,6 +2944,8 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
             .arg(param_meas)
             .arg(rng.clone())
             .args(col_param)
+            // this must be last since it has a default
+            .args(scale_param)
     };
 
     let opt_doc = insert_meas_doc(true, is_dataset);
@@ -2991,7 +2968,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 #opt_fun_args
             ) -> PyResult<()> {
                 let rng_col = #range_series_method;
-                let _ = self.0.insert_optical(index.into(), name.into(), meas.into(), rng_col)?;
+                let _ = self.0.insert_optical(index.into(), name.into(), meas.into(), scale, rng_col)?;
                 Ok(())
             }
 
@@ -3012,7 +2989,7 @@ pub fn impl_core_insert_measurement(input: TokenStream) -> TokenStream {
                 &mut self,
                 #opt_fun_args
             ) -> PyResult<()> {
-                let _ = self.0.insert_optical(index.into(), name.into(), meas.into(), range)?;
+                let _ = self.0.insert_optical(index.into(), name.into(), meas.into(), scale, range)?;
                 Ok(())
             }
 
@@ -3059,7 +3036,7 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         let meas_desc = format!("Optical measurement to replace measurement at {i}.");
         let exc_desc = format!("If {i} does not exist.");
         let exc = e.desc(exc_desc);
-        let ret = PyUnion::new_measurement(version);
+        let ret = PyUnion::new_measurement_with_scale(version);
         DocString::new_method(format!("Replace {m} with given optical measurement."))
             .arg(i_param)
             .arg(DocArg::new_param(
@@ -3088,14 +3065,16 @@ pub fn impl_core_replace_optical(input: TokenStream) -> TokenStream {
         impl #ident {
             #replace_at_doc
             fn replace_optical_at(&mut self, #index_fun_args) -> #index_ret {
+                use type_families::{BifunctorOnce as _};
                 let ret = self.0.replace_optical_at(index, meas.into())?;
-                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
+                Ok(ret.bimap_once(Into::into, |(o, s)| (o.into(), s)))
             }
 
             #replace_named_doc
             fn replace_optical_named(&mut self, #name_fun_args) -> #named_ret {
+                use type_families::{BifunctorOnce as _};
                 let ret = self.0.replace_optical_named(&name, meas.into())?;
-                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
+                Ok(ret.bimap_once(Into::into, |(o, s)| (o.into(), s)))
             }
         }
     }
@@ -3149,7 +3128,7 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
         let exc1 = PyException::new_pyreflow(PyreflowError::Relational)
             .desc("If a temporal measurement already exists at a different position");
         let xs = [exc0, exc1];
-        let ret = PyUnion::new_measurement(version);
+        let ret = PyUnion::new_measurement_with_scale(version);
         let meas = DocArg::new_param("meas", PyClass::new_temporal(version), meas_desc);
         let dret = DocReturn::new(ret)
             .desc("Replaced measurement object.")
@@ -3178,8 +3157,9 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 &mut self,
                 #index_fun_args
             ) -> #index_ret {
+                use type_families::{BifunctorOnce as _};
                 let ret = #replace_tmp_at_body;
-                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
+                Ok(ret.bimap_once(Into::into, |(o, s)| (o.into(), s)))
             }
 
             #replace_named_doc
@@ -3187,8 +3167,9 @@ pub fn impl_core_replace_temporal(input: TokenStream) -> TokenStream {
                 &mut self,
                 #name_fun_args
             ) -> #named_ret {
+                use type_families::{BifunctorOnce as _};
                 let ret = #replace_tmp_named_body;
-                Ok(type_families::BifunctorOnce::bimap_into_once(ret))
+                Ok(ret.bimap_once(Into::into, |(o, s)| (o.into(), s)))
             }
         }
     }
@@ -3774,12 +3755,6 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let lower_basename = base.to_lowercase();
 
-    let scale = if version == Version::FCS2_0 {
-        DocArg::new_scale_ivar()
-    } else {
-        DocArg::new_transform_ivar()
-    };
-
     let wavelength = if version < Version::FCS3_1 {
         DocArg::new_meas_kw_ivar1(MeasKw::PnL2_0)
     } else {
@@ -3830,7 +3805,6 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let tag = DocArg::new_meas_kw_ivar1(MeasKw::PnTAG);
     let measurement_type = DocArg::new_meas_kw_ivar1(MeasKw::PnTYPEOptical);
     let has_type = DocArg::new_meas_kw_ivar1(MeasKw::PnTYPETemporal);
-    let has_scale = DocArg::new_meas_kw_ivar1(MeasKw::PnETemporal);
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
@@ -3847,7 +3821,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     let all_common = [longname, nonstd];
 
     let all_args: Vec<_> = match (version, is_temporal) {
-        (Version::FCS2_0, true) => once(has_scale).chain(all_peak).chain(all_common).collect(),
+        (Version::FCS2_0, true) => all_peak.into_iter().chain(all_common).collect(),
         (Version::FCS3_0, true) => once(timestep).chain(all_peak).chain(all_common).collect(),
         (Version::FCS3_1, true) => [timestep, display]
             .into_iter()
@@ -3859,20 +3833,18 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
             .chain([has_type])
             .chain(all_common)
             .collect(),
-        (Version::FCS2_0 | Version::FCS3_0, false) => [scale, wavelength]
-            .into_iter()
+        (Version::FCS2_0 | Version::FCS3_0, false) => once(wavelength)
             .chain(all_peak)
             .chain(all_common_optical)
             .chain(all_common)
             .collect(),
-        (Version::FCS3_1, false) => [scale, wavelength, calibration3_1, display]
+        (Version::FCS3_1, false) => [wavelength, calibration3_1, display]
             .into_iter()
             .chain(all_peak)
             .chain(all_common_optical)
             .chain(all_common)
             .collect(),
         (Version::FCS3_2, false) => [
-            scale,
             wavelength,
             calibration3_2,
             display,
@@ -4283,7 +4255,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 
     let scale = DocArg::new_opt_ivar_rw(
         "scale",
-        PyUnion::new_scale(true),
+        PyUnion::new_gate_scale(),
         format!(
             "The {gme} keyword. {UNIT} means linear scaling and 2-tuple \
              specifies decades and offset for log scaling.",
@@ -5059,6 +5031,7 @@ struct GetSetMethods {
 enum DocDefault {
     Auto,
     Int(usize),
+    Float(f64),
     Str(String),
 }
 
@@ -5432,7 +5405,7 @@ enum Kw {
 /// Any "simple" measurement keyword that can be accessed with one ivar.
 #[derive(Clone, Copy)]
 enum MeasKw {
-    PnETemporal,
+    // PnETemporal,
     PnS,
     PnF,
     PnL2_0,
@@ -6908,6 +6881,18 @@ impl<E> PyOpt<E> {
 }
 
 impl<E: From<PyException>> PyOpt<E> {
+    fn new_scale2_0() -> Self {
+        let path = parse_quote! {fireflow_core::meas::OpticalScale2_0};
+        let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
+        let exc = PyException::new_invalid_keyword().desc(d);
+        let inner = PyUnion::new2(
+            PyTuple::default(),
+            repeat_n(RsFloat::F32, 2).collect::<PyTuple<_>>(),
+        )
+        .exc(exc);
+        Self::new1(inner).rstype(path).default_from_inner()
+    }
+
     fn new_scale_fix() -> Self {
         let path = keyword_path("AnyMeasScaleFix");
         let inner = PyTuple::new1(PyStr::new_ne_str()).add(PyLiteral::new_scale_fix());
@@ -7035,18 +7020,6 @@ impl<E: From<PyException>> PyTuple<E> {
             .rstype(path)
     }
 
-    fn new_meas(version: Version) -> Self {
-        let name_pytype = PyType::new_versioned_shortname(version);
-        let name_rstype = name_pytype.as_rust_type();
-        let meas_opt_pyname = pyoptical(version);
-        let meas_tmp_pyname = pytemporal(version);
-        let meas_argtype =
-            parse_quote!(PyEithers<#name_rstype, #meas_tmp_pyname, #meas_opt_pyname>);
-        Self::new1(name_pytype)
-            .add(PyUnion::new_measurement_nopath(version))
-            .rstype(meas_argtype)
-    }
-
     fn new_unigate() -> Self {
         [PyDecimal::default(), PyDecimal::default()]
             .into_iter()
@@ -7110,32 +7083,49 @@ impl<E> PyUnion<E> {
 }
 
 impl<E: From<PyException>> PyUnion<E> {
-    fn new_measurement_nopath(version: Version) -> Self {
+    fn new_measurement(version: Version) -> Self {
+        let element_path = element_path(version);
         Self::new2(
             PyClass::new_optical(version),
             PyClass::new_temporal(version),
         )
+        .rstype(element_path)
     }
 
-    fn new_measurement(version: Version) -> Self {
-        let element_path = element_path(version);
-        Self::new_measurement_nopath(version).rstype(element_path)
-    }
-
-    fn new_scale(is_gate: bool) -> Self {
-        let name = if is_gate { "GateScale" } else { "Scale" };
-        let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
-        let exc = PyException::new_invalid_keyword().desc(d);
+    fn new_measurement_with_scale(version: Version) -> Self {
+        let scale = PyType::new_scale(version);
+        let stype = scale.as_rust_type();
+        let otype = pyoptical(version);
+        let ttype = pytemporal(version);
+        let element_path = quote!(fireflow_core::text::named_vec::Element);
+        let path = parse_quote!(#element_path<#ttype, (#otype, #stype)>);
         Self::new2(
-            PyTuple::default(),
-            repeat_n(RsFloat::F32, 2).collect::<PyTuple<_>>(),
+            PyClass::new_optical(version),
+            PyTuple::new1(PyClass::new_temporal(version)).add(scale),
         )
-        .rstype(keyword_path(name))
-        .exc(exc)
+        .rstype(path)
     }
 
-    fn new_transform() -> Self {
-        let path = parse_quote! {fireflow_core::core::ScaleTransform};
+    fn new_meas_with_name_and_scale(version: Version) -> Self
+    where
+        E: Clone,
+    {
+        let name_pytype = PyType::new_versioned_shortname(version);
+        let name_rstype = name_pytype.as_rust_type();
+        let meas_opt_pyname = pyoptical(version);
+        let meas_tmp_pyname = pytemporal(version);
+        let scale_pytype = PyType::new_scale(version);
+        let scale_rstype = scale_pytype.as_rust_type();
+        let meas_argtype = parse_quote!(PyEithers<#name_rstype, #meas_tmp_pyname, #meas_opt_pyname, #scale_rstype>);
+        let tmp = PyTuple::new1(name_pytype.clone()).add(PyClass::new_temporal(version));
+        let opt = PyTuple::new1(name_pytype)
+            .add(PyClass::new_temporal(version))
+            .add(scale_pytype);
+        Self::new2(tmp, opt).rstype(meas_argtype)
+    }
+
+    fn new_scale3_0() -> Self {
+        let path = parse_quote! {fireflow_core::meas::OpticalScale3_0};
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
         // TODO the linear gain should also be positive
@@ -7144,6 +7134,17 @@ impl<E: From<PyException>> PyUnion<E> {
             repeat_n(RsFloat::F32, 2).collect::<PyTuple<_>>(),
         )
         .rstype(path)
+        .exc(exc)
+    }
+
+    fn new_gate_scale() -> Self {
+        let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
+        let exc = PyException::new_invalid_keyword().desc(d);
+        Self::new2(
+            PyTuple::default(),
+            repeat_n(RsFloat::F32, 2).collect::<PyTuple<_>>(),
+        )
+        .rstype(keyword_path("GateScale"))
         .exc(exc)
     }
 
@@ -7386,6 +7387,14 @@ impl<E: From<PyException>> PyType<E> {
             let inner = quote!(fireflow_core::validated::shortname::Shortname);
             let outer = parse_quote!(fireflow_core::text::optional::Identity<#inner>);
             PyStr::new_shortname().rstype(outer).into()
+        }
+    }
+
+    fn new_scale(version: Version) -> Self {
+        if version == Version::FCS2_0 {
+            PyOpt::new_scale2_0().into()
+        } else {
+            PyUnion::new_scale3_0().into()
         }
     }
 }
@@ -7885,36 +7894,36 @@ impl DocArgRWIvar {
         }
     }
 
-    fn new_scale_ivar() -> Self {
-        Self::new_opt_ivar_rw(
-            "scale",
-            PyUnion::new_scale(false),
-            format!(
-                "Value for {PNE}. Empty tuple means linear scale; 2-tuple encodes \
-                 decades and offset for log scale"
-            ),
-            false,
-            |_, _| quote!(*self.0.as_ref()),
-            |n, _| quote!(*self.0.scale_mut() = #n.into()),
-        )
-    }
+    // fn new_scale_ivar(version: Version) -> Self {
+    //     Self::new_opt_ivar_rw(
+    //         "scale",
+    //         PyUnion::new_scale(version),
+    //         format!(
+    //             "Value for {PNE}. Empty tuple means linear scale; 2-tuple encodes \
+    //              decades and offset for log scale"
+    //         ),
+    //         false,
+    //         |_, _| quote!(*self.0.as_ref()),
+    //         |n, _| quote!(*self.0.scale_mut() = #n.into()),
+    //     )
+    // }
 
-    fn new_transform_ivar() -> Self {
-        let d = format!(
-            "Value for {PNE} and/or {PNG}. Singleton float encodes gain ({PNG}) \
-             and implies linear scaling (ie {PNE} is {linear}). 2-tuple encodes \
-             decades and offset for log scale, and implies {PNG} is not set.",
-            linear = code("0,0"),
-        );
-        Self::new_ivar_rw(
-            "transform",
-            PyUnion::new_transform(),
-            d,
-            false,
-            |_, _| quote!(*self.0.as_ref()),
-            |n, _| quote!(*self.0.scale_mut() = #n),
-        )
-    }
+    // fn new_transform_ivar() -> Self {
+    //     let d = format!(
+    //         "Value for {PNE} and/or {PNG}. Singleton float encodes gain ({PNG}) \
+    //          and implies linear scaling (ie {PNE} is {linear}). 2-tuple encodes \
+    //          decades and offset for log scale, and implies {PNG} is not set.",
+    //         linear = code("0,0"),
+    //     );
+    //     Self::new_ivar_rw(
+    //         "transform",
+    //         PyUnion::new_scale3_0(),
+    //         d,
+    //         false,
+    //         |_, _| quote!(*self.0.as_ref()),
+    //         |n, _| quote!(*self.0.scale_mut() = #n),
+    //     )
+    // }
 
     fn new_core_nonstandard_keywords_ivar() -> Self {
         let d =
@@ -8284,7 +8293,8 @@ impl DocArgParam {
     fn new_paired_measurements_param(version: Version) -> Self {
         let meas_desc = "Measurements corresponding to columns in FCS file. \
                          Temporal must be given zero or one times.";
-        Self::new_param(MEASUREMENTS, PyTuple::new_meas(version), meas_desc)
+        let pytype = PyUnion::new_meas_with_name_and_scale(version);
+        Self::new_param(MEASUREMENTS, pytype, meas_desc)
     }
 
     fn new_measurements_param(version: Version) -> Self {
@@ -8297,7 +8307,8 @@ impl DocArgParam {
     fn new_set_meas_param(version: Version) -> Self {
         let d = "The new measurements. The first member of the tuple corresponds to \
                  the measurement name and the second is the measurement object.";
-        Self::new_param(MEASUREMENTS, PyTuple::new_meas(version), d)
+        let pytype = PyUnion::new_meas_with_name_and_scale(version);
+        Self::new_param(MEASUREMENTS, pytype, d)
     }
 
     fn new_allow_shared_names_param() -> Self {
@@ -8346,6 +8357,18 @@ impl DocArgParam {
     fn new_any_range_param(version: Version) -> Self {
         let desc = format!("Range of measurement. Corresponds to {PNR}.");
         Self::new_param("range", PyUnion::new_any_range(version), desc)
+    }
+
+    fn new_scale_param(version: Version) -> Self {
+        let pt = PyType::new_scale(version);
+        let desc = "The scale to insert. Must be compatible with the \
+                    datatype of the column to be inserted.";
+        let ret = Self::new_param("scale", pt, desc);
+        if version == Version::FCS2_0 {
+            ret.def_auto()
+        } else {
+            ret.def(DocDefault::Float(1.0))
+        }
     }
 
     // fn new_notrunc_param() -> Self {
@@ -9444,14 +9467,24 @@ impl DocDefault {
                 self.as_type()
             )
         };
+        let rs_def = pytype.doc_default().1;
         let py_str = |s| format!("\"{s}\"");
+        let py_float = |s| format!("{s:.15}");
         match (self, pytype) {
             (Self::Auto, _) => pytype.doc_default(),
-            (Self::Int(x), PyType::Int(_)) => (x.to_string(), pytype.doc_default().1),
-            (Self::Str(x), PyType::Str(_)) => (py_str(x), pytype.doc_default().1),
+            (Self::Float(x), PyType::Float(_)) => (py_float(x), rs_def),
+            (Self::Int(x), PyType::Int(_)) => (x.to_string(), rs_def),
+            (Self::Str(x), PyType::Str(_)) => (py_str(x), rs_def),
             (dt, PyType::Option(pt)) => match (dt, &pt.inner) {
                 (Self::Int(x), PyType::Int(y)) => (x.to_string(), y.doc_default().1),
+                (Self::Float(x), PyType::Float(y)) => (py_float(x), y.doc_default().1),
                 (Self::Str(x), PyType::Str(y)) => (py_str(x), y.doc_default().1),
+                _ => err(),
+            },
+            (dt, PyType::Union(pt)) => match (dt, &pt.head0) {
+                (Self::Int(x), PyType::Int(_)) => (x.to_string(), rs_def),
+                (Self::Float(x), PyType::Float(_)) => (py_float(x), rs_def),
+                (Self::Str(x), PyType::Str(_)) => (py_str(x), rs_def),
                 _ => err(),
             },
             _ => err(),
@@ -9463,6 +9496,7 @@ impl DocDefault {
         match self {
             Self::Auto => "auto",
             Self::Str(_) => "str",
+            Self::Float(_) => "float",
             Self::Int(_) => "int",
         }
     }
@@ -10450,7 +10484,7 @@ impl Kw {
 impl MeasKw {
     fn type_name(self) -> Path {
         let n = match self {
-            Self::PnETemporal => "TemporalScale2_0",
+            // Self::PnETemporal => "TemporalScale2_0",
             Self::PnS => "Longname",
             Self::PnF => "Filter",
             Self::PnL2_0 => "Wavelength",
@@ -10476,7 +10510,7 @@ impl MeasKw {
 
     const fn fun_singular_name(self) -> &'static str {
         match self {
-            Self::PnETemporal => "has_scale",
+            // Self::PnETemporal => "has_scale",
             Self::PnS => "longname",
             Self::PnF => "filter",
             Self::PnL2_0 => "wavelength",
@@ -10500,7 +10534,7 @@ impl MeasKw {
 
     const fn kw(self) -> &'static str {
         match self {
-            Self::PnETemporal => PNE,
+            // Self::PnETemporal => PNE,
             Self::PnS => fcs_kw!(tk::PNS),
             Self::PnF => fcs_kw!(tk::PNF),
             Self::PnL2_0 | Self::PnL3_1 => fcs_kw!(tk::PNL),
@@ -10548,7 +10582,8 @@ impl MeasKw {
         let path = self.type_name();
         let pf = PyFloat::new_positive_float();
         match self {
-            Self::PnETemporal | Self::PnTYPETemporal => PyBool::default().rstype(path).into(),
+            // Self::PnETemporal |
+            Self::PnTYPETemporal => PyBool::default().rstype(path).into(),
             Self::PnS
             | Self::PnF
             | Self::PnT

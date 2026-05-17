@@ -49,8 +49,8 @@ NonStdKeywords: TypeAlias = dict[NonStdKey, str]
 Calibration3_1: TypeAlias = tuple[float, str]
 Calibration3_2: TypeAlias = tuple[float, float, str]
 
-Scale: TypeAlias = tuple[float, float] | tuple[()]
-ScaleTransform: TypeAlias = tuple[float, float] | float
+OpticalScale2_0: TypeAlias = tuple[float, float] | tuple[()] | None
+OpticalScale3_0: TypeAlias = tuple[float, float] | float
 
 Display: TypeAlias = tuple[bool, float, float]
 

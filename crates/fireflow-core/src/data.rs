@@ -111,19 +111,18 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadEventsConfig, WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
-use crate::core::{
-    AsScaleOrTransform, Measurements, NamedTemporalsAndOpticals, Optical, ScaleTransform,
-    TemporalOrOptical, VersionSet,
-};
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
-    DeferredWarningAndError, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, IOResult,
-    ImpureError, LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult,
-    WarningOrErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
-    WarningsAndIOGroupResult, io_to_log,
+    DeferredWarningAndError, ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError,
+    LogResult, ResultExt as _, SwitchableErrorResult, SwitchableErrorsResult, WarningOrErrorResult,
+    WarningsAndErrorResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::def_summary;
 use crate::match_many_to_one;
+use crate::meas::{
+    CheckedScaleTransform, MeasMeta, ScaleDatatypeMismatchError, VMeasMeta,
+    VNamedTemporalsAndOpticalsWithScale, VersionMeasSet, wrap_scaled_opticals,
+};
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
@@ -136,8 +135,8 @@ use crate::text::keyword_enum::{
     SplitKeyword1,
 };
 use crate::text::keywords::{
-    AlphaNumType, ByteOrd2_0, ByteOrd3_1, Gain, NumType, Par, RangeToIntError, RangeToIntErrorKind,
-    Scale, TextRange, Tot, Width,
+    AlphaNumType, ByteOrd2_0, ByteOrd3_1, LogScale, NumType, Par, RangeToIntError,
+    RangeToIntErrorKind, TextRange, Tot, Width,
 };
 use crate::text::lookup::{
     OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
@@ -155,7 +154,7 @@ use crate::validated::bitmask::{
 use crate::validated::dataframe::{
     AnyPrimitiveSeries, CastSeriesError, DataFrame, DataFrameFamily, FromSeries, FromValue,
     HasFCSType, HasLen, HasWidth, InternalSeries, PrimitiveDataFrame, PrimitiveSeries,
-    ambassador_impl_HasLen, ambassador_impl_HasWidth,
+    ambassador_impl_HasLen,
 };
 use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
@@ -168,6 +167,7 @@ use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U5
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{CheckedRangeDatatypes, OverRangeAction};
 use fireflow_types::nonempty_string::DisplayableNE as _;
+use nonempty_collections::NESlice;
 use type_families::{
     Functor, FunctorOnce, Kind1, Sibling1, VecFamily, impl_functor_once, impl_kind1,
 };
@@ -254,11 +254,11 @@ pub type DataFrame3_2 = Any3_2Layout<DataFrameFamily>;
 )]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutDatatype, where = "M: HasWidth, N: HasWidth")]
-#[delegate(LayoutKeywords, where = "M: HasWidth, N: HasWidth")]
+#[delegate(LayoutDatatype, where = "M: LayoutWidth, N: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "M: LayoutWidth, N: LayoutWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(DataFrameWriteOps)]
 #[delegate(DataFrameCheckRanges)]
@@ -305,11 +305,11 @@ type VariableUintDataFrame<D> = VariableUintLayout<DataFrameFamily, D>;
 )]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutDatatype, where = "Delim: HasWidth, Fixed: HasWidth")]
-#[delegate(LayoutKeywords, where = "Delim: HasWidth, Fixed: HasWidth")]
+#[delegate(LayoutDatatype, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "Delim: LayoutWidth, Fixed: LayoutWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -448,11 +448,11 @@ pub struct ColumnMarkers<T, D> {
 )]
 #[derive(Clone, Delegate, PartialEq, IntoInner)]
 #[into_inner(PrimitiveDataFrame)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
-#[delegate(LayoutDatatype, where = "Single: HasWidth, Multi: HasWidth")]
-#[delegate(LayoutKeywords, where = "Single: HasWidth, Multi: HasWidth")]
+#[delegate(LayoutDatatype, where = "Single: LayoutWidth, Multi: LayoutWidth")]
+#[delegate(LayoutKeywords, where = "Single: LayoutWidth, Multi: LayoutWidth")]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
 #[delegate(DataFrameWriteOps)]
@@ -555,22 +555,22 @@ where
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(ColumnIsFixed)]
 #[delegate(HasLen)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(
     LayoutDatatype,
-    where = "A: HasWidth, \
-             U: HasWidth, \
-             F: HasWidth, \
-             D: HasWidth"
+    where = "A: LayoutWidth, \
+             U: LayoutWidth, \
+             F: LayoutWidth, \
+             D: LayoutWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "A: HasWidth, \
-             U: HasWidth, \
-             F: HasWidth, \
-             D: HasWidth"
+    where = "A: LayoutWidth, \
+             U: LayoutWidth, \
+             F: LayoutWidth, \
+             D: LayoutWidth"
 )]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -629,30 +629,30 @@ pub type MixedSeries = AnyDatatype<
 #[into_inner(PrimitiveDataFrame)]
 #[delegate(HasLen)]
 #[delegate(ColumnIsBinary)]
-#[delegate(HasWidth)]
+#[delegate(LayoutWidth)]
 #[delegate(LayoutHeight)]
 #[delegate(LayoutSize)]
 #[delegate(
     LayoutDatatype,
-    where = "C08: HasWidth, \
-             C16: HasWidth, \
-             C24: HasWidth, \
-             C32: HasWidth, \
-             C40: HasWidth, \
-             C48: HasWidth, \
-             C56: HasWidth, \
-             C64: HasWidth"
+    where = "C08: LayoutWidth, \
+             C16: LayoutWidth, \
+             C24: LayoutWidth, \
+             C32: LayoutWidth, \
+             C40: LayoutWidth, \
+             C48: LayoutWidth, \
+             C56: LayoutWidth, \
+             C64: LayoutWidth"
 )]
 #[delegate(
     LayoutKeywords,
-    where = "C08: HasWidth, \
-             C16: HasWidth, \
-             C24: HasWidth, \
-             C32: HasWidth, \
-             C40: HasWidth, \
-             C48: HasWidth, \
-             C56: HasWidth, \
-             C64: HasWidth"
+    where = "C08: LayoutWidth, \
+             C16: LayoutWidth, \
+             C24: LayoutWidth, \
+             C32: LayoutWidth, \
+             C40: LayoutWidth, \
+             C48: LayoutWidth, \
+             C56: LayoutWidth, \
+             C64: LayoutWidth"
 )]
 #[delegate(LayoutRanges<R>, generics = "R")]
 #[delegate(LayoutOptMeasKeywords)]
@@ -867,8 +867,8 @@ impl TruncatedResult {
 }
 
 #[derive(Default, new)]
-pub struct DataFrameResult<D> {
-    pub(crate) dataframe: D,
+pub struct ReadDataFrameResult<D> {
+    pub(crate) inner: D,
     pub(crate) diagnostics: EventsDiagnostics,
 }
 
@@ -1594,56 +1594,27 @@ impl fmt::Display for RangeToNewBitmaskError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasLayoutMismatchError {
-    Lengths(MeasLayoutLengthsError),
-    Scale(ScaleDatatypeMismatchError),
+    Lengths(LayoutLengthMismatchError),
+    Scale(ScaleDatatypeMismatchErrors),
 }
 
 /// Error when measurement vector is not the same length as columns in DATA/dataframe
 #[derive(Debug, Error)]
-#[error("measurement number ({meas_n}) does not match dataframe column number ({data_n})")]
+#[error("data layout has different width ({df_width}) then {other_name} ({other_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct MeasDataMismatchError {
-    meas_n: usize,
-    data_n: usize,
+pub struct LayoutLengthMismatchError {
+    df_width: usize,
+    other_len: usize,
+    other_name: &'static str,
 }
 
-/// Error when scales do not match datatypes in layout.
-#[derive(From, Display, Debug, Error)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ScaleDatatypeMismatchError {
-    Scale(ScaleMismatchErrors),
-    ScaleTransform(ScaleTransformMismatchErrors),
-}
-
-/// Error when measurement vector and layout have different lengths.
-#[derive(Debug, Error)]
-#[error("measurement number ({meas_n}) does not match layout column number ({layout_n})")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct MeasLayoutLengthsError {
-    meas_n: usize,
-    layout_n: usize,
-}
-
-pub type ScaleErrorGroup<V> = ErrorGroup<
-    <<<V as VersionSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
-    <<<V as VersionSet>::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
->;
-
-pub type ScaleMismatchErrors = ErrorGroup<ScaleMismatchError, ScaleMismatchSummary>;
+pub type ScaleDatatypeMismatchErrors =
+    ErrorGroup<ScaleDatatypeMismatchError, ScaleDatatypeMismatchSummary>;
 
 def_summary!(
-    pub ScaleMismatchSummary,
+    pub ScaleDatatypeMismatchSummary,
     "mismatch between scale and column datatypes"
-);
-
-pub type ScaleTransformMismatchErrors =
-    ErrorGroup<ScaleTransformMismatchError, ScaleTransformMismatchSummary>;
-
-def_summary!(
-    pub ScaleTransformMismatchSummary,
-    "mismatch between scale transforms and column datatypes"
 );
 
 /// Error when attempting to make a new measurement vector given a layout.
@@ -1654,62 +1625,11 @@ pub enum MeasurementsWithLayoutError {
     Layout(MeasLayoutMismatchError),
 }
 
-/// Error when $PnE does not match the datatype in its corresponding column (2.0)
-#[derive(Debug, Error, new)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct ScaleMismatchError {
-    index: MeasIndex,
-    datatype: AlphaNumType,
-    scale: Scale,
-}
-
-impl fmt::Display for ScaleMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let i = self.index;
-        let ekey = Scale::std(i);
-        let dt = self.datatype.as_displayable();
-        let eval = self.scale.as_displayable();
-        write!(
-            f,
-            "only integer columns may have non-linear scale, \
-             column is '{dt}' where {ekey} is '{eval}'"
-        )
-    }
-}
-
-/// Error when $PnE/$PnG do not match the datatype in the corresponding column (3.0+)
-#[derive(Debug, Error, new)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct ScaleTransformMismatchError {
-    index: MeasIndex,
-    datatype: AlphaNumType,
-    scale: ScaleTransform,
-}
-
-impl fmt::Display for ScaleTransformMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let i = self.index;
-        let ekey = Scale::std(i);
-        let gkey = Gain::std(i);
-        let dt = self.datatype.as_displayable();
-        let (eval, g): (Scale, Option<Gain>) = self.scale.into();
-        let gval = g.map_or("not set".into(), |s| format!("'{}'", s.as_displayable()));
-        write!(
-            f,
-            "only integer columns may have non-unitary scale transforms, \
-             column is '{dt}' where {ekey} is '{}' and {gkey} is {gval}",
-            eval.as_displayable(),
-        )
-    }
-}
-
 /// Error when converting a primitive dataframe into a versioned dataframe
 #[derive(From, Error, Display, Debug)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DataSchemaToDataFrameError {
-    ColMismatch(MeasDataMismatchError),
+    ColMismatch(LayoutLengthMismatchError),
     Cast(CastSeriesErrors),
 }
 
@@ -1736,6 +1656,20 @@ pub(crate) struct IndexedError<E> {
     #[new(into)]
     pub(crate) index: IndexFromOne,
     pub(crate) error: E,
+}
+
+/// Error when scale does not match the datatype for a given column
+#[derive(Debug, Error, new)]
+#[error(
+    "scale is log ({}) when datatype is '{}'",
+    self.scale.as_displayable(),
+    self.datatype.as_displayable(),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct ScaleColumnDatatypeMismatchError {
+    datatype: AlphaNumType,
+    scale: LogScale,
 }
 
 #[derive(new)]
@@ -1914,7 +1848,7 @@ where
     for<'a> Self: Sized
         + DataSchemaReadOps<Self::Tot>
         + LayoutDatatype
-        + HasWidth
+        + LayoutWidth
         + LayoutNormalize
         + LayoutKeywords
         + LayoutOptMeasKeywords
@@ -1945,26 +1879,27 @@ where
         conf: &ReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>;
 
-    fn h_read_df<R: Read + Seek>(
+    fn h_read_df<R>(
         &mut self,
         h: &mut BufReader<R>,
         tot: Self::Tot,
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        DataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
+        ReadDataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
         ReadCheckedDataframeWarning,
         ReadCheckedDataframeError,
         (),
     >
     where
+        R: Read + Seek,
         <Self as DataSchemaToEmptyDataFrame>::DfTarget: DataFrameCheckRanges,
     {
         match seg.try_abs_coords() {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
             None => {
-                let ret = DataFrameResult::new(self.empty(), EventsDiagnostics::default());
+                let ret = ReadDataFrameResult::new(self.empty(), EventsDiagnostics::default());
                 LogResult::new_ok(ret)
             }
             Some((begin, _)) => {
@@ -1989,34 +1924,11 @@ where
                             .map_ok_value(|overrange| {
                                 let df = res.dataframe;
                                 let diag = res.diagnostics;
-                                DataFrameResult::new(df, diag.add_overrange(overrange))
+                                ReadDataFrameResult::new(df, diag.add_overrange(overrange))
                             })
                     })
             }
         }
-    }
-
-    fn check_measurement_vector_nolen<N, T, O: AsScaleOrTransform>(
-        &self,
-        meas: &Measurements<N, T, O>,
-    ) -> Result<(), ScaleDatatypeMismatchError>
-    where
-        O::S: CheckedScaleTransform + Default,
-        <O::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<
-            ErrorGroup<
-                <O::S as CheckedScaleTransform>::Err,
-                <O::S as CheckedScaleTransform>::Summary,
-            >,
-        >,
-    {
-        let xforms: Vec<_> = meas
-            .iter_with(&|_, _| O::S::default(), &|_, m| {
-                m.value.as_scale_or_transform()
-            })
-            .collect();
-        self.check_transforms(&xforms[..])?;
-        Ok(())
     }
 }
 
@@ -2217,7 +2129,7 @@ where
     for<'a> Self: Sized
         + DataFrameWriteOps
         + LayoutDatatype
-        + HasWidth
+        + LayoutWidth
         + LayoutHeight
         + LayoutSize
         + LayoutKeywords
@@ -2254,15 +2166,15 @@ impl VersionedDataFrame for DataFrame3_2 {}
 // These traits are simple because they can be fractally delegated to inner
 // types without any special tricks.
 
-impl<C: HasWidth, F, I, L, M, const ORD: bool> HasWidth for Layout<C, F, I, L, M, ORD> {
-    fn width(&self) -> usize {
-        self.container.width()
-    }
+// impl<C: HasWidth, F, I, L, M, const ORD: bool> HasWidth for Layout<C, F, I, L, M, ORD> {
+//     fn width(&self) -> usize {
+//         self.container.width()
+//     }
 
-    fn clear(&mut self) {
-        self.container.clear();
-    }
-}
+//     fn clear(&mut self) {
+//         self.container.clear();
+//     }
+// }
 
 /// A layout which has ranges.
 #[delegatable_trait]
@@ -2293,122 +2205,132 @@ pub trait LayoutDatatype: Sized {
 
     fn datatypes(&self) -> Vec<AlphaNumType>;
 
-    // fn datatypes_and_width(&self) -> Vec<(AlphaNumType, Width)>;
+    // /// Check that unnamed measurement metadata matches this data schema (no length)
+    // fn check_unmamed_meas_xforms<V: VersionLayoutSet>(
+    //     &self,
+    //     meas: &[VTemporalOrOptical<V>],
+    // ) -> Result<(), ScaleDatatypeMismatchErrors> {
+    //     unimplemented!()
+    //     // let xforms = meas
+    //     //     .iter()
+    //     //     .map(|m| m.as_ref().both(|_| V::Xform::default(), |o| *o.xform()));
+    //     // self.check_transforms(xforms)
+    // }
 
-    fn check_transforms<S, G>(&self, xforms: &[S]) -> GroupResult<(), S::Err, G>
+    // /// Check that unnamed measurement metadata matches this data schema.
+    // ///
+    // /// Check the following:
+    // ///
+    // /// 1. length must match the data schema
+    // /// 2. transforms in metadata must match data schema
+    // fn check_unmamed_meas_xforms_and_len<V: VersionLayoutSet>(
+    //     &self,
+    //     meas: &[VTemporalOrOptical<V>],
+    // ) -> Result<(), MeasLayoutMismatchError>
+    // where
+    //     Self: HasWidth,
+    //     // V::Optical: AsScaleOrTransform,
+    //     // <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
+    // {
+    //     unimplemented!()
+    //     // let xforms = meas.iter().map(|m| {
+    //     //     m.as_ref()
+    //     //         .both(|_| V::Xform::default(), Optical::as_scale_or_transform)
+    //     // });
+    //     // self.check_transforms_and_len(xforms)
+    // }
+
+    /// Check that meas metadata is compatible with this data schema.
+    ///
+    /// Check the following:
+    ///
+    /// 1. length must match the data schema
+    /// 2. transforms in metadata must match data schema
+    fn check_measmeta_scales_and_len<Name, Tmp, Opt, Xform>(
+        &self,
+        meas: &MeasMeta<Name, Tmp, Opt, Xform>,
+    ) -> Result<(), MeasLayoutMismatchError>
+    where
+        Xform: Default + Copy + CheckedScaleTransform,
+        Self: LayoutDatatype + LayoutWidth,
+    {
+        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.scale());
+        self.check_scales_and_len(xforms)
+    }
+
+    /// Check that meas metadata is compatible with this data schema (no length).
+    fn check_measmeta_scales<Name, Tmp, Opt, Xform>(
+        &self,
+        meas: &MeasMeta<Name, Tmp, Opt, Xform>,
+    ) -> Result<(), ScaleDatatypeMismatchErrors>
+    where
+        Xform: Default + Copy + CheckedScaleTransform,
+        Self: LayoutDatatype,
+    {
+        let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.scale());
+        self.check_scales(xforms)
+    }
+
+    /// Convert vector of names + metadata to validated meas metadata.
+    ///
+    /// Check the following:
+    ///
+    /// 1. there is only one temporal measurement
+    /// 2. names must be unique
+    /// 3. length must match the data schema
+    /// 4. transforms in metadata must match data schema
+    #[allow(clippy::type_complexity)]
+    fn try_new_measmeta<V: VersionMeasSet>(
+        &self,
+        measurements: VNamedTemporalsAndOpticalsWithScale<V>,
+    ) -> Result<VMeasMeta<V>, MeasurementsWithLayoutError>
+    where
+        Self: LayoutWidth,
+    {
+        let nv = NamedVec::try_new(wrap_scaled_opticals::<V>(measurements))?;
+        self.check_measmeta_scales_and_len(&nv)
+            .map_err(MeasurementsWithLayoutError::from)?;
+        Ok(nv)
+    }
+
+    fn check_scales_and_len<S>(
+        &self,
+        xforms: impl IntoIterator<Item = S>,
+    ) -> Result<(), MeasLayoutMismatchError>
     where
         S: CheckedScaleTransform,
-        G: Default,
+        Self: LayoutWidth,
     {
         let ds = self.datatypes();
-        debug_assert!(
-            xforms.len() == ds.len(),
-            "transforms length must be same as column number"
-        );
+        let mut meas_n = 0;
         let es = ds
             .iter()
             .zip(xforms)
             .enumerate()
-            // Only integers are allowed to have gain and log scaling, so
-            // everything else should be a "noop" transform (ie a linear
-            // transform with slope of 1.0). NOTE the standard itself is
-            // vague about what should happen to ASCII values (presumably
-            // since nobody cares) so here we just treat them like we treat
-            // floating point types to keep the logic simple.
-            .filter_map(|(i, (&datatype, s))| s.matches_datatype(datatype, i.into()).err());
-        ErrorGroup::try_new(es)
-    }
+            .filter_map(|(i, (&datatype, s))| {
+                meas_n += 1;
+                s.matches_datatype(&datatype, i.into()).err()
+            });
 
-    fn check_transforms_and_len<S, G>(&self, xforms: &[S]) -> Result<(), MeasLayoutMismatchError>
-    where
-        Self: HasWidth,
-        G: Default,
-        S: CheckedScaleTransform,
-        ScaleDatatypeMismatchError: From<ErrorGroup<S::Err, G>>,
-    {
-        let meas_n = xforms.len();
-        let layout_n = self.width();
-        if meas_n != layout_n {
-            let e = MeasLayoutLengthsError { meas_n, layout_n };
-            return Err(e.into());
-        }
-        self.check_transforms(xforms)
-            .map_err(ScaleDatatypeMismatchError::from)?;
+        ErrorGroup::try_new(es)?;
+        self.check_width_n(meas_n, "measurements")?;
         Ok(())
     }
 
-    fn check_meas_vec<V: VersionSet>(
+    fn check_scales<S>(
         &self,
-        meas: &[TemporalOrOptical<V>],
-    ) -> Result<(), MeasLayoutMismatchError>
+        xforms: impl IntoIterator<Item = S>,
+    ) -> Result<(), ScaleDatatypeMismatchErrors>
     where
-        Self: HasWidth,
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<
-            ErrorGroup<
-                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
-                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
-            >,
-        >,
+        S: CheckedScaleTransform,
     {
-        let xforms: Vec<_> = meas
+        let ds = self.datatypes();
+        let es = ds
             .iter()
-            .map(|m| {
-                m.as_ref().both(
-                    |_| <V::Optical as AsScaleOrTransform>::S::default(),
-                    Optical::as_scale_or_transform,
-                )
-            })
-            .collect();
-        self.check_transforms_and_len(&xforms[..])
-    }
-
-    fn check_meas_named_vec<Name, Tmp, Opt: AsScaleOrTransform>(
-        &self,
-        meas: &Measurements<Name, Tmp, Opt>,
-    ) -> Result<(), MeasLayoutMismatchError>
-    where
-        Self: HasWidth,
-        Opt::S: CheckedScaleTransform + Default,
-        <Opt::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<
-            ErrorGroup<
-                <Opt::S as CheckedScaleTransform>::Err,
-                <Opt::S as CheckedScaleTransform>::Summary,
-            >,
-        >,
-    {
-        let xforms: Vec<_> = meas
-            .iter_with(&|_, _| Opt::S::default(), &|_, m| {
-                m.value.as_scale_or_transform()
-            })
-            .collect();
-        self.check_transforms_and_len(&xforms[..])
-    }
-
-    #[allow(clippy::type_complexity)]
-    fn try_new_measurements<V: VersionSet>(
-        &self,
-        measurements: NamedTemporalsAndOpticals<V>,
-    ) -> Result<Measurements<V::Name, V::Temporal, V::Optical>, MeasurementsWithLayoutError>
-    where
-        Self: HasWidth,
-        V::Optical: AsScaleOrTransform,
-        <V::Optical as AsScaleOrTransform>::S: CheckedScaleTransform + Default,
-        <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary: Default,
-        ScaleDatatypeMismatchError: From<
-            ErrorGroup<
-                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Err,
-                <<V::Optical as AsScaleOrTransform>::S as CheckedScaleTransform>::Summary,
-            >,
-        >,
-    {
-        let ms = NamedVec::try_new(measurements)?;
-        self.check_meas_named_vec(&ms)
-            .map_err(MeasurementsWithLayoutError::from)?;
-        Ok(ms)
+            .zip(xforms)
+            .enumerate()
+            .filter_map(|(i, (datatype, s))| s.matches_datatype(datatype, i.into()).err());
+        ErrorGroup::try_new(es)
     }
 }
 
@@ -2481,6 +2403,63 @@ where
                 [w, r]
             })
             .collect()
+    }
+}
+
+/// A layout which has a width.
+#[delegatable_trait]
+pub trait LayoutWidth: Sized {
+    fn width(&self) -> usize;
+
+    fn clear(&mut self);
+
+    fn check_width_n(
+        &self,
+        other_len: usize,
+        other_name: &'static str,
+    ) -> Result<(), LayoutLengthMismatchError> {
+        let df_width = self.width();
+        if other_len != df_width {
+            return Err(LayoutLengthMismatchError {
+                df_width,
+                other_len,
+                other_name,
+            });
+        }
+        Ok(())
+    }
+
+    fn check_width<T>(
+        &self,
+        other: &T,
+        other_name: &'static str,
+    ) -> Result<(), LayoutLengthMismatchError>
+    where
+        T: HasWidth,
+    {
+        self.check_width_n(other.width(), other_name)
+    }
+}
+
+impl<C, I, L, M, const ORD: bool> LayoutWidth for Layout<Vec<C>, VecFamily, I, L, M, ORD> {
+    fn width(&self) -> usize {
+        self.container.len()
+    }
+
+    fn clear(&mut self) {
+        self.container.clear();
+    }
+}
+
+impl<C, I, L, M, const ORD: bool> LayoutWidth
+    for Layout<DataFrame<C>, DataFrameFamily, I, L, M, ORD>
+{
+    fn width(&self) -> usize {
+        self.container.width()
+    }
+
+    fn clear(&mut self) {
+        self.container.clear();
     }
 }
 
@@ -2560,7 +2539,7 @@ pub trait LayoutOptMeasKeywords {
 
 impl<C, I, F, S, M, const ORD: bool> LayoutOptMeasKeywords for Layout<C, F, I, S, M, ORD>
 where
-    Self: HasWidth,
+    Self: LayoutWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         vec![None; self.width()]
@@ -2573,7 +2552,7 @@ where
     C: AsRef<[I::Inner]>,
     I::Inner: ColumnHasDatatype,
     Self: LayoutDatatype,
-    N: HasWidth,
+    N: LayoutWidth,
 {
     fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
         let dt = self.datatype();
@@ -2823,22 +2802,6 @@ pub trait WithPrimitiveDataFrame {
         self.with_data(df.into())
     }
 
-    fn check_width<T>(&self, df: &T) -> Result<(), MeasDataMismatchError>
-    where
-        Self: HasWidth,
-        T: HasWidth,
-    {
-        let df_width = df.width();
-        let this_width = self.width();
-        if df_width != this_width {
-            return Err(MeasDataMismatchError {
-                meas_n: this_width,
-                data_n: df_width,
-            });
-        }
-        Ok(())
-    }
-
     fn check_data_loss(&self, df: &PrimitiveDataFrame) -> Result<(), CastSeriesErrors>;
 
     // Check that generic dataframe won't cause data loss errors with a new
@@ -2853,6 +2816,17 @@ pub trait WithPrimitiveDataFrame {
         T: Clone + Into<PrimitiveDataFrame>,
     {
         self.check_data_loss(&df.clone().into())
+    }
+
+    fn check_data_loss_and_width_generic<T>(&self, df: &T) -> Result<(), DataSchemaToDataFrameError>
+    where
+        Self: LayoutWidth,
+        T: Clone + Into<PrimitiveDataFrame>,
+    {
+        let d = df.clone().into();
+        self.check_data_loss(&d)?;
+        self.check_width(&d, "new dataframe")?;
+        Ok(())
     }
 }
 
@@ -3013,7 +2987,7 @@ where
         &self,
         df: PrimitiveDataFrame,
     ) -> Result<Self::DfTarget, DataSchemaToDataFrameError> {
-        self.check_width(&df)?;
+        self.check_width(&df, "new dataframe")?;
         let rs = self
             .container
             .iter()
@@ -3316,21 +3290,18 @@ where
                 })
             };
         }
-        let rs = &self.container[..];
-        let nbytes = seg.len().u64_to_usize();
-        if rs.is_empty() && nbytes > 0 {
-            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
-            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
-        }
-        let res = TotType::with_tot(
-            h,
-            tot,
-            |h_, t| go!(h_read_delim_with_rows(rs, h_, t, nbytes)),
-            |h_| go!(h_read_delim_without_rows(rs, h_, nbytes)),
-        );
 
-        res.map_err(IOErrorGroup::from)
-            .map(|data| {
+        let nbytes = seg.len().u64_to_usize();
+
+        let res = if let Some(rs) = NESlice::try_from_slice(&self.container[..]) {
+            let res = TotType::with_tot(
+                h,
+                tot,
+                |h_, t| go!(h_read_delim_with_rows(&rs, h_, t, nbytes)),
+                |h_| go!(h_read_delim_without_rows(&rs, h_, nbytes)),
+            );
+
+            res.map(|data| {
                 debug_assert!(
                     data.iter().map(Vec::len).unique().count() < 2,
                     "columns must all be same length"
@@ -3340,16 +3311,24 @@ where
                     .map(InternalSeries::from)
                     .zip(&self.container)
                     .map(|(vec, &range)| NativeSeries::new(range, vec));
-                let df = DataFrame::new_unchecked(cs);
-                let out = PreEventsDiagnostics::new(None, None, None);
-                PreDataFrameResult::new(Layout::new_ascii(df), out)
+                DataFrame::new_unchecked(cs)
             })
+        } else if nbytes > 0 {
+            let e = ReadAsciiError::from(ReadDelimAsciiError::from(ReadDelimNoColumnError));
+            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
+        } else {
+            Ok(DataFrame::default())
+        };
+
+        let diag = PreEventsDiagnostics::new(None, None, None);
+        res.map(|df| PreDataFrameResult::new(Layout::new_ascii(df), diag))
+            .map_err(IOErrorGroup::from)
             .into_log()
     }
 }
 
 fn h_read_delim_with_rows<R: Read>(
-    ranges: &[DelimAsciiRange],
+    ranges: &NESlice<DelimAsciiRange>,
     h: &mut BufReader<R>,
     tot: Tot,
     nbytes: usize,
@@ -3358,9 +3337,8 @@ fn h_read_delim_with_rows<R: Read>(
     let mut last_was_delim = false;
     let nrows = tot.0;
     let ncols = ranges.len();
-    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     // Here we have $TOT so initialize vectors to required length
-    let mut data = vec![vec![0; nrows]; ncols];
+    let mut data = vec![vec![0; nrows]; ncols.get()];
     let mut row = 0;
     let mut col = 0;
     // Delimiters are tab, newline, carriage return, space, or comma. Any
@@ -3371,7 +3349,7 @@ fn h_read_delim_with_rows<R: Read>(
                 .map_err(DataAsciiNumToUintError)
                 .map_err(ReadDelimWithRowsAsciiError::Parse)
                 .map_err(ImpureError::Pure)?;
-            if col == ncols - 1 {
+            if col == ncols.get() - 1 {
                 col = 0;
                 row += 1;
             } else {
@@ -3412,7 +3390,7 @@ fn h_read_delim_with_rows<R: Read>(
 }
 
 fn h_read_delim_without_rows<R: Read>(
-    ranges: &[DelimAsciiRange],
+    ranges: &NESlice<DelimAsciiRange>,
     h: &mut BufReader<R>,
     nbytes: usize,
 ) -> Result<Vec<Vec<u64>>, ImpureError<ReadDelimAsciiWithoutRowsError>> {
@@ -3420,7 +3398,6 @@ fn h_read_delim_without_rows<R: Read>(
     // Here we don't have $TOT so init to empty vectors
     let mut data: Vec<_> = ranges.iter().map(|_| vec![]).collect();
     let ncols = data.len();
-    debug_assert!(ncols > 0, "no columns given for ASCII layout");
     let mut col = 0;
     let mut last_was_delim = false;
     let go = |data_: &mut Vec<Vec<u64>>, col_: usize, buf_: &[u8]| {
@@ -4993,6 +4970,90 @@ where
     }
 }
 
+// Implement check for scale insertion into layout.
+//
+// This is tricky since we don't know the datatype of the column based on the
+// range to be inserted if the layout is mixed. Therefore we need to check all
+// three together, but just for this one case.
+
+pub trait LayoutInsertScaleCheck<Column> {
+    fn matches_scale<S>(
+        &self,
+        col: &Column,
+        scale: &S,
+    ) -> Result<(), ScaleColumnDatatypeMismatchError>
+    where
+        S: CheckedScaleTransform;
+}
+
+impl<R, A, I, F32, F64> LayoutInsertScaleCheck<R> for AnyDatatype<A, I, F32, F64>
+where
+    Self: LayoutDatatype,
+{
+    fn matches_scale<S>(&self, _: &R, scale: &S) -> Result<(), ScaleColumnDatatypeMismatchError>
+    where
+        S: CheckedScaleTransform,
+    {
+        let dt = self.datatype();
+        scale
+            .matches_datatype_log(&dt)
+            .map_err(|s| ScaleColumnDatatypeMismatchError::new(dt, s))
+    }
+}
+
+impl<F, R, A, I, F32, F64> LayoutInsertScaleCheck<MaybeTypedRange<R, AnyDatatype<A, I, F32, F64>>>
+    for Any3_2Layout<F>
+where
+    F: Kind1,
+    UvarCol: IsCol<F, false>,
+    U08Col: IsCol<F, false>,
+    U16Col: IsCol<F, false>,
+    U24Col: IsCol<F, false>,
+    U32Col: IsCol<F, false>,
+    U40Col: IsCol<F, false>,
+    U48Col: IsCol<F, false>,
+    U56Col: IsCol<F, false>,
+    U64Col: IsCol<F, false>,
+    F32Col: IsCol<F, false>,
+    F64Col: IsCol<F, false>,
+    DelimAsciiCol: IsCol<F, false>,
+    FixedAsciiCol: IsCol<F, false>,
+    MixedCol: IsCol<F, false>,
+    NonMixedLayout<F, Option<NumType>>: LayoutDatatype,
+{
+    fn matches_scale<S>(
+        &self,
+        col: &MaybeTypedRange<R, AnyDatatype<A, I, F32, F64>>,
+        scale: &S,
+    ) -> Result<(), ScaleColumnDatatypeMismatchError>
+    where
+        S: CheckedScaleTransform,
+    {
+        let col_dt = match col {
+            MaybeTypedRange::Typed(r) => Some(r.col_datatype()),
+            MaybeTypedRange::Untyped(_) => None,
+        };
+        let schema_dt = match self {
+            Self::NonMixed(s) => Some(s.datatype()),
+            Self::Mixed(_) => None,
+        };
+        let dt = match (col_dt, schema_dt) {
+            (Some(a), Some(b)) if a == b => a,
+            (Some(a), None) => a,
+            (None, Some(b)) => b,
+            // If we hit this case it means the layout and range to insert
+            // contradict each other. We could throw an error here but this is
+            // already taken care of with the LayoutInsert trait itself, which
+            // we can assume is always run in parallel with this one. Just
+            // return no error here and let the other trait do the rest.
+            _ => return Ok(()),
+        };
+        scale
+            .matches_datatype_log(&dt)
+            .map_err(|s| ScaleColumnDatatypeMismatchError::new(dt, s))
+    }
+}
+
 // Implement removable operations for layouts.
 //
 // Unlike insertions, this cannot fail which makes this trait simpler.
@@ -5081,7 +5142,7 @@ where
     C: Into<R>,
 {
     fn remove_nocheck_inner(&mut self, index: MeasIndex, _: private::NoTouchy) -> R {
-        debug_assert!(
+        assert!(
             usize::from(index) <= self.container.len(),
             "Index should be less than/equal to column number"
         );
@@ -5099,7 +5160,7 @@ where
         index: MeasIndex,
         _: private::NoTouchy,
     ) -> RangeAndSeries<R> {
-        debug_assert!(
+        assert!(
             usize::from(index) <= self.container.ncols(),
             "Index should be less than/equal to column number"
         );
@@ -6733,7 +6794,7 @@ impl<T> EffectiveRange<T> {
     where
         T: PartialOrd + Copy,
     {
-        debug_assert!(
+        assert!(
             self.bitmask.is_none_or(|r| self.numeric_range <= r),
             "bitmask less than numeric range"
         );
@@ -6989,42 +7050,6 @@ impl_endian_layout_io!(Bitmask56);
 impl_endian_layout_io!(Bitmask64);
 impl_endian_layout_io!(F32Range);
 impl_endian_layout_io!(F64Range);
-
-// Implement checks for scale transform against $DATATYPE
-//
-// Log scale transforms can only be used when $DATATYPE=I
-
-/// A scale transform which may be checked against a datatype to ensure compatibility
-pub trait CheckedScaleTransform {
-    type Err;
-    type Summary;
-
-    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err>;
-}
-
-impl CheckedScaleTransform for Scale {
-    type Err = ScaleMismatchError;
-    type Summary = ScaleMismatchSummary;
-
-    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
-        if datatype != AlphaNumType::Integer && matches!(self, Self::Log(_)) {
-            return Err(ScaleMismatchError::new(i, datatype, *self));
-        }
-        Ok(())
-    }
-}
-
-impl CheckedScaleTransform for ScaleTransform {
-    type Err = ScaleTransformMismatchError;
-    type Summary = ScaleTransformMismatchSummary;
-
-    fn matches_datatype(&self, datatype: AlphaNumType, i: MeasIndex) -> Result<(), Self::Err> {
-        if datatype != AlphaNumType::Integer && !self.is_noop() {
-            return Err(ScaleTransformMismatchError::new(i, datatype, *self));
-        }
-        Ok(())
-    }
-}
 
 // Implement default for layout types
 //

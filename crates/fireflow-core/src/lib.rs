@@ -7,6 +7,7 @@ mod fixed_vec;
 pub mod header;
 pub mod logging;
 mod macros;
+pub mod meas;
 pub mod nonempty;
 pub mod segment;
 #[cfg(test)]

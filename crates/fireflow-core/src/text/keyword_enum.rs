@@ -3,13 +3,9 @@
 //! Used to iterate over keywords without converting to strings first, allowing
 //! fast access and easy filtering if required.
 
-use crate::core::{
-    AnyMetarootKeyLossError, AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError,
-    AnyTemporalKeyLossError, AnyTemporalToOpticalKeyLossError, GatingLossError, KeyLossError,
-    NonLinearScaleError, NonUnitGainError, PeakLossError, RegionLossError, TimestepLossError,
-};
+use crate::meas::GainLossError;
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::index::{IndexFromOne, MeasIndex};
+use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
@@ -26,15 +22,22 @@ use fireflow_types::nonempty_string::{
 };
 
 use ambassador::{Delegate, delegatable_trait};
-use derive_more::From;
+use derive_more::{Display, From};
 use derive_new::new;
 use num_traits::One as _;
+use thiserror::Error;
 
 use std::fmt::{self, Write as _};
 use std::num::NonZeroU32;
 
 #[cfg(feature = "serde")]
 use crate::validated::keys::IndexedKey;
+
+#[cfg(feature = "python")]
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
+};
 
 /// Any offset keyword type
 #[derive(Clone, From, Delegate)]
@@ -191,8 +194,30 @@ pub enum ReqMeasKeyword<'a> {
 pub enum OptMeasKeyword<'a> {
     Shortname(RefKeyword1<'a, Shortname>),
     NumType(SplitKeyword1<kws::NumType>),
-    Optical(OptOpticalKeyword<'a>),
+    Optical(OptScaledOpticalKeyword<'a>),
     Temporal(OptTemporalKeyword<'a>),
+}
+
+/// Any optional optical keyword type
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum OptScaledOpticalKeyword<'a> {
+    Scale(OptScaleKeyword),
+    Optical(OptOpticalKeyword<'a>),
+}
+
+/// Any optional scale keyword type
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum OptScaleKeyword {
+    Scale(SplitKeyword1<kws::Scale>),
+    Gain(SplitKeyword1<kws::Gain>),
 }
 
 /// Any optional optical keyword type
@@ -210,11 +235,9 @@ pub enum OptOpticalKeyword<'a> {
     Analyte(NEStringKeyword1<'a, kws::Analyte>),
     OpticalType(NEStringKeyword1<'a, kws::OpticalType>),
     Wavelengths(SplitKeyword<DKey1<kws::Wavelengths>, kws::NEWavelengths<'a>>),
-    Scale(SplitKeyword1<kws::Scale>),
     Power(SplitKeyword1<kws::Power>),
     PercentEmitted(SplitKeyword1<kws::PercentEmitted>),
     DetectorVoltage(SplitKeyword1<kws::DetectorVoltage>),
-    Gain(SplitKeyword1<kws::Gain>),
     Wavelength(SplitKeyword1<kws::Wavelength>),
     Display(SplitKeyword1<kws::Display>),
     Feature(RefKeyword1<'a, kws::Feature>),
@@ -305,6 +328,183 @@ pub type NonZeroU32Keyword<K> = SplitKeyword<K, NonZeroU32>;
 
 pub type RegionWindowSplitKeyword<'a> =
     SplitKeyword<DKey1<kws::RegionWindow>, kws::RegionWindowRef<'a>>;
+
+/// Error when a metaroot keyword will be lost when converting versions
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyMetarootKeyLossError {
+    Cytsn(Key0LossError<kws::Cytsn>),
+    Unicode(Key0LossError<kws::Unicode>),
+    Vol(Key0LossError<kws::Vol>),
+    Flowrate(Key0LossError<kws::Flowrate>),
+    Comp2_0(Key2LossError<kws::Dfc>),
+    Comp3_0(Key0LossError<kws::Compensation3_0>),
+    Spillover(Key0LossError<Spillover>),
+    Begin(Key0LossError<BeginDateTime>),
+    End(Key0LossError<EndDateTime>),
+    Bits(Key0LossError<kws::CSVBits>),
+    Tot(Key0LossError<kws::CSTot>),
+    CSMode(Key0LossError<kws::CSMode>),
+    CSVFlag(Key1LossError<kws::CSVFlag>),
+    Carrierid(Key0LossError<kws::Carrierid>),
+    Locationid(Key0LossError<kws::Locationid>),
+    Carriertype(Key0LossError<kws::Carriertype>),
+    Platename(Key0LossError<kws::Platename>),
+    Plateid(Key0LossError<kws::Plateid>),
+    Wellid(Key0LossError<kws::Wellid>),
+    LastModifier(Key0LossError<kws::LastModifier>),
+    LastModified(Key0LossError<kws::LastModified>),
+    Originality(Key0LossError<kws::Originality>),
+    UnstainedCenters(Key0LossError<kws::UnstainedCenters>),
+    UnstainedInfo(Key0LossError<kws::UnstainedInfo>),
+    Gate(Key0LossError<kws::Gate>),
+    GateScale(Key1LossError<kws::GateScale>),
+    GateFilter(Key1LossError<kws::GateFilter>),
+    GateShortname(Key1LossError<kws::GateShortname>),
+    GatePEmit(Key1LossError<kws::GatePercentEmitted>),
+    GateRange(Key1LossError<kws::GateRange>),
+    GateLongname(Key1LossError<kws::GateLongname>),
+    GateDetType(Key1LossError<kws::GateDetectorType>),
+    GateDetVolt(Key1LossError<kws::GateDetectorVoltage>),
+    Region(RegionLossError),
+    Gating(GatingLossError),
+}
+
+/// Error when $RnW/$RnI keyword must be dropped due to reference incompatibility.
+///
+/// This will only happen when converting between 2.0 and 3.2.
+#[derive(Debug, Error, new)]
+#[error(
+    "$R{index}{region_type} keyword must be dropped as it refers to ${kw_type}n* \
+     keywords which is incompatible with version {ver}",
+    region_type = if self.is_index { "I" } else { "W" },
+    kw_type = if self.current_is_2_0 { "G" } else { "P" },
+    ver = if self.current_is_2_0 { Version::FCS3_2 } else { Version::FCS2_0 },
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct RegionLossError {
+    current_is_2_0: bool,
+    is_index: bool,
+    index: RegionIndex,
+}
+
+/// Error when the $GATING keyword must be dropped due to reference incompatibility.
+///
+/// This will only happen when converting between 2.0 and 3.2.
+#[derive(Debug, Error, new)]
+#[error(
+    "$GATING keyword must be dropped since it refers to $RnI/$RnW keywords which \
+     must also be dropped since they refer to ${kw_type}n* keywords which is \
+     incompatible with version {ver}",
+    kw_type = if self.current_is_2_0 { "G" } else { "P" },
+    ver = if self.current_is_2_0 { Version::FCS3_2 } else { Version::FCS2_0 },
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct GatingLossError {
+    current_is_2_0: bool,
+}
+
+/// Error when an optical keyword will be lost when converting versions
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyOpticalKeyLossError {
+    MeasType(Key1LossError<kws::OpticalType>),
+    Analyte(Key1LossError<kws::Analyte>),
+    Tag(Key1LossError<kws::Tag>),
+    Gain(GainLossError),
+    Display(Key1LossError<kws::Display>),
+    DetectorName(Key1LossError<kws::DetectorName>),
+    Feature(Key1LossError<kws::Feature>),
+    Calibration3_1(Key1LossError<kws::Calibration3_1>),
+    Calibration3_2(Key1LossError<kws::Calibration3_2>),
+    Peak(PeakLossError),
+}
+
+/// Error when a temporal keyword will be lost when converting versions
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyTemporalKeyLossError {
+    TempType(Key1LossError<kws::TemporalType>),
+    Display(Key1LossError<kws::Display>),
+    Timestamp(TimestepLossError),
+    Peak(PeakLossError),
+}
+
+/// Error when the $PnG does not exist in target version and is not 1.0.
+#[derive(Debug, Error, new)]
+#[error(
+    "$TIMESTEP does not exist in target version and is currently not 1.0 \
+     which means data will be lost on dropping"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct TimestepLossError;
+
+/// Error when an optical keyword will be lost when converting to temporal
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyOpticalToTemporalKeyLossError {
+    Filter(Key1LossError<kws::Filter>),
+    Power(Key1LossError<kws::Power>),
+    DetectorType(Key1LossError<kws::DetectorType>),
+    PercentEmitted(Key1LossError<kws::PercentEmitted>),
+    DetectorVoltage(Key1LossError<kws::DetectorVoltage>),
+    Wavelength(Key1LossError<kws::Wavelength>),
+    Wavelengths(Key1LossError<kws::Wavelengths>),
+    MeasType(Key1LossError<kws::OpticalType>),
+    Analyte(Key1LossError<kws::Analyte>),
+    Tag(Key1LossError<kws::Tag>),
+    Scale(NonLinearScaleError),
+    Gain(NonUnitGainError),
+    DetectorName(Key1LossError<kws::DetectorName>),
+    Feature(Key1LossError<kws::Feature>),
+    Calibration3_1(Key1LossError<kws::Calibration3_1>),
+    Calibration3_2(Key1LossError<kws::Calibration3_2>),
+}
+
+/// Error when the $PnG is not 1.0 for temporal measurement conversion.
+#[derive(Debug, Error)]
+#[error("$P{0}E must be linear to allow conversion to temporal measurement")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct NonLinearScaleError(pub(crate) MeasIndex);
+
+/// Error when the $PnG is not 1.0 for temporal measurement conversion.
+#[derive(Debug, Error)]
+#[error("$P{0}G must be 1.0 to allow conversion to temporal measurement")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+pub struct NonUnitGainError(pub(crate) MeasIndex);
+
+/// Error when a temporal keyword will be lost when converting to optical
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AnyTemporalToOpticalKeyLossError {
+    TempType(Key1LossError<kws::TemporalType>),
+}
+
+/// Error when $PKn and $PKNn keywords would be lost due to version change
+#[derive(From, Display, Debug)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum PeakLossError {
+    Bin(Key1LossError<kws::PeakBin>),
+    Number(Key1LossError<kws::PeakIndex>),
+}
+
+/// Error when key would be lost upon conversion
+#[derive(Debug, Error, Display)]
+#[display(bound(K: fmt::Display))]
+#[display("{_0} must be dropped to convert")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConversionError))]
+#[cfg_attr(feature = "python", bound(K: fmt::Display))]
+pub struct KeyLossError<K>(pub K);
+
+pub type Key0LossError<T> = KeyLossError<DKey0<T>>;
+pub type Key1LossError<T> = KeyLossError<DKey1<T>>;
+pub type Key2LossError<T> = KeyLossError<DKey2<T>>;
 
 pub(crate) trait Keyword0FromValue<'a> {
     fn from_value<T>(x: T) -> Self
@@ -490,6 +690,7 @@ impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptOpticalKeyword<'a> {}
+impl Keyword1FromValue<'_> for OptScaleKeyword {}
 impl<'a> Keyword1FromValue<'a> for OptTemporalKeyword<'a> {}
 impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
@@ -609,6 +810,15 @@ impl HasDelim for OptMeasKeyword<'_> {
             Self::Optical(x) => x.has_delim(d),
             Self::Temporal(x) => x.has_delim(d),
             Self::NumType(_) => None,
+        }
+    }
+}
+
+impl HasDelim for OptScaledOpticalKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        match self {
+            Self::Optical(x) => x.has_delim(d),
+            Self::Scale(_) => None,
         }
     }
 }
@@ -796,9 +1006,7 @@ impl OptOpticalKeyword<'_> {
             | Self::Power(_)
             | Self::PercentEmitted(_)
             | Self::DetectorVoltage(_)
-            | Self::Longname(_)
-            | Self::Gain(_)
-            | Self::Scale(_) => return None,
+            | Self::Longname(_) => return None,
         };
         Some(ret)
     }
@@ -819,27 +1027,37 @@ impl OptOpticalKeyword<'_> {
             Self::Power(kw) => KeyLossError(kw.key).into(),
             Self::PercentEmitted(kw) => KeyLossError(kw.key).into(),
             Self::DetectorVoltage(kw) => KeyLossError(kw.key).into(),
-            // $PnE and $PnG are dealt with here because the temporal structs
-            // don't actually hold anything for scale and gain since these values
-            // are always the same.
-            //
-            // $PnE must always be linear for temporal measurement
-            Self::Scale(kw) => {
-                let i = kw.key.index().into();
-                return (!matches!(kw.value, kws::Scale::Linear))
-                    .then_some(NonLinearScaleError(i).into());
-            }
-            // $PnG must be 1.0 is it exists since temporal measurement does not
-            // have gain
-            Self::Gain(kw) => {
-                let i = kw.key.index().into();
-                return (!kw.value.0.is_one()).then_some(NonUnitGainError(i).into());
-            }
             // These are shared b/t temporal and optical so cannot result in
             // loss.
             Self::Peak(_) | Self::Display(_) | Self::Longname(_) => return None,
         };
         Some(ret)
+    }
+}
+
+impl OptScaledOpticalKeyword<'_> {
+    pub(crate) fn as_temporal_loss_error(&self) -> Option<AnyOpticalToTemporalKeyLossError> {
+        match self {
+            Self::Optical(x) => x.as_temporal_loss_error(),
+            Self::Scale(x) => match x {
+                // $PnE and $PnG are dealt with here because the temporal
+                // structs don't actually hold anything for scale and gain since
+                // these values are always the same.
+                //
+                // $PnE must always be linear for temporal measurement
+                OptScaleKeyword::Scale(kw) => {
+                    let i = kw.key.index().into();
+                    (!matches!(kw.value, kws::Scale::Linear))
+                        .then_some(NonLinearScaleError(i).into())
+                }
+                // $PnG must be 1.0 if it exists since temporal measurement does
+                // not have gain
+                OptScaleKeyword::Gain(kw) => {
+                    let i = kw.key.index().into();
+                    (!kw.value.0.is_one()).then_some(NonUnitGainError(i).into())
+                }
+            },
+        }
     }
 }
 

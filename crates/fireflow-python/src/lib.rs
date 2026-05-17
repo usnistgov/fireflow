@@ -60,11 +60,12 @@ use fireflow_core::core;
 use fireflow_core::data::{self, LayoutByteOrder as _, LayoutDatatype as _, PhantomInto as _};
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
+use fireflow_core::meas;
 use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
 use fireflow_core::text::gating::{self, Region};
 use fireflow_core::text::index::{GateIndex, RegionIndex};
 use fireflow_core::text::keywords as kws;
-use fireflow_core::text::named_vec::{Eithers, Element};
+use fireflow_core::text::named_vec::Element;
 use fireflow_core::validated::dataframe::{
     AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries,
 };
@@ -75,8 +76,8 @@ use fireflow_core::validated::shortname as sn;
 use fireflow_python_proc as fpp;
 
 use fireflow_types::keywords as ftk;
-use fireflow_types::python::{ColumnType, EventDataError, IntegerWidth};
-use type_families::Functor as _;
+use fireflow_types::python::EventDataError;
+use type_families::{BifunctorOnce as _, Functor as _};
 
 use derive_more::{From, Into};
 use polars::prelude as pl;
@@ -152,10 +153,10 @@ fpp::impl_new_core!(core::CoreTEXT3_2, core::CoreDataset3_2);
 //
 // This will include the __new__ methods and all attributes corresponding to
 // "instance variables" supplied to __new__
-fpp::impl_new_meas!(core::Optical2_0);
-fpp::impl_new_meas!(core::Optical3_0);
-fpp::impl_new_meas!(core::Optical3_1);
-fpp::impl_new_meas!(core::Optical3_2);
+fpp::impl_new_meas!(meas::Optical2_0);
+fpp::impl_new_meas!(meas::Optical3_0);
+fpp::impl_new_meas!(meas::Optical3_1);
+fpp::impl_new_meas!(meas::Optical3_2);
 
 // Implement $PnFEATURE (area/width/height) get/set for 3.2
 fpp::impl_meas_awh_pnfeature!(PyOptical3_2);
@@ -164,10 +165,10 @@ fpp::impl_meas_awh_pnfeature!(PyOptical3_2);
 //
 // This will include the __new__ methods and all attributes corresponding to
 // "instance variables" supplied to __new__
-fpp::impl_new_meas!(core::Temporal2_0);
-fpp::impl_new_meas!(core::Temporal3_0);
-fpp::impl_new_meas!(core::Temporal3_1);
-fpp::impl_new_meas!(core::Temporal3_2);
+fpp::impl_new_meas!(meas::Temporal2_0);
+fpp::impl_new_meas!(meas::Temporal3_0);
+fpp::impl_new_meas!(meas::Temporal3_1);
+fpp::impl_new_meas!(meas::Temporal3_2);
 
 // Common methods for all Core* versions. Some of these macros will implement a
 // slightly different method depending on version.
@@ -512,27 +513,33 @@ fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::MeasOrGateIndex>);
 // Implement __new__ and attributes for PyBivariate3_2
 fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::PrefixedMeasIndex>);
 
-struct PyEithers<K, U, V>(Eithers<K, U, V>);
+type MeasElements<K, U, V, S> = Vec<Element<(sn::Shortname, U), (K, V, S)>>;
 
-impl<'py, K, U, V> FromPyObject<'py> for PyEithers<K, U, V>
+struct PyEithers<K, U, V, S>(MeasElements<K, U, V, S>);
+
+impl<'py, K, U, V, S> FromPyObject<'py> for PyEithers<K, U, V, S>
 where
-    K: FromPyObject<'py>,
-    U: FromPyObject<'py>,
     V: FromPyObject<'py>,
+    U: FromPyObject<'py>,
+    S: FromPyObject<'py>,
+    K: FromPyObject<'py>,
 {
     fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: Eithers<K, U, V> = ob.extract()?;
-        Ok(Self(xs))
+        let ret = ob.extract()?;
+        Ok(Self(ret))
     }
 }
 
-impl<K, U, V, X, Y> From<PyEithers<K, U, V>> for Eithers<K, X, Y>
+impl<K, U, V, S, Uf, Vf> From<PyEithers<K, U, V, S>> for MeasElements<K, Uf, Vf, S>
 where
-    X: From<U>,
-    Y: From<V>,
+    U: Into<Uf>,
+    V: Into<Vf>,
 {
-    fn from(value: PyEithers<K, U, V>) -> Self {
-        value.0.fmap(Element::values_into)
+    fn from(value: PyEithers<K, U, V, S>) -> Self {
+        value.0.fmap(|x| {
+            x.first_once(|(k, v)| (k, v.into()))
+                .second_once(|(k, v, s)| (k, v.into(), s))
+        })
     }
 }
 
@@ -1138,55 +1145,6 @@ impl PyAnyFCSColumn {
                 };
                 Ok(data::MaybeTypedRange::Typed(c))
             }
-        }
-    }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn split_bitmask_range(
-    r: data::MaybeTypedVariableBitmask,
-) -> (data::FullRange, Option<IntegerWidth>) {
-    match r {
-        data::MaybeTypedVariableBitmask::Untyped(x) => (x, None),
-        data::MaybeTypedVariableBitmask::Typed(x) => {
-            let w = match x {
-                data::AnyUint::Uint08(_) => IntegerWidth::U08,
-                data::AnyUint::Uint16(_) => IntegerWidth::U16,
-                data::AnyUint::Uint24(_) => IntegerWidth::U24,
-                data::AnyUint::Uint32(_) => IntegerWidth::U32,
-                data::AnyUint::Uint40(_) => IntegerWidth::U40,
-                data::AnyUint::Uint48(_) => IntegerWidth::U48,
-                data::AnyUint::Uint56(_) => IntegerWidth::U56,
-                data::AnyUint::Uint64(_) => IntegerWidth::U64,
-            };
-            let f: data::FullRange = x.into();
-            (f, Some(w))
-        }
-    }
-}
-
-#[allow(clippy::needless_pass_by_value)]
-fn split_mixed_range(r: data::MaybeTypedMixedRange) -> (data::FullRange, Option<ColumnType>) {
-    match r {
-        data::MaybeTypedMixedRange::Untyped(x) => (x, None),
-        data::MaybeTypedMixedRange::Typed(x) => {
-            let w = match x {
-                data::AnyDatatype::Ascii(_) => ColumnType::A,
-                data::AnyDatatype::Uint(y) => match y {
-                    data::AnyUint::Uint08(_) => ColumnType::U08,
-                    data::AnyUint::Uint16(_) => ColumnType::U16,
-                    data::AnyUint::Uint24(_) => ColumnType::U24,
-                    data::AnyUint::Uint32(_) => ColumnType::U32,
-                    data::AnyUint::Uint40(_) => ColumnType::U40,
-                    data::AnyUint::Uint48(_) => ColumnType::U48,
-                    data::AnyUint::Uint56(_) => ColumnType::U56,
-                    data::AnyUint::Uint64(_) => ColumnType::U64,
-                },
-                data::AnyDatatype::F32(_) => ColumnType::F32,
-                data::AnyDatatype::F64(_) => ColumnType::F64,
-            };
-            let f: data::FullRange = x.into();
-            (f, Some(w))
         }
     }
 }

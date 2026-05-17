@@ -70,8 +70,8 @@ pub type WarningsAndIOGroupResult<V, W, E, G> =
 pub(crate) type WarningsAndGroupResult<V, W, E, S> =
     WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
-// pub(crate) type WarningAndGroupResult<V, W, E, S> =
-//     WarningAndErrorResult<V, (), W, ErrorGroup<E, S>>;
+pub(crate) type WarningAndGroupResult<V, W, E, S> =
+    WarningAndErrorResult<V, (), W, ErrorGroup<E, S>>;
 
 pub type GroupResult<V, E, S> = Result<V, ErrorGroup<E, S>>;
 

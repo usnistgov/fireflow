@@ -42,3 +42,21 @@ macro_rules! def_summary {
 }
 
 pub(crate) use def_summary;
+
+/// Nice macro to check length in many places.
+///
+/// It is basically assert_eq with a better message. Length checking is cheap
+/// so use liberally.
+macro_rules! assert_eq_len {
+    ($a:expr, $b:expr, $a_desc:expr, $b_desc:expr) => {
+        let a = $a;
+        let b = $b;
+        assert_eq!(
+            a, b,
+            "length of {} and {} should be equal, got {a} and {b}",
+            $a_desc, $b_desc
+        )
+    };
+}
+
+pub(crate) use assert_eq_len;

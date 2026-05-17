@@ -2255,7 +2255,7 @@ pub trait LayoutDatatype: Sized {
         Self: LayoutDatatype + LayoutWidth,
     {
         let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.scale());
-        self.check_transforms_and_len(xforms)
+        self.check_scales_and_len(xforms)
     }
 
     /// Check that meas metadata is compatible with this data schema (no length).
@@ -2268,7 +2268,7 @@ pub trait LayoutDatatype: Sized {
         Self: LayoutDatatype,
     {
         let xforms = meas.iter_with(&|_, _| Xform::default(), &|_, m| *m.value.scale());
-        self.check_transforms(xforms)
+        self.check_scales(xforms)
     }
 
     /// Convert vector of names + metadata to validated meas metadata.
@@ -2293,7 +2293,7 @@ pub trait LayoutDatatype: Sized {
         Ok(nv)
     }
 
-    fn check_transforms_and_len<S>(
+    fn check_scales_and_len<S>(
         &self,
         xforms: impl IntoIterator<Item = S>,
     ) -> Result<(), MeasLayoutMismatchError>
@@ -2317,7 +2317,7 @@ pub trait LayoutDatatype: Sized {
         Ok(())
     }
 
-    fn check_transforms<S>(
+    fn check_scales<S>(
         &self,
         xforms: impl IntoIterator<Item = S>,
     ) -> Result<(), ScaleDatatypeMismatchErrors>

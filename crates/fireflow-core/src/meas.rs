@@ -924,6 +924,7 @@ pub enum SetUnnamedMeasurementsError {
 pub enum SetUnnamedMeasurementsAndDataSchemaError {
     New(LayoutLengthMismatchError),
     Set(SetValuesError),
+    Scale(ScaleDatatypeMismatchErrors),
 }
 
 /// Error when setting named measurements and data schema for a dataset.
@@ -941,15 +942,6 @@ pub enum SetUnnamdMeasurementsAndDataError {
     Meas(SetUnnamedMeasurementsError),
     Mismatch(DataSchemaToDataFrameError),
 }
-
-pub(crate) type VersionedCoreLayout<L, V> = CoreMeasurements<
-    L,
-    <V as VersionMeasSet>::Temporal,
-    <V as VersionMeasSet>::Optical,
-    <V as VersionMeasSet>::OpticalScale,
-    <V as VersionMeasSet>::Name,
-    V,
->;
 
 def_summary!(
     pub SetScalesSummary,
@@ -977,6 +969,15 @@ pub struct SetNonIdentityScaleToTemporalError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct SetTemporalToNonIdentityScaleError(MeasIndex);
+
+type VCoreMeasurements<L, V> = CoreMeasurements<
+    L,
+    <V as VersionMeasSet>::Temporal,
+    <V as VersionMeasSet>::Optical,
+    <V as VersionMeasSet>::OpticalScale,
+    <V as VersionMeasSet>::Name,
+    V,
+>;
 
 type VersionedMeasurements<V> =
     NamedVec<<V as VersionMeasSet>::Name, VTemporal<V>, VScaledOptical<V>>;
@@ -3228,7 +3229,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
 
         let l = &self.data;
         // Check that new scales have matching length and datatype
-        l.check_transforms_and_len(scales.iter().copied())
+        l.check_scales_and_len(scales.iter().copied())
             .map_err(SetScalesError::from)
             .into_nowarn()
             // Check that the temporal scale value is identity
@@ -3241,7 +3242,7 @@ impl<L, T, O, X, N, V> CoreMeasurements<L, T, O, X, N, V> {
     }
 }
 
-impl<L, V> VersionedCoreLayout<L, V>
+impl<L, V> VCoreMeasurements<L, V>
 where
     V: VersionMeasSet,
 {
@@ -3268,12 +3269,7 @@ where
     pub fn try_convert<Vf, Lf>(
         self,
         allow_loss: AllowLoss,
-    ) -> WarningsAndErrorsResult<
-        VersionedCoreLayout<Lf, Vf>,
-        (),
-        MeasConvertWarning,
-        MeasConvertError,
-    >
+    ) -> WarningsAndErrorsResult<VCoreMeasurements<Lf, Vf>, (), MeasConvertWarning, MeasConvertError>
     where
         Vf: VersionMeasSet,
         Vf::Optical: ConvertFromOptical<V::Optical>,
@@ -3788,6 +3784,8 @@ where
     {
         // Check that new measurements and schema have same width
         layout.check_width(&measurements, "new measurements")?;
+        // Check that new schema matches the current scales
+        layout.check_scales(self.scales())?;
         // Check that new measurements have same length as old
         self.meta
             .set_values(self.add_scales(measurements).collect())?;
@@ -3823,7 +3821,7 @@ where
     }
 }
 
-impl<V> VersionedCoreLayout<<V as VersionMeasSet>::DataSchema, V>
+impl<V> VCoreMeasurements<<V as VersionMeasSet>::DataSchema, V>
 where
     V: VersionMeasSet,
 {
@@ -3913,7 +3911,7 @@ where
     pub(crate) fn with_data(
         self,
         df: PrimitiveDataFrame,
-    ) -> Result<VersionedCoreLayout<<V as VersionMeasSet>::DataFrame, V>, DataSchemaToDataFrameError>
+    ) -> Result<VCoreMeasurements<<V as VersionMeasSet>::DataFrame, V>, DataSchemaToDataFrameError>
     where
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame> + LayoutWidth,
     {
@@ -3934,7 +3932,7 @@ where
         seg: &mut AnyDataSegment,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
-        ReadDataFrameResult<VersionedCoreLayout<<V as VersionMeasSet>::DataFrame, V>>,
+        ReadDataFrameResult<VCoreMeasurements<<V as VersionMeasSet>::DataFrame, V>>,
         ReadCheckedDataframeWarning,
         ReadCheckedDataframeError,
         (),
@@ -3955,11 +3953,11 @@ where
     }
 }
 
-impl<V> VersionedCoreLayout<<V as VersionMeasSet>::DataFrame, V>
+impl<V> VCoreMeasurements<<V as VersionMeasSet>::DataFrame, V>
 where
     V: VersionMeasSet,
 {
-    pub(crate) fn without_data(self) -> VersionedCoreLayout<<V as VersionMeasSet>::DataSchema, V>
+    pub(crate) fn without_data(self) -> VCoreMeasurements<<V as VersionMeasSet>::DataSchema, V>
     where
         V::DataFrame: DataFrameAsDataSchema<DataSchema = V::DataSchema>,
     {
@@ -4009,6 +4007,10 @@ where
         // Check that new measurements and schema have same width
         data_schema
             .check_width(&measurements, "new measurements")
+            .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
+        // Check that new schema matches the current scales
+        data_schema
+            .check_scales(self.scales())
             .map_err(SetUnnamedMeasurementsAndDataSchemaError::from)?;
         // This checks for data loss due to type conversions in the dataframe.
         data_schema.check_data_loss_generic(&self.data)?;

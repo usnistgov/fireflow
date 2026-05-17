@@ -3932,6 +3932,7 @@ where
     where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
+        L: LayoutWidth + LayoutDatatype,
     {
         self.meas.set_temporal(n, timestep, allow_loss).group()
     }

@@ -48,7 +48,6 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
-use crate::text::relational::ExistingLinkErrors;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::keys::{IndexedKey as _, Key1, NonStdKeywords, StdKey, StdKeywords};
 use crate::validated::shortname::Shortname;
@@ -3264,25 +3263,6 @@ where
         V: VersionMeasSet<Name = Option<Shortname>>,
     {
         self.meta.set_keys(ns)
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn get(
-        &self,
-        i: MeasIndex,
-    ) -> Result<
-        Element<(&Shortname, &VTemporal<V>), (&V::Name, &VScaledOptical<V>)>,
-        ElementIndexError,
-    > {
-        self.meta.get(i)
-    }
-
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn get_name(
-        &self,
-        n: &Shortname,
-    ) -> Result<(MeasIndex, Element<&VTemporal<V>, &VScaledOptical<V>>), NameNotFoundError> {
-        self.meta.get_name(n)
     }
 
     #[allow(clippy::type_complexity)]

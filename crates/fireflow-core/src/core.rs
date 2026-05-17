@@ -45,7 +45,7 @@ use crate::meas::{
     LookupShortname, LookupShortnameError, LookupTemporal, LookupTemporalError,
     LookupTemporalWarning, MeasConvertError, MeasConvertWarning, MeasMeta, MissingTimeError,
     NewMeasError, Optical, OpticalFromTemporal, PushOpticalError, PushTemporalError,
-    ReplaceTemporalErrorByIndex, ReplaceTemporalErrorByName, ScaledOptical, SetScalesError,
+    ReplaceTemporalByIndexError, ReplaceTemporalByNameError, ScaledOptical, SetScalesError,
     SetScalesSummary, SetTemporalByIndexError, SetTemporalByNameError, SetTemporalError,
     SetUnnamdMeasurementsAndDataError, SetUnnamedMeasurementsAndDataSchemaError,
     SetUnnamedMeasurementsError, SwapOpticalWithTemporal, Temporal, TemporalFromOptical,
@@ -1582,6 +1582,54 @@ type LookupTEXTOffsetsResult<T> =
 pub struct CompParMismatchError {
     par: usize,
     comp: usize,
+}
+
+/// Error when setting a new temporal measurement by name ($PnN)
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetLinkedTemporalByNameError {
+    Inner(SetTemporalByNameError),
+    Link(ExistingLinkErrors),
+}
+
+/// Error when setting a new temporal measurement by index ($PnN)
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum SetLinkedTemporalByIndexError {
+    Inner(SetTemporalByIndexError),
+    Link(ExistingLinkErrors),
+}
+
+/// Error when replacing temporal measurement by index
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReplaceTemporalByIndexNoLossError {
+    Set(SetCenterError),
+    Link(ExistingLinkErrors),
+}
+
+/// Error when replacing temporal measurement by name
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReplaceTemporalByNameNoLossError {
+    Set(NameNotFoundError),
+    Link(ExistingLinkErrors),
+}
+
+/// Error when replacing temporal measurement by index
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReplaceLinkedTemporalByIndexError {
+    Set(ReplaceTemporalByIndexError),
+    Link(ExistingLinkErrors),
+}
+
+/// Error when replacing temporal measurement by index
+#[derive(From, Display, Debug, Error)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum ReplaceLinkedTemporalByNameError {
+    Set(ReplaceTemporalByNameError),
+    Link(ExistingLinkErrors),
 }
 
 type SetSpilloverErrors = ErrorGroup<KeyToNameLinkError<Spillover>, SetSpilloverSummary>;
@@ -3915,26 +3963,30 @@ where
     }
 
     /// Set the measurement matching given name to be the time measurement.
-    // TODO all set_temporal* or replace_temporal* methods need to check if an
-    // optical measurement is being changed, and if that measurement has a link
-    // that would be broken
     pub fn set_temporal(
         &mut self,
-        n: &Shortname,
+        name: &Shortname,
         timestep: <V::Temporal as TemporalFromOptical<V::Optical>>::TData,
         allow_loss: AllowLoss,
     ) -> WarningAndGroupResult<
         bool,
         SetTemporalError,
-        SetTemporalByNameError,
+        SetLinkedTemporalByNameError,
         SetTemporalByNameSummary,
     >
     where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
-        L: LayoutWidth + LayoutDatatype,
     {
-        self.meas.set_temporal(n, timestep, allow_loss).group()
+        self.name_has_existing_links(name)
+            .map_err(SetLinkedTemporalByNameError::from)
+            .into_nowarn()
+            .nowarn_and_then(|()| {
+                self.meas
+                    .set_temporal(name, timestep, allow_loss)
+                    .map_errors(SetLinkedTemporalByNameError::from)
+            })
+            .group()
     }
 
     /// Set the measurement at given index to the time measurement.
@@ -3946,15 +3998,21 @@ where
     ) -> WarningAndGroupResult<
         bool,
         SetTemporalError,
-        SetTemporalByIndexError,
+        SetLinkedTemporalByIndexError,
         SetTemporalByIndexSummary,
     >
     where
         V::Temporal: TemporalFromOptical<V::Optical>,
         V::Optical: SwapOpticalWithTemporal<V::Temporal>,
     {
-        self.meas
-            .set_temporal_at(index, timestep, allow_loss)
+        self.index_has_existing_links(index)
+            .map_err(SetLinkedTemporalByIndexError::from)
+            .into_nowarn()
+            .nowarn_and_then(|()| {
+                self.meas
+                    .set_temporal_at(index, timestep, allow_loss)
+                    .map_errors(SetLinkedTemporalByIndexError::from)
+            })
             .group()
     }
 
@@ -4121,25 +4179,27 @@ where
         self.meas.replace_optical_named(name, m)
     }
 
-    /// Replace temporal measurement at index.
+    /// Replace position at index with a temporal value.
     pub fn replace_temporal_at(
         &mut self,
         index: MeasIndex,
         m: Temporal<V::Temporal>,
-    ) -> Result<VTemporalOrOpticalWithScale<V>, SetCenterError>
+    ) -> Result<VTemporalOrOpticalWithScale<V>, ReplaceTemporalByIndexNoLossError>
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = ()>,
         V::Temporal: TemporalMaybeToOptical<Warning = Nothing<()>, Error = Infallible>,
     {
-        self.meas.replace_temporal_at_nofail(index, m, |i, old_t| {
+        self.index_has_existing_links(index)?;
+        let ret = self.meas.replace_temporal_at_nofail(index, m, |i, old_t| {
             V::Optical::from_temporal(old_t, i, ())
                 .set_err_value(())
                 .infallible_nowarn_into()
                 .0
-        })
+        })?;
+        Ok(ret)
     }
 
-    /// Replace temporal measurement at index.
+    /// Replace position at index with a temporal value where conversion cannot fail.
     pub fn replace_temporal_at_lossy(
         &mut self,
         index: MeasIndex,
@@ -4149,7 +4209,7 @@ where
         VTemporalOrOpticalWithScale<V>,
         (),
         AnyTemporalToOpticalKeyLossError,
-        ReplaceTemporalErrorByIndex,
+        ReplaceLinkedTemporalByIndexError,
     >
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = AllowLoss>,
@@ -4158,34 +4218,44 @@ where
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
     {
-        self.meas.replace_temporal_at(index, m, |i, old_t| {
-            V::Optical::from_temporal(old_t, i, allow_loss)
-                .switchable_into_non_commutative()
-                .map_ok_value(|(x, _)| x)
-                .map_errors(ReplaceTemporalErrorByIndex::from)
-        })
+        self.index_has_existing_links(index)
+            .map_err(ReplaceLinkedTemporalByIndexError::from)
+            .into_nowarn1()
+            .nowarn_and_then(|()| {
+                self.meas
+                    .replace_temporal_at(index, m, |i, old_t| {
+                        V::Optical::from_temporal(old_t, i, allow_loss)
+                            .switchable_into_non_commutative()
+                            .map_ok_value(|(x, _)| x)
+                            .map_errors(ReplaceTemporalByIndexError::from)
+                    })
+                    .map_errors(ReplaceLinkedTemporalByIndexError::from)
+            })
     }
 
-    /// Replace temporal measurement with name.
+    /// Replace position with name with a temporal value.
     pub fn replace_temporal_named(
         &mut self,
         name: &Shortname,
         m: Temporal<V::Temporal>,
-    ) -> Result<VTemporalOrOpticalWithScale<V>, NameNotFoundError>
+    ) -> Result<VTemporalOrOpticalWithScale<V>, ReplaceTemporalByNameNoLossError>
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = ()>,
         V::Temporal: TemporalMaybeToOptical<Warning = Nothing<()>, Error = Infallible>,
     {
-        self.meas
+        self.name_has_existing_links(name)?;
+        let ret = self
+            .meas
             .replace_temporal_by_name_nofail(name, m, |i, old_t| {
                 V::Optical::from_temporal(old_t, i, ())
                     .set_err_value(())
                     .infallible_nowarn_into()
                     .0
-            })
+            })?;
+        Ok(ret)
     }
 
-    /// Replace temporal measurement with name.
+    /// Replace position with name with a temporal value where conversion cannot fail.
     pub fn replace_temporal_named_lossy(
         &mut self,
         name: &Shortname,
@@ -4195,7 +4265,7 @@ where
         VTemporalOrOpticalWithScale<V>,
         (),
         AnyTemporalToOpticalKeyLossError,
-        ReplaceTemporalErrorByName,
+        ReplaceLinkedTemporalByNameError,
     >
     where
         V::Optical: OpticalFromTemporal<V::Temporal, LossFlag = AllowLoss>,
@@ -4204,12 +4274,19 @@ where
                 Error = AnyTemporalToOpticalKeyLossError,
             >,
     {
-        self.meas.replace_temporal_by_name(name, m, |i, old_t| {
-            V::Optical::from_temporal(old_t, i, allow_loss)
-                .switchable_into_non_commutative()
-                .map_ok_value(|(x, _)| x)
-                .map_errors(ReplaceTemporalErrorByName::from)
-        })
+        self.name_has_existing_links(name)
+            .map_err(ReplaceLinkedTemporalByNameError::from)
+            .into_nowarn1()
+            .nowarn_and_then(|()| {
+                self.meas
+                    .replace_temporal_by_name(name, m, |i, old_t| {
+                        V::Optical::from_temporal(old_t, i, allow_loss)
+                            .switchable_into_non_commutative()
+                            .map_ok_value(|(x, _)| x)
+                            .map_errors(ReplaceTemporalByNameError::from)
+                    })
+                    .map_errors(ReplaceLinkedTemporalByNameError::from)
+            })
     }
 
     /// Rename a measurement
@@ -4878,17 +4955,7 @@ where
     where
         L: LayoutRemove<C>,
     {
-        if let Some(&index) = self.meas.meta().named_indices().get(name) {
-            // NOTE if the meas to be removed is temporal, this name shouldn't
-            // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
-            // $TR should never link to a temporal measurement
-            let ns = HashSet::from([name]).into();
-            let js = HashSet::from([index]).into();
-            let es = self
-                .rootmeta
-                .meas_has_existing_links_with(self.par(), &ns, &js);
-            ExistingLinkErrors::try_new(es)?;
-        }
+        self.name_has_existing_links(name)?;
         let ret = self.meas.remove_measurement_by_name(name)?;
         Ok(ret)
     }
@@ -4900,17 +4967,41 @@ where
     where
         L: LayoutRemove<C>,
     {
-        if let Some(&name) = self.meas.meta().indexed_name_map().get(&index) {
-            // NOTE (ditto previous function)
+        self.index_has_existing_links(index)?;
+        let ret = self.meas.remove_measurement_by_index(index)?;
+        Ok(ret)
+    }
+
+    fn name_has_existing_links(&self, name: &Shortname) -> Result<(), ExistingLinkErrors> {
+        if let Some(&index) = self.meas.meta().named_indices().get(name) {
+            // NOTE if the meas to be removed is temporal, this name shouldn't
+            // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
+            // $TR should never link to a temporal measurement
             let ns = HashSet::from([name]).into();
             let js = HashSet::from([index]).into();
             let es = self
                 .rootmeta
                 .meas_has_existing_links_with(self.par(), &ns, &js);
-            ExistingLinkErrors::try_new(es)?;
+            ExistingLinkErrors::try_new(es)
+        } else {
+            Ok(())
         }
-        let ret = self.meas.remove_measurement_by_index(index)?;
-        Ok(ret)
+    }
+
+    fn index_has_existing_links(&self, index: MeasIndex) -> Result<(), ExistingLinkErrors> {
+        if let Some(&name) = self.meas.meta().indexed_name_map().get(&index) {
+            // NOTE if the meas to be removed is temporal, this name shouldn't
+            // trigger a link error because $SPILLOVER, $UNSTAINEDCENTERS, and
+            // $TR should never link to a temporal measurement
+            let ns = HashSet::from([name]).into();
+            let js = HashSet::from([index]).into();
+            let es = self
+                .rootmeta
+                .meas_has_existing_links_with(self.par(), &ns, &js);
+            ExistingLinkErrors::try_new(es)
+        } else {
+            Ok(())
+        }
     }
 
     // each of these push/insert functions follow the same pattern:

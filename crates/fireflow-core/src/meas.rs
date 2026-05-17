@@ -48,6 +48,7 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::text::ranged_float::PositiveFloat;
+use crate::text::relational::ExistingLinkErrors;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::keys::{IndexedKey as _, Key1, NonStdKeywords, StdKey, StdKeywords};
 use crate::validated::shortname::Shortname;
@@ -739,7 +740,7 @@ pub struct NameConversionError(Key1<Shortname>);
 /// Error when replacing temporal measurement by index
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ReplaceTemporalErrorByIndex {
+pub enum ReplaceTemporalByIndexError {
     ToOptical(AnyTemporalToOpticalKeyLossError),
     Set(SetCenterError),
 }
@@ -747,7 +748,7 @@ pub enum ReplaceTemporalErrorByIndex {
 /// Error when replacing temporal measurement by name
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum ReplaceTemporalErrorByName {
+pub enum ReplaceTemporalByNameError {
     ToOptical(AnyTemporalToOpticalKeyLossError),
     Name(NameNotFoundError),
 }
@@ -3266,7 +3267,26 @@ where
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn try_convert<Vf, Lf>(
+    pub(crate) fn get(
+        &self,
+        i: MeasIndex,
+    ) -> Result<
+        Element<(&Shortname, &VTemporal<V>), (&V::Name, &VScaledOptical<V>)>,
+        ElementIndexError,
+    > {
+        self.meta.get(i)
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn get_name(
+        &self,
+        n: &Shortname,
+    ) -> Result<(MeasIndex, Element<&VTemporal<V>, &VScaledOptical<V>>), NameNotFoundError> {
+        self.meta.get_name(n)
+    }
+
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn try_convert<Vf, Lf>(
         self,
         allow_loss: AllowLoss,
     ) -> WarningsAndErrorsResult<VCoreMeasurements<Lf, Vf>, (), MeasConvertWarning, MeasConvertError>

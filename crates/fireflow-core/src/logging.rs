@@ -607,9 +607,9 @@ pub(crate) trait ResultExt: Sized {
 
     fn into_result(self) -> Result<Self::Ok, Self::Error>;
 
-    // fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
-    //     self.into_log()
-    // }
+    fn into_nowarn1(self) -> NowarnResult<Self::Ok, (), Self::Error, Nothing<Self::Error>> {
+        self.into_log()
+    }
 
     fn into_nowarn(self) -> NowarnResult<Self::Ok, (), Self::Error, Vec<Self::Error>> {
         self.into_log()

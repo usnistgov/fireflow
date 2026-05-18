@@ -1,6 +1,9 @@
 VENV=.venv
 
 uv_at = uv --directory pyreflow
+build_dev = $(uv_at) run maturin develop --uv
+build_rel = $(build_dev) --release
+check_py = $(uv_at) run python -c "import sys; print(sys.executable, sys.version)"
 
 .PHONY: .uv
 .uv:
@@ -38,11 +41,15 @@ py-test: pyreflow/.venv
 
 .PHONY: build-dev
 build-dev: pyreflow/.venv
-	$(uv_at) run maturin develop --uv
+	$(check_py)
+	PYO3_PRINT_CONFIG=1 $(build_dev) || true
+	$(build_dev)
 
 .PHONY: build-prod
 build-prod: pyreflow/.venv
-	$(uv_at) run maturin develop --uv --release
+	$(check_py)
+	PYO3_PRINT_CONFIG=1 $(build_rel) || true
+	$(build_rel)
 
 .PHONY: all-dev
 all-dev: rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test

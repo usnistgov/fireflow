@@ -9,19 +9,19 @@ jobs:
   test-py-docs:
     name: test python doc build
 
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v8.1.0
         with:
           python-version: 3.11
 
       - name: Install graphviz
         run: sudo apt install -y graphviz
 
-      - uses: dtolnay/rust-toolchain@1.92
+      - uses: dtolnay/rust-toolchain@1.93
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.1
 
       - run: make docs

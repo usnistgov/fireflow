@@ -37,9 +37,9 @@ jobs:
           python-version: ${{ matrix.py-ver }}
           activate-environment: true
 
-      - run:
-          - make py-check-env
-          - make all-dev
+      - run: |
+          make py-check-env
+          make all-dev
 
   test-msrv:
     name: test minimum supported rust version
@@ -63,6 +63,6 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2.9.1
 
-      - run:
-          - make py-check-env
-          - make all-dev
+      - run: |
+          make py-check-env
+          make all-dev

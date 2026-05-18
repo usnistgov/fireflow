@@ -39,16 +39,18 @@ py-lint: pyreflow/.venv
 py-test: pyreflow/.venv
 	$(uv_at) run pytest
 
-.PHONY: build-dev
-build-dev: pyreflow/.venv
+.PHONY: py-check-env
+py-check-env: pyreflow/.venv
 	$(check_py)
 	PYO3_PRINT_CONFIG=1 $(build_dev) || true
+	PYO3_PRINT_CONFIG=1 $(build_rel) || true
+
+.PHONY: build-dev
+build-dev: pyreflow/.venv
 	$(build_dev)
 
 .PHONY: build-prod
 build-prod: pyreflow/.venv
-	$(check_py)
-	PYO3_PRINT_CONFIG=1 $(build_rel) || true
 	$(build_rel)
 
 .PHONY: all-dev

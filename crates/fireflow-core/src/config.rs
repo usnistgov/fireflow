@@ -31,11 +31,11 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
-    GuessOtherWidth, OverRangeAction, ProcessKeywordFailure, ProcessTemporalOpticalKeys,
-    ReadStrategy, RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
-    TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
-    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, Encoding,
+    ForceLinearScale, GuessOtherWidth, OverRangeAction, ProcessKeywordFailure,
+    ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize, SpilloverMeasurementMode,
+    TemporalOpticalKey, TriFlag, TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL,
+    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
@@ -1663,6 +1663,7 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
         self.allow_odd_tokens = TriFlag::True.into();
         self.allow_empty_keys = TriFlag::True.into();
         self.allow_delim_at_boundary = TriFlag::True.into();
+        self.use_encoding = UseEncoding::Guess;
         self.allow_non_utf8_values = TriFlag::True.into();
         self.allow_non_ascii_keys = TriFlag::True.into();
         self.allow_missing_supp_text = TriFlag::True.into();

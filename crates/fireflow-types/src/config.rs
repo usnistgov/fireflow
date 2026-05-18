@@ -218,8 +218,7 @@ impl UseEncoding {
             Self::Utf8 => Encoding::Utf8,
             Self::Single => Encoding::Single,
             Self::Guess => {
-                let mask: u8 = 0b1000_0000;
-                if bytes.iter().any(|b| b & mask == 0) {
+                if str::from_utf8(bytes).is_ok() {
                     Encoding::Utf8
                 } else {
                     Encoding::Single

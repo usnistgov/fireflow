@@ -1156,9 +1156,10 @@ impl FlatTEXTOutput {
         let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
         let mut buf = vec![];
         let ptext_seg: &PrimaryTextSegment = header.segments.as_ref();
-        let enc = conf.use_encoding.choose(&buf[..]);
 
         io_to_log!(ptext_seg.h_read_contents(h, &mut buf));
+        let enc = conf.use_encoding.choose(&buf[..]);
+
         let delim_res = split_first_delim(&buf, conf)
             .map_errors(ParseFlatTEXTError::from)
             .map_commutative_warnings(ParseFlatTEXTWarning::from)

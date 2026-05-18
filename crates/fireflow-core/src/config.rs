@@ -31,11 +31,11 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, Encoding,
-    ForceLinearScale, GuessOtherWidth, OverRangeAction, ProcessKeywordFailure,
-    ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize, SpilloverMeasurementMode,
-    TemporalOpticalKey, TriFlag, TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL,
-    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
+    GuessOtherWidth, OverRangeAction, ProcessKeywordFailure, ProcessTemporalOpticalKeys,
+    ReadStrategy, RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
+    TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
@@ -1646,7 +1646,7 @@ impl HasStrategy for ReadOffsetConfig {
     fn with_scalpal(&mut self) {
         self.allow_pseudoempty = true.into();
         // Allow automatic correction of off-by-one offset errors. This won't
-        // always work but will likely take care of %80 of cases.
+        // always work but will likely take care of 80% of cases.
         self.truncate_offset_limit = 1.into();
         self.overlap_correction_limit = 1.into();
     }

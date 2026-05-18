@@ -1,8 +1,5 @@
 use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
-use crate::config::{
-    AllowNonunique, ConfigFlag as _, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
-    UseLatin1,
-};
+use crate::config::{AllowNonunique, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _};
 use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -13,7 +10,7 @@ use crate::text::keywords as kws;
 use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
 
-use fireflow_types::config::{PATTERN_DELIMITER, TemporalOpticalKey};
+use fireflow_types::config::{Encoding, PATTERN_DELIMITER, TemporalOpticalKey};
 use fireflow_types::keywords::{Version, VersionMembership};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
@@ -153,13 +150,13 @@ impl<L: FromStr> FromStr for LiteralOrPattern<L> {
 #[derive(Default)]
 pub struct ParsedKeywords {
     /// Standard keywords (with '$')
-    pub std: StdKeywords,
+    pub(crate) std: StdKeywords,
 
     /// Non-standard keywords (without '$')
-    pub nonstd: NonStdKeywords,
+    pub(crate) nonstd: NonStdKeywords,
 
     /// Keywords that failed for some reason.
-    pub diag: ParsedKeywordsDiagnostic,
+    pub(crate) diag: ParsedKeywordsDiagnostic,
 }
 
 // TODO why pub?
@@ -774,8 +771,8 @@ impl KeyString {
         self.0.push('_');
     }
 
-    fn from_bytes_maybe(xs: &NESlice<u8>, latin1: UseLatin1) -> Option<Self> {
-        if latin1.is_set() {
+    fn from_bytes_maybe(xs: &NESlice<u8>, single_byte: bool) -> Option<Self> {
+        if single_byte {
             let ne = xs.into_nonempty_iter().copied().map(char::from).collect();
             Some(Self::new(ne))
         } else if is_printable_ascii(xs.as_ref()) {
@@ -951,6 +948,7 @@ impl ParsedKeywords {
         key: &NESlice<u8>,
         val: &NESlice<u8>,
         matchers: &AllKeyMatchers<'_>,
+        encoding: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Option<(KeywordInsertError, bool)> {
         enum TrimResult<'a> {
@@ -970,48 +968,54 @@ impl ParsedKeywords {
         let renames = &conf.rename_standard_keys.as_ref();
 
         let parse_key = |s: &NESlice<u8>| {
+            let single_byte = matches!(encoding, Encoding::Single);
             if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first()
                 && let Some(sn) = NESlice::try_from_slice(rest)
             {
-                Some((true, KeyString::from_bytes_maybe(&sn, conf.use_latin1)?))
+                Some((true, KeyString::from_bytes_maybe(&sn, single_byte)?))
             } else {
-                Some((false, KeyString::from_bytes_maybe(s, conf.use_latin1)?))
+                Some((false, KeyString::from_bytes_maybe(s, single_byte)?))
             }
         };
 
         let parse_value = || {
             let flag = conf.trim_value_whitespace;
             let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
-            if conf.use_latin1.is_set() {
-                let it = val.into_nonempty_iter().copied().map(char::from);
-                if let Some(tf) = triflag {
-                    if let Some(ne) = it
-                        .skip_while(char::is_ascii_whitespace)
-                        .take_while(|x| !x.is_ascii_whitespace())
-                        .try_into_nonempty_iter()
-                    {
-                        let s: NEString = ne.collect();
-                        let was_trimmed = val.len() < s.len();
-                        Some(TrimResult::Trimmed(Cow::Owned(s), was_trimmed))
+            match encoding {
+                Encoding::Single => {
+                    let it = val.into_nonempty_iter().copied().map(char::from);
+                    if let Some(tf) = triflag {
+                        if let Some(ne) = it
+                            .skip_while(char::is_ascii_whitespace)
+                            .take_while(|x| !x.is_ascii_whitespace())
+                            .try_into_nonempty_iter()
+                        {
+                            let s: NEString = ne.collect();
+                            let was_trimmed = val.len() < s.len();
+                            Some(TrimResult::Trimmed(Cow::Owned(s), was_trimmed))
+                        } else {
+                            Some(TrimResult::Empty(tf))
+                        }
                     } else {
-                        Some(TrimResult::Empty(tf))
+                        Some(TrimResult::Trimmed(Cow::Owned(it.collect()), false))
                     }
-                } else {
-                    Some(TrimResult::Trimmed(Cow::Owned(it.collect()), false))
                 }
-            } else if let Ok(vv) = NEStr::from_utf8(val) {
-                if let Some(tf) = triflag {
-                    if let Some(trimmed) = NEStr::try_new(vv.as_ref().trim()) {
-                        let was_trimmed = vv.len() < trimmed.len();
-                        Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
+                Encoding::Utf8 => {
+                    if let Ok(vv) = NEStr::from_utf8(val) {
+                        if let Some(tf) = triflag {
+                            if let Some(trimmed) = NEStr::try_new(vv.as_ref().trim()) {
+                                let was_trimmed = vv.len() < trimmed.len();
+                                Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
+                            } else {
+                                Some(TrimResult::Empty(tf))
+                            }
+                        } else {
+                            Some(TrimResult::Trimmed(Cow::Borrowed(vv), false))
+                        }
                     } else {
-                        Some(TrimResult::Empty(tf))
+                        None
                     }
-                } else {
-                    Some(TrimResult::Trimmed(Cow::Borrowed(vv), false))
                 }
-            } else {
-                None
             }
         };
 
@@ -1563,6 +1567,7 @@ mod tests {
             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
             &NESlice::try_from_slice(b"of_the_night_sky").unwrap(),
             &m,
+            Encoding::Utf8,
             &conf,
         );
         assert_eq!(None, res);
@@ -1619,6 +1624,7 @@ mod tests {
             &NESlice::try_from_slice(s.as_bytes()).unwrap(),
             &NESlice::try_from_slice(b"the cake is a lie").unwrap(),
             &m,
+            Encoding::Utf8,
             &conf,
         );
         assert_eq!(None, res);

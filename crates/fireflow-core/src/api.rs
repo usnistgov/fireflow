@@ -44,7 +44,7 @@ use crate::validated::keys::{
     TruncatedNEString, ValidKeywords,
 };
 
-use fireflow_types::config::DelimEscapeMode;
+use fireflow_types::config::{DelimEscapeMode, Encoding};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::nonempty_string::NESliceExt as _;
 use hashbrown::HashMap;
@@ -1153,9 +1153,10 @@ impl FlatTEXTOutput {
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
     {
-        let conf = st.conf.as_ref();
+        let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
         let mut buf = vec![];
         let ptext_seg: &PrimaryTextSegment = header.segments.as_ref();
+        let enc = conf.use_encoding.choose(&buf[..]);
 
         io_to_log!(ptext_seg.h_read_contents(h, &mut buf));
         let delim_res = split_first_delim(&buf, conf)
@@ -1167,8 +1168,7 @@ impl FlatTEXTOutput {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(delim, bytes)| {
-                // let mut kws = ParsedKeywords::default();
-                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, conf)
+                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, enc, conf)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
@@ -1186,7 +1186,7 @@ impl FlatTEXTOutput {
                         if let SuppTEXTResult::Present(corr_seg, _) = seg {
                             buf.clear();
                             SplitTEXTDiagnostics::h_read_supp(
-                                h, &corr_seg, &mut kws, &mut buf, delim, conf,
+                                h, &corr_seg, &mut kws, &mut buf, delim, enc, conf,
                             )
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_pure_errors(ParseFlatTEXTError::from)
@@ -1314,6 +1314,7 @@ impl SplitTEXTDiagnostics {
         kws: &mut ParsedKeywords,
         buf: &mut Vec<u8>,
         delim: u8,
+        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         Option<Self>,
@@ -1322,7 +1323,7 @@ impl SplitTEXTDiagnostics {
         (),
     > {
         io_to_log!(seg.h_read_contents(h, buf));
-        Self::supp_from_bytes(kws, delim, buf, conf)
+        Self::supp_from_bytes(kws, delim, buf, enc, conf)
             .group()
             .map_error(IOErrorGroup::Pure)
     }
@@ -1331,6 +1332,7 @@ impl SplitTEXTDiagnostics {
     fn primary_from_bytes(
         delim: u8,
         bytes: &[u8],
+        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<(ParsedKeywords, Self), (), ParseKeywordsIssue, ParseKeywordsIssue>
     {
@@ -1357,7 +1359,7 @@ impl SplitTEXTDiagnostics {
             nonstd: HashMap::with_capacity(cap / 2),
             diag: ParsedKeywordsDiagnostic::default(),
         };
-        Self::from_bytes_inner(&mut kws, delim, &raw_slice, TEXTKind::Primary, conf)
+        Self::from_bytes_inner(&mut kws, delim, &raw_slice, TEXTKind::Primary, enc, conf)
             .map_ok_value(|ret| (kws, ret))
     }
 
@@ -1366,6 +1368,7 @@ impl SplitTEXTDiagnostics {
         kws: &mut ParsedKeywords,
         delim: u8,
         bytes: &[u8],
+        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
         Option<Self>,
@@ -1377,7 +1380,7 @@ impl SplitTEXTDiagnostics {
             let flag = conf.allow_supp_text_own_delim;
             let raw_segs = Self::split_bytes(*byte0, rest);
             let raw_slice = raw_segs.as_nonempty_slice();
-            Self::from_bytes_inner(kws, *byte0, &raw_slice, TEXTKind::Supplemental, conf)
+            Self::from_bytes_inner(kws, *byte0, &raw_slice, TEXTKind::Supplemental, enc, conf)
                 .map_warnings_and_errors(ParseSupplementalTEXTError::from)
                 .eval_warning_or_error3(
                     flag,
@@ -1458,13 +1461,14 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         raw_segs: &NESlice<'_, &'_ [u8]>,
         tk: TEXTKind,
+        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
         let escaped = GuessedEscapeMode::is_escaped(raw_segs, conf.delim_escape_mode);
         if escaped {
-            Self::insert_escaped(kws, delim, raw_segs, tk, conf)
+            Self::insert_escaped(kws, delim, raw_segs, tk, enc, conf)
         } else {
-            Self::insert_unescaped(kws, delim, raw_segs, tk, conf)
+            Self::insert_unescaped(kws, delim, raw_segs, tk, enc, conf)
         }
     }
 
@@ -1474,6 +1478,7 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         segs: &NESlice<'_, &[u8]>,
         tk: TEXTKind,
+        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
         let mut out = Self {
@@ -1501,7 +1506,7 @@ impl SplitTEXTDiagnostics {
             let v = NESlice::try_from_slice(value);
             match (k, v) {
                 (Some(kk), Some(vv)) => {
-                    if let Some((e, is_err)) = kws.insert(&kk, &vv, &matchers, conf) {
+                    if let Some((e, is_err)) = kws.insert(&kk, &vv, &matchers, enc, conf) {
                         any_insert_err = any_insert_err || is_err;
                         insert_errs.push(ParseKeywordsIssue::from(e));
                     }
@@ -1559,6 +1564,7 @@ impl SplitTEXTDiagnostics {
         delim: u8,
         segs: &NESlice<'_, &[u8]>,
         tk: TEXTKind,
+        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<Self, (), ParseKeywordsIssue, ParseKeywordsIssue> {
         let mut out = Self {
@@ -1578,7 +1584,7 @@ impl SplitTEXTDiagnostics {
         let matchers = conf.as_matchers();
 
         let mut push_pair = |ks: &mut ParsedKeywords, kb: &NESlice<u8>, vb: &NESlice<u8>| {
-            let _ = ks.insert(kb, vb, &matchers, conf).map(|(e, is_err)| {
+            let _ = ks.insert(kb, vb, &matchers, enc, conf).map(|(e, is_err)| {
                 any_insert_err = any_insert_err || is_err;
                 insert_results.push(ParseKeywordsIssue::from(e));
             });
@@ -2071,6 +2077,7 @@ mod tests {
             delim,
             &raw_slice,
             TEXTKind::Primary,
+            Encoding::Utf8,
             &conf,
         );
         let (_, ws, es) = out.deconstruct();

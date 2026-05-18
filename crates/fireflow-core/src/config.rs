@@ -34,8 +34,8 @@ use fireflow_types::config::{
     AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
     GuessOtherWidth, OverRangeAction, ProcessKeywordFailure, ProcessTemporalOpticalKeys,
     ReadStrategy, RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
-    TrimValueWhitespace, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL,
-    VERSION_STRICT_LEVEL,
+    TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
@@ -506,8 +506,8 @@ pub struct ReadHeaderAndTEXTConfig {
     /// included due to their ambiguity.
     pub allow_delim_at_boundary: AllowDelimAtBoundary,
 
-    /// Interpret all bytes in TEXT as Latin-1 instead of UTF-8
-    pub use_latin1: UseLatin1,
+    /// Choose the character encoding scheme for TEXT.
+    pub use_encoding: UseEncoding,
 
     /// Allow keys with non-ASCII characters.
     ///
@@ -1176,7 +1176,6 @@ impl_config_flag!(SquishOffsets);
 impl_config_flag!(AllowPseudoempty);
 
 impl_config_flag!(IgnoreSuppTEXT);
-impl_config_flag!(UseLatin1);
 impl_config_flag!(TrimTEXTEnd);
 impl_config_flag!(IgnoreTEXTDataOffsets);
 impl_config_flag!(IgnoreTEXTAnalysisOffsets);

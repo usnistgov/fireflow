@@ -178,6 +178,57 @@ impl_config_flag!(
     Silent => TRI_SILENT_LEVEL
 );
 
+pub const ENCODING_UTF8_LEVEL: &NEStr = ne_str!("utf8");
+pub const ENCODING_SINGLE_LEVEL: &NEStr = ne_str!("single");
+pub const ENCODING_GUESS_LEVEL: &NEStr = ne_str!("guess");
+
+impl_config_flag!(
+    /// Choose how to interpret the characters in TEXT.
+    ///
+    /// If `utf8`, use UTF8. If `single`, use IANA ISO/IEC-8859-1), which will
+    /// map each byte to a character, including those outside ASCII. This is
+    /// useful if TEXT is encoded with non-UTF8 characters. If `guess`, assume
+    /// UTF8 and fall back to IANA ISO/IEC-8859-1 if a non-UTF8 character is
+    /// encountered.
+    pub UseEncoding,
+    /// Error when parsing [`UseEncoding`] from [`String`]
+    pub UseEncodingError,
+    Utf8   =>  ENCODING_UTF8_LEVEL,
+    Single =>  ENCODING_SINGLE_LEVEL,
+    Guess  => ENCODING_GUESS_LEVEL
+);
+
+/// The encoding to use when reading TEXT.
+#[derive(Clone, Copy, Default)]
+pub enum Encoding {
+    #[default]
+    Utf8,
+    Single,
+}
+
+impl UseEncoding {
+    /// Choose encoding to use to read `bytes`.
+    ///
+    /// Only read `bytes` if `Guess` is selected, in which case
+    /// [`Encoding::Single`] will be returned if any bytes have the most
+    /// significant bit set to 1.
+    #[must_use]
+    pub fn choose(&self, bytes: &[u8]) -> Encoding {
+        match self {
+            Self::Utf8 => Encoding::Utf8,
+            Self::Single => Encoding::Single,
+            Self::Guess => {
+                let mask: u8 = 0b1000_0000;
+                if bytes.iter().any(|b| b & mask == 0) {
+                    Encoding::Utf8
+                } else {
+                    Encoding::Single
+                }
+            }
+        }
+    }
+}
+
 pub const OTHER_WIDTH_NONE_LEVEL: &NEStr = NONE_LEVEL;
 pub const OTHER_WIDTH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
 pub const OTHER_WIDTH_WARN_LEVEL: &NEStr = WARN_LEVEL;

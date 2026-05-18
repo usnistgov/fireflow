@@ -4855,10 +4855,13 @@ class TestConfig:
         self.mock_header(p, version, t=(58, len(text) + 57), rest=text)
 
         with pytest.RaisesGroup(pf.ParseKeyError):
-            pf.api.fcs_read_flat_text(p, use_latin1=False)
+            pf.api.fcs_read_flat_text(p, use_encoding="utf8")
 
-        out = pf.api.fcs_read_flat_text(p, use_latin1=True)
-        out.kws.nonstd["tool"] == "Ænima"
+        out0 = pf.api.fcs_read_flat_text(p, use_encoding="single")
+        assert out0.kws.nonstd["tool"] == "Ænima"
+
+        out1 = pf.api.fcs_read_flat_text(p, use_encoding="guess")
+        assert out1.kws.nonstd["tool"] == "Ænima"
 
     @all_versions
     def test_allow_non_ascii_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:

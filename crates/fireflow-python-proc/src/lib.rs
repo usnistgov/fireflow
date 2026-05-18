@@ -8459,7 +8459,7 @@ impl DocArgParam {
             Self::new_allow_odd_tokens(),
             Self::new_allow_empty_keys(),
             Self::new_allow_delim_at_boundary(),
-            Self::new_use_latin1(),
+            Self::new_use_encoding(),
             Self::new_allow_non_ascii_keys(),
             Self::new_allow_non_utf8_values(),
             Self::new_allow_missing_supp_text(),
@@ -9158,12 +9158,19 @@ impl DocArgParam {
         Self::new_tri_flag_param(n, true, "AllowDelimAtBoundary", d, e)
     }
 
-    fn new_use_latin1() -> Self {
+    fn new_use_encoding() -> Self {
         let d = format!(
-            "If {TRUE} interpret all characters in {TEXT} as Latin-1 (aka \
-             ISO/IEC 8859-1) instead of UTF-8."
+            "Choose how to interpret characters in {TEXT}. Choose \
+             {}, {}, or {} to interpret bytes as IANA ISO/IEC-8859-1 \
+             UTF-8, or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 \
+             if a non-UTF-8 byte is found.",
+            tc::ENCODING_SINGLE_LEVEL,
+            tc::ENCODING_UTF8_LEVEL,
+            tc::ENCODING_GUESS_LEVEL
         );
-        Self::new_bool_param("use_latin1", d)
+        let pt: PyLiteral = tc::UseEncoding::iter_str().collect();
+        let path = types_config_path("UseEncoding");
+        Self::new_param("use_encoding", pt.rstype(path), d).def_auto()
     }
 
     fn new_allow_non_ascii_keys() -> Self {

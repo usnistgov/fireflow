@@ -64,7 +64,7 @@ class _ReadFlatTEXTConfig(BaseModel):
     allow_odd_tokens: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_empty_keys: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_delim_at_boundary: pft.TriFlag = _DEFAULT_TRIFLAG
-    use_latin1: bool = False
+    use_encoding: pft.UseEncoding = "utf8"
     allow_non_ascii_keys: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_non_utf8_values: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_missing_supp_text: pft.TriFlag = _DEFAULT_TRIFLAG

@@ -218,6 +218,8 @@ KeywordVersionScores: TypeAlias = tuple[
     pf.KeywordVersionScore,
 ]
 
+UseEncoding: TypeAlias = Literal["single", "utf8", "guess"]
+
 GuessOtherWidth: TypeAlias = Literal["none", "error", "warn", "silent"]
 
 OtherSegments: TypeAlias = tuple[list[Segment], int]

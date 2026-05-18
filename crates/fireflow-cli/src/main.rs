@@ -25,19 +25,20 @@ use fireflow_core::validated::timepattern::TimePattern;
 use fireflow_types::config::{
     AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
     GuessOtherWidth, ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey,
-    TriFlag, TrimValueWhitespace,
+    TriFlag, TrimValueWhitespace, UseEncoding,
 };
 use fireflow_types::config::{
     BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CHECK_RANGE_ALL_LEVEL, CHECK_RANGE_INT_ONLY_LEVEL,
     CHECK_RANGE_NONE_LEVEL, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0,
     DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
     DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL,
-    FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL,
-    FORCE_LINEAR_TIME_LEVEL, KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL,
-    KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL,
-    MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL,
-    NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL,
-    OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER,
+    ENCODING_GUESS_LEVEL, ENCODING_SINGLE_LEVEL, ENCODING_UTF8_LEVEL, FORCE_LINEAR_ALL_LEVEL,
+    FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_TIME_LEVEL,
+    KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL,
+    KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
+    MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
+    NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
+    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER,
     READ_STRATEGY_SCALPAL_LEVEL, READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL,
     ReadStrategy, RowBufferSize, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
     SPILLOVER_NAMED_LEVEL, TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
@@ -396,10 +397,17 @@ fn run() -> AppResult<()> {
         format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
 
-    let use_latin1 = override_flag_arg(
-        USE_LATIN1,
-        format!("Interpret all characters in {text_seg} as Latin-1 (aka ISO/IEC 8859-1)."),
-    );
+    let use_encoding = Arg::new(USE_ENCODING)
+        .long(USE_ENCODING)
+        .value_name("ENC")
+        .value_parser(value_parser!(UseEncoding))
+        .help(format!(
+            "Choose how to interpret characters in {text_seg}. Choose \
+             '{ENCODING_SINGLE_LEVEL}', '{ENCODING_UTF8_LEVEL}', or \
+             '{ENCODING_GUESS_LEVEL}' to interpret bytes as IANA ISO/IEC-8859-1 \
+             UTF-8, or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 \
+             if a non-UTF-8 byte is found."
+        ));
 
     let allow_non_ascii_keywords = tri_flag_arg::<AllowNonAsciiKeywords>(
         ALLOW_NON_ASCII_KEYS,
@@ -519,7 +527,7 @@ fn run() -> AppResult<()> {
         allow_empty_keys,
         allow_delim_at_bound,
         allow_non_utf8,
-        use_latin1,
+        use_encoding,
         allow_non_ascii_keywords,
         allow_missing_supp_text,
         allow_supp_text_own_delim,
@@ -1322,7 +1330,7 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     get_opt(s, ALLOW_DELIM_AT_BOUNDARY, |x| {
         c.allow_delim_at_boundary = x;
     });
-    get_flag(s, USE_LATIN1, |x| c.use_latin1 = x);
+    get_opt(s, USE_ENCODING, |x| c.use_encoding = x);
     get_opt(s, ALLOW_NON_ASCII_KEYS, |x| {
         c.allow_non_ascii_keys = x;
     });
@@ -1831,7 +1839,7 @@ const ALLOW_EMPTY_KEYS: &str = "allow-empty-keys";
 
 const ALLOW_DELIM_AT_BOUNDARY: &str = "allow-delim-at-boundary";
 
-const USE_LATIN1: &str = "use-latin1";
+const USE_ENCODING: &str = "use-encoding";
 
 const ALLOW_NON_ASCII_KEYS: &str = "allow-non-ascii-keys";
 

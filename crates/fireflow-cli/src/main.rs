@@ -7,7 +7,7 @@ use fireflow_core::config::{
     AllowMissingNextdata, AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime,
     AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOddTokens,
     AllowSuppTEXTOwnDelim, AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit,
-    DatasetOffset, DisallowOverRange, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
+    DatasetOffset, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
     OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
     ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern, TriErrorFlag,
     TruncateOffsetLimit, VersionOverride, WriteDatasetInnerConfig,
@@ -34,7 +34,7 @@ use fireflow_types::config::{
     MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL,
     MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
     OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL,
-    OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER, READ_STRATEGY_SCALPAL_LEVEL,
+    OTHER_WIDTH_WARN_LEVEL, OverRangeAction, PATTERN_DELIMITER, READ_STRATEGY_SCALPAL_LEVEL,
     READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL, ReadStrategy, RowBufferSize,
     SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
     TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
@@ -846,9 +846,11 @@ fn run() -> AppResult<()> {
              '{CHECK_RANGE_NONE_LEVEL}'.",
         ));
 
-    let over_range_action = tri_flag_arg::<DisallowOverRange>(
-        OVER_RANGE_ACTION,
-        format!(
+    let over_range_action = Arg::new(OVER_RANGE_ACTION)
+        .long(OVER_RANGE_ACTION)
+        .value_name("ACTION")
+        .value_parser(value_parser!(OverRangeAction))
+        .help(format!(
             "Choose how to handle values in DATA to exceed {pn_r}. Only applies \
              to columns that were checked according to '{CHECKED_RANGE_DATATYPES}'. \
              Pass {error} to emit error, {warn} to emit \
@@ -859,8 +861,7 @@ fn run() -> AppResult<()> {
             silent = tc::OVERRANGE_ACTION_SILENT_LEVEL,
             trunc_warn = tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL,
             trunc_silent = tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL,
-        ),
-    );
+        ));
 
     let row_buffer_size = Arg::new(ROW_BUFFER_SIZE)
         .long(ROW_BUFFER_SIZE)

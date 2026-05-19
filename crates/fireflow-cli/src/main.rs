@@ -23,29 +23,30 @@ use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_core::validated::timepattern::TimePattern;
 use fireflow_types::config::{
+    self as tc, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CHECK_RANGE_ALL_LEVEL,
+    CHECK_RANGE_BITMASK_ONLY_LEVEL, CHECK_RANGE_INT_ONLY_LEVEL, CHECK_RANGE_NONE_LEVEL,
+    DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0,
+    DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL, DELIM_GUESS_ESCAPED_LEVEL,
+    DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, ENCODING_GUESS_LEVEL,
+    ENCODING_SINGLE_LEVEL, ENCODING_UTF8_LEVEL, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL,
+    FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_TIME_LEVEL, KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL,
+    KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL,
+    MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL,
+    MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
+    OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL,
+    OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER, READ_STRATEGY_SCALPAL_LEVEL,
+    READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL, ReadStrategy, RowBufferSize,
+    SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
+    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
+    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
+    TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
+    TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
+    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+};
+use fireflow_types::config::{
     AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
     GuessOtherWidth, ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey,
     TriFlag, TrimValueWhitespace, UseEncoding,
-};
-use fireflow_types::config::{
-    BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CHECK_RANGE_ALL_LEVEL, CHECK_RANGE_INT_ONLY_LEVEL,
-    CHECK_RANGE_NONE_LEVEL, DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0,
-    DEFAULT_TIME_FORMAT_3_0, DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL,
-    DELIM_GUESS_ESCAPED_LEVEL, DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL,
-    ENCODING_GUESS_LEVEL, ENCODING_SINGLE_LEVEL, ENCODING_UTF8_LEVEL, FORCE_LINEAR_ALL_LEVEL,
-    FORCE_LINEAR_NON_INT_LEVEL, FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_TIME_LEVEL,
-    KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL, KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL,
-    KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL, MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL,
-    MISMATCH_TEXT_SILENT_LEVEL, MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT,
-    NON_STD_MEAS_PAT_DEFAULT, OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL,
-    OTHER_WIDTH_SILENT_LEVEL, OTHER_WIDTH_WARN_LEVEL, PATTERN_DELIMITER,
-    READ_STRATEGY_SCALPAL_LEVEL, READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL,
-    ReadStrategy, RowBufferSize, SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL,
-    SPILLOVER_NAMED_LEVEL, TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE,
-    TMP_OPT_DEMOTE_SILENT_LEVEL, TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL,
-    TMP_OPT_DROP_WARN_LEVEL, TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL,
-    TRIM_BLANK_WARN_LEVEL, TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, VERSION_EARLIEST_LEVEL,
-    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::keywords as tk;
 use fireflow_types::nonempty_string::NEString;
@@ -834,21 +835,30 @@ fn run() -> AppResult<()> {
         format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
     );
 
-    let truncate_event_values = Arg::new(TRUNCATE_EVENT_VALUES)
-        .long(TRUNCATE_EVENT_VALUES)
+    let checked_range_datatypes = Arg::new(CHECKED_RANGE_DATATYPES)
+        .long(CHECKED_RANGE_DATATYPES)
         .value_name("WHICH")
         .value_parser(value_parser!(CheckedRangeDatatypes))
         .help(format!(
             "Truncate values exceeding {pn_r}. \
-             Must be one of '{CHECK_RANGE_INT_ONLY_LEVEL}' (default), \
-             '{CHECK_RANGE_ALL_LEVEL}', or '{CHECK_RANGE_NONE_LEVEL}'.",
+             Must be one of '{CHECK_RANGE_BITMASK_ONLY_LEVEL}' (default), \
+             '{CHECK_RANGE_INT_ONLY_LEVEL}' '{CHECK_RANGE_ALL_LEVEL}', or \
+             '{CHECK_RANGE_NONE_LEVEL}'.",
         ));
 
-    let disallow_over_range = tri_flag_arg::<DisallowOverRange>(
-        DISALLOW_OVER_RANGE,
+    let over_range_action = tri_flag_arg::<DisallowOverRange>(
+        OVER_RANGE_ACTION,
         format!(
-            "Forbid values in DATA to exceed {pn_r}. Does nothing if column \
-             was truncated according to '{TRUNCATE_EVENT_VALUES}'."
+            "Choose how to handle values in DATA to exceed {pn_r}. Only applies \
+             to columns that were checked according to '{CHECKED_RANGE_DATATYPES}'. \
+             Pass {error} to emit error, {warn} to emit \
+             warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
+             warning, and {trunc_silent} to truncate with no warning.",
+            error = tc::OVERRANGE_ACTION_ERROR_LEVEL,
+            warn = tc::OVERRANGE_ACTION_WARN_LEVEL,
+            silent = tc::OVERRANGE_ACTION_SILENT_LEVEL,
+            trunc_warn = tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL,
+            trunc_silent = tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL,
         ),
     );
 
@@ -867,8 +877,8 @@ fn run() -> AppResult<()> {
     let all_read_dataset_args = [
         allow_uneven_event_width,
         allow_tot_mismatch,
-        truncate_event_values,
-        disallow_over_range,
+        checked_range_datatypes,
+        over_range_action,
         row_buffer_size,
     ];
 
@@ -1460,8 +1470,10 @@ fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
     get_opt(s, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
         c.allow_uneven_event_width = x;
     });
-    get_opt(s, TRUNCATE_EVENT_VALUES, |x| c.checked_range_datatypes = x);
-    get_opt(s, DISALLOW_OVER_RANGE, |x| c.over_range_action = x);
+    get_opt(s, CHECKED_RANGE_DATATYPES, |x| {
+        c.checked_range_datatypes = x;
+    });
+    get_opt(s, OVER_RANGE_ACTION, |x| c.over_range_action = x);
     get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
 
     c
@@ -1933,9 +1945,9 @@ const DISALLOW_RANGE_TRUNCATION: &str = "disallow-range-truncation";
 
 const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 
-const TRUNCATE_EVENT_VALUES: &str = "truncate-event-values";
+const CHECKED_RANGE_DATATYPES: &str = "checked-range-datatypes";
 
-const DISALLOW_OVER_RANGE: &str = "disallow-over-range";
+const OVER_RANGE_ACTION: &str = "over-range-action";
 
 const ROW_BUFFER_SIZE: &str = "row-buffer-size";
 

@@ -1,17 +1,5 @@
-use fireflow_core::api::{
-    fcs_read_flat_texts, fcs_read_header, fcs_read_std_datasets, fcs_read_std_texts, fcs_summarize,
-    fcs_write_datasets,
-};
-use fireflow_core::config::{
-    self, AllowDelimAtBoundary, AllowDuplicatedSuppTEXT, AllowEmptyKeys, AllowEvenDelims,
-    AllowMissingNextdata, AllowMissingRequiredOffsets, AllowMissingSuppTEXT, AllowMissingTime,
-    AllowNonAsciiDelim, AllowNonAsciiKeywords, AllowNonUtf8, AllowNonunique, AllowOddTokens,
-    AllowSuppTEXTOwnDelim, AllowTotMismatch, AllowUnevenEventWidth, DataRemainderLimit,
-    DatasetOffset, DisallowRangeTrunc, HasStrategy as _, NonStdMeasPatternOpt,
-    OverlapCorrectionLimit, ProcessExtraTimestep, ProcessHyperPar, ProcessOptionalFailure,
-    ProcessOtherVersion, ProcessPseudostandard, TimeMeasNamePattern, TriErrorFlag,
-    TruncateOffsetLimit, VersionOverride, WriteDatasetInnerConfig,
-};
+use fireflow_core::api;
+use fireflow_core::config::{self as cfg, HasStrategy as _};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
 use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0};
@@ -22,32 +10,7 @@ use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_core::validated::timepattern::TimePattern;
-use fireflow_types::config::{
-    self as tc, BASE60_SECOND_SPEC, BASE100_SECOND_SPEC, CHECK_RANGE_ALL_LEVEL,
-    CHECK_RANGE_BITMASK_ONLY_LEVEL, CHECK_RANGE_INT_ONLY_LEVEL, CHECK_RANGE_NONE_LEVEL,
-    DEDUP_PNN_SEP, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0, DEFAULT_TIME_FORMAT_3_0,
-    DEFAULT_TIME_FORMAT_3_1, DELIM_ESCAPED_LEVEL, DELIM_GUESS_ESCAPED_LEVEL,
-    DELIM_GUESS_UNESCAPED_LEVEL, DELIM_UNESCAPED_LEVEL, ENCODING_GUESS_LEVEL,
-    ENCODING_SINGLE_LEVEL, ENCODING_UTF8_LEVEL, FORCE_LINEAR_ALL_LEVEL, FORCE_LINEAR_NON_INT_LEVEL,
-    FORCE_LINEAR_NONE_LEVEL, FORCE_LINEAR_TIME_LEVEL, KW_DEMOTE_SILENT_LEVEL, KW_DEMOTE_WARN_LEVEL,
-    KW_DROP_SILENT_LEVEL, KW_DROP_WARN_LEVEL, KW_ERROR_LEVEL, MISMATCH_ERROR_LEVEL,
-    MISMATCH_HEADER_SILENT_LEVEL, MISMATCH_HEADER_WARN_LEVEL, MISMATCH_TEXT_SILENT_LEVEL,
-    MISMATCH_TEXT_WARN_LEVEL, NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT,
-    OTHER_WIDTH_ERROR_LEVEL, OTHER_WIDTH_NONE_LEVEL, OTHER_WIDTH_SILENT_LEVEL,
-    OTHER_WIDTH_WARN_LEVEL, OverRangeAction, PATTERN_DELIMITER, READ_STRATEGY_SCALPAL_LEVEL,
-    READ_STRATEGY_SLEDGEHAMMER_LEVEL, READ_STRATEGY_STRICT_LEVEL, ReadStrategy, RowBufferSize,
-    SPILLOVER_GUESS_LEVEL, SPILLOVER_INDEXED_LEVEL, SPILLOVER_NAMED_LEVEL,
-    TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE, TMP_OPT_DEMOTE_SILENT_LEVEL,
-    TMP_OPT_DEMOTE_WARN_LEVEL, TMP_OPT_DROP_SILENT_LEVEL, TMP_OPT_DROP_WARN_LEVEL,
-    TRI_SILENT_LEVEL, TRI_TRUE_LEVEL, TRIM_BLANK_SILENT_LEVEL, TRIM_BLANK_WARN_LEVEL,
-    TRIM_ERROR_LEVEL, TRIM_NONE_LEVEL, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
-    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
-};
-use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
-    GuessOtherWidth, ProcessTemporalOpticalKeys, SpilloverMeasurementMode, TemporalOpticalKey,
-    TriFlag, TrimValueWhitespace, UseEncoding,
-};
+use fireflow_types::config as tc;
 use fireflow_types::keywords as tk;
 use fireflow_types::nonempty_string::NEString;
 
@@ -138,17 +101,20 @@ fn run() -> AppResult<()> {
              to be escaped."
                 .into(),
             format!(
-                "If '{DELIM_ESCAPED_LEVEL}' or '{DELIM_UNESCAPED_LEVEL}', escape \
-                 or do not escape delimiters respectively."
+                "If {esc} or {unesc}, escape or do not escape delimiters respectively.",
+                esc = fmt_val(tc::DELIM_ESCAPED_LEVEL),
+                unesc = fmt_val(tc::DELIM_UNESCAPED_LEVEL)
             ),
             format!(
-                "If {DELIM_GUESS_ESCAPED_LEVEL} or {DELIM_GUESS_UNESCAPED_LEVEL} attempt to \
-                 guess how delimiters should be treated, falling back to escaped \
-                 or unescaped mode respectively if the choice is ambiguous. The \
-                 determination will be made by first scanning {text_seg} to find \
-                 all delimiter positions and choosing the mode which results in \
-                 an even number of tokens with no delimiters in keys (escaped \
-                 mode) and no blank keys (unescaped mode)."
+                "If {esc} or {unesc} attempt to guess how delimiters should be \
+                 treated, falling back to escaped or unescaped mode respectively \
+                 if the choice is ambiguous. The determination will be made by \
+                 first scanning {text_seg} to find all delimiter positions and \
+                 choosing the mode which results in an even number of tokens \
+                 with no delimiters in keys (escaped mode) and no blank keys \
+                 (unescaped mode).",
+                esc = fmt_val(tc::DELIM_ESCAPED_LEVEL),
+                unesc = fmt_val(tc::DELIM_UNESCAPED_LEVEL)
             ),
             format!(
                 "Using the guessing algorithm has a significant performance penalty \
@@ -192,24 +158,28 @@ fn run() -> AppResult<()> {
              parsing {date}. It should have specifiers for year, month, and \
              day as outlined in {CHRONO_REF}. If not supplied, {date} will \
              be parsed according to the standard pattern which is \
-             '{DEFAULT_DATE_FORMAT}'.",
-            pat = fmt_arg(DATE_PATTERN)
+             {fmt}.",
+            pat = fmt_arg(DATE_PATTERN),
+            fmt = fmt_val(tc::DEFAULT_DATE_FORMAT),
         )],
     );
 
     let (time_header, time_help) = format_section(
         "TIME PATTERN",
         [format!(
-            "If supplied, will be used as an alternative pattern when \
-             parsing {btim} and {etim} It should have specifiers for \
-             hours, minutes, and seconds as outlined in {CHRONO_REF}. It may \
-             optionally also have a sub-seconds specifier as shown in the \
-             same link. Furthermore, the specifiers '{BASE60_SECOND_SPEC}' and \
-             '{BASE100_SECOND_SPEC}' may be used to match 1/60 and centiseconds \
-             respectively. If not supplied, {btim} and {etim} will be parsed according \
-             to the standard pattern which is '{DEFAULT_TIME_FORMAT_2_0}' for 2.0, \
-             '{DEFAULT_TIME_FORMAT_3_0}' for 3.0, and '{DEFAULT_TIME_FORMAT_3_1}' \
-             for 3.1 and up."
+            "If supplied, will be used as an alternative pattern when parsing \
+             {btim} and {etim} It should have specifiers for hours, minutes, and \
+             seconds as outlined in {CHRONO_REF}. It may optionally also have a \
+             sub-seconds specifier as shown in the same link. Furthermore, the \
+             specifiers {base60} and {base100} may be used to match 1/60 and \
+             centiseconds respectively. If not supplied, {btim} and {etim} will \
+             be parsed according to the standard pattern which is {fmt2_0} for \
+             2.0, {fmt3_0} for 3.0, and {fmt3_1} for 3.1 and up.",
+            base60 = fmt_val(tc::BASE60_SECOND_SPEC),
+            base100 = fmt_val(tc::BASE100_SECOND_SPEC),
+            fmt2_0 = fmt_val(tc::DEFAULT_TIME_FORMAT_2_0),
+            fmt3_0 = fmt_val(tc::DEFAULT_TIME_FORMAT_2_0),
+            fmt3_1 = fmt_val(tc::DEFAULT_TIME_FORMAT_3_1)
         )],
     );
 
@@ -259,14 +229,17 @@ fn run() -> AppResult<()> {
     let guess_other_width = Arg::new(GUESS_OTHER_WIDTH)
         .long(GUESS_OTHER_WIDTH)
         .value_name("LEVEL")
-        .value_parser(value_parser!(GuessOtherWidth))
+        .value_parser(value_parser!(tc::GuessOtherWidth))
         .help(format!(
-            "Guess the width of {other_seg} segments. Valid values are \
-             '{OTHER_WIDTH_NONE_LEVEL}' (no guessing) or '{OTHER_WIDTH_ERROR_LEVEL}', \
-             '{OTHER_WIDTH_WARN_LEVEL}' or '{OTHER_WIDTH_SILENT_LEVEL}' which will \
-             guess and throw an error, warning, or nothing on failure. For 'warn' \
-             and 'silent', failure will fall back to 8 or whatever was given in {}",
-            fmt_arg(OTHER_WIDTH),
+            "Guess the width of {other_seg} segments. Valid values are {none} \
+             (no guessing) or {error}, {warn} or {silent} which will guess and \
+             throw an error, warning, or nothing on failure. For {warn} and \
+             {silent}, failure will fall back to 8 or whatever was given in {arg}.",
+            none = fmt_val(tc::OTHER_WIDTH_NONE_LEVEL),
+            error = fmt_val(tc::OTHER_WIDTH_ERROR_LEVEL),
+            warn = fmt_val(tc::OTHER_WIDTH_WARN_LEVEL),
+            silent = fmt_val(tc::OTHER_WIDTH_SILENT_LEVEL),
+            arg = fmt_arg(OTHER_WIDTH),
         ));
 
     let squish_offsets = override_flag_arg(
@@ -298,13 +271,13 @@ fn run() -> AppResult<()> {
     let truncate_offset_limit = Arg::new(TRUNCATE_OFFSET_LIMIT)
         .long(TRUNCATE_OFFSET_LIMIT)
         .value_name("LIMIT")
-        .value_parser(value_parser!(TruncateOffsetLimit))
+        .value_parser(value_parser!(cfg::TruncateOffsetLimit))
         .help("Limit by which offsets can be truncated if they exceed end of file.");
 
     let overlap_correction_limit = Arg::new(OVERLAP_CORRECTION_LIMIT)
         .long(OVERLAP_CORRECTION_LIMIT)
         .value_name("LIMIT")
-        .value_parser(value_parser!(OverlapCorrectionLimit))
+        .value_parser(value_parser!(cfg::OverlapCorrectionLimit))
         .help(
             "Limit by which ending segment offset can be truncated if they overlap another offset.",
         );
@@ -312,7 +285,7 @@ fn run() -> AppResult<()> {
     let data_remainder_limit = Arg::new(DATA_REMAINDER_LIMIT)
         .long(DATA_REMAINDER_LIMIT)
         .value_name("LIMIT")
-        .value_parser(value_parser!(DataRemainderLimit))
+        .value_parser(value_parser!(cfg::DataRemainderLimit))
         .help(format!(
             "Limit by which ending {data_seg} offset can be truncated if \
              its length modulo event width produces a remainder."
@@ -327,17 +300,20 @@ fn run() -> AppResult<()> {
 
     // "flat" args
 
-    let version_override = opt_arg::<VersionOverride>(
+    let version_override = opt_arg::<cfg::VersionOverride>(
         VERSION_OVERRIDE,
         "OVERRIDE",
         format!(
-            "Override the FCS version from {header_seg}. Can be an FCS \
-             version string (like 'FCS3.2') which will force to a fixed version. \
-             Can also autodetect version with one of '{VERSION_LATEST_LEVEL}' or \
-             '{VERSION_EARLIEST_LEVEL}' (the latest or earliest available version \
-             respectively) or '{VERSION_LOOSE_LEVEL}' or '{VERSION_STRICT_LEVEL}' \
-             (the available version with the most or least optional keywords \
-             respectively)."
+            "Override the FCS version from {header_seg}. Can be an FCS version \
+             string (like 'FCS3.2') which will force to a fixed version. Can \
+             also autodetect version with one of {latest} or {earliest} (the \
+             latest or earliest available version respectively) or {loose} or \
+             {strict} (the available version with the most or least optional \
+             keywords respectively).",
+            latest = fmt_val(tc::VERSION_LATEST_LEVEL),
+            earliest = fmt_val(tc::VERSION_EARLIEST_LEVEL),
+            loose = fmt_val(tc::VERSION_LOOSE_LEVEL),
+            strict = fmt_val(tc::VERSION_STRICT_LEVEL),
         ),
     );
 
@@ -349,7 +325,7 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(i32))
         .help(format!("Correction for {nextdata}"));
 
-    let allow_overlapping_supp_text = tri_flag_arg::<AllowDuplicatedSuppTEXT>(
+    let allow_overlapping_supp_text = tri_flag_arg::<cfg::AllowDuplicatedSuppTEXT>(
         ALLOW_DUPLICATED_SUPP_TEXT,
         format!(
             "Allow {supp_text_seg} offsets to overlap those for \
@@ -365,35 +341,35 @@ fn run() -> AppResult<()> {
     let lit_delims = Arg::new(DELIM_ESCAPE_MODE)
         .long(DELIM_ESCAPE_MODE)
         .value_name("MODE")
-        .value_parser(value_parser!(DelimEscapeMode))
+        .value_parser(value_parser!(tc::DelimEscapeMode))
         .help(format!(
             "Choose how to escape delimiters in {text_seg}. \
              See {delim_header} for details."
         ));
 
-    let non_ascii_delim = tri_flag_arg::<AllowNonAsciiDelim>(
+    let non_ascii_delim = tri_flag_arg::<cfg::AllowNonAsciiDelim>(
         ALLOW_NON_ASCII_DELIM,
         format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
-    let missing_final_delim = tri_flag_arg::<AllowEvenDelims>(
+    let missing_final_delim = tri_flag_arg::<cfg::AllowEvenDelims>(
         ALLOW_MISSING_FINAL_DELIM,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
 
-    let allow_non_unique = tri_flag_arg::<AllowNonunique>(
+    let allow_non_unique = tri_flag_arg::<cfg::AllowNonunique>(
         ALLOW_NON_UNIQUE,
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
-    let allow_odd = tri_flag_arg::<AllowOddTokens>(ALLOW_ODD, "Allow odd number of tokens.");
+    let allow_odd = tri_flag_arg::<cfg::AllowOddTokens>(ALLOW_ODD, "Allow odd number of tokens.");
 
-    let allow_empty_keys = tri_flag_arg::<AllowEmptyKeys>(
+    let allow_empty_keys = tri_flag_arg::<cfg::AllowEmptyKeys>(
         ALLOW_EMPTY_KEYS,
         "Allow keys to be blank (relatively rare).",
     );
 
-    let allow_delim_at_bound = tri_flag_arg::<AllowDelimAtBoundary>(
+    let allow_delim_at_bound = tri_flag_arg::<cfg::AllowDelimAtBoundary>(
         ALLOW_DELIM_AT_BOUNDARY,
         format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
@@ -401,36 +377,38 @@ fn run() -> AppResult<()> {
     let use_encoding = Arg::new(USE_ENCODING)
         .long(USE_ENCODING)
         .value_name("ENC")
-        .value_parser(value_parser!(UseEncoding))
+        .value_parser(value_parser!(tc::UseEncoding))
         .help(format!(
-            "Choose how to interpret characters in {text_seg}. Choose \
-             '{ENCODING_SINGLE_LEVEL}', '{ENCODING_UTF8_LEVEL}', or \
-             '{ENCODING_GUESS_LEVEL}' to interpret bytes as IANA ISO/IEC-8859-1 \
-             UTF-8, or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 \
-             if a non-UTF-8 byte is found."
+            "Choose how to interpret characters in {text_seg}. Choose {single},
+             {utf8}, or {guess} to interpret bytes as IANA ISO/IEC-8859-1 UTF-8,
+             or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 if a
+             non-UTF-8 byte is found.",
+            single = fmt_val(tc::ENCODING_SINGLE_LEVEL),
+            utf8 = fmt_val(tc::ENCODING_UTF8_LEVEL),
+            guess = fmt_val(tc::ENCODING_GUESS_LEVEL)
         ));
 
-    let allow_non_ascii_keywords = tri_flag_arg::<AllowNonAsciiKeywords>(
+    let allow_non_ascii_keywords = tri_flag_arg::<cfg::AllowNonAsciiKeywords>(
         ALLOW_NON_ASCII_KEYS,
         "Allow non-ASCII characters in keys.",
     );
 
-    let allow_non_utf8 = tri_flag_arg::<AllowNonUtf8>(
+    let allow_non_utf8 = tri_flag_arg::<cfg::AllowNonUtf8>(
         ALLOW_NON_UTF8_VALUES,
         format!("Allow non-UTF8 characters in {text_seg} segment."),
     );
 
-    let allow_missing_supp_text = tri_flag_arg::<AllowMissingSuppTEXT>(
+    let allow_missing_supp_text = tri_flag_arg::<cfg::AllowMissingSuppTEXT>(
         ALLOW_MISSING_SUPP_TEXT,
         format!("Allow {supp_text_seg} offsets to be missing."),
     );
 
-    let allow_supp_text_own_delim = tri_flag_arg::<AllowSuppTEXTOwnDelim>(
+    let allow_supp_text_own_delim = tri_flag_arg::<cfg::AllowSuppTEXTOwnDelim>(
         ALLOW_SUPP_TEXT_OWN_DELIM,
         format!("Allow delimiters in {prim_text_seg} and {supp_text_seg} to differ."),
     );
 
-    let allow_missing_nextdata = tri_flag_arg::<AllowMissingNextdata>(
+    let allow_missing_nextdata = tri_flag_arg::<cfg::AllowMissingNextdata>(
         ALLOW_MISSING_NEXTDATA,
         format!("Allow {nextdata} to be missing."),
     );
@@ -438,20 +416,24 @@ fn run() -> AppResult<()> {
     let trim_value_whitespace = Arg::new(TRIM_VALUE_WHITESPACE)
         .long(TRIM_VALUE_WHITESPACE)
         .value_name("LEVEL")
-        .value_parser(value_parser!(TrimValueWhitespace))
+        .value_parser(value_parser!(tc::TrimValueWhitespace))
         .help(format!(
             "Trim whitespace from beginning and end of all values. This may \
              create blank values if the starting string is entirely whitespace. \
-             Set to '{TRIM_NONE_LEVEL}' to not trim at all (default). Set to \
-             '{TRIM_ERROR_LEVEL}', '{TRIM_BLANK_WARN_LEVEL}', or \
-             '{TRIM_BLANK_SILENT_LEVEL}' to enable trimming and throw error, \
-             warning, or nothing when trimming results in a blank.",
+             Set to {none} to not trim at all (default). Set to {error}, {warn}, \
+             or {silent} to enable trimming and throw error, warning, or nothing \
+             when trimming results in a blank.",
+            none = fmt_val(tc::TRIM_NONE_LEVEL),
+            error = fmt_val(tc::TRIM_ERROR_LEVEL),
+            warn = fmt_val(tc::TRIM_BLANK_WARN_LEVEL),
+            silent = fmt_val(tc::TRIM_BLANK_SILENT_LEVEL),
         ));
 
     let make_key_str_args = |name, help| {
         let more = format!(
-            "Values that start and end with {PATTERN_DELIMITER} will be \
-             interpreted as regular expressions."
+            "Values that start and end with {delim} will be \
+             interpreted as regular expressions.",
+            delim = fmt_val(tc::PATTERN_DELIMITER)
         );
         let more_help = format!("{help} {more}");
         Arg::new(name)
@@ -548,8 +530,9 @@ fn run() -> AppResult<()> {
     let dedup_meas_names = override_flag_arg(
         DEDUP_MEAS_NAMES,
         format!(
-            "Force all {pn_n} to be unique by appending '{DEDUP_PNN_SEP}X' \
+            "Force all {pn_n} to be unique by appending {} \
              to each duplicate and appending 'X' (starting at 0)",
+            fmt_val(format!("{}X", tc::DEDUP_PNN_SEP)),
         ),
     );
 
@@ -563,12 +546,13 @@ fn run() -> AppResult<()> {
         .value_name("REGEXP")
         .help(format!(
             "Use REGEXP when matching time measurement (defaults to \
-             '{TIME_MEAS_NAME_PATTERN_DEFAULT}', pass \
-             '{TIME_MEAS_NAME_PATTERN_NONE}' to not look for a time channel)."
+             {default}, pass {none} to not look for a time channel).",
+            default = fmt_val(tc::TIME_MEAS_NAME_PATTERN_DEFAULT),
+            none = fmt_val(tc::TIME_MEAS_NAME_PATTERN_NONE),
         ))
-        .value_parser(value_parser!(TimeMeasNamePattern));
+        .value_parser(value_parser!(cfg::TimeMeasNamePattern));
 
-    let allow_missing_time = tri_flag_arg::<AllowMissingTime>(
+    let allow_missing_time = tri_flag_arg::<cfg::AllowMissingTime>(
         ALLOW_MISSING_TIME,
         "Allow time measurement to be missing.",
     );
@@ -576,13 +560,16 @@ fn run() -> AppResult<()> {
     let force_linear_scale = Arg::new(FORCE_LINEAR_SCALE)
         .long(FORCE_LINEAR_SCALE)
         .value_name("WHICH")
-        .value_parser(value_parser!(ForceLinearScale))
+        .value_parser(value_parser!(tc::ForceLinearScale))
         .help(format!(
-            "Force {pn_e} keywords to be linear. Pass '{FORCE_LINEAR_TIME_LEVEL}' \
-             to only set the temporal measurement, '{FORCE_LINEAR_NON_INT_LEVEL}' \
-             to set temporal measurements and non-integer measurements, \
-             '{FORCE_LINEAR_ALL_LEVEL}' to set all measurements, and \
-             '{FORCE_LINEAR_NONE_LEVEL}' for no measurements.",
+            "Force {pn_e} keywords to be linear. Pass {time} to only set the
+             temporal measurement, {non_int} to set temporal measurements and
+             non-integer measurements, {all} to set all measurements, and {none}
+             for no measurements.",
+            time = fmt_val(tc::FORCE_LINEAR_TIME_LEVEL),
+            non_int = fmt_val(tc::FORCE_LINEAR_NON_INT_LEVEL),
+            all = fmt_val(tc::FORCE_LINEAR_ALL_LEVEL),
+            none = fmt_val(tc::FORCE_LINEAR_NONE_LEVEL),
         ));
 
     let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
@@ -594,32 +581,37 @@ fn run() -> AppResult<()> {
              comma-separated list of strings like the X in {pn_any}.",
         ))
         .value_delimiter(',')
-        .value_parser(value_parser!(TemporalOpticalKey));
+        .value_parser(value_parser!(tc::TemporalOpticalKey));
 
     let process_time_optical_keys = Arg::new(PROCESS_TIME_OPTICAL_KEYS)
         .long(PROCESS_TIME_OPTICAL_KEYS)
         .value_name("LEVEL")
-        .value_parser(value_parser!(ProcessTemporalOpticalKeys))
+        .value_parser(value_parser!(tc::ProcessTemporalOpticalKeys))
         .help(format!(
             "Choose how to handle optical keys found in temporal measurements. \
-             Does nothing unless keys are specified in {}. Pass \
-             '{TMP_OPT_DEMOTE_WARN_LEVEL}', '{TMP_OPT_DEMOTE_SILENT_LEVEL}', \
-             '{TMP_OPT_DROP_WARN_LEVEL}', or '{TMP_OPT_DROP_SILENT_LEVEL}' to \
+             Does nothing unless keys are specified in {arg}. Pass \
+             {demote_warn}, {demote_silent}, {drop_warn}, or {drop_silent} to \
              demote found keys to nonstandard (with or without warning) or drop \
              keys entirely (with or without warning) respectively.",
-            fmt_arg(IGNORE_TIME_OPTICAL_KEYS)
+            arg = fmt_arg(IGNORE_TIME_OPTICAL_KEYS),
+            demote_warn = fmt_val(tc::TMP_OPT_DEMOTE_WARN_LEVEL),
+            demote_silent = fmt_val(tc::TMP_OPT_DEMOTE_SILENT_LEVEL),
+            drop_warn = fmt_val(tc::TMP_OPT_DROP_WARN_LEVEL),
+            drop_silent = fmt_val(tc::TMP_OPT_DROP_SILENT_LEVEL),
         ));
 
     let spillover_measurement_mode = Arg::new(SPILLOVER_MEASUREMENT_MODE)
         .long(SPILLOVER_MEASUREMENT_MODE)
         .value_name("MODE")
-        .value_parser(value_parser!(SpilloverMeasurementMode))
+        .value_parser(value_parser!(tc::SpilloverMeasurementMode))
         .help(format!(
             "Choose how to interpret measurement strings in {spillover}. Set to \
-             '{SPILLOVER_NAMED_LEVEL}' to interpret as names which link to {pn_n}. \
-             Set to '{SPILLOVER_INDEXED_LEVEL}' to interpret as 1-indices which \
-             point to measurements. Set to '{SPILLOVER_GUESS_LEVEL}' to \
-             automatically choose the prior two modes."
+             {named} to interpret as names which link to {pn_n}. Set to \
+             {indexed} to interpret as 1-indices which point to measurements. \
+             Set to {guess} to automatically choose the prior two modes.",
+            named = fmt_val(tc::SPILLOVER_NAMED_LEVEL),
+            indexed = fmt_val(tc::SPILLOVER_INDEXED_LEVEL),
+            guess = fmt_val(tc::SPILLOVER_GUESS_LEVEL)
         ));
 
     let allow_other_feature = override_flag_arg(
@@ -631,19 +623,19 @@ fn run() -> AppResult<()> {
         PROCESS_PSEUDOSTANDARD,
         "Process non-standard keywords that start with a '$'.",
     )
-    .value_parser(value_parser!(ProcessPseudostandard));
+    .value_parser(value_parser!(cfg::ProcessPseudostandard));
 
     let process_hyper_par = proc_kw_fail_arg(
         PROCESS_HYPER_PAR,
         format!("Process measurement keywords whose index is greater than {par}."),
     )
-    .value_parser(value_parser!(ProcessHyperPar));
+    .value_parser(value_parser!(cfg::ProcessHyperPar));
 
     let process_other_version = proc_kw_fail_arg(
         PROCESS_OTHER_VERSION,
         "Process standard keywords from different FCS version.",
     )
-    .value_parser(value_parser!(ProcessOtherVersion));
+    .value_parser(value_parser!(cfg::ProcessOtherVersion));
 
     let process_extra_timestep = proc_kw_fail_arg(
         PROCESS_EXTRA_TIMESTEP,
@@ -652,7 +644,7 @@ fn run() -> AppResult<()> {
              is present but not identified.",
         ),
     )
-    .value_parser(value_parser!(ProcessExtraTimestep));
+    .value_parser(value_parser!(cfg::ProcessExtraTimestep));
 
     let fix_log_scale_offset = override_flag_arg(
         FIX_LOG_SCALE_OFFSETS,
@@ -711,11 +703,13 @@ fn run() -> AppResult<()> {
         "LIT_OR_PAT",
         format!(
             "Pattern to use when matching non-standard measurement keywords. \
-             Values that start and end with {PATTERN_DELIMITER} will be \
-             interpreted as regular expressions, otherwise as a literal string \
-             to be used as a prefix matcher. It must include \
-             '{NON_STD_MEAS_INDEX_PAT}' which will be replaced with measurement \
-             index. Defaults to '{NON_STD_MEAS_PAT_DEFAULT}'.",
+             Values that start and end with {delim} will be interpreted as \
+             regular expressions, otherwise as a literal string to be used as a \
+             prefix matcher. It must include {index} which will be replaced with \
+             measurement index. Defaults to {default}.",
+            delim = fmt_val(tc::PATTERN_DELIMITER),
+            index = fmt_val(tc::NON_STD_MEAS_INDEX_PAT),
+            default = fmt_val(tc::NON_STD_MEAS_PAT_DEFAULT)
         ),
     );
 
@@ -760,17 +754,20 @@ fn run() -> AppResult<()> {
     let allow_header_text_offset_mismatch = Arg::new(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
         .long(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
         .value_name("LEVEL")
-        .value_parser(value_parser!(AllowHeaderTEXTOffsetMismatch))
+        .value_parser(value_parser!(tc::AllowHeaderTEXTOffsetMismatch))
         .help(format!(
             "Allow {header_seg} and {text_seg} offsets to be different. If \
-             {MISMATCH_HEADER_WARN_LEVEL} or {MISMATCH_HEADER_SILENT_LEVEL}, \
-             choose {header_seg} and throw a warning or nothing on mismatch. \
-             If {MISMATCH_TEXT_WARN_LEVEL} or {MISMATCH_TEXT_SILENT_LEVEL} \
-             behave analogously for {text_seg}. If {MISMATCH_ERROR_LEVEL} \
-             (default) throw error."
+             {hdr_warn} or {hdr_silent}, choose {header_seg} and throw a warning \
+             or nothing on mismatch. If {text_warn} or {text_silent} behave \
+             analogously for {text_seg}. If {error} (default) throw error.",
+            hdr_warn = fmt_val(tc::MISMATCH_HEADER_WARN_LEVEL),
+            hdr_silent = fmt_val(tc::MISMATCH_HEADER_SILENT_LEVEL),
+            text_warn = fmt_val(tc::MISMATCH_TEXT_WARN_LEVEL),
+            text_silent = fmt_val(tc::MISMATCH_TEXT_SILENT_LEVEL),
+            error = fmt_val(tc::MISMATCH_ERROR_LEVEL),
         ));
 
-    let allow_missing_required_offsets = tri_flag_arg::<AllowMissingRequiredOffsets>(
+    let allow_missing_required_offsets = tri_flag_arg::<cfg::AllowMissingRequiredOffsets>(
         ALLOW_MISSING_REQUIRED_OFFSETS,
         format!(
             "Allow required offsets to be missing from {text_seg}. \
@@ -782,7 +779,7 @@ fn run() -> AppResult<()> {
         PROCESS_OPTIONAL_FAILURE,
         "Process optional keys if they cause an error.",
     )
-    .value_parser(value_parser!(ProcessOptionalFailure));
+    .value_parser(value_parser!(cfg::ProcessOptionalFailure));
 
     let int_widths_from_byteord = override_flag_arg(
         INT_WIDTHS_FROM_BYTEORD,
@@ -801,7 +798,7 @@ fn run() -> AppResult<()> {
              Only has effect on integer layouts in FCS 2.0/3.0.",
         ));
 
-    let disallow_range_truncation = tri_flag_arg::<DisallowRangeTrunc>(
+    let disallow_range_truncation = tri_flag_arg::<cfg::DisallowRangeTrunc>(
         DISALLOW_RANGE_TRUNCATION,
         format!(
             "Disallow {pn_r} values which need to be truncated to fit in type \
@@ -825,12 +822,12 @@ fn run() -> AppResult<()> {
 
     // dataset args
 
-    let allow_uneven_event_width = tri_flag_arg::<AllowUnevenEventWidth>(
+    let allow_uneven_event_width = tri_flag_arg::<cfg::AllowUnevenEventWidth>(
         ALLOW_UNEVEN_EVENT_WIDTH,
         format!("Allow event width to not evenly divide length of {data_seg}."),
     );
 
-    let allow_tot_mismatch = tri_flag_arg::<AllowTotMismatch>(
+    let allow_tot_mismatch = tri_flag_arg::<cfg::AllowTotMismatch>(
         ALLOW_TOT_MISMATCH,
         format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
     );
@@ -838,41 +835,44 @@ fn run() -> AppResult<()> {
     let checked_range_datatypes = Arg::new(CHECKED_RANGE_DATATYPES)
         .long(CHECKED_RANGE_DATATYPES)
         .value_name("WHICH")
-        .value_parser(value_parser!(CheckedRangeDatatypes))
+        .value_parser(value_parser!(tc::CheckedRangeDatatypes))
         .help(format!(
-            "Truncate values exceeding {pn_r}. \
-             Must be one of '{CHECK_RANGE_BITMASK_ONLY_LEVEL}' (default), \
-             '{CHECK_RANGE_INT_ONLY_LEVEL}' '{CHECK_RANGE_ALL_LEVEL}', or \
-             '{CHECK_RANGE_NONE_LEVEL}'.",
+            "Truncate values exceeding {pn_r}. Must be one of {bitmask_only} \
+             (default), {int_only}, {all}, or {none}.",
+            bitmask_only = fmt_val(tc::CHECK_RANGE_BITMASK_ONLY_LEVEL),
+            int_only = fmt_val(tc::CHECK_RANGE_INT_ONLY_LEVEL),
+            all = fmt_val(tc::CHECK_RANGE_ALL_LEVEL),
+            none = fmt_val(tc::CHECK_RANGE_NONE_LEVEL),
         ));
 
     let over_range_action = Arg::new(OVER_RANGE_ACTION)
         .long(OVER_RANGE_ACTION)
         .value_name("ACTION")
-        .value_parser(value_parser!(OverRangeAction))
+        .value_parser(value_parser!(tc::OverRangeAction))
         .help(format!(
-            "Choose how to handle values in DATA to exceed {pn_r}. Only applies \
-             to columns that were checked according to '{CHECKED_RANGE_DATATYPES}'. \
-             Pass {error} to emit error, {warn} to emit \
-             warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
-             warning, and {trunc_silent} to truncate with no warning.",
-            error = tc::OVERRANGE_ACTION_ERROR_LEVEL,
-            warn = tc::OVERRANGE_ACTION_WARN_LEVEL,
-            silent = tc::OVERRANGE_ACTION_SILENT_LEVEL,
-            trunc_warn = tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL,
-            trunc_silent = tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL,
+            "Choose how to handle values in {data_seg} to exceed {pn_r}. Only \
+             applies to columns that were checked according to {arg}. Pass \
+             {error} to emit error, {warn} to emit warning, {silent} to do \
+             nothing, {trunc_warn} to truncate and emit warning, and \
+             {trunc_silent} to truncate with no warning.",
+            arg = fmt_arg(CHECKED_RANGE_DATATYPES),
+            error = fmt_val(tc::OVERRANGE_ACTION_ERROR_LEVEL),
+            warn = fmt_val(tc::OVERRANGE_ACTION_WARN_LEVEL),
+            silent = fmt_val(tc::OVERRANGE_ACTION_SILENT_LEVEL),
+            trunc_warn = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
     let row_buffer_size = Arg::new(ROW_BUFFER_SIZE)
         .long(ROW_BUFFER_SIZE)
         .value_name("BYTES")
-        .value_parser(value_parser!(RowBufferSize))
+        .value_parser(value_parser!(tc::RowBufferSize))
         .help(format!(
             "Set the size in bytes for the internal buffer used to read {data_seg}. \
              This is a performance parameter that balances read syscalls (too low) \
              and cache misses (too high). It should generally be 90% of the CPU's \
              L1D cache size. Defaults to {}.",
-            RowBufferSize::default()
+            fmt_val(tc::RowBufferSize::default())
         ));
 
     let all_read_dataset_args = [
@@ -958,15 +958,17 @@ fn run() -> AppResult<()> {
         .short('s')
         .long(STRATEGY)
         .value_name("WHICH")
-        .value_parser(value_parser!(ReadStrategy))
+        .value_parser(value_parser!(tc::ReadStrategy))
         .help(format!(
             "Overall strategy to use when parsing file. This will enable many \
-             options by default which can be overridden. Set to \
-             {READ_STRATEGY_SCALPAL_LEVEL} to parse non-compliant files while \
-             attempting to preserve metadata. Set to \
-             {READ_STRATEGY_SLEDGEHAMMER_LEVEL} to parse non-compliant files \
-             while dropping non-compliant metadata that cannot be fixed. Set to \
-             {READ_STRATEGY_STRICT_LEVEL} to enforce the standard (default)."
+             options by default which can be overridden. Set to {scalpal} to \
+             parse non-compliant files while attempting to preserve metadata. \
+             Set to {sledge} to parse non-compliant files while dropping \
+             non-compliant metadata that cannot be fixed. Set to {strict} to \
+             enforce the standard (default).",
+            scalpal = fmt_val(tc::READ_STRATEGY_SCALPAL_LEVEL),
+            sledge = fmt_val(tc::READ_STRATEGY_SLEDGEHAMMER_LEVEL),
+            strict = fmt_val(tc::READ_STRATEGY_STRICT_LEVEL),
         ));
 
     let header_cmd = Command::new(SUBCMD_HEADER)
@@ -1093,7 +1095,7 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = get_header_config(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
-            let (ws, res) = fcs_read_header(filepath, DatasetOffset(0), &conf)
+            let (ws, res) = api::fcs_read_header(filepath, cfg::DatasetOffset(0), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;
@@ -1105,7 +1107,7 @@ fn run() -> AppResult<()> {
             let conf = get_read_flat_text_config(subcmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = fcs_read_flat_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?[0])?;
@@ -1117,7 +1119,7 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1130,7 +1132,7 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1142,7 +1144,7 @@ fn run() -> AppResult<()> {
             let conf = get_read_std_text_config(&cmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = fcs_read_std_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, uncore) = &res?[0];
@@ -1156,7 +1158,7 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = fcs_read_std_datasets(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1171,10 +1173,10 @@ fn run() -> AppResult<()> {
             let opath = get_path(sargs, OUTPUT_PATH);
             let skip = get_skip(sargs);
             let limit = get_limit(sargs);
-            let (read_ws, read_res) = fcs_read_std_datasets(ipath, skip, limit, &read_conf)
+            let (read_ws, read_res) = api::fcs_read_std_datasets(ipath, skip, limit, &read_conf)
                 .resolve_commutative(|ws| ws, |s| s);
             let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
-            let (write_ws, write_res) = fcs_write_datasets(opath, &cores[..], &write_conf)
+            let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
                 .resolve_commutative(|ws| ws, |e| e);
             print_warnings(read_ws, &mut stderr)?;
             print_warnings(write_ws, &mut stderr)?;
@@ -1188,8 +1190,8 @@ fn run() -> AppResult<()> {
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_skip(sargs);
             let limit = get_limit(sargs);
-            let (ws, res) =
-                fcs_summarize(filepath, skip, limit, &conf).resolve_commutative(|ws| ws, |s| s);
+            let (ws, res) = api::fcs_summarize(filepath, skip, limit, &conf)
+                .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;
             Ok(())
@@ -1233,27 +1235,34 @@ where
 
 fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
     Arg::new(long).long(long).value_name("LEVEL").help(format!(
-        "{help_front} Must be one of '{KW_ERROR_LEVEL}', '{KW_DEMOTE_WARN_LEVEL}', \
-         '{KW_DEMOTE_SILENT_LEVEL}', '{KW_DROP_WARN_LEVEL}', or \
-         '{KW_DROP_SILENT_LEVEL}' which will throw an error, demote to \
+        "{help_front} Must be one of {error}, {demote_warn}, {demote_silent}, \
+         {drop_warn}, or {drop_silent} which will throw an error, demote to \
          non-standard with warning, demote to non-standard silently, drop with \
-         warning, or drop silently respectively"
+         warning, or drop silently respectively",
+        error = fmt_val(tc::KW_ERROR_LEVEL),
+        demote_warn = fmt_val(tc::KW_DEMOTE_WARN_LEVEL),
+        demote_silent = fmt_val(tc::KW_DEMOTE_SILENT_LEVEL),
+        drop_warn = fmt_val(tc::KW_DROP_WARN_LEVEL),
+        drop_silent = fmt_val(tc::KW_DROP_SILENT_LEVEL)
     ))
 }
 
 fn tri_flag_arg<T>(long: &'static str, help_front: impl Display) -> Arg
 where
-    T: From<TriFlag> + Clone + Send + Sync + 'static + TriErrorFlag,
+    T: From<tc::TriFlag> + Clone + Send + Sync + 'static + cfg::TriErrorFlag,
 {
     let parser = ValueParser::new(T::from_partial_str);
-    let what = if T::FALSE_IS_ERROR {
-        "warning"
+    let (what_true, what_false) = if T::FALSE_IS_ERROR {
+        ("warning", "error")
     } else {
-        "error"
+        ("error", "warning")
     };
     let h = format!(
-        "{help_front} If '{TRI_TRUE_LEVEL}', throw {what}. \
-         If '{TRI_SILENT_LEVEL}', ignore completely."
+        "{help_front} If {true_}, throw {what_true}. If {false_}, throw \
+         {what_false}. If {silent}, ignore completely.",
+        false_ = fmt_val(tc::TRI_FALSE_LEVEL),
+        true_ = fmt_val(tc::TRI_TRUE_LEVEL),
+        silent = fmt_val(tc::TRI_SILENT_LEVEL),
     );
     Arg::new(long)
         .long(long)
@@ -1274,16 +1283,16 @@ fn format_section(
     (h, s)
 }
 
-fn get_header_config(sargs: &ArgMatches) -> config::ReadHeaderConfig {
-    config::ReadHeaderConfig {
+fn get_header_config(sargs: &ArgMatches) -> cfg::ReadHeaderConfig {
+    cfg::ReadHeaderConfig {
         header: get_header_inner_config(sargs),
         offset: get_offsets_config(sargs),
     }
 }
 
-fn get_header_inner_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig {
+fn get_header_inner_config(sargs: &ArgMatches) -> cfg::ReadHeaderInnerConfig {
     let strat = get_strategy(sargs);
-    let mut conf = config::ReadHeaderInnerConfig::new_with_strategy(strat);
+    let mut conf = cfg::ReadHeaderInnerConfig::new_with_strategy(strat);
 
     get_correction(sargs, TEXT_COR, |x| conf.text_correction = x);
     get_correction(sargs, DATA_COR, |x| conf.data_correction = x);
@@ -1305,9 +1314,9 @@ fn get_header_inner_config(sargs: &ArgMatches) -> config::ReadHeaderInnerConfig 
     conf
 }
 
-fn get_offsets_config(s: &ArgMatches) -> config::ReadOffsetConfig {
+fn get_offsets_config(s: &ArgMatches) -> cfg::ReadOffsetConfig {
     let strat = get_strategy(s);
-    let mut c = config::ReadOffsetConfig::new_with_strategy(strat);
+    let mut c = cfg::ReadOffsetConfig::new_with_strategy(strat);
 
     get_flag(s, ALLOW_PSEUDOEMPTY, |x| c.allow_pseudoempty = x);
     get_opt(s, TRUNCATE_OFFSET_LIMIT, |x| c.truncate_offset_limit = x);
@@ -1318,9 +1327,9 @@ fn get_offsets_config(s: &ArgMatches) -> config::ReadOffsetConfig {
     c
 }
 
-fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHeaderAndTEXTConfig {
+fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadHeaderAndTEXTConfig {
     let strat = get_strategy(s);
-    let mut c = config::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
+    let mut c = cfg::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
 
     get_opt(s, VERSION_OVERRIDE, |x| c.version_override = x);
     get_correction(s, SUPP_TEXT_COR, |x| c.supp_text_correction = x);
@@ -1387,9 +1396,9 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> config::ReadHead
     c
 }
 
-fn get_std_kws_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
+fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     let strat = get_strategy(s);
-    let mut c = config::ReadStdKeywordsConfig::new_with_strategy(strat);
+    let mut c = cfg::ReadStdKeywordsConfig::new_with_strategy(strat);
 
     get_flag(s, DEDUP_MEAS_NAMES, |x| c.dedup_measurement_names = x);
     get_flag(s, TRIM_INTRA_VALUE_WHITESPACE, |x| {
@@ -1399,7 +1408,7 @@ fn get_std_kws_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
 
     get_opt(s, FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
 
-    if let Some(xs) = s.get_many::<TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS) {
+    if let Some(xs) = s.get_many::<tc::TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS) {
         c.ignore_time_optical_keys = xs.copied().collect::<HashSet<_>>().into();
     }
 
@@ -1423,14 +1432,14 @@ fn get_std_kws_config(s: &ArgMatches) -> config::ReadStdKeywordsConfig {
     get_flag(s, DISALLOW_LOCALTIME, |x| c.disallow_localtime = x);
 
     get_opt(s, NS_MEAS_PATTERN, |x| {
-        c.nonstandard_measurement_pattern = NonStdMeasPatternOpt(x);
+        c.nonstandard_measurement_pattern = cfg::NonStdMeasPatternOpt(x);
     });
     c
 }
 
-fn get_data_kws_config(s: &ArgMatches) -> config::ReadDataKeywordsConfig {
+fn get_data_kws_config(s: &ArgMatches) -> cfg::ReadDataKeywordsConfig {
     let strat = get_strategy(s);
-    let mut c = config::ReadDataKeywordsConfig::new_with_strategy(strat);
+    let mut c = cfg::ReadDataKeywordsConfig::new_with_strategy(strat);
 
     get_correction(s, TEXT_DATA_COR, |x| c.text_data_correction = x);
     get_correction(s, TEXT_ANALYSIS_COR, |x| c.text_analysis_correction = x);
@@ -1462,9 +1471,9 @@ fn get_data_kws_config(s: &ArgMatches) -> config::ReadDataKeywordsConfig {
     c
 }
 
-fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
+fn get_events_config(s: &ArgMatches) -> cfg::ReadEventsConfig {
     let strat = get_strategy(s);
-    let mut c = config::ReadEventsConfig::new_with_strategy(strat);
+    let mut c = cfg::ReadEventsConfig::new_with_strategy(strat);
 
     get_opt(s, DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
     get_opt(s, ALLOW_TOT_MISMATCH, |x| c.allow_tot_mismatch = x);
@@ -1480,15 +1489,15 @@ fn get_events_config(s: &ArgMatches) -> config::ReadEventsConfig {
     c
 }
 
-fn get_read_shared_config(sargs: &ArgMatches) -> config::ReadSharedConfig {
-    config::ReadSharedConfig {
+fn get_read_shared_config(sargs: &ArgMatches) -> cfg::ReadSharedConfig {
+    cfg::ReadSharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
         hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }
 }
 
-fn get_read_flat_text_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadFlatTEXTConfig {
-    config::ReadFlatTEXTConfig {
+fn get_read_flat_text_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadFlatTEXTConfig {
+    cfg::ReadFlatTEXTConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
@@ -1496,8 +1505,8 @@ fn get_read_flat_text_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadF
     }
 }
 
-fn get_read_std_text_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdTEXTConfig {
-    config::ReadStdTEXTConfig {
+fn get_read_std_text_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadStdTEXTConfig {
+    cfg::ReadStdTEXTConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
@@ -1507,11 +1516,8 @@ fn get_read_std_text_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadSt
     }
 }
 
-fn get_read_flat_dataset_config(
-    cmd: &Command,
-    sargs: &ArgMatches,
-) -> config::ReadFlatDatasetConfig {
-    config::ReadFlatDatasetConfig {
+fn get_read_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadFlatDatasetConfig {
+    cfg::ReadFlatDatasetConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
@@ -1521,8 +1527,8 @@ fn get_read_flat_dataset_config(
     }
 }
 
-fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::ReadStdDatasetConfig {
-    config::ReadStdDatasetConfig {
+fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadStdDatasetConfig {
+    cfg::ReadStdDatasetConfig {
         header: get_header_inner_config(sargs),
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
@@ -1533,14 +1539,14 @@ fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> config::Rea
     }
 }
 
-fn get_write_std_dataset_config(sargs: &ArgMatches) -> config::WriteDatasetInnerConfig {
-    let mut conf = WriteDatasetInnerConfig::default();
+fn get_write_std_dataset_config(sargs: &ArgMatches) -> cfg::WriteDatasetInnerConfig {
+    let mut conf = cfg::WriteDatasetInnerConfig::default();
 
     get_opt(sargs, PRINT_DELIM, |x| conf.text.delim = x);
     get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
     // ranges are checked once when reading the dataframe so no need to check
     // them again; if anything they might be fixed
-    conf.checked_range_datatypes = CheckedRangeDatatypes::None;
+    conf.checked_range_datatypes = tc::CheckedRangeDatatypes::None;
     conf
 }
 
@@ -1548,7 +1554,7 @@ fn get_path<'a>(sargs: &'a ArgMatches, name: &'a str) -> &'a PathBuf {
     sargs.get_one::<PathBuf>(name).expect("path is required")
 }
 
-fn get_strategy(sargs: &ArgMatches) -> ReadStrategy {
+fn get_strategy(sargs: &ArgMatches) -> tc::ReadStrategy {
     sargs.get_one(STRATEGY).copied().unwrap_or_default()
 }
 
@@ -1776,6 +1782,10 @@ fn post_validation_error(cmd: &Command, arg_name: &str, msg: impl Display) -> cl
         format!("validation failed for '{lit}--{arg_name}{lit:#}': {msg}\n"),
     )
     .with_cmd(cmd)
+}
+
+fn fmt_val(val: impl Display) -> String {
+    format!("'{val}'")
 }
 
 type AppResult<T> = Result<T, Box<dyn Error>>;

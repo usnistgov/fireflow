@@ -1,7 +1,5 @@
 use fireflow_types::config::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
 
-use chrono::format::strftime::StrftimeItems;
-use chrono::format::{Fixed, Item, Numeric, Parsed, parse};
 use chrono::{NaiveTime, ParseError, Timelike as _};
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
@@ -23,13 +21,13 @@ use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 /// incompatible with any other sub-second identifiers. Since chrono cannot
 /// process these natively, these identifiers will be substituted with
 /// nanosecond fraction (`"%f"`) and converted after parsing.
-#[derive(Clone, Debug, AsRef, Display)]
+#[derive(Clone, Debug, AsRef, Display, new)]
 #[display("{original}")]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[new(visibility(""))]
 pub struct TimePattern {
-    #[as_ref([Item<'static>])]
-    pat: Vec<Item<'static>>,
     #[as_ref(str)]
+    pat: String,
     original: String,
     fraction: FractionType,
 }
@@ -44,9 +42,7 @@ enum FractionType {
 impl TimePattern {
     pub(crate) fn parse_str(&self, s: &str) -> Result<NaiveTime, ParseWithTimePatternError> {
         let go = || {
-            let mut p = Parsed::new();
-            parse(&mut p, s, self.pat.iter())?;
-            let t = p.to_naive_time()?;
+            let t = NaiveTime::parse_from_str(s, self.pat.as_str())?;
             match &self.fraction {
                 FractionType::Native => Ok(t),
                 FractionType::Centisecond => {
@@ -78,81 +74,66 @@ impl TimePattern {
 impl FromStr for TimePattern {
     type Err = TimePatternError;
 
+    #[allow(non_snake_case)]
     fn from_str(s: &str) -> Result<Self, TimePatternError> {
-        let mut hour24 = 0_usize;
-        let mut hour12 = 0_usize;
-        let mut am_pm = 0_usize;
-        let mut minute = 0_usize;
-        let mut second = 0_usize;
-        let mut frac_second = 0_usize;
-        let mut invalid = 0_usize;
-        let mut fraction = FractionType::Native;
-
-        // Parse the entire pattern string to components. Don't error if an
-        // invalid pattern is found because we might replace it later.
-        let mut pat: Vec<_> = StrftimeItems::new_lenient(s).parse_to_owned().unwrap();
-
-        // Iterate through components, replacing instances of sexagesimal and
-        // centisecond patterns with fractional patterns that will be parsed
-        // specially later. Also track how many of each thing we encounter.
-        for item in &mut pat {
-            match item {
-                Item::OwnedLiteral(x) => {
-                    let y = x.as_ref();
-                    if y == BASE60_SECOND_SPEC {
-                        frac_second += 1;
-                        fraction = FractionType::Sexagesimal;
-                        *item = Item::Fixed(Fixed::Nanosecond);
-                    } else if y == BASE100_SECOND_SPEC {
-                        frac_second += 1;
-                        fraction = FractionType::Centisecond;
-                        *item = Item::Fixed(Fixed::Nanosecond);
-                    } else if y.starts_with('%') {
-                        invalid += 1;
-                    }
-                }
-                Item::OwnedSpace(_) => (),
-                Item::Numeric(y, _) => match y {
-                    Numeric::Hour => hour24 += 1,
-                    Numeric::Hour12 => hour12 += 1,
-                    Numeric::Minute => minute += 1,
-                    Numeric::Second => second += 1,
-                    Numeric::Nanosecond => frac_second += 1,
-                    Numeric::Internal(_) => panic!("this should never happen"),
-                    _ => invalid += 1,
-                },
-                Item::Fixed(y) => match y {
-                    Fixed::LowerAmPm | Fixed::UpperAmPm => am_pm += 1,
-                    Fixed::Nanosecond
-                    | Fixed::Nanosecond3
-                    | Fixed::Nanosecond6
-                    | Fixed::Nanosecond9 => frac_second += 1,
-                    Fixed::Internal(_) => panic!("this should never happen"),
-                    _ => invalid += 1,
-                },
-                Item::Error | Item::Literal(_) | Item::Space(_) => {
-                    panic!(
-                        "this should never happen because we used lenient \
-                         above and we should only have owned values because \
-                         we converted to owned above"
-                    );
-                }
+        let has_spec = |spec: &'static str| {
+            let n = s.match_indices(spec).count();
+            if n > 1 {
+                Err(TimePatternError(s.into()))
+            } else {
+                Ok(n == 1)
             }
-        }
-
-        // Ensure we have at least hours and minutes, seconds and frac seconds
-        // are expendable
-        if (hour24 == 1 || (hour12 == 1 && am_pm == 1))
-            && minute == 1
-            && second < 2
-            && frac_second < 2
-            && invalid == 0
-        {
-            Ok(Self {
-                pat,
-                original: s.into(),
-                fraction,
-            })
+        };
+        // hours (24)
+        let n_H = has_spec("%H")?;
+        let n_k = has_spec("%k")?;
+        // hours (12)
+        let n_I = has_spec("%I")?;
+        let n_l = has_spec("%l")?;
+        let n_P = has_spec("%P")?;
+        let n_p = has_spec("%p")?;
+        // minutes
+        let n_M = has_spec("%M")?;
+        // seconds
+        let n_S = has_spec("%S")?;
+        // fractions of second (native)
+        let nf = has_spec("%f")?;
+        let n_3_f = has_spec("%3f")?;
+        let n_6_f = has_spec("%6f")?;
+        let n_9_f = has_spec("%9f")?;
+        let n_f = has_spec("%.f")?;
+        let n_d_3_f = has_spec("%.3f")?;
+        let n_d_6_f = has_spec("%.6f")?;
+        let n_d_9_f = has_spec("%.9f")?;
+        // fractions of second (non-native)
+        let nsexa = has_spec(BASE60_SECOND_SPEC)?;
+        let ncenti = has_spec(BASE100_SECOND_SPEC)?;
+        // check hour specs
+        let h = match (n_H, n_k, n_I, n_l, n_P, n_p) {
+            // if 24 hour, allow only one and exclude 12 hour
+            (x_nH, x_nk, false, false, false, false) => x_nH != x_nk,
+            // if 12 hour, include one number and am/pm spec and exclude 24 hour
+            (false, false, x_nI, x_n_l, x_nP, x_n_p) => (x_nI != x_n_l) && (x_nP != x_n_p),
+            _ => false,
+        };
+        // only zero or one fractional patterns allowed
+        let n_frac: u8 = [
+            nf, n_3_f, n_6_f, n_9_f, n_f, n_d_3_f, n_d_6_f, n_d_9_f, nsexa, ncenti,
+        ]
+        .map(u8::from)
+        .iter()
+        .sum();
+        if h && n_M && n_S && n_frac < 2 {
+            let (pat, fraction) = if nsexa {
+                let rep = s.replace(BASE60_SECOND_SPEC, "%f");
+                (rep, FractionType::Sexagesimal)
+            } else if ncenti {
+                let rep = s.replace(BASE100_SECOND_SPEC, "%f");
+                (rep, FractionType::Centisecond)
+            } else {
+                (s.into(), FractionType::Native)
+            };
+            Ok(Self::new(pat, s.to_owned(), fraction))
         } else {
             Err(TimePatternError(s.into()))
         }
@@ -201,6 +182,10 @@ mod tests {
         assert!("%H:%M:%S".parse::<TimePattern>().is_ok());
         assert!("%H::::::::%M:::::::%S".parse::<TimePattern>().is_ok());
         assert!("%H%H:%M:%S".parse::<TimePattern>().is_err());
-        assert!("%H:%M".parse::<TimePattern>().is_ok());
+        assert!("%H:%M".parse::<TimePattern>().is_err());
+        // known patterns FCS files that should work
+        assert!("%H:%M:%S:%3f".parse::<TimePattern>().is_ok());
+        assert!("%H:%M:%S:%@".parse::<TimePattern>().is_ok());
+        assert!("%H:%M:%S:%!".parse::<TimePattern>().is_ok());
     }
 }

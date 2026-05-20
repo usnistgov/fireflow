@@ -6848,12 +6848,6 @@ impl<T> EffectiveRange<T> {
     where
         T: PartialOrd + Copy,
     {
-        // TODO move this check somewhere else since this will repeat in a tight
-        // loop.
-        // assert!(
-        //     self.bitmask.is_none_or(|r| self.numeric_range <= r),
-        //     "bitmask less than numeric range"
-        // );
         let limit = self.bitmask.unwrap_or(self.numeric_range);
         if x > limit {
             (limit, Some(ExceededRange::Bitmask))
@@ -6866,11 +6860,6 @@ impl<T> EffectiveRange<T> {
     where
         T: PartialOrd + Copy,
     {
-        // assert!(
-        //     self.bitmask.is_none_or(|r| self.numeric_range <= r),
-        //     "bitmask less than numeric range"
-        // );
-        // check bitmask first
         let (y, t0) = self.apply_bitmask(x);
         if t0.is_some() {
             return (y, t0.map(|_| ExceededRange::RangeAndBitmask));
@@ -6988,12 +6977,11 @@ where
     ) -> Option<TruncatedResult> {
         let dt = self.column_schema.col_datatype();
         let rng = self.column_schema.as_range();
-        let go_trunc = |self_: &mut Self, level| {
-            let j = self_.series.truncate(|x| {
-                let (new, truncated) = rng.apply(x, level);
-                truncated.map(|t| (new, t))
-            });
-            j.map(|(rowi, t)| (true, rowi, t))
+        let go_trunc = |self_: &mut Self, limit, exceed| {
+            self_
+                .series
+                .truncate(limit)
+                .map(|rowi| (true, rowi, exceed))
         };
         let go_scan = |self_: &Self, level| {
             self_
@@ -7005,14 +6993,14 @@ where
                 .map(|(rowi, t)| (false, rowi, t))
         };
         let res = if dt == AlphaNumType::Integer {
-            let upper = rng.bitmask.expect("integer should have bitmask");
-            let lower = rng.numeric_range;
-            assert!(upper >= lower, "bitmask less than numeric range");
+            let bitmask = rng.bitmask.expect("integer should have bitmask");
+            let int_upper = rng.numeric_range;
+            assert!(bitmask >= int_upper, "bitmask less than numeric range");
             match (bitmask_trunc, range_trunc) {
                 // If truncating to range, bitmask does not matter since range
                 // is less than bitmask, and anything less than range will be
                 // truncated anyways.
-                (_, TruncationMode::Truncate) => go_trunc(self, RangeCheckLevel::Range),
+                (_, TruncationMode::Truncate) => go_trunc(self, int_upper, ExceededRange::Range),
                 // Same as the error path in the first block
                 (TruncationMode::None, TruncationMode::ScanOnly) => {
                     go_scan(self, RangeCheckLevel::Range)
@@ -7026,8 +7014,8 @@ where
                         <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim::min_value(),
                         |x, y| if x > *y { x } else { *y },
                     );
-                    if m > upper {
-                        let ret = self.series.truncate_or_warn(upper, lower);
+                    if m > bitmask {
+                        let ret = self.series.truncate_and_test(bitmask, int_upper);
                         ret.map(|(rowi, was_truncated)| {
                             let t = if was_truncated {
                                 ExceededRange::RangeAndBitmask
@@ -7036,7 +7024,7 @@ where
                             };
                             (true, rowi, t)
                         })
-                    } else if m > lower {
+                    } else if m > int_upper {
                         go_scan(self, RangeCheckLevel::Range)
                     } else {
                         None
@@ -7051,14 +7039,16 @@ where
                 // pretend range does not exist.
                 (b, TruncationMode::None) => match b {
                     TruncationMode::None => None,
-                    TruncationMode::Truncate => go_trunc(self, RangeCheckLevel::Bitmask),
+                    TruncationMode::Truncate => go_trunc(self, bitmask, ExceededRange::Bitmask),
                     TruncationMode::ScanOnly => go_scan(self, RangeCheckLevel::Bitmask),
                 },
             }
         } else {
+            let upper = rng.numeric_range;
+            assert!(rng.bitmask.is_none(), "non-int type shouldn't have bitmask");
             match range_trunc {
                 TruncationMode::None => None,
-                TruncationMode::Truncate => go_trunc(self, RangeCheckLevel::Range),
+                TruncationMode::Truncate => go_trunc(self, upper, ExceededRange::Range),
                 TruncationMode::ScanOnly => go_scan(self, RangeCheckLevel::Range),
             }
         };

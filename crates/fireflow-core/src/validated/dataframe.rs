@@ -1223,19 +1223,18 @@ impl<T, Raw> InternalSeries<T, Raw> {
         unsafe { from_raw_parts(p, n) }
     }
 
-    pub(crate) fn truncate<F, R>(&mut self, mut f: F) -> Option<(usize, R)>
+    pub(crate) fn truncate(&mut self, limit: T) -> Option<usize>
     where
         T: Copy + PartialOrd,
-        F: FnMut(T) -> Option<(T, R)>,
     {
         let mut xs = mem::take(&mut self.inner).make_mut();
         let mut ret = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
-            if let Some((u, k)) = f(*x) {
+            if *x > limit {
+                *x = limit;
                 if ret.is_none() {
-                    ret = Some((rowi, k));
+                    ret = Some(rowi);
                 }
-                *x = u;
             }
         }
         self.inner = Buffer::from(xs);
@@ -1247,7 +1246,7 @@ impl<T, Raw> InternalSeries<T, Raw> {
     /// Return first index of first element that exceeds either. Boolean will be
     /// `true` if this index was truncated to upper, `false` if it was merely
     /// above `lower`. Return `None` if all values are less than lower
-    pub(crate) fn truncate_or_warn(&mut self, upper: T, lower: T) -> Option<(usize, bool)>
+    pub(crate) fn truncate_and_test(&mut self, upper: T, lower: T) -> Option<(usize, bool)>
     where
         T: Copy + PartialOrd,
     {

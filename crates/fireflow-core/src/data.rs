@@ -6942,7 +6942,7 @@ pub(crate) trait CheckRange {
 impl<C> CheckRange for NativeSeries<C>
 where
     C: Clone + ColumnHasNativeType + ColumnHasDatatype + ColumnSchemaAsRange,
-    <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd,
+    <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim: Copy + PartialOrd + Bounded,
     C::Native: FCSRepr + Into<<<C as ColumnHasNativeType>::Native as FCSRepr>::Prim>,
 {
     fn check_range(
@@ -7005,6 +7005,9 @@ where
                 .map(|(rowi, t)| (false, rowi, t))
         };
         let res = if dt == AlphaNumType::Integer {
+            let upper = rng.bitmask.expect("integer should have bitmask");
+            let lower = rng.numeric_range;
+            assert!(upper >= lower, "bitmask less than numeric range");
             match (bitmask_trunc, range_trunc) {
                 // If truncating to range, bitmask does not matter since range
                 // is less than bitmask, and anything less than range will be
@@ -7017,20 +7020,27 @@ where
                 // If higher than bitmask, truncate. If higher than range but
                 // lower than bitmask, emit msg to alert user.
                 (TruncationMode::Truncate, TruncationMode::ScanOnly) => {
-                    let upper = rng.bitmask.expect("integer should have bitmask");
-                    let lower = rng.numeric_range;
-                    let ret = self.series.truncate_or_warn(upper, lower);
-                    ret.map(|(rowi, was_truncated)| {
-                        (
-                            true,
-                            rowi,
-                            if was_truncated {
+                    // Check the max value of the vector first. This loop is
+                    // very cheap since it should auto-vectorize.
+                    let m = self.series.as_ref().iter().fold(
+                        <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim::min_value(),
+                        |x, y| if x > *y { x } else { *y },
+                    );
+                    if m > upper {
+                        let ret = self.series.truncate_or_warn(upper, lower);
+                        ret.map(|(rowi, was_truncated)| {
+                            let t = if was_truncated {
                                 ExceededRange::RangeAndBitmask
                             } else {
                                 ExceededRange::Range
-                            },
-                        )
-                    })
+                            };
+                            (true, rowi, t)
+                        })
+                    } else if m > lower {
+                        go_scan(self, RangeCheckLevel::Range)
+                    } else {
+                        None
+                    }
                 }
                 // Do not perform truncation but emit different messages
                 // depending on if bitmask or range was exceeded.

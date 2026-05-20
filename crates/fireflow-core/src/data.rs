@@ -6850,10 +6850,10 @@ impl<T> EffectiveRange<T> {
     {
         // TODO move this check somewhere else since this will repeat in a tight
         // loop.
-        assert!(
-            self.bitmask.is_none_or(|r| self.numeric_range <= r),
-            "bitmask less than numeric range"
-        );
+        // assert!(
+        //     self.bitmask.is_none_or(|r| self.numeric_range <= r),
+        //     "bitmask less than numeric range"
+        // );
         let limit = self.bitmask.unwrap_or(self.numeric_range);
         if x > limit {
             (limit, Some(ExceededRange::Bitmask))
@@ -6866,10 +6866,10 @@ impl<T> EffectiveRange<T> {
     where
         T: PartialOrd + Copy,
     {
-        assert!(
-            self.bitmask.is_none_or(|r| self.numeric_range <= r),
-            "bitmask less than numeric range"
-        );
+        // assert!(
+        //     self.bitmask.is_none_or(|r| self.numeric_range <= r),
+        //     "bitmask less than numeric range"
+        // );
         // check bitmask first
         let (y, t0) = self.apply_bitmask(x);
         if t0.is_some() {
@@ -7017,12 +7017,20 @@ where
                 // If higher than bitmask, truncate. If higher than range but
                 // lower than bitmask, emit msg to alert user.
                 (TruncationMode::Truncate, TruncationMode::ScanOnly) => {
-                    let (bm, rng_trunc) = self.series.truncate_and(|x| {
-                        let (new, bm_trunc) = rng.apply_bitmask(x);
-                        let (_, rng_trunc) = rng.apply_range(x);
-                        (bm_trunc.map(|t| (new, t)), rng_trunc)
-                    });
-                    bm.map(|(rowi, bm_trunc)| (true, rowi, rng_trunc.unwrap_or(bm_trunc)))
+                    let upper = rng.bitmask.expect("integer should have bitmask");
+                    let lower = rng.numeric_range;
+                    let ret = self.series.truncate_or_warn(upper, lower);
+                    ret.map(|(rowi, was_truncated)| {
+                        (
+                            true,
+                            rowi,
+                            if was_truncated {
+                                ExceededRange::RangeAndBitmask
+                            } else {
+                                ExceededRange::Range
+                            },
+                        )
+                    })
                 }
                 // Do not perform truncation but emit different messages
                 // depending on if bitmask or range was exceeded.

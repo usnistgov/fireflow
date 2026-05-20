@@ -1242,30 +1242,32 @@ impl<T, Raw> InternalSeries<T, Raw> {
         ret
     }
 
-    pub(crate) fn truncate_and<F, R, X>(&mut self, mut f: F) -> (Option<(usize, R)>, Option<X>)
+    /// Truncate integers if above `upper`, return error if above `lower`.
+    ///
+    /// Return first index of first element that exceeds either. Boolean will be
+    /// `true` if this index was truncated to upper, `false` if it was merely
+    /// above `lower`. Return `None` if all values are less than lower
+    pub(crate) fn truncate_or_warn(&mut self, upper: T, lower: T) -> Option<(usize, bool)>
     where
         T: Copy + PartialOrd,
-        F: FnMut(T) -> (Option<(T, R)>, Option<X>),
     {
         let mut xs = mem::take(&mut self.inner).make_mut();
         let mut ret = None;
-        let mut ret_other = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
-            let (new, other) = f(*x);
-            if let Some((u, k)) = new {
-                if ret.is_none() {
-                    ret = Some((rowi, k));
-                }
-                *x = u;
+            if *x <= lower {
+                continue;
             }
-            if let Some(o) = other
-                && ret_other.is_none()
-            {
-                ret_other = Some(o);
+            if *x > upper {
+                *x = upper;
+                if ret.is_none() {
+                    ret = Some((rowi, true));
+                }
+            } else if ret.is_none() {
+                ret = Some((rowi, false));
             }
         }
         self.inner = Buffer::from(xs);
-        (ret, ret_other)
+        ret
     }
 
     fn truncate_from_samesize_int(buf: Buffer<T>) -> CastSeriesResult<Self>

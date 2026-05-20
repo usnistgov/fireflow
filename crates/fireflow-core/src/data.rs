@@ -1254,7 +1254,7 @@ pub enum ReadDataframeWarning {
     "event value in column {column} and row {row}, exceeds {what}{pnr} ({})",
     range.as_displayable(),
     pnr = TextRange::std(self.column.0),
-    what = if matches!(self.trunc_type, TruncationType::Bitmask) { "bitmask implied by " } else { "" }
+    what = if matches!(self.trunc_type, ExceededRange::Bitmask) { "bitmask implied by " } else { "" }
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
@@ -1262,7 +1262,7 @@ pub struct EventOverRangeError {
     row: usize,
     column: MeasIndex,
     range: TextRange,
-    trunc_type: TruncationType,
+    trunc_type: ExceededRange,
 }
 
 def_summary!(pub EventOverRangeSummary, "some events exceed $PnR");
@@ -5488,15 +5488,20 @@ pub trait DataFrameCheckRanges {
         let mut warnings = vec![];
         for e in rs.into_iter().filter_map(|c| c.map(|r| r.error)) {
             match e.trunc_type {
-                TruncationType::Bitmask => match bitmask_flag {
+                ExceededRange::Bitmask => match bitmask_flag {
                     Some(true) => errors.push(e),
                     Some(false) => warnings.push(e),
                     None => (),
                 },
-                TruncationType::Range => match action_flag {
+                ExceededRange::Range => match action_flag {
                     Some(true) => errors.push(e),
                     Some(false) => warnings.push(e),
                     None => (),
+                },
+                ExceededRange::RangeAndBitmask => match (bitmask_flag, action_flag) {
+                    (Some(true), _) | (_, Some(true)) => errors.push(e),
+                    (Some(false), _) | (_, Some(false)) => warnings.push(e),
+                    _ => (),
                 },
             }
         }
@@ -6803,9 +6808,10 @@ pub(crate) enum RangeCheckLevel {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum TruncationType {
+enum ExceededRange {
     Bitmask,
     Range,
+    RangeAndBitmask,
 }
 
 // TODO docme
@@ -6817,7 +6823,7 @@ pub enum TruncationMode {
 }
 
 impl<T> EffectiveRange<T> {
-    fn apply(&self, x: T, level: RangeCheckLevel) -> (T, Option<TruncationType>)
+    fn apply(&self, x: T, level: RangeCheckLevel) -> (T, Option<ExceededRange>)
     where
         T: PartialOrd + Copy,
     {
@@ -6828,17 +6834,17 @@ impl<T> EffectiveRange<T> {
         }
     }
 
-    fn apply_range(&self, x: T) -> (T, Option<TruncationType>)
+    fn apply_range(&self, x: T) -> (T, Option<ExceededRange>)
     where
         T: PartialOrd + Copy,
     {
         if x > self.numeric_range {
-            return (self.numeric_range, Some(TruncationType::Range));
+            return (self.numeric_range, Some(ExceededRange::Range));
         }
         (x, None)
     }
 
-    fn apply_bitmask(&self, x: T) -> (T, Option<TruncationType>)
+    fn apply_bitmask(&self, x: T) -> (T, Option<ExceededRange>)
     where
         T: PartialOrd + Copy,
     {
@@ -6850,13 +6856,13 @@ impl<T> EffectiveRange<T> {
         );
         let limit = self.bitmask.unwrap_or(self.numeric_range);
         if x > limit {
-            (limit, Some(TruncationType::Bitmask))
+            (limit, Some(ExceededRange::Bitmask))
         } else {
             (x, None)
         }
     }
 
-    fn apply_bitmask_and_range(&self, x: T) -> (T, Option<TruncationType>)
+    fn apply_bitmask_and_range(&self, x: T) -> (T, Option<ExceededRange>)
     where
         T: PartialOrd + Copy,
     {
@@ -6865,9 +6871,9 @@ impl<T> EffectiveRange<T> {
             "bitmask less than numeric range"
         );
         // check bitmask first
-        let (y, trunc) = self.apply_bitmask(x);
-        if trunc.is_some() {
-            return (y, trunc);
+        let (y, t0) = self.apply_bitmask(x);
+        if t0.is_some() {
+            return (y, t0.map(|_| ExceededRange::RangeAndBitmask));
         }
         // if not over bitmask, then check range
         self.apply_range(x)

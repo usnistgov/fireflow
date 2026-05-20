@@ -2656,9 +2656,8 @@ class TestCore:
             go("silent", "trunc_warn", [0], 9001)
         go("silent", "trunc_silent", [0], 9001)
 
-        # TODO broken
-        # with pytest.RaisesGroup(pf.DataLossError):
-        #     go("warn", "error", [0], 100000)
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("warn", "error", [0], 100000)
         with pytest.warns(pf.PyreflowWarning):
             go("warn", "warn", [0], 100000)
         with pytest.warns(pf.PyreflowWarning):
@@ -6172,9 +6171,8 @@ class TestConfig:
 
         with pytest.warns(pf.PyreflowWarning):
             assert go("warn", "warn") == ([(0, False)], 2**32 - 1)
-        # TODO broken
-        # with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
-        #     assert go("warn", "error") == ([(0, False)], 2**32 - 1)
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("warn", "error") == ([(0, False)], 2**32 - 1)
         with pytest.warns(pf.PyreflowWarning):
             assert go("warn", "silent") == ([(0, False)], 2**32 - 1)
         with pytest.warns(pf.PyreflowWarning):
@@ -6193,9 +6191,8 @@ class TestConfig:
         # no warning for bitmask because range was truncated
         assert go("trunc_warn", "trunc_silent") == ([(0, True)], 98)
 
-        # TODO broken
-        # with pytest.warns(pf.PyreflowWarning):
-        #     assert go("trunc_silent", "warn") == ([(0, True)], 127)
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("trunc_silent", "warn") == ([(0, True)], 127)
         with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
             assert go("trunc_silent", "error") == ([(0, True)], 127)
         assert go("trunc_silent", "silent") == ([(0, True)], 127)

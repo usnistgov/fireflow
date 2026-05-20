@@ -3,7 +3,6 @@ use crate::config::{
     ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _,
     TrimIntraValueWhitespace,
 };
-use crate::data::RangeCheckLevel;
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
@@ -46,7 +45,7 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 use nonempty_collections::{NEMap, NESlice, NonEmptyArrayExt as _};
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
-use fireflow_types::config::{CheckedRangeDatatypes, ForceLinearScale, TemporalOpticalKey};
+use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey};
 use fireflow_types::keywords::{
     self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
     VersionMembership,
@@ -868,18 +867,6 @@ impl_str_enum_kw!(
     Float   => ne_str!("F"),
     Double  => ne_str!("D")
 );
-
-impl AlphaNumType {
-    pub(crate) fn range_check_level(self, trunc: CheckedRangeDatatypes) -> Option<RangeCheckLevel> {
-        match (self, trunc) {
-            (Self::Integer, CheckedRangeDatatypes::BitmaskOnly) => Some(RangeCheckLevel::Bitmask),
-            (_, CheckedRangeDatatypes::All) | (Self::Integer, CheckedRangeDatatypes::IntOnly) => {
-                Some(RangeCheckLevel::Range)
-            }
-            (_, _) => None,
-        }
-    }
-}
 
 impl From<NumType> for AlphaNumType {
     fn from(value: NumType) -> Self {

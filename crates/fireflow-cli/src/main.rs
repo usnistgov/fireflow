@@ -832,17 +832,20 @@ fn run() -> AppResult<()> {
         format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
     );
 
-    let checked_range_datatypes = Arg::new(CHECKED_RANGE_DATATYPES)
-        .long(CHECKED_RANGE_DATATYPES)
+    let bitmask_truncate_mode = Arg::new(BITMASK_TRUNCATE_MODE)
+        .long(BITMASK_TRUNCATE_MODE)
         .value_name("WHICH")
-        .value_parser(value_parser!(tc::CheckedRangeDatatypes))
+        .value_parser(value_parser!(tc::BitmaskTruncationMode))
         .help(format!(
-            "Truncate values exceeding {pn_r}. Must be one of {bitmask_only} \
-             (default), {int_only}, {all}, or {none}.",
-            bitmask_only = fmt_val(tc::CHECK_RANGE_BITMASK_ONLY_LEVEL),
-            int_only = fmt_val(tc::CHECK_RANGE_INT_ONLY_LEVEL),
-            all = fmt_val(tc::CHECK_RANGE_ALL_LEVEL),
-            none = fmt_val(tc::CHECK_RANGE_NONE_LEVEL),
+            "Choose how to handle integer values in {data_seg} to exceed bitmask. \
+             Pass {error} to emit error, {warn} to emit warning, {silent} to do \
+             nothing, {trunc_warn} to truncate and emit warning, and \
+             {trunc_silent} to truncate with no warning.",
+            error = fmt_val(tc::OVERRANGE_ACTION_ERROR_LEVEL),
+            warn = fmt_val(tc::OVERRANGE_ACTION_WARN_LEVEL),
+            silent = fmt_val(tc::OVERRANGE_ACTION_SILENT_LEVEL),
+            trunc_warn = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
     let over_range_action = Arg::new(OVER_RANGE_ACTION)
@@ -850,12 +853,10 @@ fn run() -> AppResult<()> {
         .value_name("ACTION")
         .value_parser(value_parser!(tc::OverRangeAction))
         .help(format!(
-            "Choose how to handle values in {data_seg} to exceed {pn_r}. Only \
-             applies to columns that were checked according to {arg}. Pass \
+            "Choose how to handle values in {data_seg} to exceed {pn_r}. Pass \
              {error} to emit error, {warn} to emit warning, {silent} to do \
              nothing, {trunc_warn} to truncate and emit warning, and \
              {trunc_silent} to truncate with no warning.",
-            arg = fmt_arg(CHECKED_RANGE_DATATYPES),
             error = fmt_val(tc::OVERRANGE_ACTION_ERROR_LEVEL),
             warn = fmt_val(tc::OVERRANGE_ACTION_WARN_LEVEL),
             silent = fmt_val(tc::OVERRANGE_ACTION_SILENT_LEVEL),
@@ -878,7 +879,7 @@ fn run() -> AppResult<()> {
     let all_read_dataset_args = [
         allow_uneven_event_width,
         allow_tot_mismatch,
-        checked_range_datatypes,
+        bitmask_truncate_mode,
         over_range_action,
         row_buffer_size,
     ];
@@ -1480,8 +1481,8 @@ fn get_events_config(s: &ArgMatches) -> cfg::ReadEventsConfig {
     get_opt(s, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
         c.allow_uneven_event_width = x;
     });
-    get_opt(s, CHECKED_RANGE_DATATYPES, |x| {
-        c.checked_range_datatypes = x;
+    get_opt(s, BITMASK_TRUNCATE_MODE, |x| {
+        c.bitmask_truncation_mode = x;
     });
     get_opt(s, OVER_RANGE_ACTION, |x| c.over_range_action = x);
     get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
@@ -1544,9 +1545,6 @@ fn get_write_std_dataset_config(sargs: &ArgMatches) -> cfg::WriteDatasetInnerCon
 
     get_opt(sargs, PRINT_DELIM, |x| conf.text.delim = x);
     get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
-    // ranges are checked once when reading the dataframe so no need to check
-    // them again; if anything they might be fixed
-    conf.checked_range_datatypes = tc::CheckedRangeDatatypes::None;
     conf
 }
 
@@ -1956,7 +1954,7 @@ const DISALLOW_RANGE_TRUNCATION: &str = "disallow-range-truncation";
 
 const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 
-const CHECKED_RANGE_DATATYPES: &str = "checked-range-datatypes";
+const BITMASK_TRUNCATE_MODE: &str = "bitmask-truncate-mode";
 
 const OVER_RANGE_ACTION: &str = "over-range-action";
 

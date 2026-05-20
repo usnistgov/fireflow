@@ -3,12 +3,12 @@
 //! Here we only need to worry about 6 external types (u8-64, f32, f64) and 10
 //! internal types, (f32, f64, all unsigned int widths 1-8 bytes).
 
-use crate::data::{CheckRange, EventOverRangeError, TruncatedResult};
+use crate::config::{AllowOverBitmask, DisallowOverRange};
+use crate::data::{CheckRange, EventOverRangeError, TruncatedResult, TruncationMode};
 use crate::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use ambassador::{Delegate, delegatable_trait};
-use fireflow_types::config::CheckedRangeDatatypes;
 use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
 use bytemuck::cast_vec;
@@ -1099,21 +1099,25 @@ impl<C> DataFrame<C> {
         self.series.iter()
     }
 
-    pub(crate) fn check_ranges(&self, check: CheckedRangeDatatypes) -> Vec<EventOverRangeError>
+    pub(crate) fn check_ranges(
+        &self,
+        bitmask_flag: AllowOverBitmask,
+        range_flag: DisallowOverRange,
+    ) -> Vec<EventOverRangeError>
     where
         C: CheckRange,
     {
         self.series
             .iter()
             .enumerate()
-            .filter_map(|(i, c)| c.check_range(i.into(), check).err())
+            .filter_map(|(i, c)| c.check_range(i.into(), bitmask_flag, range_flag).err())
             .collect()
     }
 
     pub(crate) fn check_ranges_mut(
         &mut self,
-        check: CheckedRangeDatatypes,
-        trunc: bool,
+        trunc_bitmask: TruncationMode,
+        trunc_range: TruncationMode,
     ) -> Vec<Option<TruncatedResult>>
     where
         C: CheckRange,
@@ -1121,7 +1125,7 @@ impl<C> DataFrame<C> {
         self.series
             .iter_mut()
             .enumerate()
-            .map(|(i, c)| c.check_range_mut(i.into(), check, trunc))
+            .map(|(i, c)| c.check_range_mut(i.into(), trunc_bitmask, trunc_range))
             .collect()
     }
 
@@ -1219,23 +1223,49 @@ impl<T, Raw> InternalSeries<T, Raw> {
         unsafe { from_raw_parts(p, n) }
     }
 
-    pub(crate) fn truncate<F>(&mut self, f: F) -> Option<usize>
+    pub(crate) fn truncate<F, R>(&mut self, mut f: F) -> Option<(usize, R)>
     where
         T: Copy + PartialOrd,
-        F: Fn(T) -> Option<T>,
+        F: FnMut(T) -> Option<(T, R)>,
     {
         let mut xs = mem::take(&mut self.inner).make_mut();
-        let mut j = None;
+        let mut ret = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
-            if let Some(u) = f(*x) {
-                if j.is_none() {
-                    j = Some(rowi);
+            if let Some((u, k)) = f(*x) {
+                if ret.is_none() {
+                    ret = Some((rowi, k));
                 }
                 *x = u;
             }
         }
         self.inner = Buffer::from(xs);
-        j
+        ret
+    }
+
+    pub(crate) fn truncate_and<F, R, X>(&mut self, mut f: F) -> (Option<(usize, R)>, Option<X>)
+    where
+        T: Copy + PartialOrd,
+        F: FnMut(T) -> (Option<(T, R)>, Option<X>),
+    {
+        let mut xs = mem::take(&mut self.inner).make_mut();
+        let mut ret = None;
+        let mut ret_other = None;
+        for (rowi, x) in xs.iter_mut().enumerate() {
+            let (new, other) = f(*x);
+            if let Some((u, k)) = new {
+                if ret.is_none() {
+                    ret = Some((rowi, k));
+                }
+                *x = u;
+            }
+            if let Some(o) = other
+                && ret_other.is_none()
+            {
+                ret_other = Some(o);
+            }
+        }
+        self.inner = Buffer::from(xs);
+        (ret, ret_other)
     }
 
     fn truncate_from_samesize_int(buf: Buffer<T>) -> CastSeriesResult<Self>

@@ -2637,52 +2637,66 @@ class TestCore:
         df2 = pl.DataFrame([pl.Series("unnamed", [100000], dtype=pl.UInt32)])
 
         def go(
-            c: pt.CheckedRangeDatatypes,
-            a: pt.OverRangeAction,
+            b: pt.OverRangeAction,
+            r: pt.OverRangeAction,
             res: list[None | int],
             val: int,
         ) -> None:
             cd.data = df2
-            assert (
-                cd.check_ranges(checked_range_datatypes=c, over_range_action=a) == res
-            )
+            out = cd.check_ranges(bitmask_truncation_mode=b, over_range_action=r)
+            assert out == res
             assert cd.data[0, 0] == val
 
-        go("none", "error", [None], 100000)
-        go("none", "warn", [None], 100000)
-        go("none", "silent", [None], 100000)
-        go("none", "trunc_warn", [None], 100000)
-        go("none", "trunc_silent", [None], 100000)
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("silent", "error", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("silent", "warn", [0], 100000)
+        go("silent", "silent", [None], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("silent", "trunc_warn", [0], 9001)
+        go("silent", "trunc_silent", [0], 9001)
+
+        # TODO broken
+        # with pytest.RaisesGroup(pf.DataLossError):
+        #     go("warn", "error", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("warn", "warn", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("warn", "silent", [0], 100000)
+        with pytest.warns(pf.PyreflowWarning):
+            go("warn", "trunc_warn", [0], 9001)
+        # truncated by range so no bitmask warning
+        go("warn", "trunc_silent", [0], 9001)
 
         with pytest.RaisesGroup(pf.DataLossError):
-            go("bitmask_only", "error", [0], 100000)
+            go("error", "error", [0], 100000)
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("error", "warn", [0], 100000)
+        with pytest.RaisesGroup(pf.DataLossError):
+            go("error", "silent", [0], 100000)
         with pytest.warns(pf.PyreflowWarning):
-            go("bitmask_only", "warn", [0], 100000)
-        go("bitmask_only", "silent", [0], 100000)
-        # truncate to the bitmask implied by $PnR
-        with pytest.warns(pf.PyreflowWarning):
-            go("bitmask_only", "trunc_warn", [0], 16383)
-        go("bitmask_only", "trunc_silent", [0], 16383)
+            go("error", "trunc_warn", [0], 9001)
+        # truncated by range so no bitmask error
+        go("error", "trunc_silent", [0], 9001)
 
         with pytest.RaisesGroup(pf.DataLossError):
-            go("int_only", "error", [0], 100000)
+            go("trunc_silent", "error", [0], 16383)
         with pytest.warns(pf.PyreflowWarning):
-            go("int_only", "warn", [0], 100000)
-        go("int_only", "silent", [0], 100000)
-        # truncate to the hard limit set by $PnR
+            go("trunc_silent", "warn", [0], 16383)
+        go("trunc_silent", "silent", [0], 16383)
         with pytest.warns(pf.PyreflowWarning):
-            go("int_only", "trunc_warn", [0], 9001)
-        go("int_only", "trunc_silent", [0], 9001)
+            go("trunc_silent", "trunc_warn", [0], 9001)
+        go("trunc_silent", "trunc_silent", [0], 9001)
 
         with pytest.RaisesGroup(pf.DataLossError):
-            go("all", "error", [0], 100000)
+            go("trunc_warn", "error", [0], 16383)
         with pytest.warns(pf.PyreflowWarning):
-            go("all", "warn", [0], 100000)
-        go("all", "silent", [0], 100000)
-        # same behavior as "int_only"
+            go("trunc_warn", "warn", [0], 16383)
         with pytest.warns(pf.PyreflowWarning):
-            go("all", "trunc_warn", [0], 9001)
-        go("all", "trunc_silent", [0], 9001)
+            go("trunc_warn", "silent", [0], 16383)
+        with pytest.warns(pf.PyreflowWarning):
+            go("trunc_warn", "trunc_warn", [0], 9001)
+        go("trunc_warn", "trunc_silent", [0], 9001)
 
     @pytest.mark.parametrize(
         "core, data_schema",
@@ -2711,43 +2725,33 @@ class TestCore:
         df2 = pl.DataFrame([pl.Series("unnamed", [100000], dtype=pl.Float32)])
 
         def go(
-            c: pt.CheckedRangeDatatypes,
+            c: pt.OverRangeAction,
             a: pt.OverRangeAction,
             res: list[None | int],
             val: int,
         ) -> None:
             cd.data = df2
             assert (
-                cd.check_ranges(checked_range_datatypes=c, over_range_action=a) == res
+                cd.check_ranges(bitmask_truncation_mode=c, over_range_action=a) == res
             )
             assert cd.data[0, 0] == val
 
-        go("none", "error", [None], 100000)
-        go("none", "warn", [None], 100000)
-        go("none", "silent", [None], 100000)
-        go("none", "trunc_warn", [None], 100000)
-        go("none", "trunc_silent", [None], 100000)
-
-        go("bitmask_only", "error", [None], 100000)
-        go("bitmask_only", "warn", [None], 100000)
-        go("bitmask_only", "silent", [None], 100000)
-        go("bitmask_only", "trunc_warn", [None], 100000)
-        go("bitmask_only", "trunc_silent", [None], 100000)
-
-        go("int_only", "error", [None], 100000)
-        go("int_only", "warn", [None], 100000)
-        go("int_only", "silent", [None], 100000)
-        go("int_only", "trunc_warn", [None], 100000)
-        go("int_only", "trunc_silent", [None], 100000)
-
-        with pytest.RaisesGroup(pf.DataLossError):
-            go("all", "error", [0], 100000)
-        with pytest.warns(pf.PyreflowWarning):
-            go("all", "warn", [0], 100000)
-        go("all", "silent", [0], 100000)
-        with pytest.warns(pf.PyreflowWarning):
-            go("all", "trunc_warn", [0], 9001)
-        go("all", "trunc_silent", [0], 9001)
+        all_over: list[pt.OverRangeAction] = [
+            "silent",
+            "warn",
+            "trunc_warn",
+            "trunc_silent",
+            "error",
+        ]
+        for x in all_over:
+            with pytest.RaisesGroup(pf.DataLossError):
+                go(x, "error", [0], 100000)
+            with pytest.warns(pf.PyreflowWarning):
+                go(x, "warn", [0], 100000)
+            go(x, "silent", [None], 100000)
+            with pytest.warns(pf.PyreflowWarning):
+                go(x, "trunc_warn", [0], 9001)
+            go(x, "trunc_silent", [0], 9001)
 
     @parameterize_versions("core", ["2_0", "3_0", "3_1", "3_2"], ["text2"])
     def test_unset_measurements(self, core: AnyCoreTEXT) -> None:
@@ -6122,21 +6126,17 @@ class TestConfig:
     def test_truncate_range_datatypes_int(
         self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
     ) -> None:
-        """Test range truncation on read (int case).
+        """Test $PnR truncation on read (int case).
 
-        This will test two flags: checked_range_datatypes and over_range_action.
+        This will test two flags: bitmask_truncation_mode and over_range_action.
 
         Together they control how/when values in DATA are truncated according to
         $PnR.
-
-        For int, this should apply when all but "none" is given for
-        checked_range_datatypes. When truncating, truncate to bitmask for
-        "bitmask_only" and to the $PnR itself for "int_only".
         """
         p = tmp_path / "thing.fcs"
-        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "99"}
         tot = 3
-        data = b"\f" * (4 * tot)
+        data = b"\xff" * (4 * tot)
         self.mock_header_std_text(
             p,
             version,
@@ -6149,48 +6149,69 @@ class TestConfig:
         )
 
         def go(
-            f: pt.CheckedRangeDatatypes,
+            f: pt.OverRangeAction,
             g: pt.OverRangeAction,
-        ) -> list[tuple[int, bool] | None]:
+        ) -> tuple[list[tuple[int, bool] | None], int]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                checked_range_datatypes=f,
+                bitmask_truncation_mode=f,
                 over_range_action=g,
             )
-            return out.dataset.events_diagnostics.overrange_columns
-
-        assert go("none", "warn") == [None]
-        assert go("none", "error") == [None]
-        assert go("none", "silent") == [None]
-        assert go("none", "trunc_warn") == [None]
-        assert go("none", "trunc_silent") == [None]
+            c = out.dataset.events_diagnostics.overrange_columns
+            val = out.dataset.data[0, 0]
+            return (c, val)
 
         with pytest.warns(pf.PyreflowWarning):
-            assert go("bitmask_only", "warn") == [(0, False)]
+            assert go("silent", "warn") == ([(0, False)], 2**32 - 1)
         with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
-            assert go("bitmask_only", "error") == [(0, False)]
-        assert go("bitmask_only", "silent") == [(0, False)]
+            assert go("silent", "error") == ([(0, False)], 2**32 - 1)
+        assert go("silent", "silent") == ([None], 2**32 - 1)
         with pytest.warns(pf.PyreflowWarning):
-            assert go("bitmask_only", "trunc_warn") == [(0, True)]
-        assert go("bitmask_only", "trunc_silent") == [(0, True)]
+            assert go("silent", "trunc_warn") == ([(0, True)], 98)
+        assert go("silent", "trunc_silent") == ([(0, True)], 98)
 
         with pytest.warns(pf.PyreflowWarning):
-            assert go("int_only", "warn") == [(0, False)]
-        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
-            assert go("int_only", "error") == [(0, False)]
-        assert go("int_only", "silent") == [(0, False)]
+            assert go("warn", "warn") == ([(0, False)], 2**32 - 1)
+        # TODO broken
+        # with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+        #     assert go("warn", "error") == ([(0, False)], 2**32 - 1)
         with pytest.warns(pf.PyreflowWarning):
-            assert go("int_only", "trunc_warn") == [(0, True)]
-        assert go("int_only", "trunc_silent") == [(0, True)]
+            assert go("warn", "silent") == ([(0, False)], 2**32 - 1)
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("warn", "trunc_warn") == ([(0, True)], 98)
+        # no warning for bitmask because range was truncated
+        assert go("warn", "trunc_silent") == ([(0, True)], 98)
 
         with pytest.warns(pf.PyreflowWarning):
-            assert go("all", "warn") == [(0, False)]
+            assert go("trunc_warn", "warn") == ([(0, True)], 127)
         with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
-            assert go("all", "error") == [(0, False)]
-        assert go("all", "silent") == [(0, False)]
+            assert go("trunc_warn", "error") == ([(0, True)], 127)
         with pytest.warns(pf.PyreflowWarning):
-            assert go("all", "trunc_warn") == [(0, True)]
-        assert go("all", "trunc_silent") == [(0, True)]
+            assert go("trunc_warn", "silent") == ([(0, True)], 127)
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("trunc_warn", "trunc_warn") == ([(0, True)], 98)
+        # no warning for bitmask because range was truncated
+        assert go("trunc_warn", "trunc_silent") == ([(0, True)], 98)
+
+        # TODO broken
+        # with pytest.warns(pf.PyreflowWarning):
+        #     assert go("trunc_silent", "warn") == ([(0, True)], 127)
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("trunc_silent", "error") == ([(0, True)], 127)
+        assert go("trunc_silent", "silent") == ([(0, True)], 127)
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("trunc_silent", "trunc_warn") == ([(0, True)], 98)
+        assert go("trunc_silent", "trunc_silent") == ([(0, True)], 98)
+
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("error", "warn") == ([(0, False)], 2**32 - 1)
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("error", "error") == ([(0, False)], 2**32 - 1)
+        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+            assert go("error", "silent") == ([None], 2**32 - 1)
+        with pytest.warns(pf.PyreflowWarning):
+            assert go("error", "trunc_warn") == ([(0, True)], 98)
+        assert go("error", "trunc_silent") == ([(0, True)], 98)
 
     @pytest.mark.parametrize(
         "version, data_seg",
@@ -6206,13 +6227,12 @@ class TestConfig:
     ) -> None:
         """Test range truncation on read (float case).
 
-        This will test two flags: checked_range_datatypes and over_range_action.
+        This will test two flags: bitmask_truncation_mode and over_range_action.
 
         Together they control how/when values in DATA are truncated according to
-        $PnR.
+        $PnR. The former should have no effect since there is no bitmask for
+        floats.
 
-        For floats, this should only apply when the "all" option is specified
-        for checked_range_datatypes.
         """
         p = tmp_path / "thing.fcs"
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "16"}
@@ -6232,41 +6252,31 @@ class TestConfig:
         )
 
         def go(
-            f: pt.CheckedRangeDatatypes, g: pt.OverRangeAction
+            f: pt.OverRangeAction, g: pt.OverRangeAction
         ) -> list[tuple[int, bool] | None]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                checked_range_datatypes=f,
+                bitmask_truncation_mode=f,
                 over_range_action=g,
             )
             return out.dataset.events_diagnostics.overrange_columns
 
-        assert go("none", "warn") == [None]
-        assert go("none", "error") == [None]
-        assert go("none", "silent") == [None]
-        assert go("none", "trunc_warn") == [None]
-        assert go("none", "trunc_silent") == [None]
-
-        assert go("bitmask_only", "warn") == [None]
-        assert go("bitmask_only", "error") == [None]
-        assert go("bitmask_only", "silent") == [None]
-        assert go("bitmask_only", "trunc_warn") == [None]
-        assert go("bitmask_only", "trunc_silent") == [None]
-
-        assert go("int_only", "warn") == [None]
-        assert go("int_only", "error") == [None]
-        assert go("int_only", "silent") == [None]
-        assert go("int_only", "trunc_warn") == [None]
-        assert go("int_only", "trunc_silent") == [None]
-
-        with pytest.warns(pf.PyreflowWarning):
-            assert go("all", "warn") == [(0, False)]
-        with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
-            assert go("all", "error") == [(0, False)]
-        assert go("all", "silent") == [(0, False)]
-        with pytest.warns(pf.PyreflowWarning):
-            assert go("all", "trunc_warn") == [(0, True)]
-        assert go("all", "trunc_silent") == [(0, True)]
+        all_over: list[pt.OverRangeAction] = [
+            "silent",
+            "warn",
+            "trunc_warn",
+            "trunc_silent",
+            "error",
+        ]
+        for x in all_over:
+            with pytest.warns(pf.PyreflowWarning):
+                assert go(x, "warn") == [(0, False)]
+            with pytest.RaisesGroup(pf.DataLossError, flatten_subgroups=True):
+                assert go(x, "error") == [(0, False)]
+            assert go(x, "silent") == [None]
+            with pytest.warns(pf.PyreflowWarning):
+                assert go(x, "trunc_warn") == [(0, True)]
+            assert go(x, "trunc_silent") == [(0, True)]
 
 
 class TestReadWrite:

@@ -122,7 +122,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{
-    CheckedRangeDatatypes, IncludeReqOrOpt, IncludeRootOrMeas, OverRangeAction,
+    BitmaskTruncationMode, IncludeReqOrOpt, IncludeRootOrMeas, OverRangeAction,
 };
 use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -6179,7 +6179,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         let analysis_len = self.analysis.0.len().usize_to_u64();
         let others = &self.others.0[..];
 
-        df.check_ranges(conf.checked_range_datatypes, conf.disallow_over_range)
+        df.check_ranges(conf.allow_over_bitmask, conf.disallow_over_range)
             .map_errors(StdWriterError::from)
             .group()
             .map_error(IOErrorGroup::Pure)
@@ -6266,7 +6266,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// If `truncate` is `true`, truncate events in place if they exceed $PnR.
     pub fn check_ranges(
         &mut self,
-        check_range_datatypes: CheckedRangeDatatypes,
+        disallow_bitmask_trunc: BitmaskTruncationMode,
         over_range_action: OverRangeAction,
     ) -> WarningsAndGroupResult<
         Vec<Option<usize>>,
@@ -6275,7 +6275,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         EventOverRangeSummary,
     > {
         self.meas
-            .check_ranges(check_range_datatypes, over_range_action)
+            .check_ranges(disallow_bitmask_trunc, over_range_action)
             .group()
             .map_ok_value(|rs| rs.fmap(|x| x.map(|(i, _)| i)))
     }

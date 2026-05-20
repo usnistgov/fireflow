@@ -31,7 +31,7 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, CheckedRangeDatatypes, DelimEscapeMode, ForceLinearScale,
+    AllowHeaderTEXTOffsetMismatch, BitmaskTruncationMode, DelimEscapeMode, ForceLinearScale,
     GuessOtherWidth, OverRangeAction, ProcessKeywordFailure, ProcessTemporalOpticalKeys,
     ReadStrategy, RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
     TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
@@ -237,13 +237,10 @@ pub struct WriteTEXTInnerConfig {
 pub struct WriteDatasetInnerConfig {
     pub text: WriteTEXTInnerConfig,
 
-    /// Control which measurements will be checked via $PnR upon writing.
-    pub checked_range_datatypes: CheckedRangeDatatypes,
+    /// If `true`, allow integer event values in DATA to exceed bitmask before writing.
+    pub allow_over_bitmask: AllowOverBitmask,
 
     /// If `true`, forbid event values in DATA to exceed $PnR before writing.
-    ///
-    /// This flag only has an effect if the column is checked according to
-    /// [`Self::checked_range_datatypes`].
     pub disallow_over_range: DisallowOverRange,
 
     /// Set the size in bytes for the internal buffer used to write DATA.
@@ -943,13 +940,13 @@ pub struct ReadEventsConfig {
     /// `false`, throw an error on mismatch, and warning otherwise.
     pub allow_tot_mismatch: AllowTotMismatch,
 
-    /// Control which measurements will be truncated via $PnR.
-    pub checked_range_datatypes: CheckedRangeDatatypes,
+    /// Choose how to deal with bitmasks for integers.
+    ///
+    /// If 'true', throw error if integer is outside bitmask. If `false`
+    /// truncate and throw warning. If `silent`, truncate with no warning.
+    pub bitmask_truncation_mode: BitmaskTruncationMode,
 
     /// How to handle overrange values.
-    ///
-    /// This flag only has an effect if a column is checked according to
-    /// [`Self::checked_range_datatypes`].
     pub over_range_action: OverRangeAction,
 
     /// Set the size in bytes for the internal buffer used to read DATA.
@@ -1238,6 +1235,7 @@ impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 impl_tri_error_flag!(false_is_error AllowLoss);
 
 // flag or controlling how to deal with overrange values in read-only case
+impl_tri_error_flag!(true_is_error AllowOverBitmask);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
 
 /// Fake 2-way flag to use for non-public switchable errors
@@ -1283,6 +1281,18 @@ impl DummyTriFlag {
             OverRangeAction::Error => TriFlag::False,
             OverRangeAction::Warn | OverRangeAction::TruncateWarn => TriFlag::True,
             OverRangeAction::Silent | OverRangeAction::TruncateSilent => TriFlag::Silent,
+        };
+        f.into()
+    }
+
+    // TODO not DRY
+    pub(crate) fn from_bitmask_trunc_mode(x: BitmaskTruncationMode) -> Self {
+        let f = match x {
+            BitmaskTruncationMode::Error => TriFlag::False,
+            BitmaskTruncationMode::Warn | BitmaskTruncationMode::TruncateWarn => TriFlag::True,
+            BitmaskTruncationMode::Silent | BitmaskTruncationMode::TruncateSilent => {
+                TriFlag::Silent
+            }
         };
         f.into()
     }

@@ -622,7 +622,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(cores_arg)
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_checked_range_datatypes())
+        .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size(false))
         .returns(ret);
@@ -640,7 +640,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
             );
             let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                 tconf,
-                checked_range_datatypes.into(),
+                allow_over_bitmask.into(),
                 disallow_over_range.into(),
                 row_buffer_size,
             );
@@ -2149,7 +2149,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
-        .arg(DocArg::new_checked_range_datatypes())
+        .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size(false))
         .arg(DocArg::new_appendable_param())
@@ -2171,7 +2171,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 );
                 let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                     tconf,
-                    checked_range_datatypes.into(),
+                    allow_over_bitmask.into(),
                     disallow_over_range.into(),
                     row_buffer_size,
                 );
@@ -3495,7 +3495,7 @@ pub fn impl_coredataset_check_ranges(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_checked("PyCoreDataset", &i);
 
-    let check_param = DocArg::new_checked_range_datatypes();
+    let check_param = DocArg::new_bitmask_truncation_mode();
     let action_param = DocArg::new_over_range_action();
 
     let exc = PyException::new_data_loss();
@@ -8576,7 +8576,7 @@ impl DocArgParam {
             Self::new_data_remainder_limit_param(),
             Self::new_allow_uneven_event_width_param(),
             Self::new_allow_tot_mismatch_param(),
-            Self::new_checked_range_datatypes(),
+            Self::new_bitmask_truncation_mode(),
             Self::new_over_range_action(),
             Self::new_row_buffer_size(true),
         ];
@@ -9395,28 +9395,40 @@ impl DocArgParam {
         Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
     }
 
-    fn new_checked_range_datatypes() -> Self {
-        let path = types_config_path("CheckedRangeDatatypes");
+    fn new_bitmask_truncation_mode() -> Self {
+        // let n = "disallow_bitmask_truncation";
+        // let d = "Choose how to deal with bitmasks for integers.";
+        // let e = PyreflowError::EventData;
+        // Self::new_tri_flag_param(n, false, "DisallowBitmaskTruncation", d, e)
+
+        let n = "bitmask_truncation_mode";
         let d = format!(
-            "Control which measurements will be checked via {PNR}. If \
-             {int}, check integer measurements only. If {all}, check all \
-             measurements. If {none}, check nothing.",
-            int = code_str(tc::CHECK_RANGE_INT_ONLY_LEVEL),
-            all = code_str(tc::CHECK_RANGE_ALL_LEVEL),
-            none = code_str(tc::CHECK_RANGE_NONE_LEVEL),
+            "Choose what to do with event integer values in {DATA} which exceed bitmask. \
+             Pass {error} to emit error, {warn} to emit \
+             warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
+             warning, and {trunc_silent} to truncate with no warning.",
+            error = code_str(tc::OVERRANGE_ACTION_ERROR_LEVEL),
+            warn = code_str(tc::OVERRANGE_ACTION_WARN_LEVEL),
+            silent = code_str(tc::OVERRANGE_ACTION_SILENT_LEVEL),
+            trunc_warn = code_str(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = code_str(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
         );
-        let pt = PyLiteral::new_with_path(tc::CheckedRangeDatatypes::iter_str(), path);
-        Self::new_param(CHECKED_RANGE_DATATYPES, pt, d).def_auto()
+        let path = types_config_path("BitmaskTruncationMode");
+        let pt = PyLiteral::new_with_path(tc::BitmaskTruncationMode::iter_str(), path);
+        Self::new_param(n, pt, d).def_auto()
+    }
+
+    fn new_allow_over_bitmask() -> Self {
+        let n = "allow_over_bitmask";
+        let d =
+            format!("Choose how to report integer event values in {DATA} which exceed bitmask.");
+        let e = PyreflowError::EventData;
+        Self::new_tri_flag_param(n, true, "AllowOverBitmask", d, e)
     }
 
     fn new_disallow_over_range() -> Self {
         let n = "disallow_over_range";
-        let d = format!(
-            "Choose how to report event values in {DATA} which exceed {PNR}. \
-             This only has an effect if the column is checked \
-             according to {arg}.",
-            arg = arg(CHECKED_RANGE_DATATYPES),
-        );
+        let d = format!("Choose how to report event values in {DATA} which exceed {PNR}.");
         let e = PyreflowError::EventData;
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
     }
@@ -9425,11 +9437,9 @@ impl DocArgParam {
         let n = "over_range_action";
         let d = format!(
             "Choose what to do with event values in {DATA} which exceed {PNR}. \
-             This only has an effect if the column is checked \
-             according to {arg}. Pass {error} to emit error, {warn} to emit \
+             Pass {error} to emit error, {warn} to emit \
              warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
              warning, and {trunc_silent} to truncate with no warning.",
-            arg = arg(CHECKED_RANGE_DATATYPES),
             error = code_str(tc::OVERRANGE_ACTION_ERROR_LEVEL),
             warn = code_str(tc::OVERRANGE_ACTION_WARN_LEVEL),
             silent = code_str(tc::OVERRANGE_ACTION_SILENT_LEVEL),
@@ -10674,7 +10684,6 @@ const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 const BIG_OTHER: &str = "big_other";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
-const CHECKED_RANGE_DATATYPES: &str = "checked_range_datatypes";
 const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
 const OTHER_WIDTH: &str = "other_width";
 const UINT_RANGES: &str = "ranges";

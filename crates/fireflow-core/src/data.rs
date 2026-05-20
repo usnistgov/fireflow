@@ -6800,13 +6800,6 @@ struct EffectiveRange<T> {
     text_range: TextRange,
 }
 
-#[derive(Clone, Copy)]
-pub(crate) enum RangeCheckLevel {
-    Bitmask,
-    Range,
-    BitmaskAndRange,
-}
-
 #[derive(Debug, Clone, Copy)]
 enum ExceededRange {
     Bitmask,
@@ -6820,53 +6813,6 @@ pub enum TruncationMode {
     None,
     Truncate,
     ScanOnly,
-}
-
-impl<T> EffectiveRange<T> {
-    fn apply(&self, x: T, level: RangeCheckLevel) -> (T, Option<ExceededRange>)
-    where
-        T: PartialOrd + Copy,
-    {
-        match level {
-            RangeCheckLevel::BitmaskAndRange => self.apply_bitmask_and_range(x),
-            RangeCheckLevel::Bitmask => self.apply_bitmask(x),
-            RangeCheckLevel::Range => self.apply_range(x),
-        }
-    }
-
-    fn apply_range(&self, x: T) -> (T, Option<ExceededRange>)
-    where
-        T: PartialOrd + Copy,
-    {
-        if x > self.numeric_range {
-            return (self.numeric_range, Some(ExceededRange::Range));
-        }
-        (x, None)
-    }
-
-    fn apply_bitmask(&self, x: T) -> (T, Option<ExceededRange>)
-    where
-        T: PartialOrd + Copy,
-    {
-        let limit = self.bitmask.unwrap_or(self.numeric_range);
-        if x > limit {
-            (limit, Some(ExceededRange::Bitmask))
-        } else {
-            (x, None)
-        }
-    }
-
-    fn apply_bitmask_and_range(&self, x: T) -> (T, Option<ExceededRange>)
-    where
-        T: PartialOrd + Copy,
-    {
-        let (y, t0) = self.apply_bitmask(x);
-        if t0.is_some() {
-            return (y, t0.map(|_| ExceededRange::RangeAndBitmask));
-        }
-        // if not over bitmask, then check range
-        self.apply_range(x)
-    }
 }
 
 impl<T> ColumnSchemaAsRange for Bitmask<T>
@@ -6928,6 +6874,17 @@ pub(crate) trait CheckRange {
     ) -> Option<TruncatedResult>;
 }
 
+// General strategy: Find the max value in series and compare to the range or
+// bitmask. Based on this, possibly skip the more expensive loops that search
+// for the first overrange index and/or truncate.
+//
+// The max value subroutine should auto-vectorize on most machines, which makes
+// it very cheap. In practice this is ~3x faster than running one of the scan
+// loops with branching inside it that either flags an index or truncates. This
+// means that if a columns has at least a 33% chance of having no out of range
+// values, it is probabilistically worth using this max value shortcut. Even
+// within FCS files that have out of range values, in practice many of them will
+// be above this cutoff
 impl<C> CheckRange for NativeSeries<C>
 where
     C: Clone + ColumnHasNativeType + ColumnHasDatatype + ColumnSchemaAsRange,
@@ -6944,23 +6901,44 @@ where
         let rng = self.column_schema.as_range();
         let bf = bitmask_flag.is_error().is_some();
         let rf = range_flag.is_error().is_some();
-        let go = |_self, level| {
+
+        let scan = |limit, exceed| {
             self.series
                 .as_ref()
                 .iter()
                 .enumerate()
-                .find_map(|(rowi, x)| rng.apply(*x, level).1.map(|t| (rowi, t)))
+                .find_map(|(rowi, x)| (*x > limit).then_some((rowi, exceed)))
+        };
+        let check_scan = |limit, exceed| {
+            if self.series.max() > limit {
+                scan(limit, exceed)
+            } else {
+                None
+            }
         };
 
         let res = if dt == AlphaNumType::Integer {
+            let bitmask = rng.bitmask.expect("integer should have bitmask");
+            let int_upper = rng.numeric_range;
+            assert!(bitmask >= int_upper, "bitmask less than numeric range");
             match (bf, rf) {
-                (true, true) => go(self, RangeCheckLevel::BitmaskAndRange),
-                (true, false) => go(self, RangeCheckLevel::Bitmask),
-                (false, true) => go(self, RangeCheckLevel::Range),
+                (true, true) => {
+                    let m = self.series.max();
+                    if m > bitmask {
+                        scan(bitmask, ExceededRange::RangeAndBitmask)
+                    } else if m > int_upper {
+                        scan(int_upper, ExceededRange::Range)
+                    } else {
+                        None
+                    }
+                }
+                (true, false) => check_scan(bitmask, ExceededRange::Bitmask),
+                (false, true) => check_scan(int_upper, ExceededRange::Range),
                 (false, false) => None,
             }
         } else if rf {
-            go(self, RangeCheckLevel::Range)
+            assert!(rng.bitmask.is_none(), "non-int shouldn't have bitmask");
+            check_scan(rng.numeric_range, ExceededRange::Range)
         } else {
             None
         };
@@ -6975,23 +6953,38 @@ where
         bitmask_trunc: TruncationMode,
         range_trunc: TruncationMode,
     ) -> Option<TruncatedResult> {
-        let dt = self.column_schema.col_datatype();
-        let rng = self.column_schema.as_range();
-        let go_trunc = |self_: &mut Self, limit, exceed| {
+        let trunc = |self_: &mut Self, limit, exceed| {
             self_
                 .series
                 .truncate(limit)
                 .map(|rowi| (true, rowi, exceed))
         };
-        let go_scan = |self_: &Self, level| {
+        let scan = |self_: &Self, limit, exceed| {
             self_
                 .series
                 .as_ref()
                 .iter()
                 .enumerate()
-                .find_map(|(rowi, x)| rng.apply(*x, level).1.map(|t| (rowi, t)))
-                .map(|(rowi, t)| (false, rowi, t))
+                .find_map(|(rowi, x)| (*x > limit).then_some((false, rowi, exceed)))
         };
+        let check_trunc = |self_: &mut Self, limit, exceed| {
+            if self_.series.max() > limit {
+                trunc(self_, limit, exceed)
+            } else {
+                None
+            }
+        };
+        let check_scan = |self_: &Self, limit, exceed| {
+            if self_.series.max() > limit {
+                scan(self_, limit, exceed)
+            } else {
+                None
+            }
+        };
+
+        let dt = self.column_schema.col_datatype();
+        let rng = self.column_schema.as_range();
+
         let res = if dt == AlphaNumType::Integer {
             let bitmask = rng.bitmask.expect("integer should have bitmask");
             let int_upper = rng.numeric_range;
@@ -7000,20 +6993,15 @@ where
                 // If truncating to range, bitmask does not matter since range
                 // is less than bitmask, and anything less than range will be
                 // truncated anyways.
-                (_, TruncationMode::Truncate) => go_trunc(self, int_upper, ExceededRange::Range),
+                (_, TruncationMode::Truncate) => check_trunc(self, int_upper, ExceededRange::Range),
                 // Same as the error path in the first block
                 (TruncationMode::None, TruncationMode::ScanOnly) => {
-                    go_scan(self, RangeCheckLevel::Range)
+                    check_scan(self, int_upper, ExceededRange::Range)
                 }
                 // If higher than bitmask, truncate. If higher than range but
                 // lower than bitmask, emit msg to alert user.
                 (TruncationMode::Truncate, TruncationMode::ScanOnly) => {
-                    // Check the max value of the vector first. This loop is
-                    // very cheap since it should auto-vectorize.
-                    let m = self.series.as_ref().iter().fold(
-                        <<C as ColumnHasNativeType>::Native as FCSRepr>::Prim::min_value(),
-                        |x, y| if x > *y { x } else { *y },
-                    );
+                    let m = self.series.max();
                     if m > bitmask {
                         let ret = self.series.truncate_and_test(bitmask, int_upper);
                         ret.map(|(rowi, was_truncated)| {
@@ -7025,7 +7013,7 @@ where
                             (true, rowi, t)
                         })
                     } else if m > int_upper {
-                        go_scan(self, RangeCheckLevel::Range)
+                        scan(self, int_upper, ExceededRange::Range)
                     } else {
                         None
                     }
@@ -7033,14 +7021,21 @@ where
                 // Do not perform truncation but emit different messages
                 // depending on if bitmask or range was exceeded.
                 (TruncationMode::ScanOnly, TruncationMode::ScanOnly) => {
-                    go_scan(self, RangeCheckLevel::BitmaskAndRange)
+                    let m = self.series.max();
+                    if m > bitmask {
+                        scan(self, bitmask, ExceededRange::RangeAndBitmask)
+                    } else if m > int_upper {
+                        scan(self, int_upper, ExceededRange::Range)
+                    } else {
+                        None
+                    }
                 }
                 // repeat the non-int code block but only check the bitmask and
                 // pretend range does not exist.
                 (b, TruncationMode::None) => match b {
                     TruncationMode::None => None,
-                    TruncationMode::Truncate => go_trunc(self, bitmask, ExceededRange::Bitmask),
-                    TruncationMode::ScanOnly => go_scan(self, RangeCheckLevel::Bitmask),
+                    TruncationMode::Truncate => check_trunc(self, bitmask, ExceededRange::Bitmask),
+                    TruncationMode::ScanOnly => check_scan(self, bitmask, ExceededRange::Bitmask),
                 },
             }
         } else {
@@ -7048,8 +7043,8 @@ where
             assert!(rng.bitmask.is_none(), "non-int type shouldn't have bitmask");
             match range_trunc {
                 TruncationMode::None => None,
-                TruncationMode::Truncate => go_trunc(self, upper, ExceededRange::Range),
-                TruncationMode::ScanOnly => go_scan(self, RangeCheckLevel::Range),
+                TruncationMode::Truncate => check_trunc(self, upper, ExceededRange::Range),
+                TruncationMode::ScanOnly => check_scan(self, upper, ExceededRange::Range),
             }
         };
         res.map(|(truncated, rowi, t)| {

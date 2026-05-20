@@ -1160,14 +1160,6 @@ fn run() -> AppResult<()> {
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
 
-            // use std::time::Instant;
-            // let start = Instant::now();
-            // for _ in 0..10 {
-            //     let _ = fcs_read_std_datasets(filepath, skip, Some(1), &conf);
-            // }
-            // let duration = start.elapsed();
-            // eprintln!("Time elapsed is: {duration:?}");
-
             let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;

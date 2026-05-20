@@ -1223,6 +1223,16 @@ impl<T, Raw> InternalSeries<T, Raw> {
         unsafe { from_raw_parts(p, n) }
     }
 
+    /// Find max value in series.
+    pub(crate) fn max(&self) -> T
+    where
+        T: Bounded + Copy + PartialOrd,
+    {
+        self.as_ref()
+            .iter()
+            .fold(T::min_value(), |x, y| if x > *y { x } else { *y })
+    }
+
     pub(crate) fn truncate(&mut self, limit: T) -> Option<usize>
     where
         T: Copy + PartialOrd,

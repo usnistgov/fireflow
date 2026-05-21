@@ -40,6 +40,8 @@ jobs:
 
       - run: |
           make all-dev
+        env:
+          CARGO_INCREMENTAL: "0"
 
   test-msrv:
     name: test minimum supported rust version

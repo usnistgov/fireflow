@@ -1367,7 +1367,7 @@ impl OtherSegment20 {
 
         // Exit early if there are no valid chars or all bytes are null or space
         let valid_buf = if let Some(ne) = NESlice::try_from_slice(&buf[0..n_valid_bytes])
-            && !ne.iter().all(|&x| x == 0) | ne.iter().all(|&x| x == 32)
+            && !(ne.iter().all(|&x| x == 0) | ne.iter().all(|&x| x == 32))
         {
             ne
         } else {

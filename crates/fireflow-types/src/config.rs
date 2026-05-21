@@ -374,6 +374,7 @@ pub const OVER_LIMIT_ACTION_WARN_LEVEL: &NEStr = WARN_LEVEL;
 pub const OVER_LIMIT_ACTION_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
 pub const OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL: &NEStr = ne_str!("trunc_silent");
 pub const OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL: &NEStr = ne_str!("trunc_warn");
+pub const OVER_LIMIT_ACTION_NONE_LEVEL: &NEStr = NONE_LEVEL;
 
 impl_str_enum!(
     #[derive(Display)]
@@ -388,12 +389,15 @@ impl_str_enum!(
     Warn => OVER_LIMIT_ACTION_WARN_LEVEL,
     /// Error for values over limit.
     Error => OVER_LIMIT_ACTION_ERROR_LEVEL,
-    /// Do nothing.
+    /// Do not throw warning or error and do not truncate, report only in diagnostics.
     Silent => OVER_LIMIT_ACTION_SILENT_LEVEL,
     /// Truncate and throw warning.
     TruncateSilent => OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
     /// Truncate and throw warning.
-    TruncateWarn => OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL
+    TruncateWarn => OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
+    /// Do nothing. This will disable all scanning which will save CPU cycles.
+    None => OVER_LIMIT_ACTION_NONE_LEVEL
+
 );
 
 /// Choose what to do with values that exceed $PnR.
@@ -433,9 +437,9 @@ impl OverLimitAction {
     #[must_use]
     pub fn mode(&self) -> OverLimitMode {
         match self {
-            Self::Error | Self::Warn => OverLimitMode::ScanOnly,
+            Self::Error | Self::Warn | Self::Silent => OverLimitMode::ScanOnly,
             Self::TruncateSilent | Self::TruncateWarn => OverLimitMode::Truncate,
-            Self::Silent => OverLimitMode::None,
+            Self::None => OverLimitMode::None,
         }
     }
 }

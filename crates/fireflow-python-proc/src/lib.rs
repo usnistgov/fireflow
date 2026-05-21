@@ -9418,6 +9418,7 @@ impl DocArgParam {
             tc::OVER_LIMIT_ACTION_WARN_LEVEL,
             tc::OVER_LIMIT_ACTION_ERROR_LEVEL,
             tc::OVER_LIMIT_ACTION_SILENT_LEVEL,
+            tc::OVER_LIMIT_ACTION_NONE_LEVEL,
         ];
         let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
         Self::new_param(n, pt, d).def_auto()
@@ -9460,6 +9461,7 @@ impl DocArgParam {
             tc::OVER_LIMIT_ACTION_SILENT_LEVEL,
             tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
             tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
+            tc::OVER_LIMIT_ACTION_NONE_LEVEL,
         ];
         let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
         Self::new_param(n, pt, d).def_auto()

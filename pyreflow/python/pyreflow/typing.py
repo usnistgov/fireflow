@@ -231,5 +231,5 @@ AllowHeaderTextOffsetMismatch: TypeAlias = Literal[
 CheckedRangeDatatypes: TypeAlias = Literal["bitmask_only", "int_only", "all", "none"]
 
 OverLimitAction: TypeAlias = Literal[
-    "error", "warn", "silent", "trunc_warn", "trunc_silent"
+    "error", "warn", "silent", "trunc_warn", "trunc_silent", "none"
 ]

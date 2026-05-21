@@ -1280,7 +1280,9 @@ impl DummyTriFlag {
         let f = match x {
             OverLimitAction::Error => TriFlag::False,
             OverLimitAction::Warn | OverLimitAction::TruncateWarn => TriFlag::True,
-            OverLimitAction::Silent | OverLimitAction::TruncateSilent => TriFlag::Silent,
+            OverLimitAction::Silent | OverLimitAction::TruncateSilent | OverLimitAction::None => {
+                TriFlag::Silent
+            }
         };
         f.into()
     }

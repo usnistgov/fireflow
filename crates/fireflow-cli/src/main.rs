@@ -832,36 +832,36 @@ fn run() -> AppResult<()> {
         format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
     );
 
-    let bitmask_truncate_mode = Arg::new(BITMASK_TRUNCATE_MODE)
-        .long(BITMASK_TRUNCATE_MODE)
+    let over_bitmask_action = Arg::new(OVER_BITMASK_ACTION)
+        .long(OVER_BITMASK_ACTION)
         .value_name("WHICH")
-        .value_parser(value_parser!(tc::BitmaskTruncationMode))
+        .value_parser(value_parser!(tc::OverBitmaskAction))
         .help(format!(
             "Choose how to handle integer values in {data_seg} to exceed bitmask. \
              Pass {error} to emit error, {warn} to emit warning, {silent} to do \
              nothing, {trunc_warn} to truncate and emit warning, and \
              {trunc_silent} to truncate with no warning.",
-            error = fmt_val(tc::OVERRANGE_ACTION_ERROR_LEVEL),
-            warn = fmt_val(tc::OVERRANGE_ACTION_WARN_LEVEL),
-            silent = fmt_val(tc::OVERRANGE_ACTION_SILENT_LEVEL),
-            trunc_warn = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
+            error = fmt_val(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
+            warn = fmt_val(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
+            silent = fmt_val(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
+            trunc_warn = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
     let over_range_action = Arg::new(OVER_RANGE_ACTION)
         .long(OVER_RANGE_ACTION)
         .value_name("ACTION")
-        .value_parser(value_parser!(tc::OverRangeAction))
+        .value_parser(value_parser!(tc::OverLimitAction))
         .help(format!(
             "Choose how to handle values in {data_seg} to exceed {pn_r}. Pass \
              {error} to emit error, {warn} to emit warning, {silent} to do \
              nothing, {trunc_warn} to truncate and emit warning, and \
              {trunc_silent} to truncate with no warning.",
-            error = fmt_val(tc::OVERRANGE_ACTION_ERROR_LEVEL),
-            warn = fmt_val(tc::OVERRANGE_ACTION_WARN_LEVEL),
-            silent = fmt_val(tc::OVERRANGE_ACTION_SILENT_LEVEL),
-            trunc_warn = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = fmt_val(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
+            error = fmt_val(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
+            warn = fmt_val(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
+            silent = fmt_val(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
+            trunc_warn = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
     let row_buffer_size = Arg::new(ROW_BUFFER_SIZE)
@@ -879,7 +879,7 @@ fn run() -> AppResult<()> {
     let all_read_dataset_args = [
         allow_uneven_event_width,
         allow_tot_mismatch,
-        bitmask_truncate_mode,
+        over_bitmask_action,
         over_range_action,
         row_buffer_size,
     ];
@@ -1482,8 +1482,8 @@ fn get_events_config(s: &ArgMatches) -> cfg::ReadEventsConfig {
     get_opt(s, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
         c.allow_uneven_event_width = x;
     });
-    get_opt(s, BITMASK_TRUNCATE_MODE, |x| {
-        c.bitmask_truncation_mode = x;
+    get_opt(s, OVER_BITMASK_ACTION, |x| {
+        c.over_bitmask_action = x;
     });
     get_opt(s, OVER_RANGE_ACTION, |x| c.over_range_action = x);
     get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
@@ -1955,7 +1955,7 @@ const DISALLOW_RANGE_TRUNCATION: &str = "disallow-range-truncation";
 
 const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
 
-const BITMASK_TRUNCATE_MODE: &str = "bitmask-truncate-mode";
+const OVER_BITMASK_ACTION: &str = "over-bitmask-action";
 
 const OVER_RANGE_ACTION: &str = "over-range-action";
 

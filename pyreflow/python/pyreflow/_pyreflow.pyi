@@ -859,8 +859,8 @@ class _CoreDatasetGetSetMeas(Generic[_T, _O]):
     def unset_data(self) -> None: ...
     def check_ranges(
         self,
-        bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-        over_range_action: pft.OverRangeAction = "warn",
+        over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+        over_range_action: pft.OverLimitAction = "warn",
     ) -> list[int | None]: ...
     data: DataFrame
     def set_measurements_and_data(
@@ -1555,8 +1555,8 @@ class CoreDataset2_0(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-        over_range_action: pft.OverRangeAction = "warn",
+        over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+        over_range_action: pft.OverLimitAction = "warn",
         row_buffer_size: int = 28000,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1674,8 +1674,8 @@ class CoreDataset3_0(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-        over_range_action: pft.OverRangeAction = "warn",
+        over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+        over_range_action: pft.OverLimitAction = "warn",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1809,8 +1809,8 @@ class CoreDataset3_1(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-        over_range_action: pft.OverRangeAction = "warn",
+        over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+        over_range_action: pft.OverLimitAction = "warn",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1946,8 +1946,8 @@ class CoreDataset3_2(
         data_remainder_limit: int = 0,
         allow_uneven_event_width: pft.TriFlag = "false",
         allow_tot_mismatch: pft.TriFlag = "false",
-        bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-        over_range_action: pft.OverRangeAction = "warn",
+        over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+        over_range_action: pft.OverLimitAction = "warn",
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -2631,8 +2631,8 @@ def fcs_read_flat_dataset(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-    over_range_action: pft.OverRangeAction = "warn",
+    over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+    over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2720,8 +2720,8 @@ def fcs_read_std_dataset(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-    over_range_action: pft.OverRangeAction = "warn",
+    over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+    over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2922,8 +2922,8 @@ def fcs_read_flat_datasets(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-    over_range_action: pft.OverRangeAction = "warn",
+    over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+    over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3012,8 +3012,8 @@ def fcs_read_std_datasets(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-    over_range_action: pft.OverRangeAction = "warn",
+    over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+    over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3044,8 +3044,8 @@ def fcs_read_flat_dataset_with_keywords(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-    over_range_action: pft.OverRangeAction = "warn",
+    over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+    over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3113,8 +3113,8 @@ def fcs_summarize(
     data_remainder_limit: int = 0,
     allow_uneven_event_width: pft.TriFlag = "false",
     allow_tot_mismatch: pft.TriFlag = "false",
-    bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn",
-    over_range_action: pft.OverRangeAction = "warn",
+    over_bitmask_action: pft.OverLimitAction = "trunc_warn",
+    over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,

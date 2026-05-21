@@ -31,11 +31,11 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, BitmaskTruncationMode, DelimEscapeMode, ForceLinearScale,
-    GuessOtherWidth, OverRangeAction, ProcessKeywordFailure, ProcessTemporalOpticalKeys,
-    ReadStrategy, RowBufferSize, SpilloverMeasurementMode, TemporalOpticalKey, TriFlag,
-    TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL, VERSION_LATEST_LEVEL,
-    VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
+    OverBitmaskAction, OverLimitAction, OverRangeAction, ProcessKeywordFailure,
+    ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize, SpilloverMeasurementMode,
+    TemporalOpticalKey, TriFlag, TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL,
+    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
 };
 use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
@@ -944,7 +944,7 @@ pub struct ReadEventsConfig {
     ///
     /// If 'true', throw error if integer is outside bitmask. If `false`
     /// truncate and throw warning. If `silent`, truncate with no warning.
-    pub bitmask_truncation_mode: BitmaskTruncationMode,
+    pub over_bitmask_action: OverBitmaskAction,
 
     /// How to handle overrange values.
     pub over_range_action: OverRangeAction,
@@ -1276,23 +1276,11 @@ impl DummyTriFlag {
         r.map(Into::into)
     }
 
-    pub(crate) fn from_over_range_action(x: OverRangeAction) -> Self {
+    pub(crate) fn from_over_limit_action(x: OverLimitAction) -> Self {
         let f = match x {
-            OverRangeAction::Error => TriFlag::False,
-            OverRangeAction::Warn | OverRangeAction::TruncateWarn => TriFlag::True,
-            OverRangeAction::Silent | OverRangeAction::TruncateSilent => TriFlag::Silent,
-        };
-        f.into()
-    }
-
-    // TODO not DRY
-    pub(crate) fn from_bitmask_trunc_mode(x: BitmaskTruncationMode) -> Self {
-        let f = match x {
-            BitmaskTruncationMode::Error => TriFlag::False,
-            BitmaskTruncationMode::Warn | BitmaskTruncationMode::TruncateWarn => TriFlag::True,
-            BitmaskTruncationMode::Silent | BitmaskTruncationMode::TruncateSilent => {
-                TriFlag::Silent
-            }
+            OverLimitAction::Error => TriFlag::False,
+            OverLimitAction::Warn | OverLimitAction::TruncateWarn => TriFlag::True,
+            OverLimitAction::Silent | OverLimitAction::TruncateSilent => TriFlag::Silent,
         };
         f.into()
     }

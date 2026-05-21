@@ -2,6 +2,7 @@ extern crate proc_macro;
 
 use fireflow_types::config::{self as tc, EnumStrIter as _};
 use fireflow_types::keywords as tk;
+use fireflow_types::nonempty_string::NEStr;
 use fireflow_types::python::{
     COL_TYPE_ASCII, COL_TYPE_F32, COL_TYPE_F64, ColumnType, IntegerWidth,
 };
@@ -3495,7 +3496,7 @@ pub fn impl_coredataset_check_ranges(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_checked("PyCoreDataset", &i);
 
-    let check_param = DocArg::new_bitmask_truncation_mode();
+    let check_param = DocArg::new_over_bitmask_action();
     let action_param = DocArg::new_over_range_action();
 
     let exc = PyException::new_data_loss();
@@ -8576,7 +8577,7 @@ impl DocArgParam {
             Self::new_data_remainder_limit_param(),
             Self::new_allow_uneven_event_width_param(),
             Self::new_allow_tot_mismatch_param(),
-            Self::new_bitmask_truncation_mode(),
+            Self::new_over_bitmask_action(),
             Self::new_over_range_action(),
             Self::new_row_buffer_size(true),
         ];
@@ -9395,26 +9396,30 @@ impl DocArgParam {
         Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
     }
 
-    fn new_bitmask_truncation_mode() -> Self {
-        // let n = "disallow_bitmask_truncation";
-        // let d = "Choose how to deal with bitmasks for integers.";
-        // let e = PyreflowError::EventData;
-        // Self::new_tri_flag_param(n, false, "DisallowBitmaskTruncation", d, e)
-
-        let n = "bitmask_truncation_mode";
+    fn new_over_bitmask_action() -> Self {
+        let n = "over_bitmask_action";
         let d = format!(
             "Choose what to do with event integer values in {DATA} which exceed bitmask. \
              Pass {error} to emit error, {warn} to emit \
              warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
              warning, and {trunc_silent} to truncate with no warning.",
-            error = code_str(tc::OVERRANGE_ACTION_ERROR_LEVEL),
-            warn = code_str(tc::OVERRANGE_ACTION_WARN_LEVEL),
-            silent = code_str(tc::OVERRANGE_ACTION_SILENT_LEVEL),
-            trunc_warn = code_str(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = code_str(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
+            error = code_str(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
+            warn = code_str(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
+            silent = code_str(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
+            trunc_warn = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         );
-        let path = types_config_path("BitmaskTruncationMode");
-        let pt = PyLiteral::new_with_path(tc::BitmaskTruncationMode::iter_str(), path);
+        let path = types_config_path("OverBitmaskAction");
+        // explicitly spell out options here since the default is not
+        // set at the inner type level
+        let options = [
+            tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
+            tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
+            tc::OVER_LIMIT_ACTION_WARN_LEVEL,
+            tc::OVER_LIMIT_ACTION_ERROR_LEVEL,
+            tc::OVER_LIMIT_ACTION_SILENT_LEVEL,
+        ];
+        let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -9440,14 +9445,23 @@ impl DocArgParam {
              Pass {error} to emit error, {warn} to emit \
              warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
              warning, and {trunc_silent} to truncate with no warning.",
-            error = code_str(tc::OVERRANGE_ACTION_ERROR_LEVEL),
-            warn = code_str(tc::OVERRANGE_ACTION_WARN_LEVEL),
-            silent = code_str(tc::OVERRANGE_ACTION_SILENT_LEVEL),
-            trunc_warn = code_str(tc::OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = code_str(tc::OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL),
+            error = code_str(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
+            warn = code_str(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
+            silent = code_str(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
+            trunc_warn = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
+            trunc_silent = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         );
         let path = types_config_path("OverRangeAction");
-        let pt = PyLiteral::new_with_path(tc::OverRangeAction::iter_str(), path);
+        // explicitly spell out options here since the default is not
+        // set at the inner type level
+        let options = [
+            tc::OVER_LIMIT_ACTION_WARN_LEVEL,
+            tc::OVER_LIMIT_ACTION_ERROR_LEVEL,
+            tc::OVER_LIMIT_ACTION_SILENT_LEVEL,
+            tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
+            tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
+        ];
+        let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
         Self::new_param(n, pt, d).def_auto()
     }
 

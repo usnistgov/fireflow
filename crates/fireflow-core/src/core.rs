@@ -122,7 +122,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
 use fireflow_types::config::{
-    BitmaskTruncationMode, IncludeReqOrOpt, IncludeRootOrMeas, OverRangeAction,
+    IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
 };
 use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
@@ -6266,7 +6266,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     /// If `truncate` is `true`, truncate events in place if they exceed $PnR.
     pub fn check_ranges(
         &mut self,
-        disallow_bitmask_trunc: BitmaskTruncationMode,
+        disallow_bitmask_trunc: OverBitmaskAction,
         over_range_action: OverRangeAction,
     ) -> WarningsAndGroupResult<
         Vec<Option<usize>>,

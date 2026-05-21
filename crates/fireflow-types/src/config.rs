@@ -2,7 +2,7 @@ use crate::ne_str;
 use crate::nonempty_string::NEStr;
 
 use const_format::formatcp;
-use derive_more::{Display, Into};
+use derive_more::{Display, FromStr, Into};
 use thiserror::Error;
 
 use std::str::FromStr;
@@ -369,60 +369,74 @@ impl_config_flag!(
     Guess   => SPILLOVER_GUESS_LEVEL
 );
 
-pub const OVERRANGE_ACTION_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
-pub const OVERRANGE_ACTION_WARN_LEVEL: &NEStr = WARN_LEVEL;
-pub const OVERRANGE_ACTION_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
-pub const OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL: &NEStr = ne_str!("trunc_silent");
-pub const OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL: &NEStr = ne_str!("trunc_warn");
+pub const OVER_LIMIT_ACTION_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
+pub const OVER_LIMIT_ACTION_WARN_LEVEL: &NEStr = WARN_LEVEL;
+pub const OVER_LIMIT_ACTION_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
+pub const OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL: &NEStr = ne_str!("trunc_silent");
+pub const OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL: &NEStr = ne_str!("trunc_warn");
 
-impl_config_flag!(
-    /// How to handle overrange values in DATA.
-    pub OverRangeAction,
-    /// Error when parsing [`OverRangeAction`] from [`String`]
-    pub OverRangeActionError,
-    /// Warn for overrange values.
-    Warn => OVERRANGE_ACTION_WARN_LEVEL,
-    /// Error for overrange values.
-    Error => OVERRANGE_ACTION_ERROR_LEVEL,
+impl_str_enum!(
+    #[derive(Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    pub OverLimitAction,
+    /// Error when parsing [`OverLimitAction`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub OverLimitActionError,
+    /// Warn for values over limit
+    Warn => OVER_LIMIT_ACTION_WARN_LEVEL,
+    /// Error for values over limit.
+    Error => OVER_LIMIT_ACTION_ERROR_LEVEL,
     /// Do nothing.
-    Silent => OVERRANGE_ACTION_SILENT_LEVEL,
-    /// Truncateand throw warnnig.
-    TruncateSilent => OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL,
-    /// Truncateand throw warnnig.
-    TruncateWarn => OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL
+    Silent => OVER_LIMIT_ACTION_SILENT_LEVEL,
+    /// Truncate and throw warning.
+    TruncateSilent => OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
+    /// Truncate and throw warning.
+    TruncateWarn => OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL
 );
 
-// NOTE this has the same options as OverRangeAction but a different default
-// since integers should be clipped to bitmask by default
-impl_config_flag!(
-    /// Choose how to truncate integers to their bitmask.
-    pub BitmaskTruncationMode,
-    /// Error when parsing [`BitmaskTruncationMode`] from [`String`]
-    pub BitmaskTruncationModeError,
-    /// Truncateand throw warnnig.
-    TruncateWarn => OVERRANGE_ACTION_TRUNCATE_WARN_LEVEL,
-    /// Warn for overrange values.
-    Warn => OVERRANGE_ACTION_WARN_LEVEL,
-    /// Error for overrange values.
-    Error => OVERRANGE_ACTION_ERROR_LEVEL,
-    /// Do nothing.
-    Silent => OVERRANGE_ACTION_SILENT_LEVEL,
-    /// Truncateand throw warnnig.
-    TruncateSilent => OVERRANGE_ACTION_TRUNCATE_SILENT_LEVEL
-);
+/// Choose what to do with values that exceed $PnR.
+#[derive(Display, FromStr, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+pub struct OverRangeAction(pub OverLimitAction);
 
-impl OverRangeAction {
-    #[must_use]
-    pub fn is_truncate(&self) -> bool {
-        matches!(self, Self::TruncateWarn | Self::TruncateSilent)
+impl Default for OverRangeAction {
+    fn default() -> Self {
+        Self(OverLimitAction::Warn)
     }
 }
 
-// TODO not dry, combine
-impl BitmaskTruncationMode {
+/// Choose what to do with integer values that exceed their bitmask set by $PnR.
+#[derive(Display, FromStr, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+pub struct OverBitmaskAction(pub OverLimitAction);
+
+impl Default for OverBitmaskAction {
+    fn default() -> Self {
+        Self(OverLimitAction::TruncateWarn)
+    }
+}
+
+/// The action that will be used to deal with values that exceed a range.
+#[derive(Debug, Clone, Copy)]
+pub enum OverLimitMode {
+    /// Do nothing.
+    None,
+    /// Truncate values that are over and emit warning or error
+    Truncate,
+    /// Scan for values that are over and emit warning or error.
+    ScanOnly,
+}
+
+impl OverLimitAction {
     #[must_use]
-    pub fn is_truncate(&self) -> bool {
-        matches!(self, Self::TruncateWarn | Self::TruncateSilent)
+    pub fn mode(&self) -> OverLimitMode {
+        match self {
+            Self::Error | Self::Warn => OverLimitMode::ScanOnly,
+            Self::TruncateSilent | Self::TruncateWarn => OverLimitMode::Truncate,
+            Self::Silent => OverLimitMode::None,
+        }
     }
 }
 

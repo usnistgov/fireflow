@@ -2637,13 +2637,13 @@ class TestCore:
         df2 = pl.DataFrame([pl.Series("unnamed", [100000], dtype=pl.UInt32)])
 
         def go(
-            b: pt.OverRangeAction,
-            r: pt.OverRangeAction,
+            b: pt.OverLimitAction,
+            r: pt.OverLimitAction,
             res: list[None | int],
             val: int,
         ) -> None:
             cd.data = df2
-            out = cd.check_ranges(bitmask_truncation_mode=b, over_range_action=r)
+            out = cd.check_ranges(over_bitmask_action=b, over_range_action=r)
             assert out == res
             assert cd.data[0, 0] == val
 
@@ -2724,18 +2724,16 @@ class TestCore:
         df2 = pl.DataFrame([pl.Series("unnamed", [100000], dtype=pl.Float32)])
 
         def go(
-            c: pt.OverRangeAction,
-            a: pt.OverRangeAction,
+            c: pt.OverLimitAction,
+            a: pt.OverLimitAction,
             res: list[None | int],
             val: int,
         ) -> None:
             cd.data = df2
-            assert (
-                cd.check_ranges(bitmask_truncation_mode=c, over_range_action=a) == res
-            )
+            assert cd.check_ranges(over_bitmask_action=c, over_range_action=a) == res
             assert cd.data[0, 0] == val
 
-        all_over: list[pt.OverRangeAction] = [
+        all_over: list[pt.OverLimitAction] = [
             "silent",
             "warn",
             "trunc_warn",
@@ -6127,7 +6125,7 @@ class TestConfig:
     ) -> None:
         """Test $PnR truncation on read (int case).
 
-        This will test two flags: bitmask_truncation_mode and over_range_action.
+        This will test two flags: over_bitmask_action and over_range_action.
 
         Together they control how/when values in DATA are truncated according to
         $PnR.
@@ -6148,12 +6146,12 @@ class TestConfig:
         )
 
         def go(
-            f: pt.OverRangeAction,
-            g: pt.OverRangeAction,
+            f: pt.OverLimitAction,
+            g: pt.OverLimitAction,
         ) -> tuple[list[tuple[int, bool] | None], int]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                bitmask_truncation_mode=f,
+                over_bitmask_action=f,
                 over_range_action=g,
             )
             c = out.dataset.events_diagnostics.overrange_columns
@@ -6224,7 +6222,7 @@ class TestConfig:
     ) -> None:
         """Test range truncation on read (float case).
 
-        This will test two flags: bitmask_truncation_mode and over_range_action.
+        This will test two flags: over_bitmask_action and over_range_action.
 
         Together they control how/when values in DATA are truncated according to
         $PnR. The former should have no effect since there is no bitmask for
@@ -6249,16 +6247,16 @@ class TestConfig:
         )
 
         def go(
-            f: pt.OverRangeAction, g: pt.OverRangeAction
+            f: pt.OverLimitAction, g: pt.OverLimitAction
         ) -> list[tuple[int, bool] | None]:
             out = pf.api.fcs_read_flat_dataset(
                 p,
-                bitmask_truncation_mode=f,
+                over_bitmask_action=f,
                 over_range_action=g,
             )
             return out.dataset.events_diagnostics.overrange_columns
 
-        all_over: list[pt.OverRangeAction] = [
+        all_over: list[pt.OverLimitAction] = [
             "silent",
             "warn",
             "trunc_warn",

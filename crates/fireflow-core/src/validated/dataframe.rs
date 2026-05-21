@@ -4,11 +4,12 @@
 //! internal types, (f32, f64, all unsigned int widths 1-8 bytes).
 
 use crate::config::{AllowOverBitmask, DisallowOverRange};
-use crate::data::{CheckRange, EventOverRangeError, TruncatedResult, TruncationMode};
+use crate::data::{CheckRange, EventOverRangeError, TruncatedResult};
 use crate::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use ambassador::{Delegate, delegatable_trait};
+use fireflow_types::config::OverLimitMode;
 use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
 use bytemuck::cast_vec;
@@ -1116,8 +1117,8 @@ impl<C> DataFrame<C> {
 
     pub(crate) fn check_ranges_mut(
         &mut self,
-        trunc_bitmask: TruncationMode,
-        trunc_range: TruncationMode,
+        trunc_bitmask: OverLimitMode,
+        trunc_range: OverLimitMode,
     ) -> Vec<Option<TruncatedResult>>
     where
         C: CheckRange,

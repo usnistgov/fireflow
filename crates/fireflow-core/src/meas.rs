@@ -52,7 +52,7 @@ use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::keys::{IndexedKey as _, Key1, NonStdKeywords, StdKey, StdKeywords};
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::config::{BitmaskTruncationMode, OverRangeAction, TemporalOpticalKey};
+use fireflow_types::config::{OverBitmaskAction, OverRangeAction, TemporalOpticalKey};
 use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2,
 };
@@ -3971,13 +3971,13 @@ where
 
     pub(crate) fn check_ranges(
         &mut self,
-        bitmask: BitmaskTruncationMode,
-        action: OverRangeAction,
+        bitmask: OverBitmaskAction,
+        range: OverRangeAction,
     ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
     {
         // This mutates range values which do not have to be kept in sync, so
         // no consistency checks are required.
-        self.data.check_ranges_mut(bitmask, action)
+        self.data.check_ranges_mut(bitmask, range)
     }
 
     pub(crate) fn set_dataframe_schema(

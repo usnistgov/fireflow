@@ -121,8 +121,8 @@ class _ReadEventsConfig(BaseModel):
     data_remainder_limit: int = 0
     allow_uneven_event_width: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_tot_mismatch: pft.TriFlag = _DEFAULT_TRIFLAG
-    bitmask_truncation_mode: pft.OverRangeAction = "trunc_warn"
-    over_range_action: pft.OverRangeAction = "warn"
+    over_bitmask_action: pft.OverLimitAction = "trunc_warn"
+    over_range_action: pft.OverLimitAction = "warn"
     row_buffer_size: int = 28000
 
 

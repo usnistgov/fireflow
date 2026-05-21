@@ -166,7 +166,7 @@ use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
-use fireflow_types::config::{BitmaskTruncationMode, OverRangeAction};
+use fireflow_types::config::{OverBitmaskAction, OverLimitMode, OverRangeAction};
 use fireflow_types::nonempty_string::DisplayableNE as _;
 use nonempty_collections::NESlice;
 use type_families::{
@@ -1917,7 +1917,7 @@ where
                     .map_commutative_warnings(ReadCheckedDataframeWarning::from)
                     .and_then_commutative(|mut res| {
                         // check dataframe ranges (if configured)
-                        let trunc = conf.bitmask_truncation_mode;
+                        let trunc = conf.over_bitmask_action;
                         let flag = conf.over_range_action;
                         res.dataframe
                             .check_ranges_mut(trunc, flag)
@@ -5440,8 +5440,8 @@ pub trait DataFrameCheckRanges {
 
     fn check_ranges_inner_mut(
         &mut self,
-        bitmask_trunc: TruncationMode,
-        range_trunc: TruncationMode,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
     ) -> Vec<Option<TruncatedResult>>;
 
     fn check_ranges(
@@ -5456,24 +5456,12 @@ pub trait DataFrameCheckRanges {
 
     fn check_ranges_mut(
         &mut self,
-        bitmask: BitmaskTruncationMode,
-        action: OverRangeAction,
+        bitmask: OverBitmaskAction,
+        range: OverRangeAction,
     ) -> WarningsAndErrorsResult<Vec<OverrangeColumn>, (), EventOverRangeError, EventOverRangeError>
     {
-        let bitmask_trunc = match bitmask {
-            BitmaskTruncationMode::Error | BitmaskTruncationMode::Warn => TruncationMode::ScanOnly,
-            BitmaskTruncationMode::TruncateSilent | BitmaskTruncationMode::TruncateWarn => {
-                TruncationMode::Truncate
-            }
-            BitmaskTruncationMode::Silent => TruncationMode::None,
-        };
-        let range_trunc = match action {
-            OverRangeAction::Error | OverRangeAction::Warn => TruncationMode::ScanOnly,
-            OverRangeAction::TruncateSilent | OverRangeAction::TruncateWarn => {
-                TruncationMode::Truncate
-            }
-            OverRangeAction::Silent => TruncationMode::None,
-        };
+        let bitmask_trunc = bitmask.0.mode();
+        let range_trunc = range.0.mode();
 
         let rs = self.check_ranges_inner_mut(bitmask_trunc, range_trunc);
         let overrange = rs
@@ -5481,8 +5469,8 @@ pub trait DataFrameCheckRanges {
             .map(|r| r.as_ref().map(TruncatedResult::as_col))
             .collect();
 
-        let bitmask_flag = DummyTriFlag::from_bitmask_trunc_mode(bitmask).is_error();
-        let action_flag = DummyTriFlag::from_over_range_action(action).is_error();
+        let bitmask_flag = DummyTriFlag::from_over_limit_action(bitmask.0).is_error();
+        let action_flag = DummyTriFlag::from_over_limit_action(range.0).is_error();
 
         let mut errors = vec![];
         let mut warnings = vec![];
@@ -5526,8 +5514,8 @@ where
 
     fn check_ranges_inner_mut(
         &mut self,
-        bitmask_trunc: TruncationMode,
-        range_trunc: TruncationMode,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
     ) -> Vec<Option<TruncatedResult>> {
         self.container.check_ranges_mut(bitmask_trunc, range_trunc)
     }
@@ -6807,14 +6795,6 @@ enum ExceededRange {
     RangeAndBitmask,
 }
 
-// TODO docme
-#[derive(Debug, Clone, Copy)]
-pub enum TruncationMode {
-    None,
-    Truncate,
-    ScanOnly,
-}
-
 impl<T> ColumnSchemaAsRange for Bitmask<T>
 where
     Self: ColumnHasNativeType<Native = T> + Into<TextRange>,
@@ -6869,8 +6849,8 @@ pub(crate) trait CheckRange {
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: TruncationMode,
-        range_trunc: TruncationMode,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
     ) -> Option<TruncatedResult>;
 }
 
@@ -6950,8 +6930,8 @@ where
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: TruncationMode,
-        range_trunc: TruncationMode,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
     ) -> Option<TruncatedResult> {
         let trunc = |self_: &mut Self, limit, exceed| {
             self_
@@ -6959,6 +6939,9 @@ where
                 .truncate(limit)
                 .map(|rowi| (true, rowi, exceed))
         };
+        // TODO this loop can be slightly simpler by finding the max value
+        // itself by equality rather than using PartialOrd, which might be
+        // faster since we know the value is present already.
         let scan = |self_: &Self, limit, exceed| {
             self_
                 .series
@@ -6985,6 +6968,8 @@ where
         let dt = self.column_schema.col_datatype();
         let rng = self.column_schema.as_range();
 
+        // TODO there are additional shortcuts to be taken if bitmask and range
+        // are the same, which is most of the time.
         let res = if dt == AlphaNumType::Integer {
             let bitmask = rng.bitmask.expect("integer should have bitmask");
             let int_upper = rng.numeric_range;
@@ -6993,14 +6978,14 @@ where
                 // If truncating to range, bitmask does not matter since range
                 // is less than bitmask, and anything less than range will be
                 // truncated anyways.
-                (_, TruncationMode::Truncate) => check_trunc(self, int_upper, ExceededRange::Range),
+                (_, OverLimitMode::Truncate) => check_trunc(self, int_upper, ExceededRange::Range),
                 // Same as the error path in the first block
-                (TruncationMode::None, TruncationMode::ScanOnly) => {
+                (OverLimitMode::None, OverLimitMode::ScanOnly) => {
                     check_scan(self, int_upper, ExceededRange::Range)
                 }
                 // If higher than bitmask, truncate. If higher than range but
                 // lower than bitmask, emit msg to alert user.
-                (TruncationMode::Truncate, TruncationMode::ScanOnly) => {
+                (OverLimitMode::Truncate, OverLimitMode::ScanOnly) => {
                     let m = self.series.max();
                     if m > bitmask {
                         let ret = self.series.truncate_and_test(bitmask, int_upper);
@@ -7020,7 +7005,7 @@ where
                 }
                 // Do not perform truncation but emit different messages
                 // depending on if bitmask or range was exceeded.
-                (TruncationMode::ScanOnly, TruncationMode::ScanOnly) => {
+                (OverLimitMode::ScanOnly, OverLimitMode::ScanOnly) => {
                     let m = self.series.max();
                     if m > bitmask {
                         scan(self, bitmask, ExceededRange::RangeAndBitmask)
@@ -7032,19 +7017,19 @@ where
                 }
                 // repeat the non-int code block but only check the bitmask and
                 // pretend range does not exist.
-                (b, TruncationMode::None) => match b {
-                    TruncationMode::None => None,
-                    TruncationMode::Truncate => check_trunc(self, bitmask, ExceededRange::Bitmask),
-                    TruncationMode::ScanOnly => check_scan(self, bitmask, ExceededRange::Bitmask),
+                (b, OverLimitMode::None) => match b {
+                    OverLimitMode::None => None,
+                    OverLimitMode::Truncate => check_trunc(self, bitmask, ExceededRange::Bitmask),
+                    OverLimitMode::ScanOnly => check_scan(self, bitmask, ExceededRange::Bitmask),
                 },
             }
         } else {
             let upper = rng.numeric_range;
             assert!(rng.bitmask.is_none(), "non-int type shouldn't have bitmask");
             match range_trunc {
-                TruncationMode::None => None,
-                TruncationMode::Truncate => check_trunc(self, upper, ExceededRange::Range),
-                TruncationMode::ScanOnly => check_scan(self, upper, ExceededRange::Range),
+                OverLimitMode::None => None,
+                OverLimitMode::Truncate => check_trunc(self, upper, ExceededRange::Range),
+                OverLimitMode::ScanOnly => check_scan(self, upper, ExceededRange::Range),
             }
         };
         res.map(|(truncated, rowi, t)| {
@@ -7067,8 +7052,8 @@ impl CheckRange for VariableUintSeries {
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: TruncationMode,
-        range_trunc: TruncationMode,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
     ) -> Option<TruncatedResult> {
         match_any_uint!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
     }
@@ -7087,8 +7072,8 @@ impl CheckRange for MixedSeries {
     fn check_range_mut(
         &mut self,
         i: MeasIndex,
-        bitmask_trunc: TruncationMode,
-        range_trunc: TruncationMode,
+        bitmask_trunc: OverLimitMode,
+        range_trunc: OverLimitMode,
     ) -> Option<TruncatedResult> {
         match_any_datatype!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
     }

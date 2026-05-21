@@ -47,7 +47,6 @@ py-check-env: pyreflow/.venv
 
 .PHONY: build-dev
 build-dev: pyreflow/.venv
-	cargo clean
 	$(build_dev)
 
 .PHONY: build-prod

@@ -57,7 +57,7 @@ use fireflow_types::nonempty_string::{
 use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
 
 use ambassador::Delegate;
-use bigdecimal::{BigDecimal, ParseBigDecimalError};
+use bigdecimal::{BigDecimal, ParseBigDecimalError, Signed as _};
 use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use derive_new::new;
@@ -2469,16 +2469,16 @@ macro_rules! try_from_range_int {
                     error_kind,
                 };
                 if let Some(y) = x.$to().and_then(|y| y.try_into().ok()) {
-                    if x.fractional_digit_count() <= 0 && y <= <$inttype as Bounded>::max_value() {
+                    if x.fractional_digit_count() <= 0 {
                         Ok(y)
                     } else {
                         Err(err(RangeToIntErrorKind::PrecisionLoss(y)))
                     }
                 } else {
-                    if BigDecimal::from(<$inttype as Bounded>::max_value()) < *x {
-                        Err(err(RangeToIntErrorKind::Overrange))
-                    } else {
+                    if x.is_negative() {
                         Err(err(RangeToIntErrorKind::Underrange))
+                    } else {
+                        Err(err(RangeToIntErrorKind::Overrange))
                     }
                 }
             }

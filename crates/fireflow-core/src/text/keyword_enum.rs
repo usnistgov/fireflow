@@ -676,13 +676,6 @@ impl<'a> OptOpticalKeyword<'a> {
     }
 }
 
-impl OptTemporalKeyword<'_> {
-    pub(crate) fn from_timestep(x: kws::Timestep) -> Self {
-        let ret = SplitKeyword::new(DKey0::default(), x);
-        Self::from(ret)
-    }
-}
-
 impl Keyword0FromValue<'_> for OffsetKeyword {}
 impl<'a> Keyword0FromValue<'a> for ReqRootKeyword<'a> {}
 impl<'a> Keyword0FromValue<'a> for OptRootKeyword<'a> {}
@@ -1062,6 +1055,11 @@ impl OptScaledOpticalKeyword<'_> {
 }
 
 impl OptTemporalKeyword<'_> {
+    pub(crate) fn from_timestep(x: kws::Timestep) -> Self {
+        let ret = SplitKeyword::new(DKey0::default(), x);
+        Self::from(ret)
+    }
+
     pub(crate) fn as_loss_error(&self) -> Option<AnyTemporalKeyLossError> {
         let ret = match self {
             Self::TemporalType(kw) => KeyLossError(kw.key).into(),

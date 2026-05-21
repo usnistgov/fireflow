@@ -7654,11 +7654,8 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
     {
         let n = seg.len();
         let w = self.event_width().usize_to_u64();
-        if w == 0 {
-            LogResult::new_err(EventWidthError::from(ZeroEventWidthError::new(n)))
-        } else {
+        if let Some(total_events) = n.checked_div(w) {
             let limit = conf.data_remainder_limit;
-            let total_events = n / w;
             let remainder = n % w;
             let out = ComputedRowsResult::new(total_events, w, remainder);
             // If within remainder limit, truncate offset and return without
@@ -7673,6 +7670,8 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
             SwitchableErrorResult::new_switchable_ok_if3(is_ok, out, (), e, flag)
                 .switchable_into_non_commutative()
                 .map_errors(EventWidthError::from)
+        } else {
+            LogResult::new_err(EventWidthError::from(ZeroEventWidthError::new(n)))
         }
     }
 

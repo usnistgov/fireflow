@@ -616,7 +616,7 @@ fn run() -> AppResult<()> {
 
     let allow_other_feature = override_flag_arg(
         ALLOW_OTHER_FEATURE,
-        format!("Allow {pnfeature} to be a value other than \"Area\", \"Width\", or \"Height\"",),
+        format!("Allow {pnfeature} to be a value other than \"Area\", \"Width\", or \"Height\""),
     );
 
     let process_pseudostandard = proc_kw_fail_arg(
@@ -676,7 +676,7 @@ fn run() -> AppResult<()> {
     let time_pattern = opt_arg::<TimePattern>(
         TIME_PATTERN,
         "PATTERN",
-        format!("Pattern to match {btim}/{etim} keywords. See {time_header}.",),
+        format!("Pattern to match {btim}/{etim} keywords. See {time_header}."),
     );
 
     let datetime_pattern = opt_arg::<String>(

@@ -3902,11 +3902,10 @@ impl KeywordOptimizer {
                 RootKeywordClass::Mode => {
                     let m = value
                         .parse::<Mode>()
-                        .map(|m| match m {
+                        .map_or(ModeValue::Missing, |m| match m {
                             Mode::List => ModeValue::List,
                             _ => ModeValue::Other,
-                        })
-                        .unwrap_or(ModeValue::Missing);
+                        });
                     self.mode_value = m;
                 }
                 RootKeywordClass::Byteord => {

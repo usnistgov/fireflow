@@ -50,7 +50,7 @@ use std::marker::PhantomData;
 use std::vec;
 
 #[cfg(feature = "python")]
-use fireflow_core_proc::AllIntoPyErr;
+use {fireflow_core_proc::AllIntoPyErr, pyo3::prelude::*, std::fmt::Display};
 
 // NOTE many of these are commented out because they are not used (for now);
 // however, keeping them here helps reveal the overall pattern of how
@@ -1210,6 +1210,17 @@ impl<V, WC> Success<V, (), WC> {
     fn set_flag<X>(self, flag: X) -> Success<V, X, WC> {
         Success::new(self.value, flag, self.warnings)
     }
+
+    #[cfg(feature = "python")]
+    pub fn py_resolve_warnings<W>(self) -> PyResult<V>
+    where
+        WC: IntoIterator<Item = W>,
+        W: Display,
+    {
+        let (value, warn) = self.resolve(python::emit_warnings);
+        warn?;
+        Ok(value)
+    }
 }
 
 //
@@ -2007,6 +2018,18 @@ impl<V, WC, E> CommutativeResult<V, (), WC, E, Nothing<E>> {
             }
             Fail(e) => (f_warnings(e.warnings), Err(f_errors(e.errors.head))),
         }
+    }
+
+    #[cfg(feature = "python")]
+    pub fn py_resolve_commutative<W>(self) -> PyResult<V>
+    where
+        WC: IntoIterator<Item = W>,
+        W: Display,
+        E: Into<PyErr>,
+    {
+        let (warn, res) = self.resolve_commutative(python::emit_warnings, Into::into);
+        warn?;
+        res
     }
 }
 
@@ -3297,7 +3320,7 @@ pub(crate) use io_to_log;
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{CommutativeResult, ErrorGroup, IOErrorGroup, NonCommutativeResult, Success};
+    use super::{ErrorGroup, IOErrorGroup, NonCommutativeResult};
 
     use crate::text::optional::Nothing;
 
@@ -3348,19 +3371,6 @@ mod python {
         }
     }
 
-    impl<V, WC, E> CommutativeResult<V, (), WC, E, Nothing<E>> {
-        pub fn py_resolve_commutative<W>(self) -> PyResult<V>
-        where
-            WC: IntoIterator<Item = W>,
-            W: Display,
-            E: Into<PyErr>,
-        {
-            let (warn, res) = self.resolve_commutative(emit_warnings, Into::into);
-            warn?;
-            res
-        }
-    }
-
     impl<V, WC, E> NonCommutativeResult<V, (), WC, E, Nothing<E>> {
         pub fn py_resolve_non_commutative<W>(self) -> PyResult<V>
         where
@@ -3374,19 +3384,7 @@ mod python {
         }
     }
 
-    impl<V, WC> Success<V, (), WC> {
-        pub fn py_resolve_warnings<W>(self) -> PyResult<V>
-        where
-            WC: IntoIterator<Item = W>,
-            W: Display,
-        {
-            let (value, warn) = self.resolve(emit_warnings);
-            warn?;
-            Ok(value)
-        }
-    }
-
-    fn emit_warnings<W>(ws: impl IntoIterator<Item = W>) -> PyResult<()>
+    pub fn emit_warnings<W>(ws: impl IntoIterator<Item = W>) -> PyResult<()>
     where
         W: Display,
     {

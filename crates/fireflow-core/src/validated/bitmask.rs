@@ -139,9 +139,9 @@ impl<T> Bitmask<T> {
     where
         T: Bounded + Shr<usize, Output = T> + Into<u64> + Copy + TryFrom<u64> + FCSRepr,
     {
-        T::try_from(value)
-            .map(|x| (Self::from_native(BitmaskValue(x)), false))
-            .unwrap_or((Self::max(), true))
+        T::try_from(value).map_or((Self::max(), true), |x| {
+            (Self::from_native(BitmaskValue(x)), false)
+        })
     }
 
     fn max() -> Self

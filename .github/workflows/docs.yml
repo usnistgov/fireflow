@@ -20,7 +20,7 @@ jobs:
       - name: Install graphviz
         run: sudo apt install -y graphviz
 
-      - uses: dtolnay/rust-toolchain@1.93.0
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - uses: Swatinem/rust-cache@v2.9.1
 

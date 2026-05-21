@@ -1158,7 +1158,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let hyper_gate = DocArgROIvar::new_ivar_ro(
         "hyper_gate",
         PyDict::new_std_keywords(),
-        format!("Gating keywords which are part of the standard but have an index outside {GATE}.",),
+        format!("Gating keywords which are part of the standard but have an index outside {GATE}."),
         |_, _| quote!(self.0.hyper_gate.clone()),
     );
 
@@ -2375,7 +2375,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         let (rt, rd) = if has_timestep {
             (
                 PyOpt::new1(PyFloat::new_timestep()).into(),
-                format!("Value of {TIMESTEP} if time measurement was present.",),
+                format!("Value of {TIMESTEP} if time measurement was present."),
             )
         } else {
             (
@@ -3204,7 +3204,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
         )
     };
     let no_kws =
-        format!("Must not contain any {PN_ANY} keywords not indexed by {PAR} or {other_kws}.",);
+        format!("Must not contain any {PN_ANY} keywords not indexed by {PAR} or {other_kws}.");
 
     let std_param = DocArg::new_param(
         "std",
@@ -4791,7 +4791,7 @@ fn make_gate_region(path: &Path, is_uni: bool) -> TokenStream {
         )
     };
 
-    let summary = format!("Make a new FCS {summary_version}-compatible {region_name} region",);
+    let summary = format!("Make a new FCS {summary_version}-compatible {region_name} region");
 
     let index_arg = DocArg::new_ivar_ro("index", index_pytype, index_desc, |_, _| {
         quote!(self.0.index)
@@ -10040,7 +10040,7 @@ impl<R> fmt::Display for PyAtom<R> {
             Self::PyClass(x) => x.fmt(f),
             Self::Union(x0, x1, xs) => {
                 let s = [&*(*x0), &*(*x1)].into_iter().chain(xs.iter()).join(" | ");
-                write!(f, "{s}",)
+                write!(f, "{s}")
             }
         }
     }

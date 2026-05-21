@@ -1185,6 +1185,24 @@ impl<I> TEXTSegment<I> {
             });
         Segment::new(inner)
     }
+
+    pub(crate) fn keywords(&self) -> [OffsetKeyword; 2]
+    where
+        I: KeyedSegment,
+        I::B: From<UintZeroPad20>,
+        I::E: From<UintZeroPad20>,
+        OffsetKeyword: From<SplitKeyword0<I::B>> + From<SplitKeyword0<I::E>>,
+    {
+        let i = self.inner;
+        let (b, e) = match i {
+            InnerSegment::Empty => (UintZeroPad20::zero(), UintZeroPad20::zero()),
+            InnerSegment::NonEmpty(x) => (x.begin, x.end),
+        };
+        [
+            OffsetKeyword::from_value(I::B::from(b)),
+            OffsetKeyword::from_value(I::E::from(e)),
+        ]
+    }
 }
 
 // ASSUME the display trait for the inner type will render with the
@@ -1596,26 +1614,6 @@ impl OtherSegment20 {
         } else {
             Err(GuessOtherWidthError::NoWidth)
         }
-    }
-}
-
-impl<I> TEXTSegment<I> {
-    pub(crate) fn keywords(&self) -> [OffsetKeyword; 2]
-    where
-        I: KeyedSegment,
-        I::B: From<UintZeroPad20>,
-        I::E: From<UintZeroPad20>,
-        OffsetKeyword: From<SplitKeyword0<I::B>> + From<SplitKeyword0<I::E>>,
-    {
-        let i = self.inner;
-        let (b, e) = match i {
-            InnerSegment::Empty => (UintZeroPad20::zero(), UintZeroPad20::zero()),
-            InnerSegment::NonEmpty(x) => (x.begin, x.end),
-        };
-        [
-            OffsetKeyword::from_value(I::B::from(b)),
-            OffsetKeyword::from_value(I::E::from(e)),
-        ]
     }
 }
 

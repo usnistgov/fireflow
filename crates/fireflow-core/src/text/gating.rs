@@ -274,8 +274,8 @@ impl<I> AppliedGatesPre3_2<I> {
         let n = gated_measurements.len();
         if let Some(xs) = scheme
             .regions
-            .iter()
-            .flat_map(|(_, r)| r.indices())
+            .values()
+            .flat_map(|r| r.indices())
             .copied()
             .flat_map(GateIndex::try_from)
             .filter(|&i| usize::from(i) >= n)

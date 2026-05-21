@@ -484,8 +484,8 @@ macro_rules! impl_functor_once {
 impl_functor_once!(Option, self, f, self.map(f));
 impl_functor!(Vec, self, f, self.into_iter().map(f).collect());
 
-impl<K: Eq + Hash, A, S: Default + BuildHasher> Functor<A> for HashMap<K, A, S> {
-    fn fmap<F: FnMut(A) -> B, B>(self, mut f: F) -> HashMap<K, B, S> {
+impl<K: Eq + Hash, X, S: Default + BuildHasher> Functor<X> for HashMap<K, X, S> {
+    fn fmap<F: FnMut(X) -> Y, Y>(self, mut f: F) -> HashMap<K, Y, S> {
         self.into_iter().map(|(k, v)| (k, f(v))).collect()
     }
 }

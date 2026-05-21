@@ -43,6 +43,18 @@ jobs:
         env:
           CARGO_INCREMENTAL: "0"
 
+      - name: Diagnose pyreflow build
+        if: failure() && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          Get-ChildItem target\debug\deps\libfireflow_python-*.rlib | Format-List Name,Length,LastWriteTime
+          # Rlibs are AR archives — lib.exe can list members:
+          $rlib = Get-ChildItem target\debug\deps\libfireflow_python-*.rlib | Select-Object -First 1
+          & "${env:VCINSTALLDIR}Tools\MSVC\*\bin\HostX64\x64\lib.exe" /list $rlib.FullName 2>&1 | Select-Object -First 50
+          # Re-run the build verbosely to catch warnings cargo swallowed:
+          cargo build -v -p pyreflow --features pyo3/extension-module 2>&1 | Select-String -Pattern "warning|error|truncated|bigobj|section" | Select-Object -First 200
+
+
   test-msrv:
     name: test minimum supported rust version
 

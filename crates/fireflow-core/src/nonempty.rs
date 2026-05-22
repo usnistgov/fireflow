@@ -25,12 +25,13 @@ mod python {
     use pyo3::prelude::*;
 
     // NOTE this is only used for keywords that cannot be an empty list
-    impl<'py, T> FromPyObject<'py> for FcsNEVec<T>
+    impl<'py, T> FromPyObject<'_, 'py> for FcsNEVec<T>
     where
-        T: FromPyObject<'py>,
+        T: FromPyObjectOwned<'py>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<T> = ob.extract()?;
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<T> = obj.extract()?;
             if let Ok(ys) = NEVec::try_from(xs) {
                 Ok(ys.into())
             } else {

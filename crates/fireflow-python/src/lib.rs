@@ -420,13 +420,14 @@ struct PyAppliedGates3_0(gating::AppliedGates3_0);
 #[derive(From, Into, Default)]
 struct PyAppliedGates3_2(gating::AppliedGates3_2);
 
-impl<'py> FromPyObject<'py> for PyAppliedGates2_0 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for PyAppliedGates2_0 {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let (gated_measurements, regions, gating): (
             PyGatedMeasurements,
             PyRegionMapping<PyRegion2_0>,
             Option<kws::Gating>,
-        ) = ob.extract()?;
+        ) = obj.extract()?;
         let scheme = gating::GatingScheme::try_new(gating, regions.into())?;
         Ok(gating::AppliedGates2_0::try_new(gated_measurements.into(), scheme)?.into())
     }
@@ -448,13 +449,14 @@ impl<'py> IntoPyObject<'py> for PyAppliedGates2_0 {
     }
 }
 
-impl<'py> FromPyObject<'py> for PyAppliedGates3_0 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for PyAppliedGates3_0 {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let (gated_measurements, regions, gating): (
             PyGatedMeasurements,
             PyRegionMapping<PyRegion3_0>,
             Option<kws::Gating>,
-        ) = ob.extract()?;
+        ) = obj.extract()?;
         let scheme = gating::GatingScheme::try_new(gating, regions.into())?;
         Ok(gating::AppliedGates3_0::try_new(Vec::from(gated_measurements), scheme)?.into())
     }
@@ -476,10 +478,11 @@ impl<'py> IntoPyObject<'py> for PyAppliedGates3_0 {
     }
 }
 
-impl<'py> FromPyObject<'py> for PyAppliedGates3_2 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
+impl<'py> FromPyObject<'_, 'py> for PyAppliedGates3_2 {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
         let (regions, gating): (PyRegionMapping<PyRegion3_2>, Option<kws::Gating>) =
-            ob.extract()?;
+            obj.extract()?;
         Ok(gating::AppliedGates3_2::try_new(gating, regions.into())?.into())
     }
 }
@@ -517,16 +520,16 @@ type MeasElements<K, U, V, S> = Vec<Element<(sn::Shortname, U), (K, V, S)>>;
 
 struct PyEithers<K, U, V, S>(MeasElements<K, U, V, S>);
 
-impl<'py, K, U, V, S> FromPyObject<'py> for PyEithers<K, U, V, S>
+impl<'py, K, U, V, S> FromPyObject<'_, 'py> for PyEithers<K, U, V, S>
 where
-    V: FromPyObject<'py>,
-    U: FromPyObject<'py>,
-    S: FromPyObject<'py>,
-    K: FromPyObject<'py>,
+    for<'a> V: FromPyObject<'a, 'py>,
+    for<'a> U: FromPyObject<'a, 'py>,
+    for<'a> S: FromPyObject<'a, 'py>,
+    for<'a> K: FromPyObject<'a, 'py>,
 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let ret = ob.extract()?;
-        Ok(Self(ret))
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        obj.extract().map(Self)
     }
 }
 
@@ -582,12 +585,13 @@ where
 #[derive(IntoPyObject)]
 struct PyRegionMapping<R>(HashMap<RegionIndex, R>);
 
-impl<'py, R> FromPyObject<'py> for PyRegionMapping<R>
+impl<'py, R> FromPyObject<'_, 'py> for PyRegionMapping<R>
 where
-    R: FromPyObject<'py>,
+    for<'a> R: FromPyObject<'a, 'py>,
 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        let xs: HashMap<RegionIndex, R> = ob.extract()?;
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        let xs: HashMap<RegionIndex, R> = obj.extract()?;
         Ok(Self(xs))
     }
 }
@@ -917,14 +921,15 @@ impl<const LEN: usize> From<PyByteOrder<LEN>> for ArrayByteOrd<LEN> {
     }
 }
 
-impl<'py, const LEN: usize> FromPyObject<'py> for PyByteOrder<LEN>
+impl<'py, const LEN: usize> FromPyObject<'_, 'py> for PyByteOrder<LEN>
 where
     Vec<NonZeroU8>: TryInto<ArrayByteOrd<LEN>>,
 {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        if let Ok(e) = ob.extract::<Endian>() {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        if let Ok(e) = obj.extract::<Endian>() {
             Ok(Self::Endian(e))
-        } else if let Some(o) = ob
+        } else if let Some(o) = obj
             .extract::<Vec<NonZeroU8>>()
             .ok()
             .and_then(|xs| xs.try_into().ok())
@@ -1011,7 +1016,7 @@ impl<'py> IntoPyObject<'py> for PyFCSDataFrame {
             .collect();
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
-        PyDataFrame(pl::DataFrame::new(columns).unwrap()).into_pyobject(py)
+        PyDataFrame(pl::DataFrame::new_infer_height(columns).unwrap()).into_pyobject(py)
     }
 }
 
@@ -1027,15 +1032,17 @@ impl<'py> IntoPyObject<'py> for PyAnyFCSColumn {
     }
 }
 
-impl<'py> FromPyObject<'py> for PyFCSDataFrame {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(ob.extract::<PyDataFrame>()?.try_into()?)
+impl<'py> FromPyObject<'_, 'py> for PyFCSDataFrame {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        Ok(obj.extract::<PyDataFrame>()?.try_into()?)
     }
 }
 
-impl<'py> FromPyObject<'py> for PyAnyFCSColumn {
-    fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-        Ok(ob.extract::<PySeries>()?.try_into()?)
+impl<'py> FromPyObject<'_, 'py> for PyAnyFCSColumn {
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+        Ok(obj.extract::<PySeries>()?.try_into()?)
     }
 }
 
@@ -1044,8 +1051,8 @@ impl TryFrom<PyDataFrame> for PyFCSDataFrame {
 
     fn try_from(df: PyDataFrame) -> Result<Self, Self::Error> {
         let cs =
-            df.0.column_iter()
-                .map(|c| PySeries(c.as_materialized_series().clone()))
+            df.0.materialized_column_iter()
+                .map(|c| PySeries(c.clone()))
                 .map(PyAnyFCSColumn::try_from)
                 .collect::<Result<Vec<_>, _>>()?;
         // ASSUME this won't fail because all columns will have the same
@@ -1068,12 +1075,11 @@ impl TryFrom<PySeries> for PyAnyFCSColumn {
             if ser.null_count() > 0 {
                 Err(SeriesToColumnError::HasNull(ser.name().clone()))
             } else {
-                let chunks = ser.into_chunks();
-                // ASSUME this will never fail because
-                // FromPyObject<PySeries> will call rechunk. See
-                // https://github.com/pola-rs/polars/blob/f91c3a865aaea6dc92cad7bc75572f2c9dd23ac9/pyo3-polars/pyo3-polars/src/types.rs#L177
-                assert!(chunks.len() == 1, "Series has more than one chunk");
-                let buf = chunks[0]
+                let nchunks = ser.chunks().len();
+                if nchunks > 1 {
+                    return Err(SeriesToColumnError::MultiChunk(ser.name().clone(), nchunks));
+                }
+                let buf = ser.into_chunks()[0]
                     .as_any()
                     .downcast_ref::<PrimitiveArray<T>>()
                     .unwrap()
@@ -1152,16 +1158,20 @@ impl PyAnyFCSColumn {
 pub enum SeriesToColumnError {
     InvalidDatatype(pl::PlSmallStr, pl::DataType),
     HasNull(pl::PlSmallStr),
+    MultiChunk(pl::PlSmallStr, usize),
 }
 
 impl From<SeriesToColumnError> for PyErr {
     fn from(value: SeriesToColumnError) -> Self {
         let s = match value {
-            SeriesToColumnError::InvalidDatatype(n, t) => {
-                format!("Datatype must be u8/16/32/64 or f32/64, got {t} for series '{n}'")
+            SeriesToColumnError::InvalidDatatype(name, dtype) => {
+                format!("Datatype must be u8/16/32/64 or f32/64, got {dtype} for series '{name}'")
             }
-            SeriesToColumnError::HasNull(n) => {
-                format!("Series {n} contains null values which are not allowed")
+            SeriesToColumnError::HasNull(name) => {
+                format!("Series {name} contains null values which are not allowed")
+            }
+            SeriesToColumnError::MultiChunk(name, chunks) => {
+                format!("Series {name} contains {chunks} chunks and should only have one")
             }
         };
         EventDataError::new_err(s)
@@ -1222,6 +1232,6 @@ impl PyFCSDataFrame {
             .collect();
         // ASSUME this will not fail because all columns should have unique
         // names and the same length
-        pl::DataFrame::new(columns).unwrap()
+        pl::DataFrame::new_infer_height(columns).unwrap()
     }
 }

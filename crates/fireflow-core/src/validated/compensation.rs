@@ -139,9 +139,10 @@ mod python {
     use pyo3::prelude::*;
     use std::convert::Infallible;
 
-    impl<'py> FromPyObject<'py> for Compensation {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x: PyReadonlyArray2<f32> = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Compensation {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let x: PyReadonlyArray2<f32> = obj.extract()?;
             Ok(Self::try_from(x.as_array().into_owned())?)
         }
     }

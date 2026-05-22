@@ -597,12 +597,13 @@ mod python {
 
     use pyo3::prelude::*;
 
-    impl<'py, T, const IS_ETIM: bool> FromPyObject<'py> for Xtim<IS_ETIM, T>
+    impl<'a, 'py, T, const IS_ETIM: bool> FromPyObject<'a, 'py> for Xtim<IS_ETIM, T>
     where
-        T: FromPyObject<'py>,
+        T: FromPyObject<'a, 'py>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self(ob.extract::<T>()?))
+        type Error = T::Error;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            obj.extract::<T>().map(Self)
         }
     }
 }

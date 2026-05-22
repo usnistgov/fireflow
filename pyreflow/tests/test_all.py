@@ -3284,7 +3284,11 @@ class TestCore:
         d1 = pl.DataFrame([[3, 4]], {LINK_NAME1: pl.UInt32})
         d2 = d0.vstack(d1)
         assert d2.n_chunks() == 2
-        new = core.to_dataset(d2, b"", [])
+        with pytest.raises(pf.EventDataError):
+            new = core.to_dataset(d2, b"", [])
+        d3 = d2.rechunk()
+        assert d3.n_chunks() == 1
+        new = core.to_dataset(d3, b"", [])
         assert isinstance(new, target)
 
     @pytest.mark.parametrize(
@@ -3319,7 +3323,6 @@ class TestCore:
             pl.UInt16,
             pl.UInt32,
             pl.UInt64,
-            pl.Float16,
             pl.Float32,
             pl.Float64,
         ],

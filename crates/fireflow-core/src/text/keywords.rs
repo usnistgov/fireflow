@@ -4687,9 +4687,10 @@ mod python {
     // specifying the byteord in config
 
     // $BYTEORD is a list of integers
-    impl<'py> FromPyObject<'py> for ByteOrd2_0 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<NonZeroU8> = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for ByteOrd2_0 {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<NonZeroU8> = obj.extract()?;
             let ret = Self::try_from(&xs[..])?;
             Ok(ret)
         }
@@ -4712,12 +4713,13 @@ mod python {
     }
 
     // $PnE (2.0) as either () or (f32, f32) tuples in python
-    impl<'py> FromPyObject<'py> for Scale {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if ob.is_instance_of::<PyTuple>() && ob.len()? == 0 {
+    impl<'py> FromPyObject<'_, 'py> for Scale {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if obj.is_instance_of::<PyTuple>() && obj.len()? == 0 {
                 Ok(Self::Linear)
             } else {
-                let (decades, offset): (f32, f32) = ob.extract()?;
+                let (decades, offset): (f32, f32) = obj.extract()?;
                 let ret = Self::try_new_log(decades, offset)?;
                 Ok(ret)
             }
@@ -4738,9 +4740,10 @@ mod python {
     }
 
     // $PnCALIBRATION (3.1) as (f32, String) tuple in python
-    impl<'py> FromPyObject<'py> for Calibration3_1 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (slope, unit): (PositiveFloat, NEString) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Calibration3_1 {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (slope, unit): (PositiveFloat, NEString) = obj.extract()?;
             Ok(Self { slope, unit })
         }
     }
@@ -4756,9 +4759,10 @@ mod python {
     }
 
     // $PnCALIBRATION (3.2) as (f32, f32, String) tuple in python
-    impl<'py> FromPyObject<'py> for Calibration3_2 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (slope, offset, unit): (PositiveFloat, f32, NEString) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Calibration3_2 {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (slope, offset, unit): (PositiveFloat, f32, NEString) = obj.extract()?;
             Ok(Self {
                 slope,
                 offset,
@@ -4778,9 +4782,10 @@ mod python {
     }
 
     // $UNICODE (3.0) as a tuple like (f32, [String]) in python
-    impl<'py> FromPyObject<'py> for Unicode {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (page, kws): (u32, Vec<NEString>) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Unicode {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (page, kws): (u32, Vec<NEString>) = obj.extract()?;
             Ok(Self { page, kws })
         }
     }
@@ -4797,9 +4802,10 @@ mod python {
 
     // $PnD (3.1+) as a tuple like (bool, f32, f32) in python where 'bool' is true
     // if linear
-    impl<'py> FromPyObject<'py> for Display {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (is_log, x0, x1): (bool, f32, f32) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Display {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (is_log, x0, x1): (bool, f32, f32) = obj.extract()?;
             let ret = if is_log {
                 Self::Log {
                     offset: x0.try_into()?,
@@ -4830,9 +4836,10 @@ mod python {
     }
 
     // $TR as a tuple like (String, u32) in python
-    impl<'py> FromPyObject<'py> for Trigger {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (measurement, threshold): (Shortname, u32) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Trigger {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (measurement, threshold): (Shortname, u32) = obj.extract()?;
             Ok(Self {
                 measurement,
                 threshold,
@@ -4851,9 +4858,10 @@ mod python {
     }
 
     // unigate (for univariate gating regions) is a tuple pair of floats
-    impl<'py> FromPyObject<'py> for UniGate {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (lower, upper) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for UniGate {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (lower, upper) = obj.extract()?;
             Ok(Self { lower, upper })
         }
     }
@@ -4869,9 +4877,10 @@ mod python {
     }
 
     // vertex (for bivariate gating regions) is a tuple pair of floats
-    impl<'py> FromPyObject<'py> for Vertex {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (x, y) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Vertex {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (x, y) = obj.extract()?;
             Ok(Self { x, y })
         }
     }
@@ -4887,12 +4896,13 @@ mod python {
     }
 
     // index pairs are like python tuple pairs
-    impl<'py, I> FromPyObject<'py> for IndexPair<I>
+    impl<'a, 'py, I> FromPyObject<'a, 'py> for IndexPair<I>
     where
-        I: FromPyObject<'py>,
+        I: FromPyObject<'a, 'py>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (x, y) = ob.extract()?;
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            let (x, y) = obj.extract()?;
             Ok(Self { x, y })
         }
     }
@@ -4910,9 +4920,10 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for ScaleFix {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+    impl<'py> FromPyObject<'_, 'py> for ScaleFix {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Some((x, y)) = obj.extract::<Option<(NEString, NEString)>>()? {
                 match y.as_ref() {
                     SCALE_DIAGNOSTIC_LOG => Ok(Self::LogFixed(x)),
                     SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
@@ -4929,9 +4940,10 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for OpticalScaleFix {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+    impl<'py> FromPyObject<'_, 'py> for OpticalScaleFix {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Some((x, y)) = obj.extract::<Option<(NEString, NEString)>>()? {
                 match y.as_ref() {
                     SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
                     SCALE_DIAGNOSTIC_LOG => Ok(ScaleFix::LogFixed(x).into()),
@@ -4949,9 +4961,10 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for TemporalScaleFix {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = ob.extract::<Option<(NEString, NEString)>>()? {
+    impl<'py> FromPyObject<'_, 'py> for TemporalScaleFix {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Some((x, y)) = obj.extract::<Option<(NEString, NEString)>>()? {
                 match y.as_ref() {
                     TEMPORAL_SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
                     TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),

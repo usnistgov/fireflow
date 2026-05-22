@@ -8549,18 +8549,20 @@ mod python {
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
-    impl<'py, T> FromPyObject<'py> for FloatRange<T>
+    impl<'a, 'py, T> FromPyObject<'a, 'py> for FloatRange<T>
     where
-        FiniteFloat<T>: FromPyObject<'py>,
+        FiniteFloat<T>: FromPyObject<'a, 'py>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self::new(ob.extract::<FiniteFloat<T>>()?))
+        type Error = <FiniteFloat<T> as FromPyObject<'a, 'py>>::Error;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            obj.extract::<FiniteFloat<T>>().map(Self::new)
         }
     }
 
-    impl<'py> FromPyObject<'py> for VariableBitmask {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (width, value): (IntegerWidth, Bound<'py, PyAny>) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for VariableBitmask {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (width, value): (IntegerWidth, Bound<'py, PyAny>) = obj.extract()?;
             let ret = match width {
                 IntegerWidth::U08 => Self::Uint08(value.extract()?),
                 IntegerWidth::U16 => Self::Uint16(value.extract()?),
@@ -8594,9 +8596,10 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for MixedRange {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (ctype, value): (ColumnType, Bound<'py, PyAny>) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for MixedRange {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (ctype, value): (ColumnType, Bound<'py, PyAny>) = obj.extract()?;
             let ret = match ctype {
                 ColumnType::A => Self::Ascii(value.extract()?),
                 ColumnType::F32 => Self::F32(value.extract()?),

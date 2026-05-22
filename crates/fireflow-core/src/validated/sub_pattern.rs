@@ -158,9 +158,10 @@ mod python {
     use regex::Regex;
 
     // this is like (str, str, bool)
-    impl<'py> FromPyObject<'py> for SubPattern {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (r, to, global): (String, String, bool) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for SubPattern {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (r, to, global): (String, String, bool) = obj.extract()?;
             let from = r
                 .parse::<Regex>()
                 .map_err(|e| ConfigError::new_err(e.to_string()))?;

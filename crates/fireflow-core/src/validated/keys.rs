@@ -1671,14 +1671,15 @@ mod python {
     // TODO make FromStr and ToStr derive work for these, which will
     // in turn require than the bounds attributes get cleaned up
 
-    impl<'py, L> FromPyObject<'py> for LiteralOrPattern<L>
+    impl<'py, L> FromPyObject<'_, 'py> for LiteralOrPattern<L>
     where
         PyErr: From<LiteralOrPatternError<L::Err>>,
         L: FromStr,
         Self: FromStr<Err = LiteralOrPatternError<L::Err>>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(ob.extract::<String>()?.parse()?)
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            Ok(obj.extract::<String>()?.parse()?)
         }
     }
 

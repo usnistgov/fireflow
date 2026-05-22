@@ -52,9 +52,10 @@ mod python {
     use pyo3::prelude::*;
     use std::collections::HashMap;
 
-    impl<'py> FromPyObject<'py> for KeyStringPairs {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: HashMap<KeyString, KeyString> = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for KeyStringPairs {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let xs: HashMap<KeyString, KeyString> = obj.extract()?;
             let ret = xs.try_into()?;
             Ok(ret)
         }

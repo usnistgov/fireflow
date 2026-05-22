@@ -35,7 +35,7 @@ bytemuck = { workspace = true }
 fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
 ndarray = { workspace = true }
-polars-arrow = { workspace = true }
+polars-buffer = { workspace = true }
 nonempty-collections = { workspace = true }
 type_families = { path = "../type_families" }
 fireflow-core-proc = { path = "../fireflow-core-proc" }

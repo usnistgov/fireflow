@@ -12,7 +12,7 @@ rust-version = "1.89"
 
 [workspace.dependencies]
 regex = "1.12.3"
-chrono = "0.4.42"
+chrono = "0.4.41"
 itertools = "0.14.0"
 num_enum = "0.7.6"
 num-traits = "0.2.19"
@@ -27,7 +27,7 @@ unicase = "2.9.0"
 thiserror = "2.0.18"
 phf = "0.13.1"
 const_format = "0.2.36"
-hashbrown = "0.15.5"
+hashbrown = "0.16.1"
 bytemuck = "1.25.0"
 
 # serde
@@ -41,16 +41,17 @@ itoa = "1.0.18"
 zmij = "1.0.21"
 
 # polars
-polars = { version = "0.52.0", default-features = false, features = ["dtype-u8", "dtype-u16", "fmt"] }
-polars-core = { version = "0.52.0", default-features = false }
-polars-io = { version = "0.52.0", default-features = false }
-polars-compute = { version = "0.52.0", default-features = false }
-polars-arrow = { version = "0.52.0", default-features = false }
+polars = { version = "0.53.0", default-features = false, features = ["dtype-u8", "dtype-u16", "fmt"] }
+polars-core = { version = "0.53.0", default-features = false }
+polars-io = { version = "0.53.0", default-features = false }
+polars-compute = { version = "0.53.0", default-features = false }
+polars-arrow = { version = "0.53.0", default-features = false }
+polars-buffer = { version = "0.53.0", default-features = false }
 
 # pyo3
-pyo3 = { version = "0.26.0", default-features = false }
-numpy = "0.26"
-pyo3-polars = "0.25.0"
+pyo3 = { version = "0.27.2", default-features = false }
+numpy = "0.27"
+pyo3-polars = "0.26.0"
 
 # proc stuff
 syn = "2.0.117"

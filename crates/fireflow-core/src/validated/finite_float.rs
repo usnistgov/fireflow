@@ -266,12 +266,14 @@ mod python {
 
     use pyo3::prelude::*;
 
-    impl<'py, T> FromPyObject<'py> for FiniteFloat<T>
+    impl<'a, 'py, T> FromPyObject<'a, 'py> for FiniteFloat<T>
     where
-        T: FromPyObject<'py> + TryInto<Self, Error = FloatToFiniteFloatError>,
+        T: FromPyObject<'a, 'py> + TryInto<Self, Error = FloatToFiniteFloatError>,
+        PyErr: From<<T as FromPyObject<'a, 'py>>::Error>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x = ob.extract::<T>()?;
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            let x = obj.extract::<T>()?;
             Ok(x.try_into()?)
         }
     }

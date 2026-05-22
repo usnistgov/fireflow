@@ -668,9 +668,10 @@ mod python {
 
     // This is just a python integer 1-8. Thus far this is only used when
     // making data layouts.
-    impl<'py> FromPyObject<'py> for ArgBytes {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x = ob.extract::<u8>()?;
+    impl<'py> FromPyObject<'_, 'py> for ArgBytes {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let x = obj.extract::<u8>()?;
             Ok(Self(x.try_into().map_err(NewArgBytesError)?))
         }
     }
@@ -688,9 +689,10 @@ mod python {
     // on the python side, represent big and little endian with string literals
     // "big" and "little" (to avoid using a boolean for which the direction
     // of meaning is not obvious)
-    impl<'py> FromPyObject<'py> for Endian {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs = ob.extract::<String>()?;
+    impl<'py> FromPyObject<'_, 'py> for Endian {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let xs = obj.extract::<String>()?;
             match xs.as_str() {
                 BYTEORD_BIG => Ok(Self::Big),
                 BYTEORD_LITTLE => Ok(Self::Little),

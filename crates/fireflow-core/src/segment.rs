@@ -2133,9 +2133,10 @@ mod python {
     use pyo3::types::PyTuple;
 
     // offset corrections will be tuples like (int, int)
-    impl<'py, I, S> FromPyObject<'py> for OffsetCorrection<I, S> {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let t: (i32, i32) = ob.extract()?;
+    impl<'py, I, S> FromPyObject<'_, 'py> for OffsetCorrection<I, S> {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let t: (i32, i32) = obj.extract()?;
             Ok(Self::from(t))
         }
     }
@@ -2150,13 +2151,14 @@ mod python {
         }
     }
 
-    impl<'py, I, S, T> FromPyObject<'py> for Segment<I, S, T>
+    impl<'a, 'py, I, S, T> FromPyObject<'a, 'py> for Segment<I, S, T>
     where
-        T: FromPyObject<'py> + Zero + Ord,
+        T: FromPyObject<'a, 'py> + Zero + Ord,
         u64: From<T>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (begin, end): (T, T) = ob.extract()?;
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+            let (begin, end): (T, T) = obj.extract()?;
             let ret = if begin > end {
                 // Use ConfigError because these offsets will be supplied to
                 // functions which "configure" a reader to look in a certain
@@ -2194,9 +2196,10 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for UncorrectedSegment {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (begin, end): (i128, i128) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for UncorrectedSegment {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (begin, end): (i128, i128) = obj.extract()?;
             Ok(Self::new(begin, end))
         }
     }

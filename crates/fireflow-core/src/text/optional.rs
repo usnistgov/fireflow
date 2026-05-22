@@ -177,15 +177,20 @@ mod python {
     use pyo3::types::PyBool;
     use std::convert::Infallible;
 
-    impl<'py, T: FromPyObject<'py>> FromPyObject<'py> for Identity<T> {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self(ob.extract()?))
+    impl<'a, 'py, T> FromPyObject<'a, 'py> for Identity<T>
+    where
+        T: FromPyObject<'a, 'py>,
+    {
+        type Error = T::Error;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            obj.extract().map(Self)
         }
     }
 
-    impl<'py, T: Default> FromPyObject<'py> for OptionalZST<T> {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x: bool = ob.extract()?;
+    impl<'py, T: Default> FromPyObject<'_, 'py> for OptionalZST<T> {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let x: bool = obj.extract()?;
             Ok(Self(x.then_some(T::default())))
         }
     }

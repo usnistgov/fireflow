@@ -378,17 +378,19 @@ mod python {
 
     use std::convert::Infallible;
 
-    impl<'py> FromPyObject<'py> for OtherWidth {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x: u8 = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for OtherWidth {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let x: u8 = obj.extract()?;
             let y = x.try_into()?;
             Ok(y)
         }
     }
 
-    impl<'py> FromPyObject<'py> for FixedAsciiRange {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(ob.extract::<AsciiRangeValue>()?.into())
+    impl<'py> FromPyObject<'_, 'py> for FixedAsciiRange {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            Ok(obj.extract::<AsciiRangeValue>()?.into())
         }
     }
 

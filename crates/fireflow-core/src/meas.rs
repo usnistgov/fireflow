@@ -4255,11 +4255,12 @@ mod python {
     use pyo3::prelude::*;
 
     // $PnE/$PnG (3.0+) as a tuple like (f32) or (f32, f32) in python
-    impl<'py> FromPyObject<'py> for OpticalScale3_0 {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Ok(gain) = ob.extract::<PositiveFloat>() {
+    impl<'py> FromPyObject<'_, 'py> for OpticalScale3_0 {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(gain) = obj.extract::<PositiveFloat>() {
                 Ok(Self::Lin(gain))
-            } else if let Ok(log) = ob.extract::<(f32, f32)>() {
+            } else if let Ok(log) = obj.extract::<(f32, f32)>() {
                 Ok(Self::Log(log.try_into()?))
             } else {
                 Err(InvalidKeywordValueError::new_err(

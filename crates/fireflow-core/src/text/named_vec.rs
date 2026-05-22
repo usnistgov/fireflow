@@ -2069,17 +2069,18 @@ mod python {
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
 
-    impl<'py, V> FromPyObject<'py> for NonCenterElement<V>
+    impl<'a, 'py, V> FromPyObject<'a, 'py> for NonCenterElement<V>
     where
-        V: FromPyObject<'py>,
+        V: FromPyObject<'a, 'py>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if let Ok(t) = ob.downcast::<PyTuple>()
+        type Error = V::Error;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            if let Ok(t) = obj.cast::<PyTuple>()
                 && t.is_empty()
             {
                 return Ok(Self(Element::Center(())));
             }
-            Ok(Self(Element::NonCenter(ob.extract::<V>()?)))
+            Ok(Self(Element::NonCenter(obj.extract::<V>()?)))
         }
     }
 }

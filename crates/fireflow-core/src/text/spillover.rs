@@ -439,9 +439,10 @@ mod python {
     use numpy::{IntoPyArray as _, PyReadonlyArray2};
     use pyo3::{prelude::*, types::PyTuple};
 
-    impl<'py> FromPyObject<'py> for Spillover {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let (measurements, arr): (Vec<Shortname>, PyReadonlyArray2<f32>) = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for Spillover {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (measurements, arr): (Vec<Shortname>, PyReadonlyArray2<f32>) = obj.extract()?;
             let matrix = arr.as_array().into_owned();
             Ok(Self::try_new(measurements, matrix)?)
         }

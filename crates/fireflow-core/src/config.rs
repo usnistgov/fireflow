@@ -1819,9 +1819,10 @@ mod python {
 
     impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
 
-    impl<'py> FromPyObject<'py> for TemporalOpticalKeys {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<_> = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for TemporalOpticalKeys {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<_> = obj.extract()?;
             Ok(Self(xs.into_iter().collect()))
         }
     }
@@ -1838,12 +1839,13 @@ mod python {
 
     // Don't use FromStr for this because it is more natural in Python to use
     // None for "not set"; FromStr maps None to "NoTime"
-    impl<'py> FromPyObject<'py> for TimeMeasNamePattern {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if ob.is_none() {
+    impl<'py> FromPyObject<'_, 'py> for TimeMeasNamePattern {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if obj.is_none() {
                 Ok(Self(None))
             } else {
-                let s: String = ob.extract()?;
+                let s: String = obj.extract()?;
                 let r = s
                     .parse::<Regex>()
                     .map_err(|e| ConfigError::new_err(e.to_string()))?;
@@ -1862,12 +1864,13 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for NonStdMeasPatternOpt {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            if ob.is_none() {
+    impl<'py> FromPyObject<'_, 'py> for NonStdMeasPatternOpt {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if obj.is_none() {
                 Ok(Self(None))
             } else {
-                let s: String = ob.extract()?;
+                let s: String = obj.extract()?;
                 Ok(Self(Some(s.parse::<NonStdMeasPattern>()?)))
             }
         }
@@ -1883,9 +1886,10 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'py> for KeyPatterns {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let xs: Vec<KeyStringOrPattern> = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for KeyPatterns {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let xs: Vec<KeyStringOrPattern> = obj.extract()?;
             Ok(Self(xs.into_iter().map(|x| (x, ())).collect()))
         }
     }
@@ -1902,9 +1906,10 @@ mod python {
 
     type _SubPattern = HashMap<String, SubPattern>;
 
-    impl<'py> FromPyObject<'py> for SubPatterns {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            Ok(Self(ob.extract::<HashMap<_, _>>()?))
+    impl<'py> FromPyObject<'_, 'py> for SubPatterns {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            Ok(Self(obj.extract::<HashMap<_, _>>()?))
         }
     }
 

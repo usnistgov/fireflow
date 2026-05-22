@@ -16,7 +16,7 @@ use bytemuck::cast_vec;
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use num_traits::{AsPrimitive, Bounded, Float};
-use polars_arrow::buffer::Buffer;
+use polars_buffer::buffer::Buffer;
 use thiserror::Error;
 
 use std::marker::PhantomData;
@@ -843,7 +843,7 @@ where
     Buffer<X>: From<Vec<X>>,
 {
     let mut err = None;
-    let mut inner = buf.make_mut();
+    let mut inner = buf.into_mut().right_or_else(Buffer::to_vec);
     for (i, x) in inner.iter_mut().enumerate() {
         let res = Y::from_value(x);
         if res.lossy {
@@ -1238,7 +1238,9 @@ impl<T, Raw> InternalSeries<T, Raw> {
     where
         T: Copy + PartialOrd,
     {
-        let mut xs = mem::take(&mut self.inner).make_mut();
+        let mut xs = mem::take(&mut self.inner)
+            .into_mut()
+            .right_or_else(Buffer::to_vec);
         let mut ret = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
             if *x > limit {
@@ -1261,7 +1263,9 @@ impl<T, Raw> InternalSeries<T, Raw> {
     where
         T: Copy + PartialOrd,
     {
-        let mut xs = mem::take(&mut self.inner).make_mut();
+        let mut xs = mem::take(&mut self.inner)
+            .into_mut()
+            .right_or_else(Buffer::to_vec);
         let mut ret = None;
         for (rowi, x) in xs.iter_mut().enumerate() {
             if *x <= lower {

@@ -44,7 +44,7 @@ pub struct Bitmask<T> {
 #[derive(PartialEq, Clone, Copy, Debug, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
-#[cfg_attr(feature = "python", bound(T: FromPyObject<'py>))]
+#[cfg_attr(feature = "python", bound(T: FromPyObject<'a, 'py, Error = PyErr>))]
 pub struct BitmaskValue<T>(pub T);
 
 pub type Bitmask08 = Bitmask<u8>;
@@ -226,15 +226,14 @@ mod python {
     use super::{Bitmask, BitmaskValue};
 
     use num_traits::Bounded;
-    use pyo3::conversion::FromPyObjectBound;
     use pyo3::prelude::*;
 
     use std::fmt::Display;
     use std::ops::Shr;
 
-    impl<'py, T> FromPyObject<'py> for super::Bitmask<T>
+    impl<'a, 'py, T> FromPyObject<'a, 'py> for super::Bitmask<T>
     where
-        for<'a> T: FromPyObjectBound<'a, 'py>
+        T: FromPyObject<'a, 'py>
             + Display
             + Into<u64>
             + FCSRepr
@@ -242,8 +241,9 @@ mod python {
             + Copy
             + Shr<usize, Output = T>,
     {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x = ob.extract::<T>()?;
+        type Error = T::Error;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> Result<Self, Self::Error> {
+            let x = obj.extract::<T>()?;
             Ok(Self::from_native(BitmaskValue(x)))
         }
     }

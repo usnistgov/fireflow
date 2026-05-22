@@ -120,9 +120,10 @@ mod python {
     use pyo3::types::PyInt;
     use std::convert::Infallible;
 
-    impl<'py> FromPyObject<'py> for IndexFromOne {
-        fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
-            let x: usize = ob.extract()?;
+    impl<'py> FromPyObject<'_, 'py> for IndexFromOne {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let x: usize = obj.extract()?;
             Ok(x.into())
         }
     }

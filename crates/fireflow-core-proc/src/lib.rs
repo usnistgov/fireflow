@@ -281,12 +281,13 @@ pub fn derive_from_py_transparent(input: TokenStream) -> TokenStream {
     let bounds = parse_bounds(&parsed);
 
     let ret = quote! {
-        impl<'py, #(#gen_idents),*> pyo3::conversion::FromPyObject<'py> for #name<#(#gen_idents),*>
+        impl<'a, 'py, #(#gen_idents),*> pyo3::conversion::FromPyObject<'a, 'py> for #name<#(#gen_idents),*>
         where
             #(#bounds),*
         {
-            fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-                Ok(Self(pyo3::prelude::PyAnyMethods::extract(ob)?))
+            type Error = pyo3::PyErr;
+            fn extract(obj: pyo3::Borrowed<'a, 'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+                Ok(Self(pyo3::conversion::FromPyObject::<'_, 'py>::extract(obj)?))
             }
         }
     };
@@ -341,9 +342,11 @@ pub fn derive_from_py_via_fromstr(input: TokenStream) -> TokenStream {
     let name = &parsed.ident;
 
     let ret = quote! {
-        impl<'py> pyo3::conversion::FromPyObject<'py> for #name {
-            fn extract_bound(ob: &pyo3::Bound<'py, pyo3::types::PyAny>) -> pyo3::PyResult<Self> {
-                let x: String = pyo3::prelude::PyAnyMethods::extract(ob)?;
+        impl<'py> pyo3::conversion::FromPyObject<'_, 'py> for #name {
+            type Error = pyo3::PyErr;
+
+            fn extract(obj: pyo3::Borrowed<'_, 'py, pyo3::types::PyAny>) -> pyo3::PyResult<Self> {
+                let x: String = pyo3::conversion::FromPyObject::<'_, 'py>::extract(obj)?;
                 let ret = x.parse()?;
                 Ok(ret)
             }
@@ -379,9 +382,10 @@ pub fn derive_try_from_py(input: TokenStream) -> TokenStream {
     };
 
     let ret = quote! {
-        impl<'py> pyo3::FromPyObject<'py> for #name {
-            fn extract_bound(ob: &pyo3::Bound<'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
-                let x: #inner = pyo3::prelude::PyAnyMethods::extract(ob)?;
+        impl<'py> pyo3::conversion::FromPyObject<'_, 'py> for #name {
+            type Error = pyo3::PyErr;
+            fn extract(obj: pyo3::Borrowed<'_, 'py, pyo3::PyAny>) -> pyo3::PyResult<Self> {
+                let x: #inner = pyo3::conversion::FromPyObject::<'_, 'py>::extract(obj)?;
                 let y = x.try_into()?;
                 Ok(y)
             }

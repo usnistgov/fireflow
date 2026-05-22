@@ -34,18 +34,18 @@ hashbrown = { workspace = true }
 bytemuck = { workspace = true }
 fireflow-types = { path = "../fireflow-types" }
 serde = { workspace = true, features = ["derive"], optional = true }
-nalgebra = { workspace = true, features = ["std"] }
+ndarray = { workspace = true }
 polars-arrow = { workspace = true }
 nonempty-collections = { workspace = true }
 type_families = { path = "../type_families" }
 fireflow-core-proc = { path = "../fireflow-core-proc" }
 pyo3 = { workspace = true, optional = true }
-numpy = { workspace = true, features = ["nalgebra"], optional = true }
+numpy = { workspace = true, optional = true }
 
 [features]
 serde = [
     "dep:serde",
-    "nalgebra/serde-serialize",
+    "ndarray/serde",
     "bigdecimal/serde",
     "chrono/serde",
     "fireflow-types/serde",

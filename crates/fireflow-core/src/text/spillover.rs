@@ -15,7 +15,7 @@ use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NEDelim, NEStr, ToDis
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nalgebra::DMatrix;
+use ndarray::Array2;
 use nonempty_collections::NESlice;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use thiserror::Error;
@@ -48,7 +48,7 @@ pub struct GenericSpillover<T> {
 
     /// Numeric values in the spillover matrix in row-major order.
     #[as_ref]
-    matrix: DMatrix<f32>,
+    matrix: Array2<f32>,
 }
 
 impl Spillover {
@@ -122,7 +122,7 @@ impl GenericSpillover<MeasIndex> {
 }
 
 impl<T> GenericSpillover<T> {
-    pub fn try_new(measurements: Vec<T>, matrix: DMatrix<f32>) -> Result<Self, NewSpilloverError>
+    pub fn try_new(measurements: Vec<T>, matrix: Array2<f32>) -> Result<Self, NewSpilloverError>
     where
         T: Eq + Hash,
     {
@@ -163,7 +163,8 @@ impl<'a> GenericSpillover<&'a str> {
                     .map(str::parse::<f32>)
                     .collect::<Result<Vec<_>, _>>()
                 {
-                    let matrix = DMatrix::from_row_iterator(n, n, fvalues);
+                    let matrix =
+                        Array2::from_shape_vec((n, n), fvalues).expect("shape was checked above");
                     Ok(Self::try_new(measurements, matrix)
                         .map_err(ParseGenericSpilloverError::New)?)
                 } else {
@@ -213,10 +214,10 @@ impl<'a> ToDisplayNE<'a> for Spillover {
     fn to_ne(&'a self) -> Self::NE {
         let n = NonZeroUsize::new(self.measurements.len()).expect("matrix should be 2x2");
         let names = NESlice::try_from_slice(&self.measurements[..]).expect("matrix should be 2x2");
-        // DMatrix slices are column major, so transpose first to output
-        // row-major
-        let xs = NEVec::try_from_slice(self.matrix.transpose().as_slice())
-            .expect("matrix should be 2x2");
+        // NDArrays are row-major, no need to transpose
+        let xs =
+            NEVec::try_from_slice(self.matrix.as_slice().expect("matrix should be contiguous"))
+                .expect("matrix should be 2x2");
         NEConcat::new(n, ',')
             .append(NEDelim::new(',', ToNE::on_inner_slice(names)))
             .append(',')
@@ -435,13 +436,13 @@ mod python {
 
     use super::Spillover;
 
-    use numpy::{PyReadonlyArray2, ToPyArray as _};
+    use numpy::{IntoPyArray as _, PyReadonlyArray2};
     use pyo3::{prelude::*, types::PyTuple};
 
     impl<'py> FromPyObject<'py> for Spillover {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let (measurements, arr): (Vec<Shortname>, PyReadonlyArray2<f32>) = ob.extract()?;
-            let matrix = arr.as_matrix().into_owned();
+            let matrix = arr.as_array().into_owned();
             Ok(Self::try_new(measurements, matrix)?)
         }
     }
@@ -453,7 +454,7 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let ms = self.measurements.into_pyobject(py)?;
-            let mx = self.matrix.to_pyarray(py);
+            let mx = self.matrix.into_pyarray(py);
             (ms, mx).into_pyobject(py)
         }
     }

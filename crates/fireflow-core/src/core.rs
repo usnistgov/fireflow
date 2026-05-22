@@ -151,7 +151,7 @@ use std::path::PathBuf;
 use {
     crate::text::keyword_enum::{AsHeader as _, OptScaledOpticalKeyword, RefKeyword1},
     crate::text::keywords as kws,
-    nalgebra::DMatrix,
+    ndarray::Array2,
     serde::Serialize,
     std::string::ToString as _,
 };
@@ -428,7 +428,8 @@ impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
             }
             writeln!(w)?;
 
-            for (row, n) in matrix.row_iter().zip(&names[..]) {
+            // NDArrays are row-major so this should print row-by-row
+            for (row, n) in matrix.outer_iter().zip(&names[..]) {
                 write!(w, "{n}")?;
                 for x in row {
                     w.write_all(&[delim])?;
@@ -443,7 +444,7 @@ impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
     }
 
     #[cfg(feature = "serde")]
-    fn spillover_or_comp_table(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)> {
+    fn spillover_or_comp_table(&self) -> Option<(Vec<Shortname>, Array2<f32>)> {
         match self {
             Self::FCS2_0(x) => x.named_compensation(),
             Self::FCS3_0(x) => x.named_compensation(),
@@ -4943,24 +4944,24 @@ where
     }
 
     #[cfg(feature = "serde")]
-    fn named_compensation(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
+    fn named_compensation(&self) -> Option<(Vec<Shortname>, Array2<f32>)>
     where
         V::RootMeta: HasCompensation,
     {
         self.compensation().as_ref().map(|c| {
-            let m: &DMatrix<f32> = c.as_ref();
+            let m: &Array2<f32> = c.as_ref();
             (self.all_shortnames(), m.clone())
         })
     }
 
     #[cfg(feature = "serde")]
-    fn named_spillover(&self) -> Option<(Vec<Shortname>, DMatrix<f32>)>
+    fn named_spillover(&self) -> Option<(Vec<Shortname>, Array2<f32>)>
     where
         V::RootMeta: AsRef<Option<Spillover>>,
     {
         self.spillover().as_ref().map(|c| {
             let ns: &[Shortname] = c.as_ref();
-            let m: &DMatrix<f32> = c.as_ref();
+            let m: &Array2<f32> = c.as_ref();
             (ns.to_vec(), m.clone())
         })
     }

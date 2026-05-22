@@ -63,7 +63,7 @@ use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use derive_new::new;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
-use nalgebra::DMatrix;
+use ndarray::Array2;
 use nonempty_collections::{
     IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _, iter::once,
 };
@@ -1337,7 +1337,7 @@ impl_str_enum_kw!(
 #[derive(Clone, From, Into, AsRef, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[as_ref(DMatrix<f32>, Compensation)]
+#[as_ref(Array2<f32>, Compensation)]
 pub struct Compensation2_0(pub Compensation);
 
 impl<'a> ToDisplayNE<'a> for Compensation {
@@ -1380,8 +1380,12 @@ impl Compensation2_0 {
         let res = if xs.iter().all(Option::is_none) || xs.is_empty() {
             LogResult::new_switchable_ok(None, flag)
         } else {
-            let ys = xs.into_iter().map(Option::unwrap_or_default).map(f32::from);
-            let matrix = DMatrix::from_row_iterator(n, n, ys);
+            let ys = xs
+                .into_iter()
+                .map(Option::unwrap_or_default)
+                .map(f32::from)
+                .collect();
+            let matrix = Array2::from_shape_vec((n, n), ys).expect("shape is checked above");
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
                 .map_err(LookupComp2_0Error::Matrix)
@@ -1489,7 +1493,7 @@ pub enum LookupComp2_0Error {
 #[derive(Clone, From, Into, AsRef, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-#[as_ref(DMatrix<f32>, Compensation)]
+#[as_ref(Array2<f32>, Compensation)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Compensation3_0(pub Compensation);
 
@@ -1521,7 +1525,8 @@ impl FromStrDelim for Compensation3_0 {
             let remainder = iter.by_ref().count();
             let total = values.len() + remainder;
             if total == nn {
-                let matrix = DMatrix::from_row_iterator(n, n, values);
+                let matrix =
+                    Array2::from_shape_vec((n, n), values).expect("shape is checked above");
                 Ok(Compensation::try_from(matrix).map(Self)?)
             } else {
                 Err(ParseCompError::WrongLength {
@@ -1537,7 +1542,7 @@ impl FromStrDelim for Compensation3_0 {
 
 impl Compensation3_0 {
     pub(crate) fn invalid_link_errors(&self, par: Par) -> Option<KeyToIndexLinkError<Self>> {
-        let m: &DMatrix<_> = self.as_ref();
+        let m: &Array2<_> = self.as_ref();
         (par.0..m.nrows())
             .map(MeasIndex::from)
             .try_into_nonempty_iter()
@@ -1549,7 +1554,7 @@ impl Compensation3_0 {
         par: Par,
     ) -> Option<RemovedIndexLink<Self>> {
         let go = |c: &Self| {
-            let m: &DMatrix<_> = c.as_ref();
+            let m: &Array2<_> = c.as_ref();
             (par.0..m.nrows()).map(MeasIndex::from)
         };
         RemovedIndexLink::remove_invalid_link(src, go)

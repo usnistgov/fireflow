@@ -1,7 +1,7 @@
 use crate::text::index::MeasIndex;
 
 use derive_more::AsRef;
-use nalgebra::DMatrix;
+use ndarray::{Array2, s};
 use nonempty_collections::NEVec;
 use thiserror::Error;
 
@@ -21,15 +21,15 @@ use fireflow_core_proc::DisplayAsPyErr;
 pub struct Compensation {
     /// Values in the comp matrix in row-major order. Assumed to be the
     /// same width and height as $PAR
-    matrix: DMatrix<f32>,
+    matrix: Array2<f32>,
     /// The size of the matrix. This is validated to be >= 2
     dim: NonZeroUsize,
 }
 
-impl TryFrom<DMatrix<f32>> for Compensation {
+impl TryFrom<Array2<f32>> for Compensation {
     type Error = NewCompError;
 
-    fn try_from(matrix: DMatrix<f32>) -> Result<Self, Self::Error> {
+    fn try_from(matrix: Array2<f32>) -> Result<Self, Self::Error> {
         if !matrix.is_square() {
             Err(NewCompError::NotSquare)
         } else if !matrix.iter().all(|x| x.is_finite()) {
@@ -58,12 +58,27 @@ impl Compensation {
     /// Index is assumed to be valid. Will panic otherwise.
     pub(crate) fn insert_identity_by_index_unchecked(&mut self, index: MeasIndex) {
         let i = index.into();
-        let mut new = self.matrix.clone().insert_row(i, 0.0).insert_column(i, 0.0);
+        let real_index = |j| {
+            if j >= i { j + 1 } else { j }
+        };
+        let n = self.matrix.ncols();
+        // Make new array with all zeros that has one extra row/col. Iterate
+        // across rows and columns of old matrix and skip over the "inserted"
+        // row and column, which will remain all zeros except for the new cell
+        // at inserted row/inserted column index which will be 1.0.
+        let mut new = Array2::zeros((n + 1, n + 1));
+        for (rowi, row) in self.matrix.outer_iter().enumerate() {
+            let real_rowi = real_index(rowi);
+            for (coli, x) in row.iter().enumerate() {
+                let real_coli = real_index(coli);
+                new[(real_rowi, real_coli)] = *x;
+            }
+        }
         new[(i, i)] = 1.0;
         self.matrix = new;
     }
 
-    pub(crate) fn matrix(&self) -> &DMatrix<f32> {
+    pub(crate) fn matrix(&self) -> &Array2<f32> {
         &self.matrix
     }
 
@@ -72,14 +87,13 @@ impl Compensation {
     }
 
     pub(crate) fn square_view(&self, n: usize) -> Option<Self> {
-        let m: DMatrix<f32> = self.matrix.view((0, 0), (n, n)).into();
+        let m = self.matrix.slice(s![..n, ..n]).into_owned();
         Self::try_from(m).ok()
     }
 
     pub(crate) fn row_major_ne_vec(&self) -> NEVec<f32> {
-        // DMatrix slices are column major, so transpose first to output
-        // row-major
-        NEVec::try_from_slice(self.matrix.transpose().as_slice())
+        // NDArrays are row-major, no need to transpose
+        NEVec::try_from_slice(self.matrix.as_slice().expect("matrix should be contiguous"))
             .expect("matrix should be at least 2x2")
     }
 }
@@ -103,17 +117,16 @@ pub enum NewCompError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use nalgebra::DMatrix;
 
     #[test]
     fn str_compensation_not_finite() {
-        let m = DMatrix::from_row_slice(2, 2, &[0.0, 0.0, 0.0, f32::NAN]);
+        let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::NAN]).unwrap();
         assert!(Compensation::try_from(m).is_err());
     }
 
     #[test]
     fn str_compensation_not_square() {
-        let m = DMatrix::from_row_slice(2, 3, &[0.0, 0.0, 0.0, 0.0, 0.0, 0.0]);
+        let m = Array2::from_shape_vec((2, 3), vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).unwrap();
         assert!(Compensation::try_from(m).is_err());
     }
 }
@@ -122,14 +135,14 @@ mod tests {
 mod python {
     use super::Compensation;
 
-    use numpy::{PyArray2, PyReadonlyArray2, ToPyArray as _};
+    use numpy::{IntoPyArray as _, PyArray2, PyReadonlyArray2};
     use pyo3::prelude::*;
     use std::convert::Infallible;
 
     impl<'py> FromPyObject<'py> for Compensation {
         fn extract_bound(ob: &Bound<'py, PyAny>) -> PyResult<Self> {
             let x: PyReadonlyArray2<f32> = ob.extract()?;
-            Ok(Self::try_from(x.as_matrix().into_owned())?)
+            Ok(Self::try_from(x.as_array().into_owned())?)
         }
     }
 
@@ -139,7 +152,7 @@ mod python {
         type Error = Infallible;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            Ok(self.matrix.to_pyarray(py))
+            Ok(self.matrix.into_pyarray(py))
         }
     }
 }

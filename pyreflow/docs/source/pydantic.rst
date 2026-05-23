@@ -59,6 +59,9 @@ fine-tune the options in a given strategy.
 .. autoclass:: pyreflow.api.NewCoreDatasetConfig
    :members:
 
+.. autoclass:: pyreflow.api.KeywordVersionScore
+   :members:
+
 
 Pydantic
 ++++++++

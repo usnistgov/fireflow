@@ -3,7 +3,7 @@ use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrat
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
 use fireflow_core::text::byteord::Bytes;
-use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0};
+use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0, Timestep};
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{KeyString, KeyStringOrPattern};
@@ -22,6 +22,7 @@ use clap::{
     error::ErrorKind,
     value_parser,
 };
+use const_format::str_replace;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
 use regex::Regex;
@@ -36,6 +37,15 @@ use std::iter::once;
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::str::FromStr;
+
+/// Helper macro to keep args in sync with config fields
+macro_rules! cli_arg {
+    ($conf:ident :: $field:ident) => {{
+        // compile-time existence check; fails if field is renamed
+        const _: usize = std::mem::offset_of!(fireflow_core::config::$conf, $field);
+        str_replace!(stringify!($field), "_", "-")
+    }};
+}
 
 fn main() -> ExitCode {
     match run() {
@@ -132,8 +142,8 @@ fn run() -> AppResult<()> {
                 "The guessing algorithm is independent of {odd} and {final} \
                  which will trigger as normal if their respective violations \
                  are found.",
-                odd = fmt_arg(ALLOW_ODD),
-                final = fmt_arg(ALLOW_MISSING_FINAL_DELIM),
+                odd = fmt_arg(ALLOW_ODD_TOKENS),
+                final = fmt_arg(ALLOW_EVEN_DELIMS),
             ),
         ],
     );
@@ -201,9 +211,9 @@ fn run() -> AppResult<()> {
 
     // header args
 
-    let text_correction = correction_arg(TEXT_COR, true, &text_seg);
-    let data_correction = correction_arg(DATA_COR, true, &data_seg);
-    let analysis_correction = correction_arg(ANALYSIS_COR, true, &analysis_seg);
+    let text_correction = correction_arg(TEXT_CORR, true, &text_seg);
+    let data_correction = correction_arg(DATA_CORR, true, &data_seg);
+    let analysis_correction = correction_arg(ANALYSIS_CORR, true, &analysis_seg);
 
     let other_correction = Arg::new(OTHER_CORR)
         .long(OTHER_CORR)
@@ -354,16 +364,17 @@ fn run() -> AppResult<()> {
     );
 
     let missing_final_delim = tri_flag_arg::<cfg::AllowEvenDelims>(
-        ALLOW_MISSING_FINAL_DELIM,
+        ALLOW_EVEN_DELIMS,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
 
     let allow_non_unique = tri_flag_arg::<cfg::AllowNonunique>(
-        ALLOW_NON_UNIQUE,
+        ALLOW_NONUNIQUE,
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
-    let allow_odd = tri_flag_arg::<cfg::AllowOddTokens>(ALLOW_ODD, "Allow odd number of tokens.");
+    let allow_odd =
+        tri_flag_arg::<cfg::AllowOddTokens>(ALLOW_ODD_TOKENS, "Allow odd number of tokens.");
 
     let allow_empty_keys = tri_flag_arg::<cfg::AllowEmptyKeys>(
         ALLOW_EMPTY_KEYS,
@@ -558,6 +569,12 @@ fn run() -> AppResult<()> {
         "Allow time measurement to be missing.",
     );
 
+    let add_missing_timestep = opt_arg::<Timestep>(
+        ADD_MISSING_TIMESTEP,
+        "TIMESTEP",
+        "Add {timestep) if it is missing.",
+    );
+
     let force_linear_scale = Arg::new(FORCE_LINEAR_SCALE)
         .long(FORCE_LINEAR_SCALE)
         .value_name("WHICH")
@@ -719,6 +736,7 @@ fn run() -> AppResult<()> {
         trim_intra_value_whitespace,
         time_meas_pattern,
         allow_missing_time,
+        add_missing_timestep,
         force_linear_scale,
         ignore_time_optical_keys,
         process_time_optical_keys,
@@ -1305,9 +1323,9 @@ fn get_header_inner_config(sargs: &ArgMatches) -> cfg::ReadHeaderInnerConfig {
     let strat = get_strategy(sargs);
     let mut conf = cfg::ReadHeaderInnerConfig::new_with_strategy(strat);
 
-    get_correction(sargs, TEXT_COR, |x| conf.text_correction = x);
-    get_correction(sargs, DATA_COR, |x| conf.data_correction = x);
-    get_correction(sargs, ANALYSIS_COR, |x| conf.analysis_correction = x);
+    get_correction(sargs, TEXT_CORR, |x| conf.text_correction = x);
+    get_correction(sargs, DATA_CORR, |x| conf.data_correction = x);
+    get_correction(sargs, ANALYSIS_CORR, |x| conf.analysis_correction = x);
 
     if let Some(xs) = sargs.get_many::<(i32, i32)>(OTHER_CORR) {
         conf.other_corrections = xs
@@ -1352,11 +1370,11 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadHeaderA
     get_flag(s, IGNORE_SUPP_TEXT, |x| c.ignore_supp_text = x);
     get_opt(s, DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
     get_opt(s, ALLOW_NON_ASCII_DELIM, |x| c.allow_non_ascii_delim = x);
-    get_opt(s, ALLOW_MISSING_FINAL_DELIM, |x| {
+    get_opt(s, ALLOW_EVEN_DELIMS, |x| {
         c.allow_even_delims = x;
     });
-    get_opt(s, ALLOW_NON_UNIQUE, |x| c.allow_nonunique = x);
-    get_opt(s, ALLOW_ODD, |x| c.allow_odd_tokens = x);
+    get_opt(s, ALLOW_NONUNIQUE, |x| c.allow_nonunique = x);
+    get_opt(s, ALLOW_ODD_TOKENS, |x| c.allow_odd_tokens = x);
     get_opt(s, ALLOW_EMPTY_KEYS, |x| c.allow_empty_keys = x);
     get_opt(s, ALLOW_DELIM_AT_BOUNDARY, |x| {
         c.allow_delim_at_boundary = x;
@@ -1427,6 +1445,7 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
         c.process_time_optical_keys = x;
     });
     get_opt(s, ALLOW_MISSING_TIME, |x| c.allow_missing_time = x);
+    get_opt(s, ADD_MISSING_TIMESTEP, |x| c.add_missing_timestep = x);
     get_opt(s, SPILLOVER_MEASUREMENT_MODE, |x| {
         c.spillover_measurement_mode = x;
     });
@@ -1840,155 +1859,165 @@ const SUBCMD_SPILL: &str = "spillover";
 
 const SUBCMD_REPAIR: &str = "repair";
 
-const TEXT_COR: &str = "text-correction";
+// header config flags
 
-const DATA_COR: &str = "data-correction";
+const TEXT_CORR: &str = cli_arg!(ReadHeaderInnerConfig::text_correction);
+const DATA_CORR: &str = cli_arg!(ReadHeaderInnerConfig::data_correction);
+const ANALYSIS_CORR: &str = cli_arg!(ReadHeaderInnerConfig::analysis_correction);
+const OTHER_CORR: &str = cli_arg!(ReadHeaderInnerConfig::other_corrections);
+const MAX_OTHER: &str = cli_arg!(ReadHeaderInnerConfig::max_other);
+const OTHER_WIDTH: &str = cli_arg!(ReadHeaderInnerConfig::other_width);
+const GUESS_OTHER_WIDTH: &str = cli_arg!(ReadHeaderInnerConfig::guess_other_width);
+const SQUISH_OFFSETS: &str = cli_arg!(ReadHeaderInnerConfig::squish_offsets);
 
-const ANALYSIS_COR: &str = "analysis-correction";
+// offset config flags
 
-const OTHER_CORR: &str = "other-correction";
+const ALLOW_PSEUDOEMPTY: &str = cli_arg!(ReadOffsetConfig::allow_pseudoempty);
+const TRUNCATE_OFFSET_LIMIT: &str = cli_arg!(ReadOffsetConfig::truncate_offset_limit);
+const OVERLAP_CORRECTION_LIMIT: &str = cli_arg!(ReadOffsetConfig::overlap_correction_limit);
 
-const MAX_OTHER: &str = "max-other";
+// flat text config flags
 
-const OTHER_WIDTH: &str = "other-width";
+const VERSION_OVERRIDE: &str = cli_arg!(ReadHeaderAndTEXTConfig::version_override);
 
-const GUESS_OTHER_WIDTH: &str = "guess-other-width";
+const SUPP_TEXT_COR: &str = cli_arg!(ReadHeaderAndTEXTConfig::supp_text_correction);
 
-const SQUISH_OFFSETS: &str = "squish-offsets";
+const NEXTDATA_COR: &str = cli_arg!(ReadHeaderAndTEXTConfig::nextdata_correction);
 
-const ALLOW_PSEUDOEMPTY: &str = "allow-pseudoempty";
+const ALLOW_DUPLICATED_SUPP_TEXT: &str =
+    cli_arg!(ReadHeaderAndTEXTConfig::allow_duplicated_supp_text);
 
-const TRUNCATE_OFFSET_LIMIT: &str = "truncate-offset-limit";
+const IGNORE_SUPP_TEXT: &str = cli_arg!(ReadHeaderAndTEXTConfig::ignore_supp_text);
 
-const OVERLAP_CORRECTION_LIMIT: &str = "overlap-correction-limit";
+const DELIM_ESCAPE_MODE: &str = cli_arg!(ReadHeaderAndTEXTConfig::delim_escape_mode);
 
-const DATA_REMAINDER_LIMIT: &str = "data-remainder-limit";
+const ALLOW_NON_ASCII_DELIM: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_non_ascii_delim);
 
-const VERSION_OVERRIDE: &str = "version-override";
+const ALLOW_EVEN_DELIMS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_even_delims);
 
-const SUPP_TEXT_COR: &str = "supp-text-correction";
+const ALLOW_NONUNIQUE: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_nonunique);
 
-const NEXTDATA_COR: &str = "nextdata-correction";
+const ALLOW_ODD_TOKENS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_odd_tokens);
 
-const ALLOW_DUPLICATED_SUPP_TEXT: &str = "allow-duplicated-supp-text";
+const ALLOW_EMPTY_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_empty_keys);
 
-const IGNORE_SUPP_TEXT: &str = "ignore-supp-text";
+const ALLOW_DELIM_AT_BOUNDARY: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_delim_at_boundary);
 
-const DELIM_ESCAPE_MODE: &str = "delim-escape-mode";
+const USE_ENCODING: &str = cli_arg!(ReadHeaderAndTEXTConfig::use_encoding);
 
-const ALLOW_NON_ASCII_DELIM: &str = "allow-non-ascii-delim";
+const ALLOW_NON_ASCII_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_non_ascii_keys);
 
-const ALLOW_MISSING_FINAL_DELIM: &str = "allow-missing-final-delim";
+const ALLOW_NON_UTF8_VALUES: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_non_utf8_values);
 
-const ALLOW_NON_UNIQUE: &str = "allow-non-unique";
+const ALLOW_MISSING_SUPP_TEXT: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_missing_supp_text);
 
-const ALLOW_ODD: &str = "allow-odd";
+const ALLOW_SUPP_TEXT_OWN_DELIM: &str =
+    cli_arg!(ReadHeaderAndTEXTConfig::allow_supp_text_own_delim);
 
-const ALLOW_EMPTY_KEYS: &str = "allow-empty-keys";
+const ALLOW_MISSING_NEXTDATA: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_missing_nextdata);
 
-const ALLOW_DELIM_AT_BOUNDARY: &str = "allow-delim-at-boundary";
+const TRIM_VALUE_WHITESPACE: &str = cli_arg!(ReadHeaderAndTEXTConfig::trim_value_whitespace);
 
-const USE_ENCODING: &str = "use-encoding";
+const IGNORE_STD_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::ignore_standard_keys);
 
-const ALLOW_NON_ASCII_KEYS: &str = "allow-non-ascii-keys";
+const PROMOTE_TO_STD: &str = cli_arg!(ReadHeaderAndTEXTConfig::promote_to_standard);
 
-const ALLOW_NON_UTF8_VALUES: &str = "allow-non-utf8-values";
+const DEMOTE_FROM_STD: &str = cli_arg!(ReadHeaderAndTEXTConfig::demote_from_standard);
 
-const ALLOW_MISSING_SUPP_TEXT: &str = "allow-missing-supp-text";
+const RENAME_STD_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::rename_standard_keys);
 
-const ALLOW_SUPP_TEXT_OWN_DELIM: &str = "allow-supp-text-own-delim";
+const REPLACE_STD_KEY_VALS: &str = cli_arg!(ReadHeaderAndTEXTConfig::replace_standard_key_values);
 
-const ALLOW_MISSING_NEXTDATA: &str = "allow-missing-nextdata";
+const APPEND_STD_KEY_VALS: &str = cli_arg!(ReadHeaderAndTEXTConfig::append_standard_keywords);
 
-const TRIM_VALUE_WHITESPACE: &str = "trim-value-whitespace";
+const SUB_STD_KEY_VALS: &str = cli_arg!(ReadHeaderAndTEXTConfig::substitute_standard_key_values);
 
-const IGNORE_STD_KEYS: &str = "ignore-std-keys";
+// std keyword config flags
 
-const PROMOTE_TO_STD: &str = "promote-to-std";
+const DEDUP_MEAS_NAMES: &str = cli_arg!(ReadStdKeywordsConfig::dedup_measurement_names);
 
-const DEMOTE_FROM_STD: &str = "demote-from-std";
+const TRIM_INTRA_VALUE_WHITESPACE: &str =
+    cli_arg!(ReadStdKeywordsConfig::trim_intra_value_whitespace);
 
-const RENAME_STD_KEYS: &str = "rename-std-keys";
+const TIME_MEAS_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::time_meas_pattern);
 
-const REPLACE_STD_KEY_VALS: &str = "replace-std-key-vals";
+const ALLOW_MISSING_TIME: &str = cli_arg!(ReadStdKeywordsConfig::allow_missing_time);
 
-const APPEND_STD_KEY_VALS: &str = "append-std-key-vals";
+const ADD_MISSING_TIMESTEP: &str = cli_arg!(ReadStdKeywordsConfig::add_missing_timestep);
 
-const SUB_STD_KEY_VALS: &str = "sub-std-key-vals";
+const FORCE_LINEAR_SCALE: &str = cli_arg!(ReadStdKeywordsConfig::force_linear_scale);
 
-const DATE_PATTERN: &str = "date-pattern";
+const IGNORE_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::ignore_time_optical_keys);
 
-const TIME_PATTERN: &str = "time-pattern";
+const PROCESS_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::process_time_optical_keys);
 
-const DATETIME_PATTERN: &str = "datetime-pattern";
+const SPILLOVER_MEASUREMENT_MODE: &str =
+    cli_arg!(ReadStdKeywordsConfig::spillover_measurement_mode);
 
-const LAST_MODIFIED_PATTERN: &str = "last-modified-pattern";
+const DATE_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::date_pattern);
 
-const WARNINGS_ARE_ERRORS: &str = "warnings-are-errors";
+const TIME_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::time_pattern);
 
-const HIDE_WARNINGS: &str = "hide-warnings";
+const DATETIME_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::datetime_pattern);
 
-const DEDUP_MEAS_NAMES: &str = "dedup-measurement-names";
+const LAST_MODIFIED_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::last_modified_pattern);
 
-const TRIM_INTRA_VALUE_WHITESPACE: &str = "trim-intra-value-whitespace";
+const ALLOW_OTHER_FEATURE: &str = cli_arg!(ReadStdKeywordsConfig::allow_other_feature);
 
-const TIME_MEAS_PATTERN: &str = "time-meas-pattern";
+const PROCESS_PSEUDOSTANDARD: &str = cli_arg!(ReadStdKeywordsConfig::process_pseudostandard);
 
-const ALLOW_MISSING_TIME: &str = "allow-missing-time";
+const PROCESS_HYPER_PAR: &str = cli_arg!(ReadStdKeywordsConfig::process_hyper_par);
 
-const SPILLOVER_MEASUREMENT_MODE: &str = "spillover-measurement-mode";
+const PROCESS_OTHER_VERSION: &str = cli_arg!(ReadStdKeywordsConfig::process_other_version);
 
-const FORCE_LINEAR_SCALE: &str = "force-time-linear";
+const PROCESS_EXTRA_TIMESTEP: &str = cli_arg!(ReadStdKeywordsConfig::process_extra_timestep);
 
-const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore-time-optical-keys";
+const FIX_LOG_SCALE_OFFSETS: &str = cli_arg!(ReadStdKeywordsConfig::fix_log_scale_offsets);
 
-const PROCESS_TIME_OPTICAL_KEYS: &str = "process-time-optical-keys";
+const DISALLOW_LOCALTIME: &str = cli_arg!(ReadStdKeywordsConfig::disallow_localtime);
 
-const ALLOW_OTHER_FEATURE: &str = "allow-other-feature";
+const NS_MEAS_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::nonstandard_measurement_pattern);
 
-const PROCESS_PSEUDOSTANDARD: &str = "process-pseudostandard";
+// data keyword config flags
 
-const PROCESS_HYPER_PAR: &str = "process-hyper-par";
+const TEXT_DATA_COR: &str = cli_arg!(ReadDataKeywordsConfig::text_data_correction);
 
-const PROCESS_OTHER_VERSION: &str = "process-other-version";
+const TEXT_ANALYSIS_COR: &str = cli_arg!(ReadDataKeywordsConfig::text_analysis_correction);
 
-const PROCESS_EXTRA_TIMESTEP: &str = "process-extra-timestep";
+const IGNORE_TEXT_DATA_OFFSETS: &str = cli_arg!(ReadDataKeywordsConfig::ignore_text_data_offsets);
 
-const PROCESS_OPTIONAL_FAILURE: &str = "process-optional-failure";
+const IGNORE_TEXT_ANALYSIS_OFFSETS: &str =
+    cli_arg!(ReadDataKeywordsConfig::ignore_text_analysis_offsets);
 
-const FIX_LOG_SCALE_OFFSETS: &str = "fix-log-scale-offsets";
+const ALLOW_HEADER_TEXT_OFFSET_MISMATCH: &str =
+    cli_arg!(ReadDataKeywordsConfig::allow_header_text_offset_mismatch);
 
-const DISALLOW_LOCALTIME: &str = "disallow-localtime";
+const ALLOW_MISSING_REQUIRED_OFFSETS: &str =
+    cli_arg!(ReadDataKeywordsConfig::allow_missing_required_offsets);
 
-const NS_MEAS_PATTERN: &str = "non-std-meas-pattern";
+const PROCESS_OPTIONAL_FAILURE: &str = cli_arg!(ReadDataKeywordsConfig::process_optional_failure);
 
-const TEXT_DATA_COR: &str = "text-data-correction";
+const FIX_INT_WIDTHS: &str = cli_arg!(ReadDataKeywordsConfig::fix_int_widths);
 
-const TEXT_ANALYSIS_COR: &str = "text-analysis-correction";
+const BYTEORD_OVERRIDE: &str = cli_arg!(ReadDataKeywordsConfig::byteord_override);
 
-const IGNORE_TEXT_DATA_OFFSETS: &str = "ignore-text-data-offsets";
+const DISALLOW_RANGE_TRUNCATION: &str = cli_arg!(ReadDataKeywordsConfig::disallow_range_truncation);
 
-const IGNORE_TEXT_ANALYSIS_OFFSETS: &str = "ignore-text-analysis-offsets";
+// read data config flags
 
-const ALLOW_HEADER_TEXT_OFFSET_MISMATCH: &str = "allow-text-offset-mismatch";
+const DATA_REMAINDER_LIMIT: &str = cli_arg!(ReadEventsConfig::data_remainder_limit);
+const ALLOW_UNEVEN_EVENT_WIDTH: &str = cli_arg!(ReadEventsConfig::allow_uneven_event_width);
+const ALLOW_TOT_MISMATCH: &str = cli_arg!(ReadEventsConfig::allow_tot_mismatch);
+const OVER_BITMASK_ACTION: &str = cli_arg!(ReadEventsConfig::over_bitmask_action);
+const OVER_RANGE_ACTION: &str = cli_arg!(ReadEventsConfig::over_range_action);
+const ROW_BUFFER_SIZE: &str = cli_arg!(ReadEventsConfig::row_buffer_size);
 
-const ALLOW_MISSING_REQUIRED_OFFSETS: &str = "allow-missing-required-offsets";
+// shared config flags
 
-const FIX_INT_WIDTHS: &str = "fix-int-widths";
+const WARNINGS_ARE_ERRORS: &str = cli_arg!(ReadSharedConfig::warnings_are_errors);
+const HIDE_WARNINGS: &str = cli_arg!(ReadSharedConfig::hide_warnings);
 
-const BYTEORD_OVERRIDE: &str = "byteord-override";
-
-const DISALLOW_RANGE_TRUNCATION: &str = "disallow-range-truncation";
-
-const ALLOW_UNEVEN_EVENT_WIDTH: &str = "allow-uneven-event-width";
-
-const OVER_BITMASK_ACTION: &str = "over-bitmask-action";
-
-const OVER_RANGE_ACTION: &str = "over-range-action";
-
-const ROW_BUFFER_SIZE: &str = "row-buffer-size";
-
-const ALLOW_TOT_MISMATCH: &str = "allow-tot-mismatch";
+// other flags
 
 const PRINT_DELIM: &str = "print-delim";
 

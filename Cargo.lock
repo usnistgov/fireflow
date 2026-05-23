@@ -785,6 +785,7 @@ version = "0.1.0"
 dependencies = [
  "ansi_term",
  "clap",
+ "const_format",
  "fireflow-core",
  "fireflow-types",
  "itertools 0.14.0",

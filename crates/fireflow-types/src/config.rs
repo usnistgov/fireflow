@@ -599,6 +599,14 @@ pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 4] = [
     VERSION_LOOSE_LEVEL,
 ];
 
+// More enum strings that are used in the config with enums defined elsewhere
+
+pub const BYTEORD_OVERRIDE_NONE_LEVEL: &NEStr = NONE_LEVEL;
+pub const BYTEORD_OVERRIDE_ENDIAN_LEVEL: &NEStr = ne_str!("endian");
+
+pub const FIX_INT_WIDTH_NEVER_LEVEL: &NEStr = ne_str!("never");
+pub const FIX_INT_WIDTH_NEXT_BYTE_LEVEL: &NEStr = ne_str!("next_byte");
+
 pub const STD_KW_REQ_LEVEL: &NEStr = ne_str!("req_only");
 pub const STD_KW_OPT_LEVEL: &NEStr = ne_str!("opt_opt");
 pub const STD_KW_REQ_AND_OPT_LEVEL: &NEStr = ne_str!("both");

@@ -8545,8 +8545,8 @@ impl DocArgParam {
         };
 
         let process_optional_failure = Self::new_process_optional_failure();
-        let integer_widths_from_byteord = Self::new_integer_widths_from_byteord_param();
-        let integer_byteord_override = Self::new_integer_byteord_override_param();
+        let integer_widths_from_byteord = Self::new_fix_int_widths_param();
+        let integer_byteord_override = Self::new_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
         let data_schema_ps: Vec<_> = match version {
@@ -8897,28 +8897,43 @@ impl DocArgParam {
             .def(DocDefault::Str(tc::NON_STD_MEAS_PAT_DEFAULT.into()))
     }
 
-    fn new_integer_widths_from_byteord_param() -> Self {
+    fn new_fix_int_widths_param() -> Self {
         let d = format!(
-            "If {TRUE} set all {PNB} to the number of bytes from {BYTEORD}. \
-             Only has an effect for FCS 2.0/3.0 where {DATATYPE} is {int}.",
-            int = code("I"),
+            "Fix {PNB}. Only has effect on integer layouts in FCS 2.0/3.0. \
+             Set to {} or {} to round up to next multiple of 8 or do nothing. \
+             Set to an integer 1-8 to override all {PNB} explicitly.",
+            code_str(tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL),
+            code_str(tc::FIX_INT_WIDTH_NEVER_LEVEL)
         );
-        Self::new_bool_param("integer_widths_from_byteord", d)
+        let lit = [
+            tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str(),
+            tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str(),
+        ];
+        let path = config_path("FixIntWidths");
+        let pt = PyUnion::new2(lit.into_iter().collect::<PyLiteral>(), RsInt::U8).rstype(path);
+        Self::new_param("fix_int_widths", pt, d).def_auto()
     }
 
-    fn new_integer_byteord_override_param() -> Self {
-        let path = keyword_path("ByteOrd2_0");
+    fn new_byteord_override_param() -> Self {
         let d = format!(
-            "if {ARG_TOKEN} is not a list of integers including all from 1 to {n} \
-             where {n} is the length of the list (up to 8)",
-            n = code("N"),
+            "Override the value of {BYTEORD}. Set to {} or {} to do nothing \
+             or interpret {BYTEORD} based on its endian-ness (ie without its \
+             length). Set to an explicit comma-separated integer sequence to \
+             set {BYTEORD} directly.",
+            code_str(tc::BYTEORD_OVERRIDE_NONE_LEVEL),
+            code_str(tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL)
         );
-        let exc = PyException::new_invalid_keyword().desc(d);
-        Self::new_opt_param(
-            "integer_byteord_override",
-            PyList::new(RsInt::U32, Some(path), Some(exc.into())),
-            format!("Override {BYTEORD} for integer data schemas."),
+        let lit = [
+            tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str(),
+            tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str(),
+        ];
+        let path = config_path("ByteordOverride");
+        let pt = PyUnion::new2(
+            lit.into_iter().collect::<PyLiteral>(),
+            PyList::new1(RsInt::U32),
         )
+        .rstype(path);
+        Self::new_param("byteord_override", pt, d).def_auto()
     }
 
     fn new_disallow_range_truncation_param() -> Self {

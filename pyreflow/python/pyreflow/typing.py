@@ -233,3 +233,7 @@ CheckedRangeDatatypes: TypeAlias = Literal["bitmask_only", "int_only", "all", "n
 OverLimitAction: TypeAlias = Literal[
     "error", "warn", "silent", "trunc_warn", "trunc_silent", "none"
 ]
+
+FixIntWidths: TypeAlias = int | Literal["next_byte", "never"]
+
+ByteordOverride: TypeAlias = list[int] | Literal["endian", "none"]

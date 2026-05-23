@@ -826,17 +826,21 @@ impl ByteOrd2_0 {
         }
     }
 
-    fn is_endian(&self) -> bool {
-        match self {
-            Self::O1(x) => Endian::try_from(*x).is_ok(),
-            Self::O2(x) => Endian::try_from(*x).is_ok(),
-            Self::O3(x) => Endian::try_from(*x).is_ok(),
-            Self::O4(x) => Endian::try_from(*x).is_ok(),
-            Self::O5(x) => Endian::try_from(*x).is_ok(),
-            Self::O6(x) => Endian::try_from(*x).is_ok(),
-            Self::O7(x) => Endian::try_from(*x).is_ok(),
-            Self::O8(x) => Endian::try_from(*x).is_ok(),
+    pub(crate) fn from_endian(endian: Endian, bytes: PrivBytes) -> Self {
+        match bytes {
+            PrivBytes::B1 => Self::O1(endian.into()),
+            PrivBytes::B2 => Self::O2(endian.into()),
+            PrivBytes::B3 => Self::O3(endian.into()),
+            PrivBytes::B4 => Self::O4(endian.into()),
+            PrivBytes::B5 => Self::O5(endian.into()),
+            PrivBytes::B6 => Self::O6(endian.into()),
+            PrivBytes::B7 => Self::O7(endian.into()),
+            PrivBytes::B8 => Self::O8(endian.into()),
         }
+    }
+
+    fn is_endian(&self) -> bool {
+        Endian::try_from(*self).is_ok()
     }
 }
 

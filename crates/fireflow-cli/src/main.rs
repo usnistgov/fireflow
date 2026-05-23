@@ -1,7 +1,8 @@
 use fireflow_core::api;
-use fireflow_core::config::{self as cfg, HasStrategy as _};
+use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::OffsetCorrection;
+use fireflow_core::text::byteord::Bytes;
 use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0};
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
@@ -781,21 +782,29 @@ fn run() -> AppResult<()> {
     )
     .value_parser(value_parser!(cfg::ProcessOptionalFailure));
 
-    let int_widths_from_byteord = override_flag_arg(
-        INT_WIDTHS_FROM_BYTEORD,
-        format!(
-            "Set {pn_b} based on length of {byteord}. Only has effect \
-             on integer layouts in FCS 2.0/3.0."
-        ),
-    );
-
-    let int_byteord_override = Arg::new(INT_BYTEORD_OVERRIDE)
-        .long(INT_BYTEORD_OVERRIDE)
-        .value_name("BYTEORD")
-        .value_parser(value_parser!(ByteOrd2_0))
+    let int_widths_from_byteord = Arg::new(FIX_INT_WIDTHS)
+        .long(FIX_INT_WIDTHS)
+        .value_name("INT_OR_FLAG")
+        .value_parser(parse_fix_int_widths)
         .help(format!(
-            "Override the value of {byteord}. \
-             Only has effect on integer layouts in FCS 2.0/3.0.",
+            "Fix {pn_b}. Only has effect on integer layouts in FCS 2.0/3.0. \
+             Set to {} or {} to round up to next multiple of 8 or do nothing. \
+             Set to an integer 1-8 to override all {pn_b} explicitly.",
+            fmt_val(tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL),
+            fmt_val(tc::FIX_INT_WIDTH_NEVER_LEVEL)
+        ));
+
+    let int_byteord_override = Arg::new(BYTEORD_OVERRIDE)
+        .long(BYTEORD_OVERRIDE)
+        .value_name("BYTEORD")
+        .value_parser(parse_byteord_override)
+        .help(format!(
+            "Override the value of {byteord}. Set to {} or {} to do nothing \
+             or interpret {byteord} based on its endian-ness (ie without its \
+             length). Set to an explicit comma-separated integer sequence to \
+             set {byteord} directly.",
+            fmt_val(tc::BYTEORD_OVERRIDE_NONE_LEVEL),
+            fmt_val(tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL)
         ));
 
     let disallow_range_truncation = tri_flag_arg::<cfg::DisallowRangeTrunc>(
@@ -1460,12 +1469,8 @@ fn get_data_kws_config(s: &ArgMatches) -> cfg::ReadDataKeywordsConfig {
     get_opt(s, PROCESS_OPTIONAL_FAILURE, |x| {
         c.process_optional_failure = x;
     });
-    get_flag(s, INT_WIDTHS_FROM_BYTEORD, |x| {
-        c.integer_widths_from_byteord = x;
-    });
-    get_opt(s, INT_BYTEORD_OVERRIDE, |x| {
-        c.integer_byteord_override = Some(x);
-    });
+    get_opt(s, FIX_INT_WIDTHS, |x| c.fix_int_widths = x);
+    get_opt(s, BYTEORD_OVERRIDE, |x| c.byteord_override = x);
     get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;
     });
@@ -1690,6 +1695,28 @@ fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
     };
     let r = Regex::new(from)?;
     Ok(SubPattern::try_new(r, to.to_owned(), global)?)
+}
+
+fn parse_fix_int_widths(s: &str) -> StrResult<FixIntWidths> {
+    if s == tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str() {
+        return Ok(FixIntWidths::Never);
+    } else if s == tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str() {
+        return Ok(FixIntWidths::NextByte);
+    }
+    Ok(FixIntWidths::Explicit(
+        s.parse::<Bytes>().map_err(|e| e.to_string())?,
+    ))
+}
+
+fn parse_byteord_override(s: &str) -> StrResult<ByteordOverride> {
+    if s == tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str() {
+        return Ok(ByteordOverride::Endian);
+    } else if s == tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str() {
+        return Ok(ByteordOverride::None);
+    }
+    Ok(ByteordOverride::Explicit(
+        s.parse::<ByteOrd2_0>().map_err(|e| e.to_string())?,
+    ))
 }
 
 pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {
@@ -1947,9 +1974,9 @@ const ALLOW_HEADER_TEXT_OFFSET_MISMATCH: &str = "allow-text-offset-mismatch";
 
 const ALLOW_MISSING_REQUIRED_OFFSETS: &str = "allow-missing-required-offsets";
 
-const INT_WIDTHS_FROM_BYTEORD: &str = "integer-widths-from-byteord";
+const FIX_INT_WIDTHS: &str = "fix-int-widths";
 
-const INT_BYTEORD_OVERRIDE: &str = "integer-byteord-override";
+const BYTEORD_OVERRIDE: &str = "byteord-override";
 
 const DISALLOW_RANGE_TRUNCATION: &str = "disallow-range-truncation";
 

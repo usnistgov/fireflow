@@ -15,6 +15,7 @@ use crate::segment::{
     AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId, TEXTCorrection,
 };
+use crate::text::byteord::Bytes;
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{self as kws, Timestep};
 use crate::text::ranged_float::PositiveFloat;
@@ -31,13 +32,11 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
+    self as tc, AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
     OverBitmaskAction, OverLimitAction, OverRangeAction, ProcessKeywordFailure,
     ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize, SpilloverMeasurementMode,
-    TemporalOpticalKey, TriFlag, TrimValueWhitespace, UseEncoding, VERSION_EARLIEST_LEVEL,
-    VERSION_LATEST_LEVEL, VERSION_LOOSE_LEVEL, VERSION_STRICT_LEVEL,
+    TemporalOpticalKey, TriFlag, TrimValueWhitespace, UseEncoding,
 };
-use fireflow_types::config::{TIME_MEAS_NAME_PATTERN_DEFAULT, TIME_MEAS_NAME_PATTERN_NONE};
 use fireflow_types::keywords::Version;
 use fireflow_types::nonempty_string::NEString;
 
@@ -850,21 +849,10 @@ pub struct ReadDataKeywordsConfig {
     /// Also used when parsing any keyword in standard mode.
     pub process_optional_failure: ProcessOptionalFailure,
 
-    /// If given, override $PnB with the number of bytes in $BYTEORD.
-    ///
-    /// Some files set $PnB to match the bitmask. For example, a 16-bit column
-    /// may only use 10 bits, so $PnB will be 10 and $PnR will be 1024. This
-    /// will not work since $PnB must match the width of the real data.
-    ///
-    /// Setting this will force all $PnB to match $BYTEORD. Obviously this
-    /// assumed $BYTEORD is correct. If not, override this using
-    /// [`Self::integer_byteord_override`]. All $PnB will still be read
-    /// regardless of this flag, so this will not fix badly-formatted values (ie
-    /// $PnB that aren't numbers or are out of range). These will require manual
-    /// intervention.
+    /// If given, fix $PnB values using $BYTEORD.
     ///
     /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
-    pub integer_widths_from_byteord: IntegerWidthsFromByteord,
+    pub fix_int_widths: FixIntWidths,
 
     /// If given, override the $BYTEORD keyword for 2.0-3.0 integer layouts.
     ///
@@ -874,9 +862,9 @@ pub struct ReadDataKeywordsConfig {
     /// $BYTEORD value, which will need a different intervention.
     ///
     /// Obviously this must match the actual layout of the numbers in DATA. If
-    /// $PnB is also incorrect, use [`Self::integer_widths_from_byteord`] to
-    /// override those values as well.
-    pub integer_byteord_override: Option<kws::ByteOrd2_0>,
+    /// $PnB is also incorrect, use [`Self::fix_int_widths`] to override those
+    /// values as well.
+    pub byteord_override: ByteordOverride,
 
     /// If `true`, disallow bitmask to be truncated when converting from native type.
     ///
@@ -1046,6 +1034,45 @@ impl_proc_key_fail!(ProcessHyperPar);
 impl_proc_key_fail!(ProcessPseudostandard);
 impl_proc_key_fail!(ProcessExtraTimestep);
 
+/// Fix $PnB for 2.0/3.0 integer layouts.
+///
+/// Some files set $PnB to the bits implied by $PnR (ie the bitmask). For
+/// instance, if $PnR is 1024, $PnB is set to 10, which is incorrect since $PnB
+/// must be a multiple of 8 (NOTE this is a restriction of this library; the
+/// standard allows such $PnB values though exceedingly rare and not advised).
+#[derive(Clone, Copy, Default)]
+pub enum FixIntWidths {
+    /// Do nothing
+    #[default]
+    Never,
+    /// Override with an explicit value for all $PnB.
+    Explicit(Bytes),
+    /// Round $PnB up to the next multiple of 8.
+    NextByte,
+}
+
+/// Override $BYTEORD for FCS 2.0/3.0.
+#[derive(Clone, Copy, Default)]
+pub enum ByteordOverride {
+    /// Do nothing
+    #[default]
+    None,
+    /// Override with an explicit value for $BYTEORD.
+    ///
+    /// This will also set $PnB. It must match the constraints imposed by
+    /// $DATATYPE.
+    Explicit(kws::ByteOrd2_0),
+    /// Infer endian-ness from $BYTEORD, ignoring its length.
+    ///
+    /// Endian-ness is little if $BYTEORD is monotonic ascending, and big if
+    /// monotonic descending. These are rare in practice. Length will be
+    /// inferred from $PnB, which should all be the same. If $PnB is not a
+    /// multiple of 8, this will fail.
+    ///
+    /// This is option is ignored for mixed $BYTEORD.
+    Endian,
+}
+
 /// Strategy to use when autodetecting FCS version
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyString))]
@@ -1063,10 +1090,10 @@ pub enum SelectVersionStrategy {
 impl fmt::Display for SelectVersionStrategy {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let s = match self {
-            Self::Earliest => VERSION_EARLIEST_LEVEL,
-            Self::Latest => VERSION_LATEST_LEVEL,
-            Self::Loose => VERSION_LOOSE_LEVEL,
-            Self::Strict => VERSION_STRICT_LEVEL,
+            Self::Earliest => tc::VERSION_EARLIEST_LEVEL,
+            Self::Latest => tc::VERSION_LATEST_LEVEL,
+            Self::Loose => tc::VERSION_LOOSE_LEVEL,
+            Self::Strict => tc::VERSION_STRICT_LEVEL,
         };
         f.write_str(s)
     }
@@ -1077,10 +1104,10 @@ impl FromStr for SelectVersionStrategy {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
-            VERSION_LATEST_LEVEL => Ok(Self::Latest),
-            VERSION_EARLIEST_LEVEL => Ok(Self::Earliest),
-            VERSION_LOOSE_LEVEL => Ok(Self::Loose),
-            VERSION_STRICT_LEVEL => Ok(Self::Strict),
+            tc::VERSION_LATEST_LEVEL => Ok(Self::Latest),
+            tc::VERSION_EARLIEST_LEVEL => Ok(Self::Earliest),
+            tc::VERSION_LOOSE_LEVEL => Ok(Self::Loose),
+            tc::VERSION_STRICT_LEVEL => Ok(Self::Strict),
             _ => Err(SelectVersionStrategyError),
         }
     }
@@ -1316,7 +1343,7 @@ impl fmt::Display for TimeMeasNamePattern {
         if let Some(s) = self.0.as_ref() {
             write!(f, "{s}")
         } else {
-            f.write_str(TIME_MEAS_NAME_PATTERN_NONE)
+            f.write_str(tc::TIME_MEAS_NAME_PATTERN_NONE)
         }
     }
 }
@@ -1325,7 +1352,7 @@ impl FromStr for TimeMeasNamePattern {
     type Err = regex::Error;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == TIME_MEAS_NAME_PATTERN_NONE {
+        if s == tc::TIME_MEAS_NAME_PATTERN_NONE {
             return Ok(Self(None));
         }
         s.parse::<Regex>().map(Some).map(Self)
@@ -1334,7 +1361,9 @@ impl FromStr for TimeMeasNamePattern {
 
 impl Default for TimeMeasNamePattern {
     fn default() -> Self {
-        Self(Some(Regex::new(TIME_MEAS_NAME_PATTERN_DEFAULT).unwrap()))
+        Self(Some(
+            Regex::new(tc::TIME_MEAS_NAME_PATTERN_DEFAULT).unwrap(),
+        ))
     }
 }
 
@@ -1741,21 +1770,22 @@ impl ReadHeaderAndTEXTConfig {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig, NonStdMeasPatternOpt,
-        ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
-        ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
+        ByteordOverride, FixIntWidths, KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig,
+        NonStdMeasPatternOpt, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
+        ReadFlatTEXTConfig, ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
         TemporalOpticalKeys, TimeMeasNamePattern,
     };
 
+    use crate::text::keywords::ByteOrd2_0;
     use crate::validated::keys::KeyStringOrPattern;
     use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
     use crate::validated::sub_pattern::SubPattern;
 
+    use fireflow_types::config as tc;
     use fireflow_types::python::ConfigError;
 
     use hashbrown::HashMap;
-    use pyo3::prelude::*;
-    use pyo3::types::PyDict;
+    use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyDict};
     use regex::Regex;
 
     use std::convert::Infallible;
@@ -1920,6 +1950,83 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             self.0.into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for FixIntWidths {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(b) = obj
+                .extract::<u8>()
+                .and_then(|b| b.try_into().map_err(Into::into))
+            {
+                return Ok(Self::Explicit(b));
+            } else if let Ok(s) = obj.extract::<String>() {
+                if s.as_str() == tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str() {
+                    return Ok(Self::Never);
+                } else if s.as_str() == tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str() {
+                    return Ok(Self::NextByte);
+                }
+            }
+            Err(ConfigError::new_err(format!(
+                "must be a an integer 1-8 or one of '{}' or '{}'",
+                tc::FIX_INT_WIDTH_NEVER_LEVEL,
+                tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for FixIntWidths {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Explicit(b) => u8::from(b).into_bound_py_any(py),
+                Self::NextByte => tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL
+                    .as_str()
+                    .into_bound_py_any(py),
+                Self::Never => tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str().into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for ByteordOverride {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(b) = obj.extract::<ByteOrd2_0>() {
+                return Ok(Self::Explicit(b));
+            } else if let Ok(s) = obj.extract::<String>() {
+                if s.as_str() == tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str() {
+                    return Ok(Self::None);
+                } else if s.as_str() == tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str() {
+                    return Ok(Self::Endian);
+                }
+            }
+            Err(ConfigError::new_err(format!(
+                "must be a valid byte order or one of '{}' or '{}'",
+                tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL,
+                tc::BYTEORD_OVERRIDE_NONE_LEVEL,
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for ByteordOverride {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Explicit(b) => b.into_pyobject(py),
+                Self::None => tc::BYTEORD_OVERRIDE_NONE_LEVEL
+                    .as_str()
+                    .into_bound_py_any(py),
+                Self::Endian => tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL
+                    .as_str()
+                    .into_bound_py_any(py),
+            }
         }
     }
 }

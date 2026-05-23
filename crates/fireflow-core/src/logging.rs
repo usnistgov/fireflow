@@ -38,7 +38,7 @@ use type_families::{
 use derive_new::new;
 use itertools::Itertools as _;
 use nonempty_collections::{
-    FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _,
+    FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _, nev,
 };
 use thiserror::Error;
 
@@ -782,6 +782,26 @@ pub(crate) trait ResultExt: Sized {
         ErrorGroup::try_new(bad)?;
         Ok(good)
     }
+
+    fn sequence_ne_results(
+        rs: impl IntoNonEmptyIterator<Item = Self>,
+    ) -> Result<NEVec<Self::Ok>, NEVec<Self::Error>> {
+        let (first, rest) = rs.into_nonempty_iter().next();
+        match first.into_result() {
+            Err(e) => Err(nev![e]),
+            Ok(x) => {
+                let mut new = nev![x];
+                let mut errors = vec![];
+                for r in rest {
+                    match r.into_result() {
+                        Ok(y) => new.push(y),
+                        Err(e) => errors.push(e),
+                    }
+                }
+                NEVec::try_from_vec(errors).map_or(Ok(new), Err)
+            }
+        }
+    }
 }
 
 impl<V, E> ResultExt for Result<V, E> {
@@ -1139,6 +1159,15 @@ impl<E, C> From<(E, C)> for GenNonEmpty<E, C> {
 impl<E> From<GenNonEmpty<E, Vec<E>>> for NEVec<E> {
     fn from(value: GenNonEmpty<E, Vec<E>>) -> Self {
         Self::from((value.head, value.tail))
+    }
+}
+
+impl<E> From<NEVec<E>> for GenNonEmpty<E, Vec<E>> {
+    fn from(value: NEVec<E>) -> Self {
+        let (first, rest) = value.into_nonempty_iter().next();
+        let mut new = Self::new1(first);
+        new.extend(rest);
+        new
     }
 }
 

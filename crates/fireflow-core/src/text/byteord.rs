@@ -133,9 +133,30 @@ where
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Into, Debug, Display)]
+#[derive(Into, Debug, Display, Clone, Copy)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]
 pub struct Bytes(pub(crate) PrivBytes);
+
+impl FromStr for Bytes {
+    type Err = ParseBytesError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let x = s.parse::<u8>().map_err(|_| ParseBytesError)?;
+        Ok(Self(PrivBytes::try_from(x).map_err(|_| ParseBytesError)?))
+    }
+}
+
+impl TryFrom<u8> for Bytes {
+    type Error = NewArgBytesError;
+    fn try_from(value: u8) -> Result<Self, Self::Error> {
+        Ok(Self(PrivBytes::try_from(value)?))
+    }
+}
+
+/// Error when parsing [`Bytes`] from [`String`].
+#[derive(Error, Debug)]
+#[error("bytes must be an integer 1-8")]
+pub struct ParseBytesError;
 
 /// The number of bytes for a numeric measurement; used for method arguments.
 pub struct ArgBytes(pub(crate) PrivBytes);
@@ -193,11 +214,21 @@ impl<'a> ToDisplayNE<'a> for BitsOrChars {
 }
 
 /// Internal version of `BitsOrChars`.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash, From, Into, Debug, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[from(Chars)]
 #[into(NonZeroU8, u8)]
 pub(crate) struct PrivBitsOrChars(NonZeroU8);
+
+impl PrivBitsOrChars {
+    pub(crate) fn next_byte(self) -> Option<Self> {
+        self.0
+            .get()
+            .checked_next_multiple_of(8)
+            .map(|x| NonZeroU8::new(x).expect("value should be non-zero"))
+            .map(Self)
+    }
+}
 
 /// Relate types corresponding to keywords to those storing byte layout.
 pub(crate) trait HasByteOrd: Sized {
@@ -414,7 +445,7 @@ impl TryFrom<Width> for Chars {
 }
 
 impl TryFrom<Width> for PrivBytes {
-    type Error = WidthToFixedError<WidthToBytesError>;
+    type Error = WidthToFixedError<FixedWidthToBytesError>;
     fn try_from(value: Width) -> Result<Self, Self::Error> {
         let fixed = PrivBitsOrChars::try_from(value)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
@@ -440,16 +471,16 @@ impl TryFrom<PrivBitsOrChars> for Chars {
 }
 
 impl TryFrom<PrivBitsOrChars> for PrivBytes {
-    type Error = WidthToBytesError;
+    type Error = FixedWidthToBytesError;
     /// Return number of bytes represented by this.
     ///
     /// Return error if bits is not divisible by 8 and within [1,64].
     fn try_from(value: PrivBitsOrChars) -> Result<Self, Self::Error> {
         let x = u8::from(value.0);
         if x.trailing_zeros() >= 3 {
-            return (x >> 3).try_into().or(Err(WidthToBytesError(x)));
+            return (x >> 3).try_into().or(Err(FixedWidthToBytesError(x)));
         }
-        Err(WidthToBytesError(x))
+        Err(FixedWidthToBytesError(x))
     }
 }
 
@@ -586,7 +617,9 @@ pub(crate) struct VariableWidthError;
 /// Error when converting $PnB (in bits) to bytes.
 #[derive(Debug, Display)]
 #[display("bits must be multiple of 8 and between 8 and 64, got {_0}")]
-pub(crate) struct WidthToBytesError(u8);
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct FixedWidthToBytesError(pub(crate) u8);
 
 /// Error when converting [`Vec<NonzeroU8>`] to [`ArrayByteOrd`].
 #[derive(From, Error, Display, Debug)]

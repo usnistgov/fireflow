@@ -4105,15 +4105,15 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         blank_dataset_2_0.write_text(p)
-        _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1])
-        with pytest.raises(pf.InvalidKeywordValueError):
-            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[])
-        with pytest.raises(pf.InvalidKeywordValueError):
-            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[1, 1])
-        with pytest.raises(OverflowError):
-            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=[666])
-        with pytest.raises(pf.InvalidKeywordValueError):
-            _ = pf.api.fcs_read_std_text(p, integer_byteord_override=list(range(1, 10)))
+        _ = pf.api.fcs_read_std_text(p, byteord_override=[1])
+        with pytest.raises(pf.ConfigError):
+            _ = pf.api.fcs_read_std_text(p, byteord_override=[])
+        with pytest.raises(pf.ConfigError):
+            _ = pf.api.fcs_read_std_text(p, byteord_override=[1, 1])
+        with pytest.raises(pf.ConfigError):
+            _ = pf.api.fcs_read_std_text(p, byteord_override=[666])
+        with pytest.raises(pf.ConfigError):
+            _ = pf.api.fcs_read_std_text(p, byteord_override=list(range(1, 10)))
 
 
 class TestConfig:
@@ -5990,11 +5990,9 @@ class TestConfig:
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "24", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1)
 
-        def go(f: bool) -> int:
+        def go(f: pt.FixIntWidths) -> int:
             core, uncore = pf.api.fcs_read_std_text(
-                p,
-                integer_widths_from_byteord=f,
-                time_meas_pattern=None,
+                p, fix_int_widths=f, time_meas_pattern=None
             )
             lt = core.data_schema
             if isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
@@ -6003,10 +6001,39 @@ class TestConfig:
                 assert False
 
         if version in ["FCS2.0", "FCS3.0"]:
-            self._test_config_flag(go, 4, [pf.RelationalError])
+            with pytest.RaisesGroup(pf.RelationalError):
+                assert go("never") == 3
+            with pytest.RaisesGroup(pf.RelationalError):
+                assert go("next_byte") == 3
+            assert go(4) == 4
         else:
-            assert go(True) == 3
-            assert go(False) == 3
+            assert go("never") == 3
+            assert go("next_byte") == 3
+            assert go(4) == 3
+
+    @pytest.mark.parametrize("version", ["FCS2.0", "FCS3.0"])
+    def test_non_oct_int_widths_from_byteord(
+        self, version: pt.FCSVersion, tmp_path: Path
+    ) -> None:
+        """Test the integer_widths_from_byteord arg (non multiple of 8 case)."""
+        p = tmp_path / "thing.fcs"
+        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "30", "$P1R": "32"}
+        self.mock_header_std_text(p, version, kws=kws, par=1)
+
+        def go(f: pt.FixIntWidths) -> int:
+            core, uncore = pf.api.fcs_read_std_text(
+                p, fix_int_widths=f, time_meas_pattern=None
+            )
+            lt = core.data_schema
+            if isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
+                return lt.byte_width
+            else:
+                assert False
+
+        with pytest.RaisesGroup(pf.RelationalError):
+            assert go("never") == 3
+        assert go("next_byte") == 4
+        assert go(4) == 4
 
     @all_versions
     def test_int_byteord_override(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -6015,10 +6042,10 @@ class TestConfig:
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1, byteord=[1, 2, 3])
 
-        def go(f: pt.ByteOrd | None) -> int:
+        def go(f: pt.ByteordOverride) -> int:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
-                integer_byteord_override=f,
+                byteord_override=f,
                 time_meas_pattern=None,
             )
             lt = core.data_schema
@@ -6032,13 +6059,14 @@ class TestConfig:
 
         if version in ["FCS2.0", "FCS3.0"]:
             with pytest.RaisesGroup(pf.RelationalError):
-                assert go(None)
+                assert go("none")
+            assert go("endian")
             assert go([1, 2, 3, 4])
         else:
             # this option does nothing for 3.1+ so these should just fail via
             # bad parse for $BYTEORD
             with pytest.RaisesGroup(pf.ParseKeywordValueError):
-                assert go(None)
+                assert go("none")
             with pytest.RaisesGroup(pf.ParseKeywordValueError):
                 assert go([1, 2, 3, 4])
 

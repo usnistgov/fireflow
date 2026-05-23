@@ -107,8 +107,8 @@
 // * width: The value of $PnB
 
 use crate::config::{
-    AllowOverBitmask, AllowTotMismatch, ConfigFlag as _, DisallowOverRange, DisallowRangeTrunc,
-    DummyTriFlag, ReadDataKeywordsConfig, ReadEventsConfig, TriErrorFlag as _,
+    AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
+    DummyTriFlag, FixIntWidths, ReadDataKeywordsConfig, ReadEventsConfig, TriErrorFlag as _,
     WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
@@ -127,8 +127,8 @@ use crate::meas::{
 use crate::segment::AnyDataSegment;
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
-    Endian, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBytes, VecToSizedError,
-    WidthToBytesError, WidthToFixedError,
+    Endian, FixedWidthToBytesError, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBitsOrChars,
+    PrivBytes, VariableWidthError, VecToSizedError, WidthToFixedError,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
@@ -168,7 +168,7 @@ use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U5
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::config::{OverBitmaskAction, OverLimitMode, OverRangeAction};
 use fireflow_types::nonempty_string::DisplayableNE as _;
-use nonempty_collections::NESlice;
+use nonempty_collections::{IntoNonEmptyIterator as _, NESlice};
 use type_families::{
     Functor, FunctorOnce, Kind1, Sibling1, VecFamily, impl_functor_once, impl_kind1,
 };
@@ -179,10 +179,7 @@ use bytemuck::{cast_slice, cast_vec};
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{
-    IntoIteratorExt as _, NEVec,
-    iter::{NonEmptyIterator as _, once},
-};
+use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use num_traits::{Bounded, ToPrimitive as _};
 use thiserror::Error;
 
@@ -926,38 +923,49 @@ pub enum NewOrderedUintLayoutError {
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SingleFixedWidthError {
-    Bytes(IndexedWidthToBytesError),
-    Width(WidthMismatchError),
+    WidthToFixed(IndexedWidthToFixedError),
+    BytesFromFixed(FixedWidthToBytesError),
+    Mismatch(WidthByteordMismatchError),
+    MultiWidth(MultiWidthError),
+    EndianFromMixed(EndianFromMixedError),
+}
+
+/// Error when trying to get the endian-ness of a mixed $BYTEORD value.
+#[derive(Debug, Error, new)]
+#[error(
+    "could not get endian-ness from mixed byteord ({})",
+    self.byteord.as_displayable(),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct EndianFromMixedError {
+    byteord: ByteOrd2_0,
 }
 
 /// Error when $PnB does not match width implied by $BYTEORD (2.0/3.0 only)
 #[derive(Debug, Error, new)]
+#[error(
+    "measurement width ({width}) does not match byte order ({})",
+    self.byteord.as_displayable(),
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct WidthMismatchError {
+pub struct WidthByteordMismatchError {
     byteord: ByteOrd2_0,
-    found: NEVec<PrivBytes>,
+    width: PrivBytes,
 }
 
-impl fmt::Display for WidthMismatchError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let (head, tail) = self.found.nonempty_iter().next();
-        let mut t = tail.peekable();
-        if t.peek().is_none() {
-            write!(
-                f,
-                "measurement width ({head}) does not match byte order ({})",
-                self.byteord.as_displayable(),
-            )
-        } else {
-            write!(
-                f,
-                "multiple measurement widths given ({}) for byte order [{}]",
-                once(head).chain(t).into_iter().join(", "),
-                self.byteord.as_displayable(),
-            )
-        }
-    }
+/// Error when more than one $PnB are present and $BYTEORD length is ambiguous (2.0/3.0 only)
+#[derive(Debug, Error, new)]
+#[error(
+    "first integer width found ({first}) does not match other(s) ({})",
+    self.rest.iter().join(",")
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct MultiWidthError {
+    first: PrivBitsOrChars,
+    rest: NEVec<PrivBitsOrChars>,
 }
 
 /// Error when using $PnB and $PnR to make a new [`MixedRange`].
@@ -1002,9 +1010,19 @@ pub enum NewUintTypeError {
 
 /// Error when converting $PnB (in bits) to [`Bytes`]
 #[derive(From, Debug, Error)]
+#[error(
+    "{} is variable ('*') when a fixed integer is expected",
+    Width::std(self.0.index),
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<WidthToBytesError>>);
+pub struct IndexedWidthToFixedError(IndexedError<VariableWidthError>);
+
+/// Error when converting $PnB (in bits) to [`Bytes`]
+#[derive(From, Debug, Error)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<FixedWidthToBytesError>>);
 
 impl fmt::Display for IndexedWidthToBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -7810,47 +7828,64 @@ impl<T> AnyOrderedUintDataSchema<T> {
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), IndexedBitmaskError, NewFixedIntLayoutError>
     {
         let notrunc = conf.disallow_range_truncation;
-        let real_bo = conf.integer_byteord_override.unwrap_or(bo);
-        let n = real_bo.nbytes();
 
-        // First, scan through the widths to make sure they are all fixed and
-        // are all the same number of bytes as ByteOrd. Skip this step if we
-        // are ignoring $PnB for width and simply using the length of $BYTEORD.
-        let width_res = if conf.integer_widths_from_byteord.is_set() {
-            LogResult::new_ok(())
-        } else {
-            cs.iter()
+        // bail early if there are no columns; having one column makes it easier
+        // downstream to test if the rest are the same
+        let Some(ne_cs) = NEVec::try_from_vec(cs) else {
+            let real_bo = match conf.byteord_override {
+                ByteordOverride::Endian | ByteordOverride::None => bo,
+                ByteordOverride::Explicit(b) => b,
+            };
+            let empty = match_many_to_one!(
+                real_bo,
+                ByteOrd2_0,
+                [O1, O2, O3, O4, O5, O6, O7, O8],
+                o,
+                AnyUint::from(Layout::new_empty(o))
+            );
+            return LogResult::new_ok(NewDataSchema::new(empty, vec![]));
+        };
+
+        // read all $PnB, return Some(width) if one width found, return None if
+        // there are no measurements, return error if they are not unique
+        let get_widths = || {
+            let rs = ne_cs
+                .nonempty_iter()
                 .map(|c| c.width)
                 .enumerate()
                 .map(|(i, c)| {
-                    PrivBytes::try_from(c)
+                    PrivBitsOrChars::try_from(c)
                         .map_err(|e| IndexedError::new(i, e))
-                        .map_err(IndexedWidthToBytesError)
+                        .map_err(IndexedWidthToFixedError)
                         .map_err(SingleFixedWidthError::from)
-                })
-                .map(Result::into_log::<_, _, Vec<_>>)
-                .sequence_commutative()
-                .and_then_commutative(|widths| {
-                    let ws = widths.into_iter().filter(|&w| w != n).unique();
-                    if let Some(mismatches) = ws.try_into_nonempty_iter() {
-                        let e = WidthMismatchError::new(real_bo, mismatches.collect());
+                });
+            match Result::sequence_ne_results(rs) {
+                Err(es) => LogResult::new_from_ne_err_iter(es, ()),
+                Ok(mut widths) => {
+                    widths.dedup();
+                    let (first, rest) = widths.into_nonempty_iter().next();
+                    if let Some(mismatches) = rest.try_into_nonempty_iter() {
+                        let e = MultiWidthError::new(first, mismatches.collect());
                         LogResult::new_err(SingleFixedWidthError::from(e))
                     } else {
-                        LogResult::new_ok(())
+                        LogResult::new_ok(first)
                     }
-                })
+                }
+            }
         };
 
-        // Second, make the layout, and force all columns to the correct type
-        // based on ByteOrd. It is necessary to check the columns first because
-        // the bitmask won't necessarily fail even if it is larger than the
-        // target type.
-        //
-        // NOTE this step is independent of $PnB, so downstream control flow is
-        // dictated by warnings/errors
-        let layout_res =
-            match_many_to_one!(real_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
-                Layout::try_new(cs, o, |i, c| {
+        let check_width_and_byteord = |bytes: PrivBytes, local_bo: ByteOrd2_0| {
+            if local_bo.nbytes() == bytes {
+                LogResult::new_ok(bytes)
+            } else {
+                let e = WidthByteordMismatchError::new(local_bo, bytes);
+                LogResult::new_err(SingleFixedWidthError::from(e))
+            }
+        };
+
+        let new_from_byteord = |local_cs: NEVec<_>, local_bo| {
+            match_many_to_one!(local_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
+                Layout::try_new(local_cs.into(), o, |i, c| {
                     Bitmask::from_range(c.range, notrunc)
                         .map_switchable_errors(|e| IndexedError::new(i, e))
                         .map_switchable_errors(IndexedBitmaskError)
@@ -7860,13 +7895,47 @@ impl<T> AnyOrderedUintDataSchema<T> {
                 .map_errors(NewFixedIntLayoutError::from)
                 .set_err_value(())
                 .map_ok_value(FunctorOnce::fmap_into_once)
-            });
+            })
+        };
 
-        width_res
-            .nowarn_into_warn()
-            .map_errors(NewFixedIntLayoutError::from)
-            .zip_commutative(layout_res)
-            .map_ok_value(|((), layout)| layout)
+        let bytes_res = match conf.fix_int_widths {
+            FixIntWidths::Never => get_widths().and_then_commutative(|width| {
+                PrivBytes::try_from(width)
+                    .map_err(SingleFixedWidthError::from)
+                    .into_log()
+            }),
+            FixIntWidths::NextByte => get_widths().and_then_commutative(|width| {
+                width
+                    .next_byte()
+                    .map_or_else(
+                        || Err(FixedWidthToBytesError(width.into())),
+                        PrivBytes::try_from,
+                    )
+                    .map_err(SingleFixedWidthError::from)
+                    .into_log::<_, _, Vec<_>>()
+            }),
+            FixIntWidths::Explicit(b) => LogResult::new_ok(b.0),
+        };
+
+        match conf.byteord_override {
+            ByteordOverride::Explicit(b) => bytes_res
+                .and_then_commutative(|bytes| check_width_and_byteord(bytes, b))
+                .map_errors(NewFixedIntLayoutError::from)
+                .and_then_commutative(|_| new_from_byteord(ne_cs, b)),
+            ByteordOverride::Endian => bytes_res
+                .and_then_commutative(|bytes| {
+                    Endian::try_from(bo)
+                        .map(|e| ByteOrd2_0::from_endian(e, bytes))
+                        .map_err(|_| EndianFromMixedError::new(bo).into())
+                        .into_log()
+                })
+                .map_errors(NewFixedIntLayoutError::from)
+                .and_then_commutative(|fixed_bo| new_from_byteord(ne_cs, fixed_bo)),
+            ByteordOverride::None => bytes_res
+                .and_then_commutative(|bytes| check_width_and_byteord(bytes, bo))
+                .map_errors(NewFixedIntLayoutError::from)
+                .and_then_commutative(|_| new_from_byteord(ne_cs, bo)),
+        }
     }
 }
 

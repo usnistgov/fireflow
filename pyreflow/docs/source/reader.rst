@@ -220,3 +220,6 @@ These are which are reused when returning data from the above functions.
 
 .. autoclass:: pyreflow.api.StdDatasetFromKwsOutput
    :members:
+
+.. autoclass:: pyreflow.api.KeywordVersionScore
+   :members:

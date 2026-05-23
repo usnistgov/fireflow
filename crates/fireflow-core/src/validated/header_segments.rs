@@ -14,7 +14,7 @@ use crate::validated::ascii_range::OtherWidth;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::NEVec;
+use nonempty_collections::{NESlice, NEVec};
 use thiserror::Error;
 
 #[cfg(feature = "serde")]
@@ -22,8 +22,10 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
+    crate::nonempty::FcsNEVec,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
+    nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
 };
 
 /// The segment offsets as read from HEADER.
@@ -46,6 +48,40 @@ pub struct ParsedHeaderSegments {
 pub(crate) type ParsedOtherSegments = Option<(NEVec<OtherSegment20>, OtherWidth)>;
 
 impl ParsedHeaderSegments {
+    /// Return primary TEXT segment
+    #[must_use]
+    pub fn text(&self) -> PrimaryTextSegment {
+        self.text
+    }
+
+    /// Return DATA segment
+    #[must_use]
+    pub fn data(&self) -> HeaderDataSegment {
+        self.data
+    }
+
+    /// Return DATA segment
+    #[must_use]
+    pub fn analysis(&self) -> HeaderAnalysisSegment {
+        self.analysis
+    }
+
+    /// Return parsed OTHER segment data
+    #[must_use]
+    pub fn other(&self) -> Option<(NESlice<'_, OtherSegment20>, OtherWidth)> {
+        self.other
+            .as_ref()
+            .map(|(xs, w)| (xs.as_nonempty_slice(), *w))
+    }
+
+    /// Return parsed OTHER segment data
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_other(&self) -> Option<(FcsNEVec<OtherSegment20>, OtherWidth)> {
+        let (ws, w) = self.other()?;
+        Some((FcsNEVec(ws.into_nonempty_iter().copied().collect()), w))
+    }
+
     /// Make new collection of HEADER segments.
     ///
     /// Will throw errors for overlapping segments.

@@ -927,20 +927,20 @@ pub enum SingleFixedWidthError {
     BytesFromFixed(FixedWidthToBytesError),
     Mismatch(WidthByteordMismatchError),
     MultiWidth(MultiWidthError),
-    EndianFromMixed(EndianFromMixedError),
+    // EndianFromMixed(EndianFromMixedError),
 }
 
-/// Error when trying to get the endian-ness of a mixed $BYTEORD value.
-#[derive(Debug, Error, new)]
-#[error(
-    "could not get endian-ness from mixed byteord ({})",
-    self.byteord.as_displayable(),
-)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct EndianFromMixedError {
-    byteord: ByteOrd2_0,
-}
+// /// Error when trying to get the endian-ness of a mixed $BYTEORD value.
+// #[derive(Debug, Error, new)]
+// #[error(
+//     "could not get endian-ness from mixed byteord ({})",
+//     self.byteord.as_displayable(),
+// )]
+// #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+// #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+// pub struct EndianFromMixedError {
+//     byteord: ByteOrd2_0,
+// }
 
 /// Error when $PnB does not match width implied by $BYTEORD (2.0/3.0 only)
 #[derive(Debug, Error, new)]
@@ -7923,11 +7923,9 @@ impl<T> AnyOrderedUintDataSchema<T> {
                 .map_errors(NewFixedIntLayoutError::from)
                 .and_then_commutative(|_| new_from_byteord(ne_cs, b)),
             ByteordOverride::Endian => bytes_res
-                .and_then_commutative(|bytes| {
-                    Endian::try_from(bo)
-                        .map(|e| ByteOrd2_0::from_endian(e, bytes))
-                        .map_err(|_| EndianFromMixedError::new(bo).into())
-                        .into_log()
+                .map_ok_value(|bytes| {
+                    // TODO return diagnostic showing that this happened (or didn't)
+                    Endian::try_from(bo).map_or(bo, |e| ByteOrd2_0::from_endian(e, bytes))
                 })
                 .map_errors(NewFixedIntLayoutError::from)
                 .and_then_commutative(|fixed_bo| new_from_byteord(ne_cs, fixed_bo)),

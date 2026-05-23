@@ -1740,6 +1740,8 @@ impl HasStrategy for ReadDataKeywordsConfig {
         self.allow_header_text_offset_mismatch = AllowHeaderTEXTOffsetMismatch::HeaderWarn;
         self.allow_missing_required_offsets = TriFlag::True.into();
         self.process_optional_failure = ProcessKeywordFailure::DemoteWarn.into();
+        self.fix_int_widths = FixIntWidths::NextByte;
+        self.byteord_override = ByteordOverride::Endian;
     }
 
     fn with_sledgehammer(&mut self) {

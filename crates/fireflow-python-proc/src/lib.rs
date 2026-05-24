@@ -787,7 +787,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("version", self.version())?;
-                ret.set_item("segments", self.uncorrected_segments().dict(py)?)?;
+                ret.set_item("segments", self.segments().dict(py)?)?;
                 ret.set_item("uncorrected_segments", self.uncorrected_segments().dict(py)?)?;
                 Ok(ret.into())
             }

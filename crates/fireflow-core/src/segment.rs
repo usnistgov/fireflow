@@ -520,13 +520,13 @@ where
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
-        let header_pair = (HeaderOrTextSegment::from(header_seg), None);
+        let header_pair = |uncorr| (HeaderOrTextSegment::from(header_seg), uncorr);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let missing_flag = dconf.allow_missing_required_offsets;
         let limit = oconf.overlap_correction_limit;
 
         let ret_default = |es: Vec<ReqSegmentWithDefaultError<Self>>| {
-            let mut res = LogResult::new_switchable_iter3(header_pair, (), es, missing_flag)
+            let mut res = LogResult::new_switchable_iter3(header_pair(None), (), es, missing_flag)
                 .switchable_into_commutative()
                 .map_commutative_warnings(ReqSegmentWithDefaultWarning::from);
             let w = ReqSegmentWithDefaultWarning::from(SegmentDefaultWarning::default());
@@ -574,7 +574,7 @@ where
                 if choose_header {
                     // We choose HEADER, return it possibly with warning
                     let ws = w.into_iter().collect::<Vec<_>>();
-                    LogResult::new_ok(header_pair).set_commutative_warnings(ws)
+                    LogResult::new_ok(header_pair(Some(uncorr_txt))).set_commutative_warnings(ws)
                 } else {
                     // We choose TEXT, convert offsets to segment, validate, and
                     // possibly attach warning for mismatch
@@ -593,7 +593,7 @@ where
                 let uncorr_txt = UncorrectedSegment::new(x0, x1);
                 if uncorr_txt == uncorr_hdr {
                     // Uncorrected offsets are identical, not a mismatch
-                    LogResult::new_ok(header_pair)
+                    LogResult::new_ok(header_pair(Some(uncorr_txt)))
                 } else {
                     // Offsets not identical, choose one
                     choose(uncorr_txt)
@@ -765,7 +765,7 @@ where
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
-        let header_pair = (HeaderOrTextSegment::from(header_seg), None);
+        let header_pair = |uncorr| (HeaderOrTextSegment::from(header_seg), uncorr);
         // TODO configure this
         let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
@@ -794,7 +794,7 @@ where
                 Err(e) => SwitchableErrorsResult::new_deferred_switchable((), e, drop_flag)
                     .map_switchable_errors(OptSegmentWithDefaultWarning::from)
                     .switchable_into_commutative()
-                    .set_ok_value(header_pair),
+                    .set_ok_value(header_pair(Some(uncorr_txt))),
             }
         };
 
@@ -812,7 +812,7 @@ where
                 if choose_header {
                     // We choose HEADER, return it possibly with warning
                     let ws = w.into_iter().collect::<Vec<_>>();
-                    LogResult::new_ok(header_pair).set_commutative_warnings(ws)
+                    LogResult::new_ok(header_pair(Some(uncorr_txt))).set_commutative_warnings(ws)
                 } else {
                     // We choose TEXT, create new TEXT segment from pairs,
                     // validate it, and possibly attach a warning
@@ -827,13 +827,13 @@ where
 
         match pair {
             // No TEXT segment found, but no errors either, just use HEADER
-            Ok(None) => LogResult::new_ok(header_pair),
+            Ok(None) => LogResult::new_ok(header_pair(None)),
             // TEXT offsets found without errors, compare with HEADER
             Ok(Some((x0, x1))) => {
                 let uncorr_txt = UncorrectedSegment::new(x0, x1);
                 if uncorr_txt == uncorr_hdr {
                     // Uncorrected HEADER and TEXT are identical, just use HEADER
-                    LogResult::new_ok(header_pair)
+                    LogResult::new_ok(header_pair(Some(uncorr_txt)))
                 } else {
                     // Segments are mismatched, figure out what to do
                     choose(uncorr_txt)
@@ -844,7 +844,7 @@ where
                 let (e0, e1) = es.split();
                 SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
                     .extend_deferred_switchable_errors(e1)
-                    .set_ok_value(header_pair)
+                    .set_ok_value(header_pair(None))
                     .map_switchable_errors(OptSegmentError::Key)
                     .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
                     .switchable_into_commutative()

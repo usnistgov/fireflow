@@ -1248,7 +1248,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         "optional",
         PyDict::new_std_keywords(),
         "Optional standard keywords which failed parsing and were dropped.",
-        |_, _| quote!(self.0.pseudostandard.clone()),
+        |_, _| quote!(self.0.optional.clone()),
     );
 
     let pseudostandard = DocArgROIvar::new_ivar_ro(

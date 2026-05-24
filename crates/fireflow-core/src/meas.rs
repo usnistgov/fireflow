@@ -1745,6 +1745,7 @@ pub trait LookupShortname: Sized {
     fn lookup_shortname(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self>;
@@ -1754,10 +1755,11 @@ impl LookupShortname for Option<Shortname> {
     fn lookup_shortname(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self> {
-        Shortname::remove_or_drop_meas_opt(std, nonstd, i, conf)
+        Shortname::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
             .set_err_value(())
             .switchable_into_commutative()
             .map_errors(LookupShortnameError::from)
@@ -1768,6 +1770,7 @@ impl LookupShortname for Identity<Shortname> {
     fn lookup_shortname(
         std: &mut StdKeywords,
         _: &mut NonStdKeywords,
+        _: &mut StdKeywords,
         i: MeasIndex,
         _: &ReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self> {
@@ -1787,6 +1790,7 @@ pub trait LookupOpticalScale: Sized {
     fn lookup_optical_scale<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -1799,6 +1803,7 @@ impl LookupOpticalScale for OpticalScale2_0 {
     fn lookup_optical_scale<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -1806,7 +1811,7 @@ impl LookupOpticalScale for OpticalScale2_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        Scale::remove_or_drop_meas_opt_with(std, nonstd, i, dt, conf)
+        Scale::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, dt, conf)
             .map_switchable_errors(LookupScaleWarning::from)
             .switchable_into_commutative()
             .map_errors(LookupScaleError::from)
@@ -1820,6 +1825,7 @@ impl LookupOpticalScale for OpticalScale3_0 {
     fn lookup_optical_scale<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -1827,7 +1833,7 @@ impl LookupOpticalScale for OpticalScale3_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let gain = Gain::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+        let gain = Gain::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
             .map_switchable_errors(LookupScaleWarning::from)
             .switchable_into_commutative()
             .map_errors(LookupScaleError::from)
@@ -1853,6 +1859,7 @@ pub trait LookupOptical: Sized + OpticalKeywords {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -1864,17 +1871,18 @@ impl LookupOptical for InnerOptical2_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+        let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
+        let peak = PeakData::lookup(std, nonstd, dropped, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
         wave.zip_commutative(peak)
             .map_errors(LookupOpticalError::from)
@@ -1889,17 +1897,18 @@ impl LookupOptical for InnerOptical3_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+        let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
+        let peak = PeakData::lookup(std, nonstd, dropped, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
         wave.zip_commutative(peak)
             .map_errors(LookupOpticalError::from)
@@ -1914,6 +1923,7 @@ impl LookupOptical for InnerOptical3_1 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -1927,10 +1937,10 @@ impl LookupOptical for InnerOptical3_1 {
                     .into_semigroup()
             };
         }
-        let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let cal = Calibration3_1::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
+        let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
+        let cal = Calibration3_1::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
+        let peak = PeakData::lookup(std, nonstd, dropped, i, conf.as_ref())
             .map_warnings_and_errors(LookupOpticalWarning::from);
         go!(wave)
             .zip4_commutative(go!(cal), go!(dpy), peak)
@@ -1954,6 +1964,7 @@ impl LookupOptical for InnerOptical3_2 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -1969,11 +1980,11 @@ impl LookupOptical for InnerOptical3_2 {
             };
         }
 
-        let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let cal = Calibration3_2::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
-        let meas = OpticalType::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
-        let feat = Feature::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
+        let wave = Wavelengths::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
+        let cal = Calibration3_2::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
+        let meas = OpticalType::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref());
+        let feat = Feature::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
 
         let det_name = DetectorName::remove_meas_opt_nofail(std, i);
         let tag = Tag::remove_meas_opt_nofail(std, i);
@@ -2005,6 +2016,7 @@ pub trait LookupTemporal: TemporalKeywords {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2016,6 +2028,7 @@ impl LookupTemporal for InnerTemporal2_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2025,11 +2038,12 @@ impl LookupTemporal for InnerTemporal2_0 {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
-        let scale = TemporalScale2_0::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
-            .map_switchable_errors(LookupTemporalWarning::from)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
+        let scale =
+            TemporalScale2_0::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf)
+                .map_switchable_errors(LookupTemporalWarning::from)
+                .switchable_into_commutative()
+                .into_semigroup();
+        let peak = PeakData::lookup(std, nonstd, dropped, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let tgts = TemporalOpticalKey::TARGETS_2_0;
         let tmp_opt_res = ignore
@@ -2049,6 +2063,7 @@ impl LookupTemporal for InnerTemporal3_0 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2058,10 +2073,10 @@ impl LookupTemporal for InnerTemporal3_0 {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
-        let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
+        let gain = Gain::lookup_temporal_3_0(std, nonstd, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
+        let peak = PeakData::lookup(std, nonstd, dropped, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let tgts = TemporalOpticalKey::TARGETS_3_0;
         let tmp_opt = ignore
@@ -2085,6 +2100,7 @@ impl LookupTemporal for InnerTemporal3_1 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2094,14 +2110,14 @@ impl LookupTemporal for InnerTemporal3_1 {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
-        let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
+        let gain = Gain::lookup_temporal_3_0(std, nonstd, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let peak = PeakData::lookup(std, nonstd, i, conf.as_ref())
+        let peak = PeakData::lookup(std, nonstd, dropped, i, conf.as_ref())
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let tgts = TemporalOpticalKey::TARGETS_3_1;
         let tmp_opt = ignore
@@ -2127,6 +2143,7 @@ impl LookupTemporal for InnerTemporal3_2 {
     fn lookup_specific<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -2136,14 +2153,14 @@ impl LookupTemporal for InnerTemporal3_2 {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
-        let gain = Gain::lookup_temporal_3_0(std, nonstd, i, conf)
+        let gain = Gain::lookup_temporal_3_0(std, nonstd, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
-        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf)
+        let dpy = Display::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let meas = TemporalType::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+        let meas = TemporalType::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -2671,6 +2688,7 @@ impl<X, O> ScaledOptical<X, O> {
     pub(crate) fn lookup_scaled_optical<C>(
         std: &mut StdKeywords,
         mut nonstd: NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
@@ -2685,10 +2703,10 @@ impl<X, O> ScaledOptical<X, O> {
         O: LookupOptical,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        let s_res = X::lookup_optical_scale(std, &mut nonstd, i, dt, conf)
+        let s_res = X::lookup_optical_scale(std, &mut nonstd, dropped, i, dt, conf)
             .map_errors(LookupScaledOpticalError::from)
             .map_commutative_warnings(LookupScaledOpticalWarning::from);
-        let o_res = Optical::lookup_optical(std, nonstd, i, conf)
+        let o_res = Optical::lookup_optical(std, nonstd, dropped, i, conf)
             .map_errors(LookupScaledOpticalError::from)
             .map_commutative_warnings(LookupScaledOpticalWarning::from);
         s_res.zip_commutative(o_res).map_ok_value(|(s, o)| {
@@ -2966,6 +2984,7 @@ impl<O> Optical<O> {
     pub(crate) fn lookup_optical<C>(
         std: &mut StdKeywords,
         mut nonstd: NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
@@ -2982,11 +3001,13 @@ impl<O> Optical<O> {
             };
         }
         let filter = Filter::remove_meas_opt_nofail(std, i);
-        let power = Power::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
+        let power = Power::remove_or_drop_meas_opt(std, &mut nonstd, dropped, i, conf.as_ref());
         let det_type = DetectorType::remove_meas_opt_nofail(std, i);
-        let perc_emit = PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
-        let det_volt = DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, i, conf.as_ref());
-        let specific = O::lookup_specific(std, &mut nonstd, i, conf);
+        let perc_emit =
+            PercentEmitted::remove_or_drop_meas_opt(std, &mut nonstd, dropped, i, conf.as_ref());
+        let det_volt =
+            DetectorVoltage::remove_or_drop_meas_opt(std, &mut nonstd, dropped, i, conf.as_ref());
+        let specific = O::lookup_specific(std, &mut nonstd, dropped, i, conf);
         let common = CommonMeasurement::lookup(std, nonstd, i);
         go!(power)
             .zip4_commutative(go!(perc_emit), go!(det_volt), specific)
@@ -3108,6 +3129,7 @@ impl<T> Temporal<T> {
     pub(crate) fn lookup_temporal<C>(
         std: &mut StdKeywords,
         mut nonstd: NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
@@ -3115,7 +3137,7 @@ impl<T> Temporal<T> {
         T: LookupTemporal,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        T::lookup_specific(std, &mut nonstd, i, conf).map_ok_value(|specific| {
+        T::lookup_specific(std, &mut nonstd, dropped, i, conf).map_ok_value(|specific| {
             let common = CommonMeasurement::lookup(std, nonstd, i);
             DiagnosedTemporal::new(
                 Self::new(common, specific.this),
@@ -4173,14 +4195,15 @@ impl PeakData {
     fn lookup(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupPeakError, LookupPeakError> {
-        let b = PeakBin::remove_or_drop_meas_opt(std, nonstd, i, conf)
+        let b = PeakBin::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
             .map_switchable_errors(LookupPeakError::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let s = PeakIndex::remove_or_drop_meas_opt(std, nonstd, i, conf)
+        let s = PeakIndex::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
             .map_switchable_errors(LookupPeakError::from)
             .switchable_into_commutative()
             .into_semigroup();

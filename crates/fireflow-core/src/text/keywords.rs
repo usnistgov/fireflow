@@ -397,6 +397,7 @@ impl Gain {
     pub(crate) fn lookup_temporal_3_0<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, DummyTriFlag, LookupTemporalGainError>
@@ -411,7 +412,7 @@ impl Gain {
             nonstd.transfer_demoted(std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {
-            Self::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref())
+            Self::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)
                 .into_semigroup()
                 .eval_deferred_switchable_error3(|gain| {

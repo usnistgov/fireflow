@@ -1,6 +1,8 @@
 use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
-use crate::text::keyword_enum::{Keyword0FromValue as _, OptRootKeyword, SplitKeyword0};
+use crate::text::keyword_enum::{
+    AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword0,
+};
 use crate::text::lookup::{
     DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
 };
@@ -191,6 +193,7 @@ impl<X> Timestamps<X> {
     pub(crate) fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         Self,
@@ -213,9 +216,9 @@ impl<X> Timestamps<X> {
                     .into_semigroup::<Vec<_>, _>()
             };
         }
-        let b = Btim::remove_or_drop_root_opt_with(std, nonstd, (), conf);
-        let e = Etim::remove_or_drop_root_opt_with(std, nonstd, (), conf);
-        let d = FCSDate::remove_or_drop_root_opt_with(std, nonstd, (), conf);
+        let b = Btim::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
+        let e = Etim::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
+        let d = FCSDate::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip3_commutative(go!(e), go!(d))
@@ -225,13 +228,22 @@ impl<X> Timestamps<X> {
                     .map_err_value(|(old_btim, old_etim, old_date)| {
                         // If creating the new timestamp object failed,
                         // optionally transfer component keys to nonstandard
-                        if rconf.process_optional_failure.is_demote() {
-                            let bk = old_btim.map(OptRootKeyword::from_value);
-                            let ek = old_etim.map(OptRootKeyword::from_value);
-                            let dk = old_date.map(OptRootKeyword::from_value);
-                            for k in [bk, ek, dk].into_iter().flatten() {
-                                nonstd.insert_demoted_keyword(k.into());
+                        let bk = old_btim.map(OptRootKeyword::from_value);
+                        let ek = old_etim.map(OptRootKeyword::from_value);
+                        let dk = old_date.map(OptRootKeyword::from_value);
+                        let kws = [bk, ek, dk].into_iter().flatten();
+                        match rconf.process_optional_failure.is_demote_or_drop() {
+                            Some(true) => {
+                                for kk in kws {
+                                    nonstd.insert_demoted_keyword(kk.into());
+                                }
                             }
+                            Some(false) => {
+                                for k in kws {
+                                    k.insert_unique(dropped);
+                                }
+                            }
+                            None => (),
                         }
                     })
                     .into_semigroup()

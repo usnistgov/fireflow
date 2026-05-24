@@ -9,8 +9,8 @@ use crate::logging::{
 use crate::nonempty::FcsNEVec;
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keyword_enum::{
-    GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _, OptRootKeyword, RegionKeyword,
-    SplitKeyword, SplitKeyword1,
+    AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
+    OptRootKeyword, RegionKeyword, SplitKeyword, SplitKeyword1,
 };
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
@@ -322,6 +322,7 @@ impl<I> AppliedGatesPre3_2<I> {
     pub(crate) fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         (Self, TrimmedKeywords, Vec<ScaleFix>),
@@ -336,10 +337,10 @@ impl<I> AppliedGatesPre3_2<I> {
         for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
         RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
-        let ag = GatingScheme::lookup(std, nonstd, conf)
+        let ag = GatingScheme::lookup(std, nonstd, dropped, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
             .map_commutative_warnings(LookupAppliedGatesError::Scheme);
-        let gm = GatedMeasurements::lookup(std, nonstd, conf)
+        let gm = GatedMeasurements::lookup(std, nonstd, dropped, conf)
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
@@ -352,12 +353,19 @@ impl<I> AppliedGatesPre3_2<I> {
                     .map_err(LookupAppliedGatesError::Link)
                     .map(|x| (x, scheme_diag, gated_ms_diag))
             })
-            .map_err_value(|(ret, _, _)| {
-                if rconf.process_optional_failure.is_demote() {
-                    ret.scheme.demote_keywords(nonstd);
-                    ret.gated_measurements.demote_keywords(nonstd);
-                }
-            })
+            .map_err_value(
+                |(ret, _, _)| match rconf.process_optional_failure.is_demote_or_drop() {
+                    Some(true) => {
+                        ret.scheme.demote_keywords(nonstd);
+                        ret.gated_measurements.demote_keywords(nonstd);
+                    }
+                    Some(false) => {
+                        ret.scheme.drop_keywords(dropped);
+                        ret.gated_measurements.drop_keywords(dropped);
+                    }
+                    None => (),
+                },
+            )
     }
 
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
@@ -490,6 +498,7 @@ impl AppliedGates3_2 {
     pub(crate) fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
         (Self, TrimmedKeywords),
@@ -501,13 +510,15 @@ impl AppliedGates3_2 {
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
-        GatingScheme::lookup(std, nonstd, conf)
+        GatingScheme::lookup(std, nonstd, dropped, conf)
             .map_ok_value(|(x, y)| (Self(x), y))
-            .map_err_value(|(ret, _)| {
-                if rconf.process_optional_failure.is_demote() {
-                    ret.demote_keywords(nonstd);
-                }
-            })
+            .map_err_value(
+                |(ret, _)| match rconf.process_optional_failure.is_demote_or_drop() {
+                    Some(true) => ret.demote_keywords(nonstd),
+                    Some(false) => ret.drop_keywords(dropped),
+                    None => (),
+                },
+            )
     }
 
     pub(crate) fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
@@ -519,6 +530,7 @@ impl GatedMeasurement {
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: GateIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<(Self, ScaleFix), LookupGatedMeasError, LookupGatedMeasError>
@@ -532,14 +544,16 @@ impl GatedMeasurement {
                     .into_semigroup()
             };
         }
-        let scale = GateScale::remove_or_drop_meas_opt_with(std, nonstd, i, (), conf);
+        let scale = GateScale::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, (), conf);
         let filter = GateFilter::remove_meas_opt_nofail(std, i);
-        let sname = GateShortname::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
-        let pemit = GatePercentEmitted::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
-        let range = GateRange::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let sname = GateShortname::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref());
+        let pemit =
+            GatePercentEmitted::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref());
+        let range = GateRange::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref());
         let lname = GateLongname::remove_meas_opt_nofail(std, i);
         let dtype = GateDetectorType::remove_meas_opt_nofail(std, i);
-        let dvolt = GateDetectorVoltage::remove_or_drop_meas_opt(std, nonstd, i, conf.as_ref());
+        let dvolt =
+            GateDetectorVoltage::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref());
         go!(scale).lift_f5_once(
             go!(sname),
             go!(pemit),
@@ -576,6 +590,12 @@ impl GatedMeasurement {
     fn demote_keywords(self, i: GateIndex, nonstd: &mut NonStdKeywords) {
         for k in self.opt_keywords(i) {
             nonstd.insert_demoted_keyword(OptRootKeyword::from(k).into());
+        }
+    }
+
+    fn drop_keywords(self, i: GateIndex, dropped: &mut StdKeywords) {
+        for k in self.opt_keywords(i) {
+            OptRootKeyword::from(k).insert_unique(dropped);
         }
     }
 }
@@ -725,6 +745,7 @@ impl<I> GatingScheme<I> {
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         (Self, TrimmedKeywords),
@@ -739,7 +760,7 @@ impl<I> GatingScheme<I> {
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
-        Gating::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
+        Gating::remove_or_drop_root_opt(std, nonstd, dropped, conf.as_ref())
             .map_switchable_errors(LookupGatingSchemeError::Gating)
             .switchable_into_commutative()
             .into_semigroup()
@@ -750,7 +771,7 @@ impl<I> GatingScheme<I> {
                         g.region_indices()
                             .into_iter()
                             .map(|ri| {
-                                Region::lookup(std, nonstd, ri, conf)
+                                Region::lookup(std, nonstd, dropped, ri, conf)
                                     .map_deferred_value(|(r, r_diag)| (r.map(|x| (ri, x)), r_diag))
                                     .map_errors(LookupGatingSchemeError::Region)
                                     .map_commutative_warnings(LookupGatingSchemeError::Region)
@@ -785,6 +806,19 @@ impl<I> GatingScheme<I> {
             .map(OptRootKeyword::from_ref)
             .map(Into::into);
         nonstd.insert_demoted_keyword_opt(g);
+    }
+
+    fn drop_keywords(self, dropped: &mut StdKeywords)
+    where
+        I: Copy,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+    {
+        for (ri, r) in self.regions {
+            r.drop_keywords(ri, dropped);
+        }
+        if let Some(g) = self.gating.as_ref().map(OptRootKeyword::from_ref) {
+            g.insert_unique(dropped);
+        }
     }
 
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
@@ -855,6 +889,7 @@ impl<I> Region<I> {
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         ri: RegionIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
@@ -868,14 +903,16 @@ impl<I> Region<I> {
         for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
         RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
-        let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
-            .map_switchable_errors(LookupRegionError::Region)
-            .switchable_into_commutative()
-            .into_semigroup();
-        let window_res = RegionWindow::remove_or_drop_meas_opt_with(std, nonstd, ri, (), conf)
-            .map_switchable_errors(LookupRegionError::Window)
-            .switchable_into_commutative()
-            .into_semigroup();
+        let index_res =
+            RegionGateIndex::remove_or_drop_meas_opt_with(std, nonstd, dropped, ri, (), conf)
+                .map_switchable_errors(LookupRegionError::Region)
+                .switchable_into_commutative()
+                .into_semigroup();
+        let window_res =
+            RegionWindow::remove_or_drop_meas_opt_with(std, nonstd, dropped, ri, (), conf)
+                .map_switchable_errors(LookupRegionError::Window)
+                .switchable_into_commutative()
+                .into_semigroup();
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         let demote_index = |gi, ns: &mut NonStdKeywords| {
@@ -886,6 +923,14 @@ impl<I> Region<I> {
             let k = DKey1::<RegionWindow>::new_i1(ri).as_std_key();
             let v = ToNE(w).to_ne_string();
             ns.insert_demoted(k, v);
+        };
+        let drop_index = |gi, dr: &mut StdKeywords| {
+            OptRootKeyword::from(RegionKeyword::from_value(gi, ri)).insert_unique(dr);
+        };
+        let drop_window = |w: RegionWindow, dr: &mut StdKeywords| {
+            let k = DKey1::<RegionWindow>::new_i1(ri).as_std_key();
+            let v = ToNE(w).to_ne_string();
+            dr.insert(k, v);
         };
         index_res
             .zip_f2_once(window_res)
@@ -902,22 +947,41 @@ impl<I> Region<I> {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
                         Ok(x) => Ok(Some(x.fmap_into())),
                         Err((old_gi, old_w)) => {
-                            if flag.is_demote() {
-                                demote_index(old_gi, nonstd);
-                                demote_window(old_w, nonstd);
+                            match flag.is_demote_or_drop() {
+                                Some(true) => {
+                                    demote_index(old_gi, nonstd);
+                                    demote_window(old_w, nonstd);
+                                }
+                                Some(false) => {
+                                    drop_index(old_gi, dropped);
+                                    drop_window(old_w, dropped);
+                                }
+                                None => (),
                             }
                             Err(IndexWindowMismatchError::Both(ri))
                         }
                     },
                     (Some(old_gi), None) => {
-                        if flag.is_demote() {
-                            demote_index(old_gi, nonstd);
+                        match flag.is_demote_or_drop() {
+                            Some(true) => {
+                                demote_index(old_gi, nonstd);
+                            }
+                            Some(false) => {
+                                drop_index(old_gi, dropped);
+                            }
+                            None => (),
                         }
                         Err(IndexWindowMismatchError::NoWindow(ri))
                     }
                     (None, Some(old_w)) => {
-                        if flag.is_demote() {
-                            demote_window(old_w, nonstd);
+                        match flag.is_demote_or_drop() {
+                            Some(true) => {
+                                demote_window(old_w, nonstd);
+                            }
+                            Some(false) => {
+                                drop_window(old_w, dropped);
+                            }
+                            None => (),
                         }
                         Err(IndexWindowMismatchError::NoIndex(ri))
                     }
@@ -936,6 +1000,16 @@ impl<I> Region<I> {
         for r in self.opt_keywords(i) {
             let kw = OptRootKeyword::from(r).into();
             nonstd.insert_demoted_keyword(kw);
+        }
+    }
+
+    pub(crate) fn drop_keywords<'a>(&'a self, i: RegionIndex, dropped: &mut StdKeywords)
+    where
+        I: Copy,
+        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+    {
+        for r in self.opt_keywords(i) {
+            OptRootKeyword::from(r).insert_unique(dropped);
         }
     }
 
@@ -1073,9 +1147,19 @@ impl GatedMeasurements {
         }
     }
 
+    fn drop_keywords(self, dropped: &mut StdKeywords) {
+        if let Some(gate) = self.gate().map(OptRootKeyword::from_value) {
+            gate.insert_unique(dropped);
+        }
+        for (i, g) in self.0.into_iter().enumerate() {
+            g.drop_keywords(i.into(), dropped);
+        }
+    }
+
     fn lookup<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
         (Self, Vec<ScaleFix>),
@@ -1085,7 +1169,7 @@ impl GatedMeasurements {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
-        Gate::remove_or_drop_root_opt(std, nonstd, conf.as_ref())
+        Gate::remove_or_drop_root_opt(std, nonstd, dropped, conf.as_ref())
             .map_switchable_errors(LookupGatedMeasurementsError::Gate)
             .switchable_into_commutative()
             .into_semigroup()
@@ -1093,7 +1177,7 @@ impl GatedMeasurements {
                 if let Some(n) = maybe {
                     (0..n.0)
                         .map(|i| {
-                            GatedMeasurement::lookup(std, nonstd, i.into(), conf)
+                            GatedMeasurement::lookup(std, nonstd, dropped, i.into(), conf)
                                 .map_commutative_warnings(LookupGatedMeasurementsError::Meas)
                                 .map_errors(LookupGatedMeasurementsError::Meas)
                         })

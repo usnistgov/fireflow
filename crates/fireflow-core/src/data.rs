@@ -1883,6 +1883,7 @@ where
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>>;
 
@@ -1962,9 +1963,10 @@ impl VersionedDataSchema for DataSchema2_0 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup(std, meas_nonstd, conf)
+        AnyOrderedDataSchema::lookup(std, meas_nonstd, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -2000,9 +2002,10 @@ impl VersionedDataSchema for DataSchema3_0 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup(std, meas_nonstd, conf)
+        AnyOrderedDataSchema::lookup(std, meas_nonstd, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -2038,9 +2041,11 @@ impl VersionedDataSchema for DataSchema3_1 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        NonMixedDataSchema::lookup(std, meas_nonstd, conf).map_ok_value(FunctorOnce::fmap_into_once)
+        NonMixedDataSchema::lookup(std, meas_nonstd, dropped, conf)
+            .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
     fn lookup_ro(
@@ -2075,11 +2080,12 @@ impl VersionedDataSchema for DataSchema3_2 {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Option::lookup_all(std, meas_nonstd, conf);
+        let columns = Option::lookup_all(std, meas_nonstd, dropped, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
@@ -6666,6 +6672,7 @@ pub trait IsNumType: Sized {
     fn lookup_datatype(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>;
@@ -6679,12 +6686,13 @@ pub trait IsNumType: Sized {
     fn lookup_all(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
         meas_nonstd
             .iter_mut()
             .enumerate()
-            .map(|(i, nkws)| Self::lookup_one(std, nkws, i.into(), conf))
+            .map(|(i, nkws)| Self::lookup_one(std, nkws, dropped, i.into(), conf))
             .sequence_commutative()
     }
 
@@ -6702,12 +6710,13 @@ pub trait IsNumType: Sized {
     fn lookup_one(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
         let width = Width::remove_meas_req(std, i);
         let range = TextRange::remove_meas_req(std, i);
-        let datatype = Self::lookup_datatype(std, nonstd, i, conf);
+        let datatype = Self::lookup_datatype(std, nonstd, dropped, i, conf);
         Self::make_meas(width, range, datatype)
     }
 
@@ -6746,6 +6755,7 @@ impl IsNumType for Nothing<NumType> {
     fn lookup_datatype(
         _: &mut StdKeywords,
         _: &mut NonStdKeywords,
+        _: &mut StdKeywords,
         _: MeasIndex,
         _: &ReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
@@ -6767,11 +6777,13 @@ impl IsNumType for Option<NumType> {
     fn lookup_datatype(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
     {
-        NumType::remove_or_drop_meas_opt(std, nonstd, i, conf).switchable_into_commutative()
+        NumType::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
+            .switchable_into_commutative()
     }
 
     fn lookup_datatype_ro(
@@ -8020,11 +8032,12 @@ impl<T> AnyOrderedDataSchema<T> {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let byteord = ByteOrd2_0::remove_metaroot_req(std);
-        let columns = Nothing::lookup_all(std, meas_nonstd, conf);
+        let columns = Nothing::lookup_all(std, meas_nonstd, dropped, conf);
         Self::lookup_inner(datatype, byteord, columns, conf)
     }
 
@@ -8126,11 +8139,12 @@ impl NonMixedDataSchema<Nothing<NumType>> {
     fn lookup(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Nothing::<NumType>::lookup_all(std, meas_nonstd, conf);
+        let columns = Nothing::<NumType>::lookup_all(std, meas_nonstd, dropped, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 

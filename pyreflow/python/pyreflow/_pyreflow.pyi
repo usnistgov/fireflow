@@ -2044,6 +2044,7 @@ class ValidKeywords:
 class StdTEXTDiagnostics:
     def __new__(
         cls,
+        optional: pft.StdKeywords,
         pseudostandard: pft.StdKeywords,
         hyper_par: pft.StdKeywords,
         hyper_gate: pft.StdKeywords,
@@ -2057,6 +2058,8 @@ class StdTEXTDiagnostics:
         timestep_added: bool,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def optional(self) -> pft.StdKeywords: ...
     @property
     def pseudostandard(self) -> pft.StdKeywords: ...
     @property

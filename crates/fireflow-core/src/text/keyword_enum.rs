@@ -9,7 +9,9 @@ use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::keys::{AnyKey, DKey0, DKey1, DKey2, DollarKey, NonStdKey, VersionedKey};
+use crate::validated::keys::{
+    AnyKey, DKey0, DKey1, DKey2, DollarKey, NonStdKey, StdKeywords, VersionedKey,
+};
 use crate::validated::keys::{AsStdKey, StdKey};
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{
@@ -582,8 +584,14 @@ pub(crate) trait AsHeader {
 }
 
 #[delegatable_trait]
-pub(crate) trait AsStdKeywordPair {
+pub(crate) trait AsStdKeywordPair: Sized {
     fn as_std_key_pair(&self) -> (StdKey, NEString);
+
+    fn insert_unique(self, std: &mut StdKeywords) {
+        let (k, v) = self.as_std_key_pair();
+        let ret = std.insert(k, v);
+        assert!(ret.is_none(), "key is already inserted");
+    }
 }
 
 #[delegatable_trait]

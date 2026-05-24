@@ -450,6 +450,7 @@ pub(crate) trait Optional: Sized {
     fn remove_or_transfer_opt<I>(
         kws: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self, I>>
@@ -458,13 +459,14 @@ pub(crate) trait Optional: Sized {
         Self: FromStr,
     {
         let res = Self::remove_opt(kws, k);
-        process_opt_key(res, k, nonstd, conf.process_optional_failure)
+        process_opt_key(res, k, nonstd, dropped, conf.process_optional_failure)
     }
 
     #[allow(clippy::type_complexity)]
     fn remove_or_transfer_opt_with<C, I>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &C,
@@ -481,7 +483,7 @@ pub(crate) trait Optional: Sized {
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let res = Self::remove_opt_with(std, k, data, conf.as_ref());
-        process_opt_key(res, k, nonstd, rconf.process_optional_failure)
+        process_opt_key(res, k, nonstd, dropped, rconf.process_optional_failure)
     }
 }
 
@@ -554,17 +556,19 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     fn remove_or_drop_root_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
         Self: FromStr,
     {
-        Self::remove_or_transfer_opt(std, nonstd, SpecificKey::default(), conf)
+        Self::remove_or_transfer_opt(std, nonstd, dropped, SpecificKey::default(), conf)
     }
 
     fn remove_or_drop_root_opt_with<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
@@ -577,7 +581,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::default(), data, conf)
+        Self::remove_or_transfer_opt_with(std, nonstd, dropped, SpecificKey::default(), data, conf)
     }
 }
 
@@ -614,18 +618,20 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     fn remove_or_drop_meas_opt(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &ReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
-        Self::remove_or_transfer_opt(std, nonstd, SpecificKey::new_i1(i.into()), conf)
+        Self::remove_or_transfer_opt(std, nonstd, dropped, SpecificKey::new_i1(i.into()), conf)
     }
 
     fn remove_or_drop_meas_opt_with<C>(
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
+        dropped: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &C,
@@ -639,7 +645,14 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::Diagnostic: Default,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        Self::remove_or_transfer_opt_with(std, nonstd, SpecificKey::new_i1(i.into()), data, conf)
+        Self::remove_or_transfer_opt_with(
+            std,
+            nonstd,
+            dropped,
+            SpecificKey::new_i1(i.into()),
+            data,
+            conf,
+        )
     }
 }
 
@@ -647,6 +660,7 @@ fn process_opt_key<E, I, K, X>(
     res: Result<X, ParseKeyError<E, K, I>>,
     k: SpecificKey<K, I>,
     nonstd: &mut NonStdKeywords,
+    dropped: &mut StdKeywords,
     flag: ProcessOptionalFailure,
 ) -> DeferredSwitchableError<X, DummyTriFlag, ParseKeyError<E, K, I>>
 where
@@ -657,8 +671,13 @@ where
     match res {
         Ok(x) => LogResult::new_switchable_ok(x, triflag),
         Err(e) => {
-            if flag.is_demote() {
-                nonstd.insert_demoted(k.as_std_key(), e.value.0.clone());
+            match flag.is_demote_or_drop() {
+                Some(true) => nonstd.insert_demoted(k.as_std_key(), e.value.0.clone()),
+                Some(false) => {
+                    let out = dropped.insert(k.as_std_key(), e.value.0.clone());
+                    assert!(out.is_none(), "key was already dropped, {}", k.as_std_key());
+                }
+                None => (),
             }
             LogResult::new_deferred_switchable3(X::default(), e, triflag)
         }

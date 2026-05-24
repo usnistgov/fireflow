@@ -1019,10 +1019,19 @@ macro_rules! impl_proc_key_fail {
             }
 
             pub(crate) fn is_demote(self) -> bool {
-                matches!(
-                    self.0,
-                    ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DemoteSilent
-                )
+                self.is_demote_or_drop() == Some(true)
+            }
+
+            pub(crate) fn is_demote_or_drop(self) -> Option<bool> {
+                match self.0 {
+                    ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DemoteSilent => {
+                        Some(true)
+                    }
+                    ProcessKeywordFailure::DropWarn | ProcessKeywordFailure::DropSilent => {
+                        Some(false)
+                    }
+                    ProcessKeywordFailure::Error => None,
+                }
             }
         }
     };

@@ -1244,6 +1244,13 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
+    let optional = DocArgROIvar::new_ivar_ro(
+        "optional",
+        PyDict::new_std_keywords(),
+        "Optional standard keywords which failed parsing and were dropped.",
+        |_, _| quote!(self.0.pseudostandard.clone()),
+    );
+
     let pseudostandard = DocArgROIvar::new_ivar_ro(
         "pseudostandard",
         PyDict::new_std_keywords(),
@@ -1325,6 +1332,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let doc =
         DocString::new_class(format!("Diagnostic output from {TEXT} standardization.")).args([
+            optional,
             pseudostandard,
             hyper_par,
             hyper_gate,
@@ -1349,6 +1357,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
             #[getter]
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("optional", self.optional())?;
                 ret.set_item("pseudostandard", self.pseudostandard())?;
                 ret.set_item("hyper_par", self.hyper_par())?;
                 ret.set_item("hyper_gate", self.hyper_gate())?;

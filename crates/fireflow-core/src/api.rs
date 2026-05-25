@@ -1823,7 +1823,7 @@ where
         shared: *conf.as_ref(),
     };
     while let Some(dso) = dataset_offset
-        && limit.is_none_or(|x| count <= x)
+        && limit.is_none_or(|x| count < x)
     {
         let nextdata_res = if skip.is_some_and(|s| count < s) {
             let res = fcs_read_flat_text(p, dso, &rconf)

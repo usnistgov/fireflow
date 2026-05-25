@@ -3739,6 +3739,8 @@ pub(crate) struct KeywordOptimizer {
     n_pnn: usize,
     /// Number of $PnE found
     n_pne: usize,
+    /// Number of $DFCnTOm keywords found
+    n_dfc: usize,
     /// If $CYT was found
     found_cyt: bool,
     /// If $TOT was found
@@ -3811,6 +3813,18 @@ impl KeywordOptimizer {
         } else {
             score.missing_opt += missing_scales;
             score.good_opt += self.n_pnn;
+        }
+
+        // $DFCmTOn were only in 2.0 and replaced in 3.0 with $COMP. Since only
+        // one $DFCmTOn keywords is needed to make a comp matrix (or
+        // equivalently, many $DFCmTOn map to one $COMP value) treat any
+        // $DFCmTOn keywords as one keyword. Without this, 2.0 configurations
+        // with $DFCmTOn keyword will likely win the optimization simply because
+        // these usually come in large collections which will skew the scores.
+        if version == Version::FCS2_0 {
+            score.good_opt += usize::from(self.n_dfc > 0);
+        } else {
+            score.drop += usize::from(self.n_dfc > 0);
         }
 
         // $CYT became required in version 3.2, so mark as impossible for this
@@ -3973,7 +3987,7 @@ impl KeywordOptimizer {
             AnyKeywordClass::CSVFlag(_) => {
                 self.n_opt_eq3_0or3_1 += 1;
             }
-            AnyKeywordClass::Dfc(_, _) => self.n_opt_eq2_0 += 1,
+            AnyKeywordClass::Dfc(_, _) => self.n_dfc += 1,
             AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
             AnyKeywordClass::RegionWindow => self.n_any += 1,
             AnyKeywordClass::RegionIndex => {

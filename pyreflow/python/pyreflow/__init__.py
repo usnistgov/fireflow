@@ -10,6 +10,7 @@ from ._pyreflow import RelationalError as RelationalError
 from ._pyreflow import EventDataError as EventDataError
 from ._pyreflow import DataLossError as DataLossError
 from ._pyreflow import ConfigError as ConfigError
+from ._pyreflow import WriteFCSError as WriteFCSError
 from ._pyreflow import PyreflowWarning as PyreflowWarning
 from ._pyreflow import CoreTEXT2_0 as CoreTEXT2_0
 from ._pyreflow import CoreTEXT3_0 as CoreTEXT3_0
@@ -44,10 +45,53 @@ from ._pyreflow import BigLittleF64DataSchema as BigLittleF64DataSchema
 from ._pyreflow import SingleUintDataSchema as SingleUintDataSchema
 from ._pyreflow import VariableUintDataSchema as VariableUintDataSchema
 from ._pyreflow import MixedDataSchema as MixedDataSchema
+from ._pyreflow import Header as Header
+from ._pyreflow import ParsedHeaderSegments as ParsedHeaderSegments
+from ._pyreflow import HeaderAndSuppOffsets as HeaderAndSuppOffsets
+from ._pyreflow import UncorrectedHeaderSegments as UncorrectedHeaderSegments
+from ._pyreflow import FlatTEXTOutput as FlatTEXTOutput
+from ._pyreflow import FlatDatasetOutput as FlatDatasetOutput
+from ._pyreflow import FlatDatasetFromKwsOutput as FlatDatasetFromKwsOutput
+from ._pyreflow import NewFlatDatasetFromKwsOutput as NewFlatDatasetFromKwsOutput
+from ._pyreflow import FlatTEXTDiagnostics as FlatTEXTDiagnostics
+from ._pyreflow import StdTEXTOutput as StdTEXTOutput
+from ._pyreflow import StdDatasetOutput as StdDatasetOutput
+from ._pyreflow import StdDatasetFromKwsOutput as StdDatasetFromKwsOutput
+from ._pyreflow import NewStdDatasetFromKwsOutput as NewStdDatasetFromKwsOutput
+from ._pyreflow import StdTEXTDiagnostics as StdTEXTDiagnostics
+from ._pyreflow import ValidKeywords as ValidKeywords
+from ._pyreflow import DatasetSegments as DatasetSegments
+from ._pyreflow import SplitTEXTDiagnostics as SplitTEXTDiagnostics
+from ._pyreflow import EventsDiagnostics as EventsDiagnostics
+from ._pyreflow import KeywordVersionScore as KeywordVersionScore
+from ._pyreflow import DatasetSummary as DatasetSummary
+from ._pyreflow import ReadHeaderConfig as ReadHeaderConfig
+from ._pyreflow import ReadFlatTEXTConfig as ReadFlatTEXTConfig
+from ._pyreflow import ReadStdTEXTConfig as ReadStdTEXTConfig
+from ._pyreflow import ReadFlatDatasetConfig as ReadFlatDatasetConfig
+from ._pyreflow import ReadStdDatasetConfig as ReadStdDatasetConfig
+from ._pyreflow import (
+    ReadFlatDatasetFromKeywordsConfig as ReadFlatDatasetFromKeywordsConfig,
+)
+from ._pyreflow import NewCoreTEXTConfig as NewCoreTEXTConfig
+from ._pyreflow import NewCoreDatasetConfig as NewCoreDatasetConfig
+
 from pyreflow import api as api
 
 __all__ = [
     "__version__",
+    "PyreflowError",
+    "FileLayoutError",
+    "ParseKeyError",
+    "ParseKeywordValueError",
+    "InvalidKeywordValueError",
+    "ExtraKeywordError",
+    "ConversionError",
+    "RelationalError",
+    "EventDataError",
+    "DataLossError",
+    "ConfigError",
+    "PyreflowWarning",
     "CoreTEXT2_0",
     "CoreTEXT3_0",
     "CoreTEXT3_1",
@@ -81,24 +125,33 @@ __all__ = [
     "SingleUintDataSchema",
     "VariableUintDataSchema",
     "MixedDataSchema",
-    "PyreflowError",
-    "FileLayoutError",
-    "ParseKeyError",
-    "ParseKeywordValueError",
-    "InvalidKeywordValueError",
-    "ExtraKeywordError",
-    "ConversionError",
-    "RelationalError",
-    "EventDataError",
-    "DataLossError",
-    "ConfigError",
-    "PyreflowWarning",
-    "ReadHeaderOutput",
-    "ReadFlatTEXTOutput",
-    "ReadStdTEXTOutput",
-    "ReadFlatDatasetOutput",
-    "ReadStdDatasetOutput",
-    "ReadFlatDatasetFromKwsOutput",
-    "ReadStdDatasetFromKwsOutput",
+    "Header",
+    "ParsedHeaderSegments",
+    "HeaderAndSuppOffsets",
+    "UncorrectedHeaderSegments",
+    "FlatTEXTOutput",
+    "FlatDatasetOutput",
+    "FlatDatasetFromKwsOutput",
+    "NewFlatDatasetFromKwsOutput",
+    "FlatTEXTDiagnostics",
+    "StdTEXTOutput",
+    "StdDatasetOutput",
+    "StdDatasetFromKwsOutput",
+    "NewStdDatasetFromKwsOutput",
+    "StdTEXTDiagnostics",
+    "ValidKeywords",
+    "DatasetSegments",
+    "SplitTEXTDiagnostics",
+    "EventsDiagnostics",
+    "KeywordVersionScore",
+    "DatasetSummary",
+    "ReadHeaderConfig",
+    "ReadFlatTEXTConfig",
+    "ReadStdTEXTConfig",
+    "ReadFlatDatasetConfig",
+    "ReadStdDatasetConfig",
+    "ReadFlatDatasetFromKeywordsConfig",
+    "NewCoreTEXTConfig",
+    "NewCoreDatasetConfig",
     "api",
 ]

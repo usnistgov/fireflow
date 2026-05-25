@@ -1399,20 +1399,21 @@ impl Compensation2_0 {
         res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
     }
 
+    // TODO this awkward, if all the entries are zero then we will be saving
+    // lots of zeros as keywords. The best way to handle this in order to keep
+    // read/write operations isomorphic is to ignore comp matrices (and
+    // spillover matrices) that are entirely zero since they clearly are
+    // meaningless.
     pub fn non_zero_indices(&self) -> impl Iterator<Item = DfcKeyword> {
         let m = self.0.matrix();
-        m.iter().enumerate().filter_map(|(i, &value)| {
+        m.iter().enumerate().map(|(i, &value)| {
             let n = m.ncols();
-            if value == 0.0 {
-                None
-            } else {
-                let row = i / n;
-                let col = i % n;
-                Some(DfcKeyword {
-                    col: col.into(),
-                    row: row.into(),
-                    value: Dfc(value),
-                })
+            let row = i / n;
+            let col = i % n;
+            DfcKeyword {
+                col: col.into(),
+                row: row.into(),
+                value: Dfc(value),
             }
         })
     }

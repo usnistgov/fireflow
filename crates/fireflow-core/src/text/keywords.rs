@@ -207,11 +207,11 @@ impl ToDisplayNE<'_> for Scale {
     }
 }
 
-/// Diagnostic data from parsing $PnE
+/// Fixes that were required in order to make $PnE parsable for optical channel.
 #[derive(Clone, PartialEq, From)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalScaleFix {
-    /// Was forced to be linear (which overrides everything else)
+    /// $PnE was non-linear and needed to be linear in order to be standardized.
     Forced(NEString),
     /// Fixes shared with $Gn* keywords
     Inner(ScaleFix),
@@ -314,14 +314,30 @@ impl FromStrWith for Scale {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
-        if (matches!(conf.force_linear_scale, ForceLinearScale::AllNonInt)
+        let can_force = (matches!(conf.force_linear_scale, ForceLinearScale::AllNonInt)
             && !matches!(dt, AlphaNumType::Integer))
-            || matches!(conf.force_linear_scale, ForceLinearScale::All)
-        {
+            || matches!(conf.force_linear_scale, ForceLinearScale::All);
+        let do_force = || {
             let d = OpticalScaleFix::Forced(s.to_owned());
-            Ok(DiagnosedKeyword::new(Self::Linear, d))
-        } else {
-            Self::parse_fix_maybe(s, conf).map(BifunctorOnce::second_into_once)
+            DiagnosedKeyword::new(Self::Linear, d)
+        };
+
+        match Self::parse_fix_maybe(s, conf).map(BifunctorOnce::second_into_once) {
+            Ok(diag) => {
+                let ret = if diag.native != Self::Linear && can_force {
+                    do_force()
+                } else {
+                    diag
+                };
+                Ok(ret)
+            }
+            Err(e) => {
+                if can_force {
+                    Ok(do_force())
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 }
@@ -908,12 +924,16 @@ impl ToDisplayNE<'_> for TemporalScaleInner {
     }
 }
 
+/// Fixes that were required in order to make $PnE parsable for temporal channel.
 #[derive(Default, Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TemporalScaleFix {
+    /// $PnE had no problems
     #[default]
     None,
+    /// $PnE was not linear and needed to be forced as linear to be parsed
     Forced(NEString),
+    /// $PnE needed to be trimmed to be parsed
     Trimmed(NEString),
 }
 
@@ -933,12 +953,15 @@ impl FromStrDelim for TemporalScaleInner {
         let x0 = iter.next();
         let x1 = iter.next();
         let x2 = iter.next();
-        if let (Some(y0), Some(y1), None) = (x0, x1, x2)
-            && (y0.parse::<f32>(), y1.parse::<f32>()) == (Ok(0.0), Ok(0.0))
-        {
-            return Ok(Self);
+        if let (Some(y0), Some(y1), None) = (x0, x1, x2) {
+            if (y0.parse::<f32>(), y1.parse::<f32>()) == (Ok(0.0), Ok(0.0)) {
+                Ok(Self)
+            } else {
+                Err(TemporalScaleError::NonLinear)
+            }
+        } else {
+            Err(TemporalScaleError::Format)
         }
-        Err(TemporalScaleError)
     }
 }
 
@@ -956,16 +979,21 @@ impl FromStrWith for TemporalScale3_0 {
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
-        if conf.force_linear_scale.time_selected() {
-            let d = TemporalScaleFix::Forced(s.to_owned());
-            Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
-        } else {
-            let flag = conf.trim_intra_value_whitespace;
-            let (res, trimmed) = TemporalScaleInner::from_str_delim(s, flag);
-            res.map(|x| {
+        let flag = conf.trim_intra_value_whitespace;
+        let (res, trimmed) = TemporalScaleInner::from_str_delim(s, flag);
+        match res {
+            Ok(x) => {
                 let d = trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
-                DiagnosedKeyword::new(Self(x), d)
-            })
+                Ok(DiagnosedKeyword::new(Self(x), d))
+            }
+            Err(e) => {
+                if conf.force_linear_scale.time_selected() {
+                    let d = TemporalScaleFix::Forced(s.to_owned());
+                    Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 }
@@ -992,8 +1020,12 @@ impl FromStrWith for TemporalScale3_0 {
 
 /// Error when parsing [`TemporalScaleInner`] from string
 #[derive(Debug, Error)]
-#[error("time measurement must have linear scaling")]
-pub struct TemporalScaleError;
+pub enum TemporalScaleError {
+    #[error("time measurement must have linear scaling")]
+    NonLinear,
+    #[error("invalid format")]
+    Format,
+}
 
 /// The value for the $PnCALIBRATION key (3.1 only)
 ///
@@ -3449,16 +3481,21 @@ impl FromStrWith for TemporalScale2_0 {
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let go = |x| Self(OptionalZST(Some(x)));
-        if conf.force_linear_scale.time_selected() {
-            let d = TemporalScaleFix::Forced(s.to_owned());
-            Ok(DiagnosedKeyword::new(go(TemporalScaleInner), d))
-        } else {
-            let flag = conf.trim_intra_value_whitespace;
-            let (res, trimmed) = TemporalScaleInner::from_str_delim(s, flag);
-            res.map(|x| {
+        let flag = conf.trim_intra_value_whitespace;
+        let (res, trimmed) = TemporalScaleInner::from_str_delim(s, flag);
+        match res {
+            Ok(x) => {
                 let d = trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
-                DiagnosedKeyword::new(go(x), d)
-            })
+                Ok(DiagnosedKeyword::new(go(x), d))
+            }
+            Err(e) => {
+                if conf.force_linear_scale.time_selected() {
+                    let d = TemporalScaleFix::Forced(s.to_owned());
+                    Ok(DiagnosedKeyword::new(go(TemporalScaleInner), d))
+                } else {
+                    Err(e)
+                }
+            }
         }
     }
 }

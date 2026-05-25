@@ -654,6 +654,9 @@ pub struct ReadStdKeywordsConfig {
 
     /// Force $PnE to be linear (`"0,0"`) if it is not already.
     ///
+    /// Affected columns will never fail; any value they have will be mapped to
+    /// `"0,0"`.
+    ///
     /// This may be necessary for some files which set $DATATYPE to be `"F"` or
     /// `"D"` which do not allow log scaling.
     pub force_linear_scale: ForceLinearScale,

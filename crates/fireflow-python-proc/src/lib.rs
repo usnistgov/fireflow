@@ -8909,10 +8909,10 @@ impl DocArgParam {
         let path = types_config_path("ForceLinearScale");
         let pt = PyLiteral::new_with_path(tc::ForceLinearScale::iter_str(), path);
         let d = format!(
-            "Force {PNE} to be linear. Use {time} to only \
-             change the temporal measurement, {non_int} to change all \
-             non-integer measurements and temporal measurement, {all} to change \
-             all measurements, and {none} to change no measurements.",
+            "Force {PNE} to be linear. Use {time} to only change the temporal \
+             measurement, {non_int} to change all non-integer measurements and \
+             temporal measurement, {all} to change all measurements, and {none} \
+             to change no measurements. Affected columns will never fail.",
             time = code_str(tc::FORCE_LINEAR_TIME_LEVEL),
             non_int = code_str(tc::FORCE_LINEAR_NON_INT_LEVEL),
             all = code_str(tc::FORCE_LINEAR_ALL_LEVEL),

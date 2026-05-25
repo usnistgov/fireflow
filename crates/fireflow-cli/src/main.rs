@@ -583,7 +583,7 @@ fn run() -> AppResult<()> {
             "Force {pn_e} keywords to be linear. Pass {time} to only set the
              temporal measurement, {non_int} to set temporal measurements and
              non-integer measurements, {all} to set all measurements, and {none}
-             for no measurements.",
+             for no measurements. Affected columns will never fail.",
             time = fmt_val(tc::FORCE_LINEAR_TIME_LEVEL),
             non_int = fmt_val(tc::FORCE_LINEAR_NON_INT_LEVEL),
             all = fmt_val(tc::FORCE_LINEAR_ALL_LEVEL),

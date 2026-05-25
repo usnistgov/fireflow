@@ -1004,7 +1004,7 @@ impl ParsedKeywords {
                     if let Ok(vv) = NEStr::from_utf8(val) {
                         if let Some(tf) = triflag {
                             if let Some(trimmed) = NEStr::try_new(vv.as_ref().trim()) {
-                                let was_trimmed = vv.len() < trimmed.len();
+                                let was_trimmed = trimmed.len() < vv.len();
                                 Some(TrimResult::Trimmed(Cow::Borrowed(trimmed), was_trimmed))
                             } else {
                                 Some(TrimResult::Empty(tf))

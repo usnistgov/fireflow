@@ -1053,25 +1053,25 @@ impl<K, U, V> NamedVec<K, U, V> {
         let go = |xs: &mut Vec<_>| {
             let i = Self::position_by_name(xs, n)?;
             let p = xs.remove(i);
-            Ok((i.into(), p.value))
+            Ok((i, p.value))
         };
 
         match go(&mut self.left) {
-            Ok((i, x)) => Ok((i, Element::NonCenter(x))),
+            Ok((i, x)) => Ok((i.into(), Element::NonCenter(x))),
             Err(e) => {
                 if let Some(mut r) = mem::take(&mut self.center_right) {
                     if &r.center.key == n {
                         // if name matches center, return center and extend the
                         // left vector with the right vector
-                        self.left.extend(r.right);
                         let i = self.left.len().into();
+                        self.left.extend(r.right);
                         Ok((i, Element::Center(r.center.value)))
                     } else {
                         // if name matches in right vector, remove from right
                         // and put center+right back on tail of parent struct
                         let res = go(&mut r.right);
                         self.center_right = Some(r);
-                        res.map(|(i, x)| (i, Element::NonCenter(x)))
+                        res.map(|(i, x)| ((self.left.len() + 1 + i).into(), Element::NonCenter(x)))
                     }
                 } else {
                     Err(e)

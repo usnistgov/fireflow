@@ -14,14 +14,14 @@ use pyo3::exceptions::{PyException, PyWarning};
 // a better way to do this. At least there aren't that many exceptions (for now)
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     PyreflowError,
     PyException,
     "Base class for all exceptions raised by ``pyreflow``."
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     FileLayoutError,
     PyreflowError,
     "Raised if FCS file was malformed.\n\
@@ -36,7 +36,7 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     ParseKeyError,
     PyreflowError,
     "Raised if key from *TEXT* could not be parsed from bytestring.\n\
@@ -51,7 +51,7 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     ParseKeywordValueError,
     PyreflowError,
     "Raised if keyword value could not be parsed from a string.\n\
@@ -69,7 +69,7 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     InvalidKeywordValueError,
     PyreflowError,
     "Raised if a standardized keyword value is incorrectly specified.\n\
@@ -89,14 +89,14 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     ExtraKeywordError,
     PyreflowError,
     "Raised when extra standard keywords are left unused in standard mode."
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     ConversionError,
     PyreflowError,
     "Raised upon failure when converting between FCS versions.\n\
@@ -117,7 +117,7 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     RelationalError,
     PyreflowError,
     "Raised when a keyword's value is incorrect given its context.\n\
@@ -132,14 +132,14 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     EventDataError,
     PyreflowError,
     "Raised when values in *DATA* segment are invalid."
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     DataLossError,
     PyreflowError,
     "Raised when values in *DATA* segment must be truncated.\n\
@@ -149,7 +149,7 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     ConfigError,
     PyreflowError,
     "Raised when a configuration value is invalid.\n\
@@ -159,14 +159,14 @@ create_exception!(
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     WriteFCSError,
     PyreflowError,
     "Raised when an FCS file cannot be written."
 );
 
 create_exception!(
-    _pyreflow,
+    pyreflow,
     PyreflowWarning,
     PyWarning,
     "Generic warning created by ``pyreflow``."

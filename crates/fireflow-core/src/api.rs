@@ -1054,8 +1054,8 @@ impl FlatDatasetOutput {
         DatasetSummary {
             version: hdr.version,
             text_len: txt.len(),
-            data_len: ds.dataset_segments.data.len(),
-            analysis_len: ds.dataset_segments.analysis.len(),
+            data_len: ds.dataset_segments.final_data.len(),
+            analysis_len: ds.dataset_segments.final_analysis.len(),
             n_events: ds.data.nrows(),
             n_measurements: ds.data.ncols(),
             n_other: ds.others.0.len(),

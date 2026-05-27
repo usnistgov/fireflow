@@ -125,7 +125,8 @@ use fireflow_types::config::{
     IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
 };
 use fireflow_types::keywords::{
-    HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    HasVersion, OpticalFeature, TEXTOffsetOrigin, Version, Version2_0, Version3_0, Version3_1,
+    Version3_2,
 };
 use fireflow_types::nonempty_string::NEString;
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
@@ -1044,11 +1045,17 @@ pub struct StdDatasetFromKwsOutput {
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DatasetSegments {
-    /// offsets used to parse DATA
-    pub data: AnyDataSegment,
+    /// Offsets used to parse DATA
+    pub final_data: AnyDataSegment,
 
-    /// offsets used to parse ANALYSIS
-    pub analysis: AnyAnalysisSegment,
+    /// Offsets used to parse ANALYSIS
+    pub final_analysis: AnyAnalysisSegment,
+
+    /// Encodes origin of DATA segment.
+    pub data_origin: TEXTOffsetOrigin,
+
+    /// Encodes origin of ANALYSIS segment.
+    pub analysis_origin: TEXTOffsetOrigin,
 
     /// Uncorrected offsets for DATA if from TEXT
     pub data_uncorrected: Option<UncorrectedSegment>,
@@ -2029,10 +2036,15 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(mut layout_out, mut offsets)| {
-                let ar = AnalysisReader::new(offsets.segs.analysis);
+                let ar = AnalysisReader::new(offsets.segs.final_analysis);
                 layout_out
                     .data_schema
-                    .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
+                    .h_read_df(
+                        h,
+                        offsets.tot,
+                        &mut offsets.segs.final_data,
+                        st.conf.as_ref(),
+                    )
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|df_out| {
@@ -2318,7 +2330,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     {
         Tot::remove_or_drop_root_opt(std, nonstd, dropped, st.conf.as_ref())
             .map_ok_value(|tot| {
-                let s = segs.header.segments.as_dataset_segments(None, None);
+                let s = segs.header.segments.as_dataset_segments_2_0();
                 TEXTOffsets::new(s, tot)
             })
             .set_err_value(())
@@ -2340,7 +2352,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .fmap_once(|tot| {
-                let s = segs.header.segments.as_dataset_segments(None, None);
+                let s = segs.header.segments.as_dataset_segments_2_0();
                 TEXTOffsets::new(s, tot)
             });
         LogResult::Succ(succ)
@@ -6184,11 +6196,16 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, mut offsets)| {
                 let or = hns.header.segments.others_reader();
-                let ar = AnalysisReader::new(offsets.segs.analysis);
+                let ar = AnalysisReader::new(offsets.segs.final_analysis);
                 let other = io_to_log!(or.h_read(h));
                 let analysis = io_to_log!(ar.h_read(h));
                 text.meas
-                    .h_read_df(h, offsets.tot, &mut offsets.segs.data, st.conf.as_ref())
+                    .h_read_df(
+                        h,
+                        offsets.tot,
+                        &mut offsets.segs.final_data,
+                        st.conf.as_ref(),
+                    )
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                     .map_ok_value(|df_out| {
@@ -6791,14 +6808,14 @@ impl DatasetSegments {
     fn try_new(
         data: HeaderOrTextSegment<DataSegmentId>,
         analysis: HeaderOrTextSegment<AnalysisSegmentId>,
-        data_uncorr: Option<UncorrectedSegment>,
-        analysis_uncorr: Option<UncorrectedSegment>,
+        text_data_uncorr: Option<UncorrectedSegment>,
+        text_analysis_uncorr: Option<UncorrectedSegment>,
         limit: OverlapCorrectionLimit,
     ) -> Result<Self, SegmentOverlapError> {
         // Check for overlaps if we have two non-empty segments that are both
         // from TEXT. We can assume that if they are both from HEADER that
         // this has already been checked.
-        if let (HeaderOrTextSegment::Text(mut dt), HeaderOrTextSegment::Text(mut at)) =
+        if let (HeaderOrTextSegment::Text(mut dt, _), HeaderOrTextSegment::Text(mut at, _)) =
             (data, analysis)
             && let (Some(dq), Some(aq)) = (dt.try_as_generic(), at.try_as_generic())
         {
@@ -6818,11 +6835,15 @@ impl DatasetSegments {
                 }
             }
         }
+        let (dseg, dorig) = data.into_any();
+        let (aseg, aorig) = analysis.into_any();
         Ok(Self::new(
-            data.into_any(),
-            analysis.into_any(),
-            data_uncorr,
-            analysis_uncorr,
+            dseg,
+            aseg,
+            dorig,
+            aorig,
+            text_data_uncorr,
+            text_analysis_uncorr,
         ))
     }
 }

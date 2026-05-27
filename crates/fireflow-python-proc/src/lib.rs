@@ -835,8 +835,9 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let text = DocArg::new_text_seg_param().into_ro(|_, _| quote!(self.0.text()));
-    let data = DocArg::new_data_seg_param(SegmentSrc::Header).into_ro(|_, _| quote!(self.0.data()));
-    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Header, false)
+    let data = DocArg::new_data_seg_param("data_seg", SegmentSrc::Header)
+        .into_ro(|_, _| quote!(self.0.data()));
+    let analysis = DocArg::new_analysis_seg_param("analysis_seg", SegmentSrc::Header, false)
         .into_ro(|_, _| quote!(self.0.analysis()));
 
     let other = DocArg::new_other_segs_param().into_ro(|_, _| quote!(self.0.py_other()));
@@ -1381,9 +1382,30 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let data = DocArg::new_data_seg_param(SegmentSrc::Any).into_ro(|_, _| quote!(self.0.data));
-    let analysis = DocArg::new_analysis_seg_param(SegmentSrc::Any, false)
-        .into_ro(|_, _| quote!(self.0.analysis));
+    let origin_path = parse_quote!(fireflow_types::keywords::TEXTOffsetOrigin);
+    let origin_pt = tk::TEXTOffsetOrigin::iter_str()
+        .collect::<PyLiteral>()
+        .rstype(origin_path);
+
+    let make_origin = |argname, argseg: AnySegment| {
+        DocArg::new_param(
+            argname,
+            origin_pt.clone(),
+            format!(
+                "The origin of the offsets that were actually used to read {seg}.",
+                seg = argseg.name(),
+            ),
+        )
+    };
+
+    let data = DocArg::new_data_seg_param("final_data_seg", SegmentSrc::Any)
+        .into_ro(|_, _| quote!(self.0.final_data));
+    let analysis = DocArg::new_analysis_seg_param("final_analysis_seg", SegmentSrc::Any, false)
+        .into_ro(|_, _| quote!(self.0.final_analysis));
+    let data_origin =
+        make_origin("data_origin", AnySegment::Data).into_ro(|_, _| quote!(self.0.data_origin));
+    let analysis_origin = make_origin("analysis_origin", AnySegment::Analysis)
+        .into_ro(|_, _| quote!(self.0.analysis_origin));
     let data_uncorrected = DocArg::new_uncorrected_seg_param(
         "data_seg_uncorrected",
         AnySegment::Data,
@@ -1397,9 +1419,39 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     )
     .into_ro(|_, _| quote!(self.0.analysis_uncorrected));
 
-    let args = [data, analysis, data_uncorrected, analysis_uncorrected];
-    let doc =
-        DocString::new_class(format!("Segments used to parse {DATA} and {ANALYSIS}")).args(args);
+    let args = [
+        data,
+        analysis,
+        data_origin,
+        analysis_origin,
+        data_uncorrected,
+        analysis_uncorrected,
+    ];
+
+    let offset_para = format!(
+        "The {origin} fields indicate the origin of the offsets used to read a \
+         given segment. It will be one of 1) {emptytext} - {TEXT} offsets were \
+         empty, 2) {ignored} - {TEXT} offsets were ignored by config, 3) \
+         {missing} - {TEXT} offsets were either missing or could not be parsed, \
+         4) {match_} - {HEADER} and {TEXT} offsets match so both/either were \
+         used 5) {mishead} - {HEADER} and {TEXT} offsets don't match and \
+         {HEADER} was used, 6) {mistext} - like (6) except that {TEXT} was used, \
+         and 7) {emptyhead} - {HEADER} offsets were empty and {TEXT} offsets \
+         were not empty, so {TEXT} was used. Levels 1-5 indicate that the origin \
+         of the offsets used to read was {HEADER}, and the others indicate it \
+         was from {TEXT}.",
+        origin = arg("*_origin"),
+        emptytext = code_str(tk::TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL),
+        ignored = code_str(tk::TEXT_OFFSET_ORIGIN_IGNORED_LEVEL),
+        missing = code_str(tk::TEXT_OFFSET_ORIGIN_MISSING_LEVEL),
+        match_ = code_str(tk::TEXT_OFFSET_ORIGIN_MATCH_LEVEL),
+        mishead = code_str(tk::TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL),
+        mistext = code_str(tk::TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL),
+        emptyhead = code_str(tk::TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL),
+    );
+    let doc = DocString::new_class(format!("Segments used to parse {DATA} and {ANALYSIS}"))
+        .para(offset_para)
+        .args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -1412,8 +1464,10 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
             #[getter]
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("data_seg", self.data_seg())?;
-                ret.set_item("analysis_seg", self.analysis_seg())?;
+                ret.set_item("final_data_seg", self.final_data_seg())?;
+                ret.set_item("final_analysis_seg", self.final_analysis_seg())?;
+                ret.set_item("data_origin", self.data_origin())?;
+                ret.set_item("analysis_origin", self.analysis_origin())?;
                 ret.set_item("data_seg_uncorrected", self.data_seg_uncorrected())?;
                 ret.set_item("analysis_seg_uncorrected", self.analysis_seg_uncorrected())?;
                 Ok(ret.into())
@@ -8486,15 +8540,15 @@ impl DocArgParam {
         Self::new_param("text_seg", PyTuple::new_text_segment(), desc)
     }
 
-    fn new_data_seg_param(src: SegmentSrc) -> Self {
+    fn new_data_seg_param(name: &str, src: SegmentSrc) -> Self {
         let desc = format!("The {DATA} segment from {src}.");
-        Self::new_param("data_seg", PyTuple::new_data_segment(src), desc)
+        Self::new_param(name, PyTuple::new_data_segment(src), desc)
     }
 
-    fn new_analysis_seg_param(src: SegmentSrc, default: bool) -> Self {
+    fn new_analysis_seg_param(name: &str, src: SegmentSrc, default: bool) -> Self {
         let desc = format!("The {ANALYSIS} segment from {src}.");
         let p = PyTuple::new_analysis_segment(src);
-        Self::new_param("analysis_seg", p, desc).def_auto_if(default)
+        Self::new_param(name, p, desc).def_auto_if(default)
     }
 
     fn new_other_segs_param() -> Self {

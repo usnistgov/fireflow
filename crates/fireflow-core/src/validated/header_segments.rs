@@ -6,13 +6,14 @@ use crate::match_many_to_one;
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment,
     IsDataOrAnalysis, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,
-    TEXTSegment, UncorrectedSegment,
+    TEXTSegment,
 };
 use crate::text::keywords::Nextdata;
 use crate::validated::ascii_range::OtherWidth;
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
+use fireflow_types::keywords::TEXTOffsetOrigin;
 use itertools::Itertools as _;
 use nonempty_collections::{NESlice, NEVec};
 use thiserror::Error;
@@ -116,14 +117,22 @@ impl ParsedHeaderSegments {
     }
 
     /// Return DATA and ANALYSIS segments in struct.
-    pub(crate) fn as_dataset_segments(
-        &self,
-        data_uncorr: Option<UncorrectedSegment>,
-        analysis_uncorr: Option<UncorrectedSegment>,
-    ) -> DatasetSegments {
+    ///
+    /// The returned struct encodes DATA and ANALYSIS segments that should
+    /// actually be used for reading these segments. Since this takes no inputs,
+    /// TEXT segments cannot be included, therefore it should only be called in
+    /// 2.0 code which does not include TEXT segmetns.
+    pub(crate) fn as_dataset_segments_2_0(&self) -> DatasetSegments {
         let d = self.data.into_any();
         let a = self.analysis.into_any();
-        DatasetSegments::new(d, a, data_uncorr, analysis_uncorr)
+        DatasetSegments::new(
+            d,
+            a,
+            TEXTOffsetOrigin::EmptyTEXT,
+            TEXTOffsetOrigin::EmptyTEXT,
+            None,
+            None,
+        )
     }
 
     /// Ensure supp TEXT does not overlap other offsets or HEADER.

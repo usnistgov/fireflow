@@ -4360,9 +4360,9 @@ class TestConfig:
                 time_meas_pattern=None,
             )
             if is_analysis:
-                return uncore.dataset_segs.analysis_seg
+                return uncore.dataset_segs.final_analysis_seg
             else:
-                return uncore.dataset_segs.data_seg
+                return uncore.dataset_segs.final_data_seg
 
         if version == "FCS2.0":
             assert go("error") == header
@@ -5789,7 +5789,7 @@ class TestConfig:
                 text_data_correction=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.data_seg
+            return uncore.dataset_segs.final_data_seg
 
         if version == "FCS2.0":
             assert go((0, 0)) == (0, 0)
@@ -5813,7 +5813,7 @@ class TestConfig:
                 text_analysis_correction=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.analysis_seg
+            return uncore.dataset_segs.final_analysis_seg
 
         if version == "FCS2.0":
             assert go((0, 0)) == (0, 0)
@@ -5842,7 +5842,7 @@ class TestConfig:
                 ignore_text_data_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.data_seg
+            return uncore.dataset_segs.final_data_seg
 
         if version == "FCS2.0":
             self._test_config_flag_nofail(go, (0, 0))
@@ -5863,7 +5863,7 @@ class TestConfig:
                 ignore_text_analysis_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.analysis_seg
+            return uncore.dataset_segs.final_analysis_seg
 
         if version == "FCS2.0":
             self._test_config_flag_nofail(go, (0, 0))
@@ -5907,7 +5907,7 @@ class TestConfig:
                 allow_missing_required_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.data_seg
+            return uncore.dataset_segs.final_data_seg
 
         if version == "FCS2.0":
             assert go("false") == (0, 0)
@@ -5940,7 +5940,7 @@ class TestConfig:
                 allow_missing_required_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.analysis_seg
+            return uncore.dataset_segs.final_analysis_seg
 
         if version in ["FCS2.0", "FCS3.2"]:
             assert go("false") == (0, 0)

@@ -237,3 +237,13 @@ OverLimitAction: TypeAlias = Literal[
 FixIntWidths: TypeAlias = int | Literal["next_byte", "never"]
 
 ByteordOverride: TypeAlias = list[int] | Literal["endian", "none"]
+
+TEXTOffsetOrigin: TypeAlias = Literal[
+    "empty_text",
+    "ignored",
+    "missing",
+    "match",
+    "mismatch_header",
+    "mismatch_text",
+    "empty_header",
+]

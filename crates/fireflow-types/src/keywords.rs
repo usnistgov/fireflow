@@ -222,6 +222,13 @@ impl VersionMembership {
     }
 }
 
+// Supplemental TEXT flags
+
+pub const SUPP_TEXT_EMPTY: &NEStr = ne_str!("empty");
+pub const SUPP_TEXT_MISSING: &NEStr = ne_str!("missing");
+pub const SUPP_TEXT_DUP_ANALYSIS: &NEStr = ne_str!("duplicated_analysis");
+pub const SUPP_TEXT_DUP_PTEXT: &NEStr = ne_str!("duplicated_primary_text");
+
 // BYTEORD big/little flags
 
 pub const BYTEORD_BIG: &str = "big";

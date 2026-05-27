@@ -1671,14 +1671,49 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
 
     let header = DocArg::new_header_param().into_ro(|_, _| quote!(self.0.header.clone().into()));
 
+    let supp_vars: [PyType<_>; 7] = [
+        PyLiteral::new1(tk::SUPP_TEXT_EMPTY.as_str()).into(),
+        PyLiteral::new1(tk::SUPP_TEXT_MISSING.as_str()).into(),
+        PyLiteral::new1(tk::SUPP_TEXT_DUP_ANALYSIS.as_str()).into(),
+        PyLiteral::new1(tk::SUPP_TEXT_DUP_PTEXT.as_str()).into(),
+        PyTuple::new_uncorrected_segment().into(),
+        PyTuple::new1(PyTuple::new_supp_text_segment())
+            .add(PyTuple::new_uncorrected_segment())
+            .into(),
+        PyTuple::new1(PyTuple::new_supp_text_segment())
+            .add(PyTuple::new_uncorrected_segment())
+            .add(RsInt::Usize)
+            .into(),
+    ];
+
+    let supp_path = parse_quote!(fireflow_core::api::SupplementalTEXTOffsets);
+    let supp_pt = supp_vars
+        .into_iter()
+        .collect::<PyUnion<_>>()
+        .rstype(supp_path);
+
     let supp = DocArgROIvar::new_ivar_ro(
         "supp_text",
-        PyOpt::new1(
-            PyTuple::new1(PyOpt::new1(PyTuple::new_supp_text_segment()))
-                .add(PyTuple::new_uncorrected_segment()),
+        supp_pt,
+        format!(
+            "Supplemental {TEXT} offsets if applicable. If {empty}, offsets were \
+             not present and not required. If {missing}, offsets were missing or \
+             could not be parsed and were required. If {dup_ptext} offsets \
+             perfectly matched primary {TEXT} and the latter was used. If \
+             {dup_anal} offsets perfectly matched {ANALYSIS} and the latter was \
+             used. If an offset pair, this encodes the uncorrected offsets which \
+             were ignored. If a 2-tuple with two offset pairs, these encode the \
+             corrected and uncorrected offsets for a valid supplemental {TEXT} \
+             segment which was used and parsed. If a 3-tuple, this is just like \
+             the previous except the supplemental {TEXT} offsets matched an \
+             {OTHER} segment (indicated by the integer in the 3rd element of the \
+             tuple) and the former was used.",
+            empty = code_str(tk::SUPP_TEXT_EMPTY),
+            missing = code_str(tk::SUPP_TEXT_MISSING),
+            dup_ptext = code_str(tk::SUPP_TEXT_DUP_PTEXT),
+            dup_anal = code_str(tk::SUPP_TEXT_DUP_ANALYSIS),
         ),
-        format!("Supplemental {TEXT} offsets if given (corrected and uncorrected)."),
-        |_, _| quote!(self.0.supp_text.as_ref().copied()),
+        |_, _| quote!(self.0.supp_text),
     );
 
     let rstype = keyword_path("Nextdata");
@@ -7079,6 +7114,10 @@ impl FromIterator<&'static str> for PyLiteral {
 }
 
 impl PyLiteral {
+    fn new1(head: &'static str) -> Self {
+        Self::new(head, vec![], None)
+    }
+
     fn new_with_path(xs: impl IntoIterator<Item = &'static str>, rstype: Path) -> Self {
         xs.into_iter().collect::<Self>().rstype(rstype)
     }

@@ -4599,18 +4599,18 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=(0, -1))
 
-        def go(corr: tuple[int, int]) -> tuple[Segment | None, Segment] | None:
+        def go(corr: tuple[int, int]) -> pt.SuppTEXTOffsets:
             out = pf.api.fcs_read_flat_text(p, supp_text_correction=corr)
             return out.flat_diagnostics.header_supp.supp_text
 
         if version == "FCS2.0":
             # 2.0 shouldn't parse supp text at all
-            assert go((0, 0)) is None
-            assert go((0, 1)) is None
+            assert go((0, 0)) == "empty"
+            assert go((0, 1)) == "empty"
         elif version == "FCS3.2":
             # supp text is optional for 3.2 so it emits warning
             with pytest.warns(pf.PyreflowWarning):
-                assert go((0, 0)) is None
+                assert go((0, 0)) == "missing"
             assert go((0, 1)) == ((0, 0), (0, -1))
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
@@ -4638,19 +4638,20 @@ class TestConfig:
         text_coords = (58, 98)
         self.mock_header_text(p, version, stext=text_coords)
 
-        def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
+        def go(f: TriFlag) -> pt.SuppTEXTOffsets:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
             return out.flat_diagnostics.header_supp.supp_text
 
         # no supp text in 2.0 so no error
         if version == "FCS2.0":
-            self._test_tri_flag_nofail(go, None)
+            comp2: pt.SuppTEXTOffsets = "empty"
+            self._test_tri_flag_nofail(go, comp2)
         else:
-            comp: tuple[Segment | None, Segment] | None = (None, text_coords)
+            comp: pt.SuppTEXTOffsets = "duplicated_primary_text"
             self._test_tri_flag(go, comp, [pf.FileLayoutError])
 
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
-            assert out.flat_diagnostics.header_supp.supp_text == comp
+            assert out.flat_diagnostics.header_supp.supp_text == text_coords
 
     @all_versions
     def test_allow_dup_supp_text_other(
@@ -4669,25 +4670,22 @@ class TestConfig:
             rest=stext,
         )
 
-        Supp = tuple[Segment | None, Segment] | None
-        Ret = tuple[Supp, list[Segment]]
-
-        def go(f: TriFlag) -> Ret:
+        def go(f: TriFlag) -> pt.SuppTEXTOffsets:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
             h = out.flat_diagnostics.header_supp
-            o = h.header.segments.other_segs
-            return (h.supp_text, None if o is None else o[0])
+            # o = h.header.segments.other_segs
+            return h.supp_text
 
         # no supp text in 2.0 so no error
         if version == "FCS2.0":
-            comp0: Ret = (None, [stext_coords])
+            comp0: pt.SuppTEXTOffsets = "empty"
             self._test_tri_flag_nofail(go, comp0)
         else:
-            comp1: Ret = ((stext_coords, stext_coords), [(0, 0)])
+            comp1: pt.SuppTEXTOffsets = (stext_coords, stext_coords, 0)
             self._test_tri_flag(go, comp1, [pf.FileLayoutError])
 
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
-            assert out.flat_diagnostics.header_supp.supp_text == (None, stext_coords)
+            assert out.flat_diagnostics.header_supp.supp_text == stext_coords
             assert (
                 out.flat_diagnostics.header_supp.header.segments.other_segs is not None
             )
@@ -4925,16 +4923,18 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=None)
 
-        def go(f: TriFlag) -> tuple[Segment | None, Segment] | None:
+        def go(f: TriFlag) -> pt.SuppTEXTOffsets:
             out = pf.api.fcs_read_flat_text(p, allow_missing_supp_text=f)
             return out.flat_diagnostics.header_supp.supp_text
 
         if version in ["FCS2.0", "FCS3.2"]:
             # supp text doesn't exist in 2.0 and is optional in 3.2, so no
             # error for these two
-            self._test_tri_flag_nofail(go, None)
+            comp: pt.SuppTEXTOffsets = "empty"
+            self._test_tri_flag_nofail(go, comp)
         else:
-            self._test_tri_flag(go, None, [pf.ParseKeywordValueError] * 2)
+            comp3: pt.SuppTEXTOffsets = "missing"
+            self._test_tri_flag(go, comp3, [pf.ParseKeywordValueError] * 2)
 
     @all_versions
     def test_allow_supp_text_own_delim(

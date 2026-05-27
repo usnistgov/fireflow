@@ -247,3 +247,10 @@ TEXTOffsetOrigin: TypeAlias = Literal[
     "mismatch_text",
     "empty_header",
 ]
+
+SuppTEXTOffsets: TypeAlias = (
+    Literal["empty", "missing", "duplicated_primary_text", "duplicated_analysis"]
+    | Segment
+    | tuple[Segment, Segment]
+    | tuple[Segment, Segment, int]
+)

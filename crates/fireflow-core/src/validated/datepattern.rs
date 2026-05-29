@@ -48,18 +48,35 @@ impl FromStr for DatePattern {
 #[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
 pub struct DatePatternError(String);
 
-// TODO property tests would likely be useful here
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    // test every ymd permutation, all of which should be valid
+    proptest! {
+        #[test]
+        fn str_to_pattern(
+            s in "([^%]*%[yY][^%]*%[mbB][^%]*%[de][^%]*|\
+                   [^%]*%[yY][^%]*%[de][^%]*%[mbB][^%]*|\
+                   [^%]*%[de][^%]*%[mbB][^%]*%[yY][^%]*|\
+                   [^%]*%[de][^%]*%[yY][^%]*%[mbB][^%]*|\
+                   [^%]*%[mbB][^%]*%[de][^%]*%[yY][^%]*|\
+                   [^%]*%[mbB][^%]*%[yY][^%]*%[de][^%]*)"
+        ) {
+            assert!(s.parse::<DatePattern>().is_ok());
+        }
+    }
 
     #[test]
-    fn str_to_pattern() {
-        assert!("%y%m%d".parse::<DatePattern>().is_ok());
-        assert!("%yrandom%mmorerandom%d".parse::<DatePattern>().is_ok(),);
+    fn str_to_pattern_invalid() {
         assert!("%y%y%m%d".parse::<DatePattern>().is_err());
         assert!("%m%d".parse::<DatePattern>().is_err());
-        // known patterns in FCS files that should work
+    }
+
+    // known patterns in FCS files that should work
+    #[test]
+    fn str_to_pattern_known_fcs() {
         assert!("%Y-%b-%d".parse::<DatePattern>().is_ok());
         assert!("%d-%b-%Y".parse::<DatePattern>().is_ok());
     }

@@ -42,6 +42,9 @@ fireflow-core-proc = { path = "../fireflow-core-proc" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, optional = true }
 
+[dev-dependencies]
+proptest = { workspace = true }
+
 [features]
 serde = [
     "dep:serde",

@@ -16,6 +16,9 @@ use {
     pyo3::prelude::*,
 };
 
+#[cfg(test)]
+use proptest::prelude::*;
+
 #[derive(
     Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Into, From, NoUninit, Shr, Default, Debug, Display,
 )]
@@ -494,3 +497,23 @@ impl_float_as_unalign!(f64, u32, U24);
 impl_float_as_unalign!(f64, u64, U40);
 impl_float_as_unalign!(f64, u64, U48);
 impl_float_as_unalign!(f64, u64, U56);
+
+macro_rules! impl_arbitrary_unaligned {
+    ($t:ident, $inner:ident) => {
+        #[cfg(test)]
+        impl Arbitrary for $t {
+            type Parameters = ();
+            type Strategy = BoxedStrategy<$t>;
+
+            fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+                let zero: $inner = 0;
+                (zero..=($t::max_value().into())).prop_map($t).boxed()
+            }
+        }
+    };
+}
+
+impl_arbitrary_unaligned!(U24, u32);
+impl_arbitrary_unaligned!(U40, u64);
+impl_arbitrary_unaligned!(U48, u64);
+impl_arbitrary_unaligned!(U56, u64);

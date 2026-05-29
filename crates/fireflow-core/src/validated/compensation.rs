@@ -117,10 +117,36 @@ pub enum NewCompError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
+
+    fn comp_vec() -> impl Strategy<Value = Vec<f32>> {
+        (2_usize..50).prop_flat_map(|n| prop::collection::vec(f32::MIN..f32::MAX, n * n))
+    }
+
+    proptest! {
+        #[test]
+        fn str_compensation_valid(xs in comp_vec()) {
+            let n = xs.len().isqrt();
+            let m = Array2::from_shape_vec((n, n), xs).unwrap();
+            assert!(Compensation::try_from(m).is_ok());
+        }
+    }
 
     #[test]
-    fn str_compensation_not_finite() {
+    fn str_compensation_not_nan() {
         let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::NAN]).unwrap();
+        assert!(Compensation::try_from(m).is_err());
+    }
+
+    #[test]
+    fn str_compensation_not_inf() {
+        let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::INFINITY]).unwrap();
+        assert!(Compensation::try_from(m).is_err());
+    }
+
+    #[test]
+    fn str_compensation_not_neg_inf() {
+        let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::NEG_INFINITY]).unwrap();
         assert!(Compensation::try_from(m).is_err());
     }
 

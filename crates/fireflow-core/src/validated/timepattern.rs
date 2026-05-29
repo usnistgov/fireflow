@@ -172,18 +172,86 @@ enum InnerPatternError {
     ExceededSexa,
 }
 
-// TODO property tests would likely be useful here
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    use itertools::Itertools as _;
+    use proptest::prelude::*;
+    use proptest::sugar::NamedArguments;
+    use proptest::test_runner::TestRunner;
+
+    use std::iter::once;
+
+    const H24_PAT: &str = "%[Hk]";
+    const H12_PAT: &str = "%[Il]";
+    const AMPM_PAT: &str = "%[Pp]";
+    const M_PAT: &str = "%M";
+    const S_PAT: &str = "%S";
+    const F_PAT: &str = "(%\\.?[369]?f|%@|%!)";
+
+    const PATS_24: [&str; 4] = [H24_PAT, M_PAT, S_PAT, F_PAT];
+    const PATS_12: [&str; 5] = [H12_PAT, AMPM_PAT, M_PAT, S_PAT, F_PAT];
+    const PATS_24_NO_FRAC: [&str; 3] = [H24_PAT, M_PAT, S_PAT];
+    const PATS_12_NO_FRAC: [&str; 4] = [H12_PAT, AMPM_PAT, M_PAT, S_PAT];
+
+    fn pat_regex(subpats: &[&str], n: usize) -> String {
+        let inner = subpats
+            .into_iter()
+            .permutations(n)
+            .map(|ps| {
+                once("")
+                    .chain(ps.into_iter().copied())
+                    .chain(once(""))
+                    .join("[^%]*")
+            })
+            .join("|");
+        format!("({inner})")
+    }
+
+    fn test_permutations(subpats: &[&str], n: usize) {
+        let mut runner = TestRunner::default();
+        let pats = pat_regex(subpats, n);
+        let r = pats.as_str().prop_map(|v| NamedArguments("s", v));
+        let res = runner.run(&r, |NamedArguments(_, s)| {
+            assert!(s.parse::<TimePattern>().is_ok());
+            Ok(())
+        });
+        match res {
+            Ok(()) => (),
+            Err(e) => panic!("{e}\n{runner}"),
+        }
+    }
+
     #[test]
-    fn str_to_pattern() {
-        assert!("%H:%M:%S".parse::<TimePattern>().is_ok());
-        assert!("%H::::::::%M:::::::%S".parse::<TimePattern>().is_ok());
+    fn str_to_pattern24() {
+        test_permutations(&PATS_24, 4);
+    }
+
+    #[test]
+    fn str_to_pattern12() {
+        test_permutations(&PATS_12, 5);
+    }
+
+    #[test]
+    fn str_to_pattern24_nofrac() {
+        test_permutations(&PATS_24_NO_FRAC, 3);
+    }
+
+    #[test]
+    fn str_to_pattern12_nofrac() {
+        test_permutations(&PATS_12_NO_FRAC, 4);
+    }
+
+    #[test]
+    fn str_to_pattern_invalid() {
         assert!("%H%H:%M:%S".parse::<TimePattern>().is_err());
         assert!("%H:%M".parse::<TimePattern>().is_err());
-        // known patterns FCS files that should work
+    }
+
+    // known patterns FCS files that should work
+    #[test]
+    fn str_to_pattern_known_fcs() {
         assert!("%H:%M:%S:%3f".parse::<TimePattern>().is_ok());
         assert!("%H:%M:%S:%@".parse::<TimePattern>().is_ok());
         assert!("%H:%M:%S:%!".parse::<TimePattern>().is_ok());

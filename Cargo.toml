@@ -64,6 +64,13 @@ proptest = "1.11.0"
 # [profile.dev.build-override]
 # opt-level = 3
 
+# make property tests go faster
+[profile.test.package.proptest]
+opt-level = 3
+
+[profile.test.package.rand_chacha]
+opt-level = 3
+
 [workspace.lints.clippy]
 pedantic = { level = "warn", priority = -1 }
 

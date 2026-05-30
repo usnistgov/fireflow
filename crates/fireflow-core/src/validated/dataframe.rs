@@ -1299,6 +1299,7 @@ fn float_is_uint<F: Float + 'static, I: Bounded + AsPrimitive<F>>(x: F) -> bool 
 }
 
 #[cfg(test)]
+#[allow(clippy::float_cmp)]
 mod tests {
     use core::f32;
 
@@ -1343,7 +1344,7 @@ mod tests {
             proptest! {
                 #[test]
                 fn $lossy_name(
-                    x in ((1_u64 << $bits)..=u64::from($from::max_value()))
+                    x in ((1_u64 << $bits)..=u64::from(<$from as Bounded>::max_value()))
                         .prop_map(|x| $from::try_from(x).unwrap())
                 ) {
                     let saturated = ((1_u64 << $bits) - 1).try_into().unwrap();
@@ -1465,7 +1466,7 @@ mod tests {
     // u16
     //
 
-    assert_int_lossy_conversion!(u16_to_u8_lossless, u16_to_u8_lossy, u16, u8, 8);
+    assert_int_lossy_conversion!(u16_to_u8_lossless, u16_to_u8_lossy, u16, u8, 8_usize);
 
     proptest! {
         #[test]
@@ -1534,8 +1535,8 @@ mod tests {
     // u24
     //
 
-    assert_int_lossy_conversion!(u24_to_u8_lossless, u24_to_u8_lossy, U24, u8, 8);
-    assert_int_lossy_conversion!(u24_to_u16_lossless, u24_to_u16_lossy, U24, u16, 16);
+    assert_int_lossy_conversion!(u24_to_u8_lossless, u24_to_u8_lossy, U24, u8, 8_usize);
+    assert_int_lossy_conversion!(u24_to_u16_lossless, u24_to_u16_lossy, U24, u16, 16_usize);
 
     proptest! {
         #[test]
@@ -1595,9 +1596,9 @@ mod tests {
 
     // u32
 
-    assert_int_lossy_conversion!(u32_to_u8_lossless, u32_to_u8_lossy, u32, u8, 8);
-    assert_int_lossy_conversion!(u32_to_u16_lossless, u32_to_u16_lossy, u32, u16, 16);
-    assert_int_lossy_conversion!(u32_to_u24_lossless, u32_to_u24_lossy, u32, U24, 24);
+    assert_int_lossy_conversion!(u32_to_u8_lossless, u32_to_u8_lossy, u32, u8, 8_usize);
+    assert_int_lossy_conversion!(u32_to_u16_lossless, u32_to_u16_lossy, u32, u16, 16_usize);
+    assert_int_lossy_conversion!(u32_to_u24_lossless, u32_to_u24_lossy, u32, U24, 24_usize);
 
     proptest! {
         #[test]
@@ -1640,7 +1641,7 @@ mod tests {
     proptest! {
         #[test]
         fn u32_to_f32_lossless(x in 0_u32..0x0100_0000) {
-            assert_eq!(f32::from_value(&x), CastValueResult::new(x as f32, false));
+            assert_eq!(f32::from_value(&x), CastValueResult::new(x.as_(), false));
         }
     }
 
@@ -1660,10 +1661,10 @@ mod tests {
     // u40
     //
 
-    assert_int_lossy_conversion!(u40_to_u8_lossless, u40_to_u8_lossy, U40, u8, 8);
-    assert_int_lossy_conversion!(u40_to_u16_lossless, u40_to_u16_lossy, U40, u16, 16);
-    assert_int_lossy_conversion!(u40_to_u24_lossless, u40_to_u24_lossy, U40, U24, 24);
-    assert_int_lossy_conversion!(u40_to_u32_lossless, u40_to_u32_lossy, U40, u32, 32);
+    assert_int_lossy_conversion!(u40_to_u8_lossless, u40_to_u8_lossy, U40, u8, 8_usize);
+    assert_int_lossy_conversion!(u40_to_u16_lossless, u40_to_u16_lossy, U40, u16, 16_usize);
+    assert_int_lossy_conversion!(u40_to_u24_lossless, u40_to_u24_lossy, U40, U24, 24_usize);
+    assert_int_lossy_conversion!(u40_to_u32_lossless, u40_to_u32_lossy, U40, u32, 32_usize);
 
     proptest! {
         #[test]
@@ -1697,7 +1698,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn u40_to_f32_lossless(x in (0_u32..0x0100_0000).prop_map(|x| U40::try_from(x).unwrap())) {
+        fn u40_to_f32_lossless(x in (0_u32..0x0100_0000).prop_map(U40::from)) {
             assert_eq!(f32::from_value(&x), CastValueResult::new(x.as_(), false));
         }
     }
@@ -1718,11 +1719,11 @@ mod tests {
     // u48
     //
 
-    assert_int_lossy_conversion!(u48_to_u8_lossless, u48_to_u8_lossy, U48, u8, 8);
-    assert_int_lossy_conversion!(u48_to_u16_lossless, u48_to_u16_lossy, U48, u16, 16);
-    assert_int_lossy_conversion!(u48_to_u24_lossless, u48_to_u24_lossy, U48, U24, 24);
-    assert_int_lossy_conversion!(u48_to_u32_lossless, u48_to_u32_lossy, U48, u32, 32);
-    assert_int_lossy_conversion!(u48_to_u40_lossless, u48_to_u40_lossy, U48, U40, 40);
+    assert_int_lossy_conversion!(u48_to_u8_lossless, u48_to_u8_lossy, U48, u8, 8_usize);
+    assert_int_lossy_conversion!(u48_to_u16_lossless, u48_to_u16_lossy, U48, u16, 16_usize);
+    assert_int_lossy_conversion!(u48_to_u24_lossless, u48_to_u24_lossy, U48, U24, 24_usize);
+    assert_int_lossy_conversion!(u48_to_u32_lossless, u48_to_u32_lossy, U48, u32, 32_usize);
+    assert_int_lossy_conversion!(u48_to_u40_lossless, u48_to_u40_lossy, U48, U40, 40_usize);
 
     proptest! {
         #[test]
@@ -1749,7 +1750,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn u48_to_f32_lossless(x in (0_u32..0x0100_0000).prop_map(|x| U48::try_from(x).unwrap())) {
+        fn u48_to_f32_lossless(x in (0_u32..0x0100_0000).prop_map(U48::from)) {
             assert_eq!(f32::from_value(&x), CastValueResult::new(x.as_(), false));
         }
     }
@@ -1770,12 +1771,12 @@ mod tests {
     // u56
     //
 
-    assert_int_lossy_conversion!(u56_to_u8_lossless, u56_to_u8_lossy, U56, u8, 8);
-    assert_int_lossy_conversion!(u56_to_u16_lossless, u56_to_u16_lossy, U56, u16, 16);
-    assert_int_lossy_conversion!(u56_to_u24_lossless, u56_to_u24_lossy, U56, U24, 24);
-    assert_int_lossy_conversion!(u56_to_u32_lossless, u56_to_u32_lossy, U56, u32, 32);
-    assert_int_lossy_conversion!(u56_to_u40_lossless, u56_to_u40_lossy, U56, U40, 40);
-    assert_int_lossy_conversion!(u56_to_u48_lossless, u56_to_u48_lossy, U56, U48, 48);
+    assert_int_lossy_conversion!(u56_to_u8_lossless, u56_to_u8_lossy, U56, u8, 8_usize);
+    assert_int_lossy_conversion!(u56_to_u16_lossless, u56_to_u16_lossy, U56, u16, 16_usize);
+    assert_int_lossy_conversion!(u56_to_u24_lossless, u56_to_u24_lossy, U56, U24, 24_usize);
+    assert_int_lossy_conversion!(u56_to_u32_lossless, u56_to_u32_lossy, U56, u32, 32_usize);
+    assert_int_lossy_conversion!(u56_to_u40_lossless, u56_to_u40_lossy, U56, U40, 40_usize);
+    assert_int_lossy_conversion!(u56_to_u48_lossless, u56_to_u48_lossy, U56, U48, 48_usize);
 
     proptest! {
         #[test]
@@ -1788,7 +1789,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn u56_to_f32_lossless(x in (0_u32..0x0100_0000).prop_map(|x| U56::try_from(x).unwrap())) {
+        fn u56_to_f32_lossless(x in (0_u32..0x0100_0000).prop_map(U56::from)) {
             assert_eq!(f32::from_value(&x), CastValueResult::new(x.as_(), false));
         }
     }
@@ -1814,13 +1815,13 @@ mod tests {
     // u64
     //
 
-    assert_int_lossy_conversion!(u64_to_u8_lossless, u64_to_u8_lossy, u64, u8, 8);
-    assert_int_lossy_conversion!(u64_to_u16_lossless, u64_to_u16_lossy, u64, u16, 16);
-    assert_int_lossy_conversion!(u64_to_u24_lossless, u64_to_u24_lossy, u64, U24, 24);
-    assert_int_lossy_conversion!(u64_to_u32_lossless, u64_to_u32_lossy, u64, u32, 32);
-    assert_int_lossy_conversion!(u64_to_u40_lossless, u64_to_u40_lossy, u64, U40, 40);
-    assert_int_lossy_conversion!(u64_to_u48_lossless, u64_to_u48_lossy, u64, U48, 48);
-    assert_int_lossy_conversion!(u64_to_u56_lossless, u64_to_u56_lossy, u64, U56, 56);
+    assert_int_lossy_conversion!(u64_to_u8_lossless, u64_to_u8_lossy, u64, u8, 8_usize);
+    assert_int_lossy_conversion!(u64_to_u16_lossless, u64_to_u16_lossy, u64, u16, 16_usize);
+    assert_int_lossy_conversion!(u64_to_u24_lossless, u64_to_u24_lossy, u64, U24, 24_usize);
+    assert_int_lossy_conversion!(u64_to_u32_lossless, u64_to_u32_lossy, u64, u32, 32_usize);
+    assert_int_lossy_conversion!(u64_to_u40_lossless, u64_to_u40_lossy, u64, U40, 40_usize);
+    assert_int_lossy_conversion!(u64_to_u48_lossless, u64_to_u48_lossy, u64, U48, 48_usize);
+    assert_int_lossy_conversion!(u64_to_u56_lossless, u64_to_u56_lossy, u64, U56, 56_usize);
 
     proptest! {
         #[test]
@@ -1834,7 +1835,7 @@ mod tests {
     proptest! {
         #[test]
         fn u64_to_f32_lossless(x in 0_u64..0x0100_0000) {
-            assert_eq!(f32::from_value(&x), CastValueResult::new(x as f32, false));
+            assert_eq!(f32::from_value(&x), CastValueResult::new(x.as_(), false));
         }
     }
 
@@ -1849,7 +1850,7 @@ mod tests {
     proptest! {
         #[test]
         fn u64_to_f64_lossless(x in 0_u64..0x0020_0000_0000_0000) {
-            assert_eq!(f64::from_value(&x), CastValueResult::new(x as f64, false));
+            assert_eq!(f64::from_value(&x), CastValueResult::new(x.as_(), false));
         }
     }
 
@@ -1869,13 +1870,14 @@ mod tests {
             let neg: $float = -1.0;
             let int_zero: $int = 0_u8.into();
             let int_one: $int = 1_u8.into();
+            let int_max = <$int as Bounded>::max_value();
 
             assert_eq!(
                 $int::from_value(&zero),
                 CastValueResult::new(int_zero, false)
             );
-            let x = $int::from_value(&(AsPrimitive::<$float>::as_($int::max_value())));
-            assert_eq!(x, CastValueResult::new($int::max_value(), false));
+            let x = $int::from_value(&(AsPrimitive::<$float>::as_(int_max)));
+            assert_eq!(x, CastValueResult::new(int_max, false));
             assert_eq!(
                 $int::from_value(&nonzero),
                 CastValueResult::new(int_one, true)
@@ -1891,7 +1893,7 @@ mod tests {
             );
             assert_eq!(
                 $int::from_value(&$float::INFINITY),
-                CastValueResult::new($int::max_value(), true)
+                CastValueResult::new(int_max, true)
             );
         };
     }

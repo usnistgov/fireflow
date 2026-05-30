@@ -197,7 +197,7 @@ mod tests {
 
     fn pat_regex(subpats: &[&str], n: usize) -> String {
         let inner = subpats
-            .into_iter()
+            .iter()
             .permutations(n)
             .map(|ps| {
                 once("")

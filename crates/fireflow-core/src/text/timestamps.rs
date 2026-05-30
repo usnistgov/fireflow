@@ -580,25 +580,48 @@ mod tests {
     use super::*;
     use crate::test::*;
 
-    #[test]
-    fn str_timestamps2_0() {
-        assert_from_to_str::<FCSTime>("23:58:00");
+    use proptest::prelude::*;
+
+    proptest! {
+        #[test]
+        fn str_timestamps2_0(
+            s in (0_usize..23, 0_usize..59, 0_usize..59)
+                .prop_map(|(h, m, s)| format!("{:02}:{:02}:{:02}", h, m, s))
+        )
+        {
+            assert_from_to_str::<FCSTime>(s.as_str());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn str_timestamps3_0(
+            s in (0_usize..23, 0_usize..59, 0_usize..59, 0_usize..59)
+                .prop_map(|(h, m, s, f)| format!("{:02}:{:02}:{:02}:{:02}", h, m, s, f))
+        )
+        {
+            assert_from_to_str::<FCSTime60>(s.as_str());
+        }
     }
 
     #[test]
-    fn str_timestamps3_0() {
-        assert_from_to_str_almost::<FCSTime60>("23:58:00", "23:58:00:00");
-        assert_from_to_str::<FCSTime60>("23:58:00:30");
-        assert_from_to_str::<FCSTime60>("23:58:00:13");
-        // this is an overflow
+    fn str_timestamps3_0_overflow() {
         assert!("23:58:00:60".parse::<FCSTime60>().is_err());
     }
 
+    proptest! {
+        #[test]
+        fn str_timestamps3_1(
+            s in (0_usize..23, 0_usize..59, 0_usize..59, 0_usize..99)
+                .prop_map(|(h, m, s, f)| format!("{:02}:{:02}:{:02}.{:02}", h, m, s, f))
+        )
+        {
+            assert_from_to_str::<FCSTime100>(s.as_str());
+        }
+    }
+
     #[test]
-    fn str_timestamps3_1() {
-        assert_from_to_str_almost::<FCSTime100>("23:58:00", "23:58:00.00");
-        assert_from_to_str::<FCSTime100>("23:58:00.30");
-        // this is an overflow
+    fn str_timestamps3_1_overflow() {
         assert!("23:58:00.100".parse::<FCSTime100>().is_err());
     }
 }

@@ -5,14 +5,13 @@ use crate::validated::keys::NonStdKey;
 use fireflow_types::config::{NON_STD_MEAS_INDEX_PAT, NON_STD_MEAS_PAT_DEFAULT, PATTERN_DELIMITER};
 
 use derive_more::{AsRef, Display, From};
-use nonempty_collections::{IntoIteratorExt as _, NonEmptyIterator as _};
 use thiserror::Error;
 
 use std::str::FromStr;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
     fireflow_types::python as py,
 };
 
@@ -24,19 +23,26 @@ use {
 /// This will have exactly one `"%n"`. The `"%n"` will be replaced by the
 /// measurement index which will be used to match keywords.
 #[derive(Clone, AsRef, Display)]
-#[as_ref(str)]
+#[display("{}", self.original)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub struct NonStdMeasPattern(String);
+pub struct NonStdMeasPattern {
+    #[as_ref(str)]
+    original: String,
+    inner: CompiledNonStdMeasPattern,
+}
 
 impl Default for NonStdMeasPattern {
     fn default() -> Self {
         // ASSUME this wouldn't have caused an error if parsed directly from
         // a string
-        Self(NON_STD_MEAS_PAT_DEFAULT.into())
+        NON_STD_MEAS_PAT_DEFAULT
+            .parse()
+            .expect("default should be tested")
     }
 }
 
-pub(crate) enum CompiledNonStdMeasPattern {
+#[derive(Clone)]
+enum CompiledNonStdMeasPattern {
     Literal(LiteralNonStdMeasPattern),
     Regex(RegexNonStdMeasPattern),
 }
@@ -44,18 +50,20 @@ pub(crate) enum CompiledNonStdMeasPattern {
 /// Matches <prefix><number><suffix> case-insensitively.
 ///
 /// Assume prefix and suffix are in lowercase ASCII and <number> starts at 1.
-pub(crate) struct LiteralNonStdMeasPattern {
+#[derive(Clone)]
+struct LiteralNonStdMeasPattern {
     prefix: Vec<u8>,
     suffix: Vec<u8>,
 }
 
-pub(crate) struct RegexNonStdMeasPattern(CaseInsRegex);
+#[derive(Clone)]
+struct RegexNonStdMeasPattern(CaseInsRegex);
 
-impl CompiledNonStdMeasPattern {
+impl NonStdMeasPattern {
     pub(crate) fn get_index(&self, k: &NonStdKey) -> Option<IndexFromOne> {
-        match self {
-            Self::Literal(p) => p.get_index(k),
-            Self::Regex(p) => p.get_index(k),
+        match &self.inner {
+            CompiledNonStdMeasPattern::Literal(p) => p.get_index(k),
+            CompiledNonStdMeasPattern::Regex(p) => p.get_index(k),
         }
     }
 }
@@ -76,14 +84,9 @@ impl LiteralNonStdMeasPattern {
         }
         // Try to extract a number starting at 1.
         let is_digit = |x: &u8| (48..=57).contains(x);
-        let is_nonzero = |x: &u8| (49..=57).contains(x);
-        let ne = bs[prefix_len..].try_into_nonempty_iter()?;
-        let (x0, xs) = ne.next();
-        if !is_nonzero(x0) {
-            return None;
-        }
         let digit_begin = prefix_len;
-        let suffix_begin = prefix_len + 1 + xs.take_while(|&x| is_digit(x)).count();
+        let suffix_begin =
+            prefix_len + bs[prefix_len..].iter().take_while(|&x| is_digit(x)).count();
         #[allow(clippy::string_slice)]
         let i = s[digit_begin..suffix_begin].parse::<IndexFromOne>().ok()?;
         // Check if suffix matches; does not need to be complete since this
@@ -115,25 +118,18 @@ impl RegexNonStdMeasPattern {
 impl FromStr for NonStdMeasPattern {
     type Err = NonStdMeasPatternError;
 
-    fn from_str(s: &str) -> Result<Self, NonStdMeasPatternError> {
-        if s.match_indices(NON_STD_MEAS_INDEX_PAT).count() == 1 {
-            Ok(Self(s.into()))
-        } else {
-            Err(NonStdMeasPatternError(s.into()))
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s.match_indices(NON_STD_MEAS_INDEX_PAT).count() != 1 {
+            return Err(NonStdMeasPatternTokenError(s.into()).into());
         }
-    }
-}
 
-impl NonStdMeasPattern {
-    pub(crate) fn compile(&self) -> Result<CompiledNonStdMeasPattern, NonStdMeasRegexError> {
-        let s = self.0.as_str();
-        if let Some(inner) = s
+        let inner = if let Some(inner) = s
             .strip_prefix(PATTERN_DELIMITER)
             .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
         {
-            let pat = inner.replace(NON_STD_MEAS_INDEX_PAT, "([1-9][0-9]*)");
-            let ret = RegexNonStdMeasPattern(pat.parse::<CaseInsRegex>()?);
-            Ok(CompiledNonStdMeasPattern::Regex(ret))
+            let pat = inner.replace(NON_STD_MEAS_INDEX_PAT, "(0*[1-9][0-9]*)");
+            let ci_pat = pat.parse::<CaseInsRegex>().map_err(NonStdMeasRegexError)?;
+            CompiledNonStdMeasPattern::Regex(RegexNonStdMeasPattern(ci_pat))
         } else {
             let mut it = s.split("%n");
             let mut go = || {
@@ -147,9 +143,19 @@ impl NonStdMeasPattern {
             let suffix = go();
             assert!(it.next().is_none(), "literal should have one %n");
             let ret = LiteralNonStdMeasPattern { prefix, suffix };
-            Ok(CompiledNonStdMeasPattern::Literal(ret))
-        }
+            CompiledNonStdMeasPattern::Literal(ret)
+        };
+        let original = s.to_owned();
+        Ok(Self { original, inner })
     }
+}
+
+/// Error when parsing [`NonStdMeasPattern`] from string for configuration
+#[derive(Error, Debug, From, Display)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum NonStdMeasPatternError {
+    Token(NonStdMeasPatternTokenError),
+    Regex(NonStdMeasRegexError),
 }
 
 /// Error when parsing [`NonStdMeasPattern`] from string for configuration
@@ -160,7 +166,7 @@ impl NonStdMeasPattern {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct NonStdMeasPatternError(String);
+pub struct NonStdMeasPatternTokenError(String);
 
 /// Error when converting [`NonStdMeasPattern`] to regular expression
 #[derive(Error, Debug, From)]
@@ -172,11 +178,104 @@ pub struct NonStdMeasRegexError(regex::Error);
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::text::index::IndexFromOne;
+
+    use itertools::Itertools as _;
+    use proptest::prelude::*;
+
+    use std::iter::repeat_n;
+
+    proptest! {
+        #[test]
+        fn fromstr_nonstd_meas_pattern_literal(s in "[^/][^%]*%n[^%]*[^/]") {
+            assert!(matches!(
+                s.parse::<NonStdMeasPattern>().map(|x| x.inner),
+                Ok(CompiledNonStdMeasPattern::Literal(_))
+            ));
+        }
+    }
 
     #[test]
-    fn fromstr_nonstd_meas_pattern() {
+    fn fromstr_nonstd_meas_pattern_pattern_minimal() {
+        let s = "/%n/";
+        assert!(matches!(
+            s.parse::<NonStdMeasPattern>().map(|x| x.inner),
+            Ok(CompiledNonStdMeasPattern::Regex(_))
+        ));
+    }
+
+    #[test]
+    fn fromstr_nonstd_meas_pattern_pattern_super_deluxe() {
+        let s = "/(#|BD\\$|#NC)?P0*%n/";
+        assert!(matches!(
+            s.parse::<NonStdMeasPattern>().map(|x| x.inner),
+            Ok(CompiledNonStdMeasPattern::Regex(_))
+        ));
+    }
+
+    #[test]
+    fn fromstr_nonstd_meas_pattern_invalid() {
         assert!("".parse::<NonStdMeasPattern>().is_err());
         assert!("n".parse::<NonStdMeasPattern>().is_err());
-        assert!("%n".parse::<NonStdMeasPattern>().is_ok());
+    }
+
+    proptest! {
+        #[test]
+        fn nonstd_meas_pattern_literal_match(
+            (ns_key, index) in (0_usize..5, 0_usize..1000, "[[:alpha:][:punct:]]")
+                .prop_map(|(n_zeros, index, rest)| {
+                    let index1 = IndexFromOne::from(index);
+                    let zeros = repeat_n("0", n_zeros).join("");
+                    let s = format!("P{zeros}{index1}{rest}");
+                    (s.parse::<NonStdKey>().unwrap(), index1)
+                })
+        ) {
+            let s: NonStdMeasPattern = "P%n".parse().unwrap();
+            assert_eq!(s.get_index(&ns_key), Some(index));
+        }
+    }
+
+    #[test]
+    fn nonstd_meas_pattern_literal_zero() {
+        let s: NonStdMeasPattern = "P%nXXX".parse().unwrap();
+        let k = "P0XXX".parse::<NonStdKey>().unwrap();
+        assert_eq!(s.get_index(&k), None);
+    }
+
+    #[test]
+    fn nonstd_meas_pattern_literal_blank() {
+        let s: NonStdMeasPattern = "P%nXXX".parse().unwrap();
+        let k = "P0".parse::<NonStdKey>().unwrap();
+        assert_eq!(s.get_index(&k), None);
+    }
+
+    proptest! {
+        #[test]
+        fn nonstd_meas_pattern_regexp_match(
+            (ns_key, index) in (0_usize..5, 0_usize..1000, "[[:alpha:][:punct:]]")
+                .prop_map(|(n_zeros, index, rest)| {
+                    let index1 = IndexFromOne::from(index);
+                    let zeros = repeat_n("0", n_zeros).join("");
+                    let s = format!("P{zeros}{index1}{rest}");
+                    (s.parse::<NonStdKey>().unwrap(), index1)
+                })
+        ) {
+            let s: NonStdMeasPattern = "/P%n/".parse().unwrap();
+            assert_eq!(s.get_index(&ns_key), Some(index));
+        }
+    }
+
+    #[test]
+    fn nonstd_meas_pattern_regexp_zero() {
+        let s: NonStdMeasPattern = "/P%nXXX/".parse().unwrap();
+        let k = "P0XXX".parse::<NonStdKey>().unwrap();
+        assert_eq!(s.get_index(&k), None);
+    }
+
+    #[test]
+    fn nonstd_meas_pattern_regexp_blank() {
+        let s: NonStdMeasPattern = "/P%nXXX/".parse().unwrap();
+        let k = "P0".parse::<NonStdKey>().unwrap();
+        assert_eq!(s.get_index(&k), None);
     }
 }

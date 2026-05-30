@@ -5455,22 +5455,14 @@ where
         conf: &ReadStdKeywordsConfig,
     ) -> Success<Vec<NonStdKeywords>, (), Option<NonStdMeasRegexError>> {
         let mut meas_targets = vec![HashMap::new(); par.0];
-        let compiled = if let Some(ns_pat) = conf.nonstandard_measurement_pattern.0.as_ref() {
-            match ns_pat.compile() {
-                Ok(x) => x,
-                Err(e) => {
-                    let ret = Success::new_non_switchable(meas_targets);
-                    return ret.set_warnings(Some(e));
-                }
-            }
-        } else {
+        let Some(ns_pat) = conf.nonstandard_measurement_pattern.0.as_ref() else {
             return Success::new_non_switchable(meas_targets);
         };
 
         let sorted = nonstd
             .drain()
             .map(|(k, v)| {
-                let i = compiled
+                let i = ns_pat
                     .get_index(&k)
                     .map(usize::from)
                     .and_then(|i| (i < par.0).then_some(i));

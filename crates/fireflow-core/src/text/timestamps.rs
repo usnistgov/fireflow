@@ -586,7 +586,7 @@ mod tests {
         #[test]
         fn str_timestamps2_0(
             s in (0_usize..23, 0_usize..59, 0_usize..59)
-                .prop_map(|(h, m, s)| format!("{:02}:{:02}:{:02}", h, m, s))
+                .prop_map(|(h, m, s)| format!("{h:02}:{m:02}:{s:02}"))
         )
         {
             assert_from_to_str::<FCSTime>(s.as_str());
@@ -597,7 +597,7 @@ mod tests {
         #[test]
         fn str_timestamps3_0(
             s in (0_usize..23, 0_usize..59, 0_usize..59, 0_usize..59)
-                .prop_map(|(h, m, s, f)| format!("{:02}:{:02}:{:02}:{:02}", h, m, s, f))
+                .prop_map(|(h, m, s, f)| format!("{h:02}:{m:02}:{s:02}:{f:02}"))
         )
         {
             assert_from_to_str::<FCSTime60>(s.as_str());
@@ -613,7 +613,7 @@ mod tests {
         #[test]
         fn str_timestamps3_1(
             s in (0_usize..23, 0_usize..59, 0_usize..59, 0_usize..99)
-                .prop_map(|(h, m, s, f)| format!("{:02}:{:02}:{:02}.{:02}", h, m, s, f))
+                .prop_map(|(h, m, s, f)| format!("{h:02}:{m:02}:{s:02}.{f:02}"))
         )
         {
             assert_from_to_str::<FCSTime100>(s.as_str());

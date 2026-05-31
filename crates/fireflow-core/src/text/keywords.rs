@@ -4799,8 +4799,11 @@ mod tests {
 
     #[test]
     fn str_to_endian() {
-        assert!("1,2,3,4".parse::<ByteOrd3_1>().is_ok());
-        assert!("4,3,2,1".parse::<ByteOrd3_1>().is_ok());
+        assert_eq!(
+            "1,2,3,4".parse::<ByteOrd3_1>(),
+            Ok(ByteOrd3_1(Endian::Little))
+        );
+        assert_eq!("4,3,2,1".parse::<ByteOrd3_1>(), Ok(ByteOrd3_1(Endian::Big)));
         assert_eq!("1,2,3".parse::<ByteOrd3_1>(), Err(NewEndianError));
         assert_eq!("5,4,3,2,1".parse::<ByteOrd3_1>(), Err(NewEndianError));
     }

@@ -84,8 +84,8 @@ macro_rules! impl_str_enum {
         }
 
         $(#[$error_meta])*
-        #[derive(thiserror::Error, Debug)]
-        $error_vis struct $error_name(String);
+        #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
+        $error_vis struct $error_name($error_vis String);
 
         impl std::fmt::Display for $error_name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {

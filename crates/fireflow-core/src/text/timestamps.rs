@@ -315,19 +315,19 @@ impl FromStr for FCSDate {
 }
 
 /// Error when parsing [`FCSDate`] from string
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Display, Error, PartialEq, Eq)]
 pub enum FCSDateError {
     Std(StdFCSDateError),
     Config(ConfigFCSDateError),
 }
 
 /// Error when parsing [`FCSDate`] from string using [`crate::validated::datepattern::DatePattern`]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error("value is not like given pattern '{0}'")]
 pub struct ConfigFCSDateError(String);
 
 /// Error when parsing [`FCSDate`] from string using default format.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error("must be like 'dd-mmm-yyyy'")]
 pub struct StdFCSDateError;
 
@@ -373,7 +373,7 @@ pub enum FCSFixedTimeError<E> {
 }
 
 /// Error when parsing [`FCSTime`] as string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error(
     "must be like 'hh:mm:ss' where 'hh' is hours (0-23) and 'mm', \
      'ss', 'tt' are minutes, seconds respectively (0-59)."
@@ -448,7 +448,7 @@ impl<'a> ToDisplayNE<'a> for FCSTime60 {
 }
 
 /// Error when parsing [`FCSTime60`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error(
     "must be like 'hh:mm:ss[:tt]' where 'hh' is hours (0-23) and 'mm', \
      'ss', 'tt' are minutes, seconds, and optional fractional seconds \
@@ -512,7 +512,7 @@ impl<'a> ToDisplayNE<'a> for FCSTime100 {
 }
 
 /// Error when parsing [`FCSTime100`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error(
     "must be like 'hh:mm:ss[.cc]' where 'hh' is hours (0-23) 'mm' and 'ss' \
      are minutes and seconds respectively (0-59), and 'cc' is optional \
@@ -606,7 +606,7 @@ mod tests {
 
     #[test]
     fn str_timestamps3_0_overflow() {
-        assert!("23:58:00:60".parse::<FCSTime60>().is_err());
+        assert_eq!("23:58:00:60".parse::<FCSTime60>(), Err(FCSTime60Error));
     }
 
     proptest! {
@@ -622,7 +622,7 @@ mod tests {
 
     #[test]
     fn str_timestamps3_1_overflow() {
-        assert!("23:58:00.100".parse::<FCSTime100>().is_err());
+        assert_eq!("23:58:00.100".parse::<FCSTime100>(), Err(FCSTime100Error));
     }
 }
 

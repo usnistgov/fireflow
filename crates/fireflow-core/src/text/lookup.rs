@@ -105,7 +105,7 @@ impl_functor_once!(
 );
 
 /// Return value for string that was converted with a configuration and state.
-#[derive(Default, new)]
+#[derive(Default, new, Debug, PartialEq, Eq)]
 pub struct DiagnosedKeyword<T, D> {
     /// Native rust type
     pub native: T,

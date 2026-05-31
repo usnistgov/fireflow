@@ -562,10 +562,10 @@ impl FromStr for Width {
 }
 
 /// Error when making a new byte order of some size from a sequence of digits.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
-pub struct NewByteOrdError(usize);
+pub struct NewByteOrdError(pub usize);
 
 impl fmt::Display for NewByteOrdError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
@@ -578,7 +578,7 @@ impl fmt::Display for NewByteOrdError {
 }
 
 /// Error when parsing Endian from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 #[error("endian must be either 1,2,3,4 or 4,3,2,1")]
 pub struct NewEndianError;
 

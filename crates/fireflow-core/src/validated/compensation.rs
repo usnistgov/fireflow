@@ -99,7 +99,7 @@ impl Compensation {
 }
 
 /// Error when making new compensation matrix from any float matrix.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(
     feature = "python",

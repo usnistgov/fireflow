@@ -67,7 +67,7 @@ impl_ranged_float!(PositiveFloat, <, false);
 impl_ranged_float!(NonNegFloat, <=, true);
 
 /// Error when parsing either [`NonNegFloat`] or [`PositiveFloat`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(
     feature = "python",

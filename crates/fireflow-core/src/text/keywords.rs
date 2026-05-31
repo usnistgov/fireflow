@@ -208,7 +208,7 @@ impl ToDisplayNE<'_> for Scale {
 }
 
 /// Fixes that were required in order to make $PnE parsable for optical channel.
-#[derive(Clone, PartialEq, From)]
+#[derive(Clone, PartialEq, From, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum OpticalScaleFix {
     /// $PnE was non-linear and needed to be linear in order to be standardized.
@@ -224,7 +224,7 @@ impl Default for OpticalScaleFix {
 }
 
 /// Diagnostic data from parsing $PnE or $GmE
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum ScaleFix {
     /// Nothing happened
@@ -367,7 +367,7 @@ impl FromStrDelim for Scale {
 }
 
 /// Error when parsing [`Scale`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum ScaleError {
     #[error("{0}")]
     FloatError(ParseFloatError),
@@ -378,7 +378,7 @@ pub enum ScaleError {
 }
 
 /// Error when parsing [`Scale`] as log from string
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone, Copy)]
 #[error("decades/offset must both be positive, got '{decades},{offset}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
@@ -586,7 +586,7 @@ impl FromStrDelim for Trigger {
 impl_from_str_with_delim!(Trigger, TriggerError);
 
 /// Error when parsing [`Trigger`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum TriggerError {
     #[error("must be like 'string,f'")]
     WrongFieldNumber,
@@ -646,7 +646,7 @@ impl TryFrom<Mode> for Mode3_2 {
 }
 
 /// Error when parsing [`Mode3_2`]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("can only be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
@@ -727,7 +727,7 @@ impl FromStrDelim for Display {
 impl_from_str_with_delim!(Display, DisplayError);
 
 /// Error when parsing [`enum@Display`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq)]
 pub enum DisplayError {
     #[error("{0}")]
     FloatError(ParseFloatError),
@@ -761,7 +761,7 @@ impl_str_enum_kw!(
 /// This must be a list of integers belonging to the unordered set {1..N} where
 /// N is the total number of bytes. The numbers will be stored as one less the
 /// displayed integers to make array indexing easier.
-#[derive(Clone, Copy, From, Debug, Delegate)]
+#[derive(Clone, Copy, From, Debug, Delegate, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub enum ByteOrd2_0 {
@@ -790,14 +790,14 @@ impl FromStr for ByteOrd2_0 {
 }
 
 /// Error when parsing [`ByteOrd2_0`] from string
-#[derive(From, Debug, Display, Error)]
+#[derive(From, Debug, Display, Error, PartialEq, Eq, Copy, Clone)]
 pub enum ParseByteOrdError {
     Order(NewByteOrdError),
     Digit(ByteordDigitError),
 }
 
 /// Error when [`ByteOrd2_0`] has invalid digit(s)
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 #[error("could not parse digits from byte order")]
 pub struct ByteordDigitError;
 
@@ -862,7 +862,7 @@ impl ByteOrd2_0 {
 }
 
 /// The $BYTEORD field in FCS 3.1 and 3.2
-#[derive(Clone, Copy, From, FromStr, Default, Debug, Delegate)]
+#[derive(Clone, Copy, From, FromStr, Default, Debug, Delegate, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct ByteOrd3_1(pub Endian);
@@ -925,7 +925,7 @@ impl ToDisplayNE<'_> for TemporalScaleInner {
 }
 
 /// Fixes that were required in order to make $PnE parsable for temporal channel.
-#[derive(Default, Clone, PartialEq)]
+#[derive(Default, Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TemporalScaleFix {
     /// $PnE had no problems
@@ -953,8 +953,10 @@ impl FromStrDelim for TemporalScaleInner {
         let x0 = iter.next();
         let x1 = iter.next();
         let x2 = iter.next();
-        if let (Some(y0), Some(y1), None) = (x0, x1, x2) {
-            if (y0.parse::<f32>(), y1.parse::<f32>()) == (Ok(0.0), Ok(0.0)) {
+        if let (Some(y0), Some(y1), None) = (x0, x1, x2)
+            && let (Ok(x), Ok(y)) = (y0.parse::<f32>(), y1.parse::<f32>())
+        {
+            if x.is_zero() && y.is_zero() {
                 Ok(Self)
             } else {
                 Err(TemporalScaleError::NonLinear)
@@ -998,28 +1000,8 @@ impl FromStrWith for TemporalScale3_0 {
     }
 }
 
-// impl TemporalScale3_0 {
-//     pub(crate) fn lookup(
-//         kws: &mut StdKeywords,
-//         i: MeasIndex,
-//         nonstd: &mut NonStdKeywords,
-//         conf: &ReadStdKeywordsConfig,
-//     ) -> Result<(), ReqIndexedStKeyError<Self>> {
-//         if conf.force_linear_scale.time_selected() {
-//             nonstd.transfer_demoted(kws, TemporalScale2_0::std(i));
-//             Ok(())
-//         } else {
-//             Self::remove_meas_req_with(kws, i, (), conf).map(|_| ())
-//         }
-//     }
-// }
-
-// impl KeywordPairMaybe for TemporalScale3_0 {
-//     type Inner = Self;
-// }
-
 /// Error when parsing [`TemporalScaleInner`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 pub enum TemporalScaleError {
     #[error("time measurement must have linear scaling")]
     NonLinear,
@@ -1075,16 +1057,16 @@ impl FromStrDelim for Calibration3_1 {
 impl_from_str_with_delim!(Calibration3_1, CalibrationError<CalibrationFormat3_1>);
 
 /// Error when parsing [`Calibration3_1`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error("must be like 'slope,unit'")]
 pub struct CalibrationFormat3_1;
 
 /// Error when calibration type has an empty unit string.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[error("unit cannot be an empty string")]
 pub struct EmptyCalibrationUnitError;
 
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Display, Error, PartialEq)]
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
     Range(RangedFloatError),
@@ -1156,7 +1138,7 @@ impl FromStrDelim for Calibration3_2 {
 impl_from_str_with_delim!(Calibration3_2, CalibrationError<CalibrationFormat3_2>);
 
 /// Error when parsing [`Calibration3_2`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Copy, Clone)]
 #[error("must be like 'slope,[offset],unit'")]
 pub struct CalibrationFormat3_2;
 
@@ -1277,7 +1259,7 @@ impl Wavelengths {
 pub struct WavelengthsLossError(Key1<Wavelengths>, NonZeroUsize);
 
 /// Error when parsing [`Wavelengths`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum WavelengthsError {
     #[error("{0}")]
     Num(RangedFloatError),
@@ -1346,7 +1328,7 @@ impl FromStrWith for LastModified {
 }
 
 /// Error when parsing [`LastModified`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum LastModifiedError {
     #[error("could not parse with format string '{0}'")]
     AltFormat(String),
@@ -1569,7 +1551,7 @@ impl FromStrDelim for Compensation3_0 {
             } else {
                 Err(ParseCompError::WrongLength {
                     expected: nn,
-                    total,
+                    found: total,
                 })
             }
         } else {
@@ -1600,10 +1582,10 @@ impl Compensation3_0 {
 }
 
 /// Error when parsing [`Compensation3_0`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Copy, Clone)]
 pub enum ParseCompError {
-    #[error("Expected {expected} entries, found {total}")]
-    WrongLength { total: usize, expected: usize },
+    #[error("Expected {expected} entries, found {found}")]
+    WrongLength { found: usize, expected: usize },
     #[error("Could not determine length")]
     BadLength,
     #[error("Float could not be parsed")]
@@ -1666,7 +1648,7 @@ impl FromStrDelim for Unicode {
 impl_from_str_with_delim!(Unicode, UnicodeError);
 
 /// Error when parsing [`Unicode`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum UnicodeError {
     #[error("No keywords given")]
     Empty,
@@ -1726,7 +1708,7 @@ impl FromStr for TemporalTypeInner {
 }
 
 /// Error when parsing [`TemporalType`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 #[error("$PnTYPE for time measurement shall be 'Time' if given")]
 pub struct TemporalTypeError;
 
@@ -1800,7 +1782,7 @@ impl FromStrWith for Feature {
 }
 
 /// Error when parsing [`Feature`]
-#[derive(Debug, Error, From)]
+#[derive(Debug, Error, From, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum FeatureError {
@@ -1900,7 +1882,7 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
 }
 
 /// Error when parsing [`RegionGateIndex<I>`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 pub enum RegionGateIndexError<E> {
     #[error("{0}")]
     Int(E),
@@ -1909,7 +1891,7 @@ pub enum RegionGateIndexError<E> {
 }
 
 /// Index which can either refer to a gate ($Gn*) or a measurement ($Pn*)
-#[derive(Clone, Copy, From, PartialEq, Debug)]
+#[derive(Clone, Copy, From, PartialEq, Eq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
 pub enum MeasOrGateIndex {
@@ -1951,7 +1933,7 @@ impl FromStr for MeasOrGateIndex {
 }
 
 /// Error when parsing [`RegionGateIndex<MeasOrGateIndex>`] from string (3.0/3.1)
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum MeasOrGateIndexError {
@@ -1994,7 +1976,7 @@ impl FromStr for PrefixedMeasIndex {
 }
 
 /// Error when parsing [`RegionGateIndex<PrefixedMeasIndexError>`] from string (3.2)
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum PrefixedMeasIndexError {
     #[error("{0}")]
     Int(ParseIntError),
@@ -2180,7 +2162,7 @@ fn parse_pair<'a>(
 }
 
 /// Error when parsing [`RegionWindow`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum RegionWindowError {
     #[error("{0}")]
     Num(ParseBigDecimalError),
@@ -2244,160 +2226,129 @@ impl FromStr for Gating {
     type Err = GatingError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
+        GatingToken::from_str(s)
+    }
+}
+
+/// A parsed atom of the $GATING keyword
+#[derive(Debug, Display, PartialEq, Eq, Clone, Copy)]
+pub enum GatingToken {
+    #[display(")")]
+    RParen,
+    #[display("(")]
+    LParen,
+    #[display("R{_0}")]
+    Region(RegionIndex),
+    #[display("AND")]
+    And,
+    #[display("OR")]
+    Or,
+    #[display("NOT")]
+    Not,
+}
+
+impl GatingToken {
+    fn from_str(s: &str) -> Result<Gating, GatingError> {
         if s.is_ascii() {
-            let mut it = tokenize_gating(s);
-            match_tokens(&mut it, 0)
+            match Self::tokenize_str(s) {
+                Ok(ts) => Self::match_expression(&ts[..]),
+                Err(bad) => Err(GatingError::BadToken(bad)),
+            }
         } else {
             Err(GatingError::NonAscii)
         }
     }
-}
 
-fn match_tokens(
-    rest: &mut impl Iterator<Item = GatingToken>,
-    depth: u32,
-) -> Result<Gating, GatingError> {
-    if let Some(this) = rest.next() {
-        match this {
-            GatingToken::LParen => match_tokens_new_expr(rest, depth + 1),
-            GatingToken::Not => {
-                let inner = match_tokens_new_expr(rest, depth)?;
-                let new = Gating::Not(Box::new(inner));
-                match_tokens_extend_expr(new, rest, depth)
-            }
-            GatingToken::Region(r) => {
-                let new = Gating::Region(r);
-                match_tokens_extend_expr(new, rest, depth)
-            }
-            _ => Err(GatingError::InvalidExprToken),
-        }
-    } else {
-        Err(GatingError::Empty)
-    }
-}
-
-/// Start a new expression if next token is valid.
-///
-/// This inclues:
-/// - (blabla...
-/// - NOT blabla...
-/// - RX blabla...
-fn match_tokens_new_expr(
-    rest: &mut impl Iterator<Item = GatingToken>,
-    depth: u32,
-) -> Result<Gating, GatingError> {
-    if let Some(this) = rest.next() {
-        match this {
-            GatingToken::LParen => {
-                let inner = match_tokens_new_expr(rest, depth + 1)?;
-                match_tokens_extend_expr(inner, rest, depth + 1)
-            }
-            GatingToken::Not => {
-                let inner = match_tokens_new_expr(rest, depth)?;
-                Ok(Gating::Not(Box::new(inner)))
-            }
-            GatingToken::Region(r) => Ok(Gating::Region(r)),
-            _ => Err(GatingError::InvalidExprToken),
-        }
-    } else {
-        Err(GatingError::ExpectedExpr)
-    }
-}
-
-/// Extend current expression
-fn match_tokens_extend_expr(
-    acc: Gating,
-    rest: &mut impl Iterator<Item = GatingToken>,
-    depth: u32,
-) -> Result<Gating, GatingError> {
-    if let Some(this) = rest.next() {
-        match this {
-            GatingToken::And => {
-                let right = match_tokens_new_expr(rest, depth)?;
-                let new = Gating::And(Box::new(acc), Box::new(right));
-                match_tokens_extend_expr(new, rest, depth)
-            }
-            GatingToken::Or => {
-                let right = match_tokens_new_expr(rest, depth)?;
-                let new = Gating::Or(Box::new(acc), Box::new(right));
-                match_tokens_extend_expr(new, rest, depth)
-            }
-            GatingToken::RParen => {
-                if depth > 0 {
-                    match_tokens_extend_expr(acc, rest, depth - 1)
+    fn tokenize_str(s: &str) -> Result<Vec<Self>, String> {
+        let mut acc = vec![];
+        for x in s.split(['.', ' ']).filter(|x| !x.is_empty()) {
+            for y in x.split('(') {
+                if y.is_empty() {
+                    acc.push(Self::LParen);
                 } else {
-                    Err(GatingError::ExtraParen)
-                }
-            }
-            _ => Err(GatingError::InvalidOpToken),
-        }
-    } else if depth == 0 {
-        Ok(acc)
-    } else {
-        Err(GatingError::MissingParen)
-    }
-}
-
-fn tokenize_gating(s: &str) -> impl Iterator<Item = GatingToken> {
-    s.split(['.', ' ']).filter(|x| !x.is_empty()).flat_map(|x| {
-        x.split('(').flat_map(|y| {
-            if y.is_empty() {
-                vec![GatingToken::LParen]
-            } else {
-                y.split(')')
-                    .map(|z| {
+                    for z in y.split(')') {
                         if z.is_empty() {
-                            GatingToken::RParen
+                            acc.push(Self::RParen);
                         } else {
                             match z {
-                                "NOT" => GatingToken::Not,
-                                "AND" => GatingToken::And,
-                                "OR" => GatingToken::Or,
-                                _ => match z.split_at(1) {
-                                    ("R", rest) => {
-                                        rest.parse().map_or(GatingToken::Other, GatingToken::Region)
+                                "NOT" => acc.push(Self::Not),
+                                "AND" => acc.push(Self::And),
+                                "OR" => acc.push(Self::Or),
+                                other => {
+                                    if let ("R", rest) = z.split_at(1)
+                                        && let Ok(r) = rest.parse()
+                                    {
+                                        acc.push(Self::Region(r));
+                                    } else {
+                                        return Err(other.to_owned());
                                     }
-                                    _ => GatingToken::Other,
-                                },
+                                }
                             }
                         }
-                    })
-                    .collect()
+                    }
+                }
             }
-        })
-    })
-}
+        }
+        Ok(acc)
+    }
 
-#[derive(Debug)]
-enum GatingToken {
-    RParen,
-    LParen,
-    Region(RegionIndex),
-    And,
-    Or,
-    Not,
-    Other,
+    fn match_expression(tokens: &[Self]) -> Result<Gating, GatingError> {
+        if let Some((t, ts)) = tokens.split_first() {
+            match t {
+                Self::LParen => {
+                    if let Some(i) = ts.iter().rposition(|x| matches!(x, Self::RParen)) {
+                        let inner = Self::match_expression(&ts[..i])?;
+                        Self::extend_expression(inner, &ts[i + 1..])
+                    } else {
+                        Err(GatingError::MissingParen)
+                    }
+                }
+                Self::Not => Ok(Gating::Not(Box::new(Self::match_expression(ts)?))),
+                Self::Region(r) => Self::extend_expression(Gating::Region(*r), ts),
+                e => Err(GatingError::InvalidExprToken(*e)),
+            }
+        } else {
+            Err(GatingError::EmptyExpr)
+        }
+    }
+
+    fn extend_expression(new: Gating, rest: &[Self]) -> Result<Gating, GatingError> {
+        if let Some((t, ts)) = rest.split_first() {
+            let is_and = match t {
+                Self::And => true,
+                Self::Or => false,
+                e => return Err(GatingError::InvalidBinaryToken(*e)),
+            };
+            let right = Box::new(Self::match_expression(ts)?);
+            let left = Box::new(new);
+            if is_and {
+                Ok(Gating::And(left, right))
+            } else {
+                Ok(Gating::Or(left, right))
+            }
+        } else {
+            Ok(new)
+        }
+    }
 }
 
 /// Error when parsing [`Gating`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum GatingError {
-    #[error("gating string is empty")]
-    Empty,
-    #[error("expected expression which evaluates to a region")]
-    ExpectedExpr,
-    #[error("must be like 'f,string'")]
-    InvalidOpToken,
-    #[error("expected 'AND', 'OR', or ')'")]
-    InvalidExprToken,
-    #[error("extra ')' encountered")]
-    ExtraParen,
-    #[error("must be like 'f,string'")]
+    #[error("no more tokens to create expression")]
+    EmptyExpr,
+    #[error("expected 'AND' or 'OR', found {0}")]
+    InvalidBinaryToken(GatingToken),
+    #[error("expected 'NOT' or '(', or a region, found {0}")]
+    InvalidExprToken(GatingToken),
+    #[error("missing ')'")]
     MissingParen,
     #[error("gating contains invalid bytes")]
     NonAscii,
+    #[error("invalid token found: {0}")]
+    BadToken(String),
 }
 
 /// The value for the $PnB key (all versions)
@@ -2721,12 +2672,12 @@ impl<'a> ToDisplayNE<'a> for NEUnstainedCenters {
 }
 
 /// Error when parsing [`UnstainedCenters`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Copy, Clone)]
 pub enum ParseUnstainedCenterError {
     #[error("Names are not unique")]
     NonUnique,
-    #[error("Expected {expected} values, found {total}")]
-    BadLength { total: usize, expected: usize },
+    #[error("Expected {expected} values, found {found}")]
+    BadLength { found: usize, expected: usize },
     #[error("Could not parse N")]
     BadN,
     #[error("Error parsing float value(s)")]
@@ -2818,7 +2769,10 @@ impl FromStrDelim for UnstainedCenters {
                 let ys = measurements.into_iter().zip(values).collect();
                 Ok(Self(ys))
             } else {
-                Err(ParseUnstainedCenterError::BadLength { total, expected })
+                Err(ParseUnstainedCenterError::BadLength {
+                    found: total,
+                    expected,
+                })
             }
         } else {
             Err(ParseUnstainedCenterError::BadN)
@@ -4187,27 +4141,35 @@ const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
 
 #[cfg(test)]
 mod tests {
-    use crate::text::keyword_enum::{self as kr, AsStdKeywordPair as _, Keyword1FromValue as _};
+    use crate::text::{
+        byteord::NewEndianError,
+        keyword_enum::{self as kr, AsStdKeywordPair as _, Keyword1FromValue as _},
+    };
     use fireflow_types::nonempty_string::DisplayNE as _;
 
     use super::*;
     use crate::test::*;
+    use assert_matches::assert_matches;
 
     #[test]
     fn tr() {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Trigger>(ne_str!("Wooden Leg Pt 3,456"), (), &conf);
-        assert!(Trigger::from_str_with(ne_str!("x,x"), (), &conf).is_err());
-        assert!(Trigger::from_str_with(ne_str!("x,0.0"), (), &conf).is_err());
-        assert!(Trigger::from_str_with(ne_str!("x"), (), &conf).is_err());
-        assert!(Trigger::from_str_with(ne_str!("x,x,x"), (), &conf).is_err());
+        let go = |s| Trigger::from_str_with(s, (), &conf);
+        assert_matches!(go(ne_str!("x,x")), Err(TriggerError::IntFormat(_)));
+        assert_matches!(go(ne_str!("x,0.0")), Err(TriggerError::IntFormat(_)));
+        assert_eq!(go(ne_str!("x")), Err(TriggerError::WrongFieldNumber));
+        assert_eq!(go(ne_str!("x,x,x")), Err(TriggerError::WrongFieldNumber));
     }
 
     #[test]
     fn tr_commas() {
         let v = ne_str!("Wookie Leg Pt 3, 666");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(Trigger::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            Trigger::from_str_with(v, (), &conf),
+            Err(TriggerError::IntFormat(_))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Trigger>(v, "Wookie Leg Pt 3,666", (), &conf);
     }
@@ -4217,14 +4179,14 @@ mod tests {
         assert_from_to_str::<Mode>("C");
         assert_from_to_str::<Mode>("L");
         assert_from_to_str::<Mode>("U");
-        assert!(Mode::from_str("X").is_err());
+        assert_matches!(Mode::from_str("X"), Err(ModeError(_)));
     }
 
     #[test]
     fn mode_3_2() {
         assert_from_to_str::<Mode3_2>("L");
-        assert!(Mode3_2::from_str("C").is_err());
-        assert!(Mode3_2::from_str("U").is_err());
+        assert_eq!(Mode3_2::from_str("C"), Err(Mode3_2Error));
+        assert_eq!(Mode3_2::from_str("U"), Err(Mode3_2Error));
     }
 
     #[test]
@@ -4233,16 +4195,32 @@ mod tests {
         assert_from_to_str_with::<Display>(ne_str!("Linear,0,1"), (), &conf);
         assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,1"), (), &conf);
         assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,0.1"), (), &conf);
-        assert!(Display::from_str_with(ne_str!("LIN,0,1"), (), &conf).is_err());
-        assert!(Display::from_str_with(ne_str!("LOG,1,1"), (), &conf).is_err());
-        assert!(Display::from_str_with(ne_str!("Logicle,0,1,2,3"), (), &conf).is_err());
+
+        macro_rules! go {
+            ($s:expr) => {
+                Display::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+
+        assert_matches!(go!("Linear,x,x"), Err(DisplayError::FloatError(_)));
+        assert_eq!(go!("LIN,0,1"), Err(DisplayError::InvalidType));
+        assert_eq!(go!("LOG,1,1"), Err(DisplayError::InvalidType));
+        assert_eq!(go!("Logicle,0,1,2,3"), Err(DisplayError::FormatError));
+        assert_eq!(go!("Linear,1.0,-1.0"), Err(DisplayError::Linear(1.0, -1.0)));
+        assert_eq!(
+            go!("Logarithmic,-1.0,1.0"),
+            Err(DisplayError::Log(-1.0, 1.0))
+        );
     }
 
     #[test]
     fn pnd_commas() {
         let v = ne_str!("Linear, 0 , 1");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(Display::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            Display::from_str_with(v, (), &conf),
+            Err(DisplayError::FloatError(_))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Display>(v, "Linear,0,1", (), &conf);
     }
@@ -4252,7 +4230,7 @@ mod tests {
         assert_from_to_str::<NumType>("I");
         assert_from_to_str::<NumType>("F");
         assert_from_to_str::<NumType>("D");
-        assert!(NumType::from_str("A").is_err());
+        assert_matches!(NumType::from_str("A"), Err(NumTypeError(_)));
     }
 
     #[test]
@@ -4261,23 +4239,44 @@ mod tests {
         assert_from_to_str::<AlphaNumType>("F");
         assert_from_to_str::<AlphaNumType>("D");
         assert_from_to_str::<AlphaNumType>("A");
-        assert!(AlphaNumType::from_str("X").is_err());
+        assert_matches!(AlphaNumType::from_str("X"), Err(AlphaNumTypeError(_)));
     }
 
     #[test]
     fn pncalibration_3_1() {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Calibration3_1>(ne_str!("0.1,imperial lightyears"), (), &conf);
-        assert!(Calibration3_1::from_str_with(ne_str!("x"), (), &conf).is_err());
-        assert!(Calibration3_1::from_str_with(ne_str!("x,x"), (), &conf).is_err());
-        assert!(Calibration3_1::from_str_with(ne_str!("x,0.1"), (), &conf).is_err());
+        macro_rules! go {
+            ($s:expr) => {
+                Calibration3_1::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+        assert_eq!(
+            go!("x"),
+            Err(CalibrationError::Format(CalibrationFormat3_1))
+        );
+        assert_matches!(
+            go!("x,x"),
+            Err(CalibrationError::Range(RangedFloatError::Parse(_)))
+        );
+        assert_matches!(
+            go!("x,0.1"),
+            Err(CalibrationError::Range(RangedFloatError::Parse(_)))
+        );
+        assert_eq!(
+            go!("0.1,"),
+            Err(CalibrationError::EmptyUnit(EmptyCalibrationUnitError))
+        );
     }
 
     #[test]
     fn pncalibration_3_1_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
         let v = ne_str!("1000 , yodabytes");
-        assert!(Calibration3_1::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            Calibration3_1::from_str_with(v, (), &conf),
+            Err(CalibrationError::Range(RangedFloatError::Parse(_)))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Calibration3_1>(v, "1000,yodabytes", (), &conf);
     }
@@ -4287,17 +4286,40 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Calibration3_2>(ne_str!("1.1,3.5813,prog albums"), (), &conf);
         assert_from_to_str_with::<Calibration3_2>(ne_str!("1.61,0,quartic slugs"), (), &conf);
-        assert!(Calibration3_2::from_str_with(ne_str!("x"), (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with(ne_str!("x,x"), (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with(ne_str!("x,0.1"), (), &conf).is_err());
-        assert!(Calibration3_2::from_str_with(ne_str!("0.1,x,x"), (), &conf).is_err());
+
+        macro_rules! go {
+            ($s:expr) => {
+                Calibration3_2::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+
+        assert_eq!(
+            go!("x"),
+            Err(CalibrationError::Format(CalibrationFormat3_2))
+        );
+        assert_matches!(
+            go!("x,x"),
+            Err(CalibrationError::Range(RangedFloatError::Parse(_)))
+        );
+        assert_matches!(
+            go!("x,0.1"),
+            Err(CalibrationError::Range(RangedFloatError::Parse(_)))
+        );
+        assert_matches!(go!("0.1,x,x"), Err(CalibrationError::Float(_)));
+        assert_eq!(
+            go!("0.1,1.0,"),
+            Err(CalibrationError::EmptyUnit(EmptyCalibrationUnitError))
+        );
     }
 
     #[test]
     fn pncalibration_3_2_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
         let v = ne_str!("1, 0.2, nanobytes");
-        assert!(Calibration3_2::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            Calibration3_2::from_str_with(v, (), &conf),
+            Err(CalibrationError::Float(_))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Calibration3_2>(v, "1,0.2,nanobytes", (), &conf);
     }
@@ -4312,14 +4334,30 @@ mod tests {
         };
         go(ne_str!("0.5"));
         go(ne_str!("0.5,2"));
-        assert!(Wavelengths::from_str_with(ne_str!("x"), (), &conf).is_err());
+
+        macro_rules! go_err {
+            ($s:expr) => {
+                Wavelengths::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+        assert_matches!(
+            go_err!("x"),
+            Err(WavelengthsError::Num(RangedFloatError::Parse(_)))
+        );
+        assert_matches!(
+            go_err!("j,"),
+            Err(WavelengthsError::Num(RangedFloatError::Parse(_)))
+        );
     }
 
     #[test]
     fn pnl_3_1_commas() {
         let mut conf = ReadStdKeywordsConfig::default();
         let v = ne_str!("1, 2");
-        assert!(Wavelengths::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            Wavelengths::from_str_with(v, (), &conf),
+            Err(WavelengthsError::Num(RangedFloatError::Parse(_)))
+        );
         conf.trim_intra_value_whitespace = true.into();
         let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
         let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
@@ -4337,7 +4375,15 @@ mod tests {
             &conf,
         );
         let v = ne_str!("01-Jan-2112 00:00");
-        assert!(LastModified::from_str_with(v, (), &conf).is_err());
+        assert_eq!(
+            LastModified::from_str_with(v, (), &conf),
+            Err(LastModifiedError::Format)
+        );
+        conf.last_modified_pattern = Some("%d_%b_%Y_%H_%M".into());
+        assert_matches!(
+            LastModified::from_str_with(v, (), &conf),
+            Err(LastModifiedError::AltFormat(_))
+        );
         conf.last_modified_pattern = Some("%d-%b-%Y %H:%M".into());
         assert_from_to_str_almost_with::<LastModified>(v, "01-Jan-2112 00:00:00.00", (), &conf);
     }
@@ -4348,7 +4394,7 @@ mod tests {
         assert_from_to_str::<Originality>("NonDataModified");
         assert_from_to_str::<Originality>("Appended");
         assert_from_to_str::<Originality>("DataModified");
-        assert!(Originality::from_str("x").is_err());
+        assert_matches!(Originality::from_str("x"), Err(OriginalityError(_)));
     }
 
     #[test]
@@ -4358,21 +4404,31 @@ mod tests {
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
         assert_from_to_str_with::<Unicode>(ne_str!("42,$40DOLLARBILL"), (), &conf);
-        assert!(Unicode::from_str_with(ne_str!("42"), (), &conf).is_err());
+        macro_rules! go {
+            ($s:expr) => {
+                Unicode::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+        assert_eq!(go!("42"), Err(UnicodeError::Empty));
+        assert_eq!(go!("x"), Err(UnicodeError::BadFormat));
+        assert_eq!(go!("666,"), Err(UnicodeError::EmptyKws));
     }
 
     #[test]
     fn unicode_commas() {
         let v = ne_str!("50 ,something tour");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(Unicode::from_str_with(v, (), &conf).is_err());
+        assert_eq!(
+            Unicode::from_str_with(v, (), &conf),
+            Err(UnicodeError::BadFormat)
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Unicode>(v, "50,something tour", (), &conf);
     }
 
     #[test]
     fn pntype_optical() {
-        // this can basically be everything, even though only a few values make sense
+        // this can basically be anything, even though only a few values make sense
         let go = |v| {
             let t = OpticalType::from_str(v).unwrap();
             let k = kr::OptOpticalKeyword::from_str(&t, MeasIndex::from(0)).unwrap();
@@ -4394,7 +4450,7 @@ mod tests {
         let t = TemporalType::from_str("Time").unwrap();
         let k = kr::OptTemporalKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
         assert!(k.as_std_key_pair().1.as_str() == "Time");
-        assert!(TemporalType::from_str("Space").is_err());
+        assert_eq!(TemporalType::from_str("Space"), Err(TemporalTypeError));
     }
 
     #[test]
@@ -4403,7 +4459,10 @@ mod tests {
         assert_from_to_str_with::<Feature>(ne_str!("Area"), (), &conf);
         assert_from_to_str_with::<Feature>(ne_str!("Width"), (), &conf);
         assert_from_to_str_with::<Feature>(ne_str!("Height"), (), &conf);
-        assert!(Feature::from_str_with(ne_str!("Volume"), (), &conf).is_err());
+        assert_matches!(
+            Feature::from_str_with(ne_str!("Volume"), (), &conf),
+            Err(OpticalFeatureError(_))
+        );
         conf.allow_other_feature = true.into();
         assert_from_to_str_with::<Feature>(ne_str!("Volume"), (), &conf);
     }
@@ -4413,15 +4472,23 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1,2"), (), &conf);
-        assert!(RegionGateIndex2_0::from_str_with(ne_str!("x"), (), &conf).is_err());
-        assert!(RegionGateIndex2_0::from_str_with(ne_str!("1,2,3"), (), &conf).is_err());
+        macro_rules! go {
+            ($s:expr) => {
+                RegionGateIndex2_0::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+        assert_matches!(go!("x"), Err(RegionGateIndexError::Int(_)));
+        assert_eq!(go!("1,2,3"), Err(RegionGateIndexError::Format));
     }
 
     #[test]
     fn rni_2_0_commas() {
         let v = ne_str!("1, 2");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex2_0::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            RegionGateIndex2_0::from_str_with(v, (), &conf),
+            Err(RegionGateIndexError::Int(_))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<RegionGateIndex2_0>(v, "1,2", (), &conf);
     }
@@ -4433,15 +4500,30 @@ mod tests {
         assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("P1,P2"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("G1"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("G1,G2"), (), &conf);
-        assert!(RegionGateIndex3_0::from_str_with(ne_str!("x"), (), &conf).is_err());
-        assert!(RegionGateIndex3_0::from_str_with(ne_str!("P1,G2,P3"), (), &conf).is_err());
+        macro_rules! go {
+            ($s:expr) => {
+                RegionGateIndex3_0::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+        assert_eq!(
+            go!("x"),
+            Err(RegionGateIndexError::Int(MeasOrGateIndexError::Format))
+        );
+        assert_matches!(
+            go!("Px"),
+            Err(RegionGateIndexError::Int(MeasOrGateIndexError::Int(_)))
+        );
+        assert_eq!(go!("P1,G2,P3"), Err(RegionGateIndexError::Format));
     }
 
     #[test]
     fn rni_3_0_commas() {
         let v = ne_str!("P1, G2");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex3_0::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            RegionGateIndex3_0::from_str_with(v, (), &conf),
+            Err(RegionGateIndexError::Int(MeasOrGateIndexError::Format))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<RegionGateIndex3_0>(v, "P1,G2", (), &conf);
     }
@@ -4451,15 +4533,31 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1,P2"), (), &conf);
-        assert!(RegionGateIndex3_2::from_str_with(ne_str!("x"), (), &conf).is_err());
-        assert!(RegionGateIndex3_2::from_str_with(ne_str!("P1,P2,P3"), (), &conf).is_err());
+
+        macro_rules! go {
+            ($s:expr) => {
+                RegionGateIndex3_2::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+        assert_eq!(
+            go!("G1"),
+            Err(RegionGateIndexError::Int(PrefixedMeasIndexError::Format))
+        );
+        assert_matches!(
+            go!("Px"),
+            Err(RegionGateIndexError::Int(PrefixedMeasIndexError::Int(_)))
+        );
+        assert_eq!(go!("P1,G2,P3"), Err(RegionGateIndexError::Format));
     }
 
     #[test]
     fn rni_3_2_commas() {
         let v = ne_str!("P1, P2");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionGateIndex3_2::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            RegionGateIndex3_2::from_str_with(v, (), &conf),
+            Err(RegionGateIndexError::Int(PrefixedMeasIndexError::Format))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<RegionGateIndex3_2>(v, "P1,P2", (), &conf);
     }
@@ -4469,17 +4567,26 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionWindow>(ne_str!("1,1"), (), &conf);
         assert_from_to_str_with::<RegionWindow>(ne_str!("1,1;2,3;5,8;13,21"), (), &conf);
-        assert!(RegionWindow::from_str_with(ne_str!("1"), (), &conf).is_err());
-        assert!(RegionWindow::from_str_with(ne_str!("1,1,1"), (), &conf).is_err());
-        assert!(RegionWindow::from_str_with(ne_str!("1;1"), (), &conf).is_err());
-        assert!(RegionWindow::from_str_with(ne_str!("1,1,1;1,1,1"), (), &conf).is_err());
+        macro_rules! go {
+            ($s:expr) => {
+                RegionWindow::from_str_with(ne_str!($s), (), &conf)
+            };
+        }
+        assert_eq!(go!("1"), Err(RegionWindowError::Format));
+        assert_eq!(go!("1,1,1"), Err(RegionWindowError::Format));
+        assert_eq!(go!("1;1"), Err(RegionWindowError::Format));
+        assert_eq!(go!("1,1,1;1,1,1"), Err(RegionWindowError::Format));
+        assert_matches!(go!("1,1;1,x"), Err(RegionWindowError::Num(_)));
     }
 
     #[test]
     fn rnw_commas() {
         let v = ne_str!("1, 1 ; 2, 2");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(RegionWindow::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            RegionWindow::from_str_with(v, (), &conf),
+            Err(RegionWindowError::Num(_))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<RegionWindow>(v, "1,1;2,2", (), &conf);
     }
@@ -4489,7 +4596,22 @@ mod tests {
         assert_from_to_str::<Gating>("R1");
         assert_from_to_str_almost::<Gating>("R1 AND (R2.OR.R3)", "(R1 AND (R2 OR R3))");
         assert_from_to_str::<Gating>("((NOT R1) AND R2)");
-        assert!(Gating::from_str("NAND R1").is_err());
+
+        assert_eq!(Gating::from_str(""), Err(GatingError::EmptyExpr));
+        assert_eq!(
+            Gating::from_str("NAND R1"),
+            Err(GatingError::BadToken("NAND".into()))
+        );
+        assert_eq!(Gating::from_str("(NOT R1"), Err(GatingError::MissingParen));
+        assert_eq!(
+            Gating::from_str("NOT R1)"),
+            Err(GatingError::InvalidBinaryToken(GatingToken::RParen))
+        );
+        assert_eq!(
+            Gating::from_str("AND R1)"),
+            Err(GatingError::InvalidExprToken(GatingToken::And))
+        );
+        assert_eq!(Gating::from_str("R1 AND"), Err(GatingError::EmptyExpr));
     }
 
     #[test]
@@ -4505,7 +4627,10 @@ mod tests {
     fn unstained_centers_commas() {
         let v = ne_str!("1, X , 0");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(UnstainedCenters::from_str_with(v, (), &conf).is_err());
+        assert_eq!(
+            UnstainedCenters::from_str_with(v, (), &conf),
+            Err(ParseUnstainedCenterError::BadFloat)
+        );
         conf.trim_intra_value_whitespace = true.into();
         let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
         let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
@@ -4515,13 +4640,40 @@ mod tests {
     #[test]
     fn unstained_centers_wrong_len() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(UnstainedCenters::from_str_with(ne_str!("2,X,0"), (), &conf).is_err());
+        assert_eq!(
+            UnstainedCenters::from_str_with(ne_str!("2,X,0"), (), &conf),
+            Err(ParseUnstainedCenterError::BadLength {
+                found: 2,
+                expected: 4
+            })
+        );
     }
 
     #[test]
     fn unstained_centers_nonunique() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(UnstainedCenters::from_str_with(ne_str!("3,Y,Y,Z,0,0,0"), (), &conf).is_err());
+        assert_eq!(
+            UnstainedCenters::from_str_with(ne_str!("3,Y,Y,Z,0,0,0"), (), &conf),
+            Err(ParseUnstainedCenterError::NonUnique),
+        );
+    }
+
+    #[test]
+    fn unstained_centers_badn() {
+        let conf = ReadStdKeywordsConfig::default();
+        assert_eq!(
+            UnstainedCenters::from_str_with(ne_str!("impoppy,X,Y,0,0"), (), &conf),
+            Err(ParseUnstainedCenterError::BadN),
+        );
+    }
+
+    #[test]
+    fn unstained_centers_badfloat() {
+        let conf = ReadStdKeywordsConfig::default();
+        assert_eq!(
+            UnstainedCenters::from_str_with(ne_str!("1,X,impoppy"), (), &conf),
+            Err(ParseUnstainedCenterError::BadFloat),
+        );
     }
 
     #[test]
@@ -4535,26 +4687,50 @@ mod tests {
     #[test]
     fn str_compensation_too_small() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with(ne_str!("1,0"), (), &conf).is_err());
+        assert_eq!(
+            Compensation3_0::from_str_with(ne_str!("1,0"), (), &conf),
+            Err(ParseCompError::New(NewCompError::TooSmall))
+        );
     }
 
     #[test]
     fn str_compensation_mismatch() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with(ne_str!("2,0,0,0"), (), &conf).is_err());
+        assert_eq!(
+            Compensation3_0::from_str_with(ne_str!("2,0,0,0"), (), &conf),
+            Err(ParseCompError::WrongLength {
+                found: 3,
+                expected: 4
+            })
+        );
     }
 
     #[test]
     fn str_compensation_badfloats() {
         let conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with(ne_str!("2,zero,0,coconut"), (), &conf).is_err());
+        assert_eq!(
+            Compensation3_0::from_str_with(ne_str!("2,straberina,0,coconick"), (), &conf),
+            Err(ParseCompError::BadFloat)
+        );
+    }
+
+    #[test]
+    fn str_compensation_badn() {
+        let conf = ReadStdKeywordsConfig::default();
+        assert_eq!(
+            Compensation3_0::from_str_with(ne_str!("inf,0,0,0,0"), (), &conf),
+            Err(ParseCompError::BadLength)
+        );
     }
 
     #[test]
     fn str_compensation_commas() {
         let v = ne_str!("2, 0, 0, 0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(Compensation3_0::from_str_with(v, (), &conf).is_err());
+        assert_eq!(
+            Compensation3_0::from_str_with(v, (), &conf),
+            Err(ParseCompError::BadFloat)
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Compensation3_0>(v, "2,0,0,0,0", (), &conf);
     }
@@ -4571,38 +4747,62 @@ mod tests {
 
     #[test]
     fn str_to_byteord_tolong() {
-        assert!("1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>().is_err());
+        assert_eq!(
+            "1,2,3,4,5,6,7,8,9".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Order(NewByteOrdError(9)))
+        );
     }
 
     #[test]
     fn str_to_byteord_bad_digits() {
-        assert!("0".parse::<ByteOrd2_0>().is_err());
-        assert!("2".parse::<ByteOrd2_0>().is_err());
+        assert_eq!(
+            "0".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Digit(ByteordDigitError))
+        );
+        assert_eq!(
+            "2".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Order(NewByteOrdError(1)))
+        );
     }
 
     #[test]
     fn str_to_byteord_skipped() {
-        assert!("1,3".parse::<ByteOrd2_0>().is_err());
+        assert_eq!(
+            "1,3".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Order(NewByteOrdError(2)))
+        );
     }
 
     #[test]
     fn str_to_byteord_repeat() {
-        assert!("1,1".parse::<ByteOrd2_0>().is_err());
+        assert_eq!(
+            "1,1".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Order(NewByteOrdError(2)))
+        );
     }
 
     #[test]
     fn str_to_byteord_garbage() {
-        assert!("fortytwo".parse::<ByteOrd2_0>().is_err());
-        assert!("".parse::<ByteOrd2_0>().is_err());
-        assert!("one,two,three".parse::<ByteOrd2_0>().is_err());
+        assert_eq!(
+            "fortytwo".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Digit(ByteordDigitError))
+        );
+        assert_eq!(
+            "".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Digit(ByteordDigitError))
+        );
+        assert_eq!(
+            "one,two,three".parse::<ByteOrd2_0>(),
+            Err(ParseByteOrdError::Digit(ByteordDigitError))
+        );
     }
 
     #[test]
     fn str_to_endian() {
         assert!("1,2,3,4".parse::<ByteOrd3_1>().is_ok());
         assert!("4,3,2,1".parse::<ByteOrd3_1>().is_ok());
-        assert!("1,2,3".parse::<ByteOrd3_1>().is_err());
-        assert!("5,4,3,2,1".parse::<ByteOrd3_1>().is_err());
+        assert_eq!("1,2,3".parse::<ByteOrd3_1>(), Err(NewEndianError));
+        assert_eq!("5,4,3,2,1".parse::<ByteOrd3_1>(), Err(NewEndianError));
     }
 
     #[test]
@@ -4618,7 +4818,10 @@ mod tests {
         let v = ne_str!("4.5,0");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
-        assert!(Scale::from_str_with(v, dt, &conf).is_err());
+        assert_eq!(
+            Scale::from_str_with(v, dt, &conf),
+            Err(ScaleError::LogRange(LogRangeError::new(4.5, 0.0)))
+        );
         conf.fix_log_scale_offsets = true.into();
         assert_from_to_str_almost_with::<Scale>(v, "4.5,1", dt, &conf);
     }
@@ -4650,7 +4853,10 @@ mod tests {
         let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
-        assert!(Scale::from_str_with(v, dt, &conf).is_err());
+        assert_matches!(
+            Scale::from_str_with(v, dt, &conf),
+            Err(ScaleError::FloatError(_))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<Scale>(v, "0,0", dt, &conf);
     }
@@ -4660,14 +4866,20 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         // no display, so just check parse
         assert!(TemporalScale2_0::from_str_with(ne_str!("0,0"), (), &conf).is_ok());
-        assert!(TemporalScale2_0::from_str_with(ne_str!("1,1"), (), &conf).is_err());
+        assert_eq!(
+            TemporalScale2_0::from_str_with(ne_str!("1,1"), (), &conf),
+            Err(TemporalScaleError::NonLinear),
+        );
     }
 
     #[test]
     fn tmp_scale2_commas() {
         let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(TemporalScale2_0::from_str_with(v, (), &conf).is_err());
+        assert_eq!(
+            TemporalScale2_0::from_str_with(v, (), &conf),
+            Err(TemporalScaleError::Format),
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert!(TemporalScale2_0::from_str_with(v, (), &conf).is_ok());
     }
@@ -4676,14 +4888,20 @@ mod tests {
     fn tmp_scale3() {
         let conf = ReadStdKeywordsConfig::default();
         assert_from_to_str_with::<TemporalScale3_0>(ne_str!("0,0"), (), &conf);
-        assert!(TemporalScale3_0::from_str_with(ne_str!("1,1"), (), &conf).is_err());
+        assert_eq!(
+            TemporalScale3_0::from_str_with(ne_str!("1,1"), (), &conf),
+            Err(TemporalScaleError::NonLinear),
+        );
     }
 
     #[test]
     fn tmp_scale3_commas() {
         let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(TemporalScale3_0::from_str_with(v, (), &conf).is_err());
+        assert_eq!(
+            TemporalScale3_0::from_str_with(v, (), &conf),
+            Err(TemporalScaleError::Format),
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<TemporalScale3_0>(v, "0,0", (), &conf);
     }
@@ -4699,7 +4917,10 @@ mod tests {
     fn gate_scale_zero_log() {
         let v = ne_str!("4.5,0");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(GateScale::from_str_with(v, (), &conf).is_err());
+        assert_eq!(
+            GateScale::from_str_with(v, (), &conf),
+            Err(ScaleError::LogRange(LogRangeError::new(4.5, 0.0)))
+        );
         conf.fix_log_scale_offsets = true.into();
         assert_from_to_str_almost_with::<GateScale>(v, "4.5,1", (), &conf);
     }
@@ -4708,7 +4929,10 @@ mod tests {
     fn gate_scale_commas() {
         let v = ne_str!("0, 0");
         let mut conf = ReadStdKeywordsConfig::default();
-        assert!(GateScale::from_str_with(v, (), &conf).is_err());
+        assert_matches!(
+            GateScale::from_str_with(v, (), &conf),
+            Err(ScaleError::FloatError(_))
+        );
         conf.trim_intra_value_whitespace = true.into();
         assert_from_to_str_almost_with::<GateScale>(v, "0,0", (), &conf);
     }

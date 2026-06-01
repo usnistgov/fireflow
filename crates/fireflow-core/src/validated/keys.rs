@@ -566,6 +566,22 @@ pub struct SpecificKey<T, I> {
 #[delegate(AsStdKey)]
 pub struct DollarKey<T, I>(pub SpecificKey<T, I>);
 
+impl<T, I: PartialEq> PartialEq for DollarKey<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        &self.0 == &other.0
+    }
+}
+
+impl<T, I: Eq> Eq for DollarKey<T, I> {}
+
+impl<T, I: PartialEq> PartialEq for SpecificKey<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        &self.index == &other.index
+    }
+}
+
+impl<T, I: Eq> Eq for SpecificKey<T, I> {}
+
 impl<T, I: Clone> Clone for SpecificKey<T, I> {
     fn clone(&self) -> Self {
         Self::new(self.index.clone())

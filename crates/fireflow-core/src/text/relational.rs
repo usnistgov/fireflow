@@ -274,7 +274,7 @@ pub struct TemporalNamedLinkError<T, I> {
 }
 
 /// Error when key which references a non-existent measurement index
-#[derive(Debug, Display, Error, new)]
+#[derive(Debug, Display, Error, new, Clone)]
 #[display(
     "{key} references non-existent measurement indices: {bad}",
     bad = self.indices.iter().join(", ")
@@ -286,6 +286,14 @@ pub struct IndexLinkError<T, I> {
     indices: NEVec<MeasIndex>,
     key: DollarKey<T, I>,
 }
+
+impl<T, I: PartialEq> PartialEq for IndexLinkError<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        &self.indices == &other.indices && &self.key == &other.key
+    }
+}
+
+impl<T, I: Eq> Eq for IndexLinkError<T, I> {}
 
 /// Error when key which depends on another key which is invalid.
 #[derive(Debug, Display, Error, new)]

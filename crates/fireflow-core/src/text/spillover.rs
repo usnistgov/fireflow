@@ -271,7 +271,7 @@ impl FromStrWith for Spillover {
 }
 
 /// Error when building a new [`Spillover`] value
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub enum NewSpilloverError {
@@ -286,7 +286,7 @@ pub enum NewSpilloverError {
 }
 
 /// Error when parsing [`Spillover`] from string
-#[derive(From, Debug, Display, Error)]
+#[derive(From, Debug, Display, Error, PartialEq, Eq, Clone)]
 pub enum ParseSpilloverError {
     Generic(ParseGenericSpilloverError),
     BadIndex(MalformedIndexError),
@@ -294,7 +294,7 @@ pub enum ParseSpilloverError {
 }
 
 /// Error when parsing [`GenericSpillover`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone, Copy)]
 pub enum ParseGenericSpilloverError {
     #[error("{0}")]
     New(NewSpilloverError),
@@ -310,7 +310,7 @@ pub enum ParseGenericSpilloverError {
 ///
 /// Note that this is non-standard behavior. $SPILLOVER should refer to $PnN,
 /// but many vendors refer to measurements using their indices instead.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("error when parsing index for $SPILLOVER: {0}")]
 pub struct MalformedIndexError(ParseIntError);
 
@@ -320,6 +320,8 @@ mod tests {
     use crate::test::*;
 
     use fireflow_types::{ne_str, nonempty_string::DisplayableNE as _};
+
+    use assert_matches::assert_matches;
 
     #[test]
     fn spillover() {
@@ -350,6 +352,45 @@ mod tests {
         let res = Spillover::from_str_with(v, &ns, &conf);
         let spill = res.unwrap().native.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
+    }
+
+    #[test]
+    fn spillover_indexed_malformed() {
+        let conf = ReadStdKeywordsConfig {
+            spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
+            ..Default::default()
+        };
+        let ns = [
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
+        ];
+        let v = ne_str!("2,one,2,0,0,0,0");
+        // let res = Spillover::from_str_with(v, &ns, &conf);
+        // let spill = res.unwrap().native.as_string();
+        // assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
+
+        // let v = ne_str!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0");
+        assert_matches!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::BadIndex(MalformedIndexError(_)))
+        );
+    }
+
+    #[test]
+    fn spillover_indexed_badlink() {
+        let conf = ReadStdKeywordsConfig {
+            spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
+            ..Default::default()
+        };
+        let ns = [
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
+        ];
+        let v = ne_str!("2,3,2,0,0,0,0");
+        assert_matches!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::IndexLink(_))
+        );
     }
 
     #[test]
@@ -406,7 +447,12 @@ mod tests {
             &"Y".parse::<Shortname>().unwrap(),
         ];
         let v = ne_str!("3,Y,Y,Z,0,0,0,0,0,0,0,0,0");
-        assert!(Spillover::from_str_with(v, &ns, &conf).is_err());
+        assert_eq!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::Generic(
+                ParseGenericSpilloverError::New(NewSpilloverError::NonUnique)
+            ))
+        );
     }
 
     #[test]
@@ -414,7 +460,12 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         let ns = [&"potato".parse::<Shortname>().unwrap()];
         let v = ne_str!("1,potato,0");
-        assert!(Spillover::from_str_with(v, &ns, &conf).is_err());
+        assert_eq!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::Generic(
+                ParseGenericSpilloverError::New(NewSpilloverError::TooSmall)
+            ))
+        );
     }
 
     #[test]
@@ -426,7 +477,74 @@ mod tests {
             &"prongs".parse::<Shortname>().unwrap(),
         ];
         let v = ne_str!("2,moody,padfoot,prongs,0,0,0,0");
-        assert!(Spillover::from_str_with(v, &ns, &conf).is_err());
+        assert_eq!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::Generic(
+                ParseGenericSpilloverError::WrongLength {
+                    total: 7,
+                    expected: 6
+                }
+            ))
+        );
+    }
+
+    #[test]
+    fn spillover_name_badn() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
+        ];
+        let v = ne_str!("mantis shrimp,X,Y,0,0,0,0");
+        assert_eq!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::Generic(
+                ParseGenericSpilloverError::BadN
+            ))
+        );
+    }
+
+    #[test]
+    fn spillover_name_bad_float() {
+        let conf = ReadStdKeywordsConfig::default();
+        let ns = [
+            &"X".parse::<Shortname>().unwrap(),
+            &"Y".parse::<Shortname>().unwrap(),
+        ];
+        let v = ne_str!("2,X,Y,0,0,0,threepointonefouronefivenine");
+        assert_eq!(
+            Spillover::from_str_with(v, &ns, &conf),
+            Err(ParseSpilloverError::Generic(
+                ParseGenericSpilloverError::BadFloat
+            ))
+        );
+    }
+
+    #[test]
+    fn spillover_non_square() {
+        let ns = vec![
+            "X".parse::<Shortname>().unwrap(),
+            "Y".parse::<Shortname>().unwrap(),
+        ];
+        let matrix = Array2::from_shape_vec((2, 3), vec![0.0; 6]).unwrap();
+        assert_eq!(
+            Spillover::try_new(ns, matrix),
+            Err(NewSpilloverError::NonSquare)
+        );
+    }
+
+    #[test]
+    fn spillover_name_length() {
+        let ns = vec![
+            "X".parse::<Shortname>().unwrap(),
+            "Y".parse::<Shortname>().unwrap(),
+            "Z".parse::<Shortname>().unwrap(),
+        ];
+        let matrix = Array2::from_shape_vec((2, 2), vec![0.0; 4]).unwrap();
+        assert_eq!(
+            Spillover::try_new(ns, matrix),
+            Err(NewSpilloverError::NameLen)
+        );
     }
 }
 

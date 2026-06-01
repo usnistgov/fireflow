@@ -1390,7 +1390,7 @@ impl Default for NonStdMeasPatternOpt {
 }
 
 /// Error when optical keyword is present in temporal measurement.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("optical key $P{index}{key} found in temporal measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -1437,7 +1437,7 @@ pub struct ReadState<C> {
     pub(crate) conf: C,
 }
 
-#[derive(From, Into, Clone, Copy, Debug, Display)]
+#[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
 pub(crate) struct FileLen(pub(crate) u64);
 
 #[derive(From, Into, Clone, Copy, Debug, PartialEq, Default, Display)]
@@ -1476,7 +1476,7 @@ impl<C> ReadState<C> {
     }
 }
 
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Clone)]
 #[error("dataset offset ({0}) exceeds file length ({1})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]

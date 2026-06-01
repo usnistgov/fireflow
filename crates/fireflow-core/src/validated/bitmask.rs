@@ -153,7 +153,7 @@ impl<T> Bitmask<T> {
 }
 
 /// Error when making a new [`Bitmask`] from a [`u64`].
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Clone)]
 #[error("Could not make a new {bytes}-byte bitmask from {value}, out of range")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]

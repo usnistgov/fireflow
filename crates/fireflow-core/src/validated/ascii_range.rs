@@ -292,7 +292,7 @@ impl TryFrom<u8> for OtherWidth {
 }
 
 /// Error when creating [`FixedAsciiRange`] ($PnB and $PnR for one index)
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AsciiRangeFromKeywordsError {
     New(IndexedNotEnoughCharsError),
@@ -301,7 +301,7 @@ pub enum AsciiRangeFromKeywordsError {
 }
 
 /// Error when $PnB could not be converted to number of characters
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct IndexedWidthToCharsError(IndexedError<WidthToFixedError<CharsError>>);
@@ -321,7 +321,7 @@ impl fmt::Display for IndexedWidthToCharsError {
 }
 
 /// Error when $PnR exceeds number of characters allowed by $PnB.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "{pnr} ({r}) is longer than {b} digits allowed by {pnb}",
     pnr = TextRange::std(_0.index),
@@ -334,7 +334,7 @@ impl fmt::Display for IndexedWidthToCharsError {
 pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
 /// Error when creating [`OtherWidth`] for configuration struct
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("OTHER width should be integer b/t {MIN_OTHER_WIDTH} and {MAX_CHARS}, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
@@ -344,7 +344,7 @@ pub struct OtherWidthError(u8);
 ///
 /// This is not meant for external use since it is more useful when index is
 /// provided as context.
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct NotEnoughCharsError {
     chars: Chars,
     value: AsciiRangeValue,
@@ -353,7 +353,7 @@ pub(crate) struct NotEnoughCharsError {
 /// Error when converting $PnB to number of characters.
 ///
 /// This is a helper type meant to be used in making more specific errors.
-#[derive(Debug, Display)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("bits must be <= {MAX_CHARS} to be used as number of characters, got {_0}")]
 pub(crate) struct CharsError(u8);
 

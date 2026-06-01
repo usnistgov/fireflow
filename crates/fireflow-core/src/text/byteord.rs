@@ -133,7 +133,7 @@ where
 }
 
 /// The number of bytes for a numeric measurement
-#[derive(Into, Debug, Display, Clone, Copy)]
+#[derive(Into, Debug, Display, Clone, Copy, PartialEq)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]
 pub struct Bytes(pub(crate) PrivBytes);
 
@@ -583,14 +583,14 @@ impl fmt::Display for NewByteOrdError {
 pub struct NewEndianError;
 
 /// Error when converting $BYTEORD from 2.0/3.0 to 3.1/3.2
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("byte order is not monotonic")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct OrderedToEndianError;
 
 /// Error when coercing $BYTEORD to a fixed size for use in parsing a layout
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("$BYTEORD is {bytes} bytes long, expected {length}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -603,7 +603,7 @@ pub struct ByteOrdToSizedError {
 ///
 /// This is a helper type meant to construct more specific errors, namely those
 /// for converting $PnB to bytes (numeric layouts) and chars (ASCII layouts).
-#[derive(Debug, From)]
+#[derive(Debug, From, PartialEq, Clone)]
 pub(crate) enum WidthToFixedError<X> {
     #[from]
     Variable(VariableWidthError),
@@ -611,18 +611,18 @@ pub(crate) enum WidthToFixedError<X> {
 }
 
 /// Dummy type to indicate that $PnB is variable width ('*')
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub(crate) struct VariableWidthError;
 
 /// Error when converting $PnB (in bits) to bytes.
-#[derive(Debug, Display)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("bits must be multiple of 8 and between 8 and 64, got {_0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct FixedWidthToBytesError(pub(crate) u8);
 
 /// Error when converting [`Vec<NonzeroU8>`] to [`ArrayByteOrd`].
-#[derive(From, Error, Display, Debug)]
+#[derive(From, Error, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum VecToSizedError {
     Vec(VecToArrayError),
@@ -630,7 +630,7 @@ pub enum VecToSizedError {
 }
 
 /// Error when converting [`Vec<NonzeroU8>`] to [`ArrayByteOrd`] when former is wrong size.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("could not convert vector to array, was {vec_len} long, needed {req_len}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]

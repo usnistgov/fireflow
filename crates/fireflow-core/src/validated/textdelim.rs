@@ -31,7 +31,7 @@ pub(crate) trait HasDelim {
 }
 
 /// Error when a token in TEXT cannot be written because of the delimiter.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "token '{value}' could not be written because it {reason}",
     reason = if self.all_delim {

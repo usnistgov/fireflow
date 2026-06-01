@@ -68,7 +68,7 @@ impl From<MeasIndex> for Shortname {
 }
 
 /// Error when parsing [`Shortname`] from string
-#[derive(Debug, Error, From)]
+#[derive(Debug, Error, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(
     feature = "python",

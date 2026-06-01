@@ -141,7 +141,7 @@ impl FromStr for TimePattern {
 }
 
 /// Error when parsing [`TimePattern`] from string for configuration
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "time pattern must contain specifier for hour (%H/%k for 24 hours \
      or %I/%l with %p/%P for 12 hours), minute (%M), second (%S), and \
@@ -155,14 +155,14 @@ impl FromStr for TimePattern {
 pub struct TimePatternError(String);
 
 /// Error when parsing [`NaiveTime`] from string using [`TimePattern`]
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("{inner} with pattern '{pattern}'")]
 pub struct ParseWithTimePatternError {
     inner: InnerPatternError,
     pattern: String,
 }
 
-#[derive(From, Debug, Display)]
+#[derive(From, Debug, Display, PartialEq, Clone)]
 enum InnerPatternError {
     #[display("{_0}")]
     Native(ParseError),

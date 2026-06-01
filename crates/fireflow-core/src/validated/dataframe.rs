@@ -153,7 +153,7 @@ pub(crate) type InternalF32Series = InternalSeries<f32, f32>;
 pub(crate) type InternalF64Series = InternalSeries<f64, f64>;
 
 /// Error when casting one series type to another which results in loss.
-#[derive(new, Debug, Error)]
+#[derive(new, Debug, Error, PartialEq, Clone)]
 #[error("could not cast series from {from_type} to {to_type}; failed at row {position}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]

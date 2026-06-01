@@ -317,7 +317,7 @@ pub(crate) fn autodetect_version(
 }
 
 /// Error when parsing HEADER segment
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderError {
     Segment(HeaderSegmentError),
@@ -327,7 +327,7 @@ pub enum HeaderError {
 }
 
 /// Error when parsing spaces after FCS version
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderSpacesError {
     Format(HeaderSpacesFormatError),
@@ -335,21 +335,21 @@ pub enum HeaderSpacesError {
 }
 
 /// Error when version is not follow by proper number of spaces in HEADER
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("version must be followed by 4 spaces")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct HeaderSpacesFormatError;
 
 /// Error when spaces could not be read because not enough bytes were present
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("needed 4 bytes to read spaces after FCS version, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct HeaderSpacesNoBytesError(u64);
 
 /// Error when validating segments in HEADER
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum VersionError {
     Format(VersionFormatError),
@@ -358,21 +358,21 @@ pub enum VersionError {
 }
 
 /// Error when parsing FCS version
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("invalid bytes found when parsing version: {}", self.0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct VersionNonUtf8Error(Vec<u8>);
 
 /// Error when not enough bytes to parse version
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("needed 6 bytes to parse FCS version, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct VersionNoBytesError(u64);
 
 /// Error when trying to guess FCS version from keywords
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub enum GuessVersionError {
@@ -384,7 +384,7 @@ pub enum GuessVersionError {
 }
 
 /// Error when writing HEADER or TEXT.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum WriteTEXTHeaderError {
     Overflow(Uint8DigitOverflowError),

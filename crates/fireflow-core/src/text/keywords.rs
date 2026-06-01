@@ -169,7 +169,7 @@ impl FromStrWith for Nextdata {
 pub type ReadNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata, ()>;
 
 /// Error when parsing [`Nextdata`] from [`String`]
-#[derive(Debug, Display, From, Error)]
+#[derive(Debug, Display, From, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseNextdataError {
     Int(ParseIntError),
@@ -177,7 +177,7 @@ pub enum ParseNextdataError {
 }
 
 /// Error when $NEXTDATA is negative
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$NEXTDATA value is negative ({0})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
@@ -439,7 +439,7 @@ impl Gain {
 }
 
 /// Error when lookup up [`Gain`] from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalGainError {
     Parse(OptIndexedKeyError<Gain>),
@@ -447,7 +447,7 @@ pub enum LookupTemporalGainError {
 }
 
 /// Error when time measurement has [`Gain`] ($PnG)
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -470,10 +470,6 @@ impl Default for Timestep {
 }
 
 impl Timestep {
-    // pub(crate) fn loss_error(self) -> Option<Key0LossError<Self>> {
-    //     (!self.0.is_one()).then_some(Key0LossError::default())
-    // }
-
     pub(crate) fn lookup(
         std: &mut StdKeywords,
         conf: &ReadStdKeywordsConfig,
@@ -586,7 +582,7 @@ impl FromStrDelim for Trigger {
 impl_from_str_with_delim!(Trigger, TriggerError);
 
 /// Error when parsing [`Trigger`] from string
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum TriggerError {
     #[error("must be like 'string,f'")]
     WrongFieldNumber,
@@ -653,7 +649,7 @@ impl TryFrom<Mode> for Mode3_2 {
 pub struct Mode3_2Error;
 
 /// Error when converting [`Mode`] to [`Mode3_2`]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$MODE must be 'L'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
@@ -727,7 +723,7 @@ impl FromStrDelim for Display {
 impl_from_str_with_delim!(Display, DisplayError);
 
 /// Error when parsing [`enum@Display`] from string
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum DisplayError {
     #[error("{0}")]
     FloatError(ParseFloatError),
@@ -1057,16 +1053,16 @@ impl FromStrDelim for Calibration3_1 {
 impl_from_str_with_delim!(Calibration3_1, CalibrationError<CalibrationFormat3_1>);
 
 /// Error when parsing [`Calibration3_1`] from string
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("must be like 'slope,unit'")]
 pub struct CalibrationFormat3_1;
 
 /// Error when calibration type has an empty unit string.
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("unit cannot be an empty string")]
 pub struct EmptyCalibrationUnitError;
 
-#[derive(Debug, Display, Error, PartialEq)]
+#[derive(Debug, Display, Error, PartialEq, Clone)]
 pub enum CalibrationError<C> {
     Float(ParseFloatError),
     Range(RangedFloatError),
@@ -1157,7 +1153,7 @@ impl Calibration3_2 {
 ///
 /// Loss will occur if the offset is specified, which is not applicable to FCS
 /// 3.1
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "{k} has offset {o} which will be lost upon conversion",
     k = Calibration3_2::std(self.0),
@@ -1249,7 +1245,7 @@ impl Wavelengths {
 ///
 /// Loss may occur in this case because $PnL in later versions allows multiple
 /// numbers and earlier versions only allow one.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "{0} is {1} elements long and will \
      be reduced to first upon conversion"
@@ -1328,7 +1324,7 @@ impl FromStrWith for LastModified {
 }
 
 /// Error when parsing [`LastModified`] from string
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum LastModifiedError {
     #[error("could not parse with format string '{0}'")]
     AltFormat(String),
@@ -1502,7 +1498,7 @@ impl Compensation2_0 {
 }
 
 /// Error when parsing $DFCiTOj keywords for compensation matrix (2.0)
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupComp2_0Error {
     Dfc(LookupDfcError),
@@ -1648,7 +1644,7 @@ impl FromStrDelim for Unicode {
 impl_from_str_with_delim!(Unicode, UnicodeError);
 
 /// Error when parsing [`Unicode`] from string
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum UnicodeError {
     #[error("No keywords given")]
     Empty,
@@ -1666,7 +1662,7 @@ pub enum UnicodeError {
 pub struct OpticalType(String);
 
 /// Error when parsing [`OpticalType`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$PnTYPE for time measurement shall not be 'Time' if given")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
@@ -1882,7 +1878,7 @@ impl<I: FromStr> FromStrDelim for RegionGateIndex<I> {
 }
 
 /// Error when parsing [`RegionGateIndex<I>`] from string
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 pub enum RegionGateIndexError<E> {
     #[error("{0}")]
     Int(E),
@@ -1933,7 +1929,7 @@ impl FromStr for MeasOrGateIndex {
 }
 
 /// Error when parsing [`RegionGateIndex<MeasOrGateIndex>`] from string (3.0/3.1)
-#[derive(Debug, Error, PartialEq, Eq)]
+#[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 pub enum MeasOrGateIndexError {
@@ -2640,7 +2636,7 @@ impl TryFrom<Cyt> for Cyt3_2 {
 }
 
 /// Error when parsing [`Cyt3_2`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$CYT is missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
@@ -2909,14 +2905,14 @@ impl ExtraStdKeywords {
 }
 
 /// Error denoting that pseudostandard keyword was found.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("pseudostandard keyword found: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
 pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that measurement keyword within standard but above $PAR was found
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("measurement keyword is part of standard but outside $PAR ({par}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
@@ -2926,7 +2922,7 @@ pub struct HyperParError {
 }
 
 /// Error denoting that gating keyword within standard but above $GATE was found
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("gating keyword is part of standard but outside $GATE ({gate}): {key}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
@@ -2936,7 +2932,7 @@ pub struct HyperGateError {
 }
 
 /// Error denoting that keyword from different version was found
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "keyword is not compatible with {current} but is compatible with {os}: {key}",
     os = self.others.iter().join(", ")
@@ -2950,7 +2946,7 @@ pub struct KeywordOtherVersionError {
 }
 
 /// Error denoting that $TIMESTEP was unused and possibly should have been
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$TIMESTEP found, this may indicate a time measurement exists but was not identified")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
@@ -3485,7 +3481,7 @@ kw_opt_meas!(
 );
 
 // 2.0 compensation matrix
-#[derive(Clone, Copy, Debug, FromStr, Default, Into, Delegate)]
+#[derive(Clone, Copy, Debug, FromStr, Default, Into, Delegate, PartialEq)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Dfc(pub f32);
 
@@ -3617,7 +3613,7 @@ opt_meta!(Nextdata, Option<Self>);
 macro_rules! kw_offset {
     ($(#[$attr:meta])* $t:ident, $key:expr, $m:expr) => {
         $(#[$attr])*
-        #[derive(From, Into, FromStr, Debug, Clone, Copy, Delegate)]
+        #[derive(From, Into, FromStr, Debug, Clone, Copy, Delegate, PartialEq)]
         #[delegate(ToDisplayNE<'a>, generics = "'a")]
         #[into(u64, i128, UintZeroPad20)]
         pub struct $t(pub UintZeroPad20);

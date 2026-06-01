@@ -886,7 +886,7 @@ impl_functor_once!(
 );
 
 /// Error when keywords cannot be used to make new column schema.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewDataSchemaError {
     /// $PnB and $PnR could not be used to make ASCII column schema
@@ -904,7 +904,7 @@ pub enum NewDataSchemaError {
 }
 
 /// Error when $PnB or $PnR cannot be used for an [`AnyOrderedUintDataSchema`] (2.0/3.0)
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewFixedIntLayoutError {
     Width(SingleFixedWidthError),
@@ -912,7 +912,7 @@ pub enum NewFixedIntLayoutError {
 }
 
 /// Error when making a new 2.0/3.0 integer layout.
-#[derive(From, Error, Debug, Display)]
+#[derive(From, Error, Debug, Display, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewOrderedUintLayoutError {
     Bitmask(NewBitmaskError),
@@ -920,30 +920,17 @@ pub enum NewOrderedUintLayoutError {
 }
 
 /// Error when $PnB cannot be used for an ordered integer layout (2.0/3.0 only)
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SingleFixedWidthError {
     WidthToFixed(IndexedWidthToFixedError),
     BytesFromFixed(FixedWidthToBytesError),
     Mismatch(WidthByteordMismatchError),
     MultiWidth(MultiWidthError),
-    // EndianFromMixed(EndianFromMixedError),
 }
 
-// /// Error when trying to get the endian-ness of a mixed $BYTEORD value.
-// #[derive(Debug, Error, new)]
-// #[error(
-//     "could not get endian-ness from mixed byteord ({})",
-//     self.byteord.as_displayable(),
-// )]
-// #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-// #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-// pub struct EndianFromMixedError {
-//     byteord: ByteOrd2_0,
-// }
-
 /// Error when $PnB does not match width implied by $BYTEORD (2.0/3.0 only)
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "measurement width ({width}) does not match byte order ({})",
     self.byteord.as_displayable(),
@@ -956,7 +943,7 @@ pub struct WidthByteordMismatchError {
 }
 
 /// Error when more than one $PnB are present and $BYTEORD length is ambiguous (2.0/3.0 only)
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "first integer width found ({first}) does not match other(s) ({})",
     self.rest.iter().join(",")
@@ -972,7 +959,7 @@ pub struct MultiWidthError {
 ///
 /// This only applies to FCS 3.2 and the value of $PnDATATYPE is implied by
 /// the variant of this enum.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewMixedRangeError {
     Ascii(AsciiRangeFromKeywordsError),
@@ -981,7 +968,7 @@ pub enum NewMixedRangeError {
 }
 
 /// Warning when failing to truncate $PnR for use in a [`DataSchema3_2`].
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewMixedRangeWarning {
     Ascii(IndexedRangeToAsciiError),
@@ -990,7 +977,7 @@ pub enum NewMixedRangeWarning {
 }
 
 /// Error when converting $PnR to float to be used in a float layout.
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "could not use {k} in float layout because {e}",
     k = TextRange::std(_0.index),
@@ -1001,7 +988,7 @@ pub enum NewMixedRangeWarning {
 pub struct IndexedFloatRangeError(IndexedError<DecimalToFloatError>);
 
 /// Error when using $PnB or $PnR to make a new [`Bitmask`]
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewUintTypeError {
     Bitmask(IndexedBitmaskError),
@@ -1009,7 +996,7 @@ pub enum NewUintTypeError {
 }
 
 /// Error when converting $PnB (in bits) to [`Bytes`]
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "{} is variable ('*') when a fixed integer is expected",
     Width::std(self.0.index),
@@ -1019,7 +1006,7 @@ pub enum NewUintTypeError {
 pub struct IndexedWidthToFixedError(IndexedError<VariableWidthError>);
 
 /// Error when converting $PnB (in bits) to [`Bytes`]
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<FixedWidthToBytesError>>);
@@ -1039,7 +1026,7 @@ impl fmt::Display for IndexedWidthToBytesError {
 }
 
 /// Error when using $PnB or $PnR for float layout.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum FloatWidthError {
     Bytes(IndexedWidthToBytesError),
@@ -1048,7 +1035,7 @@ pub enum FloatWidthError {
 }
 
 /// Error when converting $PnR to [`Bitmask`] for integer layout based on $PnB.
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedBitmaskError(IndexedError<RangeToBitmaskError>);
@@ -1080,7 +1067,7 @@ impl fmt::Display for IndexedBitmaskError {
 /// BitmaskTruncationError since this is a special case of $PnR not fitting into
 /// a fixed number of bytes, where the bytes in this case happen to not align
 /// with native datatypes (u8, u16, etc).
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum RangeToBitmaskError {
     Over(BigDecimal, Bytes),
     Under(BigDecimal),
@@ -1106,7 +1093,7 @@ impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
 ///
 /// Note, nothing bad will happen if $PnR exceeds the number of characters
 /// set by $PnB.
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "{k} could not be converted to integer ASCII upper bound because {e}",
     k = TextRange::std(_0.index),
@@ -1117,7 +1104,7 @@ impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
 pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
 
 /// Inner error for [`IndexedRangeToAsciiError`] without the index
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub enum RangeToAsciiError {
@@ -1143,7 +1130,7 @@ impl<T> From<RangeToIntError<T>> for RangeToAsciiError {
 /// Error when checking $PnB for float layouts.
 ///
 /// All $PnB should be 32 or 64 depending on $DATATYPE for these layouts.
-#[derive(Debug, Display, new)]
+#[derive(Debug, Display, new, PartialEq, Clone)]
 #[display(
     "expected {k} to be {expected} but got {width} when determining float type",
     k = TextRange::std(self.index),
@@ -1157,7 +1144,7 @@ pub struct WrongFloatWidth {
 }
 
 /// Any error when computing event width for fixed-width layout
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum EventWidthError {
     Zero(ZeroEventWidthError),
@@ -1165,7 +1152,7 @@ pub enum EventWidthError {
 }
 
 /// Error when fixed-width layout does not evenly divide the length of DATA.
-#[derive(Error, Debug, new)]
+#[derive(Error, Debug, new, PartialEq, Clone)]
 #[error(
     "Events are {event_width} bytes wide, but this does not evenly divide \
      DATA segment which is {nbytes} bytes long (remainder of {remainder})"
@@ -1179,7 +1166,7 @@ pub struct UnevenEventWidthError {
 }
 
 /// Error when fixed layout is empty which precludes computing event number.
-#[derive(Error, Debug, new)]
+#[derive(Error, Debug, new, PartialEq, Clone)]
 #[error("DATA segment is {event_width} bytes but event width is zero")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -1191,7 +1178,7 @@ type LookupLayoutResult<T> =
     WarningsAndErrorsResult<T, (), LookupDataSchemaWarning, LookupDataSchemaError>;
 
 /// Error when looking up layout from key/value pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupDataSchemaError {
     New(NewDataSchemaError),
@@ -1202,7 +1189,7 @@ pub enum LookupDataSchemaError {
 }
 
 /// Warning when looking up layout from key/value pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupDataSchemaWarning {
     New(NewMixedRangeWarning),
@@ -1225,7 +1212,7 @@ type LookupOneMeasLayoutResult<T> = WarningsAndErrorsResult<
 >;
 
 /// Error when looking up measurement for layout from key/value pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasLayoutError {
     Width(ReqIndexedKeyError<Width>),
@@ -1234,7 +1221,7 @@ pub enum LookupMeasLayoutError {
 }
 
 /// Error when reading DATA segment and checking ranges
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadCheckedDataframeError {
     Read(ReadDataframeError),
@@ -1242,7 +1229,7 @@ pub enum ReadCheckedDataframeError {
 }
 
 /// Warning when reading DATA segment and checking ranges
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadCheckedDataframeWarning {
     Read(ReadDataframeWarning),
@@ -1250,7 +1237,7 @@ pub enum ReadCheckedDataframeWarning {
 }
 
 /// Error when reading DATA segment
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDataframeError {
     Ascii(ReadAsciiError),
@@ -1259,7 +1246,7 @@ pub enum ReadDataframeError {
 }
 
 /// Warning when reading DATA segment
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDataframeWarning {
     Uneven(UnevenEventWidthError),
@@ -1267,7 +1254,7 @@ pub enum ReadDataframeWarning {
 }
 
 /// Error when event value is above its $PnR
-#[derive(Debug, Display, new)]
+#[derive(Debug, Display, new, PartialEq, Clone)]
 #[display(
     "event value in column {column} and row {row}, exceeds {what}{pnr} ({})",
     range.as_displayable(),
@@ -1288,7 +1275,7 @@ def_summary!(pub EventOverRangeSummary, "some events exceed $PnR");
 pub type EventOverRangeErrors = ErrorGroup<EventOverRangeError, EventOverRangeSummary>;
 
 /// Error when reading [`AnyAsciiDataSchema`]
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadAsciiError {
     Delim(ReadDelimAsciiError),
@@ -1296,7 +1283,7 @@ pub enum ReadAsciiError {
 }
 
 /// Error when reading [`FixedAsciiDataSchema`]
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadFixedAsciiError {
     Uneven(UnevenEventWidthError),
@@ -1305,13 +1292,13 @@ pub enum ReadFixedAsciiError {
 }
 
 /// Error when reading event value in ASCII layout
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::EventDataError))]
 pub struct DataAsciiNumToUintError(AsciiNumToUintError);
 
 /// Error when parsing numeric ASCII to uint
-#[derive(From, Error, Debug)]
+#[derive(From, Error, Debug, PartialEq, Clone)]
 pub(crate) enum AsciiNumToUintError {
     #[error("{0}")]
     NotAscii(NotNumAsciiError),
@@ -1320,7 +1307,7 @@ pub(crate) enum AsciiNumToUintError {
 }
 
 /// Error when bytestring is not all ASCII numbers
-#[derive(Debug, Display)]
+#[derive(Debug, Display, PartialEq, Clone)]
 #[display("bytestring does not have valid ASCII numbers: {_0:?}")]
 pub struct NotNumAsciiError(Vec<u8>);
 
@@ -1328,7 +1315,7 @@ pub struct NotNumAsciiError(Vec<u8>);
 ///
 /// This is only applicable to fixed width layouts because their width is used
 /// to compute the number of events in DATA.
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Clone)]
 #[error(
     "$TOT field is {tot} but number of events that \
      evenly fit into DATA is {total_events}"
@@ -1341,7 +1328,7 @@ pub struct TotEventMismatchError {
 }
 
 /// Error when reading [`DelimAsciiDataSchema`] (with or without $TOT)
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiError {
     Rows(ReadDelimWithRowsAsciiError),
@@ -1350,14 +1337,14 @@ pub enum ReadDelimAsciiError {
 }
 
 /// Error when ASCII layout has no columns but segment length is nonzero
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("No columns given for ASCII layout but DATA segment is non-empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct ReadDelimNoColumnError;
 
 /// Error when reading [`DelimAsciiDataSchema`] with $TOT.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimWithRowsAsciiError {
     RowsExceeded(RowsExceededError),
@@ -1368,7 +1355,7 @@ pub enum ReadDelimWithRowsAsciiError {
 /// Error when reading [`DelimAsciiDataSchema`] where DATA is exhausted.
 ///
 /// This happens if $TOT is greater than the true number of values in DATA.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("Exceeded expected number of rows: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -1377,7 +1364,7 @@ pub struct RowsExceededError(usize);
 /// Error when reading [`DelimAsciiDataSchema`] where parsing ends unexpectedly.
 ///
 /// This happens if $TOT is less than the true number of values in DATA.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "Parsing ended in column {c} and row {r}, \
      where expected number of rows is {nrows}",
@@ -1394,7 +1381,7 @@ pub struct DelimIncompleteError {
 }
 
 /// Error when reading [`DelimAsciiDataSchema`] without $TOT
-#[derive(From, Debug, Display, Error)]
+#[derive(From, Debug, Display, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadDelimAsciiWithoutRowsError {
     Parse(DataAsciiNumToUintError),
@@ -1402,7 +1389,7 @@ pub enum ReadDelimAsciiWithoutRowsError {
 }
 
 /// Error when reading [`DelimAsciiDataSchema`] where columns are not equal length
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("parsing delimited ASCII without $TOT resulted in columns with unequal length")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -1417,7 +1404,7 @@ pub(crate) type LayoutConvertResult<L> = ErrorsResult<L, (), LayoutConvertError>
 /// * all non-mixed 3.2 layouts are interchangeable with 3.1 layouts
 /// * all 2.0 layouts are interchangeable with 3.0 layouts
 /// * 3.1/3.2 float layouts perfectly downgrade to 2.0/3.0 float layouts
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LayoutConvertError {
     /// Any 2.0/3.0 non-ASCII layout to 3.1/3.2
@@ -1434,7 +1421,7 @@ pub enum LayoutConvertError {
 ///
 /// This arises due to 3.1+ layouts being allowed to support any width and
 /// 2.0/3.0 layouts only supporting one width due to the $BYTEORD constraint.
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "{b} and {r} encoding {from}-byte integers are incompatible with {to}-byte integer layout",
     from = _0.error.from,
@@ -1450,7 +1437,7 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
 ///
 /// This will fail due to type mismatches (A, I, F, or D), since the width for
 /// integer layouts is allowed to vary.
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "{b} and {r} when {p}='{from}' are incompatible in layout with $DATATYPE='{to}'",
     from = _0.error.src.as_displayable(),
@@ -1467,7 +1454,7 @@ pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
 ///
 /// This can fail either because of a type mismatch (ie Float vs Integer) or
 /// because the width is incorrect if the mixed layout has integer columns.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MixedToOrderedLayoutError {
     Integer(UintEndianToOrderedLayoutError),
@@ -1477,28 +1464,28 @@ pub enum MixedToOrderedLayoutError {
 /// [`MixedToOrderedLayoutError`] without the index.
 ///
 /// Used for [`TryFrom`] impl's where the index is not known
-#[derive(From)]
+#[derive(From, PartialEq, Clone)]
 pub enum MixedToOrderedUintError {
     Integer(UintToUintError),
     Other(MixedToNonMixedError),
 }
 
 /// Error when converting between [`Bitmask`]s with different byte-widths.
-#[derive(Debug, new)]
+#[derive(Debug, new, PartialEq, Clone)]
 pub struct UintToUintError {
     from: NonZeroU8,
     to: NonZeroU8,
 }
 
 /// Error when $PnDATATYPE of a column does not match $DATATYPE in a new layout.
-#[derive(Debug, new)]
+#[derive(Debug, new, PartialEq, Clone)]
 pub struct MixedToNonMixedError {
     src: AlphaNumType,
     dest: AlphaNumType,
 }
 
 /// Error when attempting to insert new [`FullRange`] into a layout.
-#[derive(From, Debug, Error, Display)]
+#[derive(From, Debug, Error, Display, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertFullRangeError {
     Ascii(AsciiRangeValueFromFullRangeError),
@@ -1512,7 +1499,7 @@ pub enum InsertFullRangeError {
 }
 
 /// Error when making a new [`Bitmask`] from a [`FullRange`].
-#[derive(Error, Debug, From)]
+#[derive(Error, Debug, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 // this is only used for function args, so ValueError is appropriate
 #[cfg_attr(feature = "python", pyerr(PyValueError))]
@@ -1525,7 +1512,7 @@ pub enum BitmaskFromFullRangeError {
 }
 
 /// Error when making [`AsciiRangeValue`] from [`FullRange`];
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[error("Could not make Ascii range from float value '{0}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 // this is only used for function args, so ValueError is appropriate
@@ -1533,7 +1520,7 @@ pub enum BitmaskFromFullRangeError {
 pub struct AsciiRangeValueFromFullRangeError(FiniteF64);
 
 /// Error when making [`F64Range`] from [`FullRange`];
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum F32RangeFromFullRangeError {
     U64(U64ToFiniteFloatError),
@@ -1541,7 +1528,7 @@ pub enum F32RangeFromFullRangeError {
 }
 
 /// Error when attempting to insert new [`TextRange`] with a series into a layout.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(PyErr: From<E>))]
 pub enum InsertRangeAndSeriesError<E> {
@@ -1562,14 +1549,14 @@ impl_functor_once!(
 );
 
 /// Error when inserting untyped uint into variable width schema.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("tried to insert integer range into variable-width schema without specifying width")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct UnderspecifiedUintRangeError;
 
 /// Error when inserting typed uint into mismatching single-width schema
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "tried to insert integer range into schema where $DATATYPE={}",
     self.schema_type.as_displayable()
@@ -1581,7 +1568,7 @@ pub struct OverspecifiedUintRangeError {
 }
 
 /// Error when inserting untyped range into mixed-type schema.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("tried to insert untyped range into variable-width schema")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -1591,7 +1578,7 @@ pub struct UnderspecifiedMixedRangeError;
 ///
 /// This is separate from RangeToBitmaskError since we need different error
 /// messages here given that $PnR and $PnB do not apply to newly supplied ranges.
-#[derive(From, Debug)]
+#[derive(From, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::InvalidKeywordValueError))]
 pub struct RangeToNewBitmaskError(RangeToBitmaskError);
@@ -1613,7 +1600,7 @@ impl fmt::Display for RangeToNewBitmaskError {
 }
 
 /// Error when layout and measurement vector do not match.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasLayoutMismatchError {
     Lengths(LayoutLengthMismatchError),
@@ -1621,7 +1608,7 @@ pub enum MeasLayoutMismatchError {
 }
 
 /// Error when measurement vector is not the same length as columns in DATA/dataframe
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("data layout has different width ({df_width}) then {other_name} ({other_len})")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -1640,7 +1627,7 @@ def_summary!(
 );
 
 /// Error when attempting to make a new measurement vector given a layout.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MeasurementsWithLayoutError {
     New(NewNamedVecError),
@@ -1648,7 +1635,7 @@ pub enum MeasurementsWithLayoutError {
 }
 
 /// Error when converting a primitive dataframe into a versioned dataframe
-#[derive(From, Error, Display, Debug)]
+#[derive(From, Error, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DataSchemaToDataFrameError {
     ColMismatch(LayoutLengthMismatchError),
@@ -1663,7 +1650,7 @@ def_summary!(
 pub type CastSeriesErrors = ErrorGroup<IndexedCastSeriesError, CastSeriesSummary>;
 
 /// Error when casting one series type to another which results in loss (with index).
-#[derive(From, Debug, Error)]
+#[derive(From, Debug, Error, PartialEq, Clone)]
 #[error("{} for column {}", self.0.error, self.0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
@@ -1673,7 +1660,7 @@ pub struct IndexedCastSeriesError(IndexedError<CastSeriesError>);
 ///
 /// This does not implement any error-specific functions on its own because
 /// the index will be used in a context-specific manner.
-#[derive(new, Debug)]
+#[derive(new, Debug, PartialEq, Clone)]
 pub(crate) struct IndexedError<E> {
     #[new(into)]
     pub(crate) index: IndexFromOne,
@@ -1681,7 +1668,7 @@ pub(crate) struct IndexedError<E> {
 }
 
 /// Error when scale does not match the datatype for a given column
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "scale is log ({}) when datatype is '{}'",
     self.scale.as_displayable(),
@@ -6818,7 +6805,7 @@ struct EffectiveRange<T> {
     text_range: TextRange,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 enum ExceededRange {
     Bitmask,
     Range,

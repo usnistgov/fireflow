@@ -650,7 +650,7 @@ impl<T> DKey2<T> {
 }
 
 /// Composite index for [`StdKey`] with two index values
-#[derive(Debug, Clone, Copy, new)]
+#[derive(Debug, Clone, Copy, new, PartialEq)]
 pub struct BiIndex {
     pub i0: IndexFromOne,
     pub i1: IndexFromOne,
@@ -1327,7 +1327,7 @@ impl ParsedKeywordsDiagnostic {
 }
 
 /// Error when parsing [`StdKey`] from string
-#[derive(From, PartialEq, Debug, Error)]
+#[derive(From, PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub enum StdKeyError {
@@ -1340,7 +1340,7 @@ pub enum StdKeyError {
 }
 
 /// Error when parsing [`NonStdKey`] from string
-#[derive(From, PartialEq, Debug, Error)]
+#[derive(From, PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub enum NonStdKeyError {
@@ -1351,7 +1351,7 @@ pub enum NonStdKeyError {
 }
 
 /// Error when parsing [`KeyString`] from string
-#[derive(PartialEq, Debug, Error)]
+#[derive(PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub enum AsciiStringError {
@@ -1365,7 +1365,7 @@ pub enum AsciiStringError {
 pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
 
 /// Error when parsing literal or pattern string.
-#[derive(Debug, Display, PartialEq, Error)]
+#[derive(Debug, Display, PartialEq, Error, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
 pub enum LiteralOrPatternError<E> {
@@ -1374,13 +1374,13 @@ pub enum LiteralOrPatternError<E> {
 }
 
 /// Error when parsing [`CaseInsRegex`] from string when building [`KeyStringsOrPatterns`]
-#[derive(Debug, Display, From, PartialEq, Error)]
+#[derive(Debug, Display, From, PartialEq, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct KeyRegexError(regex::Error);
 
 /// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
-#[derive(Debug, Display, From, PartialEq, Error)]
+#[derive(Debug, Display, From, PartialEq, Error, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
@@ -1390,7 +1390,7 @@ pub enum KeywordInsertError {
 }
 
 /// Error when applying a [`SubPattern`] resulted in an empty string.
-#[derive(Debug, PartialEq, Error, new)]
+#[derive(Debug, PartialEq, Error, new, Clone)]
 #[error(
     "applying substitution pattern '{pat}' to value '{value}' for key \
      '{key}' resulted in empty string"
@@ -1404,14 +1404,14 @@ pub struct SubPatternEmptyError {
 }
 
 /// Error when key has blank value
-#[derive(Debug, PartialEq, Error)]
+#[derive(Debug, PartialEq, Error, Clone)]
 #[error("skipping key {0} with blank value")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct BlankValueError(pub KeyOrBytes);
 
 /// Error when key is already present in hash table.
-#[derive(Debug, PartialEq, Error, new)]
+#[derive(Debug, PartialEq, Error, new, Clone)]
 #[error("key '{key}' already present, has value '{value}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
@@ -1422,7 +1422,7 @@ pub struct KeyPresent<T> {
 }
 
 /// Error when keyword has any invalid chars.
-#[derive(Debug, Display, From, Error)]
+#[derive(Debug, Display, From, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InvalidKeywordCharsError {
     Key(NonAsciiKeyError),
@@ -1431,7 +1431,7 @@ pub enum InvalidKeywordCharsError {
 }
 
 /// Error when key or value with invalid UTF-8 characters is encountered
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("non ASCII key {key} and non UTF-8 value {value} encountered")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
@@ -1441,7 +1441,7 @@ pub struct NonAsciiOrUtf8KeywordError {
 }
 
 /// Error when key is not ASCII
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("non ASCII key encountered with bytes {key} and value '{value}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
@@ -1451,7 +1451,7 @@ pub struct NonAsciiKeyError {
 }
 
 /// Error when value is not Utf8
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("non UTF-8 key encountered with bytes {value} and key '{key}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]

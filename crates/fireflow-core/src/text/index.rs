@@ -83,14 +83,14 @@ newtype_index!(
 /// Error when index referring to position of elements is out of range.
 ///
 /// Used internally for creating more specific errors
-#[derive(Debug, new)]
+#[derive(Debug, new, PartialEq, Clone)]
 pub(crate) struct IndexError {
     pub index: IndexFromOne, // refers to index of element
     pub len: usize,
 }
 
 /// Error when index referring to position between elements is out of range.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("0-index must be 0 <= i <= {len}, got {x}", x = usize::from(self.index))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct BoundaryIndexError {

@@ -416,7 +416,7 @@ impl AnyHeaderSegmentMut<'_> {
 }
 
 /// Error when validating segments in HEADER
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SegmentValidationError {
     Overlap(SegmentOverlapError),
@@ -431,14 +431,14 @@ def_summary!(
 );
 
 /// Error when a non-empty segment occurs within the first 58 bytes of the file.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("{0} is within HEADER region")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct InHeaderError(GenericSegment);
 
 /// Error when segment offsets exceed $NEXTDATA.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("{offsets} exceeds $NEXTDATA ({})", u64::from(self.nextdata))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]

@@ -60,6 +60,25 @@ pub enum ReqKeyErrorInner<E, T, I> {
     Missing(MissingKeyError<T, I>),
 }
 
+impl<E: Clone, T, I: Clone> Clone for ReqKeyErrorInner<E, T, I> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Parse(a) => Self::Parse(a.clone()),
+            Self::Missing(a) => Self::Missing(a.clone()),
+        }
+    }
+}
+
+impl<E: PartialEq, T, I: PartialEq> PartialEq for ReqKeyErrorInner<E, T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Parse(a), Self::Parse(b)) => a == b,
+            (Self::Missing(a), Self::Missing(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// An error caused by parsing a string incorrectly for a standard key value.
 #[derive(new, Debug, Error)]
 #[error("key '{key}' with value '{value}' could not be parsed: {error}")]
@@ -72,6 +91,18 @@ pub struct ParseKeyError<E, T, I> {
     pub value: TruncatedNEString,
 }
 
+impl<E: Clone, T, I: Clone> Clone for ParseKeyError<E, T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.error.clone(), self.key.clone(), self.value.clone())
+    }
+}
+
+impl<E: PartialEq, T, I: PartialEq> PartialEq for ParseKeyError<E, T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.error == other.error && self.key == other.key && self.value == other.value
+    }
+}
+
 /// An error caused by a required standard key being missing
 #[derive(Debug, Error)]
 #[error("missing required key: {0}")]
@@ -79,6 +110,18 @@ pub struct ParseKeyError<E, T, I> {
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
 #[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct MissingKeyError<T, I>(pub DollarKey<T, I>);
+
+impl<T, I: Clone> Clone for MissingKeyError<T, I> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T, I: PartialEq> PartialEq for MissingKeyError<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
 
 type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
 

@@ -94,7 +94,7 @@ pub struct UncorrectedSegment {
 ///
 /// Useful for bulk operations on lots of segments at once that wouldn't work
 /// if they segments were all different types.
-#[derive(Clone, Copy, Debug, Display, new)]
+#[derive(Clone, Copy, Debug, Display, new, PartialEq)]
 #[display("segment for {region} from {src} with coords ({begin}, {end})")]
 pub(crate) struct GenericSegment {
     pub(crate) begin: u64,
@@ -113,7 +113,7 @@ impl GenericSegment {
     }
 }
 
-#[derive(Clone, Copy, Debug, Display)]
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
 pub(crate) enum AnySrc {
     #[display("HEADER")]
     Header,
@@ -121,7 +121,7 @@ pub(crate) enum AnySrc {
     Text,
 }
 
-#[derive(Clone, Copy, Debug, Display)]
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
 pub(crate) enum AnyRegion {
     #[display("ANALYSIS")]
     Analysis,
@@ -1843,6 +1843,25 @@ pub enum ReqSegmentError<B, E> {
     Segment(SegmentError),
 }
 
+impl<B, E> Clone for ReqSegmentError<B, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Key(x) => Self::Key(x.clone()),
+            Self::Segment(x) => Self::Segment(x.clone()),
+        }
+    }
+}
+
+impl<B, E> PartialEq for ReqSegmentError<B, E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Key(a), Self::Key(b)) => a == b,
+            (Self::Segment(a), Self::Segment(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// Error when parsing required segment offsets from TEXT
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1850,6 +1869,25 @@ pub enum ReqSegmentError<B, E> {
 pub enum ReqSegmentKeyError<B, E> {
     Begin(ReqKeyErrorInner<ParseIntError, B, ()>),
     End(ReqKeyErrorInner<ParseIntError, E, ()>),
+}
+
+impl<B, E> Clone for ReqSegmentKeyError<B, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Begin(x) => Self::Begin(x.clone()),
+            Self::End(x) => Self::End(x.clone()),
+        }
+    }
+}
+
+impl<B, E> PartialEq for ReqSegmentKeyError<B, E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Begin(a), Self::Begin(b)) => a == b,
+            (Self::End(a), Self::End(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 /// Error when parsing optional segment offsets from TEXT
@@ -1861,6 +1899,25 @@ pub enum OptSegmentError<B, E> {
     Segment(SegmentError),
 }
 
+impl<B, E> Clone for OptSegmentError<B, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Key(x) => Self::Key(x.clone()),
+            Self::Segment(x) => Self::Segment(x.clone()),
+        }
+    }
+}
+
+impl<B, E> PartialEq for OptSegmentError<B, E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Key(a), Self::Key(b)) => a == b,
+            (Self::Segment(a), Self::Segment(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// Error when parsing or creating optional segment offsets from TEXT
 #[derive(Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -1870,8 +1927,27 @@ pub enum OptSegmentKeyError<B, E> {
     End(ParseKeyError<ParseIntError, E, ()>),
 }
 
+impl<B, E> Clone for OptSegmentKeyError<B, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Begin(x) => Self::Begin(x.clone()),
+            Self::End(x) => Self::End(x.clone()),
+        }
+    }
+}
+
+impl<B, E> PartialEq for OptSegmentKeyError<B, E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Begin(a), Self::Begin(b)) => a == b,
+            (Self::End(a), Self::End(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// Error when parsing a segment from HEADER
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderSegmentError {
     New(SegmentError),
@@ -1882,7 +1958,7 @@ pub enum HeaderSegmentError {
 }
 
 /// Error when there are not enough bytes in file to read offsets
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[error(
@@ -1898,7 +1974,7 @@ pub struct OffsetsNoBytesError {
 }
 
 /// Error when there are not enough bytes in file to read OTHER segments
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[error(
@@ -1911,7 +1987,7 @@ pub struct OtherOffsetsNoBytesError {
 }
 
 /// Error when creating a new segment
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct SegmentError {
@@ -1923,7 +1999,7 @@ pub struct SegmentError {
     src: AnySrc,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 enum SegmentErrorKind {
     Range,
     Inverted,
@@ -1955,7 +2031,7 @@ impl fmt::Display for SegmentError {
 }
 
 /// Error when one segment overlaps with another
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("{seg0} overlaps with {seg1}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -1965,7 +2041,7 @@ pub struct SegmentOverlapError {
 }
 
 /// Error when parsing the offset for a segment
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "parse error for {which} offset in {location} segment from source '{src}': {error}",
     which = if self.is_begin { "begin" } else { "end" },
@@ -1991,6 +2067,18 @@ pub struct ParseOffsetError {
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
 pub struct SegmentDefaultWarning<I>(PhantomData<I>);
 
+impl<I> Clone for SegmentDefaultWarning<I> {
+    fn clone(&self) -> Self {
+        Self::default()
+    }
+}
+
+impl<I> PartialEq for SegmentDefaultWarning<I> {
+    fn eq(&self, _: &Self) -> bool {
+        true
+    }
+}
+
 impl<I> Default for SegmentDefaultWarning<I> {
     fn default() -> Self {
         Self(PhantomData)
@@ -2015,6 +2103,20 @@ pub struct SegmentMismatchError<I> {
     _region: PhantomData<I>,
 }
 
+impl<I> Clone for SegmentMismatchError<I> {
+    fn clone(&self) -> Self {
+        Self::new(self.header, self.text, self.use_header)
+    }
+}
+
+impl<I> PartialEq for SegmentMismatchError<I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.header == other.header
+            && self.text == other.text
+            && self.use_header == other.use_header
+    }
+}
+
 /// Error when parsing required segments from TEXT when HEADER is allowed to override
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -2026,6 +2128,29 @@ pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Nextdata(NextdataOffsetsError),
 }
 
+impl<I, B, E> Clone for ReqSegmentWithDefaultErrorInner<I, B, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Req(x) => Self::Req(x.clone()),
+            Self::Mismatch(x) => Self::Mismatch(x.clone()),
+            Self::Validation(x) => Self::Validation(x.clone()),
+            Self::Nextdata(x) => Self::Nextdata(x.clone()),
+        }
+    }
+}
+
+impl<I, B, E> PartialEq for ReqSegmentWithDefaultErrorInner<I, B, E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Req(a), Self::Req(b)) => a == b,
+            (Self::Mismatch(a), Self::Mismatch(b)) => a == b,
+            (Self::Validation(a), Self::Validation(b)) => a == b,
+            (Self::Nextdata(a), Self::Nextdata(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// Warning when parsing required segments from TEXT when HEADER is allowed to override
 #[derive(From, Display, Debug, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -2033,6 +2158,25 @@ pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
 pub enum ReqSegmentWithDefaultWarning_<I, B, E> {
     Error(ReqSegmentWithDefaultErrorInner<I, B, E>),
     Default(SegmentDefaultWarning<I>),
+}
+
+impl<I, B, E> Clone for ReqSegmentWithDefaultWarning_<I, B, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Error(x) => Self::Error(x.clone()),
+            Self::Default(x) => Self::Default(x.clone()),
+        }
+    }
+}
+
+impl<I, B, E> PartialEq for ReqSegmentWithDefaultWarning_<I, B, E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Error(a), Self::Error(b)) => a == b,
+            (Self::Default(a), Self::Default(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 /// Warning when parsing optional segments from TEXT when HEADER is allowed to override
@@ -2046,8 +2190,31 @@ pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Nextdata(NextdataOffsetsError),
 }
 
+impl<I, B, E> Clone for OptSegmentWithDefaultWarningInner<I, B, E> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Opt(x) => Self::Opt(x.clone()),
+            Self::Mismatch(x) => Self::Mismatch(x.clone()),
+            Self::Validation(x) => Self::Validation(x.clone()),
+            Self::Nextdata(x) => Self::Nextdata(x.clone()),
+        }
+    }
+}
+
+impl<I, B, E> PartialEq for OptSegmentWithDefaultWarningInner<I, B, E> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Opt(a), Self::Opt(b)) => a == b,
+            (Self::Mismatch(a), Self::Mismatch(b)) => a == b,
+            (Self::Validation(a), Self::Validation(b)) => a == b,
+            (Self::Nextdata(a), Self::Nextdata(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
 /// Error when segment with TEXT offsets overlaps with HEADER or another segment
-#[derive(Debug, Error, PartialEq)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub enum GuessOtherWidthError {

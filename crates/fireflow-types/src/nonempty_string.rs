@@ -152,7 +152,7 @@ pub struct NEDelim<I> {
 }
 
 /// Error when parsing [`NonEmptyString`] from empty [`String`]
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Clone)]
 #[error("string cannot be empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]

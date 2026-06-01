@@ -1174,7 +1174,7 @@ struct DiagnosedUnstainedData {
 }
 
 /// Error when converting [`Core`] to new FCS version
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Display, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ConvertError {
     Meta(MetarootConvertError),
@@ -1182,7 +1182,7 @@ pub enum ConvertError {
 }
 
 /// Error when converting [`Core`] to new FCS version
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Display, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ConvertWarning {
     Meta(MetarootConvertWarning),
@@ -1193,7 +1193,7 @@ type MetarootConvertResult<M> =
     WarningsAndErrorsResult<M, (), MetarootConvertWarning, MetarootConvertError>;
 
 /// Error when writing [`CoreDataset`] to file
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdWriterError {
     Layout(NewDataSchemaError),
@@ -1202,7 +1202,7 @@ pub enum StdWriterError {
 }
 
 /// Link error when setting new measurements
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetMeasurementLinkError {
     NamedBroken(BrokenNamedLinkError),
@@ -1219,7 +1219,7 @@ def_summary!(
 );
 
 /// Error when setting measurements and DATA/dataframe simultaneously
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetNamedMeasurementsAndDataError {
     Meas(SetNamedMeasurementsError),
@@ -1229,7 +1229,7 @@ pub enum SetNamedMeasurementsAndDataError {
 }
 
 /// Error when setting measurements and DATA/dataframe simultaneously
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetUnnamdMeasurementsAndDataSchemaAndDataFrameError {
     Data(DataSchemaToDataFrameError),
@@ -1237,7 +1237,7 @@ pub enum SetUnnamdMeasurementsAndDataSchemaAndDataFrameError {
 }
 
 /// Error when setting measurements vector
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetNamedMeasurementsError {
     New(MeasurementsWithLayoutError),
@@ -1245,7 +1245,7 @@ pub enum SetNamedMeasurementsError {
 }
 
 /// Error when setting named measurements and data schema for a dataset.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DatasetSetNamedMeasAndDataSchemaError {
     Layout(MeasurementsWithLayoutError),
@@ -1255,7 +1255,7 @@ pub enum DatasetSetNamedMeasAndDataSchemaError {
 }
 
 /// Error when removing measurement by name ($PnN)
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByNameError {
     Link(ExistingLinkErrors),
@@ -1263,7 +1263,7 @@ pub enum RemoveMeasByNameError {
 }
 
 /// Error when removing measurement by index
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum RemoveMeasByIndexError {
     Link(ExistingLinkErrors),
@@ -1271,7 +1271,7 @@ pub enum RemoveMeasByIndexError {
 }
 
 /// Error when reading standardized TEXT from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromKeywordsError {
     Error(StdTEXTFromFlatTEXTErrorInner),
@@ -1279,7 +1279,7 @@ pub enum StdTEXTFromKeywordsError {
 }
 
 /// Error when reading standardized TEXT from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromFlatTEXTError {
     Inner(StdTEXTFromFlatTEXTErrorInner),
@@ -1287,7 +1287,7 @@ pub enum StdTEXTFromFlatTEXTError {
 }
 
 /// Error (inner) when reading standardized TEXT from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromFlatTEXTErrorInner {
     New(LookupCoreError),
@@ -1304,7 +1304,7 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromFlatTEXTWarning {
     New(NewCoreWarning),
@@ -1322,7 +1322,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
 }
 
 /// Error when reading standardized DATA from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromFlatTextError {
     Inner(StdDatasetFromFlatTextErrorInner),
@@ -1330,7 +1330,7 @@ pub enum StdDatasetFromFlatTextError {
 }
 
 /// Error (inner) when reading standardized DATA from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromFlatTextErrorInner {
     DatasetOffset(DatasetOffsetError),
@@ -1341,7 +1341,7 @@ pub enum StdDatasetFromFlatTextErrorInner {
 }
 
 /// Warning when reading standardized DATA from keyword pairs
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetFromFlatTEXTWarning {
     TEXT(StdTEXTFromFlatTEXTWarning),
@@ -1352,7 +1352,7 @@ pub enum StdDatasetFromFlatTEXTWarning {
 /// Error when metaroot is changed to new FCS version
 ///
 /// Most of these only apply to very specific version combinations.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MetarootConvertError {
     NoCyt(NoCytError),
@@ -1363,7 +1363,7 @@ pub enum MetarootConvertError {
 }
 
 /// Warning when metaroot is changed to new FCS version
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MetarootConvertWarning {
     Mode(ModeUpgradeError),
@@ -1373,7 +1373,7 @@ pub enum MetarootConvertWarning {
 }
 
 /// Error when reading DATA segment from already-parsed keywords
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
     DatasetOffset(DatasetOffsetError),
@@ -1385,7 +1385,7 @@ pub enum LookupAndReadDataAnalysisError {
 }
 
 /// Warning when reading DATA segment from already-parsed keywords
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
@@ -1396,7 +1396,7 @@ pub enum LookupAndReadDataAnalysisWarning {
 /// Error when looking up offsets for parsing DATA
 ///
 /// Note that not every error applies to every version.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTEXTOffsetsError {
     /// $TOT is missing (2.0+)
@@ -1420,7 +1420,7 @@ pub enum LookupTEXTOffsetsError {
 /// Warning when looking up offsets for parsing DATA
 ///
 /// Note that not every warning applies to every version.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTEXTOffsetsWarning {
     /// $TOT is optional in FCS 2.0 (for some reason)
@@ -1441,7 +1441,7 @@ pub enum LookupTEXTOffsetsWarning {
 /// are validated for correct order.
 ///
 /// Note that not every error applies to each version.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreTEXTError {
     /// Any new Core* error
@@ -1453,7 +1453,7 @@ pub enum NewCoreTEXTError {
 }
 
 /// Error when making new [`CoreTEXT`] or [`CoreDataset`]
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreError {
     /// Measurement vector has more than one time element
@@ -1463,7 +1463,7 @@ pub enum NewCoreError {
 }
 
 /// Error when looking up [`CoreTEXT`] or [`CoreDataset`] from keywords
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupCoreError {
     /// Error when looking up measurement keywords
@@ -1476,7 +1476,7 @@ pub enum LookupCoreError {
 ///
 /// Each of these are also errors but can be configured to only be warnings
 /// if the user desires.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewCoreWarning {
     /// Time channel is missing entirely
@@ -1489,7 +1489,7 @@ type LookupMetarootResult<V> =
     WarningsAndErrorsResult<V, (), LookupMetarootWarning, LookupMetarootError>;
 
 /// Error when parsing any metaroot keyword
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMetarootError {
     Mode(ReqKeyError<Mode>),
@@ -1499,7 +1499,7 @@ pub enum LookupMetarootError {
 }
 
 /// Warning when parsing any metaroot keyword
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMetarootWarning {
     Trigger(OptKeyStError<Trigger>),
@@ -1527,7 +1527,7 @@ type LookupMeasurementResult<V> =
     WarningsAndErrorsResult<V, (), LookupMeasurementWarning, LookupMeasurementError>;
 
 /// Error when parsing any measurement keyword
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementError {
     Temporal(LookupTemporalError),
@@ -1537,7 +1537,7 @@ pub enum LookupMeasurementError {
 }
 
 /// Error when more than one $PnN matches the given time pattern
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "Time pattern matched {k} with name {1} but a previous measurement already \
      matched; adjust time pattern so it only matches one $PnN",
@@ -1548,7 +1548,7 @@ pub enum LookupMeasurementError {
 pub struct DuplicateTimeNameError(MeasIndex, Shortname);
 
 /// Warning when parsing any measurement keyword.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasurementWarning {
     Temporal(LookupTemporalWarning),
@@ -1557,7 +1557,7 @@ pub enum LookupMeasurementWarning {
 }
 
 /// Error when parsing $CS* keywords.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupSubsetError {
     Flags(LookupCSVFlagsError),
@@ -1566,7 +1566,7 @@ pub enum LookupSubsetError {
 }
 
 /// Error when parsing $CSMODE or $CSVnFlag
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupCSVFlagsError {
     Mode(OptKeyError<CSMode>),
@@ -1576,7 +1576,7 @@ pub enum LookupCSVFlagsError {
 /// Error when parsing keywords for $LAST_MODIFIED or $ORIGINALITY
 ///
 /// Note that $LAST_MODIFIER is infallible.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupModifiedDataError {
     LastModTime(OptKeyStError<LastModified>),
@@ -1587,7 +1587,7 @@ type LookupTEXTOffsetsResult<T> =
     WarningsAndErrorsResult<T, (), LookupTEXTOffsetsWarning, LookupTEXTOffsetsError>;
 
 /// Error when $COMP does not have the same number of rows/columns as $PAR
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$COMP must have same row/column number as $PAR ({par}), got {comp}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -1597,7 +1597,7 @@ pub struct CompParMismatchError {
 }
 
 /// Error when setting a new temporal measurement by name ($PnN)
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetLinkedTemporalByNameError {
     Inner(SetTemporalByNameError),
@@ -1605,7 +1605,7 @@ pub enum SetLinkedTemporalByNameError {
 }
 
 /// Error when setting a new temporal measurement by index ($PnN)
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetLinkedTemporalByIndexError {
     Inner(SetTemporalByIndexError),
@@ -1613,7 +1613,7 @@ pub enum SetLinkedTemporalByIndexError {
 }
 
 /// Error when replacing temporal measurement by index
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReplaceTemporalByIndexNoLossError {
     Set(SetCenterError),
@@ -1621,7 +1621,7 @@ pub enum ReplaceTemporalByIndexNoLossError {
 }
 
 /// Error when replacing temporal measurement by name
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReplaceTemporalByNameNoLossError {
     Set(NameNotFoundError),
@@ -1629,7 +1629,7 @@ pub enum ReplaceTemporalByNameNoLossError {
 }
 
 /// Error when replacing temporal measurement by index
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReplaceLinkedTemporalByIndexError {
     Set(ReplaceTemporalByIndexError),
@@ -1637,7 +1637,7 @@ pub enum ReplaceLinkedTemporalByIndexError {
 }
 
 /// Error when replacing temporal measurement by index
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReplaceLinkedTemporalByNameError {
     Set(ReplaceTemporalByNameError),
@@ -1681,7 +1681,7 @@ def_summary!(
 );
 
 /// Error when temporal type is assigned to optical measurement and vice versa.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MeasMismatchError {

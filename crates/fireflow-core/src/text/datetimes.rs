@@ -250,14 +250,14 @@ impl FromStrWith for FCSDateTime {
 }
 
 /// Error when $ENDDATETIME occurs before $BEGINDATETIME
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$BEGINDATETIME is after $ENDDATETIME")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(fireflow_types::python::RelationalError))]
 pub struct ReversedDatetimesError;
 
 /// Error when parsing [`FCSDateTime`] from string
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 pub enum FCSDateTimeError {
     #[error("must be formatted like 'yyyy-mm-ddThh:mm:ss[TZD]'")]
     Format,
@@ -278,7 +278,7 @@ pub enum FCSDateTimeError {
 }
 
 /// Error when parsing $BEGINDATETIME and $ENDDATETIME
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupDatetimesError {
     Begindatetime(OptKeyStError<BeginDateTime>),

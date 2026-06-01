@@ -332,7 +332,7 @@ pub type RegionWindowSplitKeyword<'a> =
     SplitKeyword<DKey1<kws::RegionWindow>, kws::RegionWindowRef<'a>>;
 
 /// Error when a metaroot keyword will be lost when converting versions
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyMetarootKeyLossError {
     Cytsn(Key0LossError<kws::Cytsn>),
@@ -375,7 +375,7 @@ pub enum AnyMetarootKeyLossError {
 /// Error when $RnW/$RnI keyword must be dropped due to reference incompatibility.
 ///
 /// This will only happen when converting between 2.0 and 3.2.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "$R{index}{region_type} keyword must be dropped as it refers to ${kw_type}n* \
      keywords which is incompatible with version {ver}",
@@ -394,7 +394,7 @@ pub struct RegionLossError {
 /// Error when the $GATING keyword must be dropped due to reference incompatibility.
 ///
 /// This will only happen when converting between 2.0 and 3.2.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "$GATING keyword must be dropped since it refers to $RnI/$RnW keywords which \
      must also be dropped since they refer to ${kw_type}n* keywords which is \
@@ -409,7 +409,7 @@ pub struct GatingLossError {
 }
 
 /// Error when an optical keyword will be lost when converting versions
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalKeyLossError {
     MeasType(Key1LossError<kws::OpticalType>),
@@ -425,7 +425,7 @@ pub enum AnyOpticalKeyLossError {
 }
 
 /// Error when a temporal keyword will be lost when converting versions
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalKeyLossError {
     TempType(Key1LossError<kws::TemporalType>),
@@ -435,7 +435,7 @@ pub enum AnyTemporalKeyLossError {
 }
 
 /// Error when the $PnG does not exist in target version and is not 1.0.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "$TIMESTEP does not exist in target version and is currently not 1.0 \
      which means data will be lost on dropping"
@@ -445,7 +445,7 @@ pub enum AnyTemporalKeyLossError {
 pub struct TimestepLossError;
 
 /// Error when an optical keyword will be lost when converting to temporal
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalToTemporalKeyLossError {
     Filter(Key1LossError<kws::Filter>),
@@ -467,28 +467,28 @@ pub enum AnyOpticalToTemporalKeyLossError {
 }
 
 /// Error when the $PnG is not 1.0 for temporal measurement conversion.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$P{0}E must be linear to allow conversion to temporal measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct NonLinearScaleError(pub(crate) MeasIndex);
 
 /// Error when the $PnG is not 1.0 for temporal measurement conversion.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$P{0}G must be 1.0 to allow conversion to temporal measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct NonUnitGainError(pub(crate) MeasIndex);
 
 /// Error when a temporal keyword will be lost when converting to optical
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalToOpticalKeyLossError {
     TempType(Key1LossError<kws::TemporalType>),
 }
 
 /// Error when $PKn and $PKNn keywords would be lost due to version change
-#[derive(From, Display, Debug)]
+#[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PeakLossError {
     Bin(Key1LossError<kws::PeakBin>),
@@ -496,7 +496,7 @@ pub enum PeakLossError {
 }
 
 /// Error when key would be lost upon conversion
-#[derive(Debug, Error, Display)]
+#[derive(Debug, Error, Display, PartialEq, Clone)]
 #[display(bound(K: fmt::Display))]
 #[display("{_0} must be dropped to convert")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

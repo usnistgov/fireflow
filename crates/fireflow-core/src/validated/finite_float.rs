@@ -120,21 +120,21 @@ impl TryFrom<FiniteF64> for FiniteF32 {
 }
 
 /// Error when converting [`u64`] to [`FiniteFloat`].
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("int '{0}' too large to be converted to float")]
 // this is only used for function args, so ValueError is appropriate
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct U64ToFiniteFloatError(u64);
 
 /// Error when converting [`FiniteF64`] to [`FiniteF32`].
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("64-bit float '{0}' too large to be converted to 32-bit finite float")]
 // this is only used for function args, so ValueError is appropriate
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
 pub struct FiniteF64toF32Error(FiniteF64);
 
 /// Error when converting float to [`FiniteFloat`].
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("float could not be converted to decimal because it is not finite")]
 // this is only used for function args, so ValueError is appropriate
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyValueError))]
@@ -144,7 +144,7 @@ pub struct FloatToFiniteFloatError;
 ///
 /// The only reason this may fail is due to being over or under the max/min
 /// range of the target value.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[new(visibility(""))]
 #[error(
     "could not convert decimal '{src}' to {typename} since it is {x}",

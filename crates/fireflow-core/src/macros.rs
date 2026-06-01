@@ -35,7 +35,7 @@ pub(crate) use impl_newtype_try_from;
 macro_rules! def_summary {
     ($(#[$meta:meta])* $vis:vis $failname:ident, $msg:expr) => {
         $(#[$meta])*
-        #[derive(Default, Debug, Clone, Copy, derive_more::Display)]
+        #[derive(Default, Debug, Clone, Copy, derive_more::Display, PartialEq)]
         #[display($msg)]
         $vis struct $failname;
     };

@@ -636,7 +636,7 @@ pub struct DatasetSummary {
 }
 
 /// Warning when parsing [`Header`]
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ReadHeaderError {
     Header(HeaderError),
@@ -644,7 +644,7 @@ pub enum ReadHeaderError {
 }
 
 /// Warning when parsing TEXT in standard mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTWarning {
     Flat(HeaderOrFlatTEXTWarning),
@@ -652,7 +652,7 @@ pub enum StdTEXTWarning {
 }
 
 /// Error when parsing TEXT in standard mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTError {
     Flat(HeaderOrFlatTextError),
@@ -661,7 +661,7 @@ pub enum StdTEXTError {
 }
 
 /// Warning when parsing TEXT+DATA in standard mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetWarning {
     Flat(HeaderOrFlatTEXTWarning),
@@ -669,7 +669,7 @@ pub enum StdDatasetWarning {
 }
 
 /// Error when parsing TEXT+DATA in standard mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdDatasetError {
     Flat(HeaderOrFlatTextError),
@@ -678,7 +678,7 @@ pub enum StdDatasetError {
 }
 
 /// Warning when parsing TEXT+DATA in flat mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum FlatDatasetWarning {
     Flat(HeaderOrFlatTEXTWarning),
@@ -686,7 +686,7 @@ pub enum FlatDatasetWarning {
 }
 
 /// Warning when parsing TEXT+DATA in flat mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum FlatDatasetError {
     Flat(HeaderOrFlatTextError),
@@ -696,7 +696,7 @@ pub enum FlatDatasetError {
 }
 
 /// Error when parsing HEADER or TEXT segments in flat mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOrFlatTextError {
     DatasetOffset(DatasetOffsetError),
@@ -706,7 +706,7 @@ pub enum HeaderOrFlatTextError {
 }
 
 /// Error when looking up and parsing supplemental TEXT offsets from primary TEXT.
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
@@ -715,7 +715,7 @@ pub enum STextSegmentError {
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentWarning {
     OptSegment(OptSegmentError<Beginstext, Endstext>),
@@ -723,7 +723,7 @@ pub enum STextSegmentWarning {
 }
 
 /// Error when supplement and primary TEXT offsets are identity
-#[derive(Error, Debug, new)]
+#[derive(Error, Debug, new, PartialEq, Clone)]
 #[error(
     "{location} and supplemental TEXT have identical offsets, keeping {}: {offsets}",
     if self.keep_supp { "latter" } else { "former" }
@@ -737,7 +737,7 @@ pub struct DuplicateSTextError {
 }
 
 /// Warning when parsing multiple [`FlatDatasetOutput`]s
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiFlatDatasetWarning {
     Text(HeaderOrFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
@@ -745,7 +745,7 @@ pub enum MultiFlatDatasetWarning {
 }
 
 /// Error when parsing multiple [`FlatDatasetOutput`]s
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiFlatDatasetError {
     Text(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
@@ -753,7 +753,7 @@ pub enum MultiFlatDatasetError {
 }
 
 /// Error when parsing multiple TEXT segments in std mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdTEXTError {
     FLat(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
@@ -761,7 +761,7 @@ pub enum MultiStdTEXTError {
 }
 
 /// Warning when parsing multiple TEXT segments in std mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdTEXTWarning {
     Flat(HeaderOrFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
@@ -769,7 +769,7 @@ pub enum MultiStdTEXTWarning {
 }
 
 /// Error when parsing multiple datasets in std mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdDatasetError {
     Text(HeaderOrFlatTextError), // for reading skipped datasets to get $NEXTDATA
@@ -777,7 +777,7 @@ pub enum MultiStdDatasetError {
 }
 
 /// Warning when parsing multiple TEXT segment in std mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum MultiStdDatasetWarning {
     Flat(HeaderOrFlatTEXTWarning), // for reading skipped datasets to get $NEXTDATA
@@ -785,7 +785,7 @@ pub enum MultiStdDatasetWarning {
 }
 
 /// Warning when parsing HEADER + TEXT segment in flat mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderOrFlatTEXTWarning {
     Header(GuessOtherWidthError),
@@ -793,7 +793,7 @@ pub enum HeaderOrFlatTEXTWarning {
 }
 
 /// Warning when parsing TEXT segment in flat mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseFlatTEXTWarning {
     Char(DelimCharError),
@@ -806,7 +806,7 @@ pub enum ParseFlatTEXTWarning {
 }
 
 /// Error when parsing TEXT segment in flat mode
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseFlatTEXTError {
     Delim(DelimVerifyError),
@@ -820,7 +820,7 @@ pub enum ParseFlatTEXTError {
 }
 
 /// Error when parsing supplemental TEXT
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseSupplementalTEXTError {
     Keywords(ParseKeywordsIssue),
@@ -828,7 +828,7 @@ pub enum ParseSupplementalTEXTError {
 }
 
 /// Error when extracting keywords from TEXT segment (primary or supplemental)
-#[derive(Display, From, Debug, Error)]
+#[derive(Display, From, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseKeywordsIssue {
     BlankPair(BlankPairError),
@@ -841,7 +841,7 @@ pub enum ParseKeywordsIssue {
 }
 
 /// Error when verifying TEXT delimiter
-#[derive(From, Display, Error, Debug)]
+#[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum DelimVerifyError {
     Empty(EmptyTEXTError),
@@ -849,21 +849,21 @@ pub enum DelimVerifyError {
 }
 
 /// Error when TEXT delimiter is not ASCII
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("delimiter must be ASCII character 1-126 inclusive, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct DelimCharError(u8);
 
 /// Error when primary TEXT segment is empty
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("Primary TEXT segment is empty")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct EmptyTEXTError;
 
 /// Error when blank key is encountered in TEXT
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("skipping blank key in {kind} TEXT with value of '{value}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -873,7 +873,7 @@ pub struct BlankKeyError {
 }
 
 /// Error when blank key is encountered in TEXT
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("there were {n} blank key/value pairs in {kind} TEXT")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -883,7 +883,7 @@ pub struct BlankPairError {
 }
 
 /// Error when number of tokens in TEXT is not even
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("{kind} TEXT segment has uneven number of tokens, last odd token is '{token}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -896,7 +896,7 @@ pub struct UnevenTokensError {
 ///
 /// TEXT can only contain an odd number of delimiters in a standards compliant
 /// file.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("{0} TEXT contains an uneven number of delimiters")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
@@ -905,7 +905,7 @@ pub struct EvenDelimiterError(TEXTKind);
 /// Error when delimiter(s) is/arg found after a token at a boundary.
 ///
 /// This can only happen in escaped TEXT.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "escaped delimiter(s) encountered before unescaped delimiter \
      at the end of '{token}' in {kind} TEXT"
@@ -920,7 +920,7 @@ pub struct DelimBoundError {
 /// Error when text starts with more than one delimiter in escaped mode.
 ///
 /// This can only happen in escaped TEXT.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct LeadingDelimError {
@@ -949,7 +949,7 @@ impl fmt::Display for LeadingDelimError {
 }
 
 /// Error when delimiter of supplemental TEXT does not match primary TEXT
-#[derive(Debug, Clone, Error, new)]
+#[derive(Debug, Clone, Error, new, PartialEq)]
 #[error(
     "first byte of supplemental TEXT ({supp}) does not match \
      delimiter of primary TEXT ({delim})"
@@ -962,7 +962,7 @@ pub struct DelimMismatch {
 }
 
 /// Differentiate TEXT being primary or supplemental
-#[derive(Clone, Copy, Debug, Display)]
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
 enum TEXTKind {
     #[display("Primary")]
     Primary,
@@ -971,30 +971,12 @@ enum TEXTKind {
 }
 
 /// Result of guessing the escape more for TEXT.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 enum GuessedEscapeMode {
     Escaped,
     Unescaped,
     Ambiguous,
 }
-
-// /// Indicates what was found for supplemental TEXT.
-// #[derive(Clone, Copy)]
-// enum SuppTEXTResult {
-//     Present(SupplementalTextSegment, UncorrectedSegment),
-//     Ignored(UncorrectedSegment),
-//     NotFound,
-// }
-
-// impl From<SuppTEXTResult> for Option<(Option<SupplementalTextSegment>, UncorrectedSegment)> {
-//     fn from(value: SuppTEXTResult) -> Self {
-//         match value {
-//             SuppTEXTResult::Present(x, y) => Some((Some(x), y)),
-//             SuppTEXTResult::Ignored(y) => Some((None, y)),
-//             SuppTEXTResult::NotFound => None,
-//         }
-//     }
-// }
 
 def_summary!(pub HeaderSummary, "could not parse HEADER");
 

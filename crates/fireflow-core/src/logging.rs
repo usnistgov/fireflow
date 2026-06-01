@@ -386,7 +386,7 @@ where
 }
 
 /// A group of errors with a summary
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 pub struct ErrorGroup<E, G> {
     pub summary: G,
     pub errors: GenNonEmpty<E, Vec<E>>,
@@ -461,7 +461,7 @@ where
 /// A non-empty container.
 ///
 /// The generic sub-container `C` may hold zero or more `X` values.
-#[derive(Debug, PartialEq, new)]
+#[derive(Debug, PartialEq, new, Clone)]
 pub struct GenNonEmpty<X, C> {
     head: X,
     tail: C,

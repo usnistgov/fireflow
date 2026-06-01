@@ -140,7 +140,7 @@ pub type Eithers<K, U, V> = Vec<Either<K, U, V>>;
 pub type NameMapping = HashMap<Shortname, Shortname>;
 
 /// Error when inserting new element into [`NamedVec`]
-#[derive(From, Debug, Display, Error)]
+#[derive(From, Debug, Display, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertError {
     /// Index out of range
@@ -150,7 +150,7 @@ pub enum InsertError {
 }
 
 /// Error when renaming element's name at index in [`NamedVec`]
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Display, Error, PartialEq, Clone)]
 pub enum RenameError {
     /// Index not found
     Index(ElementIndexError),
@@ -159,7 +159,7 @@ pub enum RenameError {
 }
 
 /// Error when inserting new center element into [`NamedVec`]
-#[derive(Debug, Error, Display, From)]
+#[derive(Debug, Error, Display, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum InsertCenterError {
     Push(PushCenterError),
@@ -167,7 +167,7 @@ pub enum InsertCenterError {
 }
 
 /// Error when pushing new center element to the right of [`NamedVec`]
-#[derive(Debug, Error, Display, From)]
+#[derive(Debug, Error, Display, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PushCenterError {
     NonUnique(NamePresentError),
@@ -178,7 +178,7 @@ pub enum PushCenterError {
 ///
 /// This is distinct from setting "names" which are [`Shortname`]. "Keys"
 /// are names in containers which may or may not contain them.
-#[derive(Debug, Error, Display, From)]
+#[derive(Debug, Error, Display, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetKeysError {
     Names(SetNamesError),
@@ -186,7 +186,7 @@ pub enum SetKeysError {
 }
 
 /// Error when setting names ([`Shortname`]) in a [`NamedVec`]
-#[derive(Debug, Error, Display, From)]
+#[derive(Debug, Error, Display, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetNamesError {
     Length(InputLengthError),
@@ -194,7 +194,7 @@ pub enum SetNamesError {
 }
 
 /// Error when assigning an element in [`NamedVec`] to be the center element
-#[derive(Debug, Error, Display, From)]
+#[derive(Debug, Error, Display, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetCenterError {
     Index(ElementIndexError),
@@ -202,7 +202,7 @@ pub enum SetCenterError {
 }
 
 /// Error when assigning an element in [`NamedVec`] to be the center element
-#[derive(Debug, Error, Display, From)]
+#[derive(Debug, Error, Display, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum SetValuesError {
     Length(InputLengthError),
@@ -210,7 +210,7 @@ pub enum SetValuesError {
 }
 
 /// Error when building new [`NamedVec`] from list of elements
-#[derive(Debug, Error, Display, From)]
+#[derive(Debug, Error, Display, From, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewNamedVecError {
     NonUnique(NonUniqueKeysError),
@@ -218,7 +218,7 @@ pub enum NewNamedVecError {
 }
 
 /// Error when setting/altering the elements of [`NamedVec`]
-#[derive(Display, Debug, Error)]
+#[derive(Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<Self>))]
 pub enum SetElementsError<E> {
@@ -227,41 +227,41 @@ pub enum SetElementsError<E> {
 }
 
 /// Error when the center element of [`NamedVec`] is already present
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("center value specified multiple times")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct CenterPresentError;
 
 /// Error when element in [`NamedVec`] does not have a name but one is expected.
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("index refers to element with no name")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NoNameError;
 
 /// Error when the center element of [`NamedVec`] is missing but expected
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("center must not be missing")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct MissingCenterError;
 
 /// Error when final state of keys in [`NamedVec`] results in duplicates
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("some $PnN are duplicated")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NonUniqueKeysError;
 
 /// Error when name in [`NamedVec`] is not found
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("'{0}' matches no measurement")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyKeyError))]
 pub struct NameNotFoundError(pub Shortname);
 
 /// Error when name is already present in [`NamedVec`]
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("'{name}' already present")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -270,7 +270,7 @@ pub struct NamePresentError {
 }
 
 /// Error when index is out of bounds for [`NamedVec`], optionally including center.
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyIndexError))]
 pub struct ElementIndexError {
     index: IndexError,
@@ -278,7 +278,7 @@ pub struct ElementIndexError {
 }
 
 /// Error when element types do not match in [`NamedVec`]
-#[derive(Debug, Error, new)]
+#[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
     "attempted to set a {to} at {index} when {from} is needed",
     to = if self.original_is_center { "non-center" } else { "center" },
@@ -312,7 +312,7 @@ impl fmt::Display for ElementIndexError {
 }
 
 /// Error when input collection does not match number of elements in [`NamedVec`]
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("input must be {this_len} elements long, got {other_len}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -322,7 +322,7 @@ pub struct InputLengthError {
 }
 
 /// Used to indicate if a key was an optical key in errors or other consumers.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct KeyIsOptical(pub(crate) bool);
 
 // Implement methods for NamedVec

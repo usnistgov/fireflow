@@ -219,25 +219,25 @@ impl TryFrom<u64> for UintSpacePad8 {
 /// Error when parsing fixed unsigned integer from ASCII
 ///
 /// Used internally to create other errors
-#[derive(Display, From, Debug)]
+#[derive(Display, From, Debug, PartialEq, Clone)]
 pub(crate) enum ParseFixedUintError {
     Int(ParseIntError),
     NotAscii(BytesNotAsciiError),
 }
 
 /// Error when unsigned integer exceeds 8 digits
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("must be {max} or less, got {0}", max = MAX_HEADER_OFFSET)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr), pyerr(PyOverflowError))]
 pub struct Uint8DigitOverflowError(u64);
 
 /// Error when parsing integer from ASCII with invalid ASCII characters
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("could not convert to ASCII string: {0:?}")]
 pub struct BytesNotAsciiError(Vec<u8>);
 
 /// Error when offsets in HEADER are negative (this happens for some reason)
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("HEADER offset is negative: {0}")]
 pub struct NegativeOffsetError(pub i128);
 

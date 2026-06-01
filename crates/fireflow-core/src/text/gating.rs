@@ -1214,7 +1214,7 @@ impl From<AppliedGates3_2> for AppliedGates3_0 {
 /// Error when building new applied gates object with both scheme and gated measurements.
 ///
 /// This only applies to 2.0/3.0/3.1
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NewAppliedGatesWithSchemeError {
     Link(GateMeasurementLinkError),
@@ -1222,7 +1222,7 @@ pub enum NewAppliedGatesWithSchemeError {
 }
 
 /// Error when converting gating keywords from 3.0/3.1 to 2.0
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppliedGates3_0To2_0Error {
     Scheme(ConvertSchemeError<MeasIndex, false>),
@@ -1239,7 +1239,7 @@ pub type AppliedGates3_0To3_2Error = ConvertSchemeError<GateIndex, true>;
 ///
 /// $GATING can fail because it may refer to $RnI/$RnW keywords which are
 /// no longer valid as described above.
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(I: Into<IndexFromOne> + Copy))]
 pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
@@ -1252,7 +1252,7 @@ pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
 /// In 3.0/3.1, these can point to either gates or measurements. In either
 /// target version they can only point to one, in which case any with the other
 /// should lead to this error.
-#[derive(Debug, Display, Error)]
+#[derive(Debug, Display, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 #[cfg_attr(feature = "python", bound(I: Into<IndexFromOne> + Copy))]
@@ -1308,14 +1308,14 @@ impl<I: Into<IndexFromOne> + Copy, const INDEX_IS_GATE: bool> fmt::Display
 }
 
 /// Error when converting between region index types
-#[derive(From, Debug)]
+#[derive(From, Debug, PartialEq, Clone)]
 enum AnyIndexForRegionError<I> {
     Univariate(UniIndexForRegionError<I>),
     Bivariate(BiIndexForRegionError<I>),
 }
 
 /// Error when converting between region index types (bivariate)
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Clone)]
 enum BiIndexForRegionError<I> {
     LeftBivariate(I),
     RightBivariate(I),
@@ -1323,7 +1323,7 @@ enum BiIndexForRegionError<I> {
 }
 
 /// Error when converting between region index types (univariate)
-#[derive(Debug, Display)]
+#[derive(Debug, Display, PartialEq, Clone)]
 pub struct UniIndexForRegionError<I>(I);
 
 impl<J1> BiIndexForRegionError<J1> {
@@ -1358,7 +1358,7 @@ pub type LookupAppliedGates3_2Error =
 pub type LookupRegionIndexError<I> = OptIndexedKeyStError<RegionGateIndex<I>>;
 
 /// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords
-#[derive(Display, Debug, Error)]
+#[derive(Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr), bound(E: Into<Self>))]
 pub enum LookupAppliedGatesError<E> {
     Scheme(LookupGatingSchemeError<E>),
@@ -1367,14 +1367,14 @@ pub enum LookupAppliedGatesError<E> {
 }
 
 /// Error when $RnI keywords reference nonexistent $Gn* keywords
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[error("$RnI keywords reference nonexistent $Gn* indices: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct GateMeasurementLinkError(NEVec<GateIndex>);
 
 /// Error when parsing $GATING/$RnI/$RnW keywords
-#[derive(Display, Debug, Error)]
+#[derive(Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<Self>))]
 pub enum LookupGatingSchemeError<E> {
@@ -1384,7 +1384,7 @@ pub enum LookupGatingSchemeError<E> {
 }
 
 /// Error when parsing $RnI/$RnW keywords
-#[derive(Display, Debug, Error)]
+#[derive(Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<Self>))]
 pub enum LookupRegionError<E> {
@@ -1394,7 +1394,7 @@ pub enum LookupRegionError<E> {
 }
 
 /// Error when $RnI and $RnW keywords mismatch
-#[derive(Debug, Error)]
+#[derive(Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub enum IndexWindowMismatchError {
@@ -1407,7 +1407,7 @@ pub enum IndexWindowMismatchError {
 }
 
 /// Error when parsing $Gn* and $GATE keywords
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasurementsError {
     Gate(OptKeyError<Gate>),
@@ -1415,7 +1415,7 @@ pub enum LookupGatedMeasurementsError {
 }
 
 /// Error when parsing $Gn* keywords
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasError {
     Scale(OptIndexedKeyStError<GateScale>),

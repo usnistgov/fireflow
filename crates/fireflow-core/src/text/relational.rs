@@ -86,7 +86,7 @@ def_summary!(
 pub type ExistingLinkErrors = ErrorGroup<ExistingLinkError, ExistingLinkFailure>;
 
 /// Error when any keyword has references to it which would be broken if dropped
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ExistingLinkError {
     Named(AnyExistingNamedLinkError),
@@ -94,7 +94,7 @@ pub enum ExistingLinkError {
 }
 
 /// Error when any keyword has named references to it which would be broken if dropped
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyExistingNamedLinkError {
     Trigger(ExistingNamedLinkError<Trigger, ()>),
@@ -103,7 +103,7 @@ pub enum AnyExistingNamedLinkError {
 }
 
 /// Error when any keyword has indexed references to it which would be broken if dropped
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyExistingIndexLinkError {
     Comp2_0(ExistingIndexedLinkError<Dfc, BiIndex>),
@@ -126,18 +126,42 @@ pub struct ExistingNamedLinkError<T, I> {
     pub names: NEVec<Shortname>,
 }
 
+impl<T, I: Clone> Clone for ExistingNamedLinkError<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.key.clone(), self.names.clone())
+    }
+}
+
+impl<T, I: PartialEq> PartialEq for ExistingNamedLinkError<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.names == other.names
+    }
+}
+
 /// Error when a keyword has indexed references to it which would be broken if dropped
 #[derive(Debug, Error, new)]
 #[error(
     "{key} refers to existing indices which are about to be dropped: {xs}",
-    xs = self.names.iter().join(", ")
+    xs = self.indices.iter().join(", ")
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 #[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
 pub struct ExistingIndexedLinkError<T, I> {
     pub key: DollarKey<T, I>,
-    pub names: NEVec<IndexFromOne>,
+    pub indices: NEVec<IndexFromOne>,
+}
+
+impl<T, I: Clone> Clone for ExistingIndexedLinkError<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.key.clone(), self.indices.clone())
+    }
+}
+
+impl<T, I: PartialEq> PartialEq for ExistingIndexedLinkError<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.indices == other.indices
+    }
 }
 
 //
@@ -206,7 +230,7 @@ pub struct RemovedGating {
 }
 
 /// All possible relational errors
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum BrokenOrDependentLinkError {
     Indexed(BrokenIndexedLinkError),
@@ -215,7 +239,7 @@ pub enum BrokenOrDependentLinkError {
     Window(DependentIndexedKeyError<RegionWindow>),
 }
 
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum BrokenIndexedLinkError {
     Comp2_0(BiIndexedKeyToIndexLinkError<Dfc>),
@@ -224,7 +248,7 @@ pub enum BrokenIndexedLinkError {
     Region3_2(BrokenRegionLinkError<PrefixedMeasIndex>),
 }
 
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum BrokenNamedLinkError {
     Spillover(KeyToNameLinkError<Spillover>),
@@ -241,6 +265,25 @@ pub(crate) type BrokenRegionLinkError<I> = IndexedKeyToIndexLinkError<RegionGate
 pub enum NamedLinkError<T, I> {
     Optical(OpticalNamedLinkError<T, I>),
     Temporal(TemporalNamedLinkError<T, I>),
+}
+
+impl<T, I: Clone> Clone for NamedLinkError<T, I> {
+    fn clone(&self) -> Self {
+        match self {
+            Self::Optical(x) => Self::Optical(x.clone()),
+            Self::Temporal(x) => Self::Temporal(x.clone()),
+        }
+    }
+}
+
+impl<T, I: PartialEq> PartialEq for NamedLinkError<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Optical(a), Self::Optical(b)) => a == b,
+            (Self::Temporal(a), Self::Temporal(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 /// Error when key which references a non-existent measurement $PnN
@@ -260,6 +303,18 @@ pub struct OpticalNamedLinkError<T, I> {
     names: NEVec<Shortname>,
 }
 
+impl<T, I: Clone> Clone for OpticalNamedLinkError<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.key.clone(), self.names.clone())
+    }
+}
+
+impl<T, I: PartialEq> PartialEq for OpticalNamedLinkError<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.names == other.names
+    }
+}
+
 #[derive(Debug, Display, Error, new)]
 #[display("{key} cannot reference temporal $PnN: {name}")]
 #[cfg_attr(
@@ -273,8 +328,20 @@ pub struct TemporalNamedLinkError<T, I> {
     name: Shortname,
 }
 
+impl<T, I: Clone> Clone for TemporalNamedLinkError<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.key.clone(), self.name.clone())
+    }
+}
+
+impl<T, I: PartialEq> PartialEq for TemporalNamedLinkError<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.key == other.key && self.name == other.name
+    }
+}
+
 /// Error when key which references a non-existent measurement index
-#[derive(Debug, Display, Error, new, Clone)]
+#[derive(Debug, Display, Error, new)]
 #[display(
     "{key} references non-existent measurement indices: {bad}",
     bad = self.indices.iter().join(", ")
@@ -285,6 +352,12 @@ pub struct TemporalNamedLinkError<T, I> {
 pub struct IndexLinkError<T, I> {
     indices: NEVec<MeasIndex>,
     key: DollarKey<T, I>,
+}
+
+impl<T, I: Clone> Clone for IndexLinkError<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.indices.clone(), self.key.clone())
+    }
 }
 
 impl<T, I: PartialEq> PartialEq for IndexLinkError<T, I> {
@@ -307,6 +380,18 @@ impl<T, I: Eq> Eq for IndexLinkError<T, I> {}
 pub struct DependentKeyErrorInner<T, I> {
     deps: NEVec<StdKey>,
     key: DollarKey<T, I>,
+}
+
+impl<T, I: Clone> Clone for DependentKeyErrorInner<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.deps.clone(), self.key.clone())
+    }
+}
+
+impl<T, I: PartialEq> PartialEq for DependentKeyErrorInner<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.deps == other.deps && self.key == other.key
+    }
 }
 
 pub type KeyToNameLinkError<T> = NamedLinkError<T, ()>;

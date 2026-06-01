@@ -22,7 +22,7 @@ use {
 ///
 /// This will have exactly one `"%n"`. The `"%n"` will be replaced by the
 /// measurement index which will be used to match keywords.
-#[derive(Clone, AsRef, Display)]
+#[derive(Clone, AsRef, Display, Debug, PartialEq)]
 #[display("{}", self.original)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct NonStdMeasPattern {
@@ -41,7 +41,7 @@ impl Default for NonStdMeasPattern {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 enum CompiledNonStdMeasPattern {
     Literal(LiteralNonStdMeasPattern),
     Regex(RegexNonStdMeasPattern),
@@ -50,13 +50,13 @@ enum CompiledNonStdMeasPattern {
 /// Matches <prefix><number><suffix> case-insensitively.
 ///
 /// Assume prefix and suffix are in lowercase ASCII and <number> starts at 1.
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 struct LiteralNonStdMeasPattern {
     prefix: Vec<u8>,
     suffix: Vec<u8>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Debug)]
 struct RegexNonStdMeasPattern(CaseInsRegex);
 
 impl NonStdMeasPattern {
@@ -151,7 +151,7 @@ impl FromStr for NonStdMeasPattern {
 }
 
 /// Error when parsing [`NonStdMeasPattern`] from string for configuration
-#[derive(Error, Debug, From, Display)]
+#[derive(Error, Debug, From, Display, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NonStdMeasPatternError {
     Token(NonStdMeasPatternTokenError),
@@ -159,7 +159,7 @@ pub enum NonStdMeasPatternError {
 }
 
 /// Error when parsing [`NonStdMeasPattern`] from string for configuration
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Clone)]
 #[error(
     "non standard measurement pattern should have one \
      '{NON_STD_MEAS_INDEX_PAT}', found '{0}'"
@@ -169,7 +169,7 @@ pub enum NonStdMeasPatternError {
 pub struct NonStdMeasPatternTokenError(String);
 
 /// Error when converting [`NonStdMeasPattern`] to regular expression
-#[derive(Error, Debug, From)]
+#[derive(Error, Debug, From, PartialEq, Clone)]
 #[error("error when making non-standard measurement pattern: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
@@ -180,6 +180,7 @@ mod tests {
     use super::*;
     use crate::text::index::IndexFromOne;
 
+    use assert_matches::assert_matches;
     use itertools::Itertools as _;
     use proptest::prelude::*;
 
@@ -215,8 +216,18 @@ mod tests {
 
     #[test]
     fn fromstr_nonstd_meas_pattern_invalid() {
-        assert!("".parse::<NonStdMeasPattern>().is_err());
-        assert!("n".parse::<NonStdMeasPattern>().is_err());
+        assert_matches!(
+            "".parse::<NonStdMeasPattern>(),
+            Err(NonStdMeasPatternError::Token(_))
+        );
+        assert_matches!(
+            "n".parse::<NonStdMeasPattern>(),
+            Err(NonStdMeasPatternError::Token(_))
+        );
+        assert_matches!(
+            "/(%n/".parse::<NonStdMeasPattern>(),
+            Err(NonStdMeasPatternError::Regex(_))
+        );
     }
 
     proptest! {

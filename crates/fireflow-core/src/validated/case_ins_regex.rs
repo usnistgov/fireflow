@@ -8,7 +8,7 @@ use std::str::FromStr;
 use fireflow_core_proc::IntoPyString;
 
 /// A regex which ignores case when matching
-#[derive(Clone, AsRef, Display)]
+#[derive(Clone, AsRef, Display, Debug)]
 #[cfg_attr(feature = "python", derive(IntoPyString))]
 pub struct CaseInsRegex(Regex);
 

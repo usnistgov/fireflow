@@ -2068,7 +2068,11 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
 #[cfg(test)]
 mod test {
     use super::*;
-    use crate::meas::{ScaledOptical, Temporal, VScaledOptical, VTemporal, VersionedMeasurements};
+    use crate::meas::{
+        CommonMeasurement, ScaledOptical, Temporal, VScaledOptical, VTemporal,
+        VersionedMeasurements,
+    };
+    use crate::text::keywords::Longname;
     use crate::text::optional::Identity;
     use crate::validated::shortname::Shortname;
 
@@ -2130,6 +2134,15 @@ mod test {
             .prop_shuffle()
     }
 
+    fn new_named_vec2_0(len: usize, include_center: bool) -> impl Strategy<Value = NamedVec2_0> {
+        let (n_center, n_noncenter) = if include_center && len > 0 {
+            (1, len - 1)
+        } else {
+            (0, len)
+        };
+        new_input2_0(n_noncenter, n_center).prop_map(|xs| NamedVec::try_new(xs).unwrap())
+    }
+
     #[test]
     fn new_named_vec_empty() {
         assert!(NamedVec::<Identity<Shortname>, (), usize>::try_new([]).is_ok());
@@ -2185,38 +2198,28 @@ mod test {
         }
     }
 
-    // #[test]
-    // fn alter_common_values_ok() {
-    //     let n0 = "a".parse::<Shortname>().unwrap();
-    //     let n1 = "b".parse::<Shortname>().unwrap();
-    //     let n2 = "c".parse::<Shortname>().unwrap();
-    //     let mut nv = NamedVec::try_new([
-    //         Element::Center((n0.clone(), [0_u8])),
-    //         Element::NonCenter((Identity(n1.clone()), [1_u8])),
-    //         Element::NonCenter((Identity(n2.clone()), [2_u8])),
-    //     ])
-    //     .unwrap();
-    //     let res = nv.alter_common_values_zip(vec![13, 11, 7], |_, x, y| {
-    //         let old = x[0];
-    //         x[0] = x[0] + y;
-    //         old
-    //     });
-    //     // result should pass
-    //     assert!(res.is_ok());
-    //     let out = res.unwrap();
-    //     // result should have original values
-    //     assert_eq!(&out[..], &[0, 1, 2]);
-    //     // names should not change
-    //     assert_eq!(
-    //         nv.indexed_names().collect::<Vec<_>>(),
-    //         vec![(0.into(), &n0), (1.into(), &n1), (2.into(), &n2)]
-    //     );
-    //     // values should be updated
-    //     assert_eq!(
-    //         nv.iter_common_values().collect::<Vec<_>>(),
-    //         vec![&[13], &[12], &[9]]
-    //     );
-    // }
+    proptest! {
+        #[test]
+        fn alter_common_values_ok(
+            mut xs in new_named_vec2_0(10, true),
+            ys in prop::collection::vec("PC\\*", 10)
+        ) {
+            let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
+                mem::replace(&mut x.longname, y.into())
+            });
+            // result should pass
+            assert_eq!(res, Ok(vec![Longname::default(); 10]));
+            // new longnames should be the same as the inputs we gave
+            assert!(
+                xs.iter()
+                    .zip(ys)
+                    .all(|(e, new)| {
+                        e.both(
+                            |x| &x.value.common.longname.0 == &new,
+                            |x| x.value.inner().common.longname.0 == new)
+                    }));
+        }
+    }
 }
 
 #[cfg(feature = "python")]

@@ -159,14 +159,14 @@ pub struct CommonMeasurement {
     #[as_ref(Longname)]
     #[as_mut(Longname)]
     #[new(into)]
-    longname: Longname,
+    pub longname: Longname,
 
     /// Non standard keywords that belong to this measurement.
     ///
     /// These are found using a configurable pattern to filter matching keys.
     #[as_ref(NonStdKeywords)]
     #[as_mut(NonStdKeywords)]
-    nonstandard_keywords: NonStdKeywords,
+    pub nonstandard_keywords: NonStdKeywords,
 }
 
 /// Structured data for time keywords.
@@ -180,10 +180,10 @@ pub struct Temporal<T> {
     /// Fields shared with optical measurements
     #[as_ref(forward)]
     #[as_mut(forward)]
-    common: CommonMeasurement,
+    pub common: CommonMeasurement,
 
     /// Version specific data
-    specific: T,
+    pub specific: T,
 }
 
 /// Optical keywords including $PnE and $PnG (if 3.0+)
@@ -208,40 +208,40 @@ pub struct Optical<O> {
     /// Fields shared with optical measurements
     #[as_ref(forward)]
     #[as_mut(forward)]
-    common: CommonMeasurement,
+    pub common: CommonMeasurement,
 
     /// Value for $PnF
     #[as_ref(Filter)]
     #[as_mut(Filter)]
     #[new(into)]
-    filter: Filter,
+    pub filter: Filter,
 
     /// Value for $PnO
     #[as_ref(Option<Power>)]
     #[as_mut(Option<Power>)]
     #[new(into)]
-    power: Option<Power>,
+    pub power: Option<Power>,
 
     /// Value for $PnD
     #[as_ref(DetectorType)]
     #[as_mut(DetectorType)]
     #[new(into)]
-    detector_type: DetectorType,
+    pub detector_type: DetectorType,
 
     /// Value for $PnP
     #[as_ref(Option<PercentEmitted>)]
     #[as_mut(Option<PercentEmitted>)]
     #[new(into)]
-    percent_emitted: Option<PercentEmitted>,
+    pub percent_emitted: Option<PercentEmitted>,
 
     /// Value for $PnV
     #[as_ref(Option<DetectorVoltage>)]
     #[as_mut(Option<DetectorVoltage>)]
     #[new(into)]
-    detector_voltage: Option<DetectorVoltage>,
+    pub detector_voltage: Option<DetectorVoltage>,
 
     /// Version specific data
-    specific: O,
+    pub specific: O,
 }
 
 /// Temporal measurement fields specific to version 2.0
@@ -254,7 +254,7 @@ pub struct InnerTemporal2_0 {
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    peak: PeakData,
+    pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.0
@@ -267,14 +267,14 @@ pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
     #[as_mut(Timestep)]
-    timestep: Timestep,
+    pub timestep: Timestep,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    peak: PeakData,
+    pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.1
@@ -287,20 +287,20 @@ pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
     #[as_mut(Timestep)]
-    timestep: Timestep,
+    pub timestep: Timestep,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    display: Option<Display>,
+    pub display: Option<Display>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    peak: PeakData,
+    pub peak: PeakData,
 }
 
 /// Temporal measurement fields specific to version 3.2
@@ -313,19 +313,19 @@ pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
     #[as_mut(Timestep)]
-    timestep: Timestep,
+    pub timestep: Timestep,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    display: Option<Display>,
+    pub display: Option<Display>,
 
     /// Value for $PnTYPE
     #[as_ref(TemporalType)]
     #[as_mut(TemporalType)]
     #[new(into)]
-    measurement_type: TemporalType,
+    pub measurement_type: TemporalType,
 }
 
 /// Optical measurement fields specific to version 2.0
@@ -337,14 +337,14 @@ pub struct InnerOptical2_0 {
     #[as_ref(Option<Wavelength>)]
     #[as_mut(Option<Wavelength>)]
     #[new(into)]
-    wavelength: Option<Wavelength>,
+    pub wavelength: Option<Wavelength>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    peak: PeakData,
+    pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.0
@@ -356,14 +356,14 @@ pub struct InnerOptical3_0 {
     #[as_ref(Option<Wavelength>)]
     #[as_mut(Option<Wavelength>)]
     #[new(into)]
-    wavelength: Option<Wavelength>,
+    pub wavelength: Option<Wavelength>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    peak: PeakData,
+    pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.1
@@ -375,26 +375,26 @@ pub struct InnerOptical3_1 {
     #[as_ref(Wavelengths)]
     #[as_mut(Wavelengths)]
     #[new(into)]
-    wavelengths: Wavelengths,
+    pub wavelengths: Wavelengths,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_1>)]
     #[as_mut(Option<Calibration3_1>)]
     #[new(into)]
-    calibration: Option<Calibration3_1>,
+    pub calibration: Option<Calibration3_1>,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    display: Option<Display>,
+    pub display: Option<Display>,
 
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakBin>)]
     #[as_mut(Option<PeakIndex>)]
-    peak: PeakData,
+    pub peak: PeakData,
 }
 
 /// Optical measurement fields specific to version 3.2
@@ -407,43 +407,43 @@ pub struct InnerOptical3_2 {
     #[as_ref(Wavelengths)]
     #[as_mut(Wavelengths)]
     #[new(into)]
-    wavelengths: Wavelengths,
+    pub wavelengths: Wavelengths,
 
     /// Value for $PnCALIBRATION
     #[as_ref(Option<Calibration3_2>)]
     #[as_mut(Option<Calibration3_2>)]
     #[new(into)]
-    calibration: Option<Calibration3_2>,
+    pub calibration: Option<Calibration3_2>,
 
     /// Value for $PnD
     #[as_ref(Option<Display>)]
     #[as_mut(Option<Display>)]
     #[new(into)]
-    display: Option<Display>,
+    pub display: Option<Display>,
 
     /// Value for $PnANALYTE
     #[as_ref(Analyte)]
     #[as_mut(Analyte)]
     #[new(into)]
-    analyte: Analyte,
+    pub analyte: Analyte,
 
     /// Value for $PnFEATURE
     #[as_ref(Option<Feature>)]
     #[as_mut(Option<Feature>)]
     #[new(into)]
-    feature: Option<Feature>,
+    pub feature: Option<Feature>,
 
     /// Value for $PnTYPE
     #[as_ref(OpticalType)]
     #[as_mut(OpticalType)]
     #[new(into)]
-    measurement_type: OpticalType,
+    pub measurement_type: OpticalType,
 
     /// Value for $PnTAG
     #[as_ref(Tag)]
     #[as_mut(Tag)]
     #[new(into)]
-    tag: Tag,
+    pub tag: Tag,
 
     /// Value for $PnDET
     #[as_ref(DetectorName)]
@@ -499,13 +499,13 @@ pub struct PeakData {
     #[as_ref(Option<PeakBin>)]
     #[as_mut(Option<PeakBin>)]
     #[new(into)]
-    bin: Option<PeakBin>,
+    pub bin: Option<PeakBin>,
 
     /// Value of $PkNn
     #[as_ref(Option<PeakIndex>)]
     #[as_mut(Option<PeakIndex>)]
     #[new(into)]
-    size: Option<PeakIndex>,
+    pub size: Option<PeakIndex>,
 }
 
 #[derive(new)]

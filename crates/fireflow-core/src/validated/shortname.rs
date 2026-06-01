@@ -84,10 +84,15 @@ pub enum ShortnameError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use assert_matches::assert_matches;
 
     #[test]
     fn str_to_shortname() {
         assert!("Thunderfist Chronicles".parse::<Shortname>().is_ok());
-        assert!("Thunderfist,Chronicles".parse::<Shortname>().is_err());
+        assert_matches!(
+            "Thunderfist,Chronicles".parse::<Shortname>(),
+            Err(ShortnameError::Commas(_))
+        );
+        assert_matches!("".parse::<Shortname>(), Err(ShortnameError::Empty(_)));
     }
 }

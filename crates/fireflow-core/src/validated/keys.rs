@@ -57,7 +57,7 @@ use {
 #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-#[as_ref(KeyString, str)]
+#[as_ref(KeyString, str, NEStr)]
 #[display("${_0}")]
 pub struct StdKey(KeyString);
 
@@ -866,7 +866,7 @@ impl FromStr for StdKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let ks = s.parse::<KeyString>().map_err(StdKeyError::Ascii)?;
-        let ne = ks.0.as_ne_str().as_bytes();
+        let ne = ks.0.as_ne_str().as_ne_bytes();
         let (y, ys) = ne.split_first();
         if *y != STD_PREFIX {
             Err(StdKeyError::Prefix(ks))
@@ -1567,30 +1567,90 @@ mod tests {
     use super::*;
     use nonempty_collections::NESlice;
 
-    #[test]
-    fn fromstr_std_key() {
-        let s = "$MAJESTY";
-        let k = s.parse::<StdKey>().unwrap();
-        assert_eq!(StdKey(KeyString(Ascii::new("MAJESTY".parse().unwrap()))), k);
-        // reverse process should give back original string
-        assert_eq!(k.to_string(), s.to_owned());
-        // and such a valid key should behave the same when inserted into
-        // the hash table
-        let conf = ReadHeaderAndTEXTConfig::default();
-        let m = conf.as_matchers();
-        let mut p = ParsedKeywords::default();
-        let res = p.insert(
-            &NESlice::try_from_slice(s.as_bytes()).unwrap(),
-            &NESlice::try_from_slice(b"of_the_night_sky").unwrap(),
-            &m,
-            Encoding::Utf8,
-            &conf,
-        );
-        assert_eq!(None, res);
-        assert_eq!(
-            s.to_owned(),
-            p.std.into_iter().next().unwrap().0.to_string()
-        );
+    use proptest::prelude::*;
+
+    const STD_KEY_STRAT: &str = "\\$[[:print:]]+";
+    const NONSTD_KEY_STRAT: &str = "[[:print:]&&[^\\$]]\\$[[:print:]]*";
+
+    impl Arbitrary for StdKey {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            STD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
+        }
+    }
+
+    impl Arbitrary for NonStdKey {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            NONSTD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
+        }
+    }
+
+    // TODO test various configurations for insertion
+
+    proptest! {
+        #[test]
+        fn insert_std_key(s in STD_KEY_STRAT, v in any::<NEString>()) {
+            let k = s.parse::<StdKey>().unwrap();
+            let conf = ReadHeaderAndTEXTConfig::default();
+            let m = conf.as_matchers();
+            let mut p = ParsedKeywords::default();
+            let res = p.insert(
+                &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+                &v.as_ne_bytes(),
+                &m,
+                Encoding::Utf8,
+                &conf,
+            );
+            assert_eq!(None, res);
+            assert_eq!(p.std.get(&k).map(|x| x.as_ne_str()), Some(v.as_ne_str()));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn insert_nonstd_key(s in NONSTD_KEY_STRAT, v in any::<NEString>()) {
+            let k = s.parse::<NonStdKey>().unwrap();
+            let conf = ReadHeaderAndTEXTConfig::default();
+            let m = conf.as_matchers();
+            let mut p = ParsedKeywords::default();
+            let res = p.insert(
+                &NESlice::try_from_slice(s.as_bytes()).unwrap(),
+                &v.as_ne_bytes(),
+                &m,
+                Encoding::Utf8,
+                &conf,
+            );
+            assert_eq!(None, res);
+            assert_eq!(p.nonstd.get(&k).map(|x| x.as_ne_str()), Some(v.as_ne_str()));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn fromstr_std_key(s in STD_KEY_STRAT) {
+            // std key should always be stored without the dollar sign
+            let k = s.parse::<StdKey>().expect("strategy should be valid");
+            let s_noprefix = s.as_str().split_at(1).1;
+            let k_str: &str = k.as_ref();
+            assert_eq!(k_str, s_noprefix);
+            // reverse process should produce same string (with $)
+            assert_eq!(k.to_string(), s.to_owned());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn fromstr_nonstd_key(s in NONSTD_KEY_STRAT) {
+            // nonstd key should always match the input
+            let k = s.parse::<NonStdKey>().expect("strategy should be valid");
+            let k_str: &str = k.as_ref();
+            assert_eq!(k_str, s);
+            // reverse process should produce same string (without $)
+            assert_eq!(k.to_string(), s.to_owned());
+        }
     }
 
     #[test]
@@ -1601,12 +1661,13 @@ mod tests {
         assert_eq!(Err(e), k);
     }
 
-    #[test]
-    fn fromstr_std_key_noprefix() {
-        let s = "IMBROKE";
-        let k = s.parse::<StdKey>();
-        let e = StdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
-        assert_eq!(Err(e), k);
+    proptest! {
+        #[test]
+        fn fromstr_std_key_noprefix(s in "[[:print:]&&[^\\$]][[:print:]]") {
+            let k = s.parse::<StdKey>();
+            let e = StdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
+            assert_eq!(Err(e), k);
+        }
     }
 
     #[test]
@@ -1624,33 +1685,6 @@ mod tests {
     }
 
     #[test]
-    fn fromstr_nonstd_key() {
-        let s = "YTSEJAM";
-        let k = s.parse::<NonStdKey>().unwrap();
-        let ns = NonStdKey(KeyString(Ascii::new("YTSEJAM".parse().unwrap())));
-        assert_eq!(ns, k);
-        // reverse process should give back original string
-        assert_eq!(k.to_string(), s.to_owned());
-        // and such a valid key should behave the same when inserted into
-        // the hash table
-        let conf = ReadHeaderAndTEXTConfig::default();
-        let m = conf.as_matchers();
-        let mut p = ParsedKeywords::default();
-        let res = p.insert(
-            &NESlice::try_from_slice(s.as_bytes()).unwrap(),
-            &NESlice::try_from_slice(b"the cake is a lie").unwrap(),
-            &m,
-            Encoding::Utf8,
-            &conf,
-        );
-        assert_eq!(None, res);
-        assert_eq!(
-            s.to_owned(),
-            p.nonstd.into_iter().next().unwrap().0.to_string()
-        );
-    }
-
-    #[test]
     fn fromstr_nonstd_key_nonascii() {
         let s = "サイ";
         let k = s.parse::<NonStdKey>();
@@ -1658,12 +1692,13 @@ mod tests {
         assert_eq!(Err(e), k);
     }
 
-    #[test]
-    fn fromstr_nonstd_key_hasprefix() {
-        let s = "$IMRICH";
-        let k = s.parse::<NonStdKey>();
-        let e = NonStdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
-        assert_eq!(Err(e), k);
+    proptest! {
+        #[test]
+        fn fromstr_nonstd_key_hasprefix(s in "\\$[[:print:]]") {
+            let k = s.parse::<NonStdKey>();
+            let e = NonStdKeyError::Prefix(KeyString(Ascii::new(s.parse().unwrap())));
+            assert_eq!(Err(e), k);
+        }
     }
 
     #[test]

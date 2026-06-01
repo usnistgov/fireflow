@@ -19,6 +19,7 @@ ambassador = { workspace = true }
 derive-new = { workspace = true }
 fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
+proptest = { workspace = true, optional = true }
 
 [build-dependencies]
 phf = { version = "0.13.1", default-features = false, features = ["unicase"] }
@@ -28,6 +29,7 @@ unicase = { workspace = true }
 [features]
 python = ["dep:pyo3", "dep:fireflow-core-proc"]
 serde = ["dep:serde"]
+testutil = ["dep:proptest"]
 
 [lints]
 workspace = true

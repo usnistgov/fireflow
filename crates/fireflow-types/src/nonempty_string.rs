@@ -353,6 +353,11 @@ impl NEString {
         NEStr::new_unchecked(self.as_ref())
     }
 
+    #[must_use]
+    pub fn as_ne_bytes(&self) -> NESlice<'_, u8> {
+        self.as_ne_str().as_ne_bytes()
+    }
+
     pub fn parse<F: FromStr>(&self) -> Result<F, <F as FromStr>::Err> {
         self.0.parse()
     }
@@ -395,7 +400,7 @@ impl NEStr {
     }
 
     #[must_use]
-    pub fn as_bytes(&self) -> NESlice<'_, u8> {
+    pub fn as_ne_bytes(&self) -> NESlice<'_, u8> {
         NESlice::try_from_slice(self.as_str().as_bytes()).unwrap()
     }
 
@@ -753,6 +758,20 @@ impl DisplayNEInner for PaddedU64 {
             f.write_char('0')?;
         }
         write!(f, "{}", self.value)
+    }
+}
+
+#[cfg(feature = "testutil")]
+mod testutil {
+    use super::*;
+    use proptest::prelude::*;
+
+    impl Arbitrary for NEString {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            "\\PC+".prop_map(|s| s.parse().unwrap()).boxed()
+        }
     }
 }
 

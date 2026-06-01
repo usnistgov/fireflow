@@ -188,7 +188,8 @@ mod tests {
 
     proptest! {
         #[test]
-        fn fromstr_nonstd_meas_pattern_literal(s in "[^/][^%]*%n[^%]*[^/]") {
+        fn fromstr_nonstd_meas_pattern_literal(s in "[^/].*%n.*[^/]") {
+            prop_assume!(s.match_indices(NON_STD_MEAS_INDEX_PAT).count() == 1);
             assert!(matches!(
                 s.parse::<NonStdMeasPattern>().map(|x| x.inner),
                 Ok(CompiledNonStdMeasPattern::Literal(_))

@@ -57,7 +57,7 @@ use {
 ///
 /// All elements, including the center if it exists, are stored in a defined
 /// order.
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
 pub struct NamedVec<K, U, V> {
@@ -72,7 +72,7 @@ impl<K, U, V> Default for NamedVec<K, U, V> {
 }
 
 /// The center and right elements of a [`NamedVec`].
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
 struct CenterRightVec<K, U, V> {
@@ -89,7 +89,7 @@ pub struct IndexedElement<K, V> {
 }
 
 /// A member in [`NamedVec`], either a "center" or "non-center" value
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub enum Element<U, V> {
     Center(U),
@@ -114,7 +114,7 @@ impl_functor_once!(
 type PairedVec<K, V> = Vec<Pair<K, V>>;
 
 /// A key/value pair
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Pair<K, V> {
     pub key: K,
@@ -407,10 +407,11 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.left.iter().map(Element::NonCenter).chain(right)
     }
 
-    pub(crate) fn iter_common_values<'a, T: 'a>(&'a self) -> impl Iterator<Item = &'a T> + 'a
+    pub(crate) fn iter_common_values<'a, T>(&'a self) -> impl Iterator<Item = &'a T> + 'a
     where
         U: AsRef<T>,
         V: AsRef<T>,
+        T: 'a + ?Sized,
     {
         self.iter()
             .map(|x| x.both(|l| l.value.as_ref(), |r| r.value.as_ref()))
@@ -511,6 +512,7 @@ impl<K, U, V> NamedVec<K, U, V> {
         F: Fn(MeasIndex, &mut T, X) -> R,
         U: AsMut<T>,
         V: AsMut<T>,
+        T: ?Sized,
     {
         self.alter_values_zip(
             xs.into_iter().collect(),
@@ -2061,6 +2063,160 @@ pub(crate) fn all_unique_names<'a>(xs: impl IntoIterator<Item = Option<&'a Short
 fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
     let mut seen = HashSet::new();
     xs.into_iter().all(|x| seen.insert(x))
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+    use crate::meas::{ScaledOptical, Temporal, VScaledOptical, VTemporal, VersionedMeasurements};
+    use crate::text::optional::Identity;
+    use crate::validated::shortname::Shortname;
+
+    use fireflow_types::keywords::{Version2_0, Version3_1};
+
+    use proptest::prelude::*;
+
+    type NamedVec2_0 = VersionedMeasurements<Version2_0>;
+    type NamedVec3_1 = VersionedMeasurements<Version3_1>;
+
+    type Either2_0 = Either<Option<Shortname>, VTemporal<Version2_0>, VScaledOptical<Version2_0>>;
+    type Either3_1 = Either<Identity<Shortname>, VTemporal<Version3_1>, VScaledOptical<Version3_1>>;
+
+    prop_compose! {
+        fn center2_0()(n in any::<Shortname>()) -> Either2_0 {
+            Element::Center((n, Temporal::default()))
+        }
+    }
+
+    prop_compose! {
+        fn noncenter2_0()(n in any::<Shortname>()) -> Either2_0 {
+            Element::NonCenter((Some(n), ScaledOptical::default()))
+        }
+    }
+
+    prop_compose! {
+        fn center3_1()(n in any::<Shortname>()) -> Either3_1 {
+            Element::Center((n, Temporal::default()))
+        }
+    }
+
+    prop_compose! {
+        fn noncenter3_1()(n in any::<Shortname>()) -> Either3_1 {
+            Element::NonCenter((Identity(n), ScaledOptical::default()))
+        }
+    }
+
+    fn has_unique_names<K, U, V>(xs: &[Either<K, U, V>]) -> bool
+    where
+        K: MightHave<Shortname>,
+    {
+        let it = xs
+            .iter()
+            .map(|e| e.as_ref().both(|(n, _)| Some(n), |(n, _)| K::as_opt(n)));
+        all_unique_names(it)
+    }
+
+    fn new_input2_0(n_noncenter: usize, n_center: usize) -> impl Strategy<Value = Vec<Either2_0>> {
+        prop::collection::vec(center2_0(), n_center)
+            .prop_flat_map(move |cs| {
+                (Just(cs), prop::collection::vec(noncenter2_0(), n_noncenter)).prop_filter_map(
+                    "names were not unique",
+                    |(mut cs_, ns)| {
+                        cs_.extend(ns);
+                        has_unique_names(&cs_[..]).then_some(cs_)
+                    },
+                )
+            })
+            .prop_shuffle()
+    }
+
+    #[test]
+    fn new_named_vec_empty() {
+        assert!(NamedVec::<Identity<Shortname>, (), usize>::try_new([]).is_ok());
+    }
+
+    proptest! {
+        #[test]
+        fn new_named_vec_center1(x in center2_0()) {
+            assert!(NamedVec2_0::try_new([x]).is_ok());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn new_named_vec_noncenter1(x in noncenter2_0()) {
+            assert!(NamedVec2_0::try_new([x]).is_ok());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn new_named_vec_without_center(xs in new_input2_0(10, 0)) {
+            assert!(NamedVec::try_new(xs).is_ok());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn new_named_vec_with_center(xs in new_input2_0(9, 1)) {
+            assert!(NamedVec::try_new(xs).is_ok());
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn new_named_vec_with_centers(xs in new_input2_0(8, 2)) {
+            assert_eq!(NamedVec::try_new(xs), Err(NewNamedVecError::MultiCenter(CenterPresentError)));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn new_named_vec_nonunique(mut xs in new_input2_0(10, 0)) {
+            // copy name from first element to second
+            let n0 = xs[0].clone().both(|(_, _)| panic!("all should be non-center"), |(n, _)| n);
+            match &mut xs[1] {
+                Element::Center(_) => panic!("all should be non-center"),
+                Element::NonCenter((n1, _)) => {
+                    *n1 = n0;
+                }
+            };
+            assert_eq!(NamedVec::try_new(xs), Err(NewNamedVecError::NonUnique(NonUniqueKeysError)));
+        }
+    }
+
+    // #[test]
+    // fn alter_common_values_ok() {
+    //     let n0 = "a".parse::<Shortname>().unwrap();
+    //     let n1 = "b".parse::<Shortname>().unwrap();
+    //     let n2 = "c".parse::<Shortname>().unwrap();
+    //     let mut nv = NamedVec::try_new([
+    //         Element::Center((n0.clone(), [0_u8])),
+    //         Element::NonCenter((Identity(n1.clone()), [1_u8])),
+    //         Element::NonCenter((Identity(n2.clone()), [2_u8])),
+    //     ])
+    //     .unwrap();
+    //     let res = nv.alter_common_values_zip(vec![13, 11, 7], |_, x, y| {
+    //         let old = x[0];
+    //         x[0] = x[0] + y;
+    //         old
+    //     });
+    //     // result should pass
+    //     assert!(res.is_ok());
+    //     let out = res.unwrap();
+    //     // result should have original values
+    //     assert_eq!(&out[..], &[0, 1, 2]);
+    //     // names should not change
+    //     assert_eq!(
+    //         nv.indexed_names().collect::<Vec<_>>(),
+    //         vec![(0.into(), &n0), (1.into(), &n1), (2.into(), &n2)]
+    //     );
+    //     // values should be updated
+    //     assert_eq!(
+    //         nv.iter_common_values().collect::<Vec<_>>(),
+    //         vec![&[13], &[12], &[9]]
+    //     );
+    // }
 }
 
 #[cfg(feature = "python")]

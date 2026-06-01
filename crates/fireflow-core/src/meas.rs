@@ -151,7 +151,7 @@ pub(crate) type MeasMeta<N, T, O, X> = NamedVec<N, Temporal<T>, ScaledOptical<X,
 pub(crate) type VMeasMeta<V> =
     NamedVec<<V as VersionMeasSet>::Name, VTemporal<V>, VScaledOptical<V>>;
 
-#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct CommonMeasurement {
@@ -173,7 +173,7 @@ pub struct CommonMeasurement {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, AsRef, AsMut, PartialEq, Default, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Temporal<T> {
@@ -187,7 +187,7 @@ pub struct Temporal<T> {
 }
 
 /// Optical keywords including $PnE and $PnG (if 3.0+)
-#[derive(Clone, PartialEq, AsRef, AsMut, new)]
+#[derive(Clone, PartialEq, AsRef, AsMut, Default, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ScaledOptical<X, O> {
@@ -201,7 +201,7 @@ pub struct ScaledOptical<X, O> {
 ///
 /// Explicit fields are common to all versions. The generic type parameter
 /// allows for version-specific information to be encoded.
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, AsRef, AsMut, PartialEq, Default, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Optical<O> {
@@ -245,7 +245,7 @@ pub struct Optical<O> {
 }
 
 /// Temporal measurement fields specific to version 2.0
-#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal2_0 {
@@ -260,7 +260,7 @@ pub struct InnerTemporal2_0 {
 /// Temporal measurement fields specific to version 3.0
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_0 {
@@ -280,7 +280,7 @@ pub struct InnerTemporal3_0 {
 /// Temporal measurement fields specific to version 3.1
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_1 {
@@ -306,7 +306,7 @@ pub struct InnerTemporal3_1 {
 /// Temporal measurement fields specific to version 3.2
 ///
 /// $PnE is implied as linear but not included since it only has one value
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerTemporal3_2 {
@@ -329,7 +329,7 @@ pub struct InnerTemporal3_2 {
 }
 
 /// Optical measurement fields specific to version 2.0
-#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical2_0 {
@@ -348,7 +348,7 @@ pub struct InnerOptical2_0 {
 }
 
 /// Optical measurement fields specific to version 3.0
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_0 {
@@ -367,7 +367,7 @@ pub struct InnerOptical3_0 {
 }
 
 /// Optical measurement fields specific to version 3.1
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_1 {
@@ -399,7 +399,7 @@ pub struct InnerOptical3_1 {
 
 /// Optical measurement fields specific to version 3.2
 #[allow(clippy::too_many_arguments)]
-#[derive(Clone, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct InnerOptical3_2 {
@@ -492,7 +492,7 @@ impl Default for OpticalScale3_0 {
 /// It makes little sense to have only one of these since they both collectively
 /// describe a histogram peak. This currently is not enforced since these keys
 /// are likely not used much and it is easy for users to check these themselves.
-#[derive(Clone, Default, AsRef, AsMut, PartialEq, new)]
+#[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct PeakData {
     /// Value of $Pkn
@@ -985,17 +985,17 @@ type VCoreMeasurements<L, V> = CoreMeasurements<
     V,
 >;
 
-type VersionedMeasurements<V> =
+pub(crate) type VersionedMeasurements<V> =
     NamedVec<<V as VersionMeasSet>::Name, VTemporal<V>, VScaledOptical<V>>;
 
 type VElementWithScale<V> =
     Element<VTemporal<V>, (VOptical<V>, <V as VersionMeasSet>::OpticalScale)>;
 
-type VTemporal<V> = Temporal<<V as VersionMeasSet>::Temporal>;
+pub(crate) type VTemporal<V> = Temporal<<V as VersionMeasSet>::Temporal>;
 
 type VOptical<V> = Optical<<V as VersionMeasSet>::Optical>;
 
-type VScaledOptical<V> =
+pub(crate) type VScaledOptical<V> =
     ScaledOptical<<V as VersionMeasSet>::OpticalScale, <V as VersionMeasSet>::Optical>;
 
 pub(crate) type TemporalOrOptical<T, O> = Element<Temporal<T>, Optical<O>>;

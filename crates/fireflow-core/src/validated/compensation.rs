@@ -125,7 +125,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn str_compensation_valid(xs in comp_vec()) {
+        fn compensation_valid(xs in comp_vec()) {
             let n = xs.len().isqrt();
             let m = Array2::from_shape_vec((n, n), xs).unwrap();
             assert!(Compensation::try_from(m).is_ok());
@@ -133,27 +133,33 @@ mod tests {
     }
 
     #[test]
-    fn str_compensation_not_nan() {
+    fn compensation_not_nan() {
         let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::NAN]).unwrap();
-        assert!(Compensation::try_from(m).is_err());
+        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotFinite));
     }
 
     #[test]
-    fn str_compensation_not_inf() {
+    fn compensation_not_inf() {
         let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::INFINITY]).unwrap();
-        assert!(Compensation::try_from(m).is_err());
+        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotFinite));
     }
 
     #[test]
-    fn str_compensation_not_neg_inf() {
+    fn compensation_not_neg_inf() {
         let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::NEG_INFINITY]).unwrap();
-        assert!(Compensation::try_from(m).is_err());
+        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotFinite));
     }
 
     #[test]
-    fn str_compensation_not_square() {
-        let m = Array2::from_shape_vec((2, 3), vec![0.0, 0.0, 0.0, 0.0, 0.0, 0.0]).unwrap();
-        assert!(Compensation::try_from(m).is_err());
+    fn compensation_not_square() {
+        let m = Array2::from_shape_vec((2, 3), vec![0.0; 6]).unwrap();
+        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotSquare));
+    }
+
+    #[test]
+    fn compensation_not_toosmall() {
+        let m = Array2::from_shape_vec((1, 1), vec![0.0]).unwrap();
+        assert_eq!(Compensation::try_from(m), Err(NewCompError::TooSmall));
     }
 }
 

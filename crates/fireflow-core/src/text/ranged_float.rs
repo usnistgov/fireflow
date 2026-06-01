@@ -19,6 +19,8 @@ use pyo3::prelude::*;
 use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 
 /// A non-negative [`f32`]
+///
+/// `NaN` and `-inf` are also forbidden.
 #[derive(Clone, Copy, PartialEq, Into, Add, Mul, One, Zero, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
@@ -27,6 +29,8 @@ use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
 pub struct NonNegFloat(f32);
 
 /// A positive [`f32`]
+///
+/// `NaN` and `-inf` are also forbidden.
 #[derive(Clone, Copy, PartialEq, Into, Mul, One, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
@@ -101,6 +105,9 @@ mod tests {
     #[test]
     fn positive_float() {
         assert!(PositiveFloat::try_from(1.0_f32).is_ok());
+        assert!(PositiveFloat::try_from(f32::INFINITY).is_ok());
+        assert!(PositiveFloat::try_from(f32::NAN).is_err());
+        assert!(PositiveFloat::try_from(f32::NEG_INFINITY).is_err());
         assert!(PositiveFloat::try_from(0.0_f32).is_err());
         assert!(PositiveFloat::try_from(-1.0_f32).is_err());
     }
@@ -108,6 +115,9 @@ mod tests {
     #[test]
     fn non_neg_float() {
         assert!(NonNegFloat::try_from(1.0_f32).is_ok());
+        assert!(NonNegFloat::try_from(f32::INFINITY).is_ok());
+        assert!(NonNegFloat::try_from(f32::NAN).is_err());
+        assert!(NonNegFloat::try_from(f32::NEG_INFINITY).is_err());
         assert!(NonNegFloat::try_from(0.0_f32).is_ok());
         assert!(NonNegFloat::try_from(-1.0_f32).is_err());
     }

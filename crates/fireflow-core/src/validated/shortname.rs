@@ -84,11 +84,29 @@ pub enum ShortnameError {
 #[cfg(test)]
 mod tests {
     use super::*;
+
     use assert_matches::assert_matches;
+    use proptest::prelude::*;
+
+    impl Arbitrary for Shortname {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            "[^,]{1,40}"
+                .prop_map(|s| s.parse::<Shortname>().unwrap())
+                .boxed()
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn str_to_shortname(s in "[^,]{1,40}") {
+            assert!(s.parse::<Shortname>().is_ok());
+        }
+    }
 
     #[test]
-    fn str_to_shortname() {
-        assert!("Thunderfist Chronicles".parse::<Shortname>().is_ok());
+    fn str_to_shortname_invalid() {
         assert_matches!(
             "Thunderfist,Chronicles".parse::<Shortname>(),
             Err(ShortnameError::Commas(_))

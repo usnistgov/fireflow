@@ -568,7 +568,7 @@ pub struct DollarKey<T, I>(pub SpecificKey<T, I>);
 
 impl<T, I: PartialEq> PartialEq for DollarKey<T, I> {
     fn eq(&self, other: &Self) -> bool {
-        &self.0 == &other.0
+        self.0 == other.0
     }
 }
 
@@ -576,7 +576,7 @@ impl<T, I: Eq> Eq for DollarKey<T, I> {}
 
 impl<T, I: PartialEq> PartialEq for SpecificKey<T, I> {
     fn eq(&self, other: &Self) -> bool {
-        &self.index == &other.index
+        self.index == other.index
     }
 }
 

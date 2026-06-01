@@ -289,7 +289,7 @@ pub struct IndexLinkError<T, I> {
 
 impl<T, I: PartialEq> PartialEq for IndexLinkError<T, I> {
     fn eq(&self, other: &Self) -> bool {
-        &self.indices == &other.indices && &self.key == &other.key
+        self.indices == other.indices && self.key == other.key
     }
 }
 

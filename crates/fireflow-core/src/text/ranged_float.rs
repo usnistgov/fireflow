@@ -13,10 +13,10 @@ use std::str::FromStr;
 use serde::Serialize;
 
 #[cfg(feature = "python")]
-use pyo3::prelude::*;
-
-#[cfg(feature = "python")]
-use fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject};
+use {
+    fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject},
+    pyo3::prelude::*,
+};
 
 /// A non-negative [`f32`]
 ///
@@ -102,20 +102,63 @@ impl fmt::Display for RangedFloatError {
 mod tests {
     use super::*;
 
+    use proptest::{num::f32, prelude::*};
+
+    impl Arbitrary for PositiveFloat {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            (0.0_f32..)
+                .prop_filter("0.0 is not allowed", |&x| x > 0.0)
+                .prop_map(|x| Self::try_from(x).unwrap())
+                .boxed()
+        }
+    }
+
+    impl Arbitrary for NonNegFloat {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            (0.0_f32..).prop_map(|x| Self::try_from(x).unwrap()).boxed()
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn positive_float(x in any::<PositiveFloat>()) {
+            assert!(PositiveFloat::try_from(x).is_ok());
+        }
+    }
+
     #[test]
-    fn positive_float() {
-        assert!(PositiveFloat::try_from(1.0_f32).is_ok());
+    fn positive_float_inf() {
         assert!(PositiveFloat::try_from(f32::INFINITY).is_ok());
+    }
+
+    #[test]
+    fn positive_float_err() {
         assert!(PositiveFloat::try_from(f32::NAN).is_err());
         assert!(PositiveFloat::try_from(f32::NEG_INFINITY).is_err());
         assert!(PositiveFloat::try_from(0.0_f32).is_err());
         assert!(PositiveFloat::try_from(-1.0_f32).is_err());
     }
 
+    proptest! {
+        #[test]
+        fn non_neg_float(x in any::<NonNegFloat>()) {
+            assert!(NonNegFloat::try_from(x).is_ok());
+        }
+    }
+
     #[test]
-    fn non_neg_float() {
-        assert!(NonNegFloat::try_from(1.0_f32).is_ok());
+    fn non_neg_float_inf() {
         assert!(NonNegFloat::try_from(f32::INFINITY).is_ok());
+    }
+
+    #[test]
+    fn non_neg_float_err() {
         assert!(NonNegFloat::try_from(f32::NAN).is_err());
         assert!(NonNegFloat::try_from(f32::NEG_INFINITY).is_err());
         assert!(NonNegFloat::try_from(0.0_f32).is_ok());

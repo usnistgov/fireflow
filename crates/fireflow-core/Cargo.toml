@@ -44,6 +44,7 @@ numpy = { workspace = true, optional = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+proptest-derive = { workspace = true }
 assert_matches = { workspace = true }
 fireflow-types = { path = "../fireflow-types", features = ["testutil"] }
 

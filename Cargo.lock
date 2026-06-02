@@ -840,6 +840,7 @@ dependencies = [
  "numpy",
  "polars-buffer",
  "proptest",
+ "proptest-derive",
  "pyo3",
  "regex",
  "serde",
@@ -902,6 +903,7 @@ dependencies = [
  "phf 0.13.1",
  "phf_codegen",
  "proptest",
+ "proptest-derive",
  "pyo3",
  "serde",
  "thiserror 2.0.18",
@@ -2558,6 +2560,17 @@ dependencies = [
  "rusty-fork",
  "tempfile",
  "unarray",
+]
+
+[[package]]
+name = "proptest-derive"
+version = "0.8.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c57924a81864dddafba92e1bf92f9bf82f97096c44489548a60e888e1547549b"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]

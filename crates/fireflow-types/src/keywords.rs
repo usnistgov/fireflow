@@ -16,6 +16,9 @@ use {
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+#[cfg(feature = "testutil")]
+use proptest_derive::Arbitrary;
+
 // The string primitives for almost all keywords are compiled in a build script
 // as string constants and included here. This is done in order to put these
 // strings into a pre-compiled hash table which will be used for version
@@ -262,6 +265,7 @@ impl_str_enum_kw!(
     #[derive(PartialEq, Debug)]
     #[cfg_attr(feature = "serde", derive(Serialize))]
     #[cfg_attr(feature = "python", derive(FromPyString))]
+    #[cfg_attr(feature = "testutil", derive(Arbitrary))]
     pub OpticalFeature,
     /// Error when parsing [`Feature`] (optical only)
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

@@ -92,6 +92,9 @@ use {
     pyo3::prelude::*,
 };
 
+#[cfg(test)]
+use proptest_derive::Arbitrary;
+
 /// Value for $NEXTDATA (all versions)
 #[derive(From, Into, FromStr, Debug, Clone, Copy, PartialEq, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -188,6 +191,7 @@ pub struct NegativeNextdataError(i128);
 /// Format is assumed to be 'f1,f2'
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub enum Scale {
     /// Linear scale (ie '0,0')
     #[default]
@@ -240,6 +244,7 @@ pub enum ScaleFix {
 
 #[derive(Clone, Copy, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct LogScale {
     pub decades: PositiveFloat,
     pub offset: PositiveFloat,
@@ -406,6 +411,7 @@ impl LogRangeError {
 /// The value of the $PnG keyword
 #[derive(Clone, Copy, PartialEq, From, FromStr, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Gain(pub PositiveFloat);
 
@@ -457,6 +463,7 @@ pub struct TemporalGainError(MeasIndex);
 #[derive(Clone, Copy, PartialEq, From, FromStr, Into, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[into(f32, PositiveFloat)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Timestep(pub PositiveFloat);
@@ -658,6 +665,7 @@ pub struct ModeUpgradeError;
 /// The value for the $PnD key (3.1+)
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub enum Display {
     /// Linear display (value like `"Linear,<lower>,<upper>"`)
     Lin { lower: f32, upper: f32 },
@@ -911,6 +919,7 @@ impl TryFrom<AlphaNumType> for NumType {
 ///
 /// This can only be linear (0,0)
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct TemporalScaleInner;
 
 impl ToDisplayNE<'_> for TemporalScaleInner {
@@ -1010,6 +1019,7 @@ pub enum TemporalScaleError {
 /// This should be formatted like "`<value>,<unit>`"
 #[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct Calibration3_1 {
     pub slope: PositiveFloat,
     pub unit: NEString,
@@ -1082,6 +1092,7 @@ impl From<Calibration3_1> for Calibration3_2 {
 /// 3.1 with the optional inclusion of `offset` (assumed 0 if not included).
 #[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct Calibration3_2 {
     pub slope: PositiveFloat,
     pub offset: f32,
@@ -1167,6 +1178,7 @@ pub struct CalibrationLossError(MeasIndex, f32);
 #[derive(Clone, Copy, From, FromStr, Into, PartialEq, Debug, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[into(f32, PositiveFloat)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Wavelength(pub PositiveFloat);
@@ -1185,6 +1197,7 @@ impl From<Wavelength> for Wavelengths {
 #[derive(Clone, From, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
 #[derive(Clone)]
@@ -1658,6 +1671,7 @@ pub enum UnicodeError {
 #[derive(Clone, PartialEq, Debug, Default, AsRef)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyString))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[as_ref(str)]
 pub struct OpticalType(String);
 
@@ -1682,6 +1696,7 @@ impl FromStr for OpticalType {
 
 /// The value of the $PnTYPE key in temporal channels (3.2+)
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct TemporalTypeInner;
 
 impl ToDisplayNE<'_> for TemporalTypeInner {
@@ -1712,6 +1727,7 @@ pub struct TemporalTypeError;
 #[derive(Clone, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyNEString))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub enum Feature {
     Optical(OpticalFeature),
     Other(NEString),
@@ -2553,6 +2569,7 @@ macro_rules! impl_non_neg_float {
         #[derive(Clone, Copy, From, FromStr, Into, PartialEq, Debug, Delegate)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        #[cfg_attr(test, derive(Arbitrary))]
         #[into(NonNegFloat, f32)]
         #[delegate(ToDisplayNE<'a>, generics = "'a")]
         pub struct $t(pub NonNegFloat);
@@ -2957,6 +2974,7 @@ macro_rules! newtype_string {
         #[derive(Clone, FromStr, From, Into, PartialEq, Debug, Default, AsRef)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
+        #[cfg_attr(test, derive(Arbitrary))]
         #[as_ref(str)]
         pub struct $t(pub String);
     };
@@ -2980,6 +2998,7 @@ macro_rules! newtype_int {
         )]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        #[cfg_attr(test, derive(Arbitrary))]
         #[delegate(ToDisplayNE<'a>, generics = "'a")]
         pub struct $t(pub $type);
     };
@@ -3000,6 +3019,7 @@ macro_rules! newtype_opt_bool {
         #[derive(Clone, Copy, PartialEq, Debug, Default, From, Into, AsRef)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
         #[cfg_attr(feature = "serde", derive(Serialize))]
+        #[cfg_attr(test, derive(Arbitrary))]
         #[from(bool)]
         #[into(bool)]
         #[as_ref(Option<$inner>)]

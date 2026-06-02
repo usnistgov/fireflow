@@ -2082,7 +2082,7 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
 mod test {
     use super::*;
     use crate::meas::{
-        CommonMeasurement, ScaledOptical, Temporal, VScaledOptical, VTemporal,
+        CommonMeasurement, ScaledOptical, Temporal, VScaledOptical, VTemporal, VersionMeasSet,
         VersionedMeasurements,
     };
     use crate::text::keywords::Longname;
@@ -2099,30 +2099,6 @@ mod test {
     type Either2_0 = Either<Option<Shortname>, VTemporal<Version2_0>, VScaledOptical<Version2_0>>;
     type Either3_1 = Either<Identity<Shortname>, VTemporal<Version3_1>, VScaledOptical<Version3_1>>;
 
-    prop_compose! {
-        fn center2_0()(n in any::<Shortname>()) -> Either2_0 {
-            Element::Center((n, Temporal::default()))
-        }
-    }
-
-    prop_compose! {
-        fn noncenter2_0()(n in any::<Shortname>()) -> Either2_0 {
-            Element::NonCenter((Some(n), ScaledOptical::default()))
-        }
-    }
-
-    prop_compose! {
-        fn center3_1()(n in any::<Shortname>()) -> Either3_1 {
-            Element::Center((n, Temporal::default()))
-        }
-    }
-
-    prop_compose! {
-        fn noncenter3_1()(n in any::<Shortname>()) -> Either3_1 {
-            Element::NonCenter((Identity(n), ScaledOptical::default()))
-        }
-    }
-
     fn has_unique_names<K, U, V>(xs: &[Either<K, U, V>]) -> bool
     where
         K: MightHave<Shortname>,
@@ -2132,6 +2108,56 @@ mod test {
             .map(|e| e.as_ref().both(|(n, _)| Some(n), |(n, _)| K::as_opt(n)));
         all_unique_names(it)
     }
+
+    fn longnames<K, V: VersionMeasSet>(
+        xs: &NamedVec<K, VTemporal<V>, VScaledOptical<V>>,
+    ) -> Vec<Longname> {
+        xs.iter()
+            .map(|e| {
+                e.both(
+                    |p| p.value.common.longname.clone(),
+                    |p| p.value.inner().common.longname.clone(),
+                )
+            })
+            .collect()
+    }
+
+    fn labelled_longnames<K, V: VersionMeasSet>(
+        xs: &NamedVec<K, VTemporal<V>, VScaledOptical<V>>,
+    ) -> Vec<(Longname, bool)> {
+        xs.iter()
+            .map(|e| {
+                e.both(
+                    |p| (p.value.common.longname.clone(), true),
+                    |p| (p.value.inner().common.longname.clone(), false),
+                )
+            })
+            .collect()
+    }
+
+    prop_compose! {
+        fn center2_0()(n in any::<Shortname>(), v in any::<Temporal<_>>()) -> Either2_0 {
+            Element::Center((n, v))
+        }
+    }
+
+    prop_compose! {
+        fn noncenter2_0()(n in any::<Shortname>(), v in any::<ScaledOptical<_, _>>()) -> Either2_0 {
+            Element::NonCenter((Some(n), v))
+        }
+    }
+
+    // prop_compose! {
+    //     fn center3_1()(n in any::<Shortname>()) -> Either3_1 {
+    //         Element::Center((n, Temporal::default()))
+    //     }
+    // }
+
+    // prop_compose! {
+    //     fn noncenter3_1()(n in any::<Shortname>()) -> Either3_1 {
+    //         Element::NonCenter((Identity(n), ScaledOptical::default()))
+    //     }
+    // }
 
     fn new_input2_0(n_noncenter: usize, n_center: usize) -> impl Strategy<Value = Vec<Either2_0>> {
         prop::collection::vec(center2_0(), n_center)
@@ -2246,12 +2272,13 @@ mod test {
             mut xs in new_named_vec2_0(10),
             ys in prop::collection::vec("\\PC*", 10)
         ) {
+            let old_values = longnames::<_, Version2_0>(&xs);
             // set the longname to some arbitrary string
             let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
                 mem::replace(&mut x.longname, y.into())
             });
             // result should pass (original longnames should be the default)
-            assert_eq!(res, Ok(vec![Longname::default(); 10]));
+            assert_eq!(res, Ok(old_values));
             // new longnames should be the same as the inputs we gave
             assert!(
                 xs.iter()
@@ -2287,29 +2314,29 @@ mod test {
             mut xs in new_named_vec2_0(10),
             ys in prop::collection::vec("\\PC*", 10)
         ) {
+            let old_values = labelled_longnames::<_, Version2_0>(&xs);
             // set the longname to some arbitrary string unless element is center
             let res = xs.alter_values_zip(
                 ys.clone(),
-                |_, _| None,
+                |p: IndexedElement<_, &mut Temporal<_>>, y| {
+                    (mem::replace(&mut p.value.common.longname, y.into()), true)
+                },
                 |p: IndexedElement<_, &mut ScaledOptical<_, _>>, y| {
-                    Some(mem::replace(&mut p.value.inner_mut().common.longname, y.into()))
+                    (mem::replace(&mut p.value.inner_mut().common.longname, y.into()), false)
                 },
             );
             // result should pass (original longnames should be the default)
-            let ci = xs.center_index().map(usize::from);
-            assert_eq!(
-                res,
-                Ok((0..10).map(|i| (Some(i) != ci).then(|| Longname::default())).collect())
-            );
+            assert_eq!(res, Ok(old_values));
             // new longnames should be the same as the inputs we gave
             assert!(
                 xs.iter()
                     .zip(ys)
                     .all(|(e, new)| {
                         e.both(
-                            |x| x.value.common.longname.0.is_empty(),
+                            |x| &x.value.common.longname.0 == &new,
                             |x| x.value.inner().common.longname.0 == new)
-                    }));
+                    })
+            );
         }
     }
 

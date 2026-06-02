@@ -10,6 +10,9 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use pyo3::prelude::*;
 
+#[cfg(test)]
+use proptest_derive::Arbitrary;
+
 /// A value that always exists.
 #[derive(Clone, PartialEq, AsRef, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -79,6 +82,7 @@ impl<A> Pointed<A> for Nothing<A> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(into = "bool"))]
 #[cfg_attr(feature = "serde", serde(bound = "T: Clone"))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct OptionalZST<T>(pub Option<T>);
 
 impl<T: Default> From<bool> for OptionalZST<T> {

@@ -83,6 +83,9 @@ use {
     pyo3::prelude::*,
 };
 
+#[cfg(test)]
+use proptest_derive::Arbitrary;
+
 /// Metadata and event data for all measurements.
 ///
 /// This consists of two entities:
@@ -176,6 +179,7 @@ pub struct CommonMeasurement {
 #[derive(Clone, AsRef, AsMut, PartialEq, Default, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct Temporal<T> {
     /// Fields shared with optical measurements
     #[as_ref(forward)]
@@ -189,6 +193,7 @@ pub struct Temporal<T> {
 /// Optical keywords including $PnE and $PnG (if 3.0+)
 #[derive(Clone, PartialEq, AsRef, AsMut, Default, Debug, new)]
 #[new(visibility(""))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ScaledOptical<X, O> {
     #[as_ref(forward)]
@@ -203,6 +208,7 @@ pub struct ScaledOptical<X, O> {
 /// allows for version-specific information to be encoded.
 #[derive(Clone, AsRef, AsMut, PartialEq, Default, Debug, new)]
 #[new(visibility(""))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Optical<O> {
     /// Fields shared with optical measurements
@@ -248,6 +254,7 @@ pub struct Optical<O> {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerTemporal2_0 {
     /// Values of $Pkn/$PKNn
     #[as_ref(Option<PeakBin>)]
@@ -263,6 +270,7 @@ pub struct InnerTemporal2_0 {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerTemporal3_0 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
@@ -283,6 +291,7 @@ pub struct InnerTemporal3_0 {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerTemporal3_1 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
@@ -309,6 +318,7 @@ pub struct InnerTemporal3_1 {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerTemporal3_2 {
     /// Value for $TIMESTEP
     #[as_ref(Timestep)]
@@ -332,6 +342,7 @@ pub struct InnerTemporal3_2 {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerOptical2_0 {
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
@@ -351,6 +362,7 @@ pub struct InnerOptical2_0 {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerOptical3_0 {
     /// Value for $PnL
     #[as_ref(Option<Wavelength>)]
@@ -370,6 +382,7 @@ pub struct InnerOptical3_0 {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerOptical3_1 {
     /// Value for $PnL
     #[as_ref(Wavelengths)]
@@ -402,6 +415,7 @@ pub struct InnerOptical3_1 {
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[new(visibility(""))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct InnerOptical3_2 {
     /// Value for $PnL
     #[as_ref(Wavelengths)]
@@ -449,13 +463,14 @@ pub struct InnerOptical3_2 {
     #[as_ref(DetectorName)]
     #[as_mut(DetectorName)]
     #[new(into)]
-    detector_name: DetectorName,
+    pub detector_name: DetectorName,
 }
 
 /// A scale transform derived from $PnE (2.0+).
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct OpticalScale2_0(pub Option<Scale>);
 
 impl Default for OpticalScale2_0 {
@@ -474,6 +489,7 @@ impl OpticalScale2_0 {
 /// A scale transform derived from $PnE/$PnG.
 #[derive(Clone, Copy, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub enum OpticalScale3_0 {
     /// A linear transform ($PnE=0,0 and $PnG=1.0 or is null)
     Lin(PositiveFloat),
@@ -494,6 +510,7 @@ impl Default for OpticalScale3_0 {
 /// are likely not used much and it is easy for users to check these themselves.
 #[derive(Clone, Default, AsRef, AsMut, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 pub struct PeakData {
     /// Value of $Pkn
     #[as_ref(Option<PeakBin>)]
@@ -4274,6 +4291,27 @@ pub(crate) fn wrap_scaled_opticals<V: VersionMeasSet>(
     measurements
         .into_iter()
         .map(|e| e.bimap_once(|t| t, |(n, o, s)| (n, ScaledOptical::new(o, s))))
+}
+
+#[cfg(test)]
+mod test {
+    use crate::validated::keys::NonStdKey;
+
+    use super::*;
+
+    use proptest::prelude::*;
+
+    impl Arbitrary for CommonMeasurement {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            let ns = prop::collection::hash_map(any::<NonStdKey>(), any::<NEString>(), 0..10);
+            (any::<Longname>(), ns)
+                // iterate and collect to convert std::HashMap to hashbrown::HashMap
+                .prop_map(|(n, ns)| CommonMeasurement::new(n, ns.into_iter().collect()))
+                .boxed()
+        }
+    }
 }
 
 #[cfg(feature = "python")]

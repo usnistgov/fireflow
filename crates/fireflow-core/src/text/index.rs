@@ -14,9 +14,13 @@ use {
     pyo3::prelude::*,
 };
 
+#[cfg(test)]
+use proptest_derive::Arbitrary;
+
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, FromStr, Hash, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(test, derive(Arbitrary))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct IndexFromOne(NonZeroUsize);
 
@@ -37,6 +41,7 @@ macro_rules! newtype_index {
         $(#[$attr])*
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        #[cfg_attr(test, derive(Arbitrary))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug,
                  FromStr, Display, From, Into, Hash, Delegate)]
         #[from(IndexFromOne, usize)]

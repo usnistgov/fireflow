@@ -524,7 +524,10 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Set current values to new values.
     ///
     /// The center in the new vector must be in the same position as the old.
-    pub(crate) fn set_values(&mut self, xs: Vec<Element<U, V>>) -> Result<(), SetValuesError> {
+    pub(crate) fn set_values(
+        &mut self,
+        xs: Vec<Element<U, V>>,
+    ) -> Result<Vec<Element<U, V>>, SetValuesError> {
         // check length and center position before doing anything, otherwise
         // we would need to reset the new vector if any error is found
         self.check_keys_length(&xs[..])?;
@@ -539,12 +542,22 @@ impl<K, U, V> NamedVec<K, U, V> {
             })
             .filter_map(|x| x.map(|(i, is_center)| ElementMismatchError::new(i.into(), is_center)));
         ErrorGroup::try_new(errs)?;
-        let _ = self.alter_values_zip_nocheck(
+        let old = self.alter_values_zip_nocheck(
             xs,
-            |e, y| y.both(|z| *e.value = z, |_| ()),
-            |e, y| y.both(|_| (), |z| *e.value = z),
+            |e, y| {
+                y.both(
+                    |z| Element::Center(mem::replace(e.value, z)),
+                    |_| panic!("center position should have been checked"),
+                )
+            },
+            |e, y| {
+                y.both(
+                    |_| panic!("center position should have been checked"),
+                    |z| Element::NonCenter(mem::replace(e.value, z)),
+                )
+            },
         );
-        Ok(())
+        Ok(old)
     }
 
     /// Apply functions to values with payload, altering them in place.
@@ -2134,14 +2147,43 @@ mod test {
             .prop_shuffle()
     }
 
-    fn new_named_vec2_0(len: usize, include_center: bool) -> impl Strategy<Value = NamedVec2_0> {
-        let (n_center, n_noncenter) = if include_center && len > 0 {
-            (1, len - 1)
-        } else {
-            (0, len)
-        };
-        new_input2_0(n_noncenter, n_center).prop_map(|xs| NamedVec::try_new(xs).unwrap())
+    prop_compose! {
+        fn n_center_and_noncenter(len: usize)
+            (include_center in any::<bool>()) -> (usize, usize) {
+            if include_center && len > 0 {
+                (1, len - 1)
+            } else {
+                (0, len)
+            }
+        }
     }
+
+    prop_compose! {
+        fn new_named_vec2_0(len: usize)
+            ((n_center, n_noncenter) in n_center_and_noncenter(len))
+            (xs in new_input2_0(n_noncenter, n_center)) -> NamedVec2_0 {
+                NamedVec::try_new(xs).unwrap()
+        }
+    }
+
+    // fn new_elements2_0(
+    //     len: usize,
+    // ) -> impl Strategy<Value = Vec<Element<VTemporal<Version2_0>, VScaledOptical<Version2_0>>>>
+    // {
+    //     n_center_and_noncenter(len).prop_map(|(n_center, n_non_center)| {
+    //         prop::collection::vec(center2_0(), n_center)
+    //             .prop_flat_map(move |cs| {
+    //                 (Just(cs), prop::collection::vec(noncenter2_0(), n_noncenter)).prop_filter_map(
+    //                     "names were not unique",
+    //                     |(mut cs_, ns)| {
+    //                         cs_.extend(ns);
+    //                         has_unique_names(&cs_[..]).then_some(cs_)
+    //                     },
+    //                 )
+    //             })
+    //             .prop_shuffle()
+    //     })
+    // }
 
     #[test]
     fn new_named_vec_empty() {
@@ -2201,13 +2243,14 @@ mod test {
     proptest! {
         #[test]
         fn alter_common_values_ok(
-            mut xs in new_named_vec2_0(10, true),
-            ys in prop::collection::vec("PC\\*", 10)
+            mut xs in new_named_vec2_0(10),
+            ys in prop::collection::vec("\\PC*", 10)
         ) {
+            // set the longname to some arbitrary string
             let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
                 mem::replace(&mut x.longname, y.into())
             });
-            // result should pass
+            // result should pass (original longnames should be the default)
             assert_eq!(res, Ok(vec![Longname::default(); 10]));
             // new longnames should be the same as the inputs we gave
             assert!(
@@ -2220,6 +2263,110 @@ mod test {
                     }));
         }
     }
+
+    proptest! {
+        #[test]
+        fn alter_common_values_wronglen(
+            mut xs in new_named_vec2_0(10),
+            ys in prop::collection::vec("\\PC*", 11)
+        ) {
+            // set the longname to some arbitrary string
+            let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
+                mem::replace(&mut x.longname, y.into())
+            });
+            // result should not pass because length is not the same
+            assert_eq!(res, Err(InputLengthError { this_len: 10, other_len: 11 }));
+        }
+    }
+
+    // TODO add test for set_values
+
+    proptest! {
+        #[test]
+        fn alter_values_zip_ok(
+            mut xs in new_named_vec2_0(10),
+            ys in prop::collection::vec("\\PC*", 10)
+        ) {
+            // set the longname to some arbitrary string unless element is center
+            let res = xs.alter_values_zip(
+                ys.clone(),
+                |_, _| None,
+                |p: IndexedElement<_, &mut ScaledOptical<_, _>>, y| {
+                    Some(mem::replace(&mut p.value.inner_mut().common.longname, y.into()))
+                },
+            );
+            // result should pass (original longnames should be the default)
+            let ci = xs.center_index().map(usize::from);
+            assert_eq!(
+                res,
+                Ok((0..10).map(|i| (Some(i) != ci).then(|| Longname::default())).collect())
+            );
+            // new longnames should be the same as the inputs we gave
+            assert!(
+                xs.iter()
+                    .zip(ys)
+                    .all(|(e, new)| {
+                        e.both(
+                            |x| x.value.common.longname.0.is_empty(),
+                            |x| x.value.inner().common.longname.0 == new)
+                    }));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn alter_values_zip_wronglen(
+            mut xs in new_named_vec2_0(10),
+            ys in prop::collection::vec("\\PC*", 11)
+        ) {
+            // set the longname to some arbitrary string
+            let res = xs.alter_values_zip(
+                ys.clone(),
+                |p: IndexedElement<_, &mut Temporal<_>>, y| {
+                    mem::replace(&mut p.value.common.longname, y.into())
+                },
+                |p: IndexedElement<_, &mut ScaledOptical<_, _>>, y| {
+                    mem::replace(&mut p.value.inner_mut().common.longname, y.into())
+                },
+            );
+            // result should fail
+            assert_eq!(res, Err(InputLengthError { this_len: 10, other_len: 11 }));
+        }
+    }
+
+    // proptest! {
+    //     #[test]
+    //     fn alter_elements_zip_ok(
+    //         mut xs in new_named_vec2_0(10),
+    //         ys in prop::collection::vec("\\PC*", 10)
+    //     ) {
+    //         // set the longname to some arbitrary string if noncenter
+    //         let res = xs.alter_elements_zip(
+    //             ys.clone(),
+    //             (),
+    //             |_, _| None,
+    //             |p: IndexedElement<_, &mut Temporal<_>>, y: String| {
+    //                 Some(mem::replace(&mut p.value.common.longname, y.into()))
+    //             },
+    //             |_, _| (),
+    //         );
+    //         // result should pass (original longnames should be the default)
+    //         let ci = xs.center_index().map(usize::from);
+    //         assert_eq!(
+    //             res,
+    //             Ok((0..10).map(|i| (Some(i) != ci).then(|| Longname::default())).collect())
+    //         );
+    //         // new longnames should be the same as the inputs we gave
+    //         // assert!(
+    //         //     xs.iter()
+    //         //         .zip(ys)
+    //         //         .all(|(e, new)| {
+    //         //             e.both(
+    //         //                 |x| x.value.common.longname.0.is_empty(),
+    //         //                 |x| x.value.inner().common.longname.0 == new)
+    //         //         }));
+    //     }
+    // }
 }
 
 #[cfg(feature = "python")]

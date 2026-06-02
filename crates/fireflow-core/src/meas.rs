@@ -2680,6 +2680,10 @@ impl<X, O> ScaledOptical<X, O> {
         &self.inner
     }
 
+    pub fn inner_mut(&mut self) -> &mut Optical<O> {
+        &mut self.inner
+    }
+
     pub fn scale(&self) -> &X {
         &self.scale
     }

@@ -7071,15 +7071,12 @@ impl<E> PyList<E> {
 }
 
 impl<E: From<PyException>> PyList<E> {
-    fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: &Path) -> Self {
+    fn new_non_empty(inner: impl Into<PyType<E>>, inner_path: Option<&Path>) -> Self {
         let nonempty = quote!(fireflow_core::nonempty::FcsNEVec);
         let d = format!("if {ARG_TOKEN} is empty");
         let e = PyException::new_invalid_keyword().desc(d);
-        Self::new(
-            inner,
-            Some(parse_quote!(#nonempty<#inner_path>)),
-            Some(e.into()),
-        )
+        let path: Option<Path> = inner_path.map(|p| parse_quote!(#nonempty<#p>));
+        Self::new(inner, path, Some(e.into()))
     }
 
     fn new_others() -> Self {
@@ -7090,7 +7087,7 @@ impl<E: From<PyException>> PyList<E> {
     fn new_vertices() -> Self {
         let inner_path = keyword_path("Vertex");
         let inner: PyTuple<_> = repeat_n(RsFloat::F32, 2).collect();
-        Self::new_non_empty(inner, &inner_path)
+        Self::new_non_empty(inner, Some(&inner_path))
     }
 
     fn new_key_patterns() -> Self {
@@ -8592,9 +8589,11 @@ impl DocArgParam {
 
     fn new_other_segs_param() -> Self {
         let seg = PyTuple::new_other_segment();
+        let indexed_seg = PyTuple::new1(RsInt::Usize).add(seg);
         let width = PyInt::new_other_width();
-        let rstype = seg.rstype.clone().expect("no rstype for OTHER seg");
-        let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(seg, &rstype)).add(width));
+        let rstype = parse_quote!(fireflow_core::validated::header_segments::PyParsedOtherSegments);
+        let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(indexed_seg, None)).add(width))
+            .rstype(rstype);
         let d = format!("The {OTHER} segments from {HEADER}.");
         Self::new_param("other_segs", pt, d)
     }

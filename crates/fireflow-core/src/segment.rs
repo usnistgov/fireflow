@@ -169,10 +169,18 @@ pub struct DataSegmentId;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct AnalysisSegmentId;
 
-/// Denotes [`Segment`] pertains to OTHER (indexed from 0)
+/// Denotes [`Segment`] pertains to OTHER
 #[derive(Default, Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OtherSegmentId;
+
+/// A [`Segment`] pertains to OTHER with its index in the HEADER.
+#[derive(Debug, Clone, Copy, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct IndexedOtherSegment {
+    pub index: usize,
+    pub seg: OtherSegment20,
+}
 
 /// Configuration for making a new [`Segment`]
 #[derive(new)]
@@ -1360,7 +1368,7 @@ impl OtherSegment20 {
         first_seg_begin: UintSpacePad8,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        Option<(NEVec<(Self, UncorrectedSegment)>, OtherWidth)>,
+        Option<(NEVec<(IndexedOtherSegment, UncorrectedSegment)>, OtherWidth)>,
         GuessOtherWidthError,
         HeaderSegmentError,
         (),
@@ -1475,11 +1483,14 @@ impl OtherSegment20 {
                     .tuples()
                     .zip(corrs)
                     .take(limit)
-                    .filter_map(|((buf0, buf1), corr)| {
+                    .enumerate()
+                    .filter_map(|(i, ((buf0, buf1), corr))| {
                         let seg_conf = NewSegmentConfig::from_read_config(corr, st);
                         let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
-                        (!(all_are(0) || all_are(32) || all_are(48)))
-                            .then(|| Self::parse_other(&buf0, &buf1, &seg_conf))
+                        (!(all_are(0) || all_are(32) || all_are(48))).then(|| {
+                            Self::parse_other(&buf0, &buf1, &seg_conf)
+                                .map_ok_value(|(s, d)| (IndexedOtherSegment::new(i, s), d))
+                        })
                     })
                     .sequence_commutative()
                     .nowarn_into_warn()
@@ -2342,7 +2353,10 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{InnerSegment, NonEmptySegment, OffsetCorrection, Segment, UncorrectedSegment};
+    use super::{
+        IndexedOtherSegment, InnerSegment, NonEmptySegment, OffsetCorrection, OtherSegment20,
+        Segment, UncorrectedSegment,
+    };
 
     use crate::config::DatasetOffset;
 
@@ -2372,6 +2386,7 @@ mod python {
         }
     }
 
+    // offsets will be tuples like (int, int)
     impl<'a, 'py, I, S, T> FromPyObject<'a, 'py> for Segment<I, S, T>
     where
         T: FromPyObject<'a, 'py> + Zero + Ord,
@@ -2417,6 +2432,29 @@ mod python {
         }
     }
 
+    // indexed OTHER segments are like regular segments except they have the
+    // index in front, like (int, (int, int))
+    impl<'py> FromPyObject<'_, 'py> for IndexedOtherSegment {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (index, seg): (usize, OtherSegment20) = obj.extract()?;
+            Ok(Self::new(index, seg))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for IndexedOtherSegment {
+        type Target = PyTuple;
+        type Output = Bound<'py, <(usize, (i128, i128)) as IntoPyObject<'py>>::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.index, self.seg).into_pyobject(py)
+        }
+    }
+
+    // uncorrected segments are just like segments, ie (int, int)
+    //
+    // differentiating them will be determined by context
     impl<'py> FromPyObject<'_, 'py> for UncorrectedSegment {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {

@@ -2,10 +2,9 @@ use crate::config::OverlapCorrectionLimit;
 use crate::core::{DatasetSegments, OthersReader};
 use crate::logging::{ErrorGroup, ErrorsResult};
 use crate::macros::def_summary;
-use crate::match_many_to_one;
 use crate::segment::{
     GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment,
-    IsDataOrAnalysis, OtherSegment20, PrimaryTextSegment, Segment, SegmentOverlapError,
+    IndexedOtherSegment, IsDataOrAnalysis, PrimaryTextSegment, Segment, SegmentOverlapError,
     TEXTSegment,
 };
 use crate::text::keywords::Nextdata;
@@ -46,7 +45,10 @@ pub struct ParsedHeaderSegments {
     other: ParsedOtherSegments,
 }
 
-pub(crate) type ParsedOtherSegments = Option<(NEVec<OtherSegment20>, OtherWidth)>;
+pub(crate) type ParsedOtherSegments = Option<(NEVec<IndexedOtherSegment>, OtherWidth)>;
+
+#[cfg(feature = "python")]
+pub type PyParsedOtherSegments = Option<(FcsNEVec<IndexedOtherSegment>, OtherWidth)>;
 
 impl ParsedHeaderSegments {
     /// Return primary TEXT segment
@@ -69,7 +71,7 @@ impl ParsedHeaderSegments {
 
     /// Return parsed OTHER segment data
     #[must_use]
-    pub fn other(&self) -> Option<(NESlice<'_, OtherSegment20>, OtherWidth)> {
+    pub fn other(&self) -> Option<(NESlice<'_, IndexedOtherSegment>, OtherWidth)> {
         self.other
             .as_ref()
             .map(|(xs, w)| (xs.as_nonempty_slice(), *w))
@@ -78,7 +80,7 @@ impl ParsedHeaderSegments {
     /// Return parsed OTHER segment data
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_other(&self) -> Option<(FcsNEVec<OtherSegment20>, OtherWidth)> {
+    pub fn py_other(&self) -> PyParsedOtherSegments {
         let (ws, w) = self.other()?;
         Some((FcsNEVec(ws.into_nonempty_iter().copied().collect()), w))
     }
@@ -213,11 +215,11 @@ impl ParsedHeaderSegments {
     /// Will panic if out of bounds.
     pub(crate) fn remove_other(&mut self, i: usize) {
         if let Some((xs, _)) = self.other.as_mut() {
-            xs[i] = Segment::default();
+            xs[i].seg = Segment::default();
         }
     }
 
-    fn as_others(&self) -> impl Iterator<Item = &OtherSegment20> {
+    fn as_others(&self) -> impl Iterator<Item = &IndexedOtherSegment> {
         self.other.iter().flat_map(|(os, _)| os.iter())
     }
 
@@ -309,7 +311,7 @@ impl ParsedHeaderSegments {
         let t = self.contains_segment(&self.text);
         let d = self.contains_segment(&self.data);
         let a = self.contains_segment(&self.analysis);
-        let os = self.as_others().map(|o| self.contains_segment(o));
+        let os = self.as_others().map(|o| self.contains_segment(&o.seg));
         [t, d, a].into_iter().chain(os).flatten()
     }
 
@@ -398,20 +400,26 @@ enum AnyHeaderSegmentMut<'a> {
     Text(&'a mut PrimaryTextSegment),
     Data(&'a mut HeaderDataSegment),
     Analysis(&'a mut HeaderAnalysisSegment),
-    Other(&'a mut OtherSegment20),
+    Other(&'a mut IndexedOtherSegment),
 }
 
 impl AnyHeaderSegmentMut<'_> {
     fn try_as_generic(&self) -> Option<GenericSegment> {
-        match_many_to_one!(self, Self, [Analysis, Data, Text, Other], x, {
-            x.try_as_generic()
-        })
+        match self {
+            Self::Text(s) => s.try_as_generic(),
+            Self::Data(s) => s.try_as_generic(),
+            Self::Analysis(s) => s.try_as_generic(),
+            Self::Other(s) => s.seg.try_as_generic(),
+        }
     }
 
     fn truncate(&mut self, n: u64) {
-        match_many_to_one!(self, Self, [Analysis, Data, Text, Other], x, {
-            x.truncate(n);
-        });
+        match self {
+            Self::Text(s) => s.truncate(n),
+            Self::Data(s) => s.truncate(n),
+            Self::Analysis(s) => s.truncate(n),
+            Self::Other(s) => s.seg.truncate(n),
+        }
     }
 }
 

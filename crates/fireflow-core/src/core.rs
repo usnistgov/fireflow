@@ -57,9 +57,9 @@ use crate::meas::{
 };
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
-    KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _, OptSegmentWithDefaultWarning,
-    OtherSegment20, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning, SegmentMismatchError,
-    SegmentOverlapError, UncorrectedSegment,
+    IndexedOtherSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
+    OptSegmentWithDefaultWarning, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
+    SegmentMismatchError, SegmentOverlapError, UncorrectedSegment,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
@@ -1000,7 +1000,7 @@ impl AnalysisReader {
 /// Reader for OTHER segments
 #[derive(new)]
 pub struct OthersReader {
-    pub segs: Vec<OtherSegment20>,
+    pub segs: Vec<IndexedOtherSegment>,
 }
 
 impl OthersReader {
@@ -1008,7 +1008,7 @@ impl OthersReader {
         let mut buf = vec![];
         let mut others = vec![];
         for s in &self.segs {
-            s.h_read_contents(h, &mut buf)?;
+            s.seg.h_read_contents(h, &mut buf)?;
             others.push(Other(buf.clone()));
             buf.clear();
         }

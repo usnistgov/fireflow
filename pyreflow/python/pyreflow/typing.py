@@ -222,7 +222,7 @@ UseEncoding: TypeAlias = Literal["single", "utf8", "guess"]
 
 GuessOtherWidth: TypeAlias = Literal["none", "error", "warn", "silent"]
 
-OtherSegments: TypeAlias = tuple[list[Segment], int]
+OtherSegments: TypeAlias = tuple[list[tuple[int, Segment]], int]
 
 AllowHeaderTextOffsetMismatch: TypeAlias = Literal[
     "error", "header_warn", "header_silent", "text_warn", "text_silent"

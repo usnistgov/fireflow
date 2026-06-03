@@ -4413,7 +4413,10 @@ class TestConfig:
             ]
 
             assert os_out == [
-                (x + a, y + b) for ((x, y), (a, b)) in zip(other_segs, norm_corrections)
+                (i, (x + a, y + b))
+                for (i, ((x, y), (a, b))) in enumerate(
+                    zip(other_segs, norm_corrections)
+                )
             ]
 
     @all_versions
@@ -4442,10 +4445,10 @@ class TestConfig:
             assert out.segments.other_segs is None
         elif max_other is None:
             os_out, _ = out.segments.other_segs
-            assert os_out == other_segs
+            assert os_out == [(i, s) for i, s in enumerate(other_segs)]
         else:
             os_out, _ = out.segments.other_segs
-            assert os_out == other_segs[0:max_other]
+            assert os_out == [(i, s) for i, s in enumerate(other_segs[0:max_other])]
 
     @all_versions
     @pytest.mark.parametrize("other_width", [8, 11, 13, 17, 20])
@@ -4552,13 +4555,13 @@ class TestConfig:
 
         if other_end == 0:
             out = pf.api.fcs_read_header(p, allow_pseudoempty=False)
-            assert out.segments.other_segs[0][0] == (0, 0)
+            assert out.segments.other_segs[0][0] == (0, (0, 0))
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
                 pf.api.fcs_read_header(p, allow_pseudoempty=False)
 
         out = pf.api.fcs_read_header(p, allow_pseudoempty=True)
-        assert out.segments.other_segs[0][0] == (0, 0)
+        assert out.segments.other_segs[0][0] == (0, (0, 0))
 
     @all_versions
     def test_truncate_offset_limit(
@@ -4690,7 +4693,7 @@ class TestConfig:
                 out.flat_diagnostics.header_supp.header.segments.other_segs is not None
             )
             assert out.flat_diagnostics.header_supp.header.segments.other_segs[0] == [
-                stext_coords
+                (0, stext_coords)
             ]
 
     @all_versions

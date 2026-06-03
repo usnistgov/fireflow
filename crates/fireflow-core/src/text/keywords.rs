@@ -1197,7 +1197,6 @@ impl From<Wavelength> for Wavelengths {
 #[derive(Clone, From, PartialEq, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-#[cfg_attr(test, derive(Arbitrary))]
 pub struct Wavelengths(pub Vec<PositiveFloat>);
 
 #[derive(Clone)]
@@ -4157,15 +4156,32 @@ const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    use crate::test::*;
     use crate::text::{
         byteord::NewEndianError,
         keyword_enum::{self as kr, AsStdKeywordPair as _, Keyword1FromValue as _},
     };
+
     use fireflow_types::nonempty_string::DisplayNE as _;
 
-    use super::*;
-    use crate::test::*;
     use assert_matches::assert_matches;
+    use proptest::prelude::*;
+
+    // don't derive this since it is better for debug output if this is shorter,
+    // and it isn't necessary for it to be anything more than 0-2 elements; this
+    // is also more realistic in terms of the values that will really be seen in
+    // the wild
+    impl Arbitrary for Wavelengths {
+        type Parameters = ();
+        type Strategy = BoxedStrategy<Self>;
+        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+            prop::collection::vec(any::<PositiveFloat>(), 0..2)
+                .prop_map(Wavelengths)
+                .boxed()
+        }
+    }
 
     #[test]
     fn tr() {

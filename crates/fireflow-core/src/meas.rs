@@ -3537,7 +3537,7 @@ where
     ) -> Result<VElementWithScale<V>, NameNotFoundError> {
         let ret = self
             .meta
-            .replace_named(name, ScaledOptical::new_identity(value))?;
+            .replace_by_name(name, ScaledOptical::new_identity(value))?;
         Ok(ret.bimap_once(|t| t, |o| (o.inner, o.scale)))
     }
 
@@ -3751,7 +3751,7 @@ where
     where
         L: LayoutRemove<C>,
     {
-        let (i, e) = self.meta.remove_name(name)?;
+        let (i, e) = self.meta.remove_by_name(name)?;
         let r = self.data.remove_nocheck(i);
         let m = e.bimap_once(|t| t, |o| (o.inner, o.scale));
         Ok((i, m, r))
@@ -3764,7 +3764,7 @@ where
     where
         L: LayoutRemove<C>,
     {
-        let p = self.meta.remove_index(index)?;
+        let p = self.meta.remove_at(index)?;
         let r = self.data.remove_nocheck(index);
         let m = p.bimap_once(|t| t, |o| o.second_once(|v| (v.inner, v.scale)));
         Ok((m, r))
@@ -4305,7 +4305,8 @@ mod test {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
         fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
-            let ns = prop::collection::hash_map(any::<NonStdKey>(), any::<NEString>(), 0..10);
+            // make this relatively short to keep debug output sane
+            let ns = prop::collection::hash_map(any::<NonStdKey>(), any::<NEString>(), 0..2);
             (any::<Longname>(), ns)
                 // iterate and collect to convert std::HashMap to hashbrown::HashMap
                 .prop_map(|(n, ns)| CommonMeasurement::new(n, ns.into_iter().collect()))

@@ -89,7 +89,7 @@ pub struct IndexedElement<K, V> {
 }
 
 /// A member in [`NamedVec`], either a "center" or "non-center" value
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 #[cfg_attr(feature = "python", derive(FromPyObject, IntoPyObject))]
 pub enum Element<U, V> {
     Center(U),
@@ -886,7 +886,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Return value that was replaced.
     ///
     /// Return none if name is not present.
-    pub(crate) fn replace_named(
+    pub(crate) fn replace_by_name(
         &mut self,
         name: &Shortname,
         value: V,
@@ -1034,7 +1034,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Remove key/value pair by name.
-    pub(crate) fn remove_index(
+    pub(crate) fn remove_at(
         &mut self,
         index: MeasIndex,
     ) -> Result<EitherPair<K, U, V>, ElementIndexError> {
@@ -1058,7 +1058,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     /// Remove key/value pair by name of key.
     ///
     /// Return error if name not found.
-    pub(crate) fn remove_name(
+    pub(crate) fn remove_by_name(
         &mut self,
         n: &Shortname,
     ) -> Result<(MeasIndex, Element<U, V>), NameNotFoundError>
@@ -1730,6 +1730,9 @@ impl<K, U, V> NamedVec<K, U, V> {
         Self::new(left, None)
     }
 
+    /// Return a more convenient split configuration if possible.
+    ///
+    /// Otherwise return a single contiguous vector of pairs.
     fn try_into_split(self) -> Result<PairedVec<K, V>, SplitVec<K, U, V>> {
         if let Some(r) = self.center_right {
             Err(SplitVec::new(self.left, r.center, r.right))
@@ -1930,6 +1933,19 @@ impl<U, V> Element<U, V> {
     }
 }
 
+impl<U, V> Element<&U, &V> {
+    pub fn cloned(self) -> Element<U, V>
+    where
+        U: Clone,
+        V: Clone,
+    {
+        match self {
+            Self::Center(x) => Element::Center(x.clone()),
+            Self::NonCenter(v) => Element::NonCenter(v.clone()),
+        }
+    }
+}
+
 impl<X> Element<X, X> {
     pub fn unwrap(self) -> X {
         self.both(|x| x, |y| y)
@@ -1944,6 +1960,10 @@ impl<X> Element<X, X> {
 // a way of deconstructing the named vec to "split" counterparts which also
 // can be easily reconstructed into the original vector upon failure.
 
+/// A vector with a center element.
+///
+/// This is a more convenient representation of a [`NamedVec`] when the center
+/// is known to exist.
 #[derive(new)]
 struct SplitVec<K, U, V> {
     left: PairedVec<K, V>,
@@ -1957,12 +1977,14 @@ impl<K, U, V> From<SplitVec<K, U, V>> for NamedVec<K, U, V> {
     }
 }
 
+/// A vector which may or may not have a center value that has been split at a new location.
 enum PartialSplit<K, U, V> {
     Left(LeftSplit<K, U, V>),
     Center(SplitVec<K, U, V>),
     Right(RightSplit<K, U, V>),
 }
 
+/// A split vector (has center) that has been split on the left side.
 #[derive(new)]
 struct LeftSplit<K, U, V> {
     selected_left_value: V,
@@ -1970,6 +1992,7 @@ struct LeftSplit<K, U, V> {
     stable: LeftSplitStable<K, V>,
 }
 
+/// A split vector (has center) that has been split on the right side.
 #[derive(new)]
 struct RightSplit<K, U, V> {
     selected_right_value: V,
@@ -1977,6 +2000,10 @@ struct RightSplit<K, U, V> {
     stable: RightSplitStable<K, V>,
 }
 
+/// A split vector (has center) that has been split on the left side.
+///
+/// This only includes the components that will not be changed in processing
+/// the split.
 #[derive(new)]
 struct LeftSplitStable<K, V> {
     left_left: PairedVec<K, V>,
@@ -1987,6 +2014,10 @@ struct LeftSplitStable<K, V> {
     right: PairedVec<K, V>,
 }
 
+/// A split vector (has center) that has been split on the right side.
+///
+/// This only includes the components that will not be changed in processing
+/// the split.
 #[derive(new)]
 struct RightSplitStable<K, V> {
     left: PairedVec<K, V>,
@@ -1997,6 +2028,7 @@ struct RightSplitStable<K, V> {
     right_right: PairedVec<K, V>,
 }
 
+/// A contiguous vector that has been split at an index
 struct PairedSplit<K, V> {
     left: PairedVec<K, V>,
     selected_name: Shortname,
@@ -2026,7 +2058,8 @@ impl<K, U, V> SplitVec<K, U, V> {
             }
             Equal => Some(PartialSplit::Center(self)),
             Greater => {
-                let split_right = PairedSplit::from_paired(self.right, index)?;
+                let right_index = index - nleft - 1;
+                let split_right = PairedSplit::from_paired(self.right, right_index)?;
                 let stable = RightSplitStable::new(
                     self.left,
                     self.center.key,
@@ -2082,8 +2115,8 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
 mod test {
     use super::*;
     use crate::meas::{
-        CommonMeasurement, ScaledOptical, Temporal, VScaledOptical, VTemporal, VersionMeasSet,
-        VersionedMeasurements,
+        CommonMeasurement, OpticalFromTemporal, ScaledOptical, Temporal, VScaledOptical, VTemporal,
+        VersionMeasSet, VersionedMeasurements,
     };
     use crate::text::keywords::Longname;
     use crate::text::optional::Identity;
@@ -2093,10 +2126,10 @@ mod test {
 
     use proptest::prelude::*;
 
-    type NamedVec2_0 = VersionedMeasurements<Version2_0>;
+    // type NamedVec2_0 = VersionedMeasurements<Version2_0>;
     type NamedVec3_1 = VersionedMeasurements<Version3_1>;
 
-    type Either2_0 = Either<Option<Shortname>, VTemporal<Version2_0>, VScaledOptical<Version2_0>>;
+    // type Either2_0 = Either<Option<Shortname>, VTemporal<Version2_0>, VScaledOptical<Version2_0>>;
     type Either3_1 = Either<Identity<Shortname>, VTemporal<Version3_1>, VScaledOptical<Version3_1>>;
 
     fn has_unique_names<K, U, V>(xs: &[Either<K, U, V>]) -> bool
@@ -2136,39 +2169,44 @@ mod test {
     }
 
     prop_compose! {
-        fn center2_0()(n in any::<Shortname>(), v in any::<Temporal<_>>()) -> Either2_0 {
+        fn center3_1()(n in any::<Shortname>(), v in any::<Temporal<_>>()) -> Either3_1 {
             Element::Center((n, v))
         }
     }
 
     prop_compose! {
-        fn noncenter2_0()(n in any::<Shortname>(), v in any::<ScaledOptical<_, _>>()) -> Either2_0 {
-            Element::NonCenter((Some(n), v))
+        fn noncenter3_1()(n in any::<Shortname>(), v in any::<ScaledOptical<_, _>>()) -> Either3_1 {
+            Element::NonCenter((Identity(n), v))
         }
     }
 
-    // prop_compose! {
-    //     fn center3_1()(n in any::<Shortname>()) -> Either3_1 {
-    //         Element::Center((n, Temporal::default()))
-    //     }
-    // }
-
-    // prop_compose! {
-    //     fn noncenter3_1()(n in any::<Shortname>()) -> Either3_1 {
-    //         Element::NonCenter((Identity(n), ScaledOptical::default()))
-    //     }
-    // }
-
-    fn new_input2_0(n_noncenter: usize, n_center: usize) -> impl Strategy<Value = Vec<Either2_0>> {
-        prop::collection::vec(center2_0(), n_center)
+    fn new_input3_1(n_noncenter: usize, n_center: usize) -> impl Strategy<Value = Vec<Either3_1>> {
+        prop::collection::vec(center3_1(), n_center)
             .prop_flat_map(move |cs| {
-                (Just(cs), prop::collection::vec(noncenter2_0(), n_noncenter)).prop_filter_map(
+                (Just(cs), prop::collection::vec(noncenter3_1(), n_noncenter)).prop_filter_map(
                     "names were not unique",
                     |(mut cs_, ns)| {
                         cs_.extend(ns);
                         has_unique_names(&cs_[..]).then_some(cs_)
                     },
                 )
+            })
+            .prop_shuffle()
+    }
+
+    fn new_elements3_1_inner(
+        n_center: usize,
+        n_noncenter: usize,
+    ) -> impl Strategy<Value = Vec<Element<VTemporal<Version3_1>, VScaledOptical<Version3_1>>>>
+    {
+        let tmp = any::<VTemporal<Version3_1>>().prop_map(Element::Center);
+        prop::collection::vec(tmp, n_center)
+            .prop_flat_map(move |cs| {
+                let opt = any::<VScaledOptical<Version3_1>>().prop_map(Element::NonCenter);
+                (Just(cs), prop::collection::vec(opt, n_noncenter)).prop_map(|(mut cs_, ns)| {
+                    cs_.extend(ns);
+                    cs_
+                })
             })
             .prop_shuffle()
     }
@@ -2185,31 +2223,21 @@ mod test {
     }
 
     prop_compose! {
-        fn new_named_vec2_0(len: usize)
+        fn new_named_vec3_1(len: usize)
             ((n_center, n_noncenter) in n_center_and_noncenter(len))
-            (xs in new_input2_0(n_noncenter, n_center)) -> NamedVec2_0 {
+            (xs in new_input3_1(n_noncenter, n_center)) -> NamedVec3_1 {
                 NamedVec::try_new(xs).unwrap()
         }
     }
 
-    // fn new_elements2_0(
-    //     len: usize,
-    // ) -> impl Strategy<Value = Vec<Element<VTemporal<Version2_0>, VScaledOptical<Version2_0>>>>
-    // {
-    //     n_center_and_noncenter(len).prop_map(|(n_center, n_non_center)| {
-    //         prop::collection::vec(center2_0(), n_center)
-    //             .prop_flat_map(move |cs| {
-    //                 (Just(cs), prop::collection::vec(noncenter2_0(), n_noncenter)).prop_filter_map(
-    //                     "names were not unique",
-    //                     |(mut cs_, ns)| {
-    //                         cs_.extend(ns);
-    //                         has_unique_names(&cs_[..]).then_some(cs_)
-    //                     },
-    //                 )
-    //             })
-    //             .prop_shuffle()
-    //     })
-    // }
+    prop_compose! {
+        fn new_elements3_1(len: usize)
+            ((n_center, n_noncenter) in n_center_and_noncenter(len))
+            (xs in new_elements3_1_inner(n_center, n_noncenter))
+             -> Vec<Element<VTemporal<Version3_1>, VScaledOptical<Version3_1>>> {
+                xs
+        }
+    }
 
     #[test]
     fn new_named_vec_empty() {
@@ -2218,42 +2246,42 @@ mod test {
 
     proptest! {
         #[test]
-        fn new_named_vec_center1(x in center2_0()) {
-            assert!(NamedVec2_0::try_new([x]).is_ok());
+        fn new_named_vec_center1(x in center3_1()) {
+            assert!(NamedVec3_1::try_new([x]).is_ok());
         }
     }
 
     proptest! {
         #[test]
-        fn new_named_vec_noncenter1(x in noncenter2_0()) {
-            assert!(NamedVec2_0::try_new([x]).is_ok());
+        fn new_named_vec_noncenter1(x in noncenter3_1()) {
+            assert!(NamedVec3_1::try_new([x]).is_ok());
         }
     }
 
     proptest! {
         #[test]
-        fn new_named_vec_without_center(xs in new_input2_0(10, 0)) {
+        fn new_named_vec_without_center(xs in new_input3_1(10, 0)) {
             assert!(NamedVec::try_new(xs).is_ok());
         }
     }
 
     proptest! {
         #[test]
-        fn new_named_vec_with_center(xs in new_input2_0(9, 1)) {
+        fn new_named_vec_with_center(xs in new_input3_1(9, 1)) {
             assert!(NamedVec::try_new(xs).is_ok());
         }
     }
 
     proptest! {
         #[test]
-        fn new_named_vec_with_centers(xs in new_input2_0(8, 2)) {
+        fn new_named_vec_with_centers(xs in new_input3_1(8, 2)) {
             assert_eq!(NamedVec::try_new(xs), Err(NewNamedVecError::MultiCenter(CenterPresentError)));
         }
     }
 
     proptest! {
         #[test]
-        fn new_named_vec_nonunique(mut xs in new_input2_0(10, 0)) {
+        fn new_named_vec_nonunique(mut xs in new_input3_1(10, 0)) {
             // copy name from first element to second
             let n0 = xs[0].clone().both(|(_, _)| panic!("all should be non-center"), |(n, _)| n);
             match &mut xs[1] {
@@ -2269,10 +2297,10 @@ mod test {
     proptest! {
         #[test]
         fn alter_common_values_ok(
-            mut xs in new_named_vec2_0(10),
+            mut xs in new_named_vec3_1(10),
             ys in prop::collection::vec("\\PC*", 10)
         ) {
-            let old_values = longnames::<_, Version2_0>(&xs);
+            let old_values = longnames::<_, Version3_1>(&xs);
             // set the longname to some arbitrary string
             let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
                 mem::replace(&mut x.longname, y.into())
@@ -2294,7 +2322,7 @@ mod test {
     proptest! {
         #[test]
         fn alter_common_values_wronglen(
-            mut xs in new_named_vec2_0(10),
+            mut xs in new_named_vec3_1(10),
             ys in prop::collection::vec("\\PC*", 11)
         ) {
             // set the longname to some arbitrary string
@@ -2306,15 +2334,13 @@ mod test {
         }
     }
 
-    // TODO add test for set_values
-
     proptest! {
         #[test]
         fn alter_values_zip_ok(
-            mut xs in new_named_vec2_0(10),
+            mut xs in new_named_vec3_1(10),
             ys in prop::collection::vec("\\PC*", 10)
         ) {
-            let old_values = labelled_longnames::<_, Version2_0>(&xs);
+            let old_values = labelled_longnames::<_, Version3_1>(&xs);
             // set the longname to some arbitrary string unless element is center
             let res = xs.alter_values_zip(
                 ys.clone(),
@@ -2343,7 +2369,7 @@ mod test {
     proptest! {
         #[test]
         fn alter_values_zip_wronglen(
-            mut xs in new_named_vec2_0(10),
+            mut xs in new_named_vec3_1(10),
             ys in prop::collection::vec("\\PC*", 11)
         ) {
             // set the longname to some arbitrary string
@@ -2361,39 +2387,192 @@ mod test {
         }
     }
 
-    // proptest! {
-    //     #[test]
-    //     fn alter_elements_zip_ok(
-    //         mut xs in new_named_vec2_0(10),
-    //         ys in prop::collection::vec("\\PC*", 10)
-    //     ) {
-    //         // set the longname to some arbitrary string if noncenter
-    //         let res = xs.alter_elements_zip(
-    //             ys.clone(),
-    //             (),
-    //             |_, _| None,
-    //             |p: IndexedElement<_, &mut Temporal<_>>, y: String| {
-    //                 Some(mem::replace(&mut p.value.common.longname, y.into()))
-    //             },
-    //             |_, _| (),
-    //         );
-    //         // result should pass (original longnames should be the default)
-    //         let ci = xs.center_index().map(usize::from);
-    //         assert_eq!(
-    //             res,
-    //             Ok((0..10).map(|i| (Some(i) != ci).then(|| Longname::default())).collect())
-    //         );
-    //         // new longnames should be the same as the inputs we gave
-    //         // assert!(
-    //         //     xs.iter()
-    //         //         .zip(ys)
-    //         //         .all(|(e, new)| {
-    //         //             e.both(
-    //         //                 |x| x.value.common.longname.0.is_empty(),
-    //         //                 |x| x.value.inner().common.longname.0 == new)
-    //         //         }));
-    //     }
-    // }
+    proptest! {
+        #[test]
+        fn replace_at_ok(
+            mut xs in new_named_vec3_1(10),
+            new in any::<VScaledOptical<Version3_1>>(),
+            index in 0_usize..10
+        ) {
+            let old = xs.get(index.into()).unwrap().bimap_once(|(_, x)| x.clone(), |(_, x)| x.clone());
+            let ret = xs.replace_at(index.into(), new);
+            assert_eq!(ret, Ok(old));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn replace_named_ok(
+            mut xs in new_named_vec3_1(10),
+            new in any::<VScaledOptical<Version3_1>>(),
+            index in 0_usize..10
+        ) {
+            let (name, old) = xs
+                .get(index.into()).unwrap()
+                .both(
+                    |(n, x)| (n.clone(), Element::Center(x.clone())),
+                    |(n, x)| (n.0.clone(), Element::NonCenter(x.clone()))
+                );
+            let ret = xs.replace_by_name(&name, new);
+            assert_eq!(ret, Ok(old));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn replace_center_at_ok(
+            mut xs in new_named_vec3_1(10),
+            new in any::<VTemporal<Version3_1>>(),
+            index in 0_usize..10
+        ) {
+            let old = xs.get(index.into()).unwrap().bimap_once(|(_, x)| x.clone(), |(_, x)| x.clone());
+            let ret = xs.replace_center_at_nofail(
+                index.into(),
+                new,
+                |i, old_t| {
+                    let o = OpticalFromTemporal::from_temporal(old_t, i, ())
+                    .set_err_value(())
+                    .infallible_nowarn_into()
+                    .0;
+                    ScaledOptical::new_identity(o)
+                }
+            );
+            assert_eq!(ret, Ok(old));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn replace_center_by_name_ok(
+            mut xs in new_named_vec3_1(10),
+            new in any::<VTemporal<Version3_1>>(),
+            index in 0_usize..10
+        ) {
+            let (name, old) = xs
+                .get(index.into()).unwrap()
+                .both(
+                    |(n, x)| (n.clone(), Element::Center(x.clone())),
+                    |(n, x)| (n.0.clone(), Element::NonCenter(x.clone()))
+                );
+            let ret = xs.replace_center_by_name_nofail(
+                &name,
+                new,
+                |i, old_t| {
+                    let o = OpticalFromTemporal::from_temporal(old_t, i, ())
+                    .set_err_value(())
+                    .infallible_nowarn_into()
+                    .0;
+                    ScaledOptical::new_identity(o)
+                }
+            );
+            assert_eq!(ret, Ok(old));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn rename_ok(
+            mut xs in new_named_vec3_1(10),
+            new in any::<Shortname>(),
+            index in 0_usize..10
+        ) {
+            let old = xs
+                .get(index.into()).unwrap()
+                .both(
+                    |(n, _)| n.clone(),
+                    |(n, _)| n.0.clone()
+                );
+            let ret = xs.rename(index.into(), Identity(new.clone()));
+            assert_eq!(ret, Ok((old, new)));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn rename_center_ok(
+            mut xs in new_named_vec3_1(10),
+            new in any::<Shortname>(),
+        ) {
+            let old = xs.as_center().map(|p| p.key.clone());
+            let ret = xs.rename_center(new);
+            assert_eq!(ret, Ok(old));
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn remove_at_ok(
+            mut xs in new_named_vec3_1(10),
+            index in 0_usize..10
+        ) {
+            let to_remove = xs
+                .get(index.into()).unwrap()
+                .bimap_once(
+                    |(n, v)| Pair::new(n.clone(), v.clone()),
+                    |(n, v)| Pair::new(n.clone(), v.clone()),
+                );
+            let old_pairs: Vec<_> = xs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, v)| (i != index).then_some(v.cloned()))
+                .collect();
+            let ret = xs.remove_at(index.into());
+            assert_eq!(ret, Ok(to_remove));
+            let new_pairs: Vec<_> = xs.iter().map(Element::cloned).collect();
+            assert_eq!(old_pairs, new_pairs);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn remove_by_name_ok(
+            mut xs in new_named_vec3_1(10),
+            index in 0_usize..10
+        ) {
+            let (name, to_remove) = xs
+                .get(index.into()).unwrap()
+                .both(
+                    |(n, v)| (n.clone(), Element::Center(v.clone())),
+                    |(n, v)| (n.0.clone(), Element::NonCenter(v.clone())),
+                );
+            let old_pairs: Vec<_> = xs
+                .iter()
+                .enumerate()
+                .filter_map(|(i, v)| (i != index).then_some(v.cloned()))
+                .collect();
+            let ret = xs.remove_by_name(&name);
+            assert_eq!(ret, Ok((index.into(), to_remove)));
+            let new_pairs: Vec<_> = xs.iter().map(Element::cloned).collect();
+            assert_eq!(old_pairs, new_pairs);
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn set_names_ok(
+            mut xs in new_named_vec3_1(10),
+            new in prop::collection::vec(any::<Shortname>(), 10),
+        ) {
+            prop_assume! {
+                all_unique(new.iter())
+            }
+            let new_hashed: HashSet<_> = new.iter().cloned().collect();
+            let old_names: HashSet<_> = xs
+                .indexed_names()
+                .map(|(_, n)| n.clone())
+                .collect();
+            let ret = xs.set_names(new);
+            assert!(ret.is_ok());
+            let (ret_old, ret_new): (HashSet<_>, HashSet<_>) = ret.unwrap().into_iter().unzip();
+            assert_eq!(ret_old, old_names);
+            assert_eq!(ret_new, new_hashed);
+        }
+    }
+
+    // TODO add tests for:
+    // - set_values
+    // - set_keys (2.0)
+    // - alter_elements_zip
 }
 
 #[cfg(feature = "python")]

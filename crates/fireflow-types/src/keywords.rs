@@ -63,7 +63,7 @@ pub trait HasVersion {
 // marker traits that denote a single version
 macro_rules! impl_version {
     ($name:ident, $var:ident) => {
-        #[derive(Clone, Copy, Eq, PartialEq)]
+        #[derive(Clone, Copy, Eq, PartialEq, Debug)]
         #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $name;
 

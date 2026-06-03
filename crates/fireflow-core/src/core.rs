@@ -6809,7 +6809,7 @@ impl DatasetSegments {
         // this has already been checked.
         if let (HeaderOrTextSegment::Text(mut dt, _), HeaderOrTextSegment::Text(mut at, _)) =
             (data, analysis)
-            && let (Some(dq), Some(aq)) = (dt.try_as_generic(), at.try_as_generic())
+            && let (Some(dq), Some(aq)) = (dt.try_as_generic(()), at.try_as_generic(()))
         {
             if dq.begin < aq.begin {
                 let overlap = dq.get_tail_overlap(&aq);

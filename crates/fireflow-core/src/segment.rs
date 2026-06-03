@@ -95,12 +95,11 @@ pub struct UncorrectedSegment {
 /// Useful for bulk operations on lots of segments at once that wouldn't work
 /// if they segments were all different types.
 #[derive(Clone, Copy, Debug, Display, new, PartialEq)]
-#[display("segment for {region} from {src} with coords ({begin}, {end})")]
+#[display("{name} with coords ({begin}, {end})")]
 pub(crate) struct GenericSegment {
     pub(crate) begin: u64,
     pub(crate) end: u64,
-    pub(crate) region: AnyRegion,
-    pub(crate) src: AnySrc,
+    pub(crate) name: SegmentName,
 }
 
 impl GenericSegment {
@@ -133,6 +132,20 @@ pub(crate) enum AnyRegion {
     Stext,
     #[display("OTHER")]
     Other,
+}
+
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
+pub(crate) enum SegmentName {
+    #[display("Primary TEXT")]
+    PrimaryTEXT,
+    #[display("Supplemental TEXT")]
+    SuppTEXT,
+    #[display("{_0} DATA")]
+    Data(AnySrc),
+    #[display("{_0} ANALYSIS")]
+    Analysis(AnySrc),
+    #[display("OTHER-{_0}")]
+    Other(usize),
 }
 
 /// Denotes [`Segment`] came from HEADER
@@ -487,8 +500,9 @@ where
 }
 
 /// Operations to obtain required segment from TEXT keywords with a default segment
-pub(crate) trait KeyedReqSegmentWithDefault: KeyedReqSegment + HasRegion
+pub(crate) trait KeyedReqSegmentWithDefault
 where
+    Self: KeyedReqSegment + HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()>,
     Self::B: ReqMetarootKey,
     Self::E: ReqMetarootKey,
 {
@@ -743,8 +757,9 @@ where
 }
 
 /// Operations to obtain optional segment from TEXT keywords with a default segment
-pub(crate) trait KeyedOptSegmentWithDefault: KeyedOptSegment + HasRegion
+pub(crate) trait KeyedOptSegmentWithDefault
 where
+    Self: KeyedOptSegment + HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()>,
     Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
     Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
 {
@@ -929,6 +944,13 @@ pub(crate) trait HasRegion {
     const REGION: AnyRegion;
 }
 
+/// A type which has a segment name.
+pub(crate) trait HasSegmentName<S> {
+    type Params;
+
+    fn segname(args: Self::Params) -> SegmentName;
+}
+
 /// Denotes that a type pertains to a region of the FCS file
 pub(crate) trait IsDataOrAnalysis {
     const IS_DATA: bool;
@@ -1021,6 +1043,46 @@ impl HasRegion for PrimaryTextSegmentId {
 
 impl HasRegion for OtherSegmentId {
     const REGION: AnyRegion = AnyRegion::Other;
+}
+
+impl<S> HasSegmentName<S> for PrimaryTextSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> SegmentName {
+        SegmentName::PrimaryTEXT
+    }
+}
+
+impl<S> HasSegmentName<S> for SupplementalTextSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> SegmentName {
+        SegmentName::SuppTEXT
+    }
+}
+
+impl<S: HasSource> HasSegmentName<S> for AnalysisSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> SegmentName {
+        SegmentName::Analysis(S::SRC)
+    }
+}
+
+impl<S: HasSource> HasSegmentName<S> for DataSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> SegmentName {
+        SegmentName::Data(S::SRC)
+    }
+}
+
+impl<S> HasSegmentName<S> for OtherSegmentId {
+    type Params = usize;
+
+    fn segname(args: Self::Params) -> SegmentName {
+        SegmentName::Other(args)
+    }
 }
 
 impl IsDataOrAnalysis for AnalysisSegmentId {
@@ -1207,15 +1269,15 @@ impl<I, S, T> Segment<I, S, T> {
         Self::new(inner)
     }
 
-    pub(crate) fn try_as_generic(&self) -> Option<GenericSegment>
+    pub(crate) fn try_as_generic(&self, args: I::Params) -> Option<GenericSegment>
     where
-        I: HasRegion,
+        I: HasRegion + HasSegmentName<S>,
         S: HasSource,
         T: Copy + Into<u64>,
     {
         self.inner.try_as_nonempty().map(|x| {
             let (begin, end) = x.as_u64().coords();
-            GenericSegment::new(begin, end, I::REGION, S::SRC)
+            GenericSegment::new(begin, end, I::segname(args))
         })
     }
 
@@ -2046,6 +2108,7 @@ impl fmt::Display for SegmentError {
 #[error("{seg0} overlaps with {seg1}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[new(visibilty(""))]
 pub struct SegmentOverlapError {
     seg0: GenericSegment,
     seg1: GenericSegment,

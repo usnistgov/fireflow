@@ -7,7 +7,7 @@ use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
 use crate::macros::impl_newtype_try_from;
-use crate::segment::{HasRegion, TEXTSegment};
+use crate::segment::{HasRegion, HasSegmentName, SegmentFromTEXT, TEXTSegment};
 use crate::text::byteord::ArrayByteOrd;
 use crate::text::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
@@ -134,9 +134,9 @@ impl Nextdata {
         limit: OverlapCorrectionLimit,
     ) -> Option<NextdataOffsetsError>
     where
-        I: HasRegion,
+        I: HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()>,
     {
-        let q = s.try_as_generic()?;
+        let q = s.try_as_generic(())?;
         let n = u64::from(self);
         let overlap = (q.end + 1).saturating_sub(n);
         if n == 0 {

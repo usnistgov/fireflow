@@ -3,9 +3,9 @@ use crate::core::{DatasetSegments, OthersReader};
 use crate::logging::{ErrorGroup, ErrorsResult};
 use crate::macros::def_summary;
 use crate::segment::{
-    GenericSegment, HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment,
-    IndexedOtherSegment, IsDataOrAnalysis, PrimaryTextSegment, Segment, SegmentOverlapError,
-    TEXTSegment,
+    GenericSegment, HasRegion, HasSegmentName, HasSource, HeaderAnalysisSegment, HeaderDataSegment,
+    IndexedOtherSegment, IsDataOrAnalysis, PrimaryTextSegment, Segment, SegmentFromTEXT,
+    SegmentOverlapError, TEXTSegment,
 };
 use crate::text::keywords::Nextdata;
 use crate::validated::ascii_range::OtherWidth;
@@ -147,9 +147,11 @@ impl ParsedHeaderSegments {
         limit: OverlapCorrectionLimit,
     ) -> impl Iterator<Item = SegmentValidationError>
     where
-        I: HasRegion,
+        I: HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()>,
     {
-        let contains = self.contains_segment(s).map(SegmentValidationError::from);
+        let contains = self
+            .contains_segment(s, ())
+            .map(SegmentValidationError::from);
         let hs = self.as_mut_nonempty_segments();
         let overlaps = Self::fix_text_overlap(hs, s, limit)
             .into_iter()
@@ -167,9 +169,11 @@ impl ParsedHeaderSegments {
         limit: OverlapCorrectionLimit,
     ) -> impl Iterator<Item = SegmentValidationError>
     where
-        I: HasRegion + IsDataOrAnalysis,
+        I: HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()> + IsDataOrAnalysis,
     {
-        let contains = self.contains_segment(s).map(SegmentValidationError::from);
+        let contains = self
+            .contains_segment(s, ())
+            .map(SegmentValidationError::from);
         let hs = self.as_mut_nonempty_segments_filtered::<I>();
         let overlaps = Self::fix_text_overlap(hs, s, limit)
             .into_iter()
@@ -229,11 +233,12 @@ impl ParsedHeaderSegments {
         limit: OverlapCorrectionLimit,
     ) -> Vec<SegmentOverlapError>
     where
-        I: HasRegion,
+        I: HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()>,
     {
         // ASSUME incoming iterator is sorted (no debug assert since this would
         // consume iterator)
-        if let Some(txt_seg) = s.try_as_generic() {
+        if let Some(txt_seg) = s.try_as_generic(()) {
+            let err = |hdr_seg| SegmentOverlapError::new(hdr_seg, txt_seg);
             let mut errors = vec![];
             let mut it = xs.into_iter();
             let mut hdr_pair = None;
@@ -257,7 +262,7 @@ impl ParsedHeaderSegments {
                     if overlap <= limit.0 && !matches!(hdr_ref, AnyHeaderSegmentMut::Text(_)) {
                         hdr_ref.truncate(overlap);
                     } else if overlap > 0 {
-                        errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
+                        errors.push(err(hdr_seg));
                     }
                 } else {
                     // HEADER begins within TEXT or after. Truncate TEXT if
@@ -268,7 +273,7 @@ impl ParsedHeaderSegments {
                         s.truncate(overlap);
                         return vec![];
                     }
-                    errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
+                    errors.push(err(hdr_seg));
                 }
             }
             // All the remaining HEADER segments should now begin within TEXT or
@@ -288,7 +293,7 @@ impl ParsedHeaderSegments {
                     s.truncate(overlap);
                     return vec![];
                 }
-                errors.push(SegmentOverlapError::new(hdr_seg, txt_seg));
+                errors.push(err(hdr_seg));
             }
             errors
         } else {
@@ -308,20 +313,27 @@ impl ParsedHeaderSegments {
     }
 
     fn contains_header_segments(&self) -> impl Iterator<Item = InHeaderError> {
-        let t = self.contains_segment(&self.text);
-        let d = self.contains_segment(&self.data);
-        let a = self.contains_segment(&self.analysis);
-        let os = self.as_others().map(|o| self.contains_segment(&o.seg));
+        let t = self.contains_segment(&self.text, ());
+        let d = self.contains_segment(&self.data, ());
+        let a = self.contains_segment(&self.analysis, ());
+        let os = self
+            .as_others()
+            .enumerate()
+            .map(|(i, o)| self.contains_segment(&o.seg, i));
         [t, d, a].into_iter().chain(os).flatten()
     }
 
-    fn contains_segment<I, S, T0>(&self, s: &Segment<I, S, T0>) -> Option<InHeaderError>
+    fn contains_segment<I, S, T0>(
+        &self,
+        s: &Segment<I, S, T0>,
+        args: I::Params,
+    ) -> Option<InHeaderError>
     where
-        I: HasRegion,
+        I: HasRegion + HasSegmentName<S>,
         S: HasSource,
         T0: Into<u64> + Copy,
     {
-        let q = s.try_as_generic()?;
+        let q = s.try_as_generic(args)?;
         (q.begin < self.nbytes()).then_some(InHeaderError(q))
     }
 
@@ -406,10 +418,10 @@ enum AnyHeaderSegmentMut<'a> {
 impl AnyHeaderSegmentMut<'_> {
     fn try_as_generic(&self) -> Option<GenericSegment> {
         match self {
-            Self::Text(s) => s.try_as_generic(),
-            Self::Data(s) => s.try_as_generic(),
-            Self::Analysis(s) => s.try_as_generic(),
-            Self::Other(s) => s.seg.try_as_generic(),
+            Self::Text(s) => s.try_as_generic(()),
+            Self::Data(s) => s.try_as_generic(()),
+            Self::Analysis(s) => s.try_as_generic(()),
+            Self::Other(s) => s.seg.try_as_generic(s.index),
         }
     }
 

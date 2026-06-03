@@ -25,10 +25,10 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    AnyRegion, GuessOtherWidthError, HasRegion, IsDataOrAnalysis, KeyedOptSegment as _,
-    KeyedReqSegment as _, OptSegmentError, PrimaryTextSegment, ReqSegmentError,
-    SegmentOverlapError, SupplementalTextSegment, SupplementalTextSegmentId, TEXTSegment,
-    UncorrectedSegment,
+    AnyRegion, GuessOtherWidthError, HasRegion, HasSegmentName, IsDataOrAnalysis,
+    KeyedOptSegment as _, KeyedReqSegment as _, OptSegmentError, PrimaryTextSegment,
+    ReqSegmentError, SegmentFromTEXT, SegmentOverlapError, SupplementalTextSegment,
+    SupplementalTextSegmentId, TEXTSegment, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadNextdataError, Tot,
@@ -1008,15 +1008,15 @@ impl HeaderAndSuppOffsets {
         limit: OverlapCorrectionLimit,
     ) -> Vec<SegmentValidationError>
     where
-        I: HasRegion + IsDataOrAnalysis,
+        I: HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()> + IsDataOrAnalysis,
     {
-        if let Some(this_seg) = s.try_as_generic() {
+        if let Some(this_seg) = s.try_as_generic(()) {
             // Check for overlap with STEXT segment. This segment should not be
             // modified since it has already been read. Therefore, only change
             // the offsets of the new segment if its ending offset is within
             // STEXT.
             let stxt_error = self.supp_text.as_seg().and_then(|supp| {
-                let stxt_seg = supp.try_as_generic()?;
+                let stxt_seg = supp.try_as_generic(())?;
                 if this_seg.as_pair() < stxt_seg.as_pair() {
                     let overlap = this_seg.get_tail_overlap(&stxt_seg);
                     if overlap <= limit.0 {

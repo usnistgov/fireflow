@@ -2126,10 +2126,8 @@ mod test {
 
     use proptest::prelude::*;
 
-    // type NamedVec2_0 = VersionedMeasurements<Version2_0>;
     type NamedVec3_1 = VersionedMeasurements<Version3_1>;
 
-    // type Either2_0 = Either<Option<Shortname>, VTemporal<Version2_0>, VScaledOptical<Version2_0>>;
     type Either3_1 = Either<Identity<Shortname>, VTemporal<Version3_1>, VScaledOptical<Version3_1>>;
 
     fn has_unique_names<K, U, V>(xs: &[Either<K, U, V>]) -> bool
@@ -2394,9 +2392,23 @@ mod test {
             new in any::<VScaledOptical<Version3_1>>(),
             index in 0_usize..10
         ) {
-            let old = xs.get(index.into()).unwrap().bimap_once(|(_, x)| x.clone(), |(_, x)| x.clone());
-            let ret = xs.replace_at(index.into(), new);
+            // get the thing currently at index
+            let old = xs
+                .get(index.into())
+                .unwrap()
+                .bimap_once(|(_, x)| x.clone(), |(_, x)| x.clone());
+            let ret = xs.replace_at(index.into(), new.clone());
+            // result should be the same as the thing we cloned earlier which
+            // was replaced
             assert_eq!(ret, Ok(old));
+            // new thing should be the same as the thing we just inserted, and
+            // it should only be an optical type
+            assert!(
+                xs.get(index.into())
+                    .unwrap()
+                    .both(|(_, _)| false, |(_, x)| x == &new)
+            );
+
         }
     }
 
@@ -2407,14 +2419,25 @@ mod test {
             new in any::<VScaledOptical<Version3_1>>(),
             index in 0_usize..10
         ) {
+            // get thing at index and the name, which we will use to call the
+            // replacement function
             let (name, old) = xs
                 .get(index.into()).unwrap()
                 .both(
                     |(n, x)| (n.clone(), Element::Center(x.clone())),
                     |(n, x)| (n.0.clone(), Element::NonCenter(x.clone()))
                 );
-            let ret = xs.replace_by_name(&name, new);
+            let ret = xs.replace_by_name(&name, new.clone());
+            // result should be the same as the thing we cloned earlier which
+            // was replaced
             assert_eq!(ret, Ok(old));
+            // new thing should be the same as the thing we just inserted, and
+            // it should only be an optical type
+            assert!(
+                xs.get(index.into())
+                    .unwrap()
+                    .both(|(_, _)| false, |(_, x)| x == &new)
+            );
         }
     }
 
@@ -2425,10 +2448,14 @@ mod test {
             new in any::<VTemporal<Version3_1>>(),
             index in 0_usize..10
         ) {
-            let old = xs.get(index.into()).unwrap().bimap_once(|(_, x)| x.clone(), |(_, x)| x.clone());
+            // get the thing currently at index
+            let old = xs
+                .get(index.into())
+                .unwrap()
+                .bimap_once(|(_, x)| x.clone(), |(_, x)| x.clone());
             let ret = xs.replace_center_at_nofail(
                 index.into(),
-                new,
+                new.clone(),
                 |i, old_t| {
                     let o = OpticalFromTemporal::from_temporal(old_t, i, ())
                     .set_err_value(())
@@ -2437,7 +2464,16 @@ mod test {
                     ScaledOptical::new_identity(o)
                 }
             );
+            // result should be the same as the thing we cloned earlier which
+            // was replaced
             assert_eq!(ret, Ok(old));
+            // new thing should be the same as the thing we just inserted, and
+            // it should always be temporal
+            assert!(
+                xs.get(index.into())
+                    .unwrap()
+                    .both(|(_, x)| x == &new, |(_, _)| false)
+            );
         }
     }
 
@@ -2448,6 +2484,8 @@ mod test {
             new in any::<VTemporal<Version3_1>>(),
             index in 0_usize..10
         ) {
+            // get thing at index and its name; use the name below to call
+            // function of concern
             let (name, old) = xs
                 .get(index.into()).unwrap()
                 .both(
@@ -2456,7 +2494,7 @@ mod test {
                 );
             let ret = xs.replace_center_by_name_nofail(
                 &name,
-                new,
+                new.clone(),
                 |i, old_t| {
                     let o = OpticalFromTemporal::from_temporal(old_t, i, ())
                     .set_err_value(())
@@ -2465,7 +2503,16 @@ mod test {
                     ScaledOptical::new_identity(o)
                 }
             );
+            // result should be the same as the thing we cloned earlier which
+            // was replaced
             assert_eq!(ret, Ok(old));
+            // new thing should be the same as the thing we just inserted, and
+            // it should always be temporal
+            assert!(
+                xs.get(index.into())
+                    .unwrap()
+                    .both(|(_, x)| x == &new, |(_, _)| false)
+            );
         }
     }
 
@@ -2476,6 +2523,7 @@ mod test {
             new in any::<Shortname>(),
             index in 0_usize..10
         ) {
+            // get old name
             let old = xs
                 .get(index.into()).unwrap()
                 .both(
@@ -2483,6 +2531,7 @@ mod test {
                     |(n, _)| n.0.clone()
                 );
             let ret = xs.rename(index.into(), Identity(new.clone()));
+            // output should be old name and new name
             assert_eq!(ret, Ok((old, new)));
         }
     }
@@ -2493,8 +2542,10 @@ mod test {
             mut xs in new_named_vec3_1(10),
             new in any::<Shortname>(),
         ) {
+            // get name of center prior to mutation
             let old = xs.as_center().map(|p| p.key.clone());
             let ret = xs.rename_center(new);
+            // output should equal old name
             assert_eq!(ret, Ok(old));
         }
     }
@@ -2505,19 +2556,24 @@ mod test {
             mut xs in new_named_vec3_1(10),
             index in 0_usize..10
         ) {
+            // get the thing to be removed
             let to_remove = xs
                 .get(index.into()).unwrap()
                 .bimap_once(
                     |(n, v)| Pair::new(n.clone(), v.clone()),
                     |(n, v)| Pair::new(n.clone(), v.clone()),
                 );
+            // copy all the pairs of the vector without the thing to be removed
             let old_pairs: Vec<_> = xs
                 .iter()
                 .enumerate()
                 .filter_map(|(i, v)| (i != index).then_some(v.cloned()))
                 .collect();
             let ret = xs.remove_at(index.into());
+            // output should be the thing we predicted would be removed
             assert_eq!(ret, Ok(to_remove));
+            // resulting vector should be the same as the original vector
+            // without the index in it as computed manually above
             let new_pairs: Vec<_> = xs.iter().map(Element::cloned).collect();
             assert_eq!(old_pairs, new_pairs);
         }
@@ -2529,20 +2585,26 @@ mod test {
             mut xs in new_named_vec3_1(10),
             index in 0_usize..10
         ) {
+            // get thing to be removed and its name (to be used below when
+            // calling function of concern)
             let (name, to_remove) = xs
                 .get(index.into()).unwrap()
                 .both(
                     |(n, v)| (n.clone(), Element::Center(v.clone())),
                     |(n, v)| (n.0.clone(), Element::NonCenter(v.clone())),
                 );
+            // copy all the pairs of the vector without the thing to be removed
             let old_pairs: Vec<_> = xs
                 .iter()
                 .enumerate()
                 .filter_map(|(i, v)| (i != index).then_some(v.cloned()))
                 .collect();
             let ret = xs.remove_by_name(&name);
+            // output should be the thing under the index above
             assert_eq!(ret, Ok((index.into(), to_remove)));
             let new_pairs: Vec<_> = xs.iter().map(Element::cloned).collect();
+            // new vector should equal the vector we computed manually before
+            // running the function of concern
             assert_eq!(old_pairs, new_pairs);
         }
     }
@@ -2556,13 +2618,19 @@ mod test {
             prop_assume! {
                 all_unique(new.iter())
             }
+            // get a hashmap of the input names (to match types later)
             let new_hashed: HashSet<_> = new.iter().cloned().collect();
+            // get the current names
             let old_names: HashSet<_> = xs
                 .indexed_names()
                 .map(|(_, n)| n.clone())
                 .collect();
             let ret = xs.set_names(new);
+            // result should be Ok since the length matched and the new names
+            // are unique
             assert!(ret.is_ok());
+            // output should be old names as keys and new names as values in a
+            // hashmap
             let (ret_old, ret_new): (HashSet<_>, HashSet<_>) = ret.unwrap().into_iter().unzip();
             assert_eq!(ret_old, old_names);
             assert_eq!(ret_new, new_hashed);

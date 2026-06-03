@@ -763,13 +763,13 @@ impl DisplayNEInner for PaddedU64 {
 
 #[cfg(feature = "testutil")]
 mod testutil {
-    use super::*;
+    use super::NEString;
     use proptest::prelude::*;
 
     impl Arbitrary for NEString {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             "\\PC+".prop_map(|s| s.parse().unwrap()).boxed()
         }
     }

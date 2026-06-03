@@ -4176,7 +4176,7 @@ mod tests {
     impl Arbitrary for Wavelengths {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             prop::collection::vec(any::<PositiveFloat>(), 0..2)
                 .prop_map(Wavelengths)
                 .boxed()

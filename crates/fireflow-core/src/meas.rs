@@ -4304,12 +4304,12 @@ mod test {
     impl Arbitrary for CommonMeasurement {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             // make this relatively short to keep debug output sane
             let ns = prop::collection::hash_map(any::<NonStdKey>(), any::<NEString>(), 0..2);
             (any::<Longname>(), ns)
                 // iterate and collect to convert std::HashMap to hashbrown::HashMap
-                .prop_map(|(n, ns)| CommonMeasurement::new(n, ns.into_iter().collect()))
+                .prop_map(|(n, ns_)| Self::new(n, ns_.into_iter().collect()))
                 .boxed()
         }
     }

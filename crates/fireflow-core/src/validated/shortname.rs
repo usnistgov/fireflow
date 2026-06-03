@@ -91,9 +91,9 @@ mod tests {
     impl Arbitrary for Shortname {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             "[^,]{1,40}"
-                .prop_map(|s| s.parse::<Shortname>().unwrap())
+                .prop_map(|s| s.parse::<Self>().unwrap())
                 .boxed()
         }
     }

@@ -108,7 +108,7 @@ mod tests {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
 
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             (0.0_f32..)
                 .prop_filter("0.0 is not allowed", |&x| x > 0.0)
                 .prop_map(|x| Self::try_from(x).unwrap())
@@ -120,14 +120,17 @@ mod tests {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
 
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             (0.0_f32..).prop_map(|x| Self::try_from(x).unwrap()).boxed()
         }
     }
 
     proptest! {
         #[test]
-        fn positive_float(x in any::<PositiveFloat>()) {
+        fn positive_float(x in 0.0_f32..) {
+            prop_assume! {
+                x > 0.0
+            }
             assert!(PositiveFloat::try_from(x).is_ok());
         }
     }
@@ -147,7 +150,7 @@ mod tests {
 
     proptest! {
         #[test]
-        fn non_neg_float(x in any::<NonNegFloat>()) {
+        fn non_neg_float(x in 0.0_f32..) {
             assert!(NonNegFloat::try_from(x).is_ok());
         }
     }

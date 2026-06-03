@@ -1934,6 +1934,8 @@ impl<U, V> Element<U, V> {
 }
 
 impl<U, V> Element<&U, &V> {
+    #[cfg(test)]
+    #[must_use]
     pub fn cloned(self) -> Element<U, V>
     where
         U: Clone,
@@ -2122,7 +2124,7 @@ mod test {
     use crate::text::optional::Identity;
     use crate::validated::shortname::Shortname;
 
-    use fireflow_types::keywords::{Version2_0, Version3_1};
+    use fireflow_types::keywords::Version3_1;
 
     use proptest::prelude::*;
 
@@ -2192,22 +2194,22 @@ mod test {
             .prop_shuffle()
     }
 
-    fn new_elements3_1_inner(
-        n_center: usize,
-        n_noncenter: usize,
-    ) -> impl Strategy<Value = Vec<Element<VTemporal<Version3_1>, VScaledOptical<Version3_1>>>>
-    {
-        let tmp = any::<VTemporal<Version3_1>>().prop_map(Element::Center);
-        prop::collection::vec(tmp, n_center)
-            .prop_flat_map(move |cs| {
-                let opt = any::<VScaledOptical<Version3_1>>().prop_map(Element::NonCenter);
-                (Just(cs), prop::collection::vec(opt, n_noncenter)).prop_map(|(mut cs_, ns)| {
-                    cs_.extend(ns);
-                    cs_
-                })
-            })
-            .prop_shuffle()
-    }
+    // fn new_elements3_1_inner(
+    //     n_center: usize,
+    //     n_noncenter: usize,
+    // ) -> impl Strategy<Value = Vec<Element<VTemporal<Version3_1>, VScaledOptical<Version3_1>>>>
+    // {
+    //     let tmp = any::<VTemporal<Version3_1>>().prop_map(Element::Center);
+    //     prop::collection::vec(tmp, n_center)
+    //         .prop_flat_map(move |cs| {
+    //             let opt = any::<VScaledOptical<Version3_1>>().prop_map(Element::NonCenter);
+    //             (Just(cs), prop::collection::vec(opt, n_noncenter)).prop_map(|(mut cs_, ns)| {
+    //                 cs_.extend(ns);
+    //                 cs_
+    //             })
+    //         })
+    //         .prop_shuffle()
+    // }
 
     prop_compose! {
         fn n_center_and_noncenter(len: usize)
@@ -2228,14 +2230,14 @@ mod test {
         }
     }
 
-    prop_compose! {
-        fn new_elements3_1(len: usize)
-            ((n_center, n_noncenter) in n_center_and_noncenter(len))
-            (xs in new_elements3_1_inner(n_center, n_noncenter))
-             -> Vec<Element<VTemporal<Version3_1>, VScaledOptical<Version3_1>>> {
-                xs
-        }
-    }
+    // prop_compose! {
+    //     fn new_elements3_1(len: usize)
+    //         ((n_center, n_noncenter) in n_center_and_noncenter(len))
+    //         (xs in new_elements3_1_inner(n_center, n_noncenter))
+    //          -> Vec<Element<VTemporal<Version3_1>, VScaledOptical<Version3_1>>> {
+    //             xs
+    //     }
+    // }
 
     #[test]
     fn new_named_vec_empty() {
@@ -2287,7 +2289,7 @@ mod test {
                 Element::NonCenter((n1, _)) => {
                     *n1 = n0;
                 }
-            };
+            }
             assert_eq!(NamedVec::try_new(xs), Err(NewNamedVecError::NonUnique(NonUniqueKeysError)));
         }
     }
@@ -2311,7 +2313,7 @@ mod test {
                     .zip(ys)
                     .all(|(e, new)| {
                         e.both(
-                            |x| &x.value.common.longname.0 == &new,
+                            |x| x.value.common.longname.0 == new,
                             |x| x.value.inner().common.longname.0 == new)
                     }));
         }
@@ -2324,7 +2326,7 @@ mod test {
             ys in prop::collection::vec("\\PC*", 11)
         ) {
             // set the longname to some arbitrary string
-            let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
+            let res = xs.alter_common_values_zip(ys, |_, x: &mut CommonMeasurement, y| {
                 mem::replace(&mut x.longname, y.into())
             });
             // result should not pass because length is not the same
@@ -2357,7 +2359,7 @@ mod test {
                     .zip(ys)
                     .all(|(e, new)| {
                         e.both(
-                            |x| &x.value.common.longname.0 == &new,
+                            |x| x.value.common.longname.0 == new,
                             |x| x.value.inner().common.longname.0 == new)
                     })
             );
@@ -2372,7 +2374,7 @@ mod test {
         ) {
             // set the longname to some arbitrary string
             let res = xs.alter_values_zip(
-                ys.clone(),
+                ys,
                 |p: IndexedElement<_, &mut Temporal<_>>, y| {
                     mem::replace(&mut p.value.common.longname, y.into())
                 },

@@ -1575,7 +1575,7 @@ mod tests {
     impl Arbitrary for StdKey {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             STD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
         }
     }
@@ -1583,7 +1583,7 @@ mod tests {
     impl Arbitrary for NonStdKey {
         type Parameters = ();
         type Strategy = BoxedStrategy<Self>;
-        fn arbitrary_with(_: Self::Parameters) -> Self::Strategy {
+        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
             NONSTD_KEY_STRAT.prop_map(|s| s.parse().unwrap()).boxed()
         }
     }
@@ -1605,7 +1605,7 @@ mod tests {
                 &conf,
             );
             assert_eq!(None, res);
-            assert_eq!(p.std.get(&k).map(|x| x.as_ne_str()), Some(v.as_ne_str()));
+            assert_eq!(p.std.get(&k).map(NEString::as_ne_str), Some(v.as_ne_str()));
         }
     }
 
@@ -1624,7 +1624,7 @@ mod tests {
                 &conf,
             );
             assert_eq!(None, res);
-            assert_eq!(p.nonstd.get(&k).map(|x| x.as_ne_str()), Some(v.as_ne_str()));
+            assert_eq!(p.nonstd.get(&k).map(NEString::as_ne_str), Some(v.as_ne_str()));
         }
     }
 
@@ -1637,7 +1637,7 @@ mod tests {
             let k_str: &str = k.as_ref();
             assert_eq!(k_str, s_noprefix);
             // reverse process should produce same string (with $)
-            assert_eq!(k.to_string(), s.to_owned());
+            assert_eq!(k.to_string(), s);
         }
     }
 
@@ -1649,7 +1649,7 @@ mod tests {
             let k_str: &str = k.as_ref();
             assert_eq!(k_str, s);
             // reverse process should produce same string (without $)
-            assert_eq!(k.to_string(), s.to_owned());
+            assert_eq!(k.to_string(), s);
         }
     }
 

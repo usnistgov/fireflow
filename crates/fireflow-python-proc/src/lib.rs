@@ -1,6 +1,7 @@
 extern crate proc_macro;
 
 use fireflow_types::config::{self as tc, EnumStrIter as _};
+use fireflow_types::diagnostics as td;
 use fireflow_types::keywords as tk;
 use fireflow_types::nonempty_string::NEStr;
 use fireflow_types::python::{
@@ -1020,8 +1021,8 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let analysis =
         DocArg::new_analysis_param(false).into_ro(|_, _| quote!(self.0.analysis.clone()));
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
-    let dataset_segs =
-        DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
+    let dataset_segs = DocArg::new_dataset_segments_param()
+        .into_ro(|_, _| quote!(self.0.dataset_segments.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
 
@@ -1382,76 +1383,82 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let origin_path = parse_quote!(fireflow_types::keywords::TEXTOffsetOrigin);
-    let origin_pt = tk::TEXTOffsetOrigin::iter_str()
-        .collect::<PyLiteral>()
-        .rstype(origin_path);
+    // let origin_path = parse_quote!(fireflow_types::diagnostics::TEXTOffsetOrigin);
+    // let origin_pt = td::TEXTOffsetOrigin::iter_str()
+    //     .collect::<PyLiteral>()
+    //     .rstype(origin_path);
 
-    let make_origin = |argname, argseg: AnySegment| {
-        DocArg::new_param(
-            argname,
-            origin_pt.clone(),
-            format!(
-                "The origin of the offsets that were actually used to read {seg}.",
-                seg = argseg.name(),
-            ),
-        )
-    };
+    // let make_origin = |argname, argseg: AnySegment| {
+    //     DocArg::new_param(
+    //         argname,
+    //         origin_pt.clone(),
+    //         format!(
+    //             "The origin of the offsets that were actually used to read {seg}.",
+    //             seg = argseg.name(),
+    //         ),
+    //     )
+    // };
 
     let data = DocArg::new_data_seg_param("final_data_seg", SegmentSrc::Any)
         .into_ro(|_, _| quote!(self.0.final_data));
     let analysis = DocArg::new_analysis_seg_param("final_analysis_seg", SegmentSrc::Any, false)
         .into_ro(|_, _| quote!(self.0.final_analysis));
-    let data_origin =
-        make_origin("data_origin", AnySegment::Data).into_ro(|_, _| quote!(self.0.data_origin));
-    let analysis_origin = make_origin("analysis_origin", AnySegment::Analysis)
-        .into_ro(|_, _| quote!(self.0.analysis_origin));
-    let data_uncorrected = DocArg::new_uncorrected_seg_param(
-        "data_seg_uncorrected",
-        AnySegment::Data,
-        UncorrSegmentSrc::Text,
+    // let data_origin =
+    //     make_origin("data_origin", AnySegment::Data).into_ro(|_, _| quote!(self.0.data_origin));
+    // let analysis_origin = make_origin("analysis_origin", AnySegment::Analysis)
+    //     .into_ro(|_, _| quote!(self.0.analysis_origin));
+    // let data_uncorrected = DocArg::new_uncorrected_seg_param(
+    //     "data_seg_uncorrected",
+    //     AnySegment::Data,
+    //     UncorrSegmentSrc::Text,
+    // )
+    // .into_ro(|_, _| quote!(self.0.data_uncorrected));
+    // let analysis_uncorrected = DocArg::new_uncorrected_seg_param(
+    //     "analysis_seg_uncorrected",
+    //     AnySegment::Analysis,
+    //     UncorrSegmentSrc::Text,
+    // )
+    // .into_ro(|_, _| quote!(self.0.analysis_uncorrected));
+
+    let overlap = DocArg::new_param(
+        "data_analysis_overlap",
+        PyOpt::new1(RsInt::U64),
+        "The overlap between {DATA} and {ANALYSIS} if applicable.",
     )
-    .into_ro(|_, _| quote!(self.0.data_uncorrected));
-    let analysis_uncorrected = DocArg::new_uncorrected_seg_param(
-        "analysis_seg_uncorrected",
-        AnySegment::Analysis,
-        UncorrSegmentSrc::Text,
-    )
-    .into_ro(|_, _| quote!(self.0.analysis_uncorrected));
+    .into_ro(|_, _| quote!(self.0.data_analysis_overlap));
 
     let args = [
-        data,
-        analysis,
-        data_origin,
-        analysis_origin,
-        data_uncorrected,
-        analysis_uncorrected,
+        data, analysis,
+        // data_origin,
+        // analysis_origin,
+        // data_uncorrected,
+        // analysis_uncorrected,
+        overlap,
     ];
 
-    let offset_para = format!(
-        "The {origin} fields indicate the origin of the offsets used to read a \
-         given segment. It will be one of 1) {emptytext} - {TEXT} offsets were \
-         empty, 2) {ignored} - {TEXT} offsets were ignored by config, 3) \
-         {missing} - {TEXT} offsets were either missing or could not be parsed, \
-         4) {match_} - {HEADER} and {TEXT} offsets match so both/either were \
-         used 5) {mishead} - {HEADER} and {TEXT} offsets don't match and \
-         {HEADER} was used, 6) {mistext} - like (6) except that {TEXT} was used, \
-         and 7) {emptyhead} - {HEADER} offsets were empty and {TEXT} offsets \
-         were not empty, so {TEXT} was used. Levels 1-5 indicate that the origin \
-         of the offsets used to read was {HEADER}, and the others indicate it \
-         was from {TEXT}.",
-        origin = arg("*_origin"),
-        emptytext = code_str(tk::TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL),
-        ignored = code_str(tk::TEXT_OFFSET_ORIGIN_IGNORED_LEVEL),
-        missing = code_str(tk::TEXT_OFFSET_ORIGIN_MISSING_LEVEL),
-        match_ = code_str(tk::TEXT_OFFSET_ORIGIN_MATCH_LEVEL),
-        mishead = code_str(tk::TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL),
-        mistext = code_str(tk::TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL),
-        emptyhead = code_str(tk::TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL),
-    );
-    let doc = DocString::new_class(format!("Segments used to parse {DATA} and {ANALYSIS}"))
-        .para(offset_para)
-        .args(args);
+    // let offset_para = format!(
+    //     "The {origin} fields indicate the origin of the offsets used to read a \
+    //      given segment. It will be one of 1) {emptytext} - {TEXT} offsets were \
+    //      empty, 2) {ignored} - {TEXT} offsets were ignored by config, 3) \
+    //      {missing} - {TEXT} offsets were either missing or could not be parsed, \
+    //      4) {match_} - {HEADER} and {TEXT} offsets match so both/either were \
+    //      used 5) {mishead} - {HEADER} and {TEXT} offsets don't match and \
+    //      {HEADER} was used, 6) {mistext} - like (6) except that {TEXT} was used, \
+    //      and 7) {emptyhead} - {HEADER} offsets were empty and {TEXT} offsets \
+    //      were not empty, so {TEXT} was used. Levels 1-5 indicate that the origin \
+    //      of the offsets used to read was {HEADER}, and the others indicate it \
+    //      was from {TEXT}.",
+    //     origin = arg("*_origin"),
+    //     emptytext = code_str(td::TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL),
+    //     ignored = code_str(td::TEXT_OFFSET_ORIGIN_IGNORED_LEVEL),
+    //     missing = code_str(td::TEXT_OFFSET_ORIGIN_MISSING_LEVEL),
+    //     match_ = code_str(td::TEXT_OFFSET_ORIGIN_MATCH_LEVEL),
+    //     mishead = code_str(td::TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL),
+    //     mistext = code_str(td::TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL),
+    //     emptyhead = code_str(td::TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL),
+    // );
+    let doc =
+        DocString::new_class(format!("Segments used to parse {DATA} and {ANALYSIS}")).args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -1466,10 +1473,9 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("final_data_seg", self.final_data_seg())?;
                 ret.set_item("final_analysis_seg", self.final_analysis_seg())?;
-                ret.set_item("data_origin", self.data_origin())?;
-                ret.set_item("analysis_origin", self.analysis_origin())?;
-                ret.set_item("data_seg_uncorrected", self.data_seg_uncorrected())?;
-                ret.set_item("analysis_seg_uncorrected", self.analysis_seg_uncorrected())?;
+                // ret.set_item("data_origin", self.data_origin())?;
+                // ret.set_item("analysis_origin", self.analysis_origin())?;
+                ret.set_item("data_analysis_overlap", self.data_analysis_overlap())?;
                 Ok(ret.into())
             }
         }
@@ -1489,8 +1495,8 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
 
-    let dataset_segs =
-        DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
+    let dataset_segs = DocArg::new_dataset_segments_param()
+        .into_ro(|_, _| quote!(self.0.dataset_segments.clone().into()));
 
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
@@ -1588,8 +1594,8 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let dataset_segs =
-        DocArg::new_dataset_segments_param().into_ro(|_, _| quote!(self.0.dataset_segments.into()));
+    let dataset_segs = DocArg::new_dataset_segments_param()
+        .into_ro(|_, _| quote!(self.0.dataset_segments.clone().into()));
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
     let event = DocArg::new_event_diagnostics_param()

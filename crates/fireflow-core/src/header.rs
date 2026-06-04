@@ -10,8 +10,8 @@ use crate::logging::{
     WarningsAndIOGroupResult, io_to_log, split_io,
 };
 use crate::segment::{
-    GuessOtherWidthError, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
+    GuessOtherWidthError, HeaderAnalysisSegment, HeaderDataSegment, HeaderOffsetOverlap,
+    HeaderSegment, HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
     SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, UncorrectedSegment,
 };
 use crate::text::keyword_enum::{
@@ -23,7 +23,9 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
-use crate::validated::header_segments::{HEADER_LEN, ParsedHeaderSegments, SegmentValidationError};
+use crate::validated::header_segments::{
+    HEADER_LEN, HeaderSegmentValidationError, ParsedHeaderSegments,
+};
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
@@ -112,6 +114,7 @@ pub struct Header {
     pub version: Version,
     pub segments: ParsedHeaderSegments,
     pub uncorrected_segments: UncorrectedHeaderSegments,
+    pub overlaps: Vec<HeaderOffsetOverlap>,
 }
 
 impl Header {
@@ -153,9 +156,9 @@ impl Header {
                     .nowarn_into_warn()
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .map_ok_value(|segs| (segs, usegs))
+                    .map_ok_value(|(segs, overlaps)| (segs, usegs, overlaps))
             })
-            .map_ok_value(|(segs, usegs)| Self::new(req.version, segs, usegs))
+            .map_ok_value(|(segs, usegs, overlaps)| Self::new(req.version, segs, usegs, overlaps))
     }
 }
 
@@ -322,7 +325,7 @@ pub(crate) fn autodetect_version(
 pub enum HeaderError {
     Segment(HeaderSegmentError),
     Version(VersionError),
-    Validation(SegmentValidationError),
+    Validation(HeaderSegmentValidationError),
     Space(HeaderSpacesError),
 }
 

@@ -18,17 +18,19 @@ use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
 use crate::logging::{
-    DeferredWarningsAndErrors, ErrorsResult, IOAnonErrorGroup, IOErrorGroup, LogResult,
+    DeferredErrors, DeferredWarningsAndErrors, IOAnonErrorGroup, IOErrorGroup, LogResult,
     ResultExt as _, SuccessResultIter as _, SwitchableErrorResult, SwitchableErrorsResult,
     WarningAndErrorResult, WarningsAndErrorResult, WarningsAndErrorsResult,
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    AnyRegion, GuessOtherWidthError, HasRegion, HasSegmentName, IsDataOrAnalysis,
-    KeyedOptSegment as _, KeyedReqSegment as _, OptSegmentError, PrimaryTextSegment,
-    ReqSegmentError, SegmentFromTEXT, SegmentOverlapError, SupplementalTextSegment,
-    SupplementalTextSegmentId, TEXTSegment, UncorrectedSegment,
+    AnyRegion, GuessOtherWidthError, HasRegion, HeaderOffsetToNextdataOverlap, HeaderSegmentName,
+    IsDataOrAnalysis, IsNamedSegment, KeyedOptSegment as _, KeyedReqSegment as _,
+    OffsetToOffsetOverlap, OptSegmentError, PrimaryTextSegment, ReqSegmentError,
+    SegmentOverlapError, SuppOffsetToNextdataOverlap, SuppTextSegmentName,
+    SuppToHeaderOffsetOverlap, SupplementalTextSegment, SupplementalTextSegmentId, TEXTSegment,
+    TextSegmentName, TextToHeaderOrSuppOffsetOverlap, UncorrectedSegment,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadNextdataError, Tot,
@@ -37,6 +39,7 @@ use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_segments::{
     NextdataOffsetsError, ParsedHeaderSegments, SegmentValidationError,
+    SuppToHeaderSegmentValidationError, TextToHeaderOrSuppSegmentValidationError,
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
@@ -48,7 +51,7 @@ use fireflow_types::config::{DelimEscapeMode, Encoding};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
 use fireflow_types::nonempty_string::NESliceExt as _;
 use hashbrown::HashMap;
-use type_families::{ApplyOnce as _, Functor as _, FunctorOnce as _};
+use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -479,6 +482,9 @@ pub struct FlatTEXTDiagnostics {
     /// HEADER data and supplemental TEXT offsets
     pub header_supp: HeaderAndSuppOffsets,
 
+    /// HEADER offsets which exceed $NEXTDATA
+    pub header_nextdata_overlaps: Vec<HeaderOffsetToNextdataOverlap>,
+
     /// Keywords that could not be parsed.
     ///
     /// These have either a non-ASCII key or a non-UTF8 value (or both).
@@ -521,7 +527,7 @@ pub struct HeaderAndSuppOffsets {
     pub header: Header,
 
     /// Supplemental TEXT offsets and their reason for exclusion if not present.
-    pub supp_text: SupplementalTEXTOffsets,
+    pub supp_text: SuppTEXTOffsetsOrigin,
 
     /// NEXTDATA offset
     ///
@@ -530,31 +536,46 @@ pub struct HeaderAndSuppOffsets {
     pub nextdata: Option<Nextdata>,
 }
 
+// TODO on the python side, flatten this enum into a class with attributes for
+// each slot (segment, uncorrect, overlap, etc). Make methods here for read
+// access, and make a function in the python lib that implements the __new__
+// plumbing so it doesn't need to be tucked into a macro
 /// The supplemental TEXT offsets from a file after parsing.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum SupplementalTEXTOffsets {
+pub enum SuppTEXTOffsetsOrigin {
     /// No offsets.
     ///
     /// This will always be returned for 2.0 files. 3.2 files may return this
     /// if the offsets are missing since they are optional.
     Empty,
-    /// Offsets required but not found.
-    Missing,
+    /// Offsets required but could not be parsed.
+    Unparsed,
+    /// Offsets required but were numerically malformed.
+    Malformed(UncorrectedSegment),
     /// Offsets present but perfectly duplicated primary TEXT and thus were ignored.
     DuplicatesPrimaryTEXT,
     /// Offsets present but perfectly duplicated ANALYSIS and thus were ignored.
     DuplicatesAnalysis,
     /// Offsets present but ignored by user configuration.
     Ignored(UncorrectedSegment),
-    /// Offsets present but perfectly duplicated OTHER offsets and supp is kept.
-    ///
-    /// Return final and uncorrected supplemental offsets and index of the OTHER
-    /// segment that was duplicated (it should match the uncorrected
-    /// supplemental segment).
-    DuplicatesOTHER(SupplementalTextSegment, UncorrectedSegment, usize),
     /// Offsets present and valid.
-    Valid(SupplementalTextSegment, UncorrectedSegment),
+    Valid(ValidSuppTEXTOffsets),
+}
+
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct ValidSuppTEXTOffsets {
+    /// The final segment offsets.
+    seg: SupplementalTextSegment,
+    /// The original segment offsets as written in the file.
+    uncorr: UncorrectedSegment,
+    /// The index of the OTHER offsets that exactly replicates this if applicable.
+    duplicated_other: Option<usize>,
+    /// Overlaps between supp TEXT and other offsets in HEADER.
+    offset_overlaps: Vec<SuppToHeaderOffsetOverlap>,
+    /// Overlap with $NEXTDATA if applicable.
+    nextdata_overlap: Option<SuppOffsetToNextdataOverlap>,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -710,8 +731,9 @@ pub enum HeaderOrFlatTextError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum STextSegmentError {
     ReqSegment(ReqSegmentError<Beginstext, Endstext>),
-    Overlap(SegmentValidationError),
+    Overlap(SuppToHeaderSegmentValidationError),
     Duplicated(DuplicateSTextError),
+    Nextdata(NextdataOffsetsError<SuppTextSegmentName>),
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -816,7 +838,7 @@ pub enum ParseFlatTEXTError {
     Nextdata(ReadNextdataError),
     InvalidKeyword(InvalidKeywordCharsError),
     InvalidChars(StdPresent),
-    NextdataOffset(NextdataOffsetsError),
+    NextdataOffset(NextdataOffsetsError<HeaderSegmentName>),
 }
 
 /// Error when parsing supplemental TEXT
@@ -1002,36 +1024,43 @@ impl HeaderAndSuppOffsets {
     /// Specifically check that no other segment (except its analogue in HEADER
     /// if non-empty) overlaps with this one. Also ensure that that these
     /// segments don't overlap with HEADER itself.
-    pub(crate) fn validate<I>(
+    pub(crate) fn validate_text_offsets<I>(
         &mut self,
         s: &mut TEXTSegment<I>,
         limit: OverlapCorrectionLimit,
-    ) -> Vec<SegmentValidationError>
+    ) -> DeferredErrors<
+        Vec<TextToHeaderOrSuppOffsetOverlap>,
+        TextToHeaderOrSuppSegmentValidationError,
+    >
     where
-        I: HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()> + IsDataOrAnalysis,
+        I: HasRegion + IsNamedSegment<TextSegmentName, Params = ()> + IsDataOrAnalysis,
     {
-        if let Some(this_seg) = s.try_as_generic(()) {
+        if let Some(this_seg) = s.try_as_named(()) {
             // Check for overlap with STEXT segment. This segment should not be
             // modified since it has already been read. Therefore, only change
             // the offsets of the new segment if its ending offset is within
             // STEXT.
+            let mut supp_overlap = None;
             let stxt_error = self.supp_text.as_seg().and_then(|supp| {
-                let stxt_seg = supp.try_as_generic(())?;
+                let stxt_seg = supp.try_as_named(())?;
+                let inner_err = SegmentOverlapError::new(this_seg, stxt_seg.fmap_into_once());
+                let err = SegmentValidationError::from(inner_err);
                 if this_seg.as_pair() < stxt_seg.as_pair() {
-                    let overlap = this_seg.get_tail_overlap(&stxt_seg);
+                    let overlap = this_seg.get_tail_offset_overlap(&stxt_seg);
                     if overlap <= limit.0 {
+                        supp_overlap = Some(OffsetToOffsetOverlap::new(
+                            this_seg,
+                            stxt_seg.fmap_into_once(),
+                            overlap,
+                        ));
                         s.truncate(overlap);
                         None
                     } else {
-                        let e = SegmentOverlapError::new(this_seg, stxt_seg);
-                        Some(SegmentValidationError::from(e))
+                        Some(err)
                     }
                 } else {
-                    let overlap = stxt_seg.get_tail_overlap(&this_seg);
-                    (overlap > 0).then(|| {
-                        let e = SegmentOverlapError::new(this_seg, stxt_seg);
-                        SegmentValidationError::from(e)
-                    })
+                    let overlap = stxt_seg.get_tail_offset_overlap(&this_seg);
+                    (overlap > 0).then_some(err)
                 }
             });
             // Check for any errors between this segment and HEADER segments,
@@ -1039,10 +1068,17 @@ impl HeaderAndSuppOffsets {
             self.header
                 .segments
                 .validate_text_data_or_analysis(s, limit)
-                .chain(stxt_error)
-                .collect()
+                .map_errors(SegmentValidationError::into2)
+                .extend_errors(stxt_error, |v| v)
+                .map_deferred_value(|hdr_overlaps| {
+                    hdr_overlaps
+                        .into_iter()
+                        .map(BifunctorOnce::second_into_once)
+                        .chain(supp_overlap)
+                        .collect()
+                })
         } else {
-            vec![]
+            LogResult::new_ok(vec![])
         }
     }
 }
@@ -1170,16 +1206,25 @@ impl FlatTEXTOutput {
         delim_res
             .group()
             .map_error(IOErrorGroup::Pure)
+            // Parse primary TEXT and get $NEXTDATA if it exists
             .and_then_commutative(|(delim, bytes)| {
                 SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, enc, conf)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
+                    .and_then_commutative(|(kws, escaped)| {
+                        Nextdata::lookup_ro(&kws.std, conf)
+                            .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                            .map_errors(ParseFlatTEXTError::from)
+                            .into_semigroup()
+                            .set_err_value(())
+                            .map_ok_value(|nextdata| (kws, delim, escaped, nextdata))
+                    })
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .map_ok_value(|(kws, escaped)| (kws, delim, escaped))
             })
-            .and_then_commutative(|(mut kws, delim, prim_out)| {
-                SupplementalTEXTOffsets::lookup(&kws.std, &mut header, st)
+            // Parse supplemental TEXT if applicable
+            .and_then_commutative(|(mut kws, delim, prim_out, nextdata)| {
+                SuppTEXTOffsetsOrigin::lookup(&kws.std, &mut header, nextdata, st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
@@ -1192,19 +1237,28 @@ impl FlatTEXTOutput {
                             )
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_pure_errors(ParseFlatTEXTError::from)
-                            .map_ok_value(|supp_out| (kws, seg_res, prim_out, supp_out))
+                            .map_ok_value(|supp_out| (kws, nextdata, seg_res, prim_out, supp_out))
                         } else {
-                            LogResult::new_ok((kws, seg_res, prim_out, None))
+                            LogResult::new_ok((kws, nextdata, seg_res, prim_out, None))
                         }
                     })
             })
-            .and_then_commutative(|(mut kws, supp_text_seg, prim_out, supp_out)| {
-                let nextdata_res = Nextdata::lookup_ro(&kws.std, conf)
-                    .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                    .map_errors(ParseFlatTEXTError::from)
-                    .into_semigroup();
+            .and_then_commutative(|(mut kws, nextdata, supp_text_seg, prim_out, supp_out)| {
+                // Check if any HEADER offsets exceed $NEXTDATA
+                let hdr_nextdata_res = if let Some(n) = nextdata {
+                    let oconf: &ReadOffsetConfig = st.conf.as_ref();
+                    let limit = oconf.overlap_correction_limit;
+                    header
+                        .segments
+                        .validate_nextdata(n, limit)
+                        .nowarn_into_warn()
+                        .map_errors(ParseFlatTEXTError::from)
+                } else {
+                    LogResult::new_ok(vec![])
+                };
 
-                let repair_res = kws
+                // Combine primary and supp TEXT keywords; check for uniqueness
+                let append_res = kws
                     .append_std(&conf.append_standard_keywords, conf.allow_nonunique)
                     .switchable_into_commutative()
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
@@ -1212,38 +1266,25 @@ impl FlatTEXTOutput {
 
                 let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
-                nextdata_res
-                    .zip_f2_once(repair_res)
-                    .set_err_value(())
-                    .group()
-                    .map_error(IOErrorGroup::Pure)
-                    .and_then_commutative(|(nextdata, ())| {
-                        // Check segments against $NEXTDATA
-                        let es = if let Some(n) = nextdata {
-                            let oconf: &ReadOffsetConfig = st.conf.as_ref();
-                            let limit = oconf.overlap_correction_limit;
-                            header.segments.validate_nextdata(n, limit)
-                        } else {
-                            vec![]
-                        };
-                        let nd_res = WarningsAndErrorsResult::new_from_err_iter(es, (), ())
-                            .map_errors(ParseFlatTEXTError::from);
-
-                        // Build diagnostics output, throw errors for bad keywords
+                hdr_nextdata_res
+                    .zip_commutative(append_res)
+                    .and_then_commutative(|(nd_overlaps, ())| {
+                        // Build diagnostics output, throw errors for any badly
+                        // formatted tokens collected during parsing
                         let header_supp =
                             HeaderAndSuppOffsets::new(header, supp_text_seg, nextdata);
-                        let diag_res = kws
-                            .diag
-                            .into_flat_diag(header_supp, prim_out, supp_out, conf)
+                        // TODO technically this does not depend on the previous
+                        // results so this can be folded out and run in parallel
+                        // with nextdata and append checks
+                        kws.diag
+                            .into_flat_diag(header_supp, nd_overlaps, prim_out, supp_out, conf)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_errors(ParseFlatTEXTError::from)
-                            .set_err_value(());
-                        nd_res
-                            .zip_commutative(diag_res)
-                            .group()
-                            .map_error(IOErrorGroup::Pure)
+                            .set_err_value(())
                     })
-                    .map_ok_value(|((), diag)| Self::new(vkws, diag))
+                    .map_ok_value(|diag| Self::new(vkws, diag))
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
             })
     }
 
@@ -1794,11 +1835,12 @@ impl GuessedEscapeMode {
     }
 }
 
-impl SupplementalTEXTOffsets {
+impl SuppTEXTOffsetsOrigin {
     fn as_seg(&self) -> Option<SupplementalTextSegment> {
-        match self {
-            Self::DuplicatesOTHER(s, _, _) | Self::Valid(s, _) => Some(*s),
-            _ => None,
+        if let Self::Valid(valid) = self {
+            Some(valid.seg)
+        } else {
+            None
         }
     }
 
@@ -1806,6 +1848,7 @@ impl SupplementalTEXTOffsets {
     fn lookup<C>(
         kws: &StdKeywords,
         header: &mut Header,
+        nextdata: Option<Nextdata>,
         st: &ReadState<C>,
     ) -> WarningsAndErrorsResult<Self, (), STextSegmentWarning, STextSegmentError>
     where
@@ -1820,6 +1863,34 @@ impl SupplementalTEXTOffsets {
         let hconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let config_corr = hconf.supp_text_correction;
+
+        let validate_seg = |hdr: &mut Header, mut corr_supp, uncorr_supp, other_index| {
+            let limit = oconf.overlap_correction_limit;
+            let nd_res = nextdata
+                .map_or(Ok(None), |nd| {
+                    nd.validate_text_offset(&mut corr_supp, limit)
+                })
+                .map_err(STextSegmentError::from)
+                .into_log();
+            let val_res = hdr
+                .segments
+                .validate_supp_text(&mut corr_supp, limit)
+                .map_errors(STextSegmentError::from)
+                .set_err_value(());
+            nd_res
+                .zip_commutative(val_res)
+                .map_ok_value(|(nd_overlap, offset_overlaps)| {
+                    let valid = ValidSuppTEXTOffsets::new(
+                        corr_supp,
+                        uncorr_supp,
+                        other_index,
+                        offset_overlaps,
+                        nd_overlap,
+                    );
+                    Self::Valid(valid)
+                })
+                .nowarn_into_warn()
+        };
 
         // At this point, we have not yet overridden the version since we have
         // not read STEXT and therefore might not have all keywords. This puts
@@ -1886,8 +1957,8 @@ impl SupplementalTEXTOffsets {
         res.set_err_value(()).and_then_commutative(|offset_res| {
             match offset_res {
                 OffsetResult::Empty => LogResult::new_ok(Self::Empty),
-                OffsetResult::Missing => LogResult::new_ok(Self::Missing),
-                OffsetResult::Valid(mut corr_supp, uncorr_supp) => {
+                OffsetResult::Missing => LogResult::new_ok(Self::Unparsed),
+                OffsetResult::Valid(corr_supp, uncorr_supp) => {
                     // Return uncorrected segments without any processing if ignored
                     if hconf.ignore_supp_text.is_set() {
                         return LogResult::new_ok(Self::Ignored(uncorr_supp));
@@ -1914,7 +1985,9 @@ impl SupplementalTEXTOffsets {
 
                     if corr_supp.is_empty() {
                         // supp TEXT is empty, return as-is
-                        LogResult::new_ok(Self::Valid(corr_supp, uncorr_supp))
+                        let valid =
+                            ValidSuppTEXTOffsets::new(corr_supp, uncorr_supp, None, vec![], None);
+                        LogResult::new_ok(Self::Valid(valid))
                     } else if uncorr_ptxt == uncorr_supp {
                         // Primary and supp are identical, keep primary
                         go(AnyRegion::Text, Self::DuplicatesPrimaryTEXT)
@@ -1922,37 +1995,33 @@ impl SupplementalTEXTOffsets {
                         // Supp and ANALYSIS are the same, keep latter
                         go(AnyRegion::Analysis, Self::DuplicatesAnalysis)
                     } else if let Some(i) = uncorr_others.iter().position(|s| s == &uncorr_supp) {
-                        // Supp and one OTHER offset are the same, keep Supp and remove
-                        // matching OTHER with the assumption that Supp is actually
-                        // a real supp text and not some binary blob.
+                        // Supp and one OTHER offset are the same, keep Supp and
+                        // remove matching OTHER with the assumption that Supp
+                        // is actually a real supp text and not some binary
+                        // blob.
                         //
-                        // TODO this assumption can be checked by reading the segment
-                        // but this would make this function way more complex.
+                        // TODO this assumption can be checked by reading the
+                        // segment but this would make this function way more
+                        // complex.
                         //
-                        // See FR-FCM-ZZZ4/MVa2011-06-30_fcs31.fcs for an example of
-                        // this
-                        // LogResult::new_ok(SuppTEXTResult::Present(seg_stxt, uncorr_stxt))
+                        // See FR-FCM-ZZZ4/MVa2011-06-30_fcs31.fcs for an
+                        // example of this configuration
                         header.segments.remove_other(i);
                         let flag = hconf.allow_duplicated_supp_text;
                         let e = DuplicateSTextError::new(uncorr_supp, AnyRegion::Other, true);
-                        let r = Self::DuplicatesOTHER(corr_supp, uncorr_supp, i);
-                        SwitchableErrorsResult::new_switchable3(r, (), e, flag)
+                        SwitchableErrorsResult::new_switchable3((), (), e, flag)
                             .map_switchable_errors(STextSegmentError::from)
                             .switchable_into_commutative()
                             .map_commutative_warnings(STextSegmentWarning::from)
+                            .and_then_commutative(|()| {
+                                validate_seg(header, corr_supp, uncorr_supp, Some(i))
+                            })
                     } else {
-                        // Supp not identical to anything else, check for overlaps and
-                        // keep if there are none. ASSUME the HEADER segments have
-                        // already been validated and adjusted such that they do not
-                        // overlap.
-                        let limit = oconf.overlap_correction_limit;
-                        let es: Vec<_> = header
-                            .segments
-                            .validate_supp_text(&mut corr_supp, limit)
-                            .map(STextSegmentError::from)
-                            .collect();
-                        let r = Self::Valid(corr_supp, uncorr_supp);
-                        ErrorsResult::new_from_err_iter(es, r, ()).nowarn_into_warn()
+                        // Supp not identical to anything else, check for
+                        // overlaps and keep if there are none. ASSUME the
+                        // HEADER segments have already been validated and
+                        // adjusted such that they do not overlap.
+                        validate_seg(header, corr_supp, uncorr_supp, None)
                     }
                 }
             }
@@ -2158,62 +2227,62 @@ mod tests {
     }
 }
 
-#[cfg(feature = "python")]
-mod python {
-    use crate::segment::{SupplementalTextSegment, UncorrectedSegment};
-    use fireflow_types::keywords as tk;
+// #[cfg(feature = "python")]
+// mod python {
+//     use crate::segment::{SupplementalTextSegment, UncorrectedSegment};
+//     use fireflow_types::keywords as tk;
 
-    use super::SupplementalTEXTOffsets;
+//     use super::SuppTEXTOffsetsOrigin;
 
-    use fireflow_types::python::ConfigError;
-    use pyo3::{IntoPyObjectExt as _, prelude::*};
+//     use fireflow_types::python::ConfigError;
+//     use pyo3::{IntoPyObjectExt as _, prelude::*};
 
-    impl<'a, 'py> FromPyObject<'a, 'py> for SupplementalTEXTOffsets {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
-            if let Ok(s) = obj.extract::<String>() {
-                if s.as_str() == tk::SUPP_TEXT_EMPTY.as_str() {
-                    return Ok(Self::Empty);
-                }
-                if s.as_str() == tk::SUPP_TEXT_MISSING.as_str() {
-                    return Ok(Self::Missing);
-                }
-                if s.as_str() == tk::SUPP_TEXT_DUP_ANALYSIS.as_str() {
-                    return Ok(Self::DuplicatesAnalysis);
-                }
-                if s.as_str() == tk::SUPP_TEXT_DUP_PTEXT.as_str() {
-                    return Ok(Self::DuplicatesPrimaryTEXT);
-                }
-            } else if let Ok(uncorr) = obj.extract::<UncorrectedSegment>() {
-                return Ok(Self::Ignored(uncorr));
-            } else if let Ok((corr, uncorr, i)) =
-                obj.extract::<(SupplementalTextSegment, UncorrectedSegment, usize)>()
-            {
-                return Ok(Self::DuplicatesOTHER(corr, uncorr, i));
-            }
-            Err(ConfigError::new_err("could not make supp segments"))
-        }
-    }
+//     impl<'a, 'py> FromPyObject<'a, 'py> for SuppTEXTOffsetsOrigin {
+//         type Error = PyErr;
+//         fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+//             if let Ok(s) = obj.extract::<String>() {
+//                 if s.as_str() == tk::SUPP_TEXT_EMPTY.as_str() {
+//                     return Ok(Self::Empty);
+//                 }
+//                 if s.as_str() == tk::SUPP_TEXT_MISSING.as_str() {
+//                     return Ok(Self::Missing);
+//                 }
+//                 if s.as_str() == tk::SUPP_TEXT_DUP_ANALYSIS.as_str() {
+//                     return Ok(Self::DuplicatesAnalysis);
+//                 }
+//                 if s.as_str() == tk::SUPP_TEXT_DUP_PTEXT.as_str() {
+//                     return Ok(Self::DuplicatesPrimaryTEXT);
+//                 }
+//             } else if let Ok(uncorr) = obj.extract::<UncorrectedSegment>() {
+//                 return Ok(Self::Ignored(uncorr));
+//             } else if let Ok((corr, uncorr, i)) =
+//                 obj.extract::<(SupplementalTextSegment, UncorrectedSegment, usize)>()
+//             {
+//                 return Ok(Self::DuplicatesOTHER(corr, uncorr, i));
+//             }
+//             Err(ConfigError::new_err("could not make supp segments"))
+//         }
+//     }
 
-    impl<'py> IntoPyObject<'py> for SupplementalTEXTOffsets {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
+//     impl<'py> IntoPyObject<'py> for SuppTEXTOffsetsOrigin {
+//         type Target = PyAny;
+//         type Output = Bound<'py, Self::Target>;
+//         type Error = PyErr;
 
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            match self {
-                Self::Empty => tk::SUPP_TEXT_EMPTY.as_str().into_bound_py_any(py),
-                Self::Missing => tk::SUPP_TEXT_MISSING.as_str().into_bound_py_any(py),
-                Self::DuplicatesAnalysis => {
-                    tk::SUPP_TEXT_DUP_ANALYSIS.as_str().into_bound_py_any(py)
-                }
-                Self::DuplicatesPrimaryTEXT => {
-                    tk::SUPP_TEXT_DUP_PTEXT.as_str().into_bound_py_any(py)
-                }
-                Self::DuplicatesOTHER(c, u, i) => (c, u, i).into_bound_py_any(py),
-                Self::Ignored(u) => u.into_bound_py_any(py),
-                Self::Valid(c, u) => (c, u).into_bound_py_any(py),
-            }
-        }
-    }
-}
+//         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+//             match self {
+//                 Self::Empty => tk::SUPP_TEXT_EMPTY.as_str().into_bound_py_any(py),
+//                 Self::Missing => tk::SUPP_TEXT_MISSING.as_str().into_bound_py_any(py),
+//                 Self::DuplicatesAnalysis => {
+//                     tk::SUPP_TEXT_DUP_ANALYSIS.as_str().into_bound_py_any(py)
+//                 }
+//                 Self::DuplicatesPrimaryTEXT => {
+//                     tk::SUPP_TEXT_DUP_PTEXT.as_str().into_bound_py_any(py)
+//                 }
+//                 Self::DuplicatesOTHER(c, u, i) => (c, u, i).into_bound_py_any(py),
+//                 Self::Ignored(u) => u.into_bound_py_any(py),
+//                 Self::Valid(c, u) => (c, u).into_bound_py_any(py),
+//             }
+//         }
+//     }
+// }

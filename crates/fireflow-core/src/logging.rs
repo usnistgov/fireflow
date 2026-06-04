@@ -2632,24 +2632,24 @@ impl<V, P, X, WC, E, EC> LogResult<V, P, WC, Nothing<()>, X, E, EC> {
     //     }
     // }
 
-    pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
-    where
-        I: IntoIterator<Item = E>,
-        EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
-        EC::Warn: Default,
-        X: ErrorFlag,
-    {
-        match GenNonEmpty::collect(errors) {
-            Some(es) => {
-                if flag.is_error() {
-                    Fail(Failure::new_from_many(es, default))
-                } else {
-                    Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
-                }
-            }
-            None => Self::new_switchable_ok(value, flag),
-        }
-    }
+    // pub(crate) fn new_switchable_iter<I>(value: V, default: P, errors: I, flag: X) -> Self
+    // where
+    //     I: IntoIterator<Item = E>,
+    //     EC: SwitchableErrorContainer<Warn = WC, Inner = E> + Default + Extend<E>,
+    //     EC::Warn: Default,
+    //     X: ErrorFlag,
+    // {
+    //     match GenNonEmpty::collect(errors) {
+    //         Some(es) => {
+    //             if flag.is_error() {
+    //                 Fail(Failure::new_from_many(es, default))
+    //             } else {
+    //                 Succ(Success::new(value, flag, EC::errors_to_warnings(es)))
+    //             }
+    //         }
+    //         None => Self::new_switchable_ok(value, flag),
+    //     }
+    // }
 
     pub(crate) fn new_switchable_iter3<I>(value: V, default: P, errors: I, flag: X) -> Self
     where

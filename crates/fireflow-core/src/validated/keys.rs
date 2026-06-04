@@ -2,6 +2,7 @@ use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics
 use crate::config::{AllowNonunique, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _};
 use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
+use crate::segment::HeaderOffsetToNextdataOverlap;
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
@@ -1244,6 +1245,7 @@ impl ParsedKeywordsDiagnostic {
     pub(crate) fn into_flat_diag(
         self,
         header_supp: HeaderAndSuppOffsets,
+        header_nextdata_overlaps: Vec<HeaderOffsetToNextdataOverlap>,
         primary_split: SplitTEXTDiagnostics,
         supp_split: Option<SplitTEXTDiagnostics>,
         conf: &ReadHeaderAndTEXTConfig,
@@ -1311,6 +1313,7 @@ impl ParsedKeywordsDiagnostic {
 
         let ret = FlatTEXTDiagnostics {
             header_supp,
+            header_nextdata_overlaps,
             byte_pairs,
             non_unique_std_keywords: self.non_unique_std_keywords,
             non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,

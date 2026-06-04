@@ -107,7 +107,7 @@ impl_kind1!(pub NonCenterElementFamily, NonCenterElement);
 impl_functor_once!(
     NonCenterElement,
     self,
-    f,
+    mut f,
     NonCenterElement(self.0.second_once(f))
 );
 

@@ -6,13 +6,16 @@ use crate::config::{
     IgnoreTEXTDataOffsets, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
     ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
+use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetOrigin};
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::text::keyword_enum::{Keyword0FromValue as _, OffsetKeyword, SplitKeyword0};
-use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
+use crate::text::keywords::{
+    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
+};
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
@@ -20,16 +23,21 @@ use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 use crate::validated::ascii_uint::{
     ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
-use crate::validated::header_segments::{HEADER_LEN, NextdataOffsetsError, SegmentValidationError};
+use crate::validated::header_segments::{
+    HEADER_LEN, NextdataOffsetsError, TextToHeaderOrSuppSegmentValidationError,
+};
 use crate::validated::keys::{
     AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
 };
 
 use fireflow_types::config::ProcessKeywordFailure;
-use fireflow_types::keywords::{TEXTOffsetOrigin, Version};
+use fireflow_types::keywords::Version;
 use fireflow_types::nonempty_string::NESliceExt as _;
 
-use type_families::Functor as _;
+use type_families::{
+    BifunctorOnce, Functor as _, FunctorOnce as _, Sibling2, impl_functor_once, impl_kind1,
+    impl_kind2,
+};
 
 use derive_more::{Display, From};
 use derive_new::new;
@@ -90,26 +98,154 @@ pub struct UncorrectedSegment {
     pub end: i128,
 }
 
-/// A non-empty segment that still has regional/src data but is type-agnostic.
-///
-/// Useful for bulk operations on lots of segments at once that wouldn't work
-/// if they segments were all different types.
-#[derive(Clone, Copy, Debug, Display, new, PartialEq)]
-#[display("{name} with coords ({begin}, {end})")]
-pub(crate) struct GenericSegment {
-    pub(crate) begin: u64,
-    pub(crate) end: u64,
-    pub(crate) name: SegmentName,
+/// Offset exceeds $NEXTDATA by
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct OffsetToNextdataOverlap<N> {
+    /// Offsets
+    pub offsets: NamedOffsets<N>,
+    /// Amount of overlap between two segments
+    pub overlap: NonZeroU64,
 }
 
-impl GenericSegment {
+pub type HeaderOffsetToNextdataOverlap = OffsetToNextdataOverlap<HeaderSegmentName>;
+pub type TextOffsetToNextdataOverlap = OffsetToNextdataOverlap<TextSegmentName>;
+pub type SuppOffsetToNextdataOverlap = OffsetToNextdataOverlap<SuppTextSegmentName>;
+
+/// Two offsets from HEADER which overlap.
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct OffsetToOffsetOverlap<N0, N1> {
+    /// First offsets
+    pub offsets0: NamedOffsets<N0>,
+    /// Second offsets
+    pub offsets1: NamedOffsets<N1>,
+    /// Amount of overlap between two segments
+    // TODO make this nonzero
+    pub overlap: u64,
+}
+
+impl_kind2!(pub OffsetOverlapFamily, OffsetToOffsetOverlap);
+
+impl<A, B> BifunctorOnce<A, B> for OffsetToOffsetOverlap<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
+        OffsetToOffsetOverlap::new(self.offsets0.fmap_once(f), self.offsets1, self.overlap)
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
+        OffsetToOffsetOverlap::new(self.offsets0, self.offsets1.fmap_once(f), self.overlap)
+    }
+}
+
+pub type HeaderOffsetOverlap = OffsetToOffsetOverlap<HeaderSegmentName, HeaderSegmentName>;
+pub type TextOffsetOverlap = OffsetToOffsetOverlap<TextSegmentName, TextSegmentName>;
+pub type TextToHeaderOffsetOverlap = OffsetToOffsetOverlap<TextSegmentName, HeaderSegmentName>;
+pub type TextToSuppOffsetOverlap = OffsetToOffsetOverlap<TextSegmentName, SuppTextSegmentName>;
+pub type TextToHeaderOrSuppOffsetOverlap =
+    OffsetToOffsetOverlap<TextSegmentName, HeaderOrSuppSegmentName>;
+pub type SuppToHeaderOffsetOverlap = OffsetToOffsetOverlap<SuppTextSegmentName, HeaderSegmentName>;
+
+/// Segment offsets which have a name to identify them
+///
+/// Used when processing and diagnosing overlaps.
+///
+/// Note that `begin` and `end` may or may not match the original values of
+/// the offsets as read from the file because some segments can go through
+/// multiple rounds of overlap corrections. These values reflect the state of
+/// offsets immediately before the overlap correction.
+#[derive(Clone, Copy, Debug, new, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct NamedOffsets<N> {
+    pub begin: u64,
+    pub end: u64,
+    pub name: N,
+}
+
+impl_kind1!(pub NamedSegmentFamily, NamedOffsets);
+
+impl_functor_once!(
+    NamedOffsets,
+    self,
+    mut f,
+    NamedOffsets::new(self.begin, self.end, f(self.name))
+);
+
+impl<N> NamedOffsets<N> {
     pub(crate) fn as_pair(&self) -> (u64, u64) {
         (self.begin, self.end)
     }
 
-    pub(crate) fn get_tail_overlap(&self, other: &Self) -> u64 {
+    pub(crate) fn get_tail_offset_overlap<N0>(&self, other: &NamedOffsets<N0>) -> u64 {
         (self.end + 1).saturating_sub(other.begin)
     }
+
+    pub(crate) fn get_tail_nextdata_overlap(&self, n: Nextdata) -> Option<NonZeroU64> {
+        let nn = u64::from(n.0);
+        if nn == 0 {
+            None
+        } else {
+            NonZeroU64::new((self.end + 1).saturating_sub(nn))
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum HeaderSegmentName {
+    #[display("Primary TEXT")]
+    Text,
+    #[display("DATA")]
+    Data,
+    #[display("ANALYSIS")]
+    Analysis,
+    #[display("OTHER-{_0}")]
+    Other(usize),
+}
+
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum HeaderOrSuppSegmentName {
+    #[display("Primary TEXT")]
+    PrimaryText,
+    #[display("Supplemental TEXT")]
+    SuppText,
+    #[display("DATA")]
+    Data,
+    #[display("ANALYSIS")]
+    Analysis,
+    #[display("OTHER-{_0}")]
+    Other(usize),
+}
+
+impl From<HeaderSegmentName> for HeaderOrSuppSegmentName {
+    fn from(value: HeaderSegmentName) -> Self {
+        match value {
+            HeaderSegmentName::Analysis => Self::Analysis,
+            HeaderSegmentName::Text => Self::PrimaryText,
+            HeaderSegmentName::Data => Self::Data,
+            HeaderSegmentName::Other(i) => Self::Other(i),
+        }
+    }
+}
+
+impl From<SuppTextSegmentName> for HeaderOrSuppSegmentName {
+    fn from(_: SuppTextSegmentName) -> Self {
+        Self::SuppText
+    }
+}
+
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
+#[display("Supplemental TEXT")]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct SuppTextSegmentName;
+
+#[derive(Clone, Copy, Debug, Display, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum TextSegmentName {
+    #[display("DATA")]
+    Data,
+    #[display("ANALYSIS")]
+    Analysis,
 }
 
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
@@ -132,20 +268,6 @@ pub(crate) enum AnyRegion {
     Stext,
     #[display("OTHER")]
     Other,
-}
-
-#[derive(Clone, Copy, Debug, Display, PartialEq)]
-pub(crate) enum SegmentName {
-    #[display("Primary TEXT")]
-    PrimaryTEXT,
-    #[display("Supplemental TEXT")]
-    SuppTEXT,
-    #[display("{_0} DATA")]
-    Data(AnySrc),
-    #[display("{_0} ANALYSIS")]
-    Analysis(AnySrc),
-    #[display("OTHER-{_0}")]
-    Other(usize),
 }
 
 /// Denotes [`Segment`] came from HEADER
@@ -248,14 +370,14 @@ pub type OtherSegment8 = OtherSegment<UintSpacePad20>;
 pub type OtherSegment20 = OtherSegment<UintSpacePad20>;
 
 pub(crate) type ReqSegResult<I> = WarningsAndErrorsResult<
-    (HeaderOrTextSegment<I>, Option<UncorrectedSegment>),
+    HeaderOrTextSegment<I>,
     (),
     ReqSegmentWithDefaultWarning<I>,
     ReqSegmentWithDefaultError<I>,
 >;
 
 pub(crate) type OptSegRes<I> = WarningsAndErrorsResult<
-    (HeaderOrTextSegment<I>, Option<UncorrectedSegment>),
+    HeaderOrTextSegment<I>,
     (),
     OptSegmentWithDefaultWarning<I>,
     OptSegmentWithDefaultWarning<I>,
@@ -343,11 +465,21 @@ pub(crate) trait HasSegmentPair: Sized {
     }
 }
 
-#[derive(Clone, Copy)]
+/// Segment offsets which can either be from HEADER or TEXT.
+///
+/// This only applies to ANALYSIS and DATA.
+#[derive(Clone)]
 pub(crate) enum HeaderOrTextSegment<I> {
+    /// Segment is from HEADER.
+    ///
+    /// Include offsets and reason for choosing it.
     Header(HeaderSegment<I>, ChoseHeaderReason),
-    /// TEXT segment, and `true` if HEADER is non-empty and mismatches
-    Text(TEXTSegment<I>, bool),
+
+    /// Segment is from TEXT
+    Text {
+        seg: TEXTSegment<I>,
+        origin: MismatchedTEXTOffsetOrigin,
+    },
 }
 
 /// Encodes the reason why offsets were taken from HEADER and not TEXT.
@@ -357,37 +489,32 @@ pub(crate) enum ChoseHeaderReason {
     Empty,
     /// TEXT is ignored
     Ignored,
-    /// TEXT is required but allowed to be missing
-    Missing,
+    /// TEXT is required but could not be parsed.
+    Unparsed,
+    /// TEXT is required but was numerically malformed.
+    Malformed(UncorrectedSegment),
     /// TEXT matches HEADER, HEADER chosen arbitrarily
     Match,
     /// TEXT mismatches HEADER, HEADER chosen
-    Mismatch,
+    Mismatch(UncorrectedSegment),
 }
 
 impl<I> HeaderOrTextSegment<I> {
     pub(crate) fn into_any(self) -> (AnySegment<I>, TEXTOffsetOrigin) {
         match self {
-            Self::Header(x, r) => {
-                let seg = x.into_any();
-                let origin = match r {
+            Self::Header(seg, reason) => {
+                let anyseg = seg.into_any();
+                let origin = match reason {
                     ChoseHeaderReason::Empty => TEXTOffsetOrigin::EmptyTEXT,
                     ChoseHeaderReason::Ignored => TEXTOffsetOrigin::Ignored,
-                    ChoseHeaderReason::Missing => TEXTOffsetOrigin::Missing,
+                    ChoseHeaderReason::Unparsed => TEXTOffsetOrigin::Unparsed,
+                    ChoseHeaderReason::Malformed(uncorr) => TEXTOffsetOrigin::Malformed(uncorr),
                     ChoseHeaderReason::Match => TEXTOffsetOrigin::Match,
-                    ChoseHeaderReason::Mismatch => TEXTOffsetOrigin::MismatchHeader,
+                    ChoseHeaderReason::Mismatch(uncorr) => TEXTOffsetOrigin::MismatchHeader(uncorr),
                 };
-                (seg, origin)
+                (anyseg, origin)
             }
-            Self::Text(x, r) => {
-                let seg = x.into_any();
-                let origin = if r {
-                    TEXTOffsetOrigin::MismatchTEXT
-                } else {
-                    TEXTOffsetOrigin::EmptyHeader
-                };
-                (seg, origin)
-            }
+            Self::Text { seg, origin } => (seg.into_any(), TEXTOffsetOrigin::MismatchTEXT(origin)),
         }
     }
 }
@@ -502,7 +629,7 @@ where
 /// Operations to obtain required segment from TEXT keywords with a default segment
 pub(crate) trait KeyedReqSegmentWithDefault
 where
-    Self: KeyedReqSegment + HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()>,
+    Self: KeyedReqSegment + HasRegion + IsNamedSegment<TextSegmentName, Params = ()>,
     Self::B: ReqMetarootKey,
     Self::E: ReqMetarootKey,
 {
@@ -527,7 +654,7 @@ where
         if ignore.is_set() {
             let default = Self::corrected_segment(segs);
             let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok((new, None))
+            LogResult::new_ok(new)
         } else {
             Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, st)
         }
@@ -555,7 +682,7 @@ where
             let _ = Self::remove_req_pair(kws);
             let default = Self::corrected_segment(segs);
             let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok((new, None))
+            LogResult::new_ok(new)
         } else {
             Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, st)
         }
@@ -578,14 +705,13 @@ where
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
-        let header_pair =
-            |uncorr, reason| (HeaderOrTextSegment::Header(header_seg, reason), uncorr);
+        let header_pair = |reason| HeaderOrTextSegment::Header(header_seg, reason);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let missing_flag = dconf.allow_missing_required_offsets;
         let limit = oconf.overlap_correction_limit;
 
         let text_missing = |es: Vec<ReqSegmentWithDefaultError<Self>>| {
-            let hpair = header_pair(None, ChoseHeaderReason::Missing);
+            let hpair = header_pair(ChoseHeaderReason::Unparsed);
             let mut res = LogResult::new_switchable_iter3(hpair, (), es, missing_flag)
                 .switchable_into_commutative()
                 .map_commutative_warnings(ReqSegmentWithDefaultWarning::from);
@@ -602,21 +728,32 @@ where
                 .map_err(ReqSegmentError::Segment);
             match seg_res {
                 Ok(mut text_seg) => {
-                    let es = segs.validate(&mut text_seg, limit);
-                    let ne = segs
+                    let nd_res = segs
                         .nextdata
-                        .and_then(|nd| nd.validate_text_offset(&mut text_seg, limit))
-                        .map(ReqSegmentWithDefaultErrorInner::from);
-                    let mut res =
-                        SwitchableErrorsResult::new_switchable_iter3((), (), es, missing_flag)
-                            .map_switchable_errors(ReqSegmentWithDefaultErrorInner::from)
-                            .extend_deferred_switchable_errors3(ne)
-                            .switchable_into_commutative()
-                            .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
-                            .set_ok_value((
-                                HeaderOrTextSegment::Text(text_seg, header_is_empty),
-                                Some(uncorr_txt),
-                            ));
+                        .map_or(Ok(None), |nd| nd.validate_text_offset(&mut text_seg, limit))
+                        .map_err(ReqSegmentWithDefaultErrorInner::from)
+                        .into_deferred_switchable3(missing_flag)
+                        .switchable_into_commutative();
+                    let val_res = segs
+                        .validate_text_offsets(&mut text_seg, limit)
+                        .map_errors(ReqSegmentWithDefaultErrorInner::from)
+                        .nowarn_into_switchable3(missing_flag)
+                        .switchable_into_commutative();
+                    let mut res = nd_res
+                        .zip_commutative(val_res)
+                        .map_commutative_warnings(ReqSegmentWithDefaultWarning::from)
+                        .map_ok_value(|(nd_overlap, offset_overlaps)| {
+                            let origin = MismatchedTEXTOffsetOrigin::new(
+                                header_is_empty,
+                                offset_overlaps,
+                                nd_overlap,
+                                uncorr_txt,
+                            );
+                            HeaderOrTextSegment::Text {
+                                seg: text_seg,
+                                origin,
+                            }
+                        });
                     res.extend_commutative_warnings(mismatch_warn);
                     res
                 }
@@ -639,7 +776,7 @@ where
                 if choose_header {
                     // We choose HEADER, return it possibly with warning
                     let ws = w.into_iter().collect::<Vec<_>>();
-                    LogResult::new_ok(header_pair(Some(uncorr_txt), ChoseHeaderReason::Mismatch))
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Mismatch(uncorr_txt)))
                         .set_commutative_warnings(ws)
                 } else {
                     // We choose TEXT, convert offsets to segment, validate, and
@@ -659,7 +796,7 @@ where
                 let uncorr_txt = UncorrectedSegment::new(x0, x1);
                 if uncorr_txt == uncorr_hdr {
                     // Uncorrected offsets are identical, not a mismatch
-                    LogResult::new_ok(header_pair(Some(uncorr_txt), ChoseHeaderReason::Match))
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
                 } else {
                     // Offsets not identical, choose one
                     mismatch_choose(uncorr_txt)
@@ -759,7 +896,7 @@ where
 /// Operations to obtain optional segment from TEXT keywords with a default segment
 pub(crate) trait KeyedOptSegmentWithDefault
 where
-    Self: KeyedOptSegment + HasRegion + HasSegmentName<SegmentFromTEXT, Params = ()>,
+    Self: KeyedOptSegment + HasRegion + IsNamedSegment<TextSegmentName, Params = ()>,
     Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
     Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
 {
@@ -784,7 +921,7 @@ where
         if ignore.is_set() {
             let default = Self::corrected_segment(segs);
             let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok((new, None))
+            LogResult::new_ok(new)
         } else {
             let pair = Self::get_opt_pair(kws);
             Self::with_opt_pair_default(pair, segs, corr, st)
@@ -810,7 +947,7 @@ where
             let default = Self::corrected_segment(segs);
             let _ = Self::remove_opt_pair(kws);
             let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok((new, None))
+            LogResult::new_ok(new)
         } else {
             let pair = Self::remove_opt_pair(kws);
             Self::with_opt_pair_default(pair, segs, corr, st)
@@ -834,8 +971,7 @@ where
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let (header_seg, uncorr_hdr) = Self::segment_pair(segs);
-        let header_pair =
-            |uncorr, reason| (HeaderOrTextSegment::Header(header_seg, reason), uncorr);
+        let header_pair = |reason| HeaderOrTextSegment::Header(header_seg, reason);
         // TODO configure this
         let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
@@ -849,27 +985,38 @@ where
                 .map_err(OptSegmentError::Segment);
             match seg_res {
                 Ok(mut text_seg) => {
-                    let es = segs.validate(&mut text_seg, limit);
-                    let ne = segs
+                    let nd_res = segs
                         .nextdata
-                        .and_then(|nd| nd.validate_text_offset(&mut text_seg, limit))
-                        .map(OptSegmentWithDefaultWarning::from);
-                    let mut res =
-                        SwitchableErrorsResult::new_switchable_iter((), (), es, drop_flag)
-                            .map_switchable_errors(OptSegmentWithDefaultWarning::from)
-                            .extend_deferred_switchable_errors(ne)
-                            .switchable_into_commutative()
-                            .set_ok_value((
-                                HeaderOrTextSegment::Text(text_seg, header_is_empty),
-                                Some(uncorr_txt),
-                            ));
+                        .map_or(Ok(None), |nd| nd.validate_text_offset(&mut text_seg, limit))
+                        .map_err(OptSegmentWithDefaultWarning::from)
+                        .into_deferred_switchable(drop_flag)
+                        .switchable_into_commutative();
+                    let val_res = segs
+                        .validate_text_offsets(&mut text_seg, limit)
+                        .nowarn_into_switchable(drop_flag)
+                        .map_switchable_errors(OptSegmentWithDefaultWarning::from)
+                        .switchable_into_commutative();
+                    let mut res = nd_res.zip_commutative(val_res).map_ok_value(
+                        |(nd_overlaps, offset_overlaps)| {
+                            let origin = MismatchedTEXTOffsetOrigin::new(
+                                header_is_empty,
+                                offset_overlaps,
+                                nd_overlaps,
+                                uncorr_txt,
+                            );
+                            HeaderOrTextSegment::Text {
+                                seg: text_seg,
+                                origin,
+                            }
+                        },
+                    );
                     res.extend_commutative_warnings(mismatch_warn);
                     res
                 }
                 Err(e) => SwitchableErrorsResult::new_deferred_switchable((), e, drop_flag)
                     .map_switchable_errors(OptSegmentWithDefaultWarning::from)
                     .switchable_into_commutative()
-                    .set_ok_value(header_pair(Some(uncorr_txt), ChoseHeaderReason::Missing)),
+                    .set_ok_value(header_pair(ChoseHeaderReason::Malformed(uncorr_txt))),
             }
         };
 
@@ -887,7 +1034,7 @@ where
                 if choose_header {
                     // We choose HEADER, return it possibly with warning
                     let ws = w.into_iter().collect::<Vec<_>>();
-                    let hpair = header_pair(Some(uncorr_txt), ChoseHeaderReason::Mismatch);
+                    let hpair = header_pair(ChoseHeaderReason::Mismatch(uncorr_txt));
                     LogResult::new_ok(hpair).set_commutative_warnings(ws)
                 } else {
                     // We choose TEXT, create new TEXT segment from pairs,
@@ -903,13 +1050,13 @@ where
 
         match pair {
             // No TEXT segment found, but no errors either, just use HEADER
-            Ok(None) => LogResult::new_ok(header_pair(None, ChoseHeaderReason::Empty)),
+            Ok(None) => LogResult::new_ok(header_pair(ChoseHeaderReason::Empty)),
             // TEXT offsets found without errors, compare with HEADER
             Ok(Some((x0, x1))) => {
                 let uncorr_txt = UncorrectedSegment::new(x0, x1);
                 if uncorr_txt == uncorr_hdr {
                     // Uncorrected HEADER and TEXT are identical, just use HEADER
-                    LogResult::new_ok(header_pair(Some(uncorr_txt), ChoseHeaderReason::Match))
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
                 } else {
                     // Segments are mismatched, figure out what to do
                     choose(uncorr_txt)
@@ -918,7 +1065,7 @@ where
             // TEXT pairs found with errors, use HEADER
             Err(es) => {
                 let (e0, e1) = es.split();
-                let hpair = header_pair(None, ChoseHeaderReason::Missing);
+                let hpair = header_pair(ChoseHeaderReason::Unparsed);
                 SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
                     .extend_deferred_switchable_errors(e1)
                     .set_ok_value(hpair)
@@ -945,10 +1092,10 @@ pub(crate) trait HasRegion {
 }
 
 /// A type which has a segment name.
-pub(crate) trait HasSegmentName<S> {
+pub(crate) trait IsNamedSegment<N> {
     type Params;
 
-    fn segname(args: Self::Params) -> SegmentName;
+    fn segname(args: Self::Params) -> N;
 }
 
 /// Denotes that a type pertains to a region of the FCS file
@@ -1045,43 +1192,59 @@ impl HasRegion for OtherSegmentId {
     const REGION: AnyRegion = AnyRegion::Other;
 }
 
-impl<S> HasSegmentName<S> for PrimaryTextSegmentId {
+impl IsNamedSegment<HeaderSegmentName> for PrimaryTextSegmentId {
     type Params = ();
 
-    fn segname((): Self::Params) -> SegmentName {
-        SegmentName::PrimaryTEXT
+    fn segname((): Self::Params) -> HeaderSegmentName {
+        HeaderSegmentName::Text
     }
 }
 
-impl<S> HasSegmentName<S> for SupplementalTextSegmentId {
+impl IsNamedSegment<HeaderSegmentName> for AnalysisSegmentId {
     type Params = ();
 
-    fn segname((): Self::Params) -> SegmentName {
-        SegmentName::SuppTEXT
+    fn segname((): Self::Params) -> HeaderSegmentName {
+        HeaderSegmentName::Analysis
     }
 }
 
-impl<S: HasSource> HasSegmentName<S> for AnalysisSegmentId {
+impl IsNamedSegment<HeaderSegmentName> for DataSegmentId {
     type Params = ();
 
-    fn segname((): Self::Params) -> SegmentName {
-        SegmentName::Analysis(S::SRC)
+    fn segname((): Self::Params) -> HeaderSegmentName {
+        HeaderSegmentName::Data
     }
 }
 
-impl<S: HasSource> HasSegmentName<S> for DataSegmentId {
-    type Params = ();
-
-    fn segname((): Self::Params) -> SegmentName {
-        SegmentName::Data(S::SRC)
-    }
-}
-
-impl<S> HasSegmentName<S> for OtherSegmentId {
+impl IsNamedSegment<HeaderSegmentName> for OtherSegmentId {
     type Params = usize;
 
-    fn segname(args: Self::Params) -> SegmentName {
-        SegmentName::Other(args)
+    fn segname(args: Self::Params) -> HeaderSegmentName {
+        HeaderSegmentName::Other(args)
+    }
+}
+
+impl IsNamedSegment<SuppTextSegmentName> for SupplementalTextSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> SuppTextSegmentName {
+        SuppTextSegmentName
+    }
+}
+
+impl IsNamedSegment<TextSegmentName> for AnalysisSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> TextSegmentName {
+        TextSegmentName::Analysis
+    }
+}
+
+impl IsNamedSegment<TextSegmentName> for DataSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> TextSegmentName {
+        TextSegmentName::Data
     }
 }
 
@@ -1269,15 +1432,15 @@ impl<I, S, T> Segment<I, S, T> {
         Self::new(inner)
     }
 
-    pub(crate) fn try_as_generic(&self, args: I::Params) -> Option<GenericSegment>
+    pub(crate) fn try_as_named<N>(&self, args: I::Params) -> Option<NamedOffsets<N>>
     where
-        I: HasRegion + HasSegmentName<S>,
+        I: HasRegion + IsNamedSegment<N>,
         S: HasSource,
         T: Copy + Into<u64>,
     {
         self.inner.try_as_nonempty().map(|x| {
             let (begin, end) = x.as_u64().coords();
-            GenericSegment::new(begin, end, I::segname(args))
+            NamedOffsets::new(begin, end, I::segname(args))
         })
     }
 
@@ -2104,15 +2267,41 @@ impl fmt::Display for SegmentError {
 }
 
 /// Error when one segment overlaps with another
-#[derive(Debug, Error, new, PartialEq, Clone)]
-#[error("{seg0} overlaps with {seg1}")]
+#[derive(Debug, Error, new, PartialEq, Clone, Display)]
+#[display(
+    "{} segment offsets ({}, {}) overlaps with {} segment offsets ({}, {})",
+    self.seg0.name,
+    self.seg0.begin,
+    self.seg0.end,
+    self.seg1.name,
+    self.seg1.begin,
+    self.seg1.end,
+)]
+#[display(bound(N0: fmt::Display, N1: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(N0: fmt::Display))]
+#[cfg_attr(feature = "python", bound(N1: fmt::Display))]
 #[new(visibilty(""))]
-pub struct SegmentOverlapError {
-    seg0: GenericSegment,
-    seg1: GenericSegment,
+pub struct SegmentOverlapError<N0, N1> {
+    seg0: NamedOffsets<N0>,
+    seg1: NamedOffsets<N1>,
 }
+
+impl_kind2!(pub SegmentOverlapErrorFamily, SegmentOverlapError);
+
+impl<A, B> BifunctorOnce<A, B> for SegmentOverlapError<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
+        SegmentOverlapError::new(self.seg0.fmap_once(f), self.seg1)
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
+        SegmentOverlapError::new(self.seg0, self.seg1.fmap_once(f))
+    }
+}
+
+pub type HeaderSegmentOverlapError = SegmentOverlapError<HeaderSegmentName, HeaderSegmentName>;
+pub type HeaderTextSegmentOverlapError = SegmentOverlapError<TextSegmentName, HeaderSegmentName>;
 
 /// Error when parsing the offset for a segment
 #[derive(Debug, Error, new, PartialEq, Clone)]
@@ -2198,8 +2387,8 @@ impl<I> PartialEq for SegmentMismatchError<I> {
 pub enum ReqSegmentWithDefaultErrorInner<I, B, E> {
     Req(ReqSegmentError<B, E>),
     Mismatch(SegmentMismatchError<I>),
-    Validation(SegmentValidationError),
-    Nextdata(NextdataOffsetsError),
+    Validation(TextToHeaderOrSuppSegmentValidationError),
+    Nextdata(NextdataOffsetsError<TextSegmentName>),
 }
 
 impl<I, B, E> Clone for ReqSegmentWithDefaultErrorInner<I, B, E> {
@@ -2260,8 +2449,8 @@ impl<I, B, E> PartialEq for ReqSegmentWithDefaultWarning_<I, B, E> {
 pub enum OptSegmentWithDefaultWarningInner<I, B, E> {
     Opt(OptSegmentError<B, E>),
     Mismatch(SegmentMismatchError<I>),
-    Validation(SegmentValidationError),
-    Nextdata(NextdataOffsetsError),
+    Validation(TextToHeaderOrSuppSegmentValidationError),
+    Nextdata(NextdataOffsetsError<TextSegmentName>),
 }
 
 impl<I, B, E> Clone for OptSegmentWithDefaultWarningInner<I, B, E> {
@@ -2417,18 +2606,22 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        IndexedOtherSegment, InnerSegment, NonEmptySegment, OffsetCorrection, OtherSegment20,
-        Segment, UncorrectedSegment,
+        HeaderSegmentName, IndexedOtherSegment, InnerSegment, NamedOffsets, NonEmptySegment,
+        OffsetCorrection, OtherSegment20, Segment, SuppTextSegmentName, TextSegmentName,
+        UncorrectedSegment,
     };
 
     use crate::config::DatasetOffset;
 
+    use fireflow_types::diagnostics as td;
     use fireflow_types::python::ConfigError;
 
     use num_traits::identities::Zero;
+    use pyo3::exceptions::PyValueError;
+    use pyo3::types::{PyString, PyTuple};
+    use pyo3::{IntoPyObjectExt as _, prelude::*};
 
-    use pyo3::prelude::*;
-    use pyo3::types::PyTuple;
+    use std::convert::Infallible;
 
     // offset corrections will be tuples like (int, int)
     impl<'py, I, S> FromPyObject<'_, 'py> for OffsetCorrection<I, S> {
@@ -2533,6 +2726,132 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             (self.begin, self.end).into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for HeaderSegmentName {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(x) = obj.extract::<usize>() {
+                return Ok(Self::Other(x));
+            } else if let Ok(s) = obj.extract::<String>() {
+                let n = s.as_str();
+                if n == td::HEADER_NAME_TEXT.as_str() {
+                    return Ok(Self::Text);
+                }
+                if n == td::HEADER_NAME_DATA.as_str() {
+                    return Ok(Self::Data);
+                }
+                if n == td::HEADER_NAME_ANALYSIS.as_str() {
+                    return Ok(Self::Analysis);
+                }
+            }
+            Err(PyValueError::new_err(format!(
+                "Must be an integer for OTHER index or one of {}, {}, or {}",
+                td::HEADER_NAME_TEXT,
+                td::HEADER_NAME_DATA,
+                td::HEADER_NAME_ANALYSIS
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for HeaderSegmentName {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Other(x) => x.into_bound_py_any(py),
+                Self::Text => td::HEADER_NAME_TEXT.as_str().into_bound_py_any(py),
+                Self::Data => td::HEADER_NAME_DATA.as_str().into_bound_py_any(py),
+                Self::Analysis => td::HEADER_NAME_ANALYSIS.as_str().into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for TextSegmentName {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(s) = obj.extract::<String>() {
+                let n = s.as_str();
+                if n == td::HEADER_NAME_DATA.as_str() {
+                    return Ok(Self::Data);
+                }
+                if n == td::HEADER_NAME_ANALYSIS.as_str() {
+                    return Ok(Self::Analysis);
+                }
+            }
+            Err(PyValueError::new_err(format!(
+                "Must be one of {} or {}",
+                td::HEADER_NAME_DATA,
+                td::HEADER_NAME_ANALYSIS
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for TextSegmentName {
+        type Target = PyString;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Data => td::HEADER_NAME_DATA.as_str().into_pyobject(py),
+                Self::Analysis => td::HEADER_NAME_ANALYSIS.as_str().into_pyobject(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for SuppTextSegmentName {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(s) = obj.extract::<String>()
+                && s.as_str() == td::HEADER_NAME_STEXT.as_str()
+            {
+                Ok(Self)
+            } else {
+                Err(PyValueError::new_err(format!(
+                    "Must be {}",
+                    td::HEADER_NAME_STEXT
+                )))
+            }
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for SuppTextSegmentName {
+        type Target = PyString;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            td::HEADER_NAME_STEXT.as_str().into_pyobject(py)
+        }
+    }
+
+    // named segments are just like segments, ie (<name>, int, int) where the
+    // type of <name> depends on context
+    impl<'py, N> FromPyObject<'_, 'py> for NamedOffsets<N>
+    where
+        for<'a> N: FromPyObject<'a, 'py>,
+    {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (name, begin, end) = obj.extract::<(N, u64, u64)>()?;
+            Ok(Self::new(begin, end, name))
+        }
+    }
+
+    impl<'py, N> IntoPyObject<'py> for NamedOffsets<N>
+    where
+        N: IntoPyObject<'py>,
+    {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.begin, self.end, self.name).into_pyobject(py)
         }
     }
 }

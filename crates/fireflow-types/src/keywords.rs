@@ -276,44 +276,6 @@ impl_str_enum_kw!(
     Height => OPT_FEATURE_HEIGHT
 );
 
-// TEXT offset keyword origins
-
-pub const TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL: &NEStr = ne_str!("empty_text");
-pub const TEXT_OFFSET_ORIGIN_IGNORED_LEVEL: &NEStr = ne_str!("ignored");
-pub const TEXT_OFFSET_ORIGIN_MISSING_LEVEL: &NEStr = ne_str!("missing");
-pub const TEXT_OFFSET_ORIGIN_MATCH_LEVEL: &NEStr = ne_str!("match");
-pub const TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL: &NEStr = ne_str!("mismatch_header");
-pub const TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL: &NEStr = ne_str!("mismatch_text");
-pub const TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL: &NEStr = ne_str!("empty_header");
-
-impl_str_enum!(
-    /// Encodes the origin of a DATA or ANALYSIS segment from TEXT.
-    #[derive(PartialEq, Debug, Display)]
-    #[cfg_attr(feature = "serde", derive(Serialize))]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-    pub TEXTOffsetOrigin,
-    /// Error when parsing [`TEXTOffsetOrigin`]
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-    pub TEXTOffsetOriginError,
-    /// TEXT offsets were empty.
-    ///
-    /// This is the only possible level for 2.0.
-    EmptyTEXT => TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL,
-    /// TEXT offsets were present but ignored.
-    Ignored => TEXT_OFFSET_ORIGIN_IGNORED_LEVEL,
-    /// TEXT offsets are required but were allowed by config to be missing.
-    Missing => TEXT_OFFSET_ORIGIN_MISSING_LEVEL,
-    /// TEXT offsets present and match HEADER exactly.
-    Match => TEXT_OFFSET_ORIGIN_MATCH_LEVEL,
-    /// TEXT offsets present and mismatch HEADER, latter were chosen
-    MismatchHeader => TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL,
-    /// TEXT offsets present and mismatch HEADER, former were chosen
-    MismatchTEXT => TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL,
-    /// TEXT present and HEADER empty
-    EmptyHeader => TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL
-);
-
 #[cfg(feature = "python")]
 mod python {
     use crate::nonempty_string::DisplayableNE as _;

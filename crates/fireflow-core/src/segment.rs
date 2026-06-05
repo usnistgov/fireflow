@@ -6,7 +6,7 @@ use crate::config::{
     IgnoreTEXTDataOffsets, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
     ReadOffsetConfig, ReadState, TruncateOffsetLimit,
 };
-use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetOrigin};
+use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
@@ -99,7 +99,7 @@ pub struct UncorrectedSegment {
 }
 
 /// Offset exceeds $NEXTDATA by
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OffsetToNextdataOverlap<N> {
     /// Offsets
@@ -137,13 +137,11 @@ impl<A, B> BifunctorOnce<A, B> for OffsetToOffsetOverlap<A, B> {
     }
 }
 
-pub type HeaderOffsetOverlap = OffsetToOffsetOverlap<HeaderSegmentName, HeaderSegmentName>;
-pub type TextOffsetOverlap = OffsetToOffsetOverlap<TextSegmentName, TextSegmentName>;
+pub type HeaderToHeaderOffsetOverlap = OffsetToOffsetOverlap<HeaderSegmentName, HeaderSegmentName>;
 pub type TextToHeaderOffsetOverlap = OffsetToOffsetOverlap<TextSegmentName, HeaderSegmentName>;
-pub type TextToSuppOffsetOverlap = OffsetToOffsetOverlap<TextSegmentName, SuppTextSegmentName>;
+pub type SuppToHeaderOffsetOverlap = OffsetToOffsetOverlap<SuppTextSegmentName, HeaderSegmentName>;
 pub type TextToHeaderOrSuppOffsetOverlap =
     OffsetToOffsetOverlap<TextSegmentName, HeaderOrSuppSegmentName>;
-pub type SuppToHeaderOffsetOverlap = OffsetToOffsetOverlap<SuppTextSegmentName, HeaderSegmentName>;
 
 /// Segment offsets which have a name to identify them
 ///
@@ -500,21 +498,23 @@ pub(crate) enum ChoseHeaderReason {
 }
 
 impl<I> HeaderOrTextSegment<I> {
-    pub(crate) fn into_any(self) -> (AnySegment<I>, TEXTOffsetOrigin) {
+    pub(crate) fn into_any(self) -> (AnySegment<I>, TEXTOffsetsOrigin) {
         match self {
             Self::Header(seg, reason) => {
                 let anyseg = seg.into_any();
                 let origin = match reason {
-                    ChoseHeaderReason::Empty => TEXTOffsetOrigin::EmptyTEXT,
-                    ChoseHeaderReason::Ignored => TEXTOffsetOrigin::Ignored,
-                    ChoseHeaderReason::Unparsed => TEXTOffsetOrigin::Unparsed,
-                    ChoseHeaderReason::Malformed(uncorr) => TEXTOffsetOrigin::Malformed(uncorr),
-                    ChoseHeaderReason::Match => TEXTOffsetOrigin::Match,
-                    ChoseHeaderReason::Mismatch(uncorr) => TEXTOffsetOrigin::MismatchHeader(uncorr),
+                    ChoseHeaderReason::Empty => TEXTOffsetsOrigin::EmptyTEXT,
+                    ChoseHeaderReason::Ignored => TEXTOffsetsOrigin::Ignored,
+                    ChoseHeaderReason::Unparsed => TEXTOffsetsOrigin::Unparsed,
+                    ChoseHeaderReason::Malformed(uncorr) => TEXTOffsetsOrigin::Malformed(uncorr),
+                    ChoseHeaderReason::Match => TEXTOffsetsOrigin::Match,
+                    ChoseHeaderReason::Mismatch(uncorr) => {
+                        TEXTOffsetsOrigin::MismatchHeader(uncorr)
+                    }
                 };
                 (anyseg, origin)
             }
-            Self::Text { seg, origin } => (seg.into_any(), TEXTOffsetOrigin::MismatchTEXT(origin)),
+            Self::Text { seg, origin } => (seg.into_any(), TEXTOffsetsOrigin::MismatchTEXT(origin)),
         }
     }
 }
@@ -745,9 +745,9 @@ where
                         .map_ok_value(|(nd_overlap, offset_overlaps)| {
                             let origin = MismatchedTEXTOffsetOrigin::new(
                                 header_is_empty,
+                                uncorr_txt,
                                 offset_overlaps,
                                 nd_overlap,
-                                uncorr_txt,
                             );
                             HeaderOrTextSegment::Text {
                                 seg: text_seg,
@@ -1000,9 +1000,9 @@ where
                         |(nd_overlaps, offset_overlaps)| {
                             let origin = MismatchedTEXTOffsetOrigin::new(
                                 header_is_empty,
+                                uncorr_txt,
                                 offset_overlaps,
                                 nd_overlaps,
-                                uncorr_txt,
                             );
                             HeaderOrTextSegment::Text {
                                 seg: text_seg,
@@ -2606,15 +2606,14 @@ mod serialize {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        HeaderSegmentName, IndexedOtherSegment, InnerSegment, NamedOffsets, NonEmptySegment,
-        OffsetCorrection, OtherSegment20, Segment, SuppTextSegmentName, TextSegmentName,
-        UncorrectedSegment,
+        HeaderOrSuppSegmentName, HeaderSegmentName, IndexedOtherSegment, InnerSegment,
+        NamedOffsets, NonEmptySegment, OffsetCorrection, OtherSegment20, Segment,
+        SuppTextSegmentName, TextSegmentName, UncorrectedSegment,
     };
 
     use crate::config::DatasetOffset;
 
-    use fireflow_types::diagnostics as td;
-    use fireflow_types::python::ConfigError;
+    use fireflow_types::python as py;
 
     use num_traits::identities::Zero;
     use pyo3::exceptions::PyValueError;
@@ -2656,7 +2655,7 @@ mod python {
                 // functions which "configure" a reader to look in a certain
                 // location for something (a stretch, but that's the closest we
                 // have now)
-                Err(ConfigError::new_err("offset begin is greater than end"))
+                Err(py::ConfigError::new_err("offset begin is greater than end"))
             } else if begin == T::zero() && end == T::zero() {
                 Ok(InnerSegment::Empty)
             } else {
@@ -2736,21 +2735,21 @@ mod python {
                 return Ok(Self::Other(x));
             } else if let Ok(s) = obj.extract::<String>() {
                 let n = s.as_str();
-                if n == td::HEADER_NAME_TEXT.as_str() {
+                if n == py::SEGMENT_NAME_TEXT.as_str() {
                     return Ok(Self::Text);
                 }
-                if n == td::HEADER_NAME_DATA.as_str() {
+                if n == py::SEGMENT_NAME_DATA.as_str() {
                     return Ok(Self::Data);
                 }
-                if n == td::HEADER_NAME_ANALYSIS.as_str() {
+                if n == py::SEGMENT_NAME_ANALYSIS.as_str() {
                     return Ok(Self::Analysis);
                 }
             }
             Err(PyValueError::new_err(format!(
                 "Must be an integer for OTHER index or one of {}, {}, or {}",
-                td::HEADER_NAME_TEXT,
-                td::HEADER_NAME_DATA,
-                td::HEADER_NAME_ANALYSIS
+                py::SEGMENT_NAME_TEXT,
+                py::SEGMENT_NAME_DATA,
+                py::SEGMENT_NAME_ANALYSIS
             )))
         }
     }
@@ -2763,9 +2762,55 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
                 Self::Other(x) => x.into_bound_py_any(py),
-                Self::Text => td::HEADER_NAME_TEXT.as_str().into_bound_py_any(py),
-                Self::Data => td::HEADER_NAME_DATA.as_str().into_bound_py_any(py),
-                Self::Analysis => td::HEADER_NAME_ANALYSIS.as_str().into_bound_py_any(py),
+                Self::Text => py::SEGMENT_NAME_TEXT.as_str().into_bound_py_any(py),
+                Self::Data => py::SEGMENT_NAME_DATA.as_str().into_bound_py_any(py),
+                Self::Analysis => py::SEGMENT_NAME_ANALYSIS.as_str().into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for HeaderOrSuppSegmentName {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(x) = obj.extract::<usize>() {
+                return Ok(Self::Other(x));
+            } else if let Ok(s) = obj.extract::<String>() {
+                let n = s.as_str();
+                if n == py::SEGMENT_NAME_TEXT.as_str() {
+                    return Ok(Self::PrimaryText);
+                }
+                if n == py::SEGMENT_NAME_STEXT.as_str() {
+                    return Ok(Self::SuppText);
+                }
+                if n == py::SEGMENT_NAME_DATA.as_str() {
+                    return Ok(Self::Data);
+                }
+                if n == py::SEGMENT_NAME_ANALYSIS.as_str() {
+                    return Ok(Self::Analysis);
+                }
+            }
+            Err(PyValueError::new_err(format!(
+                "Must be an integer for OTHER index or one of {}, {}, {}, or {}",
+                py::SEGMENT_NAME_TEXT,
+                py::SEGMENT_NAME_STEXT,
+                py::SEGMENT_NAME_DATA,
+                py::SEGMENT_NAME_ANALYSIS
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for HeaderOrSuppSegmentName {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Other(x) => x.into_bound_py_any(py),
+                Self::PrimaryText => py::SEGMENT_NAME_TEXT.as_str().into_bound_py_any(py),
+                Self::SuppText => py::SEGMENT_NAME_STEXT.as_str().into_bound_py_any(py),
+                Self::Data => py::SEGMENT_NAME_DATA.as_str().into_bound_py_any(py),
+                Self::Analysis => py::SEGMENT_NAME_ANALYSIS.as_str().into_bound_py_any(py),
             }
         }
     }
@@ -2775,17 +2820,17 @@ mod python {
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(s) = obj.extract::<String>() {
                 let n = s.as_str();
-                if n == td::HEADER_NAME_DATA.as_str() {
+                if n == py::SEGMENT_NAME_DATA.as_str() {
                     return Ok(Self::Data);
                 }
-                if n == td::HEADER_NAME_ANALYSIS.as_str() {
+                if n == py::SEGMENT_NAME_ANALYSIS.as_str() {
                     return Ok(Self::Analysis);
                 }
             }
             Err(PyValueError::new_err(format!(
                 "Must be one of {} or {}",
-                td::HEADER_NAME_DATA,
-                td::HEADER_NAME_ANALYSIS
+                py::SEGMENT_NAME_DATA,
+                py::SEGMENT_NAME_ANALYSIS
             )))
         }
     }
@@ -2797,8 +2842,8 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Data => td::HEADER_NAME_DATA.as_str().into_pyobject(py),
-                Self::Analysis => td::HEADER_NAME_ANALYSIS.as_str().into_pyobject(py),
+                Self::Data => py::SEGMENT_NAME_DATA.as_str().into_pyobject(py),
+                Self::Analysis => py::SEGMENT_NAME_ANALYSIS.as_str().into_pyobject(py),
             }
         }
     }
@@ -2807,13 +2852,13 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(s) = obj.extract::<String>()
-                && s.as_str() == td::HEADER_NAME_STEXT.as_str()
+                && s.as_str() == py::SEGMENT_NAME_STEXT.as_str()
             {
                 Ok(Self)
             } else {
                 Err(PyValueError::new_err(format!(
                     "Must be {}",
-                    td::HEADER_NAME_STEXT
+                    py::SEGMENT_NAME_STEXT
                 )))
             }
         }
@@ -2825,7 +2870,7 @@ mod python {
         type Error = Infallible;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            td::HEADER_NAME_STEXT.as_str().into_pyobject(py)
+            py::SEGMENT_NAME_STEXT.as_str().into_pyobject(py)
         }
     }
 

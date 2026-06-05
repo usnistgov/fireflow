@@ -8,25 +8,17 @@ from copy import deepcopy
 
 import pytest
 
-import pyreflow.typing as pt
-
 from pyreflow.typing import (
-    Segment,
     TriFlag,
-    Trigger,
-    MixedRange,
-    Datatype,
     AnyCoreTEXT,
     AnyCoreDataset,
     AnyOptical,
     AnyCore,
     AnyMeas,
-    AppliedGates2_0,
-    AppliedGates3_0,
-    AppliedGates3_2,
-    ByteOrd,
 )
 import pyreflow as pf
+import pyreflow.api as pfa
+import pyreflow.typing as pt
 import pyreflow.pydantic as pfp
 import polars as pl
 
@@ -579,7 +571,7 @@ class TestCore:
         core.tr = tr
         assert core.tr == tr
         with pytest.raises(TypeError):
-            core.tr = cast(Trigger, "over,9000")
+            core.tr = cast(pt.Trigger, "over,9000")
 
     @all_core
     def test_trigger_threshold(self, core: AnyCore) -> None:
@@ -1167,7 +1159,7 @@ class TestCore:
         keyword set.
         """
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
-        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
+        ag: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
         core.applied_gates = ag
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
@@ -1179,7 +1171,7 @@ class TestCore:
         """Test gating keywords for 2.0 (invalid gating index error case)."""
         # index 1 does not exist
         ur = pf.UnivariateRegion2_0(1, (0.0, 1.0))
-        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
+        ag: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R1")
         with pytest.raises(pf.RelationalError):
             core.applied_gates = ag
 
@@ -1192,7 +1184,7 @@ class TestCore:
         """Test gating keywords for 2.0 (invalid $GATING pointer case)."""
         ur = pf.UnivariateRegion2_0(0, (0.0, 1.0))
         # R2 does not exist
-        ag: AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R2")
+        ag: pt.AppliedGates2_0 = ([blank_gated_meas], {0: ur}, "NOT R2")
         with pytest.raises(pf.RelationalError):
             core.applied_gates = ag
 
@@ -1208,7 +1200,7 @@ class TestCore:
         keyword set or an existing measurement.
         """
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        ag: AppliedGates3_0 = ([], {0: ur}, "NOT R1")
+        ag: pt.AppliedGates3_0 = ([], {0: ur}, "NOT R1")
         core.applied_gates = ag
 
     @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
@@ -1221,7 +1213,7 @@ class TestCore:
         with pytest.RaisesGroup(pf.RelationalError):
             # P3 does not point to anything
             ur_bad = pf.UnivariateRegion3_0("P3", (0.0, 1.0))
-            ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, None))
+            ag_bad = cast(pt.AppliedGates3_0, ([], {0: ur_bad}, None))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
@@ -1234,7 +1226,7 @@ class TestCore:
         with pytest.raises(pf.RelationalError):
             # there are no gating keywords to reference here
             ur_bad = pf.UnivariateRegion3_0("G1", (0.0, 1.0))
-            ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, None))
+            ag_bad = cast(pt.AppliedGates3_0, ([], {0: ur_bad}, None))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["3_0", "3_1"], ["text2", "dataset2"])
@@ -1247,7 +1239,7 @@ class TestCore:
         with pytest.raises(pf.RelationalError):
             # there are no gating keywords to reference here
             ur_bad = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-            ag_bad = cast(AppliedGates3_0, ([], {0: ur_bad}, "NOT R2"))
+            ag_bad = cast(pt.AppliedGates3_0, ([], {0: ur_bad}, "NOT R2"))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
@@ -1258,7 +1250,7 @@ class TestCore:
         measurement.
         """
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        ag: AppliedGates3_2 = ({0: ur}, "NOT R1")
+        ag: pt.AppliedGates3_2 = ({0: ur}, "NOT R1")
         core.applied_gates = ag
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
@@ -1269,7 +1261,7 @@ class TestCore:
         with pytest.RaisesGroup(pf.PyreflowError):
             # 2 does not point to anything
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
-            ag_bad = cast(AppliedGates3_2, ({0: ur_bad}, None))
+            ag_bad = cast(pt.AppliedGates3_2, ({0: ur_bad}, None))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["3_2"], ["text2", "dataset2"])
@@ -1280,7 +1272,7 @@ class TestCore:
         with pytest.raises(pf.PyreflowError):
             ur_bad = pf.UnivariateRegion3_2(2, (0.0, 1.0))
             # R2 doesn't point to anything
-            ag_bad = cast(AppliedGates3_2, ({0: ur_bad}, "NOT R2"))
+            ag_bad = cast(pt.AppliedGates3_2, ({0: ur_bad}, "NOT R2"))
             core.applied_gates = ag_bad
 
     @parameterize_versions("core", ["2_0"], ["text2", "dataset2"])
@@ -2096,7 +2088,7 @@ class TestCore:
     ) -> None:
         """Test removing measurement with $RnI pointing to it (3.0/3.1) (should error)."""
         ur = pf.UnivariateRegion3_0("P1", (0.0, 1.0))
-        ag: AppliedGates3_0 = ([], {0: ur}, "NOT R1")
+        ag: pt.AppliedGates3_0 = ([], {0: ur}, "NOT R1")
         core.applied_gates = ag
         core.remove_measurement_by_index(1)
         with pytest.RaisesGroup(pf.RelationalError):
@@ -2110,7 +2102,7 @@ class TestCore:
     ) -> None:
         """Test removing measurement with $RnI pointing to it (3.2) (should error)."""
         ur = pf.UnivariateRegion3_2(0, (0.0, 1.0))
-        ag: AppliedGates3_2 = ({0: ur}, "NOT R1")
+        ag: pt.AppliedGates3_2 = ({0: ur}, "NOT R1")
         core.applied_gates = ag
         core.remove_measurement_by_index(1)
         with pytest.RaisesGroup(pf.RelationalError):
@@ -3701,7 +3693,7 @@ class TestDataSchema:
             (pf.BigLittleF64DataSchema, 64, "D"),
         ],
     )
-    def test_float(self, data_schema: type, width: int, datatype: Datatype) -> None:
+    def test_float(self, data_schema: type, width: int, datatype: pt.Datatype) -> None:
         """Test creation of float data schema."""
         n = 3
         new = data_schema([1000.0] * n)
@@ -3725,7 +3717,7 @@ class TestDataSchema:
 
     def test_mixed(self) -> None:
         """Test creation of mixed type data schema (3.2)."""
-        types: list[MixedRange] = [
+        types: list[pt.MixedRange] = [
             ("F32", 1000.0),
             ("F64", 2000.0),
             ("U08", 255),
@@ -4154,13 +4146,13 @@ class TestConfig:
         path: Path,
         v: str,
         text_diff: tuple[int, int] = (0, 0),
-        header_data: Segment = (0, 0),
-        header_analysis: Segment = (0, 0),
+        header_data: pt.Segment = (0, 0),
+        header_analysis: pt.Segment = (0, 0),
         other_width: int = 8,
         other_segs: list[tuple[int, int]] = [],
         delim: int = 47,
         kws: dict[str, str] = {},
-        stext: Segment | None = (0, 0),
+        stext: pt.Segment | None = (0, 0),
         nextdata: int | None = 0,
         rest: bytes = b"",
     ) -> None:
@@ -4202,22 +4194,22 @@ class TestConfig:
         path: Path,
         v: str,
         text_diff: tuple[int, int] = (0, 0),
-        header_data: Segment = (0, 0),
-        header_analysis: Segment = (0, 0),
+        header_data: pt.Segment = (0, 0),
+        header_analysis: pt.Segment = (0, 0),
         other_width: int = 8,
         other_segs: list[tuple[int, int]] = [],
         delim: int = 47,
         kws: dict[str, str] = {},
-        stext: Segment | None = (0, 0),
-        text_data: Segment | None = (0, 0),
-        text_analysis: Segment | None = (0, 0),
+        stext: pt.Segment | None = (0, 0),
+        text_data: pt.Segment | None = (0, 0),
+        text_analysis: pt.Segment | None = (0, 0),
         nextdata: int | None = 0,
         par: int | None = 0,
         tot: int | None = 0,
         cyt: str | None = "Orbatron",
         mode: pt.Mode | None = "L",
-        datatype: Datatype | None = "I",
-        byteord: ByteOrd | None = [1, 2, 3, 4],
+        datatype: pt.Datatype | None = "I",
+        byteord: pt.ByteOrd | None = [1, 2, 3, 4],
         rest: bytes = b"",
     ) -> None:
         _kws = {**kws}
@@ -4353,7 +4345,7 @@ class TestConfig:
             rest=b"\0\0\0\0",
         )
 
-        def go(f: pt.AllowHeaderTextOffsetMismatch) -> Segment:
+        def go(f: pt.AllowHeaderTextOffsetMismatch) -> pt.Segment:
             core, uncore = pf.api.fcs_read_std_text(
                 path,
                 allow_header_text_offset_mismatch=f,
@@ -4602,23 +4594,29 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=(0, -1))
 
-        def go(corr: tuple[int, int]) -> pt.SuppTEXTOffsets:
+        def go(corr: tuple[int, int]) -> pfa.SuppTEXTOffsetsOutput:
             out = pf.api.fcs_read_flat_text(p, supp_text_correction=corr)
             return out.flat_diagnostics.header_supp.supp_text
 
         if version == "FCS2.0":
             # 2.0 shouldn't parse supp text at all
-            assert go((0, 0)) == "empty"
-            assert go((0, 1)) == "empty"
+            assert go((0, 0)).origin_type == "empty"
+            assert go((0, 1)).origin_type == "empty"
         elif version == "FCS3.2":
             # supp text is optional for 3.2 so it emits warning
             with pytest.warns(pf.PyreflowWarning):
-                assert go((0, 0)) == "missing"
-            assert go((0, 1)) == ((0, 0), (0, -1))
+                assert go((0, 0)).origin_type == "unparsed"
+            out32 = go((0, 1))
+            assert out32.origin_type == "valid"
+            assert out32.uncorrected_offsets == (0, -1)
+            assert out32.final_offsets == (0, 0)
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
                 go((0, 0))
-            assert go((0, 1)) == ((0, 0), (0, -1))
+            out31 = go((0, 1))
+            assert out31.origin_type == "valid"
+            assert out31.uncorrected_offsets == (0, -1)
+            assert out31.final_offsets == (0, 0)
 
     @all_versions
     def test_nextdata_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -4641,20 +4639,29 @@ class TestConfig:
         text_coords = (58, 98)
         self.mock_header_text(p, version, stext=text_coords)
 
-        def go(f: TriFlag) -> pt.SuppTEXTOffsets:
+        def go2(f: TriFlag) -> pt.SuppTEXTOffsetsOriginType:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
-            return out.flat_diagnostics.header_supp.supp_text
+            return out.flat_diagnostics.header_supp.supp_text.origin_type
+
+        def go3(
+            f: TriFlag,
+        ) -> tuple[pt.SuppTEXTOffsetsOriginType, pt.Segment | None]:
+            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
+            sout = out.flat_diagnostics.header_supp.supp_text
+            return (sout.origin_type, sout.final_offsets)
 
         # no supp text in 2.0 so no error
         if version == "FCS2.0":
-            comp2: pt.SuppTEXTOffsets = "empty"
-            self._test_tri_flag_nofail(go, comp2)
+            self._test_tri_flag_nofail(go2, "empty")
         else:
-            comp: pt.SuppTEXTOffsets = "duplicated_primary_text"
-            self._test_tri_flag(go, comp, [pf.FileLayoutError])
+            comp: pt.SuppTEXTOffsetsOriginType = "dup_ptext"
+            offsets: pt.Segment | None = None
+            self._test_tri_flag(go3, (comp, offsets), [pf.FileLayoutError])
 
-            out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
-            assert out.flat_diagnostics.header_supp.supp_text == text_coords
+            out3 = pf.api.fcs_read_flat_text(
+                p, ignore_supp_text=True
+            ).flat_diagnostics.header_supp.supp_text
+            assert out3.final_offsets is None
 
     @all_versions
     def test_allow_dup_supp_text_other(
@@ -4673,22 +4680,31 @@ class TestConfig:
             rest=stext,
         )
 
-        def go(f: TriFlag) -> pt.SuppTEXTOffsets:
+        def go2(f: TriFlag) -> pt.SuppTEXTOffsetsOriginType:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
             h = out.flat_diagnostics.header_supp
-            # o = h.header.segments.other_segs
-            return h.supp_text
+            return h.supp_text.origin_type
+
+        Out3 = tuple[pt.SuppTEXTOffsetsOriginType, pt.Segment, int | None]
+
+        def go3(f: TriFlag) -> Out3:
+            out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
+            s = out.flat_diagnostics.header_supp.supp_text
+            return (s.origin_type, s.final_offsets, s.other_index)
 
         # no supp text in 2.0 so no error
         if version == "FCS2.0":
-            comp0: pt.SuppTEXTOffsets = "empty"
-            self._test_tri_flag_nofail(go, comp0)
+            comp0: pt.SuppTEXTOffsetsOriginType = "empty"
+            self._test_tri_flag_nofail(go2, comp0)
         else:
-            comp1: pt.SuppTEXTOffsets = (stext_coords, stext_coords, 0)
-            self._test_tri_flag(go, comp1, [pf.FileLayoutError])
+            comp1: Out3 = ("dup_other", stext_coords, 0)
+            self._test_tri_flag(go3, comp1, [pf.FileLayoutError])
 
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
-            assert out.flat_diagnostics.header_supp.supp_text == stext_coords
+            sout = out.flat_diagnostics.header_supp.supp_text
+            assert sout.origin_type == "ignored"
+            assert sout.final_offsets is None
+            assert sout.uncorrected_offsets == stext_coords
             assert (
                 out.flat_diagnostics.header_supp.header.segments.other_segs is not None
             )
@@ -4926,17 +4942,17 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_text(p, version, stext=None)
 
-        def go(f: TriFlag) -> pt.SuppTEXTOffsets:
+        def go(f: TriFlag) -> pt.SuppTEXTOffsetsOriginType:
             out = pf.api.fcs_read_flat_text(p, allow_missing_supp_text=f)
-            return out.flat_diagnostics.header_supp.supp_text
+            return out.flat_diagnostics.header_supp.supp_text.origin_type
 
         if version in ["FCS2.0", "FCS3.2"]:
             # supp text doesn't exist in 2.0 and is optional in 3.2, so no
             # error for these two
-            comp: pt.SuppTEXTOffsets = "empty"
+            comp: pt.SuppTEXTOffsetsOriginType = "empty"
             self._test_tri_flag_nofail(go, comp)
         else:
-            comp3: pt.SuppTEXTOffsets = "missing"
+            comp3: pt.SuppTEXTOffsetsOriginType = "unparsed"
             self._test_tri_flag(go, comp3, [pf.ParseKeywordValueError] * 2)
 
     @all_versions
@@ -5786,7 +5802,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
-        def go(f: tuple[int, int]) -> Segment:
+        def go(f: tuple[int, int]) -> pt.Segment:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_data_correction=f,
@@ -5810,7 +5826,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=(0, -1))
 
-        def go(f: tuple[int, int]) -> Segment:
+        def go(f: tuple[int, int]) -> pt.Segment:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_analysis_correction=f,
@@ -5839,7 +5855,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
-        def go(f: bool) -> Segment:
+        def go(f: bool) -> pt.Segment:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_data_offsets=f,
@@ -5860,7 +5876,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, 0), text_analysis=(0, -1))
 
-        def go(f: bool) -> Segment:
+        def go(f: bool) -> pt.Segment:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_analysis_offsets=f,
@@ -5904,7 +5920,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=None)
 
-        def go(f: TriFlag) -> Segment:
+        def go(f: TriFlag) -> pt.Segment:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
@@ -5937,7 +5953,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=None)
 
-        def go(f: TriFlag) -> Segment:
+        def go(f: TriFlag) -> pt.Segment:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
@@ -6104,7 +6120,7 @@ class TestConfig:
         ],
     )
     def test_allow_uneven_event_width(
-        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
     ) -> None:
         """Test the allow_uneven_event_width arg."""
         p = tmp_path / "thing.fcs"
@@ -6140,7 +6156,7 @@ class TestConfig:
         ],
     )
     def test_allow_tot_mismatch(
-        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
     ) -> None:
         """Test the allow_tot_mistmatch arg."""
         p = tmp_path / "thing.fcs"
@@ -6175,7 +6191,7 @@ class TestConfig:
         ],
     )
     def test_truncate_range_datatypes_int(
-        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
     ) -> None:
         """Test $PnR truncation on read (int case).
 
@@ -6290,7 +6306,7 @@ class TestConfig:
         ],
     )
     def test_truncate_range_datatypes_float(
-        self, version: pt.FCSVersion, data_seg: Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
     ) -> None:
         """Test range truncation on read (float case).
 
@@ -6601,7 +6617,7 @@ class TestReadWrite:
         self,
         tmp_path: Path,
         core: pf.CoreDataset2_0 | pf.CoreDataset3_0,
-        byteord: ByteOrd,
+        byteord: pt.ByteOrd,
     ) -> None:
         """Test writing then reading a dataset with mixed byte order.
 

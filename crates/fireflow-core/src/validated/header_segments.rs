@@ -1,12 +1,12 @@
 use crate::config::OverlapCorrectionLimit;
-use crate::core::{DatasetSegments, OthersReader, TEXTOffsetOrigin};
+use crate::core::{DatasetSegments, OthersReader, TEXTOffsetsOrigin};
 use crate::logging::{DeferredErrors, ErrorGroup, ErrorsResult, LogResult};
 use crate::macros::def_summary;
 use crate::segment::{
-    HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderOffsetOverlap,
-    HeaderOffsetToNextdataOverlap, HeaderOrSuppSegmentName, HeaderSegmentName,
-    HeaderSegmentOverlapError, IndexedOtherSegment, IsDataOrAnalysis, IsNamedSegment, NamedOffsets,
-    OffsetToNextdataOverlap, OffsetToOffsetOverlap, PrimaryTextSegment, Segment,
+    HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderOffsetToNextdataOverlap,
+    HeaderOrSuppSegmentName, HeaderSegmentName, HeaderSegmentOverlapError,
+    HeaderToHeaderOffsetOverlap, IndexedOtherSegment, IsDataOrAnalysis, IsNamedSegment,
+    NamedOffsets, OffsetToNextdataOverlap, OffsetToOffsetOverlap, PrimaryTextSegment, Segment,
     SegmentOverlapError, SuppTextSegmentName, SuppToHeaderOffsetOverlap, SupplementalTextSegment,
     TEXTSegment, TextSegmentName, TextToHeaderOffsetOverlap,
 };
@@ -18,7 +18,7 @@ use type_families::BifunctorOnce as _;
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{NESlice, NEVec, NonEmptyIterator as _};
+use nonempty_collections::{NESlice, NEVec};
 use thiserror::Error;
 
 use std::fmt;
@@ -31,7 +31,7 @@ use {
     crate::nonempty::FcsNEVec,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
-    nonempty_collections::IntoNonEmptyIterator as _,
+    nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
 };
 
 /// The segment offsets as read from HEADER.
@@ -99,7 +99,7 @@ impl ParsedHeaderSegments {
         data: HeaderDataSegment,
         analysis: HeaderAnalysisSegment,
         os: ParsedOtherSegments,
-    ) -> Result<(Self, Vec<HeaderOffsetOverlap>), SegmentValidationErrors> {
+    ) -> Result<(Self, Vec<HeaderToHeaderOffsetOverlap>), SegmentValidationErrors> {
         // set limit to zero so that any overlap causes an error
         Self::try_new_with_limit(text, data, analysis, os, 0.into())
             .group()
@@ -118,7 +118,8 @@ impl ParsedHeaderSegments {
         analysis: HeaderAnalysisSegment,
         os: ParsedOtherSegments,
         limit: OverlapCorrectionLimit,
-    ) -> ErrorsResult<(Self, Vec<HeaderOffsetOverlap>), (), HeaderSegmentValidationError> {
+    ) -> ErrorsResult<(Self, Vec<HeaderToHeaderOffsetOverlap>), (), HeaderSegmentValidationError>
+    {
         let mut ret = Self::new(text, data, analysis, os);
         ret.validate(limit).map_ok_value(|overlaps| (ret, overlaps))
     }
@@ -135,8 +136,8 @@ impl ParsedHeaderSegments {
         DatasetSegments::new(
             d,
             a,
-            TEXTOffsetOrigin::EmptyTEXT,
-            TEXTOffsetOrigin::EmptyTEXT,
+            TEXTOffsetsOrigin::EmptyTEXT,
+            TEXTOffsetsOrigin::EmptyTEXT,
             None,
         )
     }
@@ -318,7 +319,7 @@ impl ParsedHeaderSegments {
     fn validate(
         &mut self,
         limit: OverlapCorrectionLimit,
-    ) -> ErrorsResult<Vec<HeaderOffsetOverlap>, (), HeaderSegmentValidationError> {
+    ) -> ErrorsResult<Vec<HeaderToHeaderOffsetOverlap>, (), HeaderSegmentValidationError> {
         self.find_or_fix_header_overlaps(limit)
             .map_errors(SegmentValidationError::from)
             .extend_errors(
@@ -390,7 +391,7 @@ impl ParsedHeaderSegments {
     fn find_or_fix_header_overlaps(
         &mut self,
         limit: OverlapCorrectionLimit,
-    ) -> ErrorsResult<Vec<HeaderOffsetOverlap>, (), HeaderSegmentOverlapError> {
+    ) -> ErrorsResult<Vec<HeaderToHeaderOffsetOverlap>, (), HeaderSegmentOverlapError> {
         let mut pairs: Vec<_> = self.as_mut_nonempty_segments().collect();
         debug_assert!(pairs.is_sorted_by_key(|x| x.1.as_pair()), "not sorted");
         let mut errors = vec![];
@@ -400,7 +401,7 @@ impl ParsedHeaderSegments {
             for (_, seg1) in rest {
                 let overlap = seg0.get_tail_offset_overlap(seg1);
                 if overlap <= limit.0 {
-                    let overlap_ret = HeaderOffsetOverlap::new(*seg0, *seg1, overlap);
+                    let overlap_ret = HeaderToHeaderOffsetOverlap::new(*seg0, *seg1, overlap);
                     fixed.push(overlap_ret);
                     ref0.truncate(overlap);
                     // break early because any offset after this one is

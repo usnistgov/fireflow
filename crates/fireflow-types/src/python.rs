@@ -172,6 +172,8 @@ create_exception!(
     "Generic warning created by ``pyreflow``."
 );
 
+// Identifiers for column data types
+
 const U08: &NEStr = ne_str!("U08");
 const U16: &NEStr = ne_str!("U16");
 const U24: &NEStr = ne_str!("U24");
@@ -235,3 +237,70 @@ impl_str_enum!(
     U56 => U56,
     U64 => U64
 );
+
+// Supplemental TEXT output enum
+
+pub const SUPP_OFFSET_ORIGIN_EMPTY_LEVEL: &NEStr = ne_str!("empty");
+pub const SUPP_OFFSET_ORIGIN_UNPARSED_LEVEL: &NEStr = ne_str!("unparsed");
+pub const SUPP_OFFSET_ORIGIN_MALFORMED_LEVEL: &NEStr = ne_str!("malformed");
+pub const SUPP_OFFSET_ORIGIN_DUP_PTEXT_LEVEL: &NEStr = ne_str!("dup_ptext");
+pub const SUPP_OFFSET_ORIGIN_DUP_ANALYSIS_LEVEL: &NEStr = ne_str!("dup_analysis");
+pub const SUPP_OFFSET_ORIGIN_IGNORED_LEVEL: &NEStr = ne_str!("ignored");
+pub const SUPP_OFFSET_ORIGIN_DUP_OTHER_LEVEL: &NEStr = ne_str!("dup_other");
+pub const SUPP_OFFSET_ORIGIN_VALID_LEVEL: &NEStr = ne_str!("valid");
+
+impl_str_enum!(
+    #[derive(Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    pub SuppTEXTOffsetOriginType,
+    /// Error when parsing [`SuppTEXTOffsetOriginLevel`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub SuppTEXTOffsetOriginLevelError,
+    Empty                 => SUPP_OFFSET_ORIGIN_EMPTY_LEVEL,
+    Unparsed              => SUPP_OFFSET_ORIGIN_UNPARSED_LEVEL,
+    Malformed             => SUPP_OFFSET_ORIGIN_MALFORMED_LEVEL,
+    DuplicatesPrimaryTEXT => SUPP_OFFSET_ORIGIN_DUP_PTEXT_LEVEL,
+    DuplicatesAnalysis    => SUPP_OFFSET_ORIGIN_DUP_ANALYSIS_LEVEL,
+    Ignored               => SUPP_OFFSET_ORIGIN_IGNORED_LEVEL,
+    DuplicatesOther       => SUPP_OFFSET_ORIGIN_DUP_OTHER_LEVEL,
+    Valid                 => SUPP_OFFSET_ORIGIN_VALID_LEVEL
+);
+
+// TEXT offset origin enum
+
+pub const TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL: &NEStr = ne_str!("empty_text");
+pub const TEXT_OFFSET_ORIGIN_IGNORED_LEVEL: &NEStr = ne_str!("ignored");
+pub const TEXT_OFFSET_ORIGIN_UNPARSED_LEVEL: &NEStr = ne_str!("unparsed");
+pub const TEXT_OFFSET_ORIGIN_MALFORMED_LEVEL: &NEStr = ne_str!("malformed");
+pub const TEXT_OFFSET_ORIGIN_MATCH_LEVEL: &NEStr = ne_str!("match");
+pub const TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL: &NEStr = ne_str!("mismatch_header");
+pub const TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL: &NEStr = ne_str!("mismatch_text");
+pub const TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL: &NEStr = ne_str!("empty_header");
+
+impl_str_enum!(
+    #[derive(Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    pub TEXTOffsetOriginType,
+    /// Error when parsing [`TEXTOffsetOriginLevel`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub TEXTOffsetOriginLevelError,
+    EmptyTEXT      => TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL,
+    Ignored        => TEXT_OFFSET_ORIGIN_IGNORED_LEVEL,
+    Unparsed       => TEXT_OFFSET_ORIGIN_UNPARSED_LEVEL,
+    Malformed      => TEXT_OFFSET_ORIGIN_MALFORMED_LEVEL,
+    Match          => TEXT_OFFSET_ORIGIN_MATCH_LEVEL,
+    MismatchHeader => TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL,
+    MismatchTEXT   => TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL,
+    EmptyHeader    => TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL
+);
+
+// Segment name constants
+
+pub const SEGMENT_NAME_TEXT: &NEStr = ne_str!("text");
+pub const SEGMENT_NAME_STEXT: &NEStr = ne_str!("supp_text");
+pub const SEGMENT_NAME_DATA: &NEStr = ne_str!("data");
+pub const SEGMENT_NAME_ANALYSIS: &NEStr = ne_str!("analysis");

@@ -76,6 +76,8 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyFlatDatasetOutput>()?;
     m.add_class::<ff::PyFlatDatasetFromKwsOutput>()?;
     m.add_class::<ff::PyNewFlatDatasetFromKwsOutput>()?;
+    m.add_class::<ff::PySuppTEXTOffsetsOutput>()?;
+    m.add_class::<ff::PyTEXTOffsetsOrigin>()?;
 
     m.add_class::<ff::PyStdTEXTOutput>()?;
     m.add_class::<ff::PyStdDatasetOutput>()?;
@@ -99,6 +101,15 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyReadFlatDatasetFromKeywordsConfig>()?;
     m.add_class::<ff::PyNewCoreTEXTConfig>()?;
     m.add_class::<ff::PyNewCoreDatasetConfig>()?;
+
+    m.add_class::<ff::PyHeaderOffsetToNextdataOverlap>()?;
+    m.add_class::<ff::PyTextOffsetToNextdataOverlap>()?;
+    m.add_class::<ff::PySuppOffsetToNextdataOverlap>()?;
+
+    m.add_class::<ff::PyHeaderToHeaderOffsetOverlap>()?;
+    m.add_class::<ff::PyTextToHeaderOffsetOverlap>()?;
+    m.add_class::<ff::PySuppToHeaderOffsetOverlap>()?;
+    m.add_class::<ff::PyTextToHeaderOrSuppOffsetOverlap>()?;
 
     macro_rules! fun {
         ($t:ident) => {

@@ -61,6 +61,7 @@ use fireflow_core::data::{self, LayoutByteOrder as _, LayoutDatatype as _, Phant
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
 use fireflow_core::meas;
+use fireflow_core::segment;
 use fireflow_core::text::byteord::{ArrayByteOrd, Endian};
 use fireflow_core::text::gating::{self, Region};
 use fireflow_core::text::index::{GateIndex, RegionIndex};
@@ -127,6 +128,8 @@ fpp::impl_py_flat_text_diagnostics!(api::FlatTEXTDiagnostics);
 fpp::impl_py_split_text_diagnostics!(api::SplitTEXTDiagnostics);
 fpp::impl_py_flat_dataset_with_kws_output!(api::FlatDatasetFromKwsOutput);
 fpp::impl_py_new_flat_dataset_with_kws_output!(api::NewFlatDatasetFromKwsOutput);
+fpp::impl_py_supp_text_offsets_origin!(api::SuppTEXTOffsetsOutput);
+fpp::impl_py_text_offsets_origin!(core::TEXTOffsetsOrigin);
 fpp::impl_py_read_events_diagnostics!(data::EventsDiagnostics);
 fpp::impl_py_keyword_version_score!(kws::KeywordVersionScore);
 
@@ -136,6 +139,15 @@ fpp::impl_py_std_dataset_with_kws_output!(core::StdDatasetFromKwsOutput);
 fpp::impl_py_new_std_dataset_with_kws_output!(core::NewStdDatasetFromKwsOutput);
 
 fpp::impl_py_dataset_summary!(api::DatasetSummary);
+
+fpp::impl_py_offset_to_nextdata_overlap!(segment::HeaderOffsetToNextdataOverlap);
+fpp::impl_py_offset_to_nextdata_overlap!(segment::TextOffsetToNextdataOverlap);
+fpp::impl_py_offset_to_nextdata_overlap!(segment::SuppOffsetToNextdataOverlap);
+
+fpp::impl_py_offset_to_offset_overlap!(segment::HeaderToHeaderOffsetOverlap);
+fpp::impl_py_offset_to_offset_overlap!(segment::TextToHeaderOffsetOverlap);
+fpp::impl_py_offset_to_offset_overlap!(segment::SuppToHeaderOffsetOverlap);
+fpp::impl_py_offset_to_offset_overlap!(segment::TextToHeaderOrSuppOffsetOverlap);
 
 // Implement python classes for core* structs
 //

@@ -7,12 +7,10 @@ use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
 use crate::macros::impl_newtype_try_from;
-use crate::segment::{
-    HasRegion, IsNamedSegment, OffsetToNextdataOverlap, SegmentFromTEXT, TEXTSegment,
-    TextOffsetToNextdataOverlap, TextSegmentName,
+use crate::segment::{HasRegion, IsNamedSegment, OffsetToNextdataOverlap, TEXTSegment};
+use crate::text::byteord::{
+    ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes,
 };
-use crate::text::byteord::ArrayByteOrd;
-use crate::text::byteord::{BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::lookup::{

@@ -49,12 +49,12 @@ use crate::validated::keys::{
 
 use fireflow_types::config::{DelimEscapeMode, Encoding};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
-use fireflow_types::nonempty_string::NESliceExt as _;
 use hashbrown::HashMap;
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
+use fireflow_types::nonempty_string::NESliceExt as _;
 use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
@@ -73,6 +73,8 @@ use serde::Serialize;
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
+    pyo3::exceptions::PyValueError,
+    pyo3::prelude::*,
 };
 
 /// Read HEADER from an FCS file.
@@ -527,7 +529,7 @@ pub struct HeaderAndSuppOffsets {
     pub header: Header,
 
     /// Supplemental TEXT offsets and their reason for exclusion if not present.
-    pub supp_text: SuppTEXTOffsetsOrigin,
+    pub supp_text: SuppTEXTOffsetsOutput,
 
     /// NEXTDATA offset
     ///
@@ -543,7 +545,7 @@ pub struct HeaderAndSuppOffsets {
 /// The supplemental TEXT offsets from a file after parsing.
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum SuppTEXTOffsetsOrigin {
+pub enum SuppTEXTOffsetsOutput {
     /// No offsets.
     ///
     /// This will always be returned for 2.0 files. 3.2 files may return this
@@ -551,6 +553,7 @@ pub enum SuppTEXTOffsetsOrigin {
     Empty,
     /// Offsets required but could not be parsed.
     Unparsed,
+    // TODO this isn't used yet
     /// Offsets required but were numerically malformed.
     Malformed(UncorrectedSegment),
     /// Offsets present but perfectly duplicated primary TEXT and thus were ignored.
@@ -1224,7 +1227,7 @@ impl FlatTEXTOutput {
             })
             // Parse supplemental TEXT if applicable
             .and_then_commutative(|(mut kws, delim, prim_out, nextdata)| {
-                SuppTEXTOffsetsOrigin::lookup(&kws.std, &mut header, nextdata, st)
+                SuppTEXTOffsetsOutput::lookup(&kws.std, &mut header, nextdata, st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
@@ -1835,7 +1838,7 @@ impl GuessedEscapeMode {
     }
 }
 
-impl SuppTEXTOffsetsOrigin {
+impl SuppTEXTOffsetsOutput {
     fn as_seg(&self) -> Option<SupplementalTextSegment> {
         if let Self::Valid(valid) = self {
             Some(valid.seg)
@@ -2026,6 +2029,149 @@ impl SuppTEXTOffsetsOrigin {
                 }
             }
         })
+    }
+
+    // This enum would be very complex to impl in python as a union type.
+    // Instead, make a wrapper class with methods that project various
+    // components of the enum to the user. For instance, the level of the enum
+    // will be projected as a string literal, the uncorrected offsets will be
+    // projected as (int, int) | None, etc. The __new__ method for this will
+    // then take all these projections in reverse and validated the
+    // presence/absence of them. It would be nice if we could just use the
+    // type-safe nature of the enum in python, but python's type system is not
+    // good enough for that.
+
+    /// Create a new enum.
+    ///
+    /// This is intended to be called by __new__ on the python side.
+    #[cfg(feature = "python")]
+    pub fn py_try_new(
+        level: py::SuppTEXTOffsetOriginType,
+        seg: Option<SupplementalTextSegment>,
+        uncorr: Option<UncorrectedSegment>,
+        other_index: Option<usize>,
+        offset_overlaps: Vec<SuppToHeaderOffsetOverlap>,
+        nextdata_overlap: Option<SuppOffsetToNextdataOverlap>,
+    ) -> PyResult<Self> {
+        match (
+            level,
+            seg,
+            uncorr,
+            other_index,
+            &offset_overlaps[..],
+            nextdata_overlap,
+        ) {
+            (py::SuppTEXTOffsetOriginType::Empty, None, None, None, [], None) => Ok(Self::Empty),
+            (py::SuppTEXTOffsetOriginType::Unparsed, None, None, None, [], None) => {
+                Ok(Self::Unparsed)
+            }
+            (py::SuppTEXTOffsetOriginType::Malformed, None, Some(u), None, [], None) => {
+                Ok(Self::Malformed(u))
+            }
+            (py::SuppTEXTOffsetOriginType::DuplicatesPrimaryTEXT, None, None, None, [], None) => {
+                Ok(Self::DuplicatesPrimaryTEXT)
+            }
+            (py::SuppTEXTOffsetOriginType::DuplicatesAnalysis, None, None, None, [], None) => {
+                Ok(Self::DuplicatesAnalysis)
+            }
+            (py::SuppTEXTOffsetOriginType::Ignored, None, Some(u), None, [], None) => {
+                Ok(Self::Ignored(u))
+            }
+            (py::SuppTEXTOffsetOriginType::DuplicatesOther, Some(s), Some(u), Some(i), _, _) => {
+                Ok(Self::Valid(ValidSuppTEXTOffsets::new(
+                    s,
+                    u,
+                    Some(i),
+                    offset_overlaps,
+                    nextdata_overlap,
+                )))
+            }
+            (py::SuppTEXTOffsetOriginType::Valid, Some(s), Some(u), None, _, _) => Ok(Self::Valid(
+                ValidSuppTEXTOffsets::new(s, u, None, offset_overlaps, nextdata_overlap),
+            )),
+            _ => Err(PyValueError::new_err(
+                "invalid combination of level and values, see class-level docstring",
+            )),
+        }
+    }
+
+    /// Project the origin type as a string
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_origin_type(&self) -> py::SuppTEXTOffsetOriginType {
+        match self {
+            Self::Empty => py::SuppTEXTOffsetOriginType::Empty,
+            Self::Unparsed => py::SuppTEXTOffsetOriginType::Unparsed,
+            Self::Malformed(_) => py::SuppTEXTOffsetOriginType::Malformed,
+            Self::DuplicatesPrimaryTEXT => py::SuppTEXTOffsetOriginType::DuplicatesPrimaryTEXT,
+            Self::DuplicatesAnalysis => py::SuppTEXTOffsetOriginType::DuplicatesAnalysis,
+            Self::Ignored(_) => py::SuppTEXTOffsetOriginType::Ignored,
+            Self::Valid(x) => {
+                if x.duplicated_other.is_some() {
+                    py::SuppTEXTOffsetOriginType::DuplicatesOther
+                } else {
+                    py::SuppTEXTOffsetOriginType::Valid
+                }
+            }
+        }
+    }
+
+    /// Project the uncorrected segments if they exist
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_uncorrected_offsets(&self) -> Option<UncorrectedSegment> {
+        match self {
+            Self::Empty
+            | Self::Unparsed
+            | Self::DuplicatesPrimaryTEXT
+            | Self::DuplicatesAnalysis => None,
+            Self::Malformed(x) | Self::Ignored(x) => Some(*x),
+            Self::Valid(x) => Some(x.uncorr),
+        }
+    }
+
+    /// The final offsets if they exist.
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_final_offsets(&self) -> Option<SupplementalTextSegment> {
+        if let Self::Valid(x) = self {
+            Some(x.seg)
+        } else {
+            None
+        }
+    }
+
+    /// The OTHER index that duplicates these offsets if applicable.
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_other_index(&self) -> Option<usize> {
+        if let Self::Valid(x) = self {
+            x.duplicated_other
+        } else {
+            None
+        }
+    }
+
+    /// The OTHER index that duplicates these offsets if applicable.
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_offset_overlaps(&self) -> &[SuppToHeaderOffsetOverlap] {
+        if let Self::Valid(x) = self {
+            &x.offset_overlaps[..]
+        } else {
+            &[]
+        }
+    }
+
+    /// The OTHER index that duplicates these offsets if applicable.
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_nextdata_overlap(&self) -> Option<SuppOffsetToNextdataOverlap> {
+        if let Self::Valid(x) = self {
+            x.nextdata_overlap
+        } else {
+            None
+        }
     }
 }
 
@@ -2226,63 +2372,3 @@ mod tests {
         assert_guessed_mode("/aaa/bbb/bb//b/ccc/", GuessedEscapeMode::Ambiguous);
     }
 }
-
-// #[cfg(feature = "python")]
-// mod python {
-//     use crate::segment::{SupplementalTextSegment, UncorrectedSegment};
-//     use fireflow_types::keywords as tk;
-
-//     use super::SuppTEXTOffsetsOrigin;
-
-//     use fireflow_types::python::ConfigError;
-//     use pyo3::{IntoPyObjectExt as _, prelude::*};
-
-//     impl<'a, 'py> FromPyObject<'a, 'py> for SuppTEXTOffsetsOrigin {
-//         type Error = PyErr;
-//         fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
-//             if let Ok(s) = obj.extract::<String>() {
-//                 if s.as_str() == tk::SUPP_TEXT_EMPTY.as_str() {
-//                     return Ok(Self::Empty);
-//                 }
-//                 if s.as_str() == tk::SUPP_TEXT_MISSING.as_str() {
-//                     return Ok(Self::Missing);
-//                 }
-//                 if s.as_str() == tk::SUPP_TEXT_DUP_ANALYSIS.as_str() {
-//                     return Ok(Self::DuplicatesAnalysis);
-//                 }
-//                 if s.as_str() == tk::SUPP_TEXT_DUP_PTEXT.as_str() {
-//                     return Ok(Self::DuplicatesPrimaryTEXT);
-//                 }
-//             } else if let Ok(uncorr) = obj.extract::<UncorrectedSegment>() {
-//                 return Ok(Self::Ignored(uncorr));
-//             } else if let Ok((corr, uncorr, i)) =
-//                 obj.extract::<(SupplementalTextSegment, UncorrectedSegment, usize)>()
-//             {
-//                 return Ok(Self::DuplicatesOTHER(corr, uncorr, i));
-//             }
-//             Err(ConfigError::new_err("could not make supp segments"))
-//         }
-//     }
-
-//     impl<'py> IntoPyObject<'py> for SuppTEXTOffsetsOrigin {
-//         type Target = PyAny;
-//         type Output = Bound<'py, Self::Target>;
-//         type Error = PyErr;
-
-//         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-//             match self {
-//                 Self::Empty => tk::SUPP_TEXT_EMPTY.as_str().into_bound_py_any(py),
-//                 Self::Missing => tk::SUPP_TEXT_MISSING.as_str().into_bound_py_any(py),
-//                 Self::DuplicatesAnalysis => {
-//                     tk::SUPP_TEXT_DUP_ANALYSIS.as_str().into_bound_py_any(py)
-//                 }
-//                 Self::DuplicatesPrimaryTEXT => {
-//                     tk::SUPP_TEXT_DUP_PTEXT.as_str().into_bound_py_any(py)
-//                 }
-//                 Self::DuplicatesOTHER(c, u, i) => (c, u, i).into_bound_py_any(py),
-//                 Self::Ignored(u) => u.into_bound_py_any(py),
-//                 Self::Valid(c, u) => (c, u).into_bound_py_any(py),
-//             }
-//         }
-//     }
-// }

@@ -1,5 +1,5 @@
 import pyreflow._pyreflow as pf
-from typing import Literal, TypeAlias
+from typing import Literal, TypeAlias, TypeVar
 import numpy as np
 import numpy.typing as npt
 
@@ -238,19 +238,38 @@ FixIntWidths: TypeAlias = int | Literal["next_byte", "never"]
 
 ByteordOverride: TypeAlias = list[int] | Literal["endian", "none"]
 
-TEXTOffsetOrigin: TypeAlias = Literal[
+HeaderSegmentName: TypeAlias = Literal["text", "data", "header"]
+SuppTextSegmentName: TypeAlias = Literal["supp_text"]
+TextSegmentName: TypeAlias = Literal["data", "header"]
+HeaderOrSuppSegmentName: TypeAlias = HeaderSegmentName | SuppTextSegmentName
+
+N = TypeVar("N")
+
+NamedOffsets: TypeAlias = tuple[N, Segment]
+
+HeaderNamedOffsets: TypeAlias = NamedOffsets[HeaderSegmentName]
+SuppTEXTNamedOffsets: TypeAlias = NamedOffsets[SuppTextSegmentName]
+TextNamedOffsets: TypeAlias = NamedOffsets[TextSegmentName]
+HeaderOrSuppNamedOffsets: TypeAlias = NamedOffsets[HeaderOrSuppSegmentName]
+
+SuppTEXTOffsetsOriginType: TypeAlias = Literal[
+    "empty",
+    "unparsed",
+    "malformed",
+    "dup_ptext",
+    "dup_analysis",
+    "ignored",
+    "dup_other",
+    "valid",
+]
+
+TEXTOffsetsOriginType: TypeAlias = Literal[
     "empty_text",
     "ignored",
-    "missing",
+    "unparsed",
+    "malformed",
     "match",
     "mismatch_header",
     "mismatch_text",
     "empty_header",
 ]
-
-SuppTEXTOffsets: TypeAlias = (
-    Literal["empty", "missing", "duplicated_primary_text", "duplicated_analysis"]
-    | Segment
-    | tuple[Segment, Segment]
-    | tuple[Segment, Segment, int]
-)

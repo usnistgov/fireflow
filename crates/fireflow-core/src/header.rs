@@ -10,9 +10,10 @@ use crate::logging::{
     WarningsAndIOGroupResult, io_to_log, split_io,
 };
 use crate::segment::{
-    GuessOtherWidthError, HeaderAnalysisSegment, HeaderDataSegment, HeaderOffsetOverlap,
-    HeaderSegment, HeaderSegmentError, OtherSegment, OtherSegment20, PrimaryTextSegment, Segment,
-    SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment, UncorrectedSegment,
+    GuessOtherWidthError, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
+    HeaderSegmentError, HeaderToHeaderOffsetOverlap, OtherSegment, OtherSegment20,
+    PrimaryTextSegment, Segment, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
+    UncorrectedSegment,
 };
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, OffsetKeyword, OptKeyword, ReqKeyword,
@@ -114,7 +115,7 @@ pub struct Header {
     pub version: Version,
     pub segments: ParsedHeaderSegments,
     pub uncorrected_segments: UncorrectedHeaderSegments,
-    pub overlaps: Vec<HeaderOffsetOverlap>,
+    pub overlaps: Vec<HeaderToHeaderOffsetOverlap>,
 }
 
 impl Header {

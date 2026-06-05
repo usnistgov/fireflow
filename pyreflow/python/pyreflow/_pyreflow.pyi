@@ -17,6 +17,9 @@ _L = TypeVar("_L")
 _R = TypeVar("_R")
 _S = TypeVar("_S")
 
+_N0 = TypeVar("_N0")
+_N1 = TypeVar("_N1")
+
 _OpticalKeyVals = list[_X | tuple[()] | None]
 
 class _DataSchemaUnmixedCommon:
@@ -2018,6 +2021,7 @@ class Header:
         version: pft.FCSVersion,
         segments: ParsedHeaderSegments,
         uncorrected_segments: UncorrectedHeaderSegments,
+        overlaps: list[HeaderToHeaderOffsetOverlap],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2026,6 +2030,8 @@ class Header:
     def segments(self) -> ParsedHeaderSegments: ...
     @property
     def uncorrected_segments(self) -> UncorrectedHeaderSegments: ...
+    @property
+    def overlaps(self) -> list[HeaderToHeaderOffsetOverlap]: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2091,10 +2097,9 @@ class DatasetSegments:
         cls,
         final_data_seg: pft.Segment,
         final_analysis_seg: pft.Segment,
-        data_origin: pft.TEXTOffsetOrigin,
-        analysis_origin: pft.TEXTOffsetOrigin,
-        data_seg_uncorrected: pft.Segment | None,
-        analysis_seg_uncorrected: pft.Segment | None,
+        data_origin: TEXTOffsetsOrigin,
+        analysis_origin: TEXTOffsetsOrigin,
+        data_analysis_overlap: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2102,13 +2107,11 @@ class DatasetSegments:
     @property
     def final_analysis_seg(self) -> pft.Segment: ...
     @property
-    def data_origin(self) -> pft.TEXTOffsetOrigin: ...
+    def data_origin(self) -> TEXTOffsetsOrigin: ...
     @property
-    def analysis_origin(self) -> pft.TEXTOffsetOrigin: ...
+    def analysis_origin(self) -> TEXTOffsetsOrigin: ...
     @property
-    def data_seg_uncorrected(self) -> pft.Segment | None: ...
-    @property
-    def analysis_seg_uncorrected(self) -> pft.Segment | None: ...
+    def data_analysis_overlap(self) -> int | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2148,19 +2151,134 @@ class SplitTEXTDiagnostics:
     @property
     def dict(self) -> dict[str, Any]: ...
 
+class _OffsetOverlap(Generic[_N0, _N1]):
+    def __new__(
+        cls,
+        offsets0: pft.NamedOffsets[_N0],
+        offsets1: pft.NamedOffsets[_N1],
+        overlap: int,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def offsets0(self) -> pft.NamedOffsets[_N0]: ...
+    @property
+    def offsets1(self) -> pft.NamedOffsets[_N1]: ...
+    @property
+    def overlap(self) -> int: ...
+    @property
+    def dict(self) -> dict[str, Any]: ...
+
+class _OffsetToNextdataOverlap(Generic[_N0]):
+    def __new__(
+        cls,
+        offsets: pft.NamedOffsets[_N0],
+        overlap: int,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def offsets(self) -> pft.NamedOffsets[_N0]: ...
+    @property
+    def overlap(self) -> int: ...
+    @property
+    def dict(self) -> dict[str, Any]: ...
+
+@final
+class HeaderToHeaderOffsetOverlap(
+    _OffsetOverlap[pft.HeaderSegmentName, pft.HeaderSegmentName]
+):
+    pass
+
+@final
+class TextToHeaderOffsetOverlap(
+    _OffsetOverlap[pft.TextSegmentName, pft.HeaderSegmentName]
+):
+    pass
+
+@final
+class SuppToHeaderOffsetOverlap(
+    _OffsetOverlap[pft.SuppTextSegmentName, pft.HeaderSegmentName]
+):
+    pass
+
+@final
+class TextToHeaderOrSuppOffsetOverlap(
+    _OffsetOverlap[pft.TextSegmentName, pft.HeaderOrSuppSegmentName]
+):
+    pass
+
+@final
+class HeaderOffsetToNextdataOverlap(_OffsetToNextdataOverlap[pft.HeaderSegmentName]):
+    pass
+
+@final
+class TextOffsetToNextdataOverlap(_OffsetToNextdataOverlap[pft.TextSegmentName]):
+    pass
+
+@final
+class SuppOffsetToNextdataOverlap(_OffsetToNextdataOverlap[pft.SuppTextSegmentName]):
+    pass
+
+@final
+class SuppTEXTOffsetsOutput:
+    def __new__(
+        cls,
+        origin_type: pft.SuppTEXTOffsetsOriginType,
+        final_offsets: pft.Segment | None,
+        uncorrected_offsets: pft.Segment | None,
+        other_index: int | None,
+        offset_overlaps: list[SuppToHeaderOffsetOverlap],
+        nextdata_overlap: SuppOffsetToNextdataOverlap | None,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def origin_type(self) -> pft.SuppTEXTOffsetsOriginType: ...
+    @property
+    def final_offsets(self) -> pft.Segment: ...
+    @property
+    def uncorrected_offsets(self) -> pft.Segment | None: ...
+    @property
+    def other_index(self) -> int | None: ...
+    @property
+    def offset_overlaps(self) -> list[SuppToHeaderOffsetOverlap]: ...
+    @property
+    def nextdata_overlap(self) -> SuppOffsetToNextdataOverlap | None: ...
+    @property
+    def dict(self) -> dict[str, Any]: ...
+
+@final
+class TEXTOffsetsOrigin:
+    def __new__(
+        cls,
+        origin_type: pft.TEXTOffsetsOriginType,
+        uncorrected_offsets: pft.Segment | None,
+        offset_overlaps: list[TextToHeaderOrSuppOffsetOverlap],
+        nextdata_overlap: TextOffsetToNextdataOverlap | None,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def origin_type(self) -> pft.TEXTOffsetsOriginType: ...
+    @property
+    def uncorrected_offsets(self) -> pft.Segment | None: ...
+    @property
+    def offset_overlaps(self) -> list[SuppToHeaderOffsetOverlap]: ...
+    @property
+    def nextdata_overlap(self) -> SuppOffsetToNextdataOverlap | None: ...
+    @property
+    def dict(self) -> dict[str, Any]: ...
+
 @final
 class HeaderAndSuppOffsets:
     def __new__(
         cls,
         header: Header,
-        supp_text: pft.SuppTEXTOffsets,
+        supp_text: SuppTEXTOffsetsOutput,
         nextdata: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header(self) -> Header: ...
     @property
-    def supp_text(self) -> pft.SuppTEXTOffsets: ...
+    def supp_text(self) -> SuppTEXTOffsetsOutput: ...
     @property
     def nextdata(self) -> int | None: ...
     @property
@@ -2171,6 +2289,7 @@ class FlatTEXTDiagnostics:
     def __new__(
         cls,
         header_supp: HeaderAndSuppOffsets,
+        header_nextdata_overlaps: list[HeaderOffsetToNextdataOverlap],
         byte_pairs: list[tuple[bytes | str, bytes | str]],
         non_unique_std_keywords: list[tuple[str, str]],
         non_unique_nonstd_keywords: list[tuple[str, str]],
@@ -2183,6 +2302,8 @@ class FlatTEXTDiagnostics:
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def header_supp(self) -> HeaderAndSuppOffsets: ...
+    @property
+    def header_nextdata_overlaps(self) -> list[HeaderOffsetToNextdataOverlap]: ...
     @property
     def byte_pairs(self) -> list[tuple[bytes | str, bytes | str]]: ...
     @property
@@ -3233,6 +3354,15 @@ __all__ = [
     "MixedDataSchema",
     "Header",
     "ParsedHeaderSegments",
+    "HeaderToHeaderOffsetOverlap",
+    "TextToHeaderOffsetOverlap",
+    "SuppToHeaderOffsetOverlap",
+    "TextToHeaderOrSuppOffsetOverlap",
+    "HeaderOffsetToNextdataOverlap",
+    "TextOffsetToNextdataOverlap",
+    "SuppOffsetToNextdataOverlap",
+    "SuppTEXTOffsetsOutput",
+    "TEXTOffsetsOrigin",
     "HeaderAndSuppOffsets",
     "UncorrectedHeaderSegments",
     "FlatTEXTOutput",

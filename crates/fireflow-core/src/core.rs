@@ -162,6 +162,7 @@ use {
     crate::text::named_vec::EitherPair,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
+    pyo3::exceptions::PyValueError,
     pyo3::prelude::*,
     python::{PyRangeType, PySplitScale},
 };
@@ -1053,10 +1054,10 @@ pub struct DatasetSegments {
     pub final_analysis: AnyAnalysisSegment,
 
     /// Encodes origin of DATA segment.
-    pub data_origin: TEXTOffsetOrigin,
+    pub data_origin: TEXTOffsetsOrigin,
 
     /// Encodes origin of ANALYSIS segment.
-    pub analysis_origin: TEXTOffsetOrigin,
+    pub analysis_origin: TEXTOffsetsOrigin,
 
     /// The amount of overlap between TEXT DATA and ANALYSIS.
     ///
@@ -1068,7 +1069,7 @@ pub struct DatasetSegments {
 
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum TEXTOffsetOrigin {
+pub enum TEXTOffsetsOrigin {
     /// TEXT offsets were empty.
     ///
     /// This is the only possible level for 2.0.
@@ -1093,9 +1094,9 @@ pub enum TEXTOffsetOrigin {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MismatchedTEXTOffsetOrigin {
     header_is_empty: bool,
+    uncorr: UncorrectedSegment,
     offset_overlaps: Vec<TextToHeaderOrSuppOffsetOverlap>,
     nextdata_overlap: Option<TextOffsetToNextdataOverlap>,
-    uncorr: UncorrectedSegment,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -6867,6 +6868,89 @@ impl DatasetSegments {
         let (dseg, dorig) = data.into_any();
         let (aseg, aorig) = analysis.into_any();
         Ok(Self::new(dseg, aseg, dorig, aorig, da_overlap))
+    }
+}
+
+impl TEXTOffsetsOrigin {
+    #[cfg(feature = "python")]
+    pub fn py_try_new(
+        level: py::TEXTOffsetOriginType,
+        uncorr: Option<UncorrectedSegment>,
+        offset_overlaps: Vec<TextToHeaderOrSuppOffsetOverlap>,
+        nextdata_overlap: Option<TextOffsetToNextdataOverlap>,
+    ) -> PyResult<Self> {
+        let ret = match (level, uncorr, &offset_overlaps[..], nextdata_overlap) {
+            (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None) => Self::EmptyTEXT,
+            (py::TEXTOffsetOriginType::Ignored, None, [], None) => Self::Ignored,
+            (py::TEXTOffsetOriginType::Unparsed, None, [], None) => Self::Unparsed,
+            (py::TEXTOffsetOriginType::Malformed, Some(u), [], None) => Self::Malformed(u),
+            (py::TEXTOffsetOriginType::Match, None, [], None) => Self::Match,
+            (py::TEXTOffsetOriginType::MismatchHeader, Some(u), [], None) => {
+                Self::MismatchHeader(u)
+            }
+            (py::TEXTOffsetOriginType::MismatchTEXT, Some(u), _, _) => Self::MismatchTEXT(
+                MismatchedTEXTOffsetOrigin::new(false, u, offset_overlaps, nextdata_overlap),
+            ),
+            (py::TEXTOffsetOriginType::EmptyHeader, Some(u), _, _) => Self::MismatchTEXT(
+                MismatchedTEXTOffsetOrigin::new(true, u, offset_overlaps, nextdata_overlap),
+            ),
+            _ => {
+                return Err(PyValueError::new_err(
+                    "invalid combination of level and values, see class-level docstring",
+                ));
+            }
+        };
+        Ok(ret)
+    }
+
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_origin_type(&self) -> py::TEXTOffsetOriginType {
+        match self {
+            Self::EmptyTEXT => py::TEXTOffsetOriginType::EmptyTEXT,
+            Self::Ignored => py::TEXTOffsetOriginType::Ignored,
+            Self::Unparsed => py::TEXTOffsetOriginType::Unparsed,
+            Self::Malformed(_) => py::TEXTOffsetOriginType::Malformed,
+            Self::Match => py::TEXTOffsetOriginType::Match,
+            Self::MismatchHeader(_) => py::TEXTOffsetOriginType::MismatchHeader,
+            Self::MismatchTEXT(x) => {
+                if x.header_is_empty {
+                    py::TEXTOffsetOriginType::EmptyHeader
+                } else {
+                    py::TEXTOffsetOriginType::MismatchTEXT
+                }
+            }
+        }
+    }
+
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_uncorrected_offsets(&self) -> Option<UncorrectedSegment> {
+        match self {
+            Self::EmptyTEXT | Self::Ignored | Self::Unparsed | Self::Match => None,
+            Self::MismatchHeader(u) | Self::Malformed(u) => Some(*u),
+            Self::MismatchTEXT(x) => Some(x.uncorr),
+        }
+    }
+
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_offset_overlaps(&self) -> &[TextToHeaderOrSuppOffsetOverlap] {
+        if let Self::MismatchTEXT(x) = self {
+            &x.offset_overlaps[..]
+        } else {
+            &[]
+        }
+    }
+
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_nextdata_overlap(&self) -> Option<TextOffsetToNextdataOverlap> {
+        if let Self::MismatchTEXT(x) = self {
+            x.nextdata_overlap
+        } else {
+            None
+        }
     }
 }
 

@@ -1,12 +1,9 @@
 extern crate proc_macro;
 
 use fireflow_types::config::{self as tc, EnumStrIter as _};
-use fireflow_types::diagnostics as td;
 use fireflow_types::keywords as tk;
 use fireflow_types::nonempty_string::NEStr;
-use fireflow_types::python::{
-    COL_TYPE_ASCII, COL_TYPE_F32, COL_TYPE_F64, ColumnType, IntegerWidth,
-};
+use fireflow_types::python as tp;
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
@@ -772,15 +769,26 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.uncorrected_segments.clone().into()),
     );
 
-    let args = [version, segments, uncorrected_segments];
+    let overlaps = DocArgROIvar::new_ivar_ro(
+        "overlaps",
+        PyList::new1(PyClass::new_py(["api"], "HeaderToHeaderOffsetOverlap")),
+        format!("Overlaps between {HEADER} offset pairs."),
+        |_, _| quote!(self.0.overlaps.iter().cloned().map(Into::into).collect()),
+    );
+
+    let args = [version, segments, uncorrected_segments, overlaps];
 
     let doc = DocString::new_class(format!("The {HEADER} segment from an FCS dataset.")).args(args);
-    let inner_args = doc.idents_into();
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(#inner_args).into()
+                #path::new(
+                    version.into(),
+                    segments.into(),
+                    uncorrected_segments.into(),
+                    overlaps.into_iter().map(Into::into).collect(),
+                ).into()
             }
 
             /// Dump this class as a dictionary.
@@ -790,6 +798,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
                 ret.set_item("version", self.version())?;
                 ret.set_item("segments", self.segments().dict(py)?)?;
                 ret.set_item("uncorrected_segments", self.uncorrected_segments().dict(py)?)?;
+                ret.set_item("overlaps", self.overlaps())?;
                 Ok(ret.into())
             }
         }
@@ -856,7 +865,7 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
                     analysis_seg,
                     other_segs.map(|(os, w)| (os.0, w)),
                 )?;
-                Ok(x.into())
+                Ok(x.0.into())
             }
 
             /// Dump this class as a dictionary.
@@ -880,21 +889,13 @@ pub fn impl_py_uncorrected_header_segments(input: TokenStream) -> TokenStream {
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_uncorrected_seg_param(
-        "text_seg",
-        AnySegment::PrimaryTEXT,
-        UncorrSegmentSrc::Header,
-    )
-    .into_ro(|_, _| quote!(self.0.text));
-    let data =
-        DocArg::new_uncorrected_seg_param("data_seg", AnySegment::Data, UncorrSegmentSrc::Header)
-            .into_ro(|_, _| quote!(self.0.data));
-    let analysis = DocArg::new_uncorrected_seg_param(
-        "analysis_seg",
-        AnySegment::Analysis,
-        UncorrSegmentSrc::Header,
-    )
-    .into_ro(|_, _| quote!(self.0.analysis));
+    let text = DocArg::new_uncorrected_header_offsets_param("text_seg", AnySegment::PrimaryTEXT)
+        .into_ro(|_, _| quote!(self.0.text));
+    let data = DocArg::new_uncorrected_header_offsets_param("data_seg", AnySegment::Data)
+        .into_ro(|_, _| quote!(self.0.data));
+    let analysis =
+        DocArg::new_uncorrected_header_offsets_param("analysis_seg", AnySegment::Analysis)
+            .into_ro(|_, _| quote!(self.0.analysis));
 
     let other = DocArg::new_param(
         "other_segs",
@@ -1097,6 +1098,203 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
 }
 
 #[proc_macro]
+pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let origin_type_rstype = parse_quote!(fireflow_types::python::SuppTEXTOffsetOriginType);
+    let origin_type_pt = tp::SuppTEXTOffsetOriginType::iter_str()
+        .collect::<PyLiteral>()
+        .rstype(origin_type_rstype);
+
+    let origin_type = DocArg::new_param(
+        "origin_type",
+        origin_type_pt,
+        format!(
+            "The discrete configuration of the supplemental {TEXT} \
+             offsets that produced this configuration."
+        ),
+    )
+    .into_ro(|_, _| quote!(self.0.py_origin_type()));
+
+    let uncorr_offsets = DocArg::new_param(
+        "uncorrected_offsets",
+        PyOpt::new1(PyTuple::new_uncorrected_segment()),
+        format!("The original supplemental {TEXT} offsets as written in the file."),
+    )
+    .into_ro(|_, _| quote!(self.0.py_uncorrected_offsets()));
+
+    let final_offsets = DocArg::new_param(
+        "final_offsets",
+        PyOpt::new1(PyTuple::new_supp_text_segment()),
+        format!("The final offsets used to read supplemental {TEXT}."),
+    )
+    .into_ro(|_, _| quote!(self.0.py_final_offsets()));
+
+    let other_index = DocArg::new_param(
+        "other_index",
+        PyOpt::new1(RsInt::Usize),
+        format!(
+            "The index of the {OTHER} offsets which duplicate supplemental \
+             {TEXT} if applicable."
+        ),
+    )
+    .into_ro(|_, _| quote!(self.0.py_other_index()));
+
+    let offset_overlaps = DocArg::new_param(
+        "offset_overlaps",
+        PyList::new1(PyClass::new_py(["api"], "SuppToHeaderOffsetOverlap")),
+        format!("Overlaps between supplemental {TEXT} and {HEADER} offsets."),
+    )
+    .into_ro(|_, _| {
+        quote!(
+            self.0
+                .py_offset_overlaps()
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect()
+        )
+    });
+
+    let nextdata_overlap = DocArg::new_param(
+        "nextdata_overlap",
+        PyOpt::new1(PyClass::new_py(["api"], "SuppOffsetToNextdataOverlap")),
+        format!("Overlap between supplemental {TEXT} and {NEXTDATA}."),
+    )
+    .into_ro(|_, _| quote!(self.0.py_nextdata_overlap().map(Into::into)));
+
+    let args = [
+        origin_type,
+        final_offsets,
+        uncorr_offsets,
+        other_index,
+        offset_overlaps,
+        nextdata_overlap,
+    ];
+    let doc = DocString::new_class(format!(
+        "Output from reading supplemental {TEXT} offsets from file."
+    ))
+    .args(args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> PyResult<Self> {
+                let ret = #path::py_try_new(
+                    origin_type,
+                    final_offsets,
+                    uncorrected_offsets,
+                    other_index,
+                    offset_overlaps.into_iter().map(Into::into).collect(),
+                    nextdata_overlap.map(Into::into)
+                )?;
+                Ok(ret.into())
+            }
+
+            /// Dump this class as a dictionary.
+            #[getter]
+            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+                let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("origin_type", self.origin_type())?;
+                ret.set_item("final_offsets", self.final_offsets())?;
+                ret.set_item("uncorrected_offsets", self.uncorrected_offsets())?;
+                ret.set_item("other_index", self.other_index())?;
+                ret.set_item("offset_overlaps", self.offset_overlaps())?;
+                ret.set_item("nextdata_overlap", self.nextdata_overlap())?;
+                Ok(ret.into())
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let origin_type_rstype = parse_quote!(fireflow_types::python::TEXTOffsetOriginType);
+    let origin_type_pt = tp::TEXTOffsetOriginType::iter_str()
+        .collect::<PyLiteral>()
+        .rstype(origin_type_rstype);
+
+    let origin_type = DocArg::new_param(
+        "origin_type",
+        origin_type_pt,
+        "The discrete configuration of these \
+         offsets that produced this configuration.",
+    )
+    .into_ro(|_, _| quote!(self.0.py_origin_type()));
+
+    let uncorr_offsets = DocArg::new_param(
+        "uncorrected_offsets",
+        PyOpt::new1(PyTuple::new_uncorrected_segment()),
+        "The original offsets as written in the file.",
+    )
+    .into_ro(|_, _| quote!(self.0.py_uncorrected_offsets()));
+
+    let offset_overlaps = DocArg::new_param(
+        "offset_overlaps",
+        PyList::new1(PyClass::new_py(["api"], "TextToHeaderOrSuppOffsetOverlap")),
+        format!("Overlaps between these offsets {TEXT} and {HEADER}/supp {TEXT} offsets."),
+    )
+    .into_ro(|_, _| {
+        quote!(
+            self.0
+                .py_offset_overlaps()
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect()
+        )
+    });
+
+    let nextdata_overlap = DocArg::new_param(
+        "nextdata_overlap",
+        PyOpt::new1(PyClass::new_py(["api"], "TextOffsetToNextdataOverlap")),
+        format!("Overlap between these offsets and {NEXTDATA}."),
+    )
+    .into_ro(|_, _| quote!(self.0.py_nextdata_overlap().map(Into::into)));
+
+    let args = [
+        origin_type,
+        uncorr_offsets,
+        offset_overlaps,
+        nextdata_overlap,
+    ];
+    let doc = DocString::new_class(format!(
+        "Output from reading {TEXT} {DATA} or {ANALYSIS} offsets from file."
+    ))
+    .args(args);
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> PyResult<Self> {
+                let ret = #path::py_try_new(
+                    origin_type,
+                    uncorrected_offsets,
+                    offset_overlaps.into_iter().map(Into::into).collect(),
+                    nextdata_overlap.map(Into::into)
+                )?;
+                Ok(ret.into())
+            }
+
+            /// Dump this class as a dictionary.
+            #[getter]
+            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+                let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("origin_type", self.origin_type())?;
+                ret.set_item("uncorrected_offsets", self.uncorrected_offsets())?;
+                ret.set_item("offset_overlaps", self.offset_overlaps())?;
+                ret.set_item("nextdata_overlap", self.nextdata_overlap())?;
+                Ok(ret.into())
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
 pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
@@ -1234,6 +1432,129 @@ pub fn impl_py_keyword_version_score(input: TokenStream) -> TokenStream {
                 ret.insert("missing_req".into(), self.0.missing_req);
                 ret.insert("missing_absent".into(), self.0.missing_absent);
                 ret
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_offset_to_nextdata_overlap(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+    let sname = name.to_string();
+
+    let offsets_pt = match sname.as_str() {
+        "HeaderOffsetToNextdataOverlap" => PyTuple::new_header_named_offsets(),
+        "TextOffsetToNextdataOverlap" => PyTuple::new_text_named_offsets(),
+        "SuppOffsetToNextdataOverlap" => PyTuple::new_supp_text_named_offsets(),
+        _ => panic!("incompatible overlap type"),
+    };
+
+    let offsets = DocArg::new_param("offsets", offsets_pt, "The offsets for this overlap")
+        .into_ro(|_, _| quote!(self.0.offsets));
+
+    let overlap = DocArg::new_param(
+        "overlap",
+        RsInt::NonZeroU64,
+        "The size of the overlap in bytes",
+    )
+    .into_ro(|_, _| quote!(self.0.overlap));
+
+    let args = [offsets, overlap];
+    let doc =
+        DocString::new_class(format!("Overlap between segment offsets and {NEXTDATA}")).args(args);
+    let inner_args = doc.idents();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+
+            /// Dump this class as a dictionary.
+            #[getter]
+            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+                let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("offsets", self.offsets())?;
+                ret.set_item("overlap", self.overlap())?;
+                Ok(ret.into())
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_offset_to_offset_overlap(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+    let sname = name.to_string();
+
+    let (desc, offsets_pt0, offsets_pt1) = match sname.as_str() {
+        "HeaderToHeaderOffsetOverlap" => (
+            format!("Overlap between two offsets from {HEADER}."),
+            PyTuple::new_header_named_offsets(),
+            PyTuple::new_header_named_offsets(),
+        ),
+        "TextToHeaderOffsetOverlap" => (
+            format!(
+                "Overlap between an offset from {HEADER} \
+                 and an offset from {TEXT}."
+            ),
+            PyTuple::new_text_named_offsets(),
+            PyTuple::new_header_named_offsets(),
+        ),
+        "SuppToHeaderOffsetOverlap" => (
+            format!(
+                "Overlap between supplemental {TEXT} offset and \
+                 an offset from {HEADER}."
+            ),
+            PyTuple::new_supp_text_named_offsets(),
+            PyTuple::new_header_named_offsets(),
+        ),
+        "TextToHeaderOrSuppOffsetOverlap" => (
+            format!(
+                "Overlap between {TEXT} offset and a {HEADER} \
+                 or the supp {TEXT} offset."
+            ),
+            PyTuple::new_text_named_offsets(),
+            PyTuple::new_header_or_supp_named_offsets(),
+        ),
+        _ => panic!("incompatible overlap type"),
+    };
+
+    let offsets0 = DocArg::new_param("offsets0", offsets_pt0, "The first offsets in this overlap")
+        .into_ro(|_, _| quote!(self.0.offsets0));
+
+    let offsets1 = DocArg::new_param(
+        "offsets1",
+        offsets_pt1,
+        "The second offsets in this overlap",
+    )
+    .into_ro(|_, _| quote!(self.0.offsets1));
+
+    let overlap = DocArg::new_param("overlap", RsInt::U64, "The size of the overlap in bytes")
+        .into_ro(|_, _| quote!(self.0.overlap));
+
+    let args = [offsets0, offsets1, overlap];
+    let doc = DocString::new_class(desc).args(args);
+    let inner_args = doc.idents();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+
+            /// Dump this class as a dictionary.
+            #[getter]
+            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+                let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("offsets0", self.offsets0())?;
+                ret.set_item("offsets1", self.offsets1())?;
+                ret.set_item("overlap", self.overlap())?;
+                Ok(ret.into())
             }
         }
     };
@@ -1383,42 +1704,24 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    // let origin_path = parse_quote!(fireflow_types::diagnostics::TEXTOffsetOrigin);
-    // let origin_pt = td::TEXTOffsetOrigin::iter_str()
-    //     .collect::<PyLiteral>()
-    //     .rstype(origin_path);
-
-    // let make_origin = |argname, argseg: AnySegment| {
-    //     DocArg::new_param(
-    //         argname,
-    //         origin_pt.clone(),
-    //         format!(
-    //             "The origin of the offsets that were actually used to read {seg}.",
-    //             seg = argseg.name(),
-    //         ),
-    //     )
-    // };
+    let make_origin = |argname, argseg: AnySegment| {
+        DocArg::new_param(
+            argname,
+            PyClass::new_py(["api"], "TEXTOffsetsOrigin"),
+            format!(
+                "The origin of the offsets that were actually used to read {seg}.",
+                seg = argseg.name(),
+            ),
+        )
+        .into_ro(|n, _| quote!(self.0.#n.clone().into()))
+    };
 
     let data = DocArg::new_data_seg_param("final_data_seg", SegmentSrc::Any)
         .into_ro(|_, _| quote!(self.0.final_data));
     let analysis = DocArg::new_analysis_seg_param("final_analysis_seg", SegmentSrc::Any, false)
         .into_ro(|_, _| quote!(self.0.final_analysis));
-    // let data_origin =
-    //     make_origin("data_origin", AnySegment::Data).into_ro(|_, _| quote!(self.0.data_origin));
-    // let analysis_origin = make_origin("analysis_origin", AnySegment::Analysis)
-    //     .into_ro(|_, _| quote!(self.0.analysis_origin));
-    // let data_uncorrected = DocArg::new_uncorrected_seg_param(
-    //     "data_seg_uncorrected",
-    //     AnySegment::Data,
-    //     UncorrSegmentSrc::Text,
-    // )
-    // .into_ro(|_, _| quote!(self.0.data_uncorrected));
-    // let analysis_uncorrected = DocArg::new_uncorrected_seg_param(
-    //     "analysis_seg_uncorrected",
-    //     AnySegment::Analysis,
-    //     UncorrSegmentSrc::Text,
-    // )
-    // .into_ro(|_, _| quote!(self.0.analysis_uncorrected));
+    let data_origin = make_origin("data_origin", AnySegment::Data);
+    let analysis_origin = make_origin("analysis_origin", AnySegment::Analysis);
 
     let overlap = DocArg::new_param(
         "data_analysis_overlap",
@@ -1427,36 +1730,8 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     )
     .into_ro(|_, _| quote!(self.0.data_analysis_overlap));
 
-    let args = [
-        data, analysis,
-        // data_origin,
-        // analysis_origin,
-        // data_uncorrected,
-        // analysis_uncorrected,
-        overlap,
-    ];
+    let args = [data, analysis, data_origin, analysis_origin, overlap];
 
-    // let offset_para = format!(
-    //     "The {origin} fields indicate the origin of the offsets used to read a \
-    //      given segment. It will be one of 1) {emptytext} - {TEXT} offsets were \
-    //      empty, 2) {ignored} - {TEXT} offsets were ignored by config, 3) \
-    //      {missing} - {TEXT} offsets were either missing or could not be parsed, \
-    //      4) {match_} - {HEADER} and {TEXT} offsets match so both/either were \
-    //      used 5) {mishead} - {HEADER} and {TEXT} offsets don't match and \
-    //      {HEADER} was used, 6) {mistext} - like (6) except that {TEXT} was used, \
-    //      and 7) {emptyhead} - {HEADER} offsets were empty and {TEXT} offsets \
-    //      were not empty, so {TEXT} was used. Levels 1-5 indicate that the origin \
-    //      of the offsets used to read was {HEADER}, and the others indicate it \
-    //      was from {TEXT}.",
-    //     origin = arg("*_origin"),
-    //     emptytext = code_str(td::TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL),
-    //     ignored = code_str(td::TEXT_OFFSET_ORIGIN_IGNORED_LEVEL),
-    //     missing = code_str(td::TEXT_OFFSET_ORIGIN_MISSING_LEVEL),
-    //     match_ = code_str(td::TEXT_OFFSET_ORIGIN_MATCH_LEVEL),
-    //     mishead = code_str(td::TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL),
-    //     mistext = code_str(td::TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL),
-    //     emptyhead = code_str(td::TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL),
-    // );
     let doc =
         DocString::new_class(format!("Segments used to parse {DATA} and {ANALYSIS}")).args(args);
     let inner_args = doc.idents_into();
@@ -1473,8 +1748,8 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("final_data_seg", self.final_data_seg())?;
                 ret.set_item("final_analysis_seg", self.final_analysis_seg())?;
-                // ret.set_item("data_origin", self.data_origin())?;
-                // ret.set_item("analysis_origin", self.analysis_origin())?;
+                ret.set_item("data_origin", self.data_origin())?;
+                ret.set_item("analysis_origin", self.analysis_origin())?;
                 ret.set_item("data_analysis_overlap", self.data_analysis_overlap())?;
                 Ok(ret.into())
             }
@@ -1677,50 +1952,12 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
 
     let header = DocArg::new_header_param().into_ro(|_, _| quote!(self.0.header.clone().into()));
 
-    let supp_vars: [PyType<_>; 7] = [
-        PyLiteral::new1(tk::SUPP_TEXT_EMPTY.as_str()).into(),
-        PyLiteral::new1(tk::SUPP_TEXT_MISSING.as_str()).into(),
-        PyLiteral::new1(tk::SUPP_TEXT_DUP_ANALYSIS.as_str()).into(),
-        PyLiteral::new1(tk::SUPP_TEXT_DUP_PTEXT.as_str()).into(),
-        PyTuple::new_uncorrected_segment().into(),
-        PyTuple::new1(PyTuple::new_supp_text_segment())
-            .add(PyTuple::new_uncorrected_segment())
-            .into(),
-        PyTuple::new1(PyTuple::new_supp_text_segment())
-            .add(PyTuple::new_uncorrected_segment())
-            .add(RsInt::Usize)
-            .into(),
-    ];
-
-    let supp_path = parse_quote!(fireflow_core::api::SupplementalTEXTOffsets);
-    let supp_pt = supp_vars
-        .into_iter()
-        .collect::<PyUnion<_>>()
-        .rstype(supp_path);
-
-    let supp = DocArgROIvar::new_ivar_ro(
+    let supp = DocArg::new_param(
         "supp_text",
-        supp_pt,
-        format!(
-            "Supplemental {TEXT} offsets if applicable. If {empty}, offsets were \
-             not present and not required. If {missing}, offsets were missing or \
-             could not be parsed and were required. If {dup_ptext} offsets \
-             perfectly matched primary {TEXT} and the latter was used. If \
-             {dup_anal} offsets perfectly matched {ANALYSIS} and the latter was \
-             used. If an offset pair, this encodes the uncorrected offsets which \
-             were ignored. If a 2-tuple with two offset pairs, these encode the \
-             corrected and uncorrected offsets for a valid supplemental {TEXT} \
-             segment which was used and parsed. If a 3-tuple, this is just like \
-             the previous except the supplemental {TEXT} offsets matched an \
-             {OTHER} segment (indicated by the integer in the 3rd element of the \
-             tuple) and the former was used.",
-            empty = code_str(tk::SUPP_TEXT_EMPTY),
-            missing = code_str(tk::SUPP_TEXT_MISSING),
-            dup_ptext = code_str(tk::SUPP_TEXT_DUP_PTEXT),
-            dup_anal = code_str(tk::SUPP_TEXT_DUP_ANALYSIS),
-        ),
-        |_, _| quote!(self.0.supp_text),
-    );
+        PyClass::new_py(["api"], "SuppTEXTOffsetsOutput"),
+        format!("The supplemental {TEXT} offsets and associated parse data."),
+    )
+    .into_ro(|_, _| quote!(self.0.supp_text.clone().into()));
 
     let rstype = keyword_path("Nextdata");
     let nextdata = DocArgROIvar::new_ivar_ro(
@@ -1732,7 +1969,8 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
 
     let args = [header, supp, nextdata];
 
-    let doc = DocString::new_class(format!("{HEADER} data and supplemental offsets.")).args(args);
+    let doc =
+        DocString::new_class(format!("{HEADER} data and supplemental {TEXT} offsets.")).args(args);
     let inner_args = doc.idents_into();
 
     let new = |fun_args| {
@@ -1767,6 +2005,22 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         format!("{HEADER} data and supplemental {TEXT} offsets."),
         |_, _| quote!(self.0.header_supp.clone().into()),
     );
+
+    let header_nextdata_overlaps = DocArg::new_param(
+        "header_nextdata_overlaps",
+        PyList::new1(PyClass::new_py(["api"], "HeaderOffsetToNextdataOverlap")),
+        format!("Overlaps between {HEADER} offsets and {NEXTDATA}."),
+    )
+    .into_ro(|_, _| {
+        quote!(
+            self.0
+                .header_nextdata_overlaps
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect()
+        )
+    });
 
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
@@ -1851,6 +2105,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let args = [
         header_supp,
+        header_nextdata_overlaps,
         byte_pairs,
         non_unique_std,
         non_unique_nonstd,
@@ -1862,12 +2117,22 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     ];
 
     let doc = DocString::new_class(format!("Diagnostic data from parsing {TEXT}.")).args(args);
-    let inner_args = doc.idents_into();
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(#inner_args).into()
+                #path::new(
+                    header_supp.into(),
+                    header_nextdata_overlaps.into_iter().map(Into::into).collect(),
+                    byte_pairs,
+                    non_unique_std_keywords,
+                    non_unique_nonstd_keywords,
+                    ignored_standard_keywords,
+                    keys_with_empty_trimmed_values,
+                    keys_with_trimmed_values,
+                    primary_split.into(),
+                    supp_split.map(Into::into)
+                ).into()
             }
 
             /// Dump this class as a dictionary.
@@ -1875,6 +2140,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("header_supp", self.header_supp().dict(py)?)?;
+                ret.set_item("header_nextdata_overlaps", self.header_nextdata_overlaps())?;
                 ret.set_item("byte_pairs", self.byte_pairs())?;
                 ret.set_item("non_unique_std_keywords", self.non_unique_std_keywords())?;
                 ret.set_item("non_unique_nonstd_keywords", self.non_unique_nonstd_keywords())?;
@@ -5317,13 +5583,6 @@ enum SegmentSrc {
     Any,
 }
 
-/// The origin of a uncorrected segment
-#[derive(Clone, Copy)]
-enum UncorrSegmentSrc {
-    Header,
-    Text,
-}
-
 /// Any python argument documentation type
 #[derive(Clone, From, Display)]
 enum AnyDocArg {
@@ -5690,6 +5949,7 @@ enum RsInt {
     I128,
     Usize,
     NonZeroU8,
+    NonZeroU64,
     NonZeroUsize,
 }
 
@@ -6023,6 +6283,7 @@ impl HasRustPath for RsInt {
             Self::U64 => parse_quote!(u64),
             Self::Usize => parse_quote!(usize),
             Self::NonZeroU8 => parse_quote!(std::num::NonZeroU8),
+            Self::NonZeroU64 => parse_quote!(std::num::NonZeroU64),
             Self::NonZeroUsize => parse_quote!(std::num::NonZeroUsize),
             Self::I32 => parse_quote!(i32),
             Self::I128 => parse_quote!(i128),
@@ -7191,12 +7452,12 @@ impl PyLiteral {
 
     fn new_integer_width() -> Self {
         let path = parse_quote!(fireflow_types::python::IntegerWidth);
-        Self::new_with_path(IntegerWidth::iter_str(), path)
+        Self::new_with_path(tp::IntegerWidth::iter_str(), path)
     }
 
     fn new_column_type() -> Self {
         let path = parse_quote!(fireflow_types::python::ColumnType);
-        Self::new_with_path(ColumnType::iter_str(), path)
+        Self::new_with_path(tp::ColumnType::iter_str(), path)
     }
 }
 
@@ -7311,6 +7572,66 @@ impl<E: From<PyException>> PyTuple<E> {
             .add(PyStr::default())
             .add(PyBool::default())
             .exc(exc)
+    }
+
+    fn new_header_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::HeaderSegmentName);
+        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let header_levels: PyLiteral = [
+            tp::SEGMENT_NAME_TEXT,
+            tp::SEGMENT_NAME_DATA,
+            tp::SEGMENT_NAME_ANALYSIS,
+        ]
+        .into_iter()
+        .map(NEStr::as_str)
+        .collect();
+        let name_pt = PyUnion::new2(header_levels, RsInt::Usize);
+        Self::new1(name_pt)
+            .add(RsInt::U64)
+            .add(RsInt::U64)
+            .rstype(path)
+    }
+
+    fn new_header_or_supp_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::HeaderOrSuppSegmentName);
+        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let header_levels: PyLiteral = [
+            tp::SEGMENT_NAME_TEXT,
+            tp::SEGMENT_NAME_STEXT,
+            tp::SEGMENT_NAME_DATA,
+            tp::SEGMENT_NAME_ANALYSIS,
+        ]
+        .into_iter()
+        .map(NEStr::as_str)
+        .collect();
+        let name_pt = PyUnion::new2(header_levels, RsInt::Usize);
+        Self::new1(name_pt)
+            .add(RsInt::U64)
+            .add(RsInt::U64)
+            .rstype(path)
+    }
+
+    fn new_text_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::TextSegmentName);
+        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let name_pt: PyLiteral = [tp::SEGMENT_NAME_DATA, tp::SEGMENT_NAME_ANALYSIS]
+            .into_iter()
+            .map(NEStr::as_str)
+            .collect();
+        Self::new1(name_pt)
+            .add(RsInt::U64)
+            .add(RsInt::U64)
+            .rstype(path)
+    }
+
+    fn new_supp_text_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::SuppTextSegmentName);
+        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let name_pt = PyLiteral::new1(tp::SEGMENT_NAME_STEXT.as_str());
+        Self::new1(name_pt)
+            .add(RsInt::U64)
+            .add(RsInt::U64)
+            .rstype(path)
     }
 
     fn new_uncorrected_segment() -> Self {
@@ -7555,13 +7876,13 @@ impl<E: From<PyException>> PyUnion<E> {
         let path = quote!(fireflow_core::data::MixedRange);
         Self::new2(
             PyTuple::new1(
-                IntegerWidth::iter_str()
-                    .chain([COL_TYPE_ASCII.as_str()])
+                tp::IntegerWidth::iter_str()
+                    .chain([tp::COL_TYPE_ASCII.as_str()])
                     .collect::<PyLiteral>(),
             )
             .add(RsInt::U64),
             PyTuple::new1(
-                [COL_TYPE_F32.as_str(), COL_TYPE_F64.as_str()]
+                [tp::COL_TYPE_F32.as_str(), tp::COL_TYPE_F64.as_str()]
                     .into_iter()
                     .collect::<PyLiteral>(),
             )
@@ -7585,7 +7906,7 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_range_or_bitmask_range() -> Self {
         let path = quote!(fireflow_core::data::MaybeTypedVariableBitmask);
-        let ints = PyTuple::new1(IntegerWidth::iter_str().collect::<PyLiteral>())
+        let ints = PyTuple::new1(tp::IntegerWidth::iter_str().collect::<PyLiteral>())
             .add(RsInt::U64)
             .into();
         let rng = PyType::from(Self::new_full_range());
@@ -8563,17 +8884,9 @@ impl DocArgParam {
         Self::new_param("events_diagnostics", p, d)
     }
 
-    fn new_uncorrected_seg_param(argname: &str, seg: AnySegment, src: UncorrSegmentSrc) -> Self {
-        let optional = matches!(src, UncorrSegmentSrc::Text);
-        let (pt, end) = if optional {
-            (
-                PyType::from(PyOpt::new1(PyTuple::new_uncorrected_segment())),
-                " (if found)",
-            )
-        } else {
-            (PyTuple::new_uncorrected_segment().into(), "")
-        };
-        let desc = format!("The uncorrected {} segment from {src}{end}.", seg.name());
+    fn new_uncorrected_header_offsets_param(argname: &str, seg: AnySegment) -> Self {
+        let pt = PyTuple::new_uncorrected_segment();
+        let desc = format!("The uncorrected {} segment from {HEADER}.", seg.name());
         Self::new_param(argname, pt, desc)
     }
 
@@ -10471,16 +10784,6 @@ impl fmt::Display for SegmentSrc {
         let s = match self {
             Self::Header => HEADER,
             Self::Any => formatcp!("{HEADER} or {TEXT}"),
-        };
-        f.write_str(s)
-    }
-}
-
-impl fmt::Display for UncorrSegmentSrc {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Header => HEADER,
-            Self::Text => TEXT,
         };
         f.write_str(s)
     }

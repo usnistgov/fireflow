@@ -486,7 +486,7 @@ pub(crate) enum ChoseHeaderReason {
     /// TEXT is empty (or possibly totally absent if optional)
     Empty,
     /// TEXT is ignored
-    Ignored,
+    Ignored(Option<UncorrectedSegment>),
     /// TEXT is required but could not be parsed.
     Unparsed,
     /// TEXT is required but was numerically malformed.
@@ -504,7 +504,7 @@ impl<I> HeaderOrTextSegment<I> {
                 let anyseg = seg.into_any();
                 let origin = match reason {
                     ChoseHeaderReason::Empty => TEXTOffsetsOrigin::EmptyTEXT,
-                    ChoseHeaderReason::Ignored => TEXTOffsetsOrigin::Ignored,
+                    ChoseHeaderReason::Ignored(uncorr) => TEXTOffsetsOrigin::Ignored(uncorr),
                     ChoseHeaderReason::Unparsed => TEXTOffsetsOrigin::Unparsed,
                     ChoseHeaderReason::Malformed(uncorr) => TEXTOffsetsOrigin::Malformed(uncorr),
                     ChoseHeaderReason::Match => TEXTOffsetsOrigin::Match,
@@ -656,13 +656,7 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        if ignore.is_set() {
-            let default = Self::corrected_segment(segs);
-            let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok(new)
-        } else {
-            Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, st)
-        }
+        Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, ignore, st)
     }
 
     fn remove_req_or<C>(
@@ -680,23 +674,14 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        // if we want to totally ignore the TEXT offsets, just blindly remove
-        // them so we don't trigger any pseudostandard false positives later and
-        // return the default segment
-        if ignore.is_set() {
-            let _ = Self::remove_req_pair(kws);
-            let default = Self::corrected_segment(segs);
-            let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok(new)
-        } else {
-            Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, st)
-        }
+        Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, ignore, st)
     }
 
     fn with_req_pair_default<C>(
         pair: ReqPair<Self::B, Self::E>,
         segs: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
+        ignore: Self::IgnoreFlag,
         st: &ReadState<C>,
     ) -> ReqSegResult<Self>
     where
@@ -799,8 +784,11 @@ where
             // TEXT offsets found, compare with HEADER
             Ok((x0, x1)) => {
                 let uncorr_txt = UncorrectedSegment::new(x0, x1);
-                if uncorr_txt == uncorr_hdr {
-                    // Uncorrected offsets are identical, not a mismatch
+                if ignore.is_set() {
+                    // If ignore is set, return immediately with uncorrected offsets
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
+                } else if uncorr_txt == uncorr_hdr {
+                    // Uncorrected offsets are identical, not a mismatch.
                     LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
                 } else {
                     // Offsets not identical, choose one
@@ -810,12 +798,19 @@ where
             // TEXT offsets not found, throw error or warning depending on
             // if we want to enforce required offsets
             Err(es) => {
-                let es0 = es
-                    .fmap(ReqSegmentError::Key)
-                    .fmap(ReqSegmentWithDefaultErrorInner::from)
-                    .into_iter()
-                    .collect();
-                text_missing(es0)
+                if ignore.is_set() {
+                    // If ignore is set, bypass errors and return nothing
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(None)))
+                } else {
+                    // Otherwise return all the errors to make user a better and
+                    // more enlightened person
+                    let es0 = es
+                        .fmap(ReqSegmentError::Key)
+                        .fmap(ReqSegmentWithDefaultErrorInner::from)
+                        .into_iter()
+                        .collect();
+                    text_missing(es0)
+                }
             }
         }
     }
@@ -920,14 +915,8 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        if ignore.is_set() {
-            let default = Self::corrected_segment(segs);
-            let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok(new)
-        } else {
-            let pair = Self::get_opt_pair(kws);
-            Self::with_opt_pair_default(pair, segs, corr, st)
-        }
+        let pair = Self::get_opt_pair(kws);
+        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
     }
 
     fn remove_opt_or<C>(
@@ -945,21 +934,15 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        if ignore.is_set() {
-            let default = Self::corrected_segment(segs);
-            let _ = Self::remove_opt_pair(kws);
-            let new = HeaderOrTextSegment::Header(default, ChoseHeaderReason::Ignored);
-            LogResult::new_ok(new)
-        } else {
-            let pair = Self::remove_opt_pair(kws);
-            Self::with_opt_pair_default(pair, segs, corr, st)
-        }
+        let pair = Self::remove_opt_pair(kws);
+        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
     }
 
     fn with_opt_pair_default<C>(
         pair: OptPair<Self::B, Self::E>,
         segs: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
+        ignore: Self::IgnoreFlag,
         st: &ReadState<C>,
     ) -> OptSegRes<Self>
     where
@@ -1056,7 +1039,10 @@ where
             // TEXT offsets found without errors, compare with HEADER
             Ok(Some((x0, x1))) => {
                 let uncorr_txt = UncorrectedSegment::new(x0, x1);
-                if uncorr_txt == uncorr_hdr {
+                if ignore.is_set() {
+                    // Ignore is set, return uncorrected offsets immediately
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
+                } else if uncorr_txt == uncorr_hdr {
                     // Uncorrected HEADER and TEXT are identical, just use HEADER
                     LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
                 } else {
@@ -1066,14 +1052,21 @@ where
             }
             // TEXT pairs found with errors, use HEADER
             Err(es) => {
-                let (e0, e1) = es.split();
-                let hpair = header_pair(ChoseHeaderReason::Unparsed);
-                SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
-                    .extend_deferred_switchable_errors(e1)
-                    .set_ok_value(hpair)
-                    .map_switchable_errors(OptSegmentError::Key)
-                    .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
-                    .switchable_into_commutative()
+                if ignore.is_set() {
+                    // Ignore is set, bypass errors
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(None)))
+                } else {
+                    // Otherwise throw lots of errors so user will have more
+                    // information to contemplate their life's decisions.
+                    let (e0, e1) = es.split();
+                    let hpair = header_pair(ChoseHeaderReason::Unparsed);
+                    SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
+                        .extend_deferred_switchable_errors(e1)
+                        .set_ok_value(hpair)
+                        .map_switchable_errors(OptSegmentError::Key)
+                        .map_switchable_errors(OptSegmentWithDefaultWarningInner::from)
+                        .switchable_into_commutative()
+                }
             }
         }
     }

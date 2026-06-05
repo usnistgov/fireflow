@@ -1098,7 +1098,15 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
+    const ORIGIN_TYPE: &str = "origin_type";
+    const FINAL_OFFSETS: &str = "final_offsets";
+    const UNCORR_OFFSETS: &str = "uncorrected_offsets";
+    const OTHER_INDEX: &str = "other_index";
+    const OFFSET_OVERLAPS: &str = "offset_overlaps";
+    const NEXTDATA_OVERLAP: &str = "nextdata_overlap";
+
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -1108,7 +1116,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
         .rstype(origin_type_rstype);
 
     let origin_type = DocArg::new_param(
-        "origin_type",
+        ORIGIN_TYPE,
         origin_type_pt,
         format!(
             "The discrete configuration of the supplemental {TEXT} \
@@ -1118,21 +1126,21 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     .into_ro(|_, _| quote!(self.0.py_origin_type()));
 
     let uncorr_offsets = DocArg::new_param(
-        "uncorrected_offsets",
+        UNCORR_OFFSETS,
         PyOpt::new1(PyTuple::new_uncorrected_segment()),
         format!("The original supplemental {TEXT} offsets as written in the file."),
     )
     .into_ro(|_, _| quote!(self.0.py_uncorrected_offsets()));
 
     let final_offsets = DocArg::new_param(
-        "final_offsets",
+        FINAL_OFFSETS,
         PyOpt::new1(PyTuple::new_supp_text_segment()),
         format!("The final offsets used to read supplemental {TEXT}."),
     )
     .into_ro(|_, _| quote!(self.0.py_final_offsets()));
 
     let other_index = DocArg::new_param(
-        "other_index",
+        OTHER_INDEX,
         PyOpt::new1(RsInt::Usize),
         format!(
             "The index of the {OTHER} offsets which duplicate supplemental \
@@ -1142,7 +1150,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     .into_ro(|_, _| quote!(self.0.py_other_index()));
 
     let offset_overlaps = DocArg::new_param(
-        "offset_overlaps",
+        OFFSET_OVERLAPS,
         PyList::new1(PyClass::new_py(["api"], "SuppToHeaderOffsetOverlap")),
         format!("Overlaps between supplemental {TEXT} and {HEADER} offsets."),
     )
@@ -1158,7 +1166,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     });
 
     let nextdata_overlap = DocArg::new_param(
-        "nextdata_overlap",
+        NEXTDATA_OVERLAP,
         PyOpt::new1(PyClass::new_py(["api"], "SuppOffsetToNextdataOverlap")),
         format!("Overlap between supplemental {TEXT} and {NEXTDATA}."),
     )
@@ -1172,10 +1180,77 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
         offset_overlaps,
         nextdata_overlap,
     ];
+
     let doc = DocString::new_class(format!(
         "Output from reading supplemental {TEXT} offsets from file."
     ))
-    .args(args);
+    .args(args)
+    .para(format!(
+        "The meaning of each configuration and possible values for other \
+         attributes is determined by {}:",
+        arg(ORIGIN_TYPE)
+    ))
+    .para(format!(
+        "* {}: offsets are empty. Nothing was done. All other attributes are null. \
+         2.0 files will always return this since they do not have supplemental \
+         {TEXT} at all.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_EMPTY_LEVEL)
+    ))
+    .para(format!(
+        "* {}: offsets were required based on version but could not be parsed, \
+         either because they were missing entirely or the keywords were not \
+         valid numbers. All other attributes are null.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_UNPARSED_LEVEL)
+    ))
+    .para(format!(
+        "* {}: offsets were required based on version, were parsed to digits, \
+         but did not form valid offsets. {} will have the original offsets.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_MALFORMED_LEVEL),
+        arg(UNCORR_OFFSETS)
+    ))
+    .para(format!(
+        "* {}: offsets were parsed and were exact duplicates of primary {TEXT} \
+         and were thus ignored. All other attributes are null since this \
+         situation adds no more new information.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_DUP_PTEXT_LEVEL),
+    ))
+    .para(format!(
+        "* {}: offsets were parsed and were exact duplicates of {ANALYSIS} \
+         and were thus ignored. All other attributes are null since this \
+         situation adds no more new information.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_DUP_ANALYSIS_LEVEL),
+    ))
+    .para(format!(
+        "* {}: offsets were parsed but ignored by user request. If keywords \
+         were valid and parsed to digits, they will be returned via {}.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_IGNORED_LEVEL),
+        arg(UNCORR_OFFSETS)
+    ))
+    .para(format!(
+        "* {}: offsets were parsed and were exact duplicates of an {OTHER} \
+         segment. In this case, the segment was assumed to be a real \
+         supplemental {TEXT} segment and thus was read while the {OTHER} offsets \
+         were ignored. The index of the matching {OTHER} offsets is recorded in \
+         {index}. The final and original offsets are returned in {final} and \
+         {uncorr}. Overlaps are recorded in {oo} and {no} if applicable.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_DUP_OTHER_LEVEL),
+        index = arg(OTHER_INDEX),
+        final = arg(FINAL_OFFSETS),
+        uncorr = arg(UNCORR_OFFSETS),
+        oo = arg(OFFSET_OVERLAPS),
+        no = arg(NEXTDATA_OVERLAP),
+    ))
+    .para(format!(
+        "* {}: offsets were parsed and valid; they did not overlap anything else. \
+         {index} will be null. The final and original offsets are returned in \
+         {final} and {uncorr}. Overlaps are recorded in {oo} and {no} if applicable.",
+        code_str(tp::SUPP_OFFSET_ORIGIN_VALID_LEVEL),
+        index = arg(OTHER_INDEX),
+        final = arg(FINAL_OFFSETS),
+        uncorr = arg(UNCORR_OFFSETS),
+        oo = arg(OFFSET_OVERLAPS),
+        no = arg(NEXTDATA_OVERLAP),
+    ));
 
     let new = |fun_args| {
         quote! {
@@ -1209,7 +1284,13 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
+    const ORIGIN_TYPE: &str = "origin_type";
+    const UNCORR_OFFSETS: &str = "uncorrected_offsets";
+    const OFFSET_OVERLAPS: &str = "offset_overlaps";
+    const NEXTDATA_OVERLAP: &str = "nextdata_overlap";
+
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -1219,7 +1300,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
         .rstype(origin_type_rstype);
 
     let origin_type = DocArg::new_param(
-        "origin_type",
+        ORIGIN_TYPE,
         origin_type_pt,
         "The discrete configuration of these \
          offsets that produced this configuration.",
@@ -1227,14 +1308,14 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
     .into_ro(|_, _| quote!(self.0.py_origin_type()));
 
     let uncorr_offsets = DocArg::new_param(
-        "uncorrected_offsets",
+        UNCORR_OFFSETS,
         PyOpt::new1(PyTuple::new_uncorrected_segment()),
         "The original offsets as written in the file.",
     )
     .into_ro(|_, _| quote!(self.0.py_uncorrected_offsets()));
 
     let offset_overlaps = DocArg::new_param(
-        "offset_overlaps",
+        OFFSET_OVERLAPS,
         PyList::new1(PyClass::new_py(["api"], "TextToHeaderOrSuppOffsetOverlap")),
         format!("Overlaps between these offsets {TEXT} and {HEADER}/supp {TEXT} offsets."),
     )
@@ -1250,7 +1331,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
     });
 
     let nextdata_overlap = DocArg::new_param(
-        "nextdata_overlap",
+        NEXTDATA_OVERLAP,
         PyOpt::new1(PyClass::new_py(["api"], "TextOffsetToNextdataOverlap")),
         format!("Overlap between these offsets and {NEXTDATA}."),
     )
@@ -1263,9 +1344,67 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
         nextdata_overlap,
     ];
     let doc = DocString::new_class(format!(
-        "Output from reading {TEXT} {DATA} or {ANALYSIS} offsets from file."
+        "Output from reading {DATA} or {ANALYSIS} offsets from {TEXT} in file."
     ))
-    .args(args);
+    .args(args)
+    .para(format!(
+        "The meaning of each configuration and possible values for other \
+         attributes is determined by {}:",
+        arg(ORIGIN_TYPE)
+    ))
+    .para(format!(
+        "* {}: offsets are empty and those from {HEADER} were used. \
+         All other attributes are null. 2.0 files will always return this since \
+         they do not have {TEXT} offset keywords at all.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_EMPTY_TEXT_LEVEL)
+    ))
+    .para(format!(
+        "* {}: offsets were parsed but ignored by user request. If keywords \
+         were valid and parsed to digits, they will be returned via {}.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_IGNORED_LEVEL),
+        arg(UNCORR_OFFSETS)
+    ))
+    .para(format!(
+        "* {}: offsets were required based on version but could not be parsed, \
+         either because they were missing entirely or the keywords were not \
+         valid numbers. All other attributes are null.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_UNPARSED_LEVEL)
+    ))
+    .para(format!(
+        "* {}: offsets were required based on version, were parsed to digits, \
+         but did not form valid offsets. {} will have the original offsets.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_MALFORMED_LEVEL),
+        arg(UNCORR_OFFSETS)
+    ))
+    .para(format!(
+        "* {}: offsets exactly match those in {HEADER}. All attributes are null \
+         since this situation provides no new information.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_MATCH_LEVEL),
+    ))
+    .para(format!(
+        "* {}: offsets mismatch those in {HEADER} and {HEADER} was chosen via \
+         user config. {} will have the original offsets.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL),
+        arg(UNCORR_OFFSETS)
+    ))
+    .para(format!(
+        "* {}: offsets mismatch those in {HEADER} and {TEXT} was chosen via \
+         user config. The original offsets are returned in {uncorr}. \
+         Overlaps are recorded in {oo} and {no} if applicable.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL),
+        uncorr = arg(UNCORR_OFFSETS),
+        oo = arg(OFFSET_OVERLAPS),
+        no = arg(NEXTDATA_OVERLAP)
+    ))
+    .para(format!(
+        "* {}: {HEADER} offsets were empty and {TEXT} were parsed and found to \
+         be valid. {uncorr} will have the original offsets. Overlaps are \
+         recorded in {oo} and {no} if applicable.",
+        code_str(tp::TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL),
+        uncorr = arg(UNCORR_OFFSETS),
+        oo = arg(OFFSET_OVERLAPS),
+        no = arg(NEXTDATA_OVERLAP)
+    ));
 
     let new = |fun_args| {
         quote! {
@@ -7642,16 +7781,16 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_segment(n: &str) -> Self {
         let t = format_ident!("{n}");
         let p = parse_quote!(fireflow_core::segment::#t);
-        let desc = format!(
-            "if {ARG_TOKEN} has offsets which exceed the end of the file, \
-             are inverted (begin after end), or are either negative \
-             or greater than {max}",
-            max = code("2**64-1")
-        );
-        let exc = PyException::new_value().desc(desc);
+        // let desc = format!(
+        //     "if {ARG_TOKEN} has offsets which exceed the end of the file, \
+        //      are inverted (begin after end), or are either negative \
+        //      or greater than {max}",
+        //     max = code("2**64-1")
+        // );
+        // let exc = PyException::new_value().desc(desc);
         // NOTE don't use ints with overflow exceptions since this is captured
         // in the overall exception for the entire type
-        repeat_n(RsInt::U64, 2).collect::<Self>().exc(exc).rstype(p)
+        repeat_n(RsInt::U64, 2).collect::<Self>().rstype(p)
     }
 
     fn new_text_segment() -> Self {

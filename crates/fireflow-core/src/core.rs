@@ -1075,7 +1075,7 @@ pub enum TEXTOffsetsOrigin {
     /// This is the only possible level for 2.0.
     EmptyTEXT,
     /// TEXT offsets were present but ignored.
-    Ignored,
+    Ignored(Option<UncorrectedSegment>),
     /// TEXT offsets are required but could not be parsed.
     // TODO this could either mean the offsets were entirely missing or that
     // they were present but could not be parsed into numbers.
@@ -6881,7 +6881,7 @@ impl TEXTOffsetsOrigin {
     ) -> PyResult<Self> {
         let ret = match (level, uncorr, &offset_overlaps[..], nextdata_overlap) {
             (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None) => Self::EmptyTEXT,
-            (py::TEXTOffsetOriginType::Ignored, None, [], None) => Self::Ignored,
+            (py::TEXTOffsetOriginType::Ignored, u, [], None) => Self::Ignored(u),
             (py::TEXTOffsetOriginType::Unparsed, None, [], None) => Self::Unparsed,
             (py::TEXTOffsetOriginType::Malformed, Some(u), [], None) => Self::Malformed(u),
             (py::TEXTOffsetOriginType::Match, None, [], None) => Self::Match,
@@ -6908,7 +6908,7 @@ impl TEXTOffsetsOrigin {
     pub fn py_origin_type(&self) -> py::TEXTOffsetOriginType {
         match self {
             Self::EmptyTEXT => py::TEXTOffsetOriginType::EmptyTEXT,
-            Self::Ignored => py::TEXTOffsetOriginType::Ignored,
+            Self::Ignored(_) => py::TEXTOffsetOriginType::Ignored,
             Self::Unparsed => py::TEXTOffsetOriginType::Unparsed,
             Self::Malformed(_) => py::TEXTOffsetOriginType::Malformed,
             Self::Match => py::TEXTOffsetOriginType::Match,
@@ -6927,8 +6927,9 @@ impl TEXTOffsetsOrigin {
     #[must_use]
     pub fn py_uncorrected_offsets(&self) -> Option<UncorrectedSegment> {
         match self {
-            Self::EmptyTEXT | Self::Ignored | Self::Unparsed | Self::Match => None,
+            Self::EmptyTEXT | Self::Unparsed | Self::Match => None,
             Self::MismatchHeader(u) | Self::Malformed(u) => Some(*u),
+            Self::Ignored(u) => *u,
             Self::MismatchTEXT(x) => Some(x.uncorr),
         }
     }

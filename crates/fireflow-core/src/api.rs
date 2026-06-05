@@ -556,7 +556,7 @@ pub enum SuppTEXTOffsetsOutput {
     /// Offsets present but perfectly duplicated ANALYSIS and thus were ignored.
     DuplicatesAnalysis,
     /// Offsets present but ignored by user configuration.
-    Ignored(UncorrectedSegment),
+    Ignored(Option<UncorrectedSegment>),
     /// Offsets present and valid.
     Valid(ValidSuppTEXTOffsets),
 }
@@ -1974,12 +1974,26 @@ impl SuppTEXTOffsetsOutput {
         res.set_err_value(()).and_then_commutative(|offset_res| {
             match offset_res {
                 OffsetResult::Empty => LogResult::new_ok(Self::Empty),
-                OffsetResult::Malformed(uncorr) => LogResult::new_ok(Self::Malformed(uncorr)),
-                OffsetResult::Missing => LogResult::new_ok(Self::Unparsed),
+                OffsetResult::Malformed(uncorr) => {
+                    let out = if hconf.ignore_supp_text.is_set() {
+                        Self::Ignored(Some(uncorr))
+                    } else {
+                        Self::Malformed(uncorr)
+                    };
+                    LogResult::new_ok(out)
+                }
+                OffsetResult::Missing => {
+                    let out = if hconf.ignore_supp_text.is_set() {
+                        Self::Ignored(None)
+                    } else {
+                        Self::Unparsed
+                    };
+                    LogResult::new_ok(out)
+                }
                 OffsetResult::Valid(corr_supp, uncorr_supp) => {
                     // Return uncorrected segments without any processing if ignored
                     if hconf.ignore_supp_text.is_set() {
-                        return LogResult::new_ok(Self::Ignored(uncorr_supp));
+                        return LogResult::new_ok(Self::Ignored(Some(uncorr_supp)));
                     }
 
                     // Offsets found, check for validity
@@ -2089,7 +2103,7 @@ impl SuppTEXTOffsetsOutput {
             (py::SuppTEXTOffsetOriginType::DuplicatesAnalysis, None, None, None, [], None) => {
                 Ok(Self::DuplicatesAnalysis)
             }
-            (py::SuppTEXTOffsetOriginType::Ignored, None, Some(u), None, [], None) => {
+            (py::SuppTEXTOffsetOriginType::Ignored, None, u, None, [], None) => {
                 Ok(Self::Ignored(u))
             }
             (py::SuppTEXTOffsetOriginType::DuplicatesOther, Some(s), Some(u), Some(i), _, _) => {
@@ -2140,7 +2154,8 @@ impl SuppTEXTOffsetsOutput {
             | Self::Unparsed
             | Self::DuplicatesPrimaryTEXT
             | Self::DuplicatesAnalysis => None,
-            Self::Malformed(x) | Self::Ignored(x) => Some(*x),
+            Self::Malformed(x) => Some(*x),
+            Self::Ignored(x) => *x,
             Self::Valid(x) => Some(x.uncorr),
         }
     }

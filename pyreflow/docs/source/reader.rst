@@ -223,3 +223,40 @@ These are which are reused when returning data from the above functions.
 
 .. autoclass:: pyreflow.api.KeywordVersionScore
    :members:
+
+.. autoclass:: pyreflow.api.SuppTEXTOffsetsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.TEXTOffsetsOrigin
+   :members:
+
+Offset-$NEXTDATA Overlap Outputs
+++++++++++++++++++++++++++++++++
+
+These classes are produced when an offset pair exceeds $NEXTDATA.
+
+.. autoclass:: pyreflow.api.HeaderOffsetToNextdataOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.TextOffsetToNextdataOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.SuppOffsetToNextdataOverlap
+   :members:
+
+Offset-Offset Overlap Outputs
++++++++++++++++++++++++++++++
+
+These classes are produced when two offsets overlap each other.
+
+.. autoclass:: pyreflow.api.HeaderToHeaderOffsetOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.TextToHeaderOffsetOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.SuppToHeaderOffsetOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.TextToHeaderOrSuppOffsetOverlap
+   :members:

@@ -10623,27 +10623,29 @@ impl fmt::Display for NamedPyException {
         let ns: Vec<_> = self.names.iter().map(arg).collect();
         let ns_ = fmt_comma_sep_list(&ns[..], "or");
         let n = self.inner.argmod.fmt(&ns_);
-        if let Some(d) = self.inner.inner.desc.as_ref() {
+        let out = if let Some(d) = self.inner.inner.desc.as_ref() {
             assert!(
                 d.contains(ARG_TOKEN),
                 "does not contain name ref ('{ARG_TOKEN}'): {d}"
             );
             let dd = d.replace(ARG_TOKEN, &n);
-            write!(f, ":raises {pn}: {dd}")
+            format!(":raises {pn}: {dd}")
         } else {
-            write!(f, ":raises {pn}:")
-        }
+            format!(":raises {pn}:")
+        };
+        write!(f, "{}", fmt_docstring_param(out.as_str()))
     }
 }
 
 impl fmt::Display for ReturnPyException {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let pn = &self.0.pyname;
-        if let Some(d) = self.0.desc.as_ref() {
-            write!(f, ":raises {pn}: {d}")
+        let out = if let Some(d) = self.0.desc.as_ref() {
+            format!(":raises {pn}: {d}")
         } else {
-            write!(f, ":raises {pn}:")
-        }
+            format!(":raises {pn}:")
+        };
+        write!(f, "{}", fmt_docstring_param(out.as_str()))
     }
 }
 
@@ -10790,7 +10792,12 @@ impl fmt::Display for SegmentSrc {
 }
 
 fn fmt_docstring_nonparam(s: &str) -> String {
-    fmt_hanging_indent(MAX_LINE_LEN, 0, s)
+    if s.starts_with('*') {
+        // format bulleted lists with 2 space handing indent after first line
+        fmt_hanging_indent(MAX_LINE_LEN, 2, s)
+    } else {
+        fmt_hanging_indent(MAX_LINE_LEN, 0, s)
+    }
 }
 
 fn fmt_docstring_param(s: &str) -> String {
@@ -10800,6 +10807,7 @@ fn fmt_docstring_param(s: &str) -> String {
 fn fmt_hanging_indent(width: usize, indent: usize, s: &str) -> String {
     let i = " ".repeat(indent);
     let xs = s.split_whitespace().filter(|x| !x.is_empty());
+    let mut is_first = true;
     let mut line_len = 0;
     let mut tmp = vec![]; // buffer for current line
     let mut zs = vec![]; // buffer for indented lines
@@ -10817,20 +10825,20 @@ fn fmt_hanging_indent(width: usize, indent: usize, s: &str) -> String {
         // In all cases, add the next word to the line buffer, which may only
         // have a leading indent if it was reset immediately before.
         if line_len > width {
-            zs.push(tmp.iter().join(" "));
-            if indent > 0 {
-                line_len = indent + x.len();
-                tmp = vec![i.as_str()];
-            } else {
-                line_len = x.len();
-                tmp = vec![];
-            }
+            let new = tmp.iter().join(" ");
+            let new_indent = if is_first { new } else { format!("{i}{new}") };
+            zs.push(new_indent);
+            line_len = x.len() + indent;
+            is_first = false;
+            tmp.clear();
         } else {
             line_len += 1;
         }
         tmp.push(x);
     }
-    zs.push(tmp.iter().join(" "));
+    let new = tmp.iter().join(" ");
+    let new_indent = if is_first { new } else { format!("{i}{new}") };
+    zs.push(new_indent);
     zs.iter().join("\n")
 }
 

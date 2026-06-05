@@ -4605,7 +4605,9 @@ class TestConfig:
         elif version == "FCS3.2":
             # supp text is optional for 3.2 so it emits warning
             with pytest.warns(pf.PyreflowWarning):
-                assert go((0, 0)).origin_type == "unparsed"
+                out_warn = go((0, 0))
+                assert out_warn.origin_type == "malformed"
+                assert out_warn.uncorrected_offsets == (0, -1)
             out32 = go((0, 1))
             assert out32.origin_type == "valid"
             assert out32.uncorrected_offsets == (0, -1)

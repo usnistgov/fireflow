@@ -519,6 +519,16 @@ impl<I> HeaderOrTextSegment<I> {
     }
 }
 
+/// Result from parsing a pair of strings into a segment offset pair
+pub(crate) enum PairResult<T, E> {
+    Valid(
+        Segment<T, SegmentFromTEXT, UintZeroPad20>,
+        UncorrectedSegment,
+    ),
+    Malformed(UncorrectedSegment, SegmentError),
+    Unparsed(OneOrTwo<E>),
+}
+
 /// Operations to obtain optional segment from TEXT keywords
 pub trait KeyedSegment: Sized + Copy {
     type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
@@ -534,13 +544,10 @@ pub(crate) trait KeyedSegmentInner: KeyedSegment + HasRegion {
         x1: i128,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
-    ) -> Result<
-        (
-            Segment<Self, SegmentFromTEXT, UintZeroPad20>,
-            UncorrectedSegment,
-        ),
-        SegmentError,
-    >
+    ) -> (
+        Result<Segment<Self, SegmentFromTEXT, UintZeroPad20>, SegmentError>,
+        UncorrectedSegment,
+    )
     where
         C: AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
@@ -549,7 +556,7 @@ pub(crate) trait KeyedSegmentInner: KeyedSegment + HasRegion {
     {
         let new_conf = NewSegmentConfig::from_read_config(corr, st);
         let raw = UncorrectedSegment::new(x0, x1);
-        Segment::try_new(x0, x1, &new_conf).map(|x| (x, raw))
+        (Segment::try_new(x0, x1, &new_conf), raw)
     }
 }
 
@@ -578,13 +585,7 @@ where
         pair: ReqPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
-    ) -> Result<
-        (
-            Segment<Self, SegmentFromTEXT, UintZeroPad20>,
-            UncorrectedSegment,
-        ),
-        OneOrTwo<ReqSegmentError<Self::B, Self::E>>,
-    >
+    ) -> PairResult<Self, ReqSegmentKeyError<Self::B, Self::E>>
     where
         C: AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
@@ -592,10 +593,14 @@ where
         Self::E: Copy,
     {
         match pair {
-            Ok((x0, x1)) => Self::pair_to_segment(x0, x1, corr, st)
-                .map_err(ReqSegmentError::Segment)
-                .map_err(OneOrTwo::One),
-            Err(e) => Err(e.fmap(ReqSegmentError::Key)),
+            Ok((x0, x1)) => {
+                let (res, raw) = Self::pair_to_segment(x0, x1, corr, st);
+                match res {
+                    Ok(final_pair) => PairResult::Valid(final_pair, raw),
+                    Err(e) => PairResult::Malformed(raw, e),
+                }
+            }
+            Err(e) => PairResult::Unparsed(e),
         }
     }
 
@@ -840,13 +845,7 @@ where
         pair: OptPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
-    ) -> Result<
-        Option<(
-            Segment<Self, SegmentFromTEXT, UintZeroPad20>,
-            UncorrectedSegment,
-        )>,
-        OneOrTwo<OptSegmentError<Self::B, Self::E>>,
-    >
+    ) -> Option<PairResult<Self, OptSegmentKeyError<Self::B, Self::E>>>
     where
         C: AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
@@ -854,12 +853,15 @@ where
         Self::E: Copy,
     {
         match pair {
-            Ok(maybe) => maybe
-                .map(|(x0, x1)| Self::pair_to_segment(x0, x1, corr, st))
-                .transpose()
-                .map_err(OptSegmentError::Segment)
-                .map_err(OneOrTwo::One),
-            Err(e) => Err(e.fmap(OptSegmentError::Key)),
+            Ok(None) => None,
+            Ok(Some((x0, x1))) => {
+                let (res, raw) = Self::pair_to_segment(x0, x1, corr, st);
+                match res {
+                    Ok(final_pair) => Some(PairResult::Valid(final_pair, raw)),
+                    Err(e) => Some(PairResult::Malformed(raw, e)),
+                }
+            }
+            Err(e) => Some(PairResult::Unparsed(e)),
         }
     }
 

@@ -27,7 +27,7 @@ use crate::macros::def_summary;
 use crate::segment::{
     AnyRegion, GuessOtherWidthError, HasRegion, HeaderOffsetToNextdataOverlap, HeaderSegmentName,
     IsDataOrAnalysis, IsNamedSegment, KeyedOptSegment as _, KeyedReqSegment as _,
-    OffsetToOffsetOverlap, OptSegmentError, PrimaryTextSegment, ReqSegmentError,
+    OffsetToOffsetOverlap, OptSegmentError, PairResult, PrimaryTextSegment, ReqSegmentError,
     SegmentOverlapError, SuppOffsetToNextdataOverlap, SuppTextSegmentName,
     SuppToHeaderOffsetOverlap, SupplementalTextSegment, SupplementalTextSegmentId, TEXTSegment,
     TextSegmentName, TextToHeaderOrSuppOffsetOverlap, UncorrectedSegment,
@@ -538,10 +538,6 @@ pub struct HeaderAndSuppOffsets {
     pub nextdata: Option<Nextdata>,
 }
 
-// TODO on the python side, flatten this enum into a class with attributes for
-// each slot (segment, uncorrect, overlap, etc). Make methods here for read
-// access, and make a function in the python lib that implements the __new__
-// plumbing so it doesn't need to be tucked into a macro
 /// The supplemental TEXT offsets from a file after parsing.
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -553,7 +549,6 @@ pub enum SuppTEXTOffsetsOutput {
     Empty,
     /// Offsets required but could not be parsed.
     Unparsed,
-    // TODO this isn't used yet
     /// Offsets required but were numerically malformed.
     Malformed(UncorrectedSegment),
     /// Offsets present but perfectly duplicated primary TEXT and thus were ignored.
@@ -1860,6 +1855,7 @@ impl SuppTEXTOffsetsOutput {
         enum OffsetResult {
             Empty,
             Missing,
+            Malformed(UncorrectedSegment),
             Valid(SupplementalTextSegment, UncorrectedSegment),
         }
 
@@ -1925,13 +1921,25 @@ impl SuppTEXTOffsetsOutput {
             Version::FCS3_0 | Version::FCS3_1 => {
                 let pair = SupplementalTextSegmentId::get_req_pair(kws);
                 match SupplementalTextSegmentId::with_req_pair(pair, config_corr, st) {
-                    Ok((corr, uncorr)) => LogResult::new_ok(OffsetResult::Valid(corr, uncorr)),
-                    Err(es) => {
+                    PairResult::Valid(corr, uncorr) => {
+                        LogResult::new_ok(OffsetResult::Valid(corr, uncorr))
+                    }
+                    PairResult::Malformed(uncorr, e) => {
+                        let flag = hconf.allow_missing_supp_text;
+                        let r = OffsetResult::Malformed(uncorr);
+                        SwitchableErrorsResult::new_deferred_switchable3(r, e, flag)
+                            .map_switchable_errors(ReqSegmentError::Segment)
+                            .map_switchable_errors(STextSegmentError::from)
+                            .switchable_into_commutative()
+                            .map_commutative_warnings(STextSegmentWarning::from)
+                    }
+                    PairResult::Unparsed(es) => {
                         let (e0, e1) = es.split();
                         let flag = hconf.allow_missing_supp_text;
                         let r = OffsetResult::Missing;
                         SwitchableErrorsResult::new_deferred_switchable3(r, e0, flag)
                             .extend_deferred_switchable_errors3(e1)
+                            .map_switchable_errors(ReqSegmentError::Key)
                             .map_switchable_errors(STextSegmentError::from)
                             .switchable_into_commutative()
                             .map_commutative_warnings(STextSegmentWarning::from)
@@ -1941,17 +1949,23 @@ impl SuppTEXTOffsetsOutput {
             Version::FCS3_2 => {
                 let pair = SupplementalTextSegmentId::get_opt_pair(kws);
                 match SupplementalTextSegmentId::with_opt_pair(pair, config_corr, st) {
-                    Ok(res) => {
-                        let r = res.map_or(OffsetResult::Empty, |(corr, uncorr)| {
-                            OffsetResult::Valid(corr, uncorr)
-                        });
-                        LogResult::new_ok(r)
+                    None => LogResult::new_ok(OffsetResult::Empty),
+                    Some(PairResult::Valid(corr, uncorr)) => {
+                        LogResult::new_ok(OffsetResult::Valid(corr, uncorr))
                     }
-                    Err(es) => {
+                    Some(PairResult::Malformed(uncorr, e)) => {
+                        let r = OffsetResult::Malformed(uncorr);
+                        let mut res = DeferredWarningsAndErrors::new_ok(r);
+                        res.extend_commutative_warnings([e]);
+                        res.map_commutative_warnings(OptSegmentError::Segment)
+                            .map_commutative_warnings(STextSegmentWarning::from)
+                    }
+                    Some(PairResult::Unparsed(es)) => {
                         let r = OffsetResult::Missing;
                         let mut res = DeferredWarningsAndErrors::new_ok(r);
                         res.extend_commutative_warnings(es);
-                        res.map_commutative_warnings(STextSegmentWarning::from)
+                        res.map_commutative_warnings(OptSegmentError::Key)
+                            .map_commutative_warnings(STextSegmentWarning::from)
                     }
                 }
             }
@@ -1960,6 +1974,7 @@ impl SuppTEXTOffsetsOutput {
         res.set_err_value(()).and_then_commutative(|offset_res| {
             match offset_res {
                 OffsetResult::Empty => LogResult::new_ok(Self::Empty),
+                OffsetResult::Malformed(uncorr) => LogResult::new_ok(Self::Malformed(uncorr)),
                 OffsetResult::Missing => LogResult::new_ok(Self::Unparsed),
                 OffsetResult::Valid(corr_supp, uncorr_supp) => {
                     // Return uncorrected segments without any processing if ignored

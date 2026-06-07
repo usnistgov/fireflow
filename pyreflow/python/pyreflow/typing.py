@@ -245,7 +245,7 @@ HeaderOrSuppSegmentName: TypeAlias = HeaderSegmentName | SuppTextSegmentName
 
 N = TypeVar("N")
 
-NamedOffsets: TypeAlias = tuple[N, Segment]
+NamedOffsets: TypeAlias = tuple[N, int, int]
 
 HeaderNamedOffsets: TypeAlias = NamedOffsets[HeaderSegmentName]
 SuppTEXTNamedOffsets: TypeAlias = NamedOffsets[SuppTextSegmentName]

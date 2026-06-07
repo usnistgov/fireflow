@@ -1865,7 +1865,7 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
     let overlap = DocArg::new_param(
         "data_analysis_overlap",
         PyOpt::new1(RsInt::U64),
-        "The overlap between {DATA} and {ANALYSIS} if applicable.",
+        format!("The overlap between {DATA} and {ANALYSIS} if applicable."),
     )
     .into_ro(|_, _| quote!(self.0.data_analysis_overlap));
 

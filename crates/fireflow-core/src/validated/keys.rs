@@ -1,5 +1,6 @@
 use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
 use crate::config::{AllowNonunique, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _};
+use crate::fixed_vec::OneOrTwo;
 use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
 use crate::segment::HeaderOffsetToNextdataOverlap;
@@ -1500,13 +1501,28 @@ fn trunc_bytes(xs: &[u8]) -> String {
     }
 }
 
-fn trunc_str(s: &str) -> Cow<'_, str> {
+fn trunc_str(s: &str) -> String {
+    let escape = |c| {
+        let esc = |x| OneOrTwo::Two('\\', x);
+        match c {
+            '\0' => esc('0'),
+            '\x07' => esc('a'),
+            '\x08' => esc('b'),
+            '\x09' => esc('t'),
+            '\x0a' => esc('n'),
+            '\x0b' => esc('v'),
+            '\x0c' => esc('f'),
+            '\x0d' => esc('r'),
+            '\x1b' => esc('e'),
+            x => OneOrTwo::One(x),
+        }
+    };
     let n = s.chars().count();
     if n > TRUNCATED_STR_LIMIT {
-        let t: String = s.chars().take(n).collect();
-        Cow::Owned(format!("{t}…(more)"))
+        let t: String = s.chars().take(n).flat_map(escape).collect();
+        format!("{t}…(more)")
     } else {
-        Cow::Borrowed(s)
+        s.chars().flat_map(escape).collect()
     }
 }
 

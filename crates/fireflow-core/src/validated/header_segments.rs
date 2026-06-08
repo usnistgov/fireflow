@@ -265,45 +265,49 @@ impl ParsedHeaderSegments {
                     // the TEXT segment itself. If so, throw error regardless
                     // since we already read it at this point and thus should
                     // not alter it. If not, truncate if within the limit.
-                    let overlap = hdr_seg.get_tail_offset_overlap(&txt_seg);
-                    overlaps.push(t2h_overlap(hdr_seg, overlap));
-                    if overlap <= limit.0 && !matches!(hdr_ref, AnyHeaderSegmentMut::Text(_)) {
-                        hdr_ref.truncate(overlap);
-                    } else if overlap > 0 {
-                        errors.push(err(hdr_seg));
+                    if let Some(overlap) = hdr_seg.get_tail_offset_overlap(&txt_seg) {
+                        overlaps.push(t2h_overlap(hdr_seg, overlap));
+                        if overlap.get() <= limit.0
+                            && !matches!(hdr_ref, AnyHeaderSegmentMut::Text(_))
+                        {
+                            hdr_ref.truncate(overlap.get());
+                        } else {
+                            errors.push(err(hdr_seg));
+                        }
                     }
                 } else {
                     // HEADER begins within TEXT or after. Truncate TEXT if
                     // within limit or throw error. In former case, return early
                     // since we know that no more HEADER segments can overlap.
-                    let overlap = txt_seg.get_tail_offset_overlap(&hdr_seg);
-                    overlaps.push(t2h_overlap(hdr_seg, overlap));
-                    if overlap <= limit.0 {
-                        s.truncate(overlap);
-                        return LogResult::new_ok(overlaps);
+                    if let Some(overlap) = txt_seg.get_tail_offset_overlap(&hdr_seg) {
+                        overlaps.push(t2h_overlap(hdr_seg, overlap));
+                        if overlap.get() <= limit.0 {
+                            s.truncate(overlap.get());
+                            return LogResult::new_ok(overlaps);
+                        }
+                        errors.push(err(hdr_seg));
                     }
-                    errors.push(err(hdr_seg));
                 }
             }
             // All the remaining HEADER segments should now begin within TEXT or
             // after.
             for (_, hdr_seg) in it {
-                let overlap = txt_seg.get_tail_offset_overlap(&hdr_seg);
-                // If no overlaps, we can assume there are no more overlaps
-                // since the HEADER offsets are sorted. Break early to save
-                // time.
-                if overlap == 0 {
+                if let Some(overlap) = txt_seg.get_tail_offset_overlap(&hdr_seg) {
+                    // If overlap within limit and we have not encountered an
+                    // error yet, truncate TEXT and return early without error.
+                    // Otherwise push error.
+                    overlaps.push(t2h_overlap(hdr_seg, overlap));
+                    if overlap.get() <= limit.0 && errors.is_empty() {
+                        s.truncate(overlap.get());
+                        return LogResult::new_ok(overlaps);
+                    }
+                    errors.push(err(hdr_seg));
+                } else {
+                    // If no overlaps, we can assume there are no more overlaps
+                    // since the HEADER offsets are sorted. Break early to save
+                    // time.
                     break;
                 }
-                overlaps.push(t2h_overlap(hdr_seg, overlap));
-                // If overlap within limit and we have not encountered an error
-                // yet, truncate TEXT and return early without error. Otherwise
-                // push error.
-                if overlap <= limit.0 && errors.is_empty() {
-                    s.truncate(overlap);
-                    return LogResult::new_ok(overlaps);
-                }
-                errors.push(err(hdr_seg));
             }
             LogResult::new_from_err_iter(errors, (), ()).set_deferred_value(overlaps)
         } else {
@@ -399,17 +403,18 @@ impl ParsedHeaderSegments {
         let mut fixed = vec![];
         while let Some(((ref0, seg0), rest)) = remainder.split_first_mut() {
             for (_, seg1) in rest {
-                let overlap = seg0.get_tail_offset_overlap(seg1);
-                if overlap <= limit.0 {
-                    let overlap_ret = HeaderToHeaderOffsetOverlap::new(*seg0, *seg1, overlap);
-                    fixed.push(overlap_ret);
-                    ref0.truncate(overlap);
-                    // break early because any offset after this one is
-                    // guaranteed to be after the new truncated ending due
-                    // to sorting
-                    break;
+                if let Some(overlap) = seg0.get_tail_offset_overlap(seg1) {
+                    if overlap.get() <= limit.0 {
+                        let overlap_ret = HeaderToHeaderOffsetOverlap::new(*seg0, *seg1, overlap);
+                        fixed.push(overlap_ret);
+                        ref0.truncate(overlap.get());
+                        // break early because any offset after this one is
+                        // guaranteed to be after the new truncated ending due
+                        // to sorting
+                        break;
+                    }
+                    errors.push(SegmentOverlapError::new(*seg0, *seg1));
                 }
-                errors.push(SegmentOverlapError::new(*seg0, *seg1));
             }
             if !remainder.is_empty() {
                 remainder = &mut remainder[1..];

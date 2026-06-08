@@ -146,6 +146,7 @@ use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, Write};
 use std::iter::{empty, once};
 use std::mem;
+use std::num::NonZeroU64;
 use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
@@ -1064,7 +1065,7 @@ pub struct DatasetSegments {
     /// Will only be `Some` if both TEXT offsets exist, are different from
     /// HEADER (either they mismatch or HEADER is empty), and overlap each
     /// other.
-    pub data_analysis_overlap: Option<u64>,
+    pub data_analysis_overlap: Option<NonZeroU64>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -6848,17 +6849,17 @@ impl DatasetSegments {
             && let (Some(dq), Some(aq)) = (dt.try_as_named(()), at.try_as_named(()))
         {
             if dq.begin < aq.begin {
-                let overlap = dq.get_tail_offset_overlap(&aq);
-                if overlap <= limit.0 {
-                    dt.truncate(overlap);
-                    da_overlap = Some(overlap);
-                } else {
-                    return Err(SegmentOverlapError::new(dq, aq));
+                if let Some(overlap) = dq.get_tail_offset_overlap(&aq) {
+                    if overlap.get() <= limit.0 {
+                        dt.truncate(overlap.get());
+                        da_overlap = Some(overlap);
+                    } else {
+                        return Err(SegmentOverlapError::new(dq, aq));
+                    }
                 }
-            } else {
-                let overlap = aq.get_tail_offset_overlap(&dq);
-                if overlap <= limit.0 {
-                    at.truncate(overlap);
+            } else if let Some(overlap) = aq.get_tail_offset_overlap(&dq) {
+                if overlap.get() <= limit.0 {
+                    at.truncate(overlap.get());
                     da_overlap = Some(overlap);
                 } else {
                     return Err(SegmentOverlapError::new(aq, dq));

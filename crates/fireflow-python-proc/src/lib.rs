@@ -1673,8 +1673,12 @@ pub fn impl_py_offset_to_offset_overlap(input: TokenStream) -> TokenStream {
     )
     .into_ro(|_, _| quote!(self.0.offsets1));
 
-    let overlap = DocArg::new_param("overlap", RsInt::U64, "The size of the overlap in bytes")
-        .into_ro(|_, _| quote!(self.0.overlap));
+    let overlap = DocArg::new_param(
+        "overlap",
+        RsInt::NonZeroU64,
+        "The size of the overlap in bytes",
+    )
+    .into_ro(|_, _| quote!(self.0.overlap));
 
     let args = [offsets0, offsets1, overlap];
     let doc = DocString::new_class(desc).args(args);
@@ -1864,7 +1868,7 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
 
     let overlap = DocArg::new_param(
         "data_analysis_overlap",
-        PyOpt::new1(RsInt::U64),
+        PyOpt::new1(RsInt::NonZeroU64),
         format!("The overlap between {DATA} and {ANALYSIS} if applicable."),
     )
     .into_ro(|_, _| quote!(self.0.data_analysis_overlap));

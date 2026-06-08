@@ -121,8 +121,7 @@ pub struct OffsetToOffsetOverlap<N0, N1> {
     /// Second offsets
     pub offsets1: NamedOffsets<N1>,
     /// Amount of overlap between two segments
-    // TODO make this nonzero
-    pub overlap: u64,
+    pub overlap: NonZeroU64,
 }
 
 impl_kind2!(pub OffsetOverlapFamily, OffsetToOffsetOverlap);
@@ -173,8 +172,11 @@ impl<N> NamedOffsets<N> {
         (self.begin, self.end)
     }
 
-    pub(crate) fn get_tail_offset_overlap<N0>(&self, other: &NamedOffsets<N0>) -> u64 {
-        (self.end + 1).saturating_sub(other.begin)
+    pub(crate) fn get_tail_offset_overlap<N0>(
+        &self,
+        other: &NamedOffsets<N0>,
+    ) -> Option<NonZeroU64> {
+        NonZeroU64::new((self.end + 1).saturating_sub(other.begin))
     }
 
     pub(crate) fn get_tail_nextdata_overlap(&self, n: Nextdata) -> Option<NonZeroU64> {

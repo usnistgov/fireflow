@@ -1044,21 +1044,23 @@ impl HeaderAndSuppOffsets {
                 let inner_err = SegmentOverlapError::new(this_seg, stxt_seg.fmap_into_once());
                 let err = SegmentValidationError::from(inner_err);
                 if this_seg.as_pair() < stxt_seg.as_pair() {
-                    let overlap = this_seg.get_tail_offset_overlap(&stxt_seg);
-                    if overlap <= limit.0 {
-                        supp_overlap = Some(OffsetToOffsetOverlap::new(
-                            this_seg,
-                            stxt_seg.fmap_into_once(),
-                            overlap,
-                        ));
-                        s.truncate(overlap);
-                        None
+                    if let Some(overlap) = this_seg.get_tail_offset_overlap(&stxt_seg) {
+                        if overlap.get() <= limit.0 {
+                            supp_overlap = Some(OffsetToOffsetOverlap::new(
+                                this_seg,
+                                stxt_seg.fmap_into_once(),
+                                overlap,
+                            ));
+                            s.truncate(overlap.get());
+                            None
+                        } else {
+                            Some(err)
+                        }
                     } else {
-                        Some(err)
+                        None
                     }
                 } else {
-                    let overlap = stxt_seg.get_tail_offset_overlap(&this_seg);
-                    (overlap > 0).then_some(err)
+                    stxt_seg.get_tail_offset_overlap(&this_seg).map(|_| err)
                 }
             });
             // Check for any errors between this segment and HEADER segments,

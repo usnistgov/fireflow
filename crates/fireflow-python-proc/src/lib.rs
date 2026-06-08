@@ -2221,9 +2221,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "keys_with_trimmed_values",
-        PyList::new1(
-            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_ne_string_or_bytes()),
-        ),
+        PyList::new1(PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyStr::new_ne_truncated_str())),
         "Keys with values that are not empty after whitespace was trimmed off.",
         |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
     );

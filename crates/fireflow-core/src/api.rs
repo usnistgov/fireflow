@@ -508,7 +508,7 @@ pub struct FlatTEXTDiagnostics {
     /// Keys with values that are not empty after whitespace was trimmed off.
     ///
     /// Values included here are the original values before trimming.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, NEStringOrBytes)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 
     /// Output from splitting primary TEXT
     pub primary_split: SplitTEXTDiagnostics,

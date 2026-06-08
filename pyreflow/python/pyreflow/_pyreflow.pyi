@@ -2295,7 +2295,7 @@ class FlatTEXTDiagnostics:
         non_unique_nonstd_keywords: list[tuple[str, str]],
         ignored_standard_keywords: list[tuple[str, bytes | str]],
         keys_with_empty_trimmed_values: list[bytes | str],
-        keys_with_trimmed_values: list[tuple[bytes | str, bytes | str]],
+        keys_with_trimmed_values: list[tuple[bytes | str, str]],
         primary_split: SplitTEXTDiagnostics,
         supp_split: SplitTEXTDiagnostics | None,
     ) -> Self: ...

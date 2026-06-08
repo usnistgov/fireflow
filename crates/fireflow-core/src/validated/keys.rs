@@ -190,7 +190,7 @@ pub struct ParsedKeywordsDiagnostic {
     /// Keys with values that were trimmed
     ///
     /// The value included here is the original value.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, NEStringOrBytes)>,
+    pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 }
 
 /// Either a standard or non-standard key.
@@ -1089,7 +1089,7 @@ impl ParsedKeywords {
         match kv_res {
             KeyValueResult::NonEmpty(k, v, was_trimmed) => {
                 if was_trimmed {
-                    let vo = NEStringOrBytes::from(TruncatedNEString(v.clone().into_owned()));
+                    let vo = TruncatedNEString(v.clone().into_owned());
                     let pair = (k.clone().into(), vo);
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
@@ -1132,8 +1132,7 @@ impl ParsedKeywords {
             }
             KeyValueResult::NonAsciiKey(k, v, was_trimmed) => {
                 if was_trimmed {
-                    let vo = NEStringOrBytes::from(v.clone());
-                    let pair = (k.clone().into(), vo);
+                    let pair = (k.clone().into(), v.clone());
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
                 self.diag.values_with_non_ascii_keys.push((k, v));

@@ -154,9 +154,9 @@ pub type TextToHeaderOrSuppOffsetOverlap =
 #[derive(Clone, Copy, Debug, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NamedOffsets<N> {
+    pub name: N,
     pub begin: u64,
     pub end: u64,
-    pub name: N,
 }
 
 impl_kind1!(pub NamedSegmentFamily, NamedOffsets);
@@ -165,7 +165,7 @@ impl_functor_once!(
     NamedOffsets,
     self,
     mut f,
-    NamedOffsets::new(self.begin, self.end, f(self.name))
+    NamedOffsets::new(f(self.name), self.begin, self.end)
 );
 
 impl<N> NamedOffsets<N> {
@@ -1435,7 +1435,7 @@ impl<I, S, T> Segment<I, S, T> {
     {
         self.inner.try_as_nonempty().map(|x| {
             let (begin, end) = x.as_u64().coords();
-            NamedOffsets::new(begin, end, I::segname(args))
+            NamedOffsets::new(I::segname(args), begin, end)
         })
     }
 
@@ -2878,7 +2878,7 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             let (name, begin, end) = obj.extract::<(N, u64, u64)>()?;
-            Ok(Self::new(begin, end, name))
+            Ok(Self::new(name, begin, end))
         }
     }
 
@@ -2891,7 +2891,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (self.begin, self.end, self.name).into_pyobject(py)
+            (self.name, self.begin, self.end).into_pyobject(py)
         }
     }
 }

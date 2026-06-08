@@ -5005,7 +5005,7 @@ class TestConfig:
 
         def go(
             f: pt.TrimValueWhitespace,
-        ) -> tuple[list[tuple[str | bytes, str | bytes]], list[str | bytes]]:
+        ) -> tuple[list[tuple[str | bytes, str]], list[str | bytes]]:
             out = pf.api.fcs_read_flat_text(p, trim_value_whitespace=f)
             trimmed = out.flat_diagnostics.keys_with_trimmed_values
             empty = out.flat_diagnostics.keys_with_empty_trimmed_values

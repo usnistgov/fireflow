@@ -10,28 +10,29 @@ use crate::logging::{
     WarningsAndIOGroupResult, io_to_log, split_io,
 };
 use crate::segment::{
-    AnalysisSegmentId, DataSegmentId, GuessOtherWidthError, HeaderAnalysisOffsets,
-    HeaderDataOffsets, HeaderOffsets, HeaderSegmentError, HeaderToHeaderOffsetsOverlap,
-    KeyedOffsets, OffsetsFromHeader, OffsetsFromTEXT, OriginalOffsets, OtherOffsets20,
-    OtherSegmentId, PrimaryTextOffsets, PrimaryTextSegmentId, SupplementalTextSegmentId,
+    GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
+    HeaderSegmentError, HeaderToHeaderOffsetsOverlap, OriginalOffsets, OtherOffsets20,
+    PrimaryTextOffsets,
 };
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, OffsetKeyword, OptKeyword, ReqKeyword,
-    SplitKeyword0,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
     KeywordVersionScore, Nextdata, Par,
 };
 use crate::text::lookup::ReqMetarootKey as _;
-use crate::validated::ascii_uint::{
-    HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintZeroPad20,
-};
+use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
+use crate::validated::write_offsets::{
+    HeaderAnalysisOffsetsToWrite, HeaderDataOffsetsToWrite, OffsetsToWrite, OtherOffsetsToWrite,
+    PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
+    TEXTDataOffsetsToWrite,
+};
 
 use fireflow_types::config::EnumStrIter as _;
 use fireflow_types::keywords::{Version, VersionFormatError};
@@ -49,7 +50,6 @@ use thiserror::Error;
 use std::fmt;
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::iter::once;
-use std::marker::PhantomData;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -104,130 +104,6 @@ impl<T> WriteHeaderSegments<T> {
             write!(h, "{o}")?;
         }
         Ok(())
-    }
-}
-
-/// An offset pair corresponding to a specific byte sequence that is to be written.
-#[derive(Clone, Copy, new)]
-#[new(visibility = "")]
-pub(crate) struct OffsetsToWrite<I, S, T> {
-    begin: T,
-    end: T,
-    _id: PhantomData<I>,
-    _src: PhantomData<S>,
-}
-
-impl<I, S, T: Zero> Default for OffsetsToWrite<I, S, T> {
-    fn default() -> Self {
-        Self::new(T::zero(), T::zero())
-    }
-}
-
-pub(crate) type PrimaryTextOffsetsToWrite =
-    OffsetsToWrite<PrimaryTextSegmentId, OffsetsFromHeader, UintSpacePad8>;
-pub(crate) type SupplementalTextOffsetsToWrite =
-    OffsetsToWrite<SupplementalTextSegmentId, OffsetsFromTEXT, UintZeroPad20>;
-
-type DataOffsetsToWrite<S, T> = OffsetsToWrite<DataSegmentId, S, T>;
-pub(crate) type HeaderDataOffsetsToWrite = DataOffsetsToWrite<OffsetsFromHeader, UintSpacePad8>;
-pub(crate) type TEXTDataOffsetsToWrite = DataOffsetsToWrite<OffsetsFromTEXT, UintZeroPad20>;
-
-type AnalysisOffsetsToWrite<S, T> = OffsetsToWrite<AnalysisSegmentId, S, T>;
-pub(crate) type HeaderAnalysisOffsetsToWrite =
-    AnalysisOffsetsToWrite<OffsetsFromHeader, UintSpacePad8>;
-pub(crate) type TEXTAnalysisOffsetsToWrite = AnalysisOffsetsToWrite<OffsetsFromTEXT, UintZeroPad20>;
-pub(crate) type HeaderOffsetsToWrite<I> = OffsetsToWrite<I, OffsetsFromHeader, UintSpacePad8>;
-pub(crate) type TEXTOffsetsToWrite<I> = OffsetsToWrite<I, OffsetsFromTEXT, UintZeroPad20>;
-pub(crate) type OtherOffsetsToWrite<T> = OffsetsToWrite<OtherSegmentId, OffsetsFromHeader, T>;
-
-impl<I, S, T> OffsetsToWrite<I, S, T> {
-    /// Return true if segment has 0 bytes
-    pub(crate) fn is_empty(&self) -> bool
-    where
-        T: Zero,
-    {
-        self.begin.is_zero() && self.end.is_zero()
-    }
-
-    /// Return byte after end of segment if applicable
-    pub(crate) fn try_next_byte(&self) -> Option<u64>
-    where
-        T: Copy + Into<u64> + Zero,
-    {
-        (!self.is_empty()).then(|| self.end.into() + 1)
-    }
-
-    pub(crate) fn try_new_with_len(
-        begin: u64,
-        length: u64,
-    ) -> Result<Self, <u64 as TryInto<T>>::Error>
-    where
-        u64: TryInto<T>,
-        T: Zero,
-    {
-        if length == 0 {
-            Ok(Self::default())
-        } else {
-            Ok(Self::new(
-                begin.try_into()?,
-                (begin + length - 1).try_into()?,
-            ))
-        }
-    }
-
-    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
-    where
-        u64: Into<T>,
-        T: Zero,
-    {
-        if length == 0 {
-            Self::default()
-        } else {
-            Self::new(begin.into(), (begin + length - 1).into())
-        }
-    }
-}
-
-// TODO these are only use for writing, make a separate struct
-impl<I> TEXTOffsetsToWrite<I> {
-    /// Convert TEXT segment to HEADER segment.
-    ///
-    /// If offsets are too big, return an empty segment.
-    pub(crate) fn as_header(&self) -> HeaderOffsetsToWrite<I> {
-        let br = u64::from(self.begin).try_into();
-        let er = u64::from(self.end).try_into();
-        if let (Ok(begin), Ok(end)) = (br, er) {
-            OffsetsToWrite::new(begin, end)
-        } else {
-            OffsetsToWrite::default()
-        }
-    }
-
-    pub(crate) fn keywords(&self) -> [OffsetKeyword; 2]
-    where
-        I: KeyedOffsets,
-        I::B: From<UintZeroPad20>,
-        I::E: From<UintZeroPad20>,
-        OffsetKeyword: From<SplitKeyword0<I::B>> + From<SplitKeyword0<I::E>>,
-    {
-        [
-            OffsetKeyword::from_value(I::B::from(self.begin)),
-            OffsetKeyword::from_value(I::E::from(self.end)),
-        ]
-    }
-}
-
-// ASSUME the display trait for the inner type will render with the
-// proper number of characters
-impl<I, T> fmt::Display for OffsetsToWrite<I, OffsetsFromHeader, T>
-where
-    T: Zero + fmt::Display + Copy,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // let (b, e) = self
-        //     .try_coords()
-        //     .map_or((T::zero(), T::zero()), |(b, e, _)| (b, e));
-        write!(f, "{}{}", self.begin, self.end)
     }
 }
 

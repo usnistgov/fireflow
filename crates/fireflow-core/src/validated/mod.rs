@@ -18,3 +18,4 @@ pub mod sub_pattern;
 pub mod textdelim;
 pub mod timepattern;
 pub mod unaligned;
+pub(crate) mod write_offsets;

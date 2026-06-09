@@ -3633,6 +3633,8 @@ impl IndexedKey for RegionGateIndex<()> {
 kw_req_meta!(Nextdata, tk::NEXTDATA_KW, tk::NEXTDATA_VERS);
 opt_meta!(Nextdata, Option<Self>);
 
+// TODO this won't allow pseudoempty TEXT offsets like 0,-1 which might happen
+// in real files and there is a config to fix if encountered
 macro_rules! kw_offset {
     ($(#[$attr:meta])* $t:ident, $key:expr, $m:expr) => {
         $(#[$attr])*

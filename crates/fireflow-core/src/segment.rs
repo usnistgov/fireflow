@@ -51,6 +51,7 @@ use std::fmt::{self, Debug};
 use std::io::{self, BufReader, Read, Seek, SeekFrom};
 use std::iter::repeat;
 use std::marker::PhantomData;
+use std::mem;
 use std::num::{NonZeroU64, NonZeroUsize, ParseIntError};
 use std::str::FromStr;
 
@@ -401,12 +402,10 @@ struct NonEmptyOffsets<O> {
     /// First coordinate (zero indexed)
     begin: u64,
 
-    /// Second coordinate pointing at the last byte of the segment.
-    ///
-    /// Note that length of segment is `end` - `begin` + 1
-    end: u64,
+    /// Length of segment in bytes, possibly after truncation.
+    length: NonZeroU64,
 
-    /// The actual second coordinate as written in the FCS file.
+    /// The length of the original segment as written in the FCS file.
     ///
     /// This is only used to check if a truncation of a given length can be
     /// done. Truncation can be performed in multiple passes for different
@@ -427,14 +426,14 @@ struct NonEmptyOffsets<O> {
     /// the fact that the user can wholesale modify the offsets to their
     /// choosing (not that they should). This is mentioned here since the
     /// behavior is not necessarily expected and could be confusing.
-    original_end: u64,
+    original_length: NonZeroU64,
 
     /// The absolute position of the segment in the FCS file.
     ///
-    /// `begin` and `end` are relative to this number. This will be the sum of
-    /// all $NEXTDATA values for all previous datasets relative to the dataset
-    /// in which this segment belongs (which implies it will be zero for the
-    /// first dataset)
+    /// `begin` is relative to this number. This will be the sum of all
+    /// $NEXTDATA values for all previous datasets relative to the dataset in
+    /// which this segment belongs (which implies it will be zero for the first
+    /// dataset)
     dataset_offset: O,
 }
 
@@ -1306,7 +1305,12 @@ impl<I, S> Offsets<I, S> {
 
     /// Subtract n bytes off the end of this offset
     pub(crate) fn truncate(&mut self, n: u64) {
-        self.inner.truncate(n);
+        if let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.inner)
+            && let Some(new_length) = ne.length.get().checked_sub(n).and_then(NonZeroU64::new)
+        {
+            ne.length = new_length;
+            self.inner = InnerOffsets::NonEmpty(ne);
+        }
     }
 
     /// Read bytes within this segment
@@ -1797,76 +1801,82 @@ impl InnerOffsets<DatasetOffset> {
             SegmentOffsetError::new((begin, end), c, o, kind, I::REGION, S::SRC)
         };
 
-        let new_begin = begin + i128::from(corr.begin);
-        let new_end = end + i128::from(corr.end);
+        let corrected_begin = begin + i128::from(corr.begin);
+        let corrected_end = end + i128::from(corr.end);
 
-        if new_begin == new_end + 1 && conf.allow_pseudoempty.is_set() {
+        if corrected_begin == corrected_end + 1 && conf.allow_pseudoempty.is_set() {
             // Check if this offset is pseudoempty
             // TODO possibly throw warning if this happens
             return Ok(Self::Empty);
-        } else if new_begin == 0 && new_end == 0 {
-            // Check if this offset if empty
+        } else if corrected_begin == 0 && corrected_end == 0 {
+            // Return empty if both offsets are zero
             return Ok(Self::Empty);
-        } else if new_begin > new_end {
-            // Check if begin is greater than end
-            return Err(err(SegmentOffsetErrorKind::Inverted));
-        } else if new_begin < i128::from(HEADER_LEN) {
-            // Check if segment overlaps with HEADER (sans OTHER segments).
+        } else if corrected_begin < i128::from(HEADER_LEN) {
+            // Check if segment overlaps with HEADER (sans OTHER segments) which
+            // is automatically invalid since the HEADER has a minimum length
             return Err(err(SegmentOffsetErrorKind::InHeader));
+        } else if corrected_begin > corrected_end {
+            // Return error if ending offset is greater than beginning offset
+            return Err(err(SegmentOffsetErrorKind::Inverted));
         }
 
-        let dso = i128::from(conf.dataset_offset.0);
-        let fl = i128::from(conf.file_len.0);
-        debug_assert!(dso <= fl, "dataset offset exceeds file length");
+        // At this point, we know:
+        // - each offset must be >= HEADER_LEN (58 bytes)
+        // - begin offset should be <= the end offset (which means segment is at
+        //   least one byte long)
+
+        let new_length = corrected_end
+            .checked_sub(corrected_begin)
+            .expect("end should be greater than end")
+            .try_into()
+            .ok()
+            .and_then(|n| NonZeroU64::MIN.checked_add(n))
+            .expect("offset length should be within u64");
+
+        let new_begin = u64::try_from(corrected_begin).expect("offset begin exceeded u64");
+
+        let dso = conf.dataset_offset.0;
+        let fl = conf.file_len.0;
+        assert!(dso <= fl, "dataset offset exceeds file length");
 
         // put offset in absolute coordinates to check for
         // truncation
-        let abs_begin = dso + new_begin;
-        let abs_end = dso + new_end;
+        //
+        // TODO it would be marginally better to return an error rather than
+        // panic here since we could exceed u64 if the user simply supplies a
+        // large dataset offset, which is much more likely than encountering a
+        // file that is ~4EB
+        let abs_new_begin = dso.checked_add(new_begin).expect("abs begin exceeded u64");
 
-        let (b, e) = if let Some(overflow_end) = (abs_end + 1).checked_sub(fl) {
+        let truncated_length = if let Some(overflow) = abs_new_begin
+            .checked_add(new_length.get())
+            .expect("abs end exceeded u64")
+            .checked_sub(fl)
+        {
             // Check by how much the final offset exceeds EOF (if anything)
-            let trunc_limit = i128::from(conf.truncate_offset_limit.0);
-            if overflow_end > trunc_limit {
-                // If the extra bytes are more than what is allowed, throw error
-                // depending on if the beginning offset is also over EOF.
-                let kind = if fl < abs_begin {
-                    SegmentOffsetErrorKind::BeginEOF(conf.file_len)
+            let trunc_limit = conf.truncate_offset_limit.0;
+            if overflow > trunc_limit {
+                return Err(err(SegmentOffsetErrorKind::Truncated(conf.file_len)));
+            } else if let Some(l) = new_length.get().checked_sub(overflow) {
+                if let Some(truncated_length) = NonZeroU64::new(l) {
+                    // length - overflow is greater than one, return new length
+                    truncated_length
                 } else {
-                    SegmentOffsetErrorKind::Truncated(conf.file_len)
-                };
-                return Err(err(kind));
-            } else if fl < abs_begin {
-                // If begin is also beyond the file length, return empty
-                // segment. We can do this because this block only runs if the
-                // ending offset is within the truncation limit, and the entire
-                // segment is within the truncation limit is begin is also
-                // beyond EOF.
-                return Ok(Self::Empty);
+                    // length - overflow is exactly zero, in which case this
+                    // offset is empty after truncation
+                    return Ok(Self::Empty);
+                }
+            } else {
+                // length - overflow is less than zero, which is an error
+                // because the first offset cannot move
+                return Err(err(SegmentOffsetErrorKind::BeginEOF(conf.file_len)));
             }
-            // Otherwise, the segment is partially truncated, so adjust the
-            // final offset. The maximum offset is one less the file length.
-            let max_end = fl.saturating_sub(1);
-            let trunc_end = abs_end.min(max_end);
-            // Put the truncated ending offset back into relative coordinates.
-            let rel_trunc_end = trunc_end
-                .checked_sub(dso)
-                .expect("truncated end is bigger than dataset offset");
-            (new_begin, rel_trunc_end)
         } else {
-            // If we make it to this block, we know that the segment is entirely
-            // within the file. Don't bother with truncation at all.
-            (new_begin, new_end)
+            // If no overlap, return original length
+            new_length
         };
-
-        match (u64::try_from(b), u64::try_from(e)) {
-            (Ok(b0), Ok(e0)) => {
-                let real_end = new_end.try_into().expect("i128 to u64 overflow");
-                let seg = NonEmptyOffsets::new(b0, e0, real_end, conf.dataset_offset);
-                Ok(Self::NonEmpty(seg))
-            }
-            (_, _) => Err(err(SegmentOffsetErrorKind::Range)),
-        }
+        let ne = NonEmptyOffsets::new(new_begin, truncated_length, new_length, conf.dataset_offset);
+        Ok(Self::NonEmpty(ne))
     }
 }
 
@@ -1874,17 +1884,6 @@ impl<O> InnerOffsets<O> {
     fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
-
-    // fn as_u64(&self) -> InnerOffsets<O>
-    // where
-    //     T: Into<u64> + Copy,
-    //     O: Copy,
-    // {
-    //     match self {
-    //         Self::Empty => InnerOffsets::Empty,
-    //         Self::NonEmpty(x) => InnerOffsets::NonEmpty(x.as_u64()),
-    //     }
-    // }
 
     fn try_as_nonempty(&self) -> Option<NonEmptyOffsets<O>>
     where
@@ -1926,38 +1925,18 @@ impl<O> InnerOffsets<O> {
     //         }
     //     }
     // }
-
-    /// Subtract n bytes off the end of this offset
-    pub(crate) fn truncate(&mut self, n: u64) {
-        if let Self::NonEmpty(x) = self {
-            x.end = x.end.saturating_sub(n);
-        }
-    }
 }
 
 impl<O> NonEmptyOffsets<O> {
     /// Return the number of bytes in this segment
     fn nbytes(&self) -> NonZeroU64 {
-        NonZeroU64::MIN.saturating_add(self.end - self.begin)
+        self.length
     }
 
     /// Return the first and last byte or this segment
     fn coords(&self) -> (u64, u64) {
-        (self.begin, self.end)
+        (self.begin, self.begin + self.length.get() - 1)
     }
-
-    // fn as_u64(&self) -> NonEmptyOffsets<O>
-    // where
-    //     T: Into<u64> + Copy,
-    //     O: Copy,
-    // {
-    //     NonEmptyOffsets::new(
-    //         self.begin.into(),
-    //         self.end.into(),
-    //         self.original_end,
-    //         self.dataset_offset,
-    //     )
-    // }
 }
 
 /// Error when parsing or creating required segment offsets from TEXT
@@ -2127,7 +2106,6 @@ pub struct SegmentOffsetError {
 
 #[derive(Debug, PartialEq, Clone)]
 enum SegmentOffsetErrorKind {
-    Range,
     Inverted,
     BeginEOF(FileLen),
     InHeader,
@@ -2139,7 +2117,6 @@ impl fmt::Display for SegmentOffsetError {
         let (x0, x1) = self.coords;
         let (c0, c1) = self.correction;
         let kind_text = match &self.kind {
-            SegmentOffsetErrorKind::Range => "Offset out of range".into(),
             SegmentOffsetErrorKind::Inverted => "Begin after end".into(),
             SegmentOffsetErrorKind::BeginEOF(size) => {
                 format!("Begin exceeds file size ({size} bytes)")
@@ -2514,6 +2491,7 @@ mod python {
     use pyo3::{IntoPyObjectExt as _, prelude::*};
 
     use std::convert::Infallible;
+    use std::num::NonZeroU64;
 
     // offset corrections will be tuples like (int, int)
     impl<'py, I, S> FromPyObject<'_, 'py> for OffsetsCorrection<I, S> {
@@ -2539,23 +2517,24 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
             let (begin, end): (u64, u64) = obj.extract()?;
-            let ret = if begin > end {
+            let ret = if begin == 0 && end == 0 {
+                InnerOffsets::Empty
+            } else if let Some(length) = end.checked_sub(begin).and_then(NonZeroU64::new) {
+                // NOTE use zero for offset since all segments from Python-land
+                // will be considered relative to current dataset (ie just like
+                // they are in an FCS file)
+                let dso = DatasetOffset(0);
+                InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin, length, length, dso))
+            } else {
                 // Use ConfigError because these offsets will be supplied to
                 // functions which "configure" a reader to look in a certain
                 // location for something (a stretch, but that's the closest we
                 // have now)
-                Err(py::ConfigError::new_err("offset begin is greater than end"))
-            } else if begin == 0 && end == 0 {
-                Ok(InnerOffsets::Empty)
-            } else {
-                // NOTE use zero for offset since all segments from Python-land
-                // will be consider relative to current dataset (ie just like
-                // they are in an FCS file)
-                let dso = DatasetOffset(0);
-                let ret = InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin, end, 0, dso));
-                Ok(ret)
+                return Err(py::ConfigError::new_err(
+                    "offsets must both be zero or the first must be less than the second",
+                ));
             };
-            ret.map(Self::new)
+            Ok(Self::new(ret))
         }
     }
 

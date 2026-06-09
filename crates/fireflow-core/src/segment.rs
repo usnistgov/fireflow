@@ -1312,6 +1312,9 @@ impl<I, S> Offsets<I, S> {
     /// Ensure that the truncated length won't be more than `limit`.
     ///
     /// Return total truncated amount if truncation was performed.
+    ///
+    /// Will panic if offsets are initially empty. It only makes sense to
+    /// truncate non-empty offsets.
     pub(crate) fn truncate(&mut self, n: u64, limit: u64) -> Option<u64> {
         if let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.inner) {
             let total_truncation = ne.truncated_len() + n;
@@ -1332,8 +1335,7 @@ impl<I, S> Offsets<I, S> {
             // Entire length was truncated and offset is now empty
             return Some(ne.original_length.get());
         }
-        // Offset started as empty, no truncation was performed
-        None
+        panic!("attempted to truncate empty offsets")
     }
 
     /// Read bytes within this segment

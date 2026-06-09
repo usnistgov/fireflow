@@ -343,15 +343,14 @@ impl FinalHeaderOffsets {
         [t, d, a].into_iter().chain(os).flatten()
     }
 
-    fn contains_offsets<I, S, T0, N>(
+    fn contains_offsets<I, S, N>(
         &self,
-        s: &Offsets<I, S, T0>,
+        s: &Offsets<I, S>,
         args: I::Params,
     ) -> Option<InHeaderError<N>>
     where
         I: HasRegion + AreNamedOffsets<N>,
         S: HasSource,
-        T0: Into<u64> + Copy,
     {
         let q = s.try_as_named(args)?;
         (q.begin < self.nbytes()).then_some(InHeaderError(q))

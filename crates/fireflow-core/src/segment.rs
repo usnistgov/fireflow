@@ -77,8 +77,8 @@ pub struct OffsetsCorrection<I, S> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 #[new(visibility = "")]
-pub struct Offsets<I, S, T> {
-    inner: InnerOffsets<T, DatasetOffset>,
+pub struct Offsets<I, S> {
+    inner: InnerOffsets<DatasetOffset>,
     _id: PhantomData<I>,
     _src: PhantomData<S>,
 }
@@ -341,31 +341,28 @@ impl<I, S> NewOffsetsConfig<I, S> {
     }
 }
 
-pub type PrimaryTextOffsets = Offsets<PrimaryTextSegmentId, OffsetsFromHeader, UintSpacePad8>;
-pub type SupplementalTextOffsets =
-    Offsets<SupplementalTextSegmentId, OffsetsFromTEXT, UintZeroPad20>;
+pub type PrimaryTextOffsets = Offsets<PrimaryTextSegmentId, OffsetsFromHeader>;
+pub type SupplementalTextOffsets = Offsets<SupplementalTextSegmentId, OffsetsFromTEXT>;
 
-type DataOffsets<S, T> = Offsets<DataSegmentId, S, T>;
-pub type HeaderDataOffsets = DataOffsets<OffsetsFromHeader, UintSpacePad8>;
-pub type TEXTDataOffsets = DataOffsets<OffsetsFromTEXT, UintZeroPad20>;
+type DataOffsets<S> = Offsets<DataSegmentId, S>;
+pub type HeaderDataOffsets = DataOffsets<OffsetsFromHeader>;
+pub type TEXTDataOffsets = DataOffsets<OffsetsFromTEXT>;
 
-type AnalysisOffsets<S, T> = Offsets<AnalysisSegmentId, S, T>;
-pub type HeaderAnalysisOffsets = AnalysisOffsets<OffsetsFromHeader, UintSpacePad8>;
-pub type TEXTAnalysisOffsets = AnalysisOffsets<OffsetsFromTEXT, UintZeroPad20>;
+type AnalysisOffsets<S> = Offsets<AnalysisSegmentId, S>;
+pub type HeaderAnalysisOffsets = AnalysisOffsets<OffsetsFromHeader>;
+pub type TEXTAnalysisOffsets = AnalysisOffsets<OffsetsFromTEXT>;
 
-pub type HeaderOffsets<I> = Offsets<I, OffsetsFromHeader, UintSpacePad8>;
-pub type TEXTOffsets<I> = Offsets<I, OffsetsFromTEXT, UintZeroPad20>;
-pub type AnyOffsets<I> = Offsets<I, OffsetsFromAnywhere, u64>;
+pub type HeaderOffsets<I> = Offsets<I, OffsetsFromHeader>;
+pub type TEXTOffsets<I> = Offsets<I, OffsetsFromTEXT>;
+pub type AnyOffsets<I> = Offsets<I, OffsetsFromAnywhere>;
 
 pub type HeaderCorrection<I> = OffsetsCorrection<I, OffsetsFromHeader>;
 pub type TEXTCorrection<I> = OffsetsCorrection<I, OffsetsFromTEXT>;
 
-pub type AnyDataOffsets = DataOffsets<OffsetsFromAnywhere, u64>;
-pub type AnyAnalysisOffsets = AnalysisOffsets<OffsetsFromAnywhere, u64>;
+pub type AnyDataOffsets = DataOffsets<OffsetsFromAnywhere>;
+pub type AnyAnalysisOffsets = AnalysisOffsets<OffsetsFromAnywhere>;
 
-pub type OtherOffsets<T> = Offsets<OtherSegmentId, OffsetsFromHeader, T>;
-pub type OtherOffsets8 = OtherOffsets<UintSpacePad20>;
-pub type OtherOffsets20 = OtherOffsets<UintSpacePad20>;
+pub type OtherOffsets20 = Offsets<OtherSegmentId, OffsetsFromHeader>;
 
 pub(crate) type ReqSegResult<I> = WarningsAndErrorsResult<
     HeaderOrTextOffsets<I>,
@@ -391,8 +388,8 @@ pub type OptOffsetsWithDefaultWarning<T> =
     OptOffsetsWithDefaultWarningInner<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-enum InnerOffsets<T, O> {
-    NonEmpty(NonEmptyOffsets<T, O>),
+enum InnerOffsets<O> {
+    NonEmpty(NonEmptyOffsets<O>),
     #[default]
     Empty,
 }
@@ -400,14 +397,14 @@ enum InnerOffsets<T, O> {
 /// An offset as shown in an FCS file.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-struct NonEmptyOffsets<T, O> {
+struct NonEmptyOffsets<O> {
     /// First coordinate (zero indexed)
-    begin: T,
+    begin: u64,
 
     /// Second coordinate pointing at the last byte of the segment.
     ///
     /// Note that length of segment is `end` - `begin` + 1
-    end: T,
+    end: u64,
 
     /// The actual second coordinate as written in the FCS file.
     ///
@@ -541,7 +538,7 @@ impl<I> HeaderOrTextOffsets<I> {
 
 /// Result from parsing a pair of strings into a segment offset pair
 pub(crate) enum PairResult<T, E> {
-    Valid(Offsets<T, OffsetsFromTEXT, UintZeroPad20>, OriginalOffsets),
+    Valid(Offsets<T, OffsetsFromTEXT>, OriginalOffsets),
     Malformed(OriginalOffsets, SegmentOffsetError),
     Unparsed(OneOrTwo<E>),
 }
@@ -562,7 +559,7 @@ pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
         corr: TEXTCorrection<Self>,
         st: &ReadState<C>,
     ) -> (
-        Result<Offsets<Self, OffsetsFromTEXT, UintZeroPad20>, SegmentOffsetError>,
+        Result<Offsets<Self, OffsetsFromTEXT>, SegmentOffsetError>,
         OriginalOffsets,
     )
     where
@@ -1280,25 +1277,19 @@ impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetsCorrection<I, S> {
     }
 }
 
-impl<I, S, T> Default for Offsets<I, S, T> {
+impl<I, S> Default for Offsets<I, S> {
     fn default() -> Self {
         Self::new(InnerOffsets::Empty)
     }
 }
 
-impl<I, S, T> Offsets<I, S, T> {
-    pub(crate) fn into_any(self) -> AnyOffsets<I>
-    where
-        T: Into<u64> + Copy,
-    {
-        Offsets::new(self.inner.as_u64())
+impl<I, S> Offsets<I, S> {
+    pub(crate) fn into_any(self) -> AnyOffsets<I> {
+        Offsets::new(self.inner)
     }
 
     /// Return the first and last byte with offset or `None` if empty
-    pub(crate) fn try_coords(&self) -> Option<(T, T, DatasetOffset)>
-    where
-        T: Copy,
-    {
+    pub(crate) fn try_coords(&self) -> Option<(u64, u64, DatasetOffset)> {
         self.inner.try_as_nonempty().map(|x| {
             let (a, b) = x.coords();
             (a, b, x.dataset_offset)
@@ -1306,23 +1297,15 @@ impl<I, S, T> Offsets<I, S, T> {
     }
 
     /// Return the first and last byte with offset or `None` if empty
-    pub(crate) fn try_abs_coords(&self) -> Option<(u64, u64)>
-    where
-        T: Copy + Into<u64>,
-    {
+    pub(crate) fn try_abs_coords(&self) -> Option<(u64, u64)> {
         self.try_coords().map(|(a, b, o)| {
             let x = u64::from(o);
-            (a.into() + x, b.into() + x)
+            (a + x, b + x)
         })
     }
 
     /// Subtract n bytes off the end of this offset
-    pub(crate) fn truncate(&mut self, n: u64)
-    where
-        T: TryFrom<u64> + Copy,
-        T::Error: Debug,
-        u64: From<T>,
-    {
+    pub(crate) fn truncate(&mut self, n: u64) {
         self.inner.truncate(n);
     }
 
@@ -1334,12 +1317,11 @@ impl<I, S, T> Offsets<I, S, T> {
     ) -> io::Result<()>
     where
         R: Read + Seek,
-        T: Into<u64> + Copy,
     {
         match self.inner {
             InnerOffsets::Empty => Ok(()),
             InnerOffsets::NonEmpty(s) => {
-                let begin = s.begin.into() + s.dataset_offset.0;
+                let begin = s.begin + s.dataset_offset.0;
                 let nbytes = u64::from(s.nbytes());
 
                 #[cfg(debug_assertions)]
@@ -1366,10 +1348,7 @@ impl<I, S, T> Offsets<I, S, T> {
     }
 
     /// Return the number of bytes in this segment
-    pub(crate) fn len(&self) -> u64
-    where
-        T: Copy + Into<u64>,
-    {
+    pub(crate) fn len(&self) -> u64 {
         // NOTE In FCS a 0,0 means "empty" but this also means one byte
         // according to the spec's on definitions. The first number points to
         // the first byte in a segment, and the second number points to the last
@@ -1380,23 +1359,13 @@ impl<I, S, T> Offsets<I, S, T> {
             .map_or(0, |s| u64::from(s.nbytes()))
     }
 
-    /// Convert offsets to u64
-    #[cfg(feature = "python")]
-    pub(crate) fn as_u64(&self) -> Offsets<I, S, u64>
-    where
-        T: Into<u64> + Copy,
-    {
-        Offsets::new(self.inner.as_u64())
-    }
-
     pub(crate) fn try_as_named<N>(&self, args: I::Params) -> Option<NamedOffsets<N>>
     where
         I: HasRegion + AreNamedOffsets<N>,
         S: HasSource,
-        T: Copy + Into<u64>,
     {
         self.inner.try_as_nonempty().map(|x| {
-            let (begin, end) = x.as_u64().coords();
+            let (begin, end) = x.coords();
             NamedOffsets::new(I::segname(args), begin, end)
         })
     }
@@ -1409,7 +1378,6 @@ impl<I, S, T> Offsets<I, S, T> {
     where
         I: HasRegion,
         S: HasSource,
-        T: TryFrom<i128>,
     {
         InnerOffsets::try_new::<I, S>(begin, end, conf).map(Self::new)
     }
@@ -1499,7 +1467,7 @@ impl OtherOffsets20 {
     #[allow(clippy::type_complexity)]
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
-        first_seg_begin: UintSpacePad8,
+        first_seg_begin: u64,
         st: &ReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
@@ -1515,9 +1483,9 @@ impl OtherOffsets20 {
 
         // Get maximum length of OTHER offset region according to first required
         // offset. If zero, exit early.
-        let Ok(max_other_len): Result<NonZeroU64, _> = u64::from(first_seg_begin)
+        let Ok(max_other_len): Result<NonZeroU64, _> = first_seg_begin
             .checked_sub(u64::from(HEADER_LEN))
-            .expect("minimal offset is less than 58")
+            .expect("minimal offset greater than 58")
             .try_into()
         else {
             return LogResult::new_ok(None);
@@ -1816,15 +1784,12 @@ impl OtherOffsets20 {
     }
 }
 
-impl<T> InnerOffsets<T, DatasetOffset> {
+impl InnerOffsets<DatasetOffset> {
     fn try_new<I: HasRegion, S: HasSource>(
         begin: i128,
         end: i128,
         conf: &NewOffsetsConfig<I, S>,
-    ) -> Result<Self, SegmentOffsetError>
-    where
-        T: TryFrom<i128>,
-    {
+    ) -> Result<Self, SegmentOffsetError> {
         let corr = &conf.corr;
         let err = |kind| {
             let o = conf.dataset_offset;
@@ -1894,10 +1859,10 @@ impl<T> InnerOffsets<T, DatasetOffset> {
             (new_begin, new_end)
         };
 
-        match (T::try_from(b), T::try_from(e)) {
+        match (u64::try_from(b), u64::try_from(e)) {
             (Ok(b0), Ok(e0)) => {
-                // TODO fix real ending
-                let seg = NonEmptyOffsets::new(b0, e0, 0, conf.dataset_offset);
+                let real_end = new_end.try_into().expect("i128 to u64 overflow");
+                let seg = NonEmptyOffsets::new(b0, e0, real_end, conf.dataset_offset);
                 Ok(Self::NonEmpty(seg))
             }
             (_, _) => Err(err(SegmentOffsetErrorKind::Range)),
@@ -1905,25 +1870,24 @@ impl<T> InnerOffsets<T, DatasetOffset> {
     }
 }
 
-impl<T, O> InnerOffsets<T, O> {
+impl<O> InnerOffsets<O> {
     fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
 
-    fn as_u64(&self) -> InnerOffsets<u64, O>
-    where
-        T: Into<u64> + Copy,
-        O: Copy,
-    {
-        match self {
-            Self::Empty => InnerOffsets::Empty,
-            Self::NonEmpty(x) => InnerOffsets::NonEmpty(x.as_u64()),
-        }
-    }
+    // fn as_u64(&self) -> InnerOffsets<O>
+    // where
+    //     T: Into<u64> + Copy,
+    //     O: Copy,
+    // {
+    //     match self {
+    //         Self::Empty => InnerOffsets::Empty,
+    //         Self::NonEmpty(x) => InnerOffsets::NonEmpty(x.as_u64()),
+    //     }
+    // }
 
-    fn try_as_nonempty(&self) -> Option<NonEmptyOffsets<T, O>>
+    fn try_as_nonempty(&self) -> Option<NonEmptyOffsets<O>>
     where
-        T: Copy,
         O: Copy,
     {
         match self {
@@ -1932,49 +1896,68 @@ impl<T, O> InnerOffsets<T, O> {
         }
     }
 
+    // /// Get the number of bytes by which this offset pair has been truncated.
+    // pub(crate) fn current_truncation(&self) -> u64
+    // where
+    //     T: Into<u64> + Copy,
+    // {
+    //     if let Self::NonEmpty(x) = self {
+    //         let o = x.original_end;
+    //         let e = x.end.into();
+    //         assert!(e <= o, "end should be less than or equal to original end");
+    //         o - e
+    //     } else {
+    //         0
+    //     }
+    // }
+
+    // /// Subtract n bytes off the end of this offset
+    // pub(crate) fn try_truncate(&mut self, n: u64, limit: u64)
+    // where
+    //     T: TryFrom<u64> + Copy + Into<u64>,
+    //     T::Error: Debug,
+    // {
+    //     if let Self::NonEmpty(x) = self {
+    //         let cur = self.current_truncation();
+    //         if n + cur <= limit {
+    //             x.end = T::try_from(u64::from(x.end).saturating_sub(n))
+    //                 .expect("smaller T should convert from u64");
+    //         } else {
+    //         }
+    //     }
+    // }
+
     /// Subtract n bytes off the end of this offset
-    pub(crate) fn truncate(&mut self, n: u64)
-    where
-        T: TryFrom<u64> + Copy,
-        T::Error: Debug,
-        u64: From<T>,
-    {
+    pub(crate) fn truncate(&mut self, n: u64) {
         if let Self::NonEmpty(x) = self {
-            x.end = T::try_from(u64::from(x.end).saturating_sub(n))
-                .expect("smaller T should convert from u64");
+            x.end = x.end.saturating_sub(n);
         }
     }
 }
 
-impl<T, O> NonEmptyOffsets<T, O> {
+impl<O> NonEmptyOffsets<O> {
     /// Return the number of bytes in this segment
-    fn nbytes(&self) -> NonZeroU64
-    where
-        T: Into<u64> + Copy,
-    {
-        NonZeroU64::MIN.saturating_add(self.end.into() - self.begin.into())
+    fn nbytes(&self) -> NonZeroU64 {
+        NonZeroU64::MIN.saturating_add(self.end - self.begin)
     }
 
     /// Return the first and last byte or this segment
-    fn coords(&self) -> (T, T)
-    where
-        T: Copy,
-    {
+    fn coords(&self) -> (u64, u64) {
         (self.begin, self.end)
     }
 
-    fn as_u64(&self) -> NonEmptyOffsets<u64, O>
-    where
-        T: Into<u64> + Copy,
-        O: Copy,
-    {
-        NonEmptyOffsets::new(
-            self.begin.into(),
-            self.end.into(),
-            self.original_end,
-            self.dataset_offset,
-        )
-    }
+    // fn as_u64(&self) -> NonEmptyOffsets<O>
+    // where
+    //     T: Into<u64> + Copy,
+    //     O: Copy,
+    // {
+    //     NonEmptyOffsets::new(
+    //         self.begin.into(),
+    //         self.end.into(),
+    //         self.original_end,
+    //         self.dataset_offset,
+    //     )
+    // }
 }
 
 /// Error when parsing or creating required segment offsets from TEXT
@@ -2496,7 +2479,7 @@ mod serialize {
 
     use serde::ser::{Serialize, SerializeStruct as _, Serializer};
 
-    impl<T: Serialize, O: Serialize> Serialize for InnerOffsets<T, O> {
+    impl<O: Serialize> Serialize for InnerOffsets<O> {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -2526,7 +2509,6 @@ mod python {
 
     use fireflow_types::python as py;
 
-    use num_traits::identities::Zero;
     use pyo3::exceptions::PyValueError;
     use pyo3::types::{PyString, PyTuple};
     use pyo3::{IntoPyObjectExt as _, prelude::*};
@@ -2553,21 +2535,17 @@ mod python {
     }
 
     // offsets will be tuples like (int, int)
-    impl<'a, 'py, I, S, T> FromPyObject<'a, 'py> for Offsets<I, S, T>
-    where
-        T: FromPyObject<'a, 'py> + Zero + Ord,
-        u64: From<T>,
-    {
+    impl<'a, 'py, I, S> FromPyObject<'a, 'py> for Offsets<I, S> {
         type Error = PyErr;
         fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
-            let (begin, end): (T, T) = obj.extract()?;
+            let (begin, end): (u64, u64) = obj.extract()?;
             let ret = if begin > end {
                 // Use ConfigError because these offsets will be supplied to
                 // functions which "configure" a reader to look in a certain
                 // location for something (a stretch, but that's the closest we
                 // have now)
                 Err(py::ConfigError::new_err("offset begin is greater than end"))
-            } else if begin == T::zero() && end == T::zero() {
+            } else if begin == 0 && end == 0 {
                 Ok(InnerOffsets::Empty)
             } else {
                 // NOTE use zero for offset since all segments from Python-land
@@ -2581,18 +2559,13 @@ mod python {
         }
     }
 
-    impl<'py, I, S, T> IntoPyObject<'py> for Offsets<I, S, T>
-    where
-        T: Copy,
-        u64: From<T>,
-    {
+    impl<'py, I, S> IntoPyObject<'py> for Offsets<I, S> {
         type Target = PyTuple;
         type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.as_u64()
-                .try_coords()
+            self.try_coords()
                 .map_or((0, 0), |(b, e, _)| (b, e))
                 .into_pyobject(py)
         }

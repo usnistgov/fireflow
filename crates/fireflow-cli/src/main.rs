@@ -1,7 +1,7 @@
 use fireflow_core::api;
 use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::segment::OffsetCorrection;
+use fireflow_core::segment::OffsetsCorrection;
 use fireflow_core::text::byteord::Bytes;
 use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0, Timestep};
 use fireflow_core::validated::ascii_range::OtherWidth;
@@ -1331,7 +1331,7 @@ fn get_header_inner_config(sargs: &ArgMatches) -> cfg::ReadHeaderInnerConfig {
         conf.other_corrections = xs
             .into_iter()
             .copied()
-            .map(OffsetCorrection::from)
+            .map(OffsetsCorrection::from)
             .collect();
     }
 
@@ -1624,7 +1624,7 @@ where
 
 fn get_correction<I, S, F>(sargs: &ArgMatches, name: &str, f: F)
 where
-    F: FnMut(OffsetCorrection<I, S>),
+    F: FnMut(OffsetsCorrection<I, S>),
 {
     let _ = sargs
         .get_one::<(i32, i32)>(name)

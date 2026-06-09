@@ -21,7 +21,7 @@ use crate::logging::{
     WarningsAndIOGroupResult,
 };
 use crate::macros::{assert_eq_msg, def_summary};
-use crate::segment::AnyDataSegment;
+use crate::segment::AnyDataOffsets;
 use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
@@ -3982,7 +3982,7 @@ where
         mut self,
         h: &mut BufReader<R>,
         tot: <V::DataSchema as VersionedDataSchema>::Tot,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         ReadDataFrameResult<VCoreMeasurements<<V as VersionMeasSet>::DataFrame, V>>,

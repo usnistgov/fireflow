@@ -271,16 +271,16 @@ pub struct WriteMultiConfig {
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ReadHeaderInnerConfig {
-    /// Corrections for primary TEXT segment
+    /// Corrections for primary TEXT offsets
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
 
-    /// Corrections for DATA segment
+    /// Corrections for DATA offsets
     pub data_correction: HeaderCorrection<DataSegmentId>,
 
-    /// Corrections for ANALYSIS segment
+    /// Corrections for ANALYSIS offsets
     pub analysis_correction: HeaderCorrection<AnalysisSegmentId>,
 
-    /// Corrections for OTHER segments if they exist.
+    /// Corrections for OTHER offset pairs if they exist.
     ///
     /// Each correction will be applied in order. If an offset does not need
     /// to be corrected, use 0,0. This will not affect the number of OTHER
@@ -301,12 +301,12 @@ pub struct ReadHeaderInnerConfig {
     /// since this is most logical.
     pub other_width: OtherWidth,
 
-    /// Guess the width for OTHER segments.
+    /// Guess the width for OTHER offsets.
     ///
     /// In case a width can't be found, fall back to [`Self::other_width`].
     pub guess_other_width: GuessOtherWidth,
 
-    /// If `true` and a segments ending offset is zero, treat it as empty.
+    /// If `true` and the 2nd value of an offset pair is zero, treat as empty.
     ///
     /// HEADER offsets can only store up to 99,999,999 bytes. If an offset must
     /// be bigger, both offsets for the segment should be written in TEXT and
@@ -357,10 +357,10 @@ pub struct ReadOffsetConfig {
 
     /// Number of bytes to adjust ending offsets in case of overlap.
     ///
-    /// If one segment overlaps another, it will often be because the two are
-    /// adjacent and the final offset of the first segment is one greater than
+    /// If one offset pair overlaps another, it will often be because the two
+    /// are adjacent and the final offset of the first pair is one greater than
     /// it should be, which also means it is equal to the beginning offset of
-    /// the second segment. In basically all (sane) programming languages and
+    /// the second pair. In basically all (sane) programming languages and
     /// related, this makes sense since the ending index is non-inclusive. This
     /// is not the way FCS works, thus it is a common mistake.
     ///
@@ -395,7 +395,7 @@ pub struct ReadHeaderAndTEXTConfig {
     /// If [`None`], do not change the version from HEADER.
     pub version_override: Option<VersionOverride>,
 
-    /// Corrections for supplemental TEXT segment
+    /// Corrections for supplemental TEXT offsets
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
 

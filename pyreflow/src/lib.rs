@@ -68,8 +68,8 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyMixedDataSchema>()?;
 
     m.add_class::<ff::PyHeader>()?;
-    m.add_class::<ff::PyParsedHeaderSegments>()?;
-    m.add_class::<ff::PyUncorrectedHeaderSegments>()?;
+    m.add_class::<ff::PyFinalHeaderOffsets>()?;
+    m.add_class::<ff::PyOriginalHeaderOffsets>()?;
 
     m.add_class::<ff::PyFlatTEXTOutput>()?;
     m.add_class::<ff::PyHeaderAndSuppOffsets>()?;
@@ -90,7 +90,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PySplitTEXTDiagnostics>()?;
     m.add_class::<ff::PyStdTEXTDiagnostics>()?;
     m.add_class::<ff::PyValidKeywords>()?;
-    m.add_class::<ff::PyDatasetSegments>()?;
+    m.add_class::<ff::PyDatasetOffsets>()?;
     m.add_class::<ff::PyDatasetSummary>()?;
 
     m.add_class::<ff::PyReadHeaderConfig>()?;
@@ -102,14 +102,14 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyNewCoreTEXTConfig>()?;
     m.add_class::<ff::PyNewCoreDatasetConfig>()?;
 
-    m.add_class::<ff::PyHeaderOffsetToNextdataOverlap>()?;
-    m.add_class::<ff::PyTextOffsetToNextdataOverlap>()?;
-    m.add_class::<ff::PySuppOffsetToNextdataOverlap>()?;
+    m.add_class::<ff::PyHeaderOffsetsOverflow>()?;
+    m.add_class::<ff::PyTextOffsetsOverflow>()?;
+    m.add_class::<ff::PySuppOffsetsOverflow>()?;
 
-    m.add_class::<ff::PyHeaderToHeaderOffsetOverlap>()?;
-    m.add_class::<ff::PyTextToHeaderOffsetOverlap>()?;
-    m.add_class::<ff::PySuppToHeaderOffsetOverlap>()?;
-    m.add_class::<ff::PyTextToHeaderOrSuppOffsetOverlap>()?;
+    m.add_class::<ff::PyHeaderToHeaderOffsetsOverlap>()?;
+    m.add_class::<ff::PyTextToHeaderOffsetsOverlap>()?;
+    m.add_class::<ff::PySuppToHeaderOffsetsOverlap>()?;
+    m.add_class::<ff::PyTextToHeaderOrSuppOffsetsOverlap>()?;
 
     macro_rules! fun {
         ($t:ident) => {

@@ -124,7 +124,7 @@ use crate::meas::{
     CheckedScaleTransform, MeasMeta, ScaleDatatypeMismatchError, VMeasMeta,
     VNamedTemporalsAndOpticalsWithScale, VersionMeasSet, wrap_scaled_opticals,
 };
-use crate::segment::AnyDataSegment;
+use crate::segment::AnyDataOffsets;
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
     Endian, FixedWidthToBytesError, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBitsOrChars,
@@ -1893,7 +1893,7 @@ where
         &mut self,
         h: &mut BufReader<R>,
         tot: Self::Tot,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         ReadDataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
@@ -3030,7 +3030,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         &self,
         h: &mut BufReader<R>,
         tot: T,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<PreDataFrameResult<X>, ReadDataframeWarning, ReadDataframeError, ()>
     where
@@ -3046,7 +3046,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         &self,
         h: &mut BufReader<R>,
         tot: T,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3063,7 +3063,7 @@ impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
         &self,
         h: &mut BufReader<R>,
         tot: Identity<Tot>,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3093,7 +3093,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3119,7 +3119,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: Identity<Tot>,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3142,7 +3142,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3182,7 +3182,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3210,7 +3210,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3272,7 +3272,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         _: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -7661,7 +7661,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn compute_nrows<X>(
         &self,
-        seg: &mut AnyDataSegment,
+        seg: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningOrErrorResult<ComputedRowsResult, (), UnevenEventWidthError, EventWidthError>
     where

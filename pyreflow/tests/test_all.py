@@ -4146,13 +4146,13 @@ class TestConfig:
         path: Path,
         v: str,
         text_diff: tuple[int, int] = (0, 0),
-        header_data: pt.Segment = (0, 0),
-        header_analysis: pt.Segment = (0, 0),
+        header_data: pt.Offsets = (0, 0),
+        header_analysis: pt.Offsets = (0, 0),
         other_width: int = 8,
         other_segs: list[tuple[int, int]] = [],
         delim: int = 47,
         kws: dict[str, str] = {},
-        stext: pt.Segment | None = (0, 0),
+        stext: pt.Offsets | None = (0, 0),
         nextdata: int | None = 0,
         rest: bytes = b"",
     ) -> None:
@@ -4194,15 +4194,15 @@ class TestConfig:
         path: Path,
         v: str,
         text_diff: tuple[int, int] = (0, 0),
-        header_data: pt.Segment = (0, 0),
-        header_analysis: pt.Segment = (0, 0),
+        header_data: pt.Offsets = (0, 0),
+        header_analysis: pt.Offsets = (0, 0),
         other_width: int = 8,
         other_segs: list[tuple[int, int]] = [],
         delim: int = 47,
         kws: dict[str, str] = {},
-        stext: pt.Segment | None = (0, 0),
-        text_data: pt.Segment | None = (0, 0),
-        text_analysis: pt.Segment | None = (0, 0),
+        stext: pt.Offsets | None = (0, 0),
+        text_data: pt.Offsets | None = (0, 0),
+        text_analysis: pt.Offsets | None = (0, 0),
         nextdata: int | None = 0,
         par: int | None = 0,
         tot: int | None = 0,
@@ -4345,16 +4345,16 @@ class TestConfig:
             rest=b"\0\0\0\0",
         )
 
-        def go(f: pt.AllowHeaderTextOffsetMismatch) -> pt.Segment:
+        def go(f: pt.AllowHeaderTextOffsetMismatch) -> pt.Offsets:
             core, uncore = pf.api.fcs_read_std_text(
                 path,
                 allow_header_text_offset_mismatch=f,
                 time_meas_pattern=None,
             )
             if is_analysis:
-                return uncore.dataset_segs.final_analysis_seg
+                return uncore.dataset_offsets.final_analysis_offsets
             else:
-                return uncore.dataset_segs.final_data_seg
+                return uncore.dataset_offsets.final_data_offsets
 
         if version == "FCS2.0":
             assert go("error") == header
@@ -4396,9 +4396,9 @@ class TestConfig:
         self.mock_header(p, version, t=(t0, t0), rest=b"/", other_segs=other_segs)
         out = pf.api.fcs_read_header(p, other_corrections=other_corrections)
         if len(other_segs) == 0:
-            assert out.segments.other_segs is None
+            assert out.final_offsets.others is None
         else:
-            os_out, _ = out.segments.other_segs
+            os_out, _ = out.final_offsets.others
             norm_corrections = [
                 (other_corrections[i] if i < len(other_corrections) else (0, 0))
                 for i, _ in enumerate(other_segs)
@@ -4434,12 +4434,12 @@ class TestConfig:
         self.mock_header(p, version, t=(t0, t0), rest=b"/", other_segs=other_segs)
         out = pf.api.fcs_read_header(p, max_other=max_other)
         if max_other == 0 or len(other_segs) == 0:
-            assert out.segments.other_segs is None
+            assert out.final_offsets.others is None
         elif max_other is None:
-            os_out, _ = out.segments.other_segs
+            os_out, _ = out.final_offsets.others
             assert os_out == [(i, s) for i, s in enumerate(other_segs)]
         else:
-            os_out, _ = out.segments.other_segs
+            os_out, _ = out.final_offsets.others
             assert os_out == [(i, s) for i, s in enumerate(other_segs[0:max_other])]
 
     @all_versions
@@ -4467,7 +4467,7 @@ class TestConfig:
         # for every segment piece they try and fail to parse
         if other_width == 8:
             out = pf.api.fcs_read_header(p, guess_other_width="none")
-            assert out.segments.other_segs[1] == other_width
+            assert out.final_offsets.others[1] == other_width
         elif other_width == 11:
             with pytest.RaisesGroup(
                 pf.FileLayoutError,
@@ -4492,13 +4492,13 @@ class TestConfig:
 
         # none of these will emit warnings/errors since the guess succeeds
         out = pf.api.fcs_read_header(p, guess_other_width="error")
-        assert out.segments.other_segs[1] == other_width
+        assert out.final_offsets.others[1] == other_width
 
         out = pf.api.fcs_read_header(p, guess_other_width="warn")
-        assert out.segments.other_segs[1] == other_width
+        assert out.final_offsets.others[1] == other_width
 
         out = pf.api.fcs_read_header(p, guess_other_width="silent")
-        assert out.segments.other_segs[1] == other_width
+        assert out.final_offsets.others[1] == other_width
 
     @all_versions
     def test_squish_offsets(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -4515,7 +4515,7 @@ class TestConfig:
                 pf.api.fcs_read_header(p, squish_offsets=True)
         else:
             out = pf.api.fcs_read_header(p, squish_offsets=True)
-            assert out.segments.data_seg == (0, 0)
+            assert out.final_offsets.data == (0, 0)
 
     @all_versions
     @pytest.mark.parametrize("data_end, analysis_end", [(0, -1), (-1, 0)])
@@ -4532,8 +4532,8 @@ class TestConfig:
             pf.api.fcs_read_header(p, allow_pseudoempty=False)
 
         out = pf.api.fcs_read_header(p, allow_pseudoempty=True)
-        assert out.segments.data_seg == (0, 0)
-        assert out.segments.analysis_seg == (0, 0)
+        assert out.final_offsets.data == (0, 0)
+        assert out.final_offsets.analysis == (0, 0)
 
     @all_versions
     @pytest.mark.parametrize("other_end", [0, -1])
@@ -4547,13 +4547,13 @@ class TestConfig:
 
         if other_end == 0:
             out = pf.api.fcs_read_header(p, allow_pseudoempty=False)
-            assert out.segments.other_segs[0][0] == (0, (0, 0))
+            assert out.final_offsets.others[0][0] == (0, (0, 0))
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
                 pf.api.fcs_read_header(p, allow_pseudoempty=False)
 
         out = pf.api.fcs_read_header(p, allow_pseudoempty=True)
-        assert out.segments.other_segs[0][0] == (0, (0, 0))
+        assert out.final_offsets.others[0][0] == (0, (0, 0))
 
     @all_versions
     def test_truncate_offset_limit(
@@ -4567,7 +4567,7 @@ class TestConfig:
             pf.api.fcs_read_header(p, truncate_offset_limit=0)
 
         out = pf.api.fcs_read_header(p, truncate_offset_limit=1)
-        assert out.segments.text_seg == (58, 58)
+        assert out.final_offsets.text == (58, 58)
 
     @all_versions
     def test_overlap_correction_limit(
@@ -4581,8 +4581,8 @@ class TestConfig:
             pf.api.fcs_read_header(p, overlap_correction_limit=0)
 
         out = pf.api.fcs_read_header(p, overlap_correction_limit=1)
-        assert out.segments.text_seg == (58, 58)
-        assert out.segments.data_seg == (59, 62)
+        assert out.final_offsets.text == (58, 58)
+        assert out.final_offsets.data == (59, 62)
 
     # TODO test data_remainder_limit
 
@@ -4607,17 +4607,17 @@ class TestConfig:
             with pytest.warns(pf.PyreflowWarning):
                 out_warn = go((0, 0))
                 assert out_warn.origin_type == "malformed"
-                assert out_warn.uncorrected_offsets == (0, -1)
+                assert out_warn.original_offsets == (0, -1)
             out32 = go((0, 1))
             assert out32.origin_type == "valid"
-            assert out32.uncorrected_offsets == (0, -1)
+            assert out32.original_offsets == (0, -1)
             assert out32.final_offsets == (0, 0)
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
                 go((0, 0))
             out31 = go((0, 1))
             assert out31.origin_type == "valid"
-            assert out31.uncorrected_offsets == (0, -1)
+            assert out31.original_offsets == (0, -1)
             assert out31.final_offsets == (0, 0)
 
     @all_versions
@@ -4647,7 +4647,7 @@ class TestConfig:
 
         def go3(
             f: TriFlag,
-        ) -> tuple[pt.SuppTEXTOffsetsOriginType, pt.Segment | None]:
+        ) -> tuple[pt.SuppTEXTOffsetsOriginType, pt.Offsets | None]:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
             sout = out.flat_diagnostics.header_supp.supp_text
             return (sout.origin_type, sout.final_offsets)
@@ -4657,7 +4657,7 @@ class TestConfig:
             self._test_tri_flag_nofail(go2, "empty")
         else:
             comp: pt.SuppTEXTOffsetsOriginType = "dup_ptext"
-            offsets: pt.Segment | None = None
+            offsets: pt.Offsets | None = None
             self._test_tri_flag(go3, (comp, offsets), [pf.FileLayoutError])
 
             out3 = pf.api.fcs_read_flat_text(
@@ -4687,7 +4687,7 @@ class TestConfig:
             h = out.flat_diagnostics.header_supp
             return h.supp_text.origin_type
 
-        Out3 = tuple[pt.SuppTEXTOffsetsOriginType, pt.Segment, int | None]
+        Out3 = tuple[pt.SuppTEXTOffsetsOriginType, pt.Offsets, int | None]
 
         def go3(f: TriFlag) -> Out3:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
@@ -4706,11 +4706,11 @@ class TestConfig:
             sout = out.flat_diagnostics.header_supp.supp_text
             assert sout.origin_type == "ignored"
             assert sout.final_offsets is None
-            assert sout.uncorrected_offsets == stext_coords
+            assert sout.original_offsets == stext_coords
             assert (
-                out.flat_diagnostics.header_supp.header.segments.other_segs is not None
+                out.flat_diagnostics.header_supp.header.final_offsets.others is not None
             )
-            assert out.flat_diagnostics.header_supp.header.segments.other_segs[0] == [
+            assert out.flat_diagnostics.header_supp.header.final_offsets.others[0] == [
                 (0, stext_coords)
             ]
 
@@ -5804,13 +5804,13 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
-        def go(f: tuple[int, int]) -> pt.Segment:
+        def go(f: tuple[int, int]) -> pt.Offsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_data_correction=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.final_data_seg
+            return uncore.dataset_offsets.final_data_offsets
 
         if version == "FCS2.0":
             assert go((0, 0)) == (0, 0)
@@ -5828,13 +5828,13 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=(0, -1))
 
-        def go(f: tuple[int, int]) -> pt.Segment:
+        def go(f: tuple[int, int]) -> pt.Offsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_analysis_correction=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.final_analysis_seg
+            return uncore.dataset_offsets.final_analysis_offsets
 
         if version == "FCS2.0":
             assert go((0, 0)) == (0, 0)
@@ -5857,13 +5857,13 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
-        def go(f: bool) -> pt.Segment:
+        def go(f: bool) -> pt.Offsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_data_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.final_data_seg
+            return uncore.dataset_offsets.final_data_offsets
 
         if version == "FCS2.0":
             self._test_config_flag_nofail(go, (0, 0))
@@ -5878,13 +5878,13 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, 0), text_analysis=(0, -1))
 
-        def go(f: bool) -> pt.Segment:
+        def go(f: bool) -> pt.Offsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_analysis_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.final_analysis_seg
+            return uncore.dataset_offsets.final_analysis_offsets
 
         if version == "FCS2.0":
             self._test_config_flag_nofail(go, (0, 0))
@@ -5922,13 +5922,13 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=None)
 
-        def go(f: TriFlag) -> pt.Segment:
+        def go(f: TriFlag) -> pt.Offsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.final_data_seg
+            return uncore.dataset_offsets.final_data_offsets
 
         if version == "FCS2.0":
             assert go("false") == (0, 0)
@@ -5955,13 +5955,13 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=None)
 
-        def go(f: TriFlag) -> pt.Segment:
+        def go(f: TriFlag) -> pt.Offsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
                 time_meas_pattern=None,
             )
-            return uncore.dataset_segs.final_analysis_seg
+            return uncore.dataset_offsets.final_analysis_offsets
 
         if version in ["FCS2.0", "FCS3.2"]:
             assert go("false") == (0, 0)
@@ -6122,7 +6122,7 @@ class TestConfig:
         ],
     )
     def test_allow_uneven_event_width(
-        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
     ) -> None:
         """Test the allow_uneven_event_width arg."""
         p = tmp_path / "thing.fcs"
@@ -6158,7 +6158,7 @@ class TestConfig:
         ],
     )
     def test_allow_tot_mismatch(
-        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
     ) -> None:
         """Test the allow_tot_mistmatch arg."""
         p = tmp_path / "thing.fcs"
@@ -6193,7 +6193,7 @@ class TestConfig:
         ],
     )
     def test_truncate_range_datatypes_int(
-        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
     ) -> None:
         """Test $PnR truncation on read (int case).
 
@@ -6308,7 +6308,7 @@ class TestConfig:
         ],
     )
     def test_truncate_range_datatypes_float(
-        self, version: pt.FCSVersion, data_seg: pt.Segment, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
     ) -> None:
         """Test range truncation on read (float case).
 

@@ -102,7 +102,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
 
     let exc = PyException::new_pyreflow(PyreflowError::FileLayout)
-        .desc(format!("if {HEADER} segment is unparsable"));
+        .desc(format!("if {HEADER} offsets are unparsable"));
 
     let doc = DocString::new_fun(format!("Read the {HEADER} of an FCS file."))
         .arg(DocArg::new_path_param(true))
@@ -756,27 +756,27 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let version = DocArgROIvar::new_version_ivar();
 
     let segments = DocArgROIvar::new_ivar_ro(
-        "segments",
-        PyClass::new_py(["api"], "ParsedHeaderSegments"),
-        format!("The segments from {HEADER}."),
-        |_, _| quote!(self.0.segments.clone().into()),
+        "final_offsets",
+        PyClass::new_py(["api"], "FinalHeaderOffsets"),
+        format!("The offsets from {HEADER} after corrections were applied."),
+        |_, _| quote!(self.0.final_offsets.clone().into()),
     );
 
-    let uncorrected_segments = DocArgROIvar::new_ivar_ro(
-        "uncorrected_segments",
-        PyClass::new_py(["api"], "UncorrectedHeaderSegments"),
-        format!("The uncorrected segments from {HEADER}."),
-        |_, _| quote!(self.0.uncorrected_segments.clone().into()),
+    let origina_offsets = DocArgROIvar::new_ivar_ro(
+        "original_offsets",
+        PyClass::new_py(["api"], "OriginalHeaderOffsets"),
+        format!("The original offset pairs from {HEADER} as written in the file."),
+        |_, _| quote!(self.0.original_offsets.clone().into()),
     );
 
     let overlaps = DocArgROIvar::new_ivar_ro(
         "overlaps",
-        PyList::new1(PyClass::new_py(["api"], "HeaderToHeaderOffsetOverlap")),
+        PyList::new1(PyClass::new_py(["api"], "HeaderToHeaderOffsetsOverlap")),
         format!("Overlaps between {HEADER} offset pairs."),
         |_, _| quote!(self.0.overlaps.iter().cloned().map(Into::into).collect()),
     );
 
-    let args = [version, segments, uncorrected_segments, overlaps];
+    let args = [version, segments, origina_offsets, overlaps];
 
     let doc = DocString::new_class(format!("The {HEADER} segment from an FCS dataset.")).args(args);
 
@@ -785,8 +785,8 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> Self {
                 #path::new(
                     version.into(),
-                    segments.into(),
-                    uncorrected_segments.into(),
+                    final_offsets.into(),
+                    original_offsets.into(),
                     overlaps.into_iter().map(Into::into).collect(),
                 ).into()
             }
@@ -796,8 +796,8 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("version", self.version())?;
-                ret.set_item("segments", self.segments().dict(py)?)?;
-                ret.set_item("uncorrected_segments", self.uncorrected_segments().dict(py)?)?;
+                ret.set_item("final_offsets", self.final_offsets().dict(py)?)?;
+                ret.set_item("original_offsets", self.original_offsets().dict(py)?)?;
                 ret.set_item("overlaps", self.overlaps())?;
                 Ok(ret.into())
             }
@@ -839,31 +839,31 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
+pub fn impl_py_header_offsets(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_text_seg_param().into_ro(|_, _| quote!(self.0.text()));
-    let data = DocArg::new_data_seg_param("data_seg", SegmentSrc::Header)
+    let text = DocArg::new_text_offsets_param().into_ro(|_, _| quote!(self.0.text()));
+    let data = DocArg::new_data_offsets_param("data", SegmentSrc::Header)
         .into_ro(|_, _| quote!(self.0.data()));
-    let analysis = DocArg::new_analysis_seg_param("analysis_seg", SegmentSrc::Header, false)
+    let analysis = DocArg::new_analysis_offsets_param("analysis", SegmentSrc::Header, false)
         .into_ro(|_, _| quote!(self.0.analysis()));
 
-    let other = DocArg::new_other_segs_param().into_ro(|_, _| quote!(self.0.py_other()));
+    let other = DocArg::new_other_offset_pairs_param().into_ro(|_, _| quote!(self.0.py_other()));
 
     let args = [text, data, analysis, other];
 
-    let doc = DocString::new_class(format!("The segments from {HEADER}.")).args(args);
+    let doc = DocString::new_class(format!("The offsets from {HEADER}.")).args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> PyResult<Self> {
                 let x = #bare_path::try_new(
-                    text_seg,
-                    data_seg,
-                    analysis_seg,
-                    other_segs.map(|(os, w)| (os.0, w)),
+                    text,
+                    data,
+                    analysis,
+                    others.map(|(os, w)| (os.0, w)),
                 )?;
                 Ok(x.0.into())
             }
@@ -872,10 +872,10 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
             #[getter]
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("text_seg", self.text_seg())?;
-                ret.set_item("data_seg", self.data_seg())?;
-                ret.set_item("analysis_seg", self.analysis_seg())?;
-                ret.set_item("other_segs", self.other_segs())?;
+                ret.set_item("text", self.text())?;
+                ret.set_item("data", self.data())?;
+                ret.set_item("analysis", self.analysis())?;
+                ret.set_item("others", self.others())?;
                 Ok(ret.into())
             }
         }
@@ -884,22 +884,21 @@ pub fn impl_py_header_segments(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_uncorrected_header_segments(input: TokenStream) -> TokenStream {
+pub fn impl_py_original_header_offsets(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let bare_path = path_strip_args(path.clone());
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_uncorrected_header_offsets_param("text_seg", AnySegment::PrimaryTEXT)
+    let text = DocArg::new_uncorrected_header_offsets_param("text", AnySegment::PrimaryTEXT)
         .into_ro(|_, _| quote!(self.0.text));
-    let data = DocArg::new_uncorrected_header_offsets_param("data_seg", AnySegment::Data)
+    let data = DocArg::new_uncorrected_header_offsets_param("data", AnySegment::Data)
         .into_ro(|_, _| quote!(self.0.data));
-    let analysis =
-        DocArg::new_uncorrected_header_offsets_param("analysis_seg", AnySegment::Analysis)
-            .into_ro(|_, _| quote!(self.0.analysis));
+    let analysis = DocArg::new_uncorrected_header_offsets_param("analysis", AnySegment::Analysis)
+        .into_ro(|_, _| quote!(self.0.analysis));
 
     let other = DocArg::new_param(
-        "other_segs",
-        PyList::new1(PyTuple::new_uncorrected_segment()),
+        "others",
+        PyList::new1(PyTuple::new_original_offsets()),
         format!("The uncorrected {OTHER} segments from {HEADER}."),
     )
     .into_ro(|_, _| quote!(self.0.other.clone()));
@@ -919,10 +918,10 @@ pub fn impl_py_uncorrected_header_segments(input: TokenStream) -> TokenStream {
             #[getter]
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("text_seg", self.text_seg())?;
-                ret.set_item("data_seg", self.data_seg())?;
-                ret.set_item("analysis_seg", self.analysis_seg())?;
-                ret.set_item("other_segs", self.other_segs())?;
+                ret.set_item("text", self.text())?;
+                ret.set_item("data", self.data())?;
+                ret.set_item("analysis", self.analysis())?;
+                ret.set_item("others", self.others())?;
                 Ok(ret.into())
             }
         }
@@ -1022,12 +1021,12 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let analysis =
         DocArg::new_analysis_param(false).into_ro(|_, _| quote!(self.0.analysis.clone()));
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
-    let dataset_segs = DocArg::new_dataset_segments_param()
-        .into_ro(|_, _| quote!(self.0.dataset_segments.clone().into()));
+    let dataset_offsets = DocArg::new_dataset_offsets_param()
+        .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
 
-    let args = [data, analysis, others, dataset_segs, event];
+    let args = [data, analysis, others, dataset_offsets, event];
     let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
@@ -1037,7 +1036,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     data.into(),
                     analysis,
                     others,
-                    dataset_segs.into(),
+                    dataset_offsets.into(),
                     events_diagnostics.into()
                 ).into()
             }
@@ -1049,7 +1048,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ret.set_item("data", self.data())?;
                 ret.set_item("analysis", self.analysis())?;
                 ret.set_item("others", self.others())?;
-                ret.set_item("dataset_segs", self.dataset_segs().dict(py)?)?;
+                ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("event_diagnostics", self.events_diagnostics().dict(py)?)?;
                 Ok(ret.into())
             }
@@ -1067,7 +1066,7 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
 
     let header = DocArgROIvar::new_ivar_ro(
         "header",
-        PyClass::new_py(["api"], "ParsedHeaderSegments"),
+        PyClass::new_py(["api"], "FinalHeaderOffsets"),
         format!("(Possibly modified) offsets used to parse {HEADER}."),
         |_, _| quote!(self.0.header.clone().into()),
     );
@@ -1102,10 +1101,10 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
 pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     const ORIGIN_TYPE: &str = "origin_type";
     const FINAL_OFFSETS: &str = "final_offsets";
-    const UNCORR_OFFSETS: &str = "uncorrected_offsets";
+    const ORIGINAL_OFFSETS: &str = "original_offsets";
     const OTHER_INDEX: &str = "other_index";
-    const OFFSET_OVERLAPS: &str = "offset_overlaps";
-    const NEXTDATA_OVERLAP: &str = "nextdata_overlap";
+    const OVERLAPS: &str = "overlaps";
+    const OVERFLOW: &str = "overflow";
 
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
@@ -1125,16 +1124,16 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     )
     .into_ro(|_, _| quote!(self.0.py_origin_type()));
 
-    let uncorr_offsets = DocArg::new_param(
-        UNCORR_OFFSETS,
-        PyOpt::new1(PyTuple::new_uncorrected_segment()),
+    let original_offsets = DocArg::new_param(
+        ORIGINAL_OFFSETS,
+        PyOpt::new1(PyTuple::new_original_offsets()),
         format!("The original supplemental {TEXT} offsets as written in the file."),
     )
-    .into_ro(|_, _| quote!(self.0.py_uncorrected_offsets()));
+    .into_ro(|_, _| quote!(self.0.py_original_offsets()));
 
     let final_offsets = DocArg::new_param(
         FINAL_OFFSETS,
-        PyOpt::new1(PyTuple::new_supp_text_segment()),
+        PyOpt::new1(PyTuple::new_supp_text_offsets()),
         format!("The final offsets used to read supplemental {TEXT}."),
     )
     .into_ro(|_, _| quote!(self.0.py_final_offsets()));
@@ -1150,14 +1149,14 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     .into_ro(|_, _| quote!(self.0.py_other_index()));
 
     let offset_overlaps = DocArg::new_param(
-        OFFSET_OVERLAPS,
-        PyList::new1(PyClass::new_py(["api"], "SuppToHeaderOffsetOverlap")),
+        OVERLAPS,
+        PyList::new1(PyClass::new_py(["api"], "SuppToHeaderOffsetsOverlap")),
         format!("Overlaps between supplemental {TEXT} and {HEADER} offsets."),
     )
     .into_ro(|_, _| {
         quote!(
             self.0
-                .py_offset_overlaps()
+                .py_overlaps()
                 .iter()
                 .cloned()
                 .map(Into::into)
@@ -1166,16 +1165,16 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     });
 
     let nextdata_overlap = DocArg::new_param(
-        NEXTDATA_OVERLAP,
-        PyOpt::new1(PyClass::new_py(["api"], "SuppOffsetToNextdataOverlap")),
-        format!("Overlap between supplemental {TEXT} and {NEXTDATA}."),
+        OVERFLOW,
+        PyOpt::new1(PyClass::new_py(["api"], "SuppOffsetsOverflow")),
+        format!("Amount by which supp {TEXT} exceeded {NEXTDATA} or end of file."),
     )
-    .into_ro(|_, _| quote!(self.0.py_nextdata_overlap().map(Into::into)));
+    .into_ro(|_, _| quote!(self.0.py_overflow().map(Into::into)));
 
     let args = [
         origin_type,
         final_offsets,
-        uncorr_offsets,
+        original_offsets,
         other_index,
         offset_overlaps,
         nextdata_overlap,
@@ -1206,7 +1205,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
         "* {}: offsets were required based on version, were parsed to digits, \
          but did not form valid offsets. {} will have the original offsets.",
         code_str(tp::SUPP_OFFSET_ORIGIN_MALFORMED_LEVEL),
-        arg(UNCORR_OFFSETS)
+        arg(ORIGINAL_OFFSETS)
     ))
     .para(format!(
         "* {}: offsets were parsed and were exact duplicates of primary {TEXT} \
@@ -1224,7 +1223,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
         "* {}: offsets were parsed but ignored by user request. If keywords \
          were valid and parsed to digits, they will be returned via {}.",
         code_str(tp::SUPP_OFFSET_ORIGIN_IGNORED_LEVEL),
-        arg(UNCORR_OFFSETS)
+        arg(ORIGINAL_OFFSETS)
     ))
     .para(format!(
         "* {}: offsets were parsed and were exact duplicates of an {OTHER} \
@@ -1232,24 +1231,24 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
          supplemental {TEXT} segment and thus was read while the {OTHER} offsets \
          were ignored. The index of the matching {OTHER} offsets is recorded in \
          {index}. The final and original offsets are returned in {final} and \
-         {uncorr}. Overlaps are recorded in {oo} and {no} if applicable.",
+         {orig}. Overlaps are recorded in {oo} and {no} if applicable.",
         code_str(tp::SUPP_OFFSET_ORIGIN_DUP_OTHER_LEVEL),
         index = arg(OTHER_INDEX),
         final = arg(FINAL_OFFSETS),
-        uncorr = arg(UNCORR_OFFSETS),
-        oo = arg(OFFSET_OVERLAPS),
-        no = arg(NEXTDATA_OVERLAP),
+        orig = arg(ORIGINAL_OFFSETS),
+        oo = arg(OVERLAPS),
+        no = arg(OVERFLOW),
     ))
     .para(format!(
         "* {}: offsets were parsed and valid; they did not overlap anything else. \
          {index} will be null. The final and original offsets are returned in \
-         {final} and {uncorr}. Overlaps are recorded in {oo} and {no} if applicable.",
+         {final} and {orig}. Overlaps are recorded in {oo} and {no} if applicable.",
         code_str(tp::SUPP_OFFSET_ORIGIN_VALID_LEVEL),
         index = arg(OTHER_INDEX),
         final = arg(FINAL_OFFSETS),
-        uncorr = arg(UNCORR_OFFSETS),
-        oo = arg(OFFSET_OVERLAPS),
-        no = arg(NEXTDATA_OVERLAP),
+        orig = arg(ORIGINAL_OFFSETS),
+        oo = arg(OVERLAPS),
+        no = arg(OVERFLOW),
     ));
 
     let new = |fun_args| {
@@ -1258,10 +1257,10 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
                 let ret = #path::py_try_new(
                     origin_type,
                     final_offsets,
-                    uncorrected_offsets,
+                    original_offsets,
                     other_index,
-                    offset_overlaps.into_iter().map(Into::into).collect(),
-                    nextdata_overlap.map(Into::into)
+                    overlaps.into_iter().map(Into::into).collect(),
+                    overflow.map(Into::into)
                 )?;
                 Ok(ret.into())
             }
@@ -1272,10 +1271,10 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("origin_type", self.origin_type())?;
                 ret.set_item("final_offsets", self.final_offsets())?;
-                ret.set_item("uncorrected_offsets", self.uncorrected_offsets())?;
+                ret.set_item("original_offsets", self.original_offsets())?;
                 ret.set_item("other_index", self.other_index())?;
-                ret.set_item("offset_overlaps", self.offset_overlaps())?;
-                ret.set_item("nextdata_overlap", self.nextdata_overlap())?;
+                ret.set_item("overlaps", self.overlaps())?;
+                ret.set_item("overflow", self.overflow())?;
                 Ok(ret.into())
             }
         }
@@ -1287,9 +1286,9 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
 #[allow(clippy::too_many_lines)]
 pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
     const ORIGIN_TYPE: &str = "origin_type";
-    const UNCORR_OFFSETS: &str = "uncorrected_offsets";
-    const OFFSET_OVERLAPS: &str = "offset_overlaps";
-    const NEXTDATA_OVERLAP: &str = "nextdata_overlap";
+    const ORIGINAL_OFFSETS: &str = "original_offsets";
+    const OVERLAPS: &str = "overlaps";
+    const OVERFLOW: &str = "overflow";
 
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
@@ -1307,22 +1306,22 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
     )
     .into_ro(|_, _| quote!(self.0.py_origin_type()));
 
-    let uncorr_offsets = DocArg::new_param(
-        UNCORR_OFFSETS,
-        PyOpt::new1(PyTuple::new_uncorrected_segment()),
+    let original_offsets = DocArg::new_param(
+        ORIGINAL_OFFSETS,
+        PyOpt::new1(PyTuple::new_original_offsets()),
         "The original offsets as written in the file.",
     )
-    .into_ro(|_, _| quote!(self.0.py_uncorrected_offsets()));
+    .into_ro(|_, _| quote!(self.0.py_original_offsets()));
 
-    let offset_overlaps = DocArg::new_param(
-        OFFSET_OVERLAPS,
-        PyList::new1(PyClass::new_py(["api"], "TextToHeaderOrSuppOffsetOverlap")),
+    let overlaps = DocArg::new_param(
+        OVERLAPS,
+        PyList::new1(PyClass::new_py(["api"], "TextToHeaderOrSuppOffsetsOverlap")),
         format!("Overlaps between these offsets {TEXT} and {HEADER}/supp {TEXT} offsets."),
     )
     .into_ro(|_, _| {
         quote!(
             self.0
-                .py_offset_overlaps()
+                .py_overlaps()
                 .iter()
                 .cloned()
                 .map(Into::into)
@@ -1330,19 +1329,14 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
         )
     });
 
-    let nextdata_overlap = DocArg::new_param(
-        NEXTDATA_OVERLAP,
-        PyOpt::new1(PyClass::new_py(["api"], "TextOffsetToNextdataOverlap")),
-        format!("Overlap between these offsets and {NEXTDATA}."),
+    let overflow = DocArg::new_param(
+        OVERFLOW,
+        PyOpt::new1(PyClass::new_py(["api"], "TextOffsetsOverflow")),
+        format!("Amount by which this offset exceeded {NEXTDATA} or end of file."),
     )
-    .into_ro(|_, _| quote!(self.0.py_nextdata_overlap().map(Into::into)));
+    .into_ro(|_, _| quote!(self.0.py_overflow().map(Into::into)));
 
-    let args = [
-        origin_type,
-        uncorr_offsets,
-        offset_overlaps,
-        nextdata_overlap,
-    ];
+    let args = [origin_type, original_offsets, overlaps, overflow];
     let doc = DocString::new_class(format!(
         "Output from reading {DATA} or {ANALYSIS} offsets from {TEXT} in file."
     ))
@@ -1362,7 +1356,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
         "* {}: offsets were parsed but ignored by user request. If keywords \
          were valid and parsed to digits, they will be returned via {}.",
         code_str(tp::TEXT_OFFSET_ORIGIN_IGNORED_LEVEL),
-        arg(UNCORR_OFFSETS)
+        arg(ORIGINAL_OFFSETS)
     ))
     .para(format!(
         "* {}: offsets were required based on version but could not be parsed, \
@@ -1374,7 +1368,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
         "* {}: offsets were required based on version, were parsed to digits, \
          but did not form valid offsets. {} will have the original offsets.",
         code_str(tp::TEXT_OFFSET_ORIGIN_MALFORMED_LEVEL),
-        arg(UNCORR_OFFSETS)
+        arg(ORIGINAL_OFFSETS)
     ))
     .para(format!(
         "* {}: offsets exactly match those in {HEADER}. All attributes are null \
@@ -1385,25 +1379,25 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
         "* {}: offsets mismatch those in {HEADER} and {HEADER} was chosen via \
          user config. {} will have the original offsets.",
         code_str(tp::TEXT_OFFSET_ORIGIN_MISMATCH_HEADER_LEVEL),
-        arg(UNCORR_OFFSETS)
+        arg(ORIGINAL_OFFSETS)
     ))
     .para(format!(
         "* {}: offsets mismatch those in {HEADER} and {TEXT} was chosen via \
-         user config. The original offsets are returned in {uncorr}. \
+         user config. The original offsets are returned in {orig}. \
          Overlaps are recorded in {oo} and {no} if applicable.",
         code_str(tp::TEXT_OFFSET_ORIGIN_MISMATCH_TEXT_LEVEL),
-        uncorr = arg(UNCORR_OFFSETS),
-        oo = arg(OFFSET_OVERLAPS),
-        no = arg(NEXTDATA_OVERLAP)
+        orig = arg(ORIGINAL_OFFSETS),
+        oo = arg(OVERLAPS),
+        no = arg(OVERFLOW)
     ))
     .para(format!(
         "* {}: {HEADER} offsets were empty and {TEXT} were parsed and found to \
-         be valid. {uncorr} will have the original offsets. Overlaps are \
+         be valid. {orig} will have the original offsets. Overlaps are \
          recorded in {oo} and {no} if applicable.",
         code_str(tp::TEXT_OFFSET_ORIGIN_EMPTY_HEADER_LEVEL),
-        uncorr = arg(UNCORR_OFFSETS),
-        oo = arg(OFFSET_OVERLAPS),
-        no = arg(NEXTDATA_OVERLAP)
+        orig = arg(ORIGINAL_OFFSETS),
+        oo = arg(OVERLAPS),
+        no = arg(OVERFLOW)
     ));
 
     let new = |fun_args| {
@@ -1411,9 +1405,9 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> PyResult<Self> {
                 let ret = #path::py_try_new(
                     origin_type,
-                    uncorrected_offsets,
-                    offset_overlaps.into_iter().map(Into::into).collect(),
-                    nextdata_overlap.map(Into::into)
+                    original_offsets,
+                    overlaps.into_iter().map(Into::into).collect(),
+                    overflow.map(Into::into)
                 )?;
                 Ok(ret.into())
             }
@@ -1423,9 +1417,9 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("origin_type", self.origin_type())?;
-                ret.set_item("uncorrected_offsets", self.uncorrected_offsets())?;
-                ret.set_item("offset_overlaps", self.offset_overlaps())?;
-                ret.set_item("nextdata_overlap", self.nextdata_overlap())?;
+                ret.set_item("original_offsets", self.original_offsets())?;
+                ret.set_item("overlaps", self.overlaps())?;
+                ret.set_item("overflow", self.overflow())?;
                 Ok(ret.into())
             }
         }
@@ -1578,31 +1572,33 @@ pub fn impl_py_keyword_version_score(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_offset_to_nextdata_overlap(input: TokenStream) -> TokenStream {
+pub fn impl_py_offsets_overflow(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
     let sname = name.to_string();
 
     let offsets_pt = match sname.as_str() {
-        "HeaderOffsetToNextdataOverlap" => PyTuple::new_header_named_offsets(),
-        "TextOffsetToNextdataOverlap" => PyTuple::new_text_named_offsets(),
-        "SuppOffsetToNextdataOverlap" => PyTuple::new_supp_text_named_offsets(),
-        _ => panic!("incompatible overlap type"),
+        "HeaderOffsetsOverflow" => PyTuple::new_header_named_offsets(),
+        "TextOffsetsOverflow" => PyTuple::new_text_named_offsets(),
+        "SuppOffsetsOverflow" => PyTuple::new_supp_text_named_offsets(),
+        _ => panic!("incompatible overflow type"),
     };
 
-    let offsets = DocArg::new_param("offsets", offsets_pt, "The offsets for this overlap")
+    let offsets = DocArg::new_param("offsets", offsets_pt, "The offsets for this overflow")
         .into_ro(|_, _| quote!(self.0.offsets));
 
-    let overlap = DocArg::new_param(
-        "overlap",
+    let overflow = DocArg::new_param(
+        "overflow",
         RsInt::NonZeroU64,
-        "The size of the overlap in bytes",
+        "The size of the overflow in bytes",
     )
-    .into_ro(|_, _| quote!(self.0.overlap));
+    .into_ro(|_, _| quote!(self.0.overflow));
 
-    let args = [offsets, overlap];
-    let doc =
-        DocString::new_class(format!("Overlap between segment offsets and {NEXTDATA}")).args(args);
+    let args = [offsets, overflow];
+    let doc = DocString::new_class(format!(
+        "An offset pair which exceeded either end of file or {NEXTDATA}"
+    ))
+    .args(args);
     let inner_args = doc.idents();
 
     let new = |fun_args| {
@@ -1616,7 +1612,7 @@ pub fn impl_py_offset_to_nextdata_overlap(input: TokenStream) -> TokenStream {
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("offsets", self.offsets())?;
-                ret.set_item("overlap", self.overlap())?;
+                ret.set_item("overflow", self.overflow())?;
                 Ok(ret.into())
             }
         }
@@ -1625,37 +1621,37 @@ pub fn impl_py_offset_to_nextdata_overlap(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_offset_to_offset_overlap(input: TokenStream) -> TokenStream {
+pub fn impl_py_offsets_overlap(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
     let sname = name.to_string();
 
     let (desc, offsets_pt0, offsets_pt1) = match sname.as_str() {
-        "HeaderToHeaderOffsetOverlap" => (
-            format!("Overlap between two offsets from {HEADER}."),
+        "HeaderToHeaderOffsetsOverlap" => (
+            format!("Overlap between offset pairs from {HEADER}."),
             PyTuple::new_header_named_offsets(),
             PyTuple::new_header_named_offsets(),
         ),
-        "TextToHeaderOffsetOverlap" => (
+        "TextToHeaderOffsetsOverlap" => (
             format!(
-                "Overlap between an offset from {HEADER} \
-                 and an offset from {TEXT}."
+                "Overlap between an offsets from {HEADER} \
+                 and an offsets from {TEXT}."
             ),
             PyTuple::new_text_named_offsets(),
             PyTuple::new_header_named_offsets(),
         ),
-        "SuppToHeaderOffsetOverlap" => (
+        "SuppToHeaderOffsetsOverlap" => (
             format!(
-                "Overlap between supplemental {TEXT} offset and \
-                 an offset from {HEADER}."
+                "Overlap between supplemental {TEXT} offsets and \
+                 offsets from {HEADER}."
             ),
             PyTuple::new_supp_text_named_offsets(),
             PyTuple::new_header_named_offsets(),
         ),
-        "TextToHeaderOrSuppOffsetOverlap" => (
+        "TextToHeaderOrSuppOffsetsOverlap" => (
             format!(
-                "Overlap between {TEXT} offset and a {HEADER} \
-                 or the supp {TEXT} offset."
+                "Overlap between {TEXT} offset pair and {HEADER} \
+                 or supp {TEXT} pair."
             ),
             PyTuple::new_text_named_offsets(),
             PyTuple::new_header_or_supp_named_offsets(),
@@ -1663,13 +1659,17 @@ pub fn impl_py_offset_to_offset_overlap(input: TokenStream) -> TokenStream {
         _ => panic!("incompatible overlap type"),
     };
 
-    let offsets0 = DocArg::new_param("offsets0", offsets_pt0, "The first offsets in this overlap")
-        .into_ro(|_, _| quote!(self.0.offsets0));
+    let offsets0 = DocArg::new_param(
+        "offsets0",
+        offsets_pt0,
+        "The first offset pair in this overlap",
+    )
+    .into_ro(|_, _| quote!(self.0.offsets0));
 
     let offsets1 = DocArg::new_param(
         "offsets1",
         offsets_pt1,
-        "The second offsets in this overlap",
+        "The second offset pair in this overlap",
     )
     .into_ro(|_, _| quote!(self.0.offsets1));
 
@@ -1843,7 +1843,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
+pub fn impl_py_dataset_offsets(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -1859,10 +1859,11 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
         .into_ro(|n, _| quote!(self.0.#n.clone().into()))
     };
 
-    let data = DocArg::new_data_seg_param("final_data_seg", SegmentSrc::Any)
+    let data = DocArg::new_data_offsets_param("final_data_offsets", SegmentSrc::Any)
         .into_ro(|_, _| quote!(self.0.final_data));
-    let analysis = DocArg::new_analysis_seg_param("final_analysis_seg", SegmentSrc::Any, false)
-        .into_ro(|_, _| quote!(self.0.final_analysis));
+    let analysis =
+        DocArg::new_analysis_offsets_param("final_analysis_offsets", SegmentSrc::Any, false)
+            .into_ro(|_, _| quote!(self.0.final_analysis));
     let data_origin = make_origin("data_origin", AnySegment::Data);
     let analysis_origin = make_origin("analysis_origin", AnySegment::Analysis);
 
@@ -1889,8 +1890,8 @@ pub fn impl_py_dataset_segments(input: TokenStream) -> TokenStream {
             #[getter]
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("final_data_seg", self.final_data_seg())?;
-                ret.set_item("final_analysis_seg", self.final_analysis_seg())?;
+                ret.set_item("final_data_offsets", self.final_data_offsets())?;
+                ret.set_item("final_analysis_offsets", self.final_analysis_offsets())?;
                 ret.set_item("data_origin", self.data_origin())?;
                 ret.set_item("analysis_origin", self.analysis_origin())?;
                 ret.set_item("data_analysis_overlap", self.data_analysis_overlap())?;
@@ -1913,8 +1914,8 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.tot.as_ref().copied()),
     );
 
-    let dataset_segs = DocArg::new_dataset_segments_param()
-        .into_ro(|_, _| quote!(self.0.dataset_segments.clone().into()));
+    let dataset_offsets = DocArg::new_dataset_offsets_param()
+        .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
 
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
@@ -1924,7 +1925,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let scores = DocArg::new_version_scores_param();
 
-    let args = [tot, dataset_segs, std, flat, scores];
+    let args = [tot, dataset_offsets, std, flat, scores];
     let doc =
         DocString::new_class(format!("Miscellaneous data when standardizing {TEXT}.")).args(args);
 
@@ -1933,7 +1934,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> Self {
                 #path::new(
                     tot,
-                    dataset_segs.into(),
+                    dataset_offsets.into(),
                     std_diagnostics.into(),
                     flat_diagnostics.into(),
                     version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
@@ -1950,7 +1951,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
                          (v20.dict(), v30.dict(), v31.dict(), v32.dict())
                     });
                 ret.set_item("tot", self.tot())?;
-                ret.set_item("dataset_segs", self.dataset_segs().dict(py)?)?;
+                ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
                 ret.set_item("flat_diagnostics", self.flat_diagnostics().dict(py)?)?;
                 ret.set_item("version_scores", vs)?;
@@ -2012,8 +2013,8 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let dataset_segs = DocArg::new_dataset_segments_param()
-        .into_ro(|_, _| quote!(self.0.dataset_segments.clone().into()));
+    let dataset_offsets = DocArg::new_dataset_offsets_param()
+        .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
@@ -2022,13 +2023,13 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let doc = DocString::new_class(format!(
         "Miscellaneous data when standardizing {TEXT} from keywords."
     ))
-    .args([dataset_segs, std, event]);
+    .args([dataset_offsets, std, event]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
                 #path::new(
-                    dataset_segs.into(),
+                    dataset_offsets.into(),
                     std_diagnostics.into(),
                     events_diagnostics.into()
                 ).into()
@@ -2038,7 +2039,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
             #[getter]
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("dataset_segs", self.dataset_segs().dict(py)?)?;
+                ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
                 ret.set_item("events_diagnostics", self.events_diagnostics().dict(py)?)?;
                 Ok(ret.into())
@@ -2057,7 +2058,7 @@ pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStrea
 
     let header = DocArgROIvar::new_ivar_ro(
         "header",
-        PyClass::new_py(["api"], "ParsedHeaderSegments"),
+        PyClass::new_py(["api"], "FinalHeaderOffsets"),
         format!("(Possibly modified) offsets used to parse {HEADER}."),
         |_, _| quote!(self.0.header.clone().into()),
     );
@@ -2149,15 +2150,15 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.header_supp.clone().into()),
     );
 
-    let header_nextdata_overlaps = DocArg::new_param(
-        "header_nextdata_overlaps",
-        PyList::new1(PyClass::new_py(["api"], "HeaderOffsetToNextdataOverlap")),
-        format!("Overlaps between {HEADER} offsets and {NEXTDATA}."),
+    let header_overflows = DocArg::new_param(
+        "header_overflows",
+        PyList::new1(PyClass::new_py(["api"], "HeaderOffsetsOverflow")),
+        format!("Offsets from {HEADER} which exceed {NEXTDATA} or end of file."),
     )
     .into_ro(|_, _| {
         quote!(
             self.0
-                .header_nextdata_overlaps
+                .header_overflows
                 .iter()
                 .cloned()
                 .map(Into::into)
@@ -2246,7 +2247,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let args = [
         header_supp,
-        header_nextdata_overlaps,
+        header_overflows,
         byte_pairs,
         non_unique_std,
         non_unique_nonstd,
@@ -2264,7 +2265,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
             fn new(#fun_args) -> Self {
                 #path::new(
                     header_supp.into(),
-                    header_nextdata_overlaps.into_iter().map(Into::into).collect(),
+                    header_overflows.into_iter().map(Into::into).collect(),
                     byte_pairs,
                     non_unique_std_keywords,
                     non_unique_nonstd_keywords,
@@ -2281,7 +2282,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("header_supp", self.header_supp().dict(py)?)?;
-                ret.set_item("header_nextdata_overlaps", self.header_nextdata_overlaps())?;
+                ret.set_item("header_overflows", self.header_overflows())?;
                 ret.set_item("byte_pairs", self.byte_pairs())?;
                 ret.set_item("non_unique_std_keywords", self.non_unique_std_keywords())?;
                 ret.set_item("non_unique_nonstd_keywords", self.non_unique_nonstd_keywords())?;
@@ -7716,7 +7717,7 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_header_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::HeaderSegmentName);
+        let nt = quote!(fireflow_core::segment::HeaderOffsetsName);
         let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
         let header_levels: PyLiteral = [
             tp::SEGMENT_NAME_TEXT,
@@ -7734,7 +7735,7 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_header_or_supp_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::HeaderOrSuppSegmentName);
+        let nt = quote!(fireflow_core::segment::HeaderOrSuppOffsetsName);
         let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
         let header_levels: PyLiteral = [
             tp::SEGMENT_NAME_TEXT,
@@ -7753,7 +7754,7 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_text_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::TextSegmentName);
+        let nt = quote!(fireflow_core::segment::TextOffsetsName);
         let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
         let name_pt: PyLiteral = [tp::SEGMENT_NAME_DATA, tp::SEGMENT_NAME_ANALYSIS]
             .into_iter()
@@ -7766,7 +7767,7 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_supp_text_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::SuppTextSegmentName);
+        let nt = quote!(fireflow_core::segment::SuppTextOffsetsName);
         let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
         let name_pt = PyLiteral::new1(tp::SEGMENT_NAME_STEXT.as_str());
         Self::new1(name_pt)
@@ -7775,12 +7776,12 @@ impl<E: From<PyException>> PyTuple<E> {
             .rstype(path)
     }
 
-    fn new_uncorrected_segment() -> Self {
-        let p = parse_quote!(fireflow_core::segment::UncorrectedSegment);
+    fn new_original_offsets() -> Self {
+        let p = parse_quote!(fireflow_core::segment::OriginalOffsets);
         repeat_n(RsInt::I128, 2).collect::<Self>().rstype(p)
     }
 
-    fn new_segment(n: &str) -> Self {
+    fn new_offset_pair(n: &str) -> Self {
         let t = format_ident!("{n}");
         let p = parse_quote!(fireflow_core::segment::#t);
         // let desc = format!(
@@ -7796,31 +7797,31 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_text_segment() -> Self {
-        Self::new_segment("PrimaryTextSegment")
+        Self::new_offset_pair("PrimaryTextOffsets")
     }
 
-    fn new_supp_text_segment() -> Self {
-        Self::new_segment("SupplementalTextSegment")
+    fn new_supp_text_offsets() -> Self {
+        Self::new_offset_pair("SupplementalTextOffsets")
     }
 
-    fn new_other_segment() -> Self {
-        Self::new_segment("OtherSegment20")
+    fn new_other_offsets() -> Self {
+        Self::new_offset_pair("OtherOffsets20")
     }
 
-    fn new_data_segment(src: SegmentSrc) -> Self {
+    fn new_data_offsets(src: SegmentSrc) -> Self {
         let id = match src {
-            SegmentSrc::Header => "HeaderDataSegment",
-            SegmentSrc::Any => "AnyDataSegment",
+            SegmentSrc::Header => "HeaderDataOffsets",
+            SegmentSrc::Any => "AnyDataOffsets",
         };
-        Self::new_segment(id)
+        Self::new_offset_pair(id)
     }
 
-    fn new_analysis_segment(src: SegmentSrc) -> Self {
+    fn new_analysis_offsets(src: SegmentSrc) -> Self {
         let id = match src {
-            SegmentSrc::Header => "HeaderAnalysisSegment",
-            SegmentSrc::Any => "AnyAnalysisSegment",
+            SegmentSrc::Header => "HeaderAnalysisOffsets",
+            SegmentSrc::Any => "AnyAnalysisOffsets",
         };
-        Self::new_segment(id)
+        Self::new_offset_pair(id)
     }
 
     fn new_correction(seg: AnySegment, is_header: bool) -> Self {
@@ -9007,10 +9008,10 @@ impl DocArgParam {
         Self::new_param("std_diagnostics", p, desc)
     }
 
-    fn new_dataset_segments_param() -> Self {
+    fn new_dataset_offsets_param() -> Self {
         let desc = format!("Offsets used to parse {DATA} and {ANALYSIS}.");
-        let p = PyClass::new_py(["api"], "DatasetSegments");
-        Self::new_param("dataset_segs", p, desc)
+        let p = PyClass::new_py(["api"], "DatasetOffsets");
+        Self::new_param("dataset_offsets", p, desc)
     }
 
     fn new_flat_diagnostics_param() -> Self {
@@ -9026,36 +9027,36 @@ impl DocArgParam {
     }
 
     fn new_uncorrected_header_offsets_param(argname: &str, seg: AnySegment) -> Self {
-        let pt = PyTuple::new_uncorrected_segment();
-        let desc = format!("The uncorrected {} segment from {HEADER}.", seg.name());
+        let pt = PyTuple::new_original_offsets();
+        let desc = format!("The uncorrected {} offsets from {HEADER}.", seg.name());
         Self::new_param(argname, pt, desc)
     }
 
-    fn new_text_seg_param() -> Self {
-        let desc = format!("The primary {TEXT} segment from {HEADER}.");
-        Self::new_param("text_seg", PyTuple::new_text_segment(), desc)
+    fn new_text_offsets_param() -> Self {
+        let desc = format!("The primary {TEXT} offsets from {HEADER}.");
+        Self::new_param("text", PyTuple::new_text_segment(), desc)
     }
 
-    fn new_data_seg_param(name: &str, src: SegmentSrc) -> Self {
-        let desc = format!("The {DATA} segment from {src}.");
-        Self::new_param(name, PyTuple::new_data_segment(src), desc)
+    fn new_data_offsets_param(name: &str, src: SegmentSrc) -> Self {
+        let desc = format!("The {DATA} offsets from {src}.");
+        Self::new_param(name, PyTuple::new_data_offsets(src), desc)
     }
 
-    fn new_analysis_seg_param(name: &str, src: SegmentSrc, default: bool) -> Self {
-        let desc = format!("The {ANALYSIS} segment from {src}.");
-        let p = PyTuple::new_analysis_segment(src);
+    fn new_analysis_offsets_param(name: &str, src: SegmentSrc, default: bool) -> Self {
+        let desc = format!("The {ANALYSIS} offsets from {src}.");
+        let p = PyTuple::new_analysis_offsets(src);
         Self::new_param(name, p, desc).def_auto_if(default)
     }
 
-    fn new_other_segs_param() -> Self {
-        let seg = PyTuple::new_other_segment();
+    fn new_other_offset_pairs_param() -> Self {
+        let seg = PyTuple::new_other_offsets();
         let indexed_seg = PyTuple::new1(RsInt::Usize).add(seg);
         let width = PyInt::new_other_width();
-        let rstype = parse_quote!(fireflow_core::validated::header_segments::PyParsedOtherSegments);
+        let rstype = parse_quote!(fireflow_core::validated::header_offsets::PyParsedOtherOffsets);
         let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(indexed_seg, None)).add(width))
             .rstype(rstype);
-        let d = format!("The {OTHER} segments from {HEADER}.");
-        Self::new_param("other_segs", pt, d)
+        let d = format!("The {OTHER} offsets from {HEADER}.");
+        Self::new_param("others", pt, d)
     }
 
     fn new_textdelim_param() -> Self {
@@ -11165,14 +11166,14 @@ impl AnySegment {
 
     fn correction_path(self, is_header: bool) -> Path {
         let src = if is_header {
-            "SegmentFromHeader"
+            "OffsetsFromHeader"
         } else {
-            "SegmentFromTEXT"
+            "OffsetsFromTEXT"
         };
         let s = format_ident!("{src}");
         let i = self.id();
         let root = quote!(fireflow_core::segment);
-        parse_quote! (#root::OffsetCorrection<#root::#i, #root::#s>)
+        parse_quote! (#root::OffsetsCorrection<#root::#i, #root::#s>)
     }
 }
 

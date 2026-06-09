@@ -10,10 +10,10 @@ use crate::logging::{
     WarningsAndIOGroupResult, io_to_log, split_io,
 };
 use crate::segment::{
-    GuessOtherWidthError, HeaderAnalysisSegment, HeaderDataSegment, HeaderSegment,
-    HeaderSegmentError, HeaderToHeaderOffsetOverlap, OtherSegment, OtherSegment20,
-    PrimaryTextSegment, Segment, SupplementalTextSegment, TEXTAnalysisSegment, TEXTDataSegment,
-    UncorrectedSegment,
+    GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
+    HeaderSegmentError, HeaderToHeaderOffsetsOverlap, Offsets, OriginalOffsets, OtherOffsets,
+    OtherOffsets20, PrimaryTextOffsets, SupplementalTextOffsets, TEXTAnalysisOffsets,
+    TEXTDataOffsets,
 };
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, OffsetKeyword, OptKeyword, ReqKeyword,
@@ -24,8 +24,8 @@ use crate::text::keywords::{
 };
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
-use crate::validated::header_segments::{
-    HEADER_LEN, HeaderSegmentValidationError, ParsedHeaderSegments,
+use crate::validated::header_offsets::{
+    FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
@@ -59,11 +59,11 @@ use {
 /// The uncorrected segments from the HEADER
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct UncorrectedHeaderSegments {
-    pub text: UncorrectedSegment,
-    pub data: UncorrectedSegment,
-    pub analysis: UncorrectedSegment,
-    pub other: Vec<UncorrectedSegment>,
+pub struct OriginalHeaderOffsets {
+    pub text: OriginalOffsets,
+    pub data: OriginalOffsets,
+    pub analysis: OriginalOffsets,
+    pub other: Vec<OriginalOffsets>,
 }
 
 /// Keyword scores for all versions generated when guessing version
@@ -79,10 +79,10 @@ pub type KeywordVersionScores = (
 /// The segments to be written in the HEADER.
 #[derive(Clone, new)]
 pub(crate) struct WriteHeaderSegments<T> {
-    pub(crate) text: PrimaryTextSegment,
-    pub(crate) data: HeaderDataSegment,
-    pub(crate) analysis: HeaderAnalysisSegment,
-    pub(crate) other: Vec<OtherSegment<T>>,
+    pub(crate) text: PrimaryTextOffsets,
+    pub(crate) data: HeaderDataOffsets,
+    pub(crate) analysis: HeaderAnalysisOffsets,
+    pub(crate) other: Vec<OtherOffsets<T>>,
 }
 
 impl<T> WriteHeaderSegments<T> {
@@ -113,9 +113,9 @@ impl<T> WriteHeaderSegments<T> {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Header {
     pub version: Version,
-    pub segments: ParsedHeaderSegments,
-    pub uncorrected_segments: UncorrectedHeaderSegments,
-    pub overlaps: Vec<HeaderToHeaderOffsetOverlap>,
+    pub final_offsets: FinalHeaderOffsets,
+    pub original_offsets: OriginalHeaderOffsets,
+    pub overlaps: Vec<HeaderToHeaderOffsetsOverlap>,
 }
 
 impl Header {
@@ -136,7 +136,7 @@ impl Header {
         let coords = [text.try_coords(), data.try_coords(), analysis.try_coords()];
         let min_coord = coords.iter().flatten().map(|x| x.0).min();
         let other_res = if let Some(m) = min_coord {
-            OtherSegment20::h_read_others(h, m, st)
+            OtherOffsets20::h_read_others(h, m, st)
         } else {
             LogResult::new_ok(None)
         };
@@ -149,10 +149,9 @@ impl Header {
                 } else {
                     (None, vec![])
                 };
-                let usegs =
-                    UncorrectedHeaderSegments::new(text_raw, data_raw, analysis_raw, os_raw);
+                let usegs = OriginalHeaderOffsets::new(text_raw, data_raw, analysis_raw, os_raw);
                 let limit = oconf.overlap_correction_limit;
-                ParsedHeaderSegments::try_new_with_limit(text, data, analysis, os, limit)
+                FinalHeaderOffsets::try_new_with_limit(text, data, analysis, os, limit)
                     .map_errors(HeaderError::from)
                     .nowarn_into_warn()
                     .group()
@@ -166,9 +165,9 @@ impl Header {
 #[derive(new)]
 struct ReqHeader {
     version: Version,
-    text: (PrimaryTextSegment, UncorrectedSegment),
-    data: (HeaderDataSegment, UncorrectedSegment),
-    analysis: (HeaderAnalysisSegment, UncorrectedSegment),
+    text: (PrimaryTextOffsets, OriginalOffsets),
+    data: (HeaderDataOffsets, OriginalOffsets),
+    analysis: (HeaderAnalysisOffsets, OriginalOffsets),
 }
 
 impl ReqHeader {
@@ -195,9 +194,9 @@ impl ReqHeader {
             .resolve_nowarn()
             .map_err(IOErrorGroup::Pure)?;
 
-        let text_res = HeaderSegment::h_read_primary(h, true, text_cor, version, st);
-        let data_res = HeaderSegment::h_read_primary(h, false, data_cor, version, st);
-        let anal_res = HeaderSegment::h_read_primary(h, false, anal_cor, version, st);
+        let text_res = HeaderOffsets::h_read_primary(h, true, text_cor, version, st);
+        let data_res = HeaderOffsets::h_read_primary(h, false, data_cor, version, st);
+        let anal_res = HeaderOffsets::h_read_primary(h, false, anal_cor, version, st);
 
         let pure_text_res = split_io!(text_res).ungroup();
         let pure_data_res = split_io!(data_res).ungroup();
@@ -326,7 +325,7 @@ pub(crate) fn autodetect_version(
 pub enum HeaderError {
     Segment(HeaderSegmentError),
     Version(VersionError),
-    Validation(HeaderSegmentValidationError),
+    Validation(HeaderOffsetsValidationError),
     Space(HeaderSpacesError),
 }
 
@@ -471,15 +470,15 @@ impl<T> HeaderKeywordsToWrite<T> {
         }
 
         let text_len: u64 = u64::try_from(text.len().get()).expect("overflow") + NEXTDATA_LEN;
-        let text_seg = PrimaryTextSegment::try_new_with_len(text_begin, text_len)?;
+        let text_seg = PrimaryTextOffsets::try_new_with_len(text_begin, text_len)?;
 
         let other_begin = text_seg.try_next_byte().map_or(text_begin, u64::from);
         let (other_segs, data_begin) = Self::other_segments(other_begin, other_lens)?;
 
-        let data_seg = HeaderDataSegment::try_new_with_len(data_begin, data_len)?;
+        let data_seg = HeaderDataOffsets::try_new_with_len(data_begin, data_len)?;
 
         let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let anal_seg = HeaderAnalysisSegment::try_new_with_len(anal_begin, anal_len)?;
+        let anal_seg = HeaderAnalysisOffsets::try_new_with_len(anal_begin, anal_len)?;
 
         let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
         let nextdata_kw = OffsetKeyword::from_value(nextdata);
@@ -545,7 +544,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let all_text_len = req_text_len + supp_text_len - 1;
 
         let make_text_seg = |len| -> Result<_, WriteTEXTHeaderError> {
-            let seg = PrimaryTextSegment::try_new_with_len(prim_text_begin, len)?;
+            let seg = PrimaryTextOffsets::try_new_with_len(prim_text_begin, len)?;
             let other_begin = seg.try_next_byte().map_or(prim_text_begin, u64::from);
             Ok((seg, other_begin))
         };
@@ -556,7 +555,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let (prim_text_seg, other_segs, supp_text_seg, data_begin) =
             if let Ok((prim_text_seg, other_begin)) = prim_text_res {
                 let (other_segs, next_begin) = Self::other_segments(other_begin, other_lens)?;
-                let supp_text_seg = SupplementalTextSegment::default();
+                let supp_text_seg = SupplementalTextOffsets::default();
                 (prim_text_seg, other_segs, supp_text_seg, next_begin)
             } else {
                 let (prim_text_seg, other_begin) = make_text_seg(req_text_len)?;
@@ -569,17 +568,17 @@ impl<T> HeaderKeywordsToWrite<T> {
                     "supp TEXT should have at least one key/val pair"
                 );
                 let supp_text_seg =
-                    SupplementalTextSegment::new_with_len(supp_text_begin, supp_text_len);
+                    SupplementalTextOffsets::new_with_len(supp_text_begin, supp_text_len);
                 let data_begin = supp_text_seg
                     .try_next_byte()
                     .map_or(supp_text_begin, u64::from);
                 (prim_text_seg, other_segs, supp_text_seg, data_begin)
             };
 
-        let data_seg = TEXTDataSegment::new_with_len(data_begin, data_len);
+        let data_seg = TEXTDataOffsets::new_with_len(data_begin, data_len);
 
         let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
-        let anal_seg = TEXTAnalysisSegment::new_with_len(anal_begin, anal_len);
+        let anal_seg = TEXTAnalysisOffsets::new_with_len(anal_begin, anal_len);
 
         let h_anal_seg = anal_seg.as_header();
         let h_data_seg = data_seg.as_header();
@@ -651,21 +650,21 @@ impl<T> HeaderKeywordsToWrite<T> {
     fn other_segments(
         begin: u64,
         other_lens: &[u64],
-    ) -> Result<(Vec<OtherSegment<T>>, u64), <T as TryFrom<u64>>::Error>
+    ) -> Result<(Vec<OtherOffsets<T>>, u64), <T as TryFrom<u64>>::Error>
     where
         T: Copy + TryFrom<u64> + Into<u64>,
     {
         let ret = other_lens
             .iter()
             .scan(begin, |b, &length| {
-                let s = OtherSegment::try_new_with_len(*b, length);
+                let s = OtherOffsets::try_new_with_len(*b, length);
                 *b += length;
                 Some(s)
             })
             .collect::<Result<Vec<_>, _>>()?;
         let next = ret
             .iter()
-            .filter_map(Segment::try_next_byte)
+            .filter_map(Offsets::try_next_byte)
             .last()
             .map_or(begin, Into::into);
         Ok((ret, next))
@@ -673,7 +672,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
     fn get_nextdata<I, S, T0>(
         seg_begin: u64,
-        seg: &Segment<I, S, T0>,
+        seg: &Offsets<I, S, T0>,
         flag: AppendableFlag,
     ) -> Nextdata
     where

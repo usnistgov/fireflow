@@ -14,8 +14,8 @@ from ._pyreflow import fcs_summarize as fcs_summarize
 from ._pyreflow import fcs_write_datasets as fcs_write_datasets
 
 from ._pyreflow import Header as Header
-from ._pyreflow import ParsedHeaderSegments as ParsedHeaderSegments
-from ._pyreflow import UncorrectedHeaderSegments as UncorrectedHeaderSegments
+from ._pyreflow import FinalHeaderOffsets as FinalHeaderOffsets
+from ._pyreflow import OriginalHeaderOffsets as OriginalHeaderOffsets
 from ._pyreflow import HeaderAndSuppOffsets as HeaderAndSuppOffsets
 
 from ._pyreflow import FlatTEXTOutput as FlatTEXTOutput
@@ -29,7 +29,7 @@ from ._pyreflow import StdDatasetFromKwsOutput as StdDatasetFromKwsOutput
 from ._pyreflow import NewStdDatasetFromKwsOutput as NewStdDatasetFromKwsOutput
 
 from ._pyreflow import ValidKeywords as ValidKeywords
-from ._pyreflow import DatasetSegments as DatasetSegments
+from ._pyreflow import DatasetOffsets as DatasetOffsets
 from ._pyreflow import DatasetSummary as DatasetSummary
 
 from ._pyreflow import FlatTEXTDiagnostics as FlatTEXTDiagnostics
@@ -53,12 +53,12 @@ from ._pyreflow import NewCoreDatasetConfig as NewCoreDatasetConfig
 from ._pyreflow import SuppTEXTOffsetsOutput as SuppTEXTOffsetsOutput
 from ._pyreflow import TEXTOffsetsOrigin as TEXTOffsetsOrigin
 
-from ._pyreflow import HeaderOffsetToNextdataOverlap as HeaderOffsetToNextdataOverlap
-from ._pyreflow import TextOffsetToNextdataOverlap as TextOffsetToNextdataOverlap
-from ._pyreflow import SuppOffsetToNextdataOverlap as SuppOffsetToNextdataOverlap
-from ._pyreflow import HeaderToHeaderOffsetOverlap as HeaderToHeaderOffsetOverlap
-from ._pyreflow import TextToHeaderOffsetOverlap as TextToHeaderOffsetOverlap
-from ._pyreflow import SuppToHeaderOffsetOverlap as SuppToHeaderOffsetOverlap
+from ._pyreflow import HeaderOffsetsOverflow as HeaderOffsetsOverflow
+from ._pyreflow import TextOffsetsOverflow as TextOffsetsOverflow
+from ._pyreflow import SuppOffsetsOverflow as SuppOffsetsOverflow
+from ._pyreflow import HeaderToHeaderOffsetsOverlap as HeaderToHeaderOffsetsOverlap
+from ._pyreflow import TextToHeaderOffsetsOverlap as TextToHeaderOffsetsOverlap
+from ._pyreflow import SuppToHeaderOffsetsOverlap as SuppToHeaderOffsetsOverlap
 from ._pyreflow import (
-    TextToHeaderOrSuppOffsetOverlap as TextToHeaderOrSuppOffsetOverlap,
+    TextToHeaderOrSuppOffsetsOverlap as TextToHeaderOrSuppOffsetsOverlap,
 )

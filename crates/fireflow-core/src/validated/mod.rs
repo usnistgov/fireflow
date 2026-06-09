@@ -8,7 +8,7 @@ pub mod compensation;
 pub mod dataframe;
 pub mod datepattern;
 pub mod finite_float;
-pub mod header_segments;
+pub mod header_offsets;
 pub mod keys;
 pub mod keystring_pairs;
 pub mod nonstd_meas_pattern;

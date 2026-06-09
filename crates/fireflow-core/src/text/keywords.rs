@@ -7,7 +7,7 @@ use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
 };
 use crate::macros::impl_newtype_try_from;
-use crate::segment::{HasRegion, IsNamedSegment, OffsetToNextdataOverlap, TEXTSegment};
+use crate::segment::{AreNamedOffsets, HasRegion, OffsetsOverflow, TEXTOffsets};
 use crate::text::byteord::{
     ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes,
 };
@@ -33,7 +33,7 @@ use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
-use crate::validated::header_segments::NextdataOffsetsError;
+use crate::validated::header_offsets::NextdataOffsetsError;
 use crate::validated::keys::{
     AsStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey2, DollarKey, IndexedKey, Key1, Key2,
     NonStdKeywords, NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords,
@@ -131,17 +131,17 @@ impl Nextdata {
 
     pub(crate) fn validate_text_offset<N, I>(
         self,
-        s: &mut TEXTSegment<I>,
+        s: &mut TEXTOffsets<I>,
         limit: OverlapCorrectionLimit,
-    ) -> Result<Option<OffsetToNextdataOverlap<N>>, NextdataOffsetsError<N>>
+    ) -> Result<Option<OffsetsOverflow<N>>, NextdataOffsetsError<N>>
     where
-        I: HasRegion + IsNamedSegment<N, Params = ()>,
+        I: HasRegion + AreNamedOffsets<N, Params = ()>,
     {
         if let Some(q) = s.try_as_named(()) {
             if let Some(overlap) = q.get_tail_nextdata_overlap(self) {
                 if overlap.get() <= limit.0 {
                     s.truncate(overlap.get());
-                    Ok(Some(OffsetToNextdataOverlap::new(q, overlap)))
+                    Ok(Some(OffsetsOverflow::new(q, overlap)))
                 } else {
                     Err(NextdataOffsetsError::new(self, q))
                 }

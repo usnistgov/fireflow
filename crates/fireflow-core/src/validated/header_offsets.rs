@@ -1,14 +1,14 @@
 use crate::config::OverlapCorrectionLimit;
-use crate::core::{DatasetSegments, OthersReader, TEXTOffsetsOrigin};
+use crate::core::{DatasetOffsets, OthersReader, TEXTOffsetsOrigin};
 use crate::logging::{DeferredErrors, ErrorGroup, ErrorsResult, LogResult};
 use crate::macros::def_summary;
 use crate::segment::{
-    HasRegion, HasSource, HeaderAnalysisSegment, HeaderDataSegment, HeaderOffsetToNextdataOverlap,
-    HeaderOrSuppSegmentName, HeaderSegmentName, HeaderSegmentOverlapError,
-    HeaderToHeaderOffsetOverlap, IndexedOtherSegment, IsDataOrAnalysis, IsNamedSegment,
-    NamedOffsets, OffsetToNextdataOverlap, OffsetToOffsetOverlap, PrimaryTextSegment, Segment,
-    SegmentOverlapError, SuppTextSegmentName, SuppToHeaderOffsetOverlap, SupplementalTextSegment,
-    TEXTSegment, TextSegmentName, TextToHeaderOffsetOverlap,
+    AreNamedOffsets, HasRegion, HasSource, HeaderAnalysisOffsets, HeaderDataOffsets,
+    HeaderOffsetPairOverlapOverlapError, HeaderOffsetsName, HeaderOffsetsOverflow,
+    HeaderOrSuppOffsetsName, HeaderToHeaderOffsetsOverlap, IndexedOtherOffsets, IsDataOrAnalysis,
+    NamedOffsets, OffsetPairsOverlapError, Offsets, OffsetsOverflow, OversetsOverlap,
+    PrimaryTextOffsets, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets,
+    TEXTOffsets, TextOffsetsName, TextToHeaderOffsetsOverlap,
 };
 use crate::text::keywords::Nextdata;
 use crate::validated::ascii_range::OtherWidth;
@@ -40,100 +40,100 @@ use {
 #[derive(Clone, PartialEq, AsRef, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility = "")]
-pub struct ParsedHeaderSegments {
-    #[as_ref(PrimaryTextSegment)]
-    text: PrimaryTextSegment,
-    #[as_ref(HeaderDataSegment)]
-    data: HeaderDataSegment,
-    #[as_ref(HeaderAnalysisSegment)]
-    analysis: HeaderAnalysisSegment,
-    #[as_ref(ParsedOtherSegments)]
-    other: ParsedOtherSegments,
+pub struct FinalHeaderOffsets {
+    #[as_ref(PrimaryTextOffsets)]
+    text: PrimaryTextOffsets,
+    #[as_ref(HeaderDataOffsets)]
+    data: HeaderDataOffsets,
+    #[as_ref(HeaderAnalysisOffsets)]
+    analysis: HeaderAnalysisOffsets,
+    #[as_ref(ParsedOtherOffsets)]
+    other: ParsedOtherOffsets,
 }
 
-pub(crate) type ParsedOtherSegments = Option<(NEVec<IndexedOtherSegment>, OtherWidth)>;
+pub(crate) type ParsedOtherOffsets = Option<(NEVec<IndexedOtherOffsets>, OtherWidth)>;
 
 #[cfg(feature = "python")]
-pub type PyParsedOtherSegments = Option<(FcsNEVec<IndexedOtherSegment>, OtherWidth)>;
+pub type PyParsedOtherOffsets = Option<(FcsNEVec<IndexedOtherOffsets>, OtherWidth)>;
 
-impl ParsedHeaderSegments {
-    /// Return primary TEXT segment
+impl FinalHeaderOffsets {
+    /// Return primary TEXT offsets
     #[must_use]
-    pub fn text(&self) -> PrimaryTextSegment {
+    pub fn text(&self) -> PrimaryTextOffsets {
         self.text
     }
 
-    /// Return DATA segment
+    /// Return DATA offsets
     #[must_use]
-    pub fn data(&self) -> HeaderDataSegment {
+    pub fn data(&self) -> HeaderDataOffsets {
         self.data
     }
 
-    /// Return DATA segment
+    /// Return ANALYSIS offsets
     #[must_use]
-    pub fn analysis(&self) -> HeaderAnalysisSegment {
+    pub fn analysis(&self) -> HeaderAnalysisOffsets {
         self.analysis
     }
 
-    /// Return parsed OTHER segment data
+    /// Return parsed OTHER offsets data
     #[must_use]
-    pub fn other(&self) -> Option<(NESlice<'_, IndexedOtherSegment>, OtherWidth)> {
+    pub fn other(&self) -> Option<(NESlice<'_, IndexedOtherOffsets>, OtherWidth)> {
         self.other
             .as_ref()
             .map(|(xs, w)| (xs.as_nonempty_slice(), *w))
     }
 
-    /// Return parsed OTHER segment data
+    /// Return parsed OTHER offsets data
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_other(&self) -> PyParsedOtherSegments {
+    pub fn py_other(&self) -> PyParsedOtherOffsets {
         let (ws, w) = self.other()?;
         Some((FcsNEVec(ws.into_nonempty_iter().copied().collect()), w))
     }
 
-    /// Make new collection of HEADER segments.
+    /// Make new collection of HEADER offsets.
     ///
-    /// Will throw errors for overlapping segments.
+    /// Will throw errors for overlapping offsets.
     pub fn try_new(
-        text: PrimaryTextSegment,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
-        os: ParsedOtherSegments,
-    ) -> Result<(Self, Vec<HeaderToHeaderOffsetOverlap>), SegmentValidationErrors> {
+        text: PrimaryTextOffsets,
+        data: HeaderDataOffsets,
+        analysis: HeaderAnalysisOffsets,
+        os: ParsedOtherOffsets,
+    ) -> Result<(Self, Vec<HeaderToHeaderOffsetsOverlap>), OffsetsValidationErrors> {
         // set limit to zero so that any overlap causes an error
         Self::try_new_with_limit(text, data, analysis, os, 0.into())
             .group()
             .resolve_nowarn()
     }
 
-    /// Make new collection of HEADER segments.
+    /// Make new collection of HEADER offsets.
     ///
     /// Will try to fix overlaps subject to limit or will throw error.
     ///
-    /// With throw error if any segment overlaps with HEADER itself.
+    /// With throw error if any offsets overlaps with HEADER itself.
     #[must_use]
     pub(crate) fn try_new_with_limit(
-        text: PrimaryTextSegment,
-        data: HeaderDataSegment,
-        analysis: HeaderAnalysisSegment,
-        os: ParsedOtherSegments,
+        text: PrimaryTextOffsets,
+        data: HeaderDataOffsets,
+        analysis: HeaderAnalysisOffsets,
+        os: ParsedOtherOffsets,
         limit: OverlapCorrectionLimit,
-    ) -> ErrorsResult<(Self, Vec<HeaderToHeaderOffsetOverlap>), (), HeaderSegmentValidationError>
+    ) -> ErrorsResult<(Self, Vec<HeaderToHeaderOffsetsOverlap>), (), HeaderOffsetsValidationError>
     {
         let mut ret = Self::new(text, data, analysis, os);
         ret.validate(limit).map_ok_value(|overlaps| (ret, overlaps))
     }
 
-    /// Return DATA and ANALYSIS segments in struct.
+    /// Return DATA and ANALYSIS offsets in struct.
     ///
-    /// The returned struct encodes DATA and ANALYSIS segments that should
+    /// The returned struct encodes DATA and ANALYSIS offsets that should
     /// actually be used for reading these segments. Since this takes no inputs,
-    /// TEXT segments cannot be included, therefore it should only be called in
+    /// TEXT offsets cannot be included, therefore it should only be called in
     /// 2.0 code which does not include TEXT segmetns.
-    pub(crate) fn as_dataset_segments_2_0(&self) -> DatasetSegments {
+    pub(crate) fn as_dataset_offsets_2_0(&self) -> DatasetOffsets {
         let d = self.data.into_any();
         let a = self.analysis.into_any();
-        DatasetSegments::new(
+        DatasetOffsets::new(
             d,
             a,
             TEXTOffsetsOrigin::EmptyTEXT,
@@ -148,15 +148,15 @@ impl ParsedHeaderSegments {
     /// supplied offset (from TEXT), limit permitting.
     pub(crate) fn validate_supp_text(
         &mut self,
-        s: &mut SupplementalTextSegment,
+        s: &mut SupplementalTextOffsets,
         limit: OverlapCorrectionLimit,
-    ) -> DeferredErrors<Vec<SuppToHeaderOffsetOverlap>, SuppToHeaderSegmentValidationError> {
+    ) -> DeferredErrors<Vec<SuppToHeaderOffsetsOverlap>, SuppToHeaderOffsetsValidationError> {
         let contains = self
-            .contains_segment(s, ())
-            .map(SegmentValidationError::from);
-        let hs = self.as_mut_nonempty_segments();
+            .contains_offsets(s, ())
+            .map(OffsetsValidationError::from);
+        let hs = self.as_mut_nonempty_offsets();
         Self::fix_text_overlap(hs, s, limit)
-            .map_errors(SegmentValidationError::from)
+            .map_errors(OffsetsValidationError::from)
             .extend_errors(contains, |v| v)
     }
 
@@ -166,18 +166,18 @@ impl ParsedHeaderSegments {
     /// supplied offset (from TEXT), limit permitting.
     pub(crate) fn validate_text_data_or_analysis<I>(
         &mut self,
-        s: &mut TEXTSegment<I>,
+        s: &mut TEXTOffsets<I>,
         limit: OverlapCorrectionLimit,
-    ) -> DeferredErrors<Vec<TextToHeaderOffsetOverlap>, TextToHeaderSegmentValidationError>
+    ) -> DeferredErrors<Vec<TextToHeaderOffsetsOverlap>, TextToHeaderOffsetsValidationError>
     where
-        I: HasRegion + IsNamedSegment<TextSegmentName, Params = ()> + IsDataOrAnalysis,
+        I: HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()> + IsDataOrAnalysis,
     {
         let contains = self
-            .contains_segment(s, ())
-            .map(SegmentValidationError::from);
-        let hs = self.as_mut_nonempty_segments_filtered::<I>();
+            .contains_offsets(s, ())
+            .map(OffsetsValidationError::from);
+        let hs = self.as_mut_nonempty_offsets_filtered::<I>();
         Self::fix_text_overlap(hs, s, limit)
-            .map_errors(SegmentValidationError::from)
+            .map_errors(OffsetsValidationError::from)
             .extend_errors(contains, |v| v)
     }
 
@@ -196,14 +196,13 @@ impl ParsedHeaderSegments {
         &mut self,
         n: Nextdata,
         limit: OverlapCorrectionLimit,
-    ) -> ErrorsResult<Vec<HeaderOffsetToNextdataOverlap>, (), NextdataOffsetsError<HeaderSegmentName>>
-    {
+    ) -> ErrorsResult<Vec<HeaderOffsetsOverflow>, (), NextdataOffsetsError<HeaderOffsetsName>> {
         let mut overlaps = vec![];
         let mut errors = vec![];
-        for (mut r, s) in self.as_mut_nonempty_segments() {
+        for (mut r, s) in self.as_mut_nonempty_offsets() {
             if let Some(overlap) = s.get_tail_nextdata_overlap(n) {
                 if overlap.get() <= limit.0 {
-                    overlaps.push(OffsetToNextdataOverlap::new(s, overlap));
+                    overlaps.push(OffsetsOverflow::new(s, overlap));
                     r.truncate(overlap.get());
                 } else {
                     errors.push(NextdataOffsetsError::new(n, s));
@@ -213,62 +212,62 @@ impl ParsedHeaderSegments {
         LogResult::new_from_err_iter(errors, overlaps, ())
     }
 
-    /// Set OTHER segment at index to empty.
+    /// Set OTHER offsets at index to empty.
     ///
     /// Will panic if out of bounds.
     pub(crate) fn remove_other(&mut self, i: usize) {
         if let Some((xs, _)) = self.other.as_mut() {
-            xs[i].seg = Segment::default();
+            xs[i].seg = Offsets::default();
         }
     }
 
-    fn as_others(&self) -> impl Iterator<Item = &IndexedOtherSegment> {
+    fn as_others(&self) -> impl Iterator<Item = &IndexedOtherOffsets> {
         self.other.iter().flat_map(|(os, _)| os.iter())
     }
 
     fn fix_text_overlap<'a, I, N>(
-        xs: impl IntoIterator<Item = (AnyHeaderSegmentMut<'a>, NamedOffsets<HeaderSegmentName>)>,
-        s: &mut TEXTSegment<I>,
+        xs: impl IntoIterator<Item = (AnyHeaderOffsetsMut<'a>, NamedOffsets<HeaderOffsetsName>)>,
+        s: &mut TEXTOffsets<I>,
         limit: OverlapCorrectionLimit,
     ) -> DeferredErrors<
-        Vec<OffsetToOffsetOverlap<N, HeaderSegmentName>>,
-        SegmentOverlapError<N, HeaderSegmentName>,
+        Vec<OversetsOverlap<N, HeaderOffsetsName>>,
+        OffsetPairsOverlapError<N, HeaderOffsetsName>,
     >
     where
         N: Copy,
-        I: HasRegion + IsNamedSegment<N, Params = ()>,
+        I: HasRegion + AreNamedOffsets<N, Params = ()>,
     {
         // ASSUME incoming iterator is sorted (no debug assert since this would
         // consume iterator)
         if let Some(txt_seg) = s.try_as_named(()) {
-            let err = |hdr_seg| SegmentOverlapError::new(txt_seg, hdr_seg);
-            let t2h_overlap = |hdr_seg: NamedOffsets<HeaderSegmentName>, overlap| {
-                OffsetToOffsetOverlap::new(txt_seg, hdr_seg, overlap)
+            let err = |hdr_seg| OffsetPairsOverlapError::new(txt_seg, hdr_seg);
+            let t2h_overlap = |hdr_seg: NamedOffsets<HeaderOffsetsName>, overlap| {
+                OversetsOverlap::new(txt_seg, hdr_seg, overlap)
             };
             let mut errors = vec![];
             let mut overlaps = vec![];
             let mut it = xs.into_iter();
             let mut hdr_pair = None;
-            // Skip all HEADER segments that come before TEXT seg
+            // Skip all HEADER offsets that come before TEXT seg
             while let p @ Some((_, hdr_seg)) = it.next() {
                 hdr_pair = p;
                 if txt_seg.begin <= hdr_seg.end {
                     break;
                 }
             }
-            // The next HEADER segment has an end offset that starts at or after
-            // the TEXT begin offset, and thus may overlap the beginning of
-            // TEXT, be totally within TEXT, or overlap the ending of TEXT.
+            // The next HEADER offset pair has an end offset that starts at or
+            // after the TEXT begin offset, and thus may overlap the beginning
+            // of TEXT, be totally within TEXT, or overlap the ending of TEXT.
             if let Some((mut hdr_ref, hdr_seg)) = hdr_pair {
                 if hdr_seg.begin < txt_seg.begin {
-                    // HEADER starts before TEXT. Check if the HEADER segment is
-                    // the TEXT segment itself. If so, throw error regardless
+                    // HEADER starts before TEXT. Check if the HEADER offsets
+                    // pair is for TEXT itself. If so, throw error regardless
                     // since we already read it at this point and thus should
                     // not alter it. If not, truncate if within the limit.
                     if let Some(overlap) = hdr_seg.get_tail_offset_overlap(&txt_seg) {
                         overlaps.push(t2h_overlap(hdr_seg, overlap));
                         if overlap.get() <= limit.0
-                            && !matches!(hdr_ref, AnyHeaderSegmentMut::Text(_))
+                            && !matches!(hdr_ref, AnyHeaderOffsetsMut::Text(_))
                         {
                             hdr_ref.truncate(overlap.get());
                         } else {
@@ -278,7 +277,7 @@ impl ParsedHeaderSegments {
                 } else {
                     // HEADER begins within TEXT or after. Truncate TEXT if
                     // within limit or throw error. In former case, return early
-                    // since we know that no more HEADER segments can overlap.
+                    // since we know that no more HEADER offsets can overlap.
                     if let Some(overlap) = txt_seg.get_tail_offset_overlap(&hdr_seg) {
                         overlaps.push(t2h_overlap(hdr_seg, overlap));
                         if overlap.get() <= limit.0 {
@@ -289,8 +288,8 @@ impl ParsedHeaderSegments {
                     }
                 }
             }
-            // All the remaining HEADER segments should now begin within TEXT or
-            // after.
+            // All the remaining HEADER offset pairs should now begin within
+            // TEXT or after.
             for (_, hdr_seg) in it {
                 if let Some(overlap) = txt_seg.get_tail_offset_overlap(&hdr_seg) {
                     // If overlap within limit and we have not encountered an
@@ -315,42 +314,42 @@ impl ParsedHeaderSegments {
         }
     }
 
-    /// Ensure HEADER segments don't overlap and start after HEADER itself
+    /// Ensure HEADER offset pairs don't overlap and start after HEADER itself
     ///
     /// HEADER overlap are always fatal since the start of an offset pair cannot
-    /// be changed. Overlaps with other segments may be non-fatal if the overlap
-    /// is smaller than the correction limit.
+    /// be changed. Overlaps with other offset pairs may be non-fatal if the
+    /// overlap is smaller than the correction limit.
     fn validate(
         &mut self,
         limit: OverlapCorrectionLimit,
-    ) -> ErrorsResult<Vec<HeaderToHeaderOffsetOverlap>, (), HeaderSegmentValidationError> {
+    ) -> ErrorsResult<Vec<HeaderToHeaderOffsetsOverlap>, (), HeaderOffsetsValidationError> {
         self.find_or_fix_header_overlaps(limit)
-            .map_errors(SegmentValidationError::from)
+            .map_errors(OffsetsValidationError::from)
             .extend_errors(
-                self.contains_header_segments()
-                    .map(SegmentValidationError::from),
+                self.contains_header_offsets()
+                    .map(OffsetsValidationError::from),
                 |_| (),
             )
     }
 
-    fn contains_header_segments(&self) -> impl Iterator<Item = InHeaderError<HeaderSegmentName>> {
-        let t = self.contains_segment(&self.text, ());
-        let d = self.contains_segment(&self.data, ());
-        let a = self.contains_segment(&self.analysis, ());
+    fn contains_header_offsets(&self) -> impl Iterator<Item = InHeaderError<HeaderOffsetsName>> {
+        let t = self.contains_offsets(&self.text, ());
+        let d = self.contains_offsets(&self.data, ());
+        let a = self.contains_offsets(&self.analysis, ());
         let os = self
             .as_others()
             .enumerate()
-            .map(|(i, o)| self.contains_segment(&o.seg, i));
+            .map(|(i, o)| self.contains_offsets(&o.seg, i));
         [t, d, a].into_iter().chain(os).flatten()
     }
 
-    fn contains_segment<I, S, T0, N>(
+    fn contains_offsets<I, S, T0, N>(
         &self,
-        s: &Segment<I, S, T0>,
+        s: &Offsets<I, S, T0>,
         args: I::Params,
     ) -> Option<InHeaderError<N>>
     where
-        I: HasRegion + IsNamedSegment<N>,
+        I: HasRegion + AreNamedOffsets<N>,
         S: HasSource,
         T0: Into<u64> + Copy,
     {
@@ -358,36 +357,36 @@ impl ParsedHeaderSegments {
         (q.begin < self.nbytes()).then_some(InHeaderError(q))
     }
 
-    fn as_mut_segments(&mut self) -> impl Iterator<Item = AnyHeaderSegmentMut<'_>> {
+    fn as_mut_offsets(&mut self) -> impl Iterator<Item = AnyHeaderOffsetsMut<'_>> {
         self.other
             .iter_mut()
             .flat_map(|(os, _)| os.iter_mut())
-            .map(AnyHeaderSegmentMut::Other)
+            .map(AnyHeaderOffsetsMut::Other)
             .chain([
-                AnyHeaderSegmentMut::Text(&mut self.text),
-                AnyHeaderSegmentMut::Data(&mut self.data),
-                AnyHeaderSegmentMut::Analysis(&mut self.analysis),
+                AnyHeaderOffsetsMut::Text(&mut self.text),
+                AnyHeaderOffsetsMut::Data(&mut self.data),
+                AnyHeaderOffsetsMut::Analysis(&mut self.analysis),
             ])
     }
 
-    fn as_mut_nonempty_segments(
+    fn as_mut_nonempty_offsets(
         &mut self,
-    ) -> impl Iterator<Item = (AnyHeaderSegmentMut<'_>, NamedOffsets<HeaderSegmentName>)> {
-        self.as_mut_segments()
+    ) -> impl Iterator<Item = (AnyHeaderOffsetsMut<'_>, NamedOffsets<HeaderOffsetsName>)> {
+        self.as_mut_offsets()
             .filter_map(|x| x.try_as_named().map(|y| (x, y)))
             .sorted_by_key(|x| x.1.as_pair())
     }
 
-    fn as_mut_nonempty_segments_filtered<I>(
+    fn as_mut_nonempty_offsets_filtered<I>(
         &mut self,
-    ) -> impl Iterator<Item = (AnyHeaderSegmentMut<'_>, NamedOffsets<HeaderSegmentName>)>
+    ) -> impl Iterator<Item = (AnyHeaderOffsetsMut<'_>, NamedOffsets<HeaderOffsetsName>)>
     where
         I: IsDataOrAnalysis,
     {
-        self.as_mut_nonempty_segments().filter(|(k, _)| {
+        self.as_mut_nonempty_offsets().filter(|(k, _)| {
             !matches!(
                 (k, I::IS_DATA),
-                (AnyHeaderSegmentMut::Data(_), true) | (AnyHeaderSegmentMut::Analysis(_), false)
+                (AnyHeaderOffsetsMut::Data(_), true) | (AnyHeaderOffsetsMut::Analysis(_), false)
             )
         })
     }
@@ -395,8 +394,9 @@ impl ParsedHeaderSegments {
     fn find_or_fix_header_overlaps(
         &mut self,
         limit: OverlapCorrectionLimit,
-    ) -> ErrorsResult<Vec<HeaderToHeaderOffsetOverlap>, (), HeaderSegmentOverlapError> {
-        let mut pairs: Vec<_> = self.as_mut_nonempty_segments().collect();
+    ) -> ErrorsResult<Vec<HeaderToHeaderOffsetsOverlap>, (), HeaderOffsetPairOverlapOverlapError>
+    {
+        let mut pairs: Vec<_> = self.as_mut_nonempty_offsets().collect();
         debug_assert!(pairs.is_sorted_by_key(|x| x.1.as_pair()), "not sorted");
         let mut errors = vec![];
         let mut remainder = &mut pairs[..];
@@ -405,7 +405,7 @@ impl ParsedHeaderSegments {
             for (_, seg1) in rest {
                 if let Some(overlap) = seg0.get_tail_offset_overlap(seg1) {
                     if overlap.get() <= limit.0 {
-                        let overlap_ret = HeaderToHeaderOffsetOverlap::new(*seg0, *seg1, overlap);
+                        let overlap_ret = HeaderToHeaderOffsetsOverlap::new(*seg0, *seg1, overlap);
                         fixed.push(overlap_ret);
                         ref0.truncate(overlap.get());
                         // break early because any offset after this one is
@@ -413,7 +413,7 @@ impl ParsedHeaderSegments {
                         // to sorting
                         break;
                     }
-                    errors.push(SegmentOverlapError::new(*seg0, *seg1));
+                    errors.push(OffsetPairsOverlapError::new(*seg0, *seg1));
                 }
             }
             if !remainder.is_empty() {
@@ -431,16 +431,16 @@ impl ParsedHeaderSegments {
     }
 }
 
-/// Any mutable reference to segment from HEADER.
-enum AnyHeaderSegmentMut<'a> {
-    Text(&'a mut PrimaryTextSegment),
-    Data(&'a mut HeaderDataSegment),
-    Analysis(&'a mut HeaderAnalysisSegment),
-    Other(&'a mut IndexedOtherSegment),
+/// Any mutable reference to offsets from HEADER.
+enum AnyHeaderOffsetsMut<'a> {
+    Text(&'a mut PrimaryTextOffsets),
+    Data(&'a mut HeaderDataOffsets),
+    Analysis(&'a mut HeaderAnalysisOffsets),
+    Other(&'a mut IndexedOtherOffsets),
 }
 
-impl AnyHeaderSegmentMut<'_> {
-    fn try_as_named(&self) -> Option<NamedOffsets<HeaderSegmentName>> {
+impl AnyHeaderOffsetsMut<'_> {
+    fn try_as_named(&self) -> Option<NamedOffsets<HeaderOffsetsName>> {
         match self {
             Self::Text(s) => s.try_as_named(()),
             Self::Data(s) => s.try_as_named(()),
@@ -459,57 +459,57 @@ impl AnyHeaderSegmentMut<'_> {
     }
 }
 
-/// Error when validating segments in HEADER
+/// Error when validating offsets in HEADER
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(N0: fmt::Display))]
 #[cfg_attr(feature = "python", bound(N1: fmt::Display))]
-pub enum SegmentValidationError<N0, N1> {
-    Overlap(SegmentOverlapError<N0, N1>),
+pub enum OffsetsValidationError<N0, N1> {
+    Overlap(OffsetPairsOverlapError<N0, N1>),
     InHeader(InHeaderError<N0>),
 }
 
-impl<N0, N1> SegmentValidationError<N0, N1> {
-    pub(crate) fn into2<N1f>(self) -> SegmentValidationError<N0, N1f>
+impl<N0, N1> OffsetsValidationError<N0, N1> {
+    pub(crate) fn into2<N1f>(self) -> OffsetsValidationError<N0, N1f>
     where
         N1: Into<N1f>,
     {
         match self {
-            Self::Overlap(e) => SegmentValidationError::Overlap(e.second_into_once()),
-            Self::InHeader(e) => SegmentValidationError::InHeader(e),
+            Self::Overlap(e) => OffsetsValidationError::Overlap(e.second_into_once()),
+            Self::InHeader(e) => OffsetsValidationError::InHeader(e),
         }
     }
 }
 
-pub type HeaderSegmentValidationError =
-    SegmentValidationError<HeaderSegmentName, HeaderSegmentName>;
+pub type HeaderOffsetsValidationError =
+    OffsetsValidationError<HeaderOffsetsName, HeaderOffsetsName>;
 
-pub type TextToTextSegmentValidationError =
-    SegmentValidationError<TextSegmentName, TextSegmentName>;
+pub type TextToTextOffsetsValidationError =
+    OffsetsValidationError<TextOffsetsName, TextOffsetsName>;
 
-pub type SuppToHeaderSegmentValidationError =
-    SegmentValidationError<SuppTextSegmentName, HeaderSegmentName>;
+pub type SuppToHeaderOffsetsValidationError =
+    OffsetsValidationError<SuppTextOffsetsName, HeaderOffsetsName>;
 
-pub type TextToSuppSegmentValidationError =
-    SegmentValidationError<TextSegmentName, SuppTextSegmentName>;
+pub type TextToSuppOffsetsValidationError =
+    OffsetsValidationError<TextOffsetsName, SuppTextOffsetsName>;
 
-pub type TextToHeaderOrSuppSegmentValidationError =
-    SegmentValidationError<TextSegmentName, HeaderOrSuppSegmentName>;
+pub type TextToHeaderOrSuppOffsetsValidationError =
+    OffsetsValidationError<TextOffsetsName, HeaderOrSuppOffsetsName>;
 
-pub type TextToHeaderSegmentValidationError =
-    SegmentValidationError<TextSegmentName, HeaderSegmentName>;
+pub type TextToHeaderOffsetsValidationError =
+    OffsetsValidationError<TextOffsetsName, HeaderOffsetsName>;
 
-pub type SegmentValidationErrors = ErrorGroup<
-    SegmentValidationError<HeaderSegmentName, HeaderSegmentName>,
-    SegmentValidationSummary,
+pub type OffsetsValidationErrors = ErrorGroup<
+    OffsetsValidationError<HeaderOffsetsName, HeaderOffsetsName>,
+    OffsetsValidationSummary,
 >;
 
 def_summary!(
-    pub SegmentValidationSummary,
-    "Error when making new HEADER segments"
+    pub OffsetsValidationSummary,
+    "Error when making new HEADER offsets"
 );
 
-/// Error when a non-empty segment occurs within the first 58 bytes of the file.
+/// Error when a non-empty offset pair occurs within the first 58 bytes of the file.
 #[derive(Debug, Error, PartialEq, Clone, Display)]
 #[display(
     "{} segment offsets ({}, {}) is within HEADER region",

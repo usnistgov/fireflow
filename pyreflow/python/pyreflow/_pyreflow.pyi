@@ -1973,44 +1973,44 @@ class WriteFCSError(PyreflowError): ...
 class PyreflowWarning(Warning): ...
 
 @final
-class ParsedHeaderSegments:
+class FinalHeaderOffsets:
     def __new__(
         cls,
-        text_seg: pft.Segment,
-        data_seg: pft.Segment,
-        analysis_seg: pft.Segment,
-        other_segs: pft.OtherSegments,
+        text: pft.Offsets,
+        data: pft.Offsets,
+        analysis: pft.Offsets,
+        others: pft.OtherOffsets,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text_seg(self) -> pft.Segment: ...
+    def text(self) -> pft.Offsets: ...
     @property
-    def data_seg(self) -> pft.Segment: ...
+    def data(self) -> pft.Offsets: ...
     @property
-    def analysis_seg(self) -> pft.Segment: ...
+    def analysis(self) -> pft.Offsets: ...
     @property
-    def other_segs(self) -> pft.OtherSegments: ...
+    def others(self) -> pft.OtherOffsets: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
 @final
-class UncorrectedHeaderSegments:
+class OriginalHeaderOffsets:
     def __new__(
         cls,
-        text_seg: pft.Segment,
-        data_seg: pft.Segment,
-        analysis_seg: pft.Segment,
-        other_segs: list[pft.Segment],
+        text: pft.Offsets,
+        data: pft.Offsets,
+        analysis: pft.Offsets,
+        others: list[pft.Offsets],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text_seg(self) -> pft.Segment: ...
+    def text(self) -> pft.Offsets: ...
     @property
-    def data_seg(self) -> pft.Segment: ...
+    def data(self) -> pft.Offsets: ...
     @property
-    def analysis_seg(self) -> pft.Segment: ...
+    def analysis(self) -> pft.Offsets: ...
     @property
-    def other_segs(self) -> list[pft.Segment]: ...
+    def others(self) -> list[pft.Offsets]: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2019,19 +2019,19 @@ class Header:
     def __new__(
         cls,
         version: pft.FCSVersion,
-        segments: ParsedHeaderSegments,
-        uncorrected_segments: UncorrectedHeaderSegments,
-        overlaps: list[HeaderToHeaderOffsetOverlap],
+        final_offsets: FinalHeaderOffsets,
+        original_offsets: OriginalHeaderOffsets,
+        overlaps: list[HeaderToHeaderOffsetsOverlap],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def version(self) -> pft.FCSVersion: ...
     @property
-    def segments(self) -> ParsedHeaderSegments: ...
+    def final_offsets(self) -> FinalHeaderOffsets: ...
     @property
-    def uncorrected_segments(self) -> UncorrectedHeaderSegments: ...
+    def original_offsets(self) -> OriginalHeaderOffsets: ...
     @property
-    def overlaps(self) -> list[HeaderToHeaderOffsetOverlap]: ...
+    def overlaps(self) -> list[HeaderToHeaderOffsetsOverlap]: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2092,20 +2092,20 @@ class StdTEXTDiagnostics:
     def dict(self) -> dict[str, Any]: ...
 
 @final
-class DatasetSegments:
+class DatasetOffsets:
     def __new__(
         cls,
-        final_data_seg: pft.Segment,
-        final_analysis_seg: pft.Segment,
+        final_data_offsets: pft.Offsets,
+        final_analysis_offsets: pft.Offsets,
         data_origin: TEXTOffsetsOrigin,
         analysis_origin: TEXTOffsetsOrigin,
         data_analysis_overlap: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def final_data_seg(self) -> pft.Segment: ...
+    def final_data_offsets(self) -> pft.Offsets: ...
     @property
-    def final_analysis_seg(self) -> pft.Segment: ...
+    def final_analysis_offsets(self) -> pft.Offsets: ...
     @property
     def data_origin(self) -> TEXTOffsetsOrigin: ...
     @property
@@ -2151,7 +2151,7 @@ class SplitTEXTDiagnostics:
     @property
     def dict(self) -> dict[str, Any]: ...
 
-class _OffsetOverlap(Generic[_N0, _N1]):
+class _OffsetsOverlap(Generic[_N0, _N1]):
     def __new__(
         cls,
         offsets0: pft.NamedOffsets[_N0],
@@ -2168,54 +2168,54 @@ class _OffsetOverlap(Generic[_N0, _N1]):
     @property
     def dict(self) -> dict[str, Any]: ...
 
-class _OffsetToNextdataOverlap(Generic[_N0]):
+class _OffsetsOverflow(Generic[_N0]):
     def __new__(
         cls,
         offsets: pft.NamedOffsets[_N0],
-        overlap: int,
+        overflow: int,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def offsets(self) -> pft.NamedOffsets[_N0]: ...
     @property
-    def overlap(self) -> int: ...
+    def overflow(self) -> int: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
 @final
-class HeaderToHeaderOffsetOverlap(
-    _OffsetOverlap[pft.HeaderSegmentName, pft.HeaderSegmentName]
+class HeaderToHeaderOffsetsOverlap(
+    _OffsetsOverlap[pft.HeaderOffsetsName, pft.HeaderOffsetsName]
 ):
     pass
 
 @final
-class TextToHeaderOffsetOverlap(
-    _OffsetOverlap[pft.TextSegmentName, pft.HeaderSegmentName]
+class TextToHeaderOffsetsOverlap(
+    _OffsetsOverlap[pft.TextOffsetsName, pft.HeaderOffsetsName]
 ):
     pass
 
 @final
-class SuppToHeaderOffsetOverlap(
-    _OffsetOverlap[pft.SuppTextSegmentName, pft.HeaderSegmentName]
+class SuppToHeaderOffsetsOverlap(
+    _OffsetsOverlap[pft.SuppTextOffsetsName, pft.HeaderOffsetsName]
 ):
     pass
 
 @final
-class TextToHeaderOrSuppOffsetOverlap(
-    _OffsetOverlap[pft.TextSegmentName, pft.HeaderOrSuppSegmentName]
+class TextToHeaderOrSuppOffsetsOverlap(
+    _OffsetsOverlap[pft.TextOffsetsName, pft.HeaderOrSuppOffsetsName]
 ):
     pass
 
 @final
-class HeaderOffsetToNextdataOverlap(_OffsetToNextdataOverlap[pft.HeaderSegmentName]):
+class HeaderOffsetsOverflow(_OffsetsOverflow[pft.HeaderOffsetsName]):
     pass
 
 @final
-class TextOffsetToNextdataOverlap(_OffsetToNextdataOverlap[pft.TextSegmentName]):
+class TextOffsetsOverflow(_OffsetsOverflow[pft.TextOffsetsName]):
     pass
 
 @final
-class SuppOffsetToNextdataOverlap(_OffsetToNextdataOverlap[pft.SuppTextSegmentName]):
+class SuppOffsetsOverflow(_OffsetsOverflow[pft.SuppTextOffsetsName]):
     pass
 
 @final
@@ -2223,25 +2223,25 @@ class SuppTEXTOffsetsOutput:
     def __new__(
         cls,
         origin_type: pft.SuppTEXTOffsetsOriginType,
-        final_offsets: pft.Segment | None,
-        uncorrected_offsets: pft.Segment | None,
+        final_offsets: pft.Offsets | None,
+        original_offsets: pft.Offsets | None,
         other_index: int | None,
-        offset_overlaps: list[SuppToHeaderOffsetOverlap],
-        nextdata_overlap: SuppOffsetToNextdataOverlap | None,
+        overlaps: list[SuppToHeaderOffsetsOverlap],
+        overflow: SuppOffsetsOverflow | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def origin_type(self) -> pft.SuppTEXTOffsetsOriginType: ...
     @property
-    def final_offsets(self) -> pft.Segment: ...
+    def final_offsets(self) -> pft.Offsets: ...
     @property
-    def uncorrected_offsets(self) -> pft.Segment | None: ...
+    def original_offsets(self) -> pft.Offsets | None: ...
     @property
     def other_index(self) -> int | None: ...
     @property
-    def offset_overlaps(self) -> list[SuppToHeaderOffsetOverlap]: ...
+    def overlaps(self) -> list[SuppToHeaderOffsetsOverlap]: ...
     @property
-    def nextdata_overlap(self) -> SuppOffsetToNextdataOverlap | None: ...
+    def overflow(self) -> SuppOffsetsOverflow | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2250,19 +2250,19 @@ class TEXTOffsetsOrigin:
     def __new__(
         cls,
         origin_type: pft.TEXTOffsetsOriginType,
-        uncorrected_offsets: pft.Segment | None,
-        offset_overlaps: list[TextToHeaderOrSuppOffsetOverlap],
-        nextdata_overlap: TextOffsetToNextdataOverlap | None,
+        original_offsets: pft.Offsets | None,
+        overlaps: list[TextToHeaderOrSuppOffsetsOverlap],
+        overflow: TextOffsetsOverflow | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def origin_type(self) -> pft.TEXTOffsetsOriginType: ...
     @property
-    def uncorrected_offsets(self) -> pft.Segment | None: ...
+    def original_offsets(self) -> pft.Offsets | None: ...
     @property
-    def offset_overlaps(self) -> list[TextToHeaderOrSuppOffsetOverlap]: ...
+    def overlaps(self) -> list[TextToHeaderOrSuppOffsetsOverlap]: ...
     @property
-    def nextdata_overlap(self) -> TextOffsetToNextdataOverlap | None: ...
+    def overflow(self) -> TextOffsetsOverflow | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2289,7 +2289,7 @@ class FlatTEXTDiagnostics:
     def __new__(
         cls,
         header_supp: HeaderAndSuppOffsets,
-        header_nextdata_overlaps: list[HeaderOffsetToNextdataOverlap],
+        header_overflows: list[HeaderOffsetsOverflow],
         byte_pairs: list[tuple[bytes | str, bytes | str]],
         non_unique_std_keywords: list[tuple[str, str]],
         non_unique_nonstd_keywords: list[tuple[str, str]],
@@ -2303,7 +2303,7 @@ class FlatTEXTDiagnostics:
     @property
     def header_supp(self) -> HeaderAndSuppOffsets: ...
     @property
-    def header_nextdata_overlaps(self) -> list[HeaderOffsetToNextdataOverlap]: ...
+    def header_overflows(self) -> list[HeaderOffsetsOverflow]: ...
     @property
     def byte_pairs(self) -> list[tuple[bytes | str, bytes | str]]: ...
     @property
@@ -2393,7 +2393,7 @@ class FlatDatasetFromKwsOutput:
         data: DataFrame,
         analysis: bytes,
         others: list[bytes],
-        dataset_segs: DatasetSegments,
+        dataset_offsets: DatasetOffsets,
         events_diagnostics: EventsDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
@@ -2404,7 +2404,7 @@ class FlatDatasetFromKwsOutput:
     @property
     def others(self) -> list[bytes]: ...
     @property
-    def dataset_segs(self) -> DatasetSegments: ...
+    def dataset_offsets(self) -> DatasetOffsets: ...
     @property
     def events_diagnostics(self) -> EventsDiagnostics: ...
     @property
@@ -2415,13 +2415,13 @@ class NewFlatDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset: FlatDatasetFromKwsOutput,
-        header: ParsedHeaderSegments,
+        header: FinalHeaderOffsets,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
-    def header(self) -> ParsedHeaderSegments: ...
+    def header(self) -> FinalHeaderOffsets: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2448,7 +2448,7 @@ class StdTEXTOutput:
     def __new__(
         cls,
         tot: int | None,
-        dataset_segs: DatasetSegments,
+        dataset_offsets: DatasetOffsets,
         std_diagnostics: StdTEXTDiagnostics,
         flat_diagnostics: FlatTEXTDiagnostics,
         version_scores: pft.KeywordVersionScores | None,
@@ -2457,7 +2457,7 @@ class StdTEXTOutput:
     @property
     def tot(self) -> int | None: ...
     @property
-    def dataset_segs(self) -> DatasetSegments: ...
+    def dataset_offsets(self) -> DatasetOffsets: ...
     @property
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
@@ -2471,13 +2471,13 @@ class StdTEXTOutput:
 class StdDatasetFromKwsOutput:
     def __new__(
         cls,
-        dataset_segs: DatasetSegments,
+        dataset_offsets: DatasetOffsets,
         std_diagnostics: StdTEXTDiagnostics,
         events_diagnostics: EventsDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def dataset_segs(self) -> DatasetSegments: ...
+    def dataset_offsets(self) -> DatasetOffsets: ...
     @property
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
@@ -2490,13 +2490,13 @@ class NewStdDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset: StdDatasetFromKwsOutput,
-        header: ParsedHeaderSegments,
+        header: FinalHeaderOffsets,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset(self) -> StdDatasetFromKwsOutput: ...
     @property
-    def header(self) -> ParsedHeaderSegments: ...
+    def header(self) -> FinalHeaderOffsets: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -3353,18 +3353,18 @@ __all__ = [
     "VariableUintDataSchema",
     "MixedDataSchema",
     "Header",
-    "ParsedHeaderSegments",
-    "HeaderToHeaderOffsetOverlap",
-    "TextToHeaderOffsetOverlap",
-    "SuppToHeaderOffsetOverlap",
-    "TextToHeaderOrSuppOffsetOverlap",
-    "HeaderOffsetToNextdataOverlap",
-    "TextOffsetToNextdataOverlap",
-    "SuppOffsetToNextdataOverlap",
+    "FinalHeaderOffsets",
+    "HeaderToHeaderOffsetsOverlap",
+    "TextToHeaderOffsetsOverlap",
+    "SuppToHeaderOffsetsOverlap",
+    "TextToHeaderOrSuppOffsetsOverlap",
+    "HeaderOffsetsOverflow",
+    "TextOffsetsOverflow",
+    "SuppOffsetsOverflow",
     "SuppTEXTOffsetsOutput",
     "TEXTOffsetsOrigin",
     "HeaderAndSuppOffsets",
-    "UncorrectedHeaderSegments",
+    "OriginalHeaderOffsets",
     "FlatTEXTOutput",
     "FlatDatasetOutput",
     "FlatDatasetFromKwsOutput",
@@ -3376,7 +3376,7 @@ __all__ = [
     "NewStdDatasetFromKwsOutput",
     "StdTEXTDiagnostics",
     "ValidKeywords",
-    "DatasetSegments",
+    "DatasetOffsets",
     "SplitTEXTDiagnostics",
     "EventsDiagnostics",
     "KeywordVersionScore",

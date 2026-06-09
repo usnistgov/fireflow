@@ -70,7 +70,7 @@ use fireflow_core::text::named_vec::Element;
 use fireflow_core::validated::dataframe::{
     AnyPrimitiveSeries, PrimitiveDataFrame, PrimitiveSeries,
 };
-use fireflow_core::validated::header_segments;
+use fireflow_core::validated::header_offsets;
 use fireflow_core::validated::keys;
 use fireflow_core::validated::shortname as sn;
 
@@ -115,11 +115,11 @@ fpp::impl_config_defaults!(cfg::NewCoreTEXTConfig);
 fpp::impl_config_defaults!(cfg::NewCoreDatasetConfig);
 
 fpp::impl_py_header!(header::Header);
-fpp::impl_py_header_segments!(header_segments::ParsedHeaderSegments);
-fpp::impl_py_uncorrected_header_segments!(header::UncorrectedHeaderSegments);
+fpp::impl_py_header_offsets!(header_offsets::FinalHeaderOffsets);
+fpp::impl_py_original_header_offsets!(header::OriginalHeaderOffsets);
 fpp::impl_py_valid_keywords!(keys::ValidKeywords);
 fpp::impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
-fpp::impl_py_dataset_segments!(core::DatasetSegments);
+fpp::impl_py_dataset_offsets!(core::DatasetOffsets);
 
 fpp::impl_py_flat_text_output!(api::FlatTEXTOutput);
 fpp::impl_py_header_supp!(api::HeaderAndSuppOffsets);
@@ -140,14 +140,14 @@ fpp::impl_py_new_std_dataset_with_kws_output!(core::NewStdDatasetFromKwsOutput);
 
 fpp::impl_py_dataset_summary!(api::DatasetSummary);
 
-fpp::impl_py_offset_to_nextdata_overlap!(segment::HeaderOffsetToNextdataOverlap);
-fpp::impl_py_offset_to_nextdata_overlap!(segment::TextOffsetToNextdataOverlap);
-fpp::impl_py_offset_to_nextdata_overlap!(segment::SuppOffsetToNextdataOverlap);
+fpp::impl_py_offsets_overflow!(segment::HeaderOffsetsOverflow);
+fpp::impl_py_offsets_overflow!(segment::TextOffsetsOverflow);
+fpp::impl_py_offsets_overflow!(segment::SuppOffsetsOverflow);
 
-fpp::impl_py_offset_to_offset_overlap!(segment::HeaderToHeaderOffsetOverlap);
-fpp::impl_py_offset_to_offset_overlap!(segment::TextToHeaderOffsetOverlap);
-fpp::impl_py_offset_to_offset_overlap!(segment::SuppToHeaderOffsetOverlap);
-fpp::impl_py_offset_to_offset_overlap!(segment::TextToHeaderOrSuppOffsetOverlap);
+fpp::impl_py_offsets_overlap!(segment::HeaderToHeaderOffsetsOverlap);
+fpp::impl_py_offsets_overlap!(segment::TextToHeaderOffsetsOverlap);
+fpp::impl_py_offsets_overlap!(segment::SuppToHeaderOffsetsOverlap);
+fpp::impl_py_offsets_overlap!(segment::TextToHeaderOrSuppOffsetsOverlap);
 
 // Implement python classes for core* structs
 //

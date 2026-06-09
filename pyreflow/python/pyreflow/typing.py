@@ -39,7 +39,7 @@ Spillover: TypeAlias = tuple[list[str], npt.NDArray[np.float32]]
 
 UnstainedCenters: TypeAlias = dict[StdKey, float]
 
-Segment: TypeAlias = tuple[int, int]
+Offsets: TypeAlias = tuple[int, int]
 
 OffsetCorrection: TypeAlias = tuple[int, int]
 
@@ -222,7 +222,7 @@ UseEncoding: TypeAlias = Literal["single", "utf8", "guess"]
 
 GuessOtherWidth: TypeAlias = Literal["none", "error", "warn", "silent"]
 
-OtherSegments: TypeAlias = tuple[list[tuple[int, Segment]], int]
+OtherOffsets: TypeAlias = tuple[list[tuple[int, Offsets]], int]
 
 AllowHeaderTextOffsetMismatch: TypeAlias = Literal[
     "error", "header_warn", "header_silent", "text_warn", "text_silent"
@@ -238,19 +238,19 @@ FixIntWidths: TypeAlias = int | Literal["next_byte", "never"]
 
 ByteordOverride: TypeAlias = list[int] | Literal["endian", "none"]
 
-HeaderSegmentName: TypeAlias = Literal["text", "data", "header"]
-SuppTextSegmentName: TypeAlias = Literal["supp_text"]
-TextSegmentName: TypeAlias = Literal["data", "header"]
-HeaderOrSuppSegmentName: TypeAlias = HeaderSegmentName | SuppTextSegmentName
+HeaderOffsetsName: TypeAlias = Literal["text", "data", "header"]
+SuppTextOffsetsName: TypeAlias = Literal["supp_text"]
+TextOffsetsName: TypeAlias = Literal["data", "header"]
+HeaderOrSuppOffsetsName: TypeAlias = HeaderOffsetsName | SuppTextOffsetsName
 
 N = TypeVar("N")
 
 NamedOffsets: TypeAlias = tuple[N, int, int]
 
-HeaderNamedOffsets: TypeAlias = NamedOffsets[HeaderSegmentName]
-SuppTEXTNamedOffsets: TypeAlias = NamedOffsets[SuppTextSegmentName]
-TextNamedOffsets: TypeAlias = NamedOffsets[TextSegmentName]
-HeaderOrSuppNamedOffsets: TypeAlias = NamedOffsets[HeaderOrSuppSegmentName]
+HeaderNamedOffsets: TypeAlias = NamedOffsets[HeaderOffsetsName]
+SuppTEXTNamedOffsets: TypeAlias = NamedOffsets[SuppTextOffsetsName]
+TextNamedOffsets: TypeAlias = NamedOffsets[TextOffsetsName]
+HeaderOrSuppNamedOffsets: TypeAlias = NamedOffsets[HeaderOrSuppOffsetsName]
 
 SuppTEXTOffsetsOriginType: TypeAlias = Literal[
     "empty",

@@ -56,11 +56,11 @@ use crate::meas::{
     VersionMeasSet, impl_ref_specific_ro, impl_ref_specific_rw,
 };
 use crate::segment::{
-    AnalysisSegmentId, AnyAnalysisSegment, AnyDataSegment, DataSegmentId, HeaderOrTextSegment,
-    IndexedOtherSegment, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
-    OptSegmentWithDefaultWarning, ReqSegmentWithDefaultError, ReqSegmentWithDefaultWarning,
-    SegmentMismatchError, SegmentOverlapError, TextOffsetToNextdataOverlap, TextSegmentName,
-    TextToHeaderOrSuppOffsetOverlap, UncorrectedSegment,
+    AnalysisSegmentId, AnyAnalysisOffsets, AnyDataOffsets, DataSegmentId, HeaderOrTextOffsets,
+    IndexedOtherOffsets, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
+    OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning, OriginalOffsets,
+    ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
+    TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
@@ -113,7 +113,7 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
-use crate::validated::header_segments::ParsedHeaderSegments;
+use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
     StdKey, StdKeywords, ValidKeywords,
@@ -803,7 +803,7 @@ pub struct InnerRootMeta3_2 {
 /// This is used later to parse DATA and ANALYSIS.
 #[derive(new)]
 pub struct TEXTOffsets<T> {
-    pub(crate) segs: DatasetSegments,
+    pub(crate) segs: DatasetOffsets,
     pub(crate) tot: T,
 }
 
@@ -988,7 +988,7 @@ pub(crate) type VersionedCoreDataset<V> =
 /// Reader for ANALYSIS segment
 #[derive(new)]
 pub struct AnalysisReader {
-    pub seg: AnyAnalysisSegment,
+    pub seg: AnyAnalysisOffsets,
 }
 
 impl AnalysisReader {
@@ -1002,7 +1002,7 @@ impl AnalysisReader {
 /// Reader for OTHER segments
 #[derive(new)]
 pub struct OthersReader {
-    pub segs: Vec<IndexedOtherSegment>,
+    pub segs: Vec<IndexedOtherOffsets>,
 }
 
 impl OthersReader {
@@ -1025,7 +1025,7 @@ pub struct NewStdDatasetFromKwsOutput {
     pub dataset: StdDatasetFromKwsOutput,
 
     /// (Possibly modified) offsets used to parse HEADER.
-    pub header: ParsedHeaderSegments,
+    pub header: FinalHeaderOffsets,
 }
 
 /// Output when making standardized TEXT+DATA
@@ -1033,7 +1033,7 @@ pub struct NewStdDatasetFromKwsOutput {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct StdDatasetFromKwsOutput {
     /// DATA+ANALYSIS
-    pub dataset_segments: DatasetSegments,
+    pub dataset_offsets: DatasetOffsets,
 
     /// Keywords that start with '$' that are not part of the standard
     pub std_diagnostics: StdTEXTDiagnostics,
@@ -1047,17 +1047,17 @@ pub struct StdDatasetFromKwsOutput {
 /// Standardized TEXT+DATA+ANALYSIS with DATA+ANALYSIS offsets
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct DatasetSegments {
+pub struct DatasetOffsets {
     /// Offsets used to parse DATA
-    pub final_data: AnyDataSegment,
+    pub final_data: AnyDataOffsets,
 
     /// Offsets used to parse ANALYSIS
-    pub final_analysis: AnyAnalysisSegment,
+    pub final_analysis: AnyAnalysisOffsets,
 
-    /// Encodes origin of DATA segment.
+    /// Encodes origin of DATA offsets.
     pub data_origin: TEXTOffsetsOrigin,
 
-    /// Encodes origin of ANALYSIS segment.
+    /// Encodes origin of ANALYSIS offsets.
     pub analysis_origin: TEXTOffsetsOrigin,
 
     /// The amount of overlap between TEXT DATA and ANALYSIS.
@@ -1076,17 +1076,17 @@ pub enum TEXTOffsetsOrigin {
     /// This is the only possible level for 2.0.
     EmptyTEXT,
     /// TEXT offsets were present but ignored.
-    Ignored(Option<UncorrectedSegment>),
+    Ignored(Option<OriginalOffsets>),
     /// TEXT offsets are required but could not be parsed.
     // TODO this could either mean the offsets were entirely missing or that
     // they were present but could not be parsed into numbers.
     Unparsed,
     /// TEXT offsets are required but were numerically malformed.
-    Malformed(UncorrectedSegment),
+    Malformed(OriginalOffsets),
     /// TEXT offsets present and match HEADER exactly.
     Match,
     /// TEXT offsets present and mismatch HEADER, latter were chosen
-    MismatchHeader(UncorrectedSegment),
+    MismatchHeader(OriginalOffsets),
     /// TEXT offsets present and mismatch HEADER, former were chosen
     MismatchTEXT(MismatchedTEXTOffsetOrigin),
 }
@@ -1095,9 +1095,9 @@ pub enum TEXTOffsetsOrigin {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct MismatchedTEXTOffsetOrigin {
     header_is_empty: bool,
-    uncorr: UncorrectedSegment,
-    offset_overlaps: Vec<TextToHeaderOrSuppOffsetOverlap>,
-    nextdata_overlap: Option<TextOffsetToNextdataOverlap>,
+    uncorr: OriginalOffsets,
+    overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
+    overflow: Option<TextOffsetsOverflow>,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -1408,7 +1408,7 @@ pub enum MetarootConvertWarning {
     Loss(AnyMetarootKeyLossError),
 }
 
-/// Error when reading DATA segment from already-parsed keywords
+/// Error when reading DATA offsets from already-parsed keywords
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisError {
@@ -1420,7 +1420,7 @@ pub enum LookupAndReadDataAnalysisError {
     Warn(LookupAndReadDataAnalysisWarning),
 }
 
-/// Warning when reading DATA segment from already-parsed keywords
+/// Warning when reading DATA offsets from already-parsed keywords
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupAndReadDataAnalysisWarning {
@@ -1440,17 +1440,17 @@ pub enum LookupTEXTOffsetsError {
     /// $TOT is missing (3.0+)
     Tot3(ReqKeyError<Tot>),
     /// required DATA keywords are missing (3.0/3.1)
-    ReqData(ReqSegmentWithDefaultError<DataSegmentId>),
+    ReqData(ReqOffsetsWithDefaultError<DataSegmentId>),
     /// required ANALYSIS keywords are missing (3.0/3.1)
-    ReqAnalysis(ReqSegmentWithDefaultError<AnalysisSegmentId>),
-    /// TEXT DATA segment does not match HEADER (3.0+)
-    MismatchData(SegmentMismatchError<DataSegmentId>),
-    /// required TEXT ANALYSIS segment does not match HEADER (3.0/3.1)
-    MismatchAnalysis(SegmentMismatchError<AnalysisSegmentId>),
-    /// optional TEXT ANALYSIS segment does not match HEADER (3.2)
-    MismatchAnalysisOpt(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
+    ReqAnalysis(ReqOffsetsWithDefaultError<AnalysisSegmentId>),
+    /// TEXT DATA offsets do not match HEADER (3.0+)
+    MismatchData(OffsetsMismatchError<DataSegmentId>),
+    /// required TEXT ANALYSIS offsets do not match HEADER (3.0/3.1)
+    MismatchAnalysis(OffsetsMismatchError<AnalysisSegmentId>),
+    /// optional TEXT ANALYSIS offsets do not match HEADER (3.2)
+    MismatchAnalysisOpt(OptOffsetsWithDefaultWarning<AnalysisSegmentId>),
     /// DATA and ANALYSIS offsets are both non-empty and overlap each other
-    DataAnalysisOverlap(SegmentOverlapError<TextSegmentName, TextSegmentName>),
+    DataAnalysisOverlap(OffsetPairsOverlapError<TextOffsetsName, TextOffsetsName>),
 }
 
 /// Warning when looking up offsets for parsing DATA
@@ -1461,12 +1461,12 @@ pub enum LookupTEXTOffsetsError {
 pub enum LookupTEXTOffsetsWarning {
     /// $TOT is optional in FCS 2.0 (for some reason)
     Tot(OptKeyError<Tot>),
-    /// TEXT DATA segment can be optionally be overridden by HEADER (3.0+)
-    ReqData(ReqSegmentWithDefaultWarning<DataSegmentId>),
-    /// TEXT ANALYSIS segment can be optionally be overridden by HEADER (3.0+)
-    ReqAnalysis(ReqSegmentWithDefaultWarning<AnalysisSegmentId>),
-    /// TEXT ANALYSIS segment does not match HEADER and is dropped (3.0+)
-    MismatchAnalysis(OptSegmentWithDefaultWarning<AnalysisSegmentId>),
+    /// TEXT DATA offsets can be optionally be overridden by HEADER (3.0+)
+    ReqData(ReqOffsetsWithDefaultWarning<DataSegmentId>),
+    /// TEXT ANALYSIS offsets can be optionally be overridden by HEADER (3.0+)
+    ReqAnalysis(ReqOffsetsWithDefaultWarning<AnalysisSegmentId>),
+    /// TEXT ANALYSIS offsets do not match HEADER and are dropped (3.0+)
+    MismatchAnalysis(OptOffsetsWithDefaultWarning<AnalysisSegmentId>),
 }
 
 /// Error when building new [`CoreTEXT`]
@@ -2043,7 +2043,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
         (
             PrimitiveDataFrame,
             Analysis,
-            DatasetSegments,
+            DatasetOffsets,
             EventsDiagnostics,
         ),
         LookupAndReadDataAnalysisWarning,
@@ -2366,7 +2366,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     {
         Tot::remove_or_drop_root_opt(std, nonstd, dropped, st.conf.as_ref())
             .map_ok_value(|tot| {
-                let s = segs.header.segments.as_dataset_segments_2_0();
+                let s = segs.header.final_offsets.as_dataset_offsets_2_0();
                 TEXTOffsets::new(s, tot)
             })
             .set_err_value(())
@@ -2388,7 +2388,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
             .map_err(LookupTEXTOffsetsWarning::from)
             .into_succ()
             .fmap_once(|tot| {
-                let s = segs.header.segments.as_dataset_segments_2_0();
+                let s = segs.header.final_offsets.as_dataset_offsets_2_0();
                 TEXTOffsets::new(s, tot)
             });
         LogResult::Succ(succ)
@@ -2416,7 +2416,7 @@ macro_rules! lookup_offsets_3_0 {
             .and_then_commutative(|(tot, d, a)| {
                 let oconf: &ReadOffsetConfig = $st.conf.as_ref();
                 let limit = oconf.overlap_correction_limit;
-                DatasetSegments::try_new(d, a, limit)
+                DatasetOffsets::try_new(d, a, limit)
                     .map(|dos| TEXTOffsets::new(dos, Identity(tot)))
                     .map_err(LookupTEXTOffsetsError::from)
                     .into_log()
@@ -2473,7 +2473,7 @@ macro_rules! lookup_offsets_3_2 {
             .and_then_commutative(|(tot, d, a)| {
                 let oconf: &ReadOffsetConfig = $st.conf.as_ref();
                 let limit = oconf.overlap_correction_limit;
-                DatasetSegments::try_new(d, a, limit)
+                DatasetOffsets::try_new(d, a, limit)
                     .map(|dos| TEXTOffsets::new(dos, Identity(tot)))
                     .map_err(LookupTEXTOffsetsError::from)
                     .into_log()
@@ -6186,7 +6186,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 Self::new_from_keywords_inner(&mut h, kws, &mut hns, &st)
             })
             .map_ok_value(|(ret, dataset)| {
-                let out = NewStdDatasetFromKwsOutput::new(dataset, hns.header.segments);
+                let out = NewStdDatasetFromKwsOutput::new(dataset, hns.header.final_offsets);
                 (ret, out)
             })
             .warnings_to_pure_errors(*conf.as_ref(), StdDatasetFromFlatTextErrorInner::from)
@@ -6223,7 +6223,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|(text, extra, mut offsets)| {
-                let or = hns.header.segments.others_reader();
+                let or = hns.header.final_offsets.others_reader();
                 let ar = AnalysisReader::new(offsets.segs.final_analysis);
                 let other = io_to_log!(or.h_read(h));
                 let analysis = io_to_log!(ar.h_read(h));
@@ -6832,19 +6832,19 @@ impl PlateData {
     }
 }
 
-impl DatasetSegments {
+impl DatasetOffsets {
     fn try_new(
-        mut data: HeaderOrTextSegment<DataSegmentId>,
-        mut analysis: HeaderOrTextSegment<AnalysisSegmentId>,
+        mut data: HeaderOrTextOffsets<DataSegmentId>,
+        mut analysis: HeaderOrTextOffsets<AnalysisSegmentId>,
         limit: OverlapCorrectionLimit,
-    ) -> Result<Self, SegmentOverlapError<TextSegmentName, TextSegmentName>> {
+    ) -> Result<Self, OffsetPairsOverlapError<TextOffsetsName, TextOffsetsName>> {
         // Check for overlaps if we have two non-empty segments that are both
         // from TEXT. We can assume that if they are both from HEADER that
         // this has already been checked.
         let mut da_overlap = None;
         if let (
-            HeaderOrTextSegment::Text { seg: dt, .. },
-            HeaderOrTextSegment::Text { seg: at, .. },
+            HeaderOrTextOffsets::Text { seg: dt, .. },
+            HeaderOrTextOffsets::Text { seg: at, .. },
         ) = (&mut data, &mut analysis)
             && let (Some(dq), Some(aq)) = (dt.try_as_named(()), at.try_as_named(()))
         {
@@ -6854,7 +6854,7 @@ impl DatasetSegments {
                         dt.truncate(overlap.get());
                         da_overlap = Some(overlap);
                     } else {
-                        return Err(SegmentOverlapError::new(dq, aq));
+                        return Err(OffsetPairsOverlapError::new(dq, aq));
                     }
                 }
             } else if let Some(overlap) = aq.get_tail_offset_overlap(&dq) {
@@ -6862,7 +6862,7 @@ impl DatasetSegments {
                     at.truncate(overlap.get());
                     da_overlap = Some(overlap);
                 } else {
-                    return Err(SegmentOverlapError::new(aq, dq));
+                    return Err(OffsetPairsOverlapError::new(aq, dq));
                 }
             }
         }
@@ -6876,9 +6876,9 @@ impl TEXTOffsetsOrigin {
     #[cfg(feature = "python")]
     pub fn py_try_new(
         level: py::TEXTOffsetOriginType,
-        uncorr: Option<UncorrectedSegment>,
-        offset_overlaps: Vec<TextToHeaderOrSuppOffsetOverlap>,
-        nextdata_overlap: Option<TextOffsetToNextdataOverlap>,
+        uncorr: Option<OriginalOffsets>,
+        offset_overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
+        nextdata_overlap: Option<TextOffsetsOverflow>,
     ) -> PyResult<Self> {
         let ret = match (level, uncorr, &offset_overlaps[..], nextdata_overlap) {
             (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None) => Self::EmptyTEXT,
@@ -6926,7 +6926,7 @@ impl TEXTOffsetsOrigin {
 
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_uncorrected_offsets(&self) -> Option<UncorrectedSegment> {
+    pub fn py_original_offsets(&self) -> Option<OriginalOffsets> {
         match self {
             Self::EmptyTEXT | Self::Unparsed | Self::Match => None,
             Self::MismatchHeader(u) | Self::Malformed(u) => Some(*u),
@@ -6937,9 +6937,9 @@ impl TEXTOffsetsOrigin {
 
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_offset_overlaps(&self) -> &[TextToHeaderOrSuppOffsetOverlap] {
+    pub fn py_overlaps(&self) -> &[TextToHeaderOrSuppOffsetsOverlap] {
         if let Self::MismatchTEXT(x) = self {
-            &x.offset_overlaps[..]
+            &x.overlaps[..]
         } else {
             &[]
         }
@@ -6947,9 +6947,9 @@ impl TEXTOffsetsOrigin {
 
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_nextdata_overlap(&self) -> Option<TextOffsetToNextdataOverlap> {
+    pub fn py_overflow(&self) -> Option<TextOffsetsOverflow> {
         if let Self::MismatchTEXT(x) = self {
-            x.nextdata_overlap
+            x.overflow
         } else {
             None
         }

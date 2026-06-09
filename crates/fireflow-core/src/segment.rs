@@ -12,7 +12,6 @@ use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::text::keyword_enum::{Keyword0FromValue as _, OffsetKeyword, SplitKeyword0};
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
 };
@@ -46,7 +45,6 @@ use nonempty_collections::{
     IntoIteratorExt as _, NESlice, NEVec, NonEmptyArrayExt as _,
     iter::{NonEmptyIterator as _, once},
 };
-use num_traits::identities::Zero;
 use thiserror::Error;
 
 use std::fmt::{self, Debug};
@@ -74,7 +72,7 @@ pub struct OffsetsCorrection<I, S> {
     _src: PhantomData<S>,
 }
 
-/// A segment that is specific to a region in the FCS file.
+/// An offset pair that corresponds to a specific byte sequence in the file.
 #[derive(Clone, Copy, new, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
@@ -410,6 +408,29 @@ struct NonEmptyOffsets<T, O> {
     ///
     /// Note that length of segment is `end` - `begin` + 1
     end: T,
+
+    /// The actual second coordinate as written in the FCS file.
+    ///
+    /// This is only used to check if a truncation of a given length can be
+    /// done. Truncation can be performed in multiple passes for different
+    /// reasons, but it makes sense to have one global limit to how much a
+    /// segment can be truncated. Keeping the original ending offset will allow
+    /// us to track how much a segment has been truncated across multiple
+    /// truncations.
+    ///
+    /// Note that only the second offset can be truncated, so we don't need to
+    /// have one of these for the first offset.
+    ///
+    /// Also note, this technically will open an inconsistency for any case that
+    /// allows offsets to be created from scratch (for instance, when reading
+    /// TEXT and DATA separately and serially using separate functions). Since
+    /// this involves passing offsets "outside" the read workflow, we can alter
+    /// them however we want. This means we can "reset" this counter which will
+    /// allow more truncation than otherwise. This is quite minor compared to
+    /// the fact that the user can wholesale modify the offsets to their
+    /// choosing (not that they should). This is mentioned here since the
+    /// behavior is not necessarily expected and could be confusing.
+    original_end: u64,
 
     /// The absolute position of the segment in the FCS file.
     ///
@@ -1359,14 +1380,6 @@ impl<I, S, T> Offsets<I, S, T> {
             .map_or(0, |s| u64::from(s.nbytes()))
     }
 
-    /// Return byte after end of segment if applicable
-    pub(crate) fn try_next_byte(&self) -> Option<NonZeroU64>
-    where
-        T: Copy + Into<u64>,
-    {
-        self.inner.try_as_nonempty().map(|x| x.next_byte())
-    }
-
     /// Convert offsets to u64
     #[cfg(feature = "python")]
     pub(crate) fn as_u64(&self) -> Offsets<I, S, u64>
@@ -1374,53 +1387,6 @@ impl<I, S, T> Offsets<I, S, T> {
         T: Into<u64> + Copy,
     {
         Offsets::new(self.inner.as_u64())
-    }
-
-    pub(crate) fn try_new_with_len(
-        begin: u64,
-        length: u64,
-    ) -> Result<Self, <T as TryFrom<u64>>::Error>
-    where
-        T: TryFrom<u64> + Copy,
-    {
-        Self::try_new_abs_with_len(begin, length, DatasetOffset(0))
-    }
-
-    pub(crate) fn try_new_abs_with_len(
-        begin: u64,
-        length: u64,
-        offset: DatasetOffset,
-    ) -> Result<Self, <T as TryFrom<u64>>::Error>
-    where
-        T: TryFrom<u64> + Copy,
-    {
-        let s = if length == 0 {
-            InnerOffsets::default()
-        } else {
-            let end = (begin + length - 1).try_into()?;
-            InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin.try_into()?, end, offset))
-        };
-        Ok(Self::new(s))
-    }
-
-    pub(crate) fn new_with_len(begin: u64, length: u64) -> Self
-    where
-        T: From<u64> + Copy,
-    {
-        Self::new_abs_with_len(begin, length, DatasetOffset(0))
-    }
-
-    pub(crate) fn new_abs_with_len(begin: u64, length: u64, offset: DatasetOffset) -> Self
-    where
-        T: From<u64> + Copy,
-    {
-        let inner = if length == 0 {
-            InnerOffsets::default()
-        } else {
-            let end = (begin + length - 1).into();
-            InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin.into(), end, offset))
-        };
-        Self::new(inner)
     }
 
     pub(crate) fn try_as_named<N>(&self, args: I::Params) -> Option<NamedOffsets<N>>
@@ -1446,58 +1412,6 @@ impl<I, S, T> Offsets<I, S, T> {
         T: TryFrom<i128>,
     {
         InnerOffsets::try_new::<I, S>(begin, end, conf).map(Self::new)
-    }
-}
-
-impl<I> TEXTOffsets<I> {
-    /// Convert TEXT segment to HEADER segment.
-    ///
-    /// If offsets are too big, return an empty segment.
-    pub(crate) fn as_header(&self) -> HeaderOffsets<I> {
-        let inner = self
-            .try_coords()
-            .map_or(InnerOffsets::default(), |(b, e, o)| {
-                let br = u64::from(b).try_into();
-                let er = u64::from(e).try_into();
-                if let (Ok(begin), Ok(end)) = (br, er) {
-                    InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin, end, o))
-                } else {
-                    InnerOffsets::default()
-                }
-            });
-        Offsets::new(inner)
-    }
-
-    pub(crate) fn keywords(&self) -> [OffsetKeyword; 2]
-    where
-        I: KeyedOffsets,
-        I::B: From<UintZeroPad20>,
-        I::E: From<UintZeroPad20>,
-        OffsetKeyword: From<SplitKeyword0<I::B>> + From<SplitKeyword0<I::E>>,
-    {
-        let i = self.inner;
-        let (b, e) = match i {
-            InnerOffsets::Empty => (UintZeroPad20::zero(), UintZeroPad20::zero()),
-            InnerOffsets::NonEmpty(x) => (x.begin, x.end),
-        };
-        [
-            OffsetKeyword::from_value(I::B::from(b)),
-            OffsetKeyword::from_value(I::E::from(e)),
-        ]
-    }
-}
-
-// ASSUME the display trait for the inner type will render with the
-// proper number of characters
-impl<I, T> fmt::Display for Offsets<I, OffsetsFromHeader, T>
-where
-    T: Zero + fmt::Display + Copy,
-{
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (b, e) = self
-            .try_coords()
-            .map_or((T::zero(), T::zero()), |(b, e, _)| (b, e));
-        write!(f, "{b}{e}")
     }
 }
 
@@ -1982,7 +1896,8 @@ impl<T> InnerOffsets<T, DatasetOffset> {
 
         match (T::try_from(b), T::try_from(e)) {
             (Ok(b0), Ok(e0)) => {
-                let seg = NonEmptyOffsets::new(b0, e0, conf.dataset_offset);
+                // TODO fix real ending
+                let seg = NonEmptyOffsets::new(b0, e0, 0, conf.dataset_offset);
                 Ok(Self::NonEmpty(seg))
             }
             (_, _) => Err(err(SegmentOffsetErrorKind::Range)),
@@ -2048,20 +1963,17 @@ impl<T, O> NonEmptyOffsets<T, O> {
         (self.begin, self.end)
     }
 
-    /// Return the next byte after this segment
-    fn next_byte(&self) -> NonZeroU64
-    where
-        T: Into<u64> + Copy,
-    {
-        NonZeroU64::MIN.checked_add(self.end.into()).unwrap()
-    }
-
     fn as_u64(&self) -> NonEmptyOffsets<u64, O>
     where
         T: Into<u64> + Copy,
         O: Copy,
     {
-        NonEmptyOffsets::new(self.begin.into(), self.end.into(), self.dataset_offset)
+        NonEmptyOffsets::new(
+            self.begin.into(),
+            self.end.into(),
+            self.original_end,
+            self.dataset_offset,
+        )
     }
 }
 
@@ -2662,7 +2574,7 @@ mod python {
                 // will be consider relative to current dataset (ie just like
                 // they are in an FCS file)
                 let dso = DatasetOffset(0);
-                let ret = InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin, end, dso));
+                let ret = InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin, end, 0, dso));
                 Ok(ret)
             };
             ret.map(Self::new)

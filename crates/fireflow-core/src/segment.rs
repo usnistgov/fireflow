@@ -154,7 +154,7 @@ pub type TextToHeaderOrSuppOffsetsOverlap =
 pub struct NamedOffsets<N> {
     pub name: N,
     pub begin: u64,
-    pub end: u64,
+    pub length: NonZeroU64,
 }
 
 impl_kind1!(pub NamedOffsetsFamily, NamedOffsets);
@@ -163,19 +163,23 @@ impl_functor_once!(
     NamedOffsets,
     self,
     mut f,
-    NamedOffsets::new(f(self.name), self.begin, self.end)
+    NamedOffsets::new(f(self.name), self.begin, self.length)
 );
 
 impl<N> NamedOffsets<N> {
     pub(crate) fn as_pair(&self) -> (u64, u64) {
-        (self.begin, self.end)
+        (self.begin, self.end())
+    }
+
+    pub(crate) fn end(&self) -> u64 {
+        self.begin + self.length.get() - 1
     }
 
     pub(crate) fn get_tail_offset_overlap<N0>(
         &self,
         other: &NamedOffsets<N0>,
     ) -> Option<NonZeroU64> {
-        NonZeroU64::new((self.end + 1).saturating_sub(other.begin))
+        NonZeroU64::new((self.end() + 1).saturating_sub(other.begin))
     }
 
     pub(crate) fn get_tail_nextdata_overlap(&self, n: Nextdata) -> Option<NonZeroU64> {
@@ -183,7 +187,7 @@ impl<N> NamedOffsets<N> {
         if nn == 0 {
             None
         } else {
-            NonZeroU64::new((self.end + 1).saturating_sub(nn))
+            NonZeroU64::new((self.end() + 1).saturating_sub(nn))
         }
     }
 }
@@ -1387,9 +1391,9 @@ impl<I, S> Offsets<I, S> {
         I: HasRegion + AreNamedOffsets<N>,
         S: HasSource,
     {
-        self.inner.try_as_nonempty().map(|x| {
-            let (begin, end) = x.coords();
-            NamedOffsets::new(I::segname(args), begin, end)
+        self.inner.try_as_nonempty().map(|ne| {
+            // let (begin, end) = x.coords();
+            NamedOffsets::new(I::segname(args), ne.begin, ne.length)
         })
     }
 
@@ -2167,10 +2171,10 @@ impl fmt::Display for SegmentOffsetError {
     "{} segment offsets ({}, {}) overlaps with {} segment offsets ({}, {})",
     self.seg0.name,
     self.seg0.begin,
-    self.seg0.end,
+    self.seg0.end(),
     self.seg1.name,
     self.seg1.begin,
-    self.seg1.end,
+    self.seg1.end(),
 )]
 #[display(bound(N0: fmt::Display, N1: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -2772,7 +2776,11 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             let (name, begin, end) = obj.extract::<(N, u64, u64)>()?;
-            Ok(Self::new(name, begin, end))
+            if let Some(length) = begin.checked_sub(end).and_then(NonZeroU64::new) {
+                Ok(Self::new(name, begin, length))
+            } else {
+                Err(PyValueError::new_err("begin must be less than end"))
+            }
         }
     }
 
@@ -2785,7 +2793,8 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (self.name, self.begin, self.end).into_pyobject(py)
+            let end = self.end();
+            (self.name, self.begin, end).into_pyobject(py)
         }
     }
 }

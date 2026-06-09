@@ -250,7 +250,7 @@ impl FinalHeaderOffsets {
             // Skip all HEADER offsets that come before TEXT seg
             while let p @ Some((_, hdr_seg)) = it.next() {
                 hdr_pair = p;
-                if txt_seg.begin <= hdr_seg.end {
+                if txt_seg.begin <= hdr_seg.end() {
                     break;
                 }
             }
@@ -511,7 +511,7 @@ def_summary!(
     "{} segment offsets ({}, {}) is within HEADER region",
     self.0.name,
     self.0.begin,
-    self.0.end
+    self.0.end()
 )]
 #[display(bound(N: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -525,7 +525,7 @@ pub struct InHeaderError<N>(NamedOffsets<N>);
     "{} segment offsets ({}, {}) exceeds $NEXTDATA ({})",
     self.offsets.name,
     self.offsets.begin,
-    self.offsets.end,
+    self.offsets.end(),
     u64::from(self.nextdata)
 )]
 #[display(bound(N: fmt::Display))]

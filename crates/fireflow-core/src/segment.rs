@@ -1316,26 +1316,25 @@ impl<I, S> Offsets<I, S> {
     /// Will panic if offsets are initially empty. It only makes sense to
     /// truncate non-empty offsets.
     pub(crate) fn truncate(&mut self, n: u64, limit: u64) -> Option<u64> {
-        if let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.inner) {
-            let total_truncation = ne.truncated_len() + n;
-            if total_truncation > limit {
-                // truncation exceeds limit, do nothing (ie restore the original
-                // non-empty)
-                self.inner = InnerOffsets::NonEmpty(ne);
-                return None;
-            } else if let Some(new_length) =
-                ne.length.get().checked_sub(n).and_then(NonZeroU64::new)
-            {
-                // truncation is within limit and new length is > 0, set new length
-                ne.length = new_length;
-                let truncated_n = ne.truncated_len();
-                self.inner = InnerOffsets::NonEmpty(ne);
-                return Some(truncated_n);
-            }
+        let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.inner) else {
+            panic!("attempted to truncate empty offsets")
+        };
+        let total_truncation = ne.truncated_len() + n;
+        if total_truncation > limit {
+            // truncation exceeds limit, do nothing (ie restore the original
+            // non-empty)
+            self.inner = InnerOffsets::NonEmpty(ne);
+            None
+        } else if let Some(new_length) = ne.length.get().checked_sub(n).and_then(NonZeroU64::new) {
+            // truncation is within limit and new length is > 0, set new length
+            ne.length = new_length;
+            let truncated_n = ne.truncated_len();
+            self.inner = InnerOffsets::NonEmpty(ne);
+            Some(truncated_n)
+        } else {
             // Entire length was truncated and offset is now empty
-            return Some(ne.original_length.get());
+            Some(ne.original_length.get())
         }
-        panic!("attempted to truncate empty offsets")
     }
 
     /// Read bytes within this segment

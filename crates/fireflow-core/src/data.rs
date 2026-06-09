@@ -7671,6 +7671,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
     {
         let n = seg.len();
         let w = self.event_width().usize_to_u64();
+        // TODO return truncated segment result here
         if let Some(total_events) = n.checked_div(w) {
             let limit = conf.data_remainder_limit;
             let remainder = n % w;

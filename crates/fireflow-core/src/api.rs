@@ -1046,13 +1046,12 @@ impl HeaderAndSuppOffsets {
                 let err = OffsetsValidationError::from(inner_err);
                 if this_named.as_pair() < supp_named.as_pair() {
                     if let Some(overlap) = this_named.get_tail_offset_overlap(&supp_named) {
-                        if overlap.get() <= limit.0 {
+                        if s.truncate(overlap.get(), limit.0).is_some() {
                             supp_overlap = Some(OversetsOverlap::new(
                                 this_named,
                                 supp_named.fmap_into_once(),
                                 overlap,
                             ));
-                            s.truncate(overlap.get());
                             None
                         } else {
                             Some(err)

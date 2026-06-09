@@ -7677,8 +7677,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
             let out = ComputedRowsResult::new(total_events, w, remainder);
             // If within remainder limit, truncate offset and return without
             // error
-            if remainder <= limit.0 {
-                seg.truncate(remainder);
+            if seg.truncate(remainder, limit.0).is_some() {
                 return LogResult::new_ok(out);
             }
             let is_ok = remainder == 0;

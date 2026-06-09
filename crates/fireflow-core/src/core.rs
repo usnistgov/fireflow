@@ -6850,16 +6850,14 @@ impl DatasetOffsets {
         {
             if dq.begin < aq.begin {
                 if let Some(overlap) = dq.get_tail_offset_overlap(&aq) {
-                    if overlap.get() <= limit.0 {
-                        dt.truncate(overlap.get());
+                    if dt.truncate(overlap.get(), limit.0).is_some() {
                         da_overlap = Some(overlap);
                     } else {
                         return Err(OffsetPairsOverlapError::new(dq, aq));
                     }
                 }
             } else if let Some(overlap) = aq.get_tail_offset_overlap(&dq) {
-                if overlap.get() <= limit.0 {
-                    at.truncate(overlap.get());
+                if at.truncate(overlap.get(), limit.0).is_some() {
                     da_overlap = Some(overlap);
                 } else {
                     return Err(OffsetPairsOverlapError::new(aq, dq));

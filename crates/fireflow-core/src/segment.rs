@@ -1304,13 +1304,32 @@ impl<I, S> Offsets<I, S> {
     }
 
     /// Subtract n bytes off the end of this offset
-    pub(crate) fn truncate(&mut self, n: u64) {
-        if let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.inner)
-            && let Some(new_length) = ne.length.get().checked_sub(n).and_then(NonZeroU64::new)
-        {
-            ne.length = new_length;
-            self.inner = InnerOffsets::NonEmpty(ne);
+    ///
+    /// Ensure that the truncated length won't be more than `limit`.
+    ///
+    /// Return total truncated amount if truncation was performed.
+    pub(crate) fn truncate(&mut self, n: u64, limit: u64) -> Option<u64> {
+        if let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.inner) {
+            let total_truncation = ne.truncated_len() + n;
+            if total_truncation > limit {
+                // truncation exceeds limit, do nothing (ie restore the original
+                // non-empty)
+                self.inner = InnerOffsets::NonEmpty(ne);
+                return None;
+            } else if let Some(new_length) =
+                ne.length.get().checked_sub(n).and_then(NonZeroU64::new)
+            {
+                // truncation is within limit and new length is > 0, set new length
+                ne.length = new_length;
+                let truncated_n = ne.truncated_len();
+                self.inner = InnerOffsets::NonEmpty(ne);
+                return Some(truncated_n);
+            }
+            // Entire length was truncated and offset is now empty
+            return Some(ne.original_length.get());
         }
+        // Offset started as empty, no truncation was performed
+        None
     }
 
     /// Read bytes within this segment
@@ -1936,6 +1955,13 @@ impl<O> NonEmptyOffsets<O> {
     /// Return the first and last byte or this segment
     fn coords(&self) -> (u64, u64) {
         (self.begin, self.begin + self.length.get() - 1)
+    }
+
+    fn truncated_len(&self) -> u64 {
+        let o = self.original_length.get();
+        let l = self.length.get();
+        o.checked_sub(l)
+            .unwrap_or_else(|| panic!("original length ({o}) should be >= length ({l})"))
     }
 }
 

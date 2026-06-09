@@ -139,8 +139,7 @@ impl Nextdata {
     {
         if let Some(q) = s.try_as_named(()) {
             if let Some(overlap) = q.get_tail_nextdata_overlap(self) {
-                if overlap.get() <= limit.0 {
-                    s.truncate(overlap.get());
+                if s.truncate(overlap.get(), limit.0).is_some() {
                     Ok(Some(OffsetsOverflow::new(q, overlap)))
                 } else {
                     Err(NextdataOffsetsError::new(self, q))

@@ -201,9 +201,8 @@ impl FinalHeaderOffsets {
         let mut errors = vec![];
         for (mut r, s) in self.as_mut_nonempty_offsets() {
             if let Some(overlap) = s.get_tail_nextdata_overlap(n) {
-                if overlap.get() <= limit.0 {
+                if r.truncate(overlap.get(), limit.0).is_some() {
                     overlaps.push(OffsetsOverflow::new(s, overlap));
-                    r.truncate(overlap.get());
                 } else {
                     errors.push(NextdataOffsetsError::new(n, s));
                 }
@@ -265,11 +264,10 @@ impl FinalHeaderOffsets {
                     // since we already read it at this point and thus should
                     // not alter it. If not, truncate if within the limit.
                     if let Some(overlap) = hdr_seg.get_tail_offset_overlap(&txt_seg) {
-                        overlaps.push(t2h_overlap(hdr_seg, overlap));
-                        if overlap.get() <= limit.0
+                        if hdr_ref.truncate(overlap.get(), limit.0).is_some()
                             && !matches!(hdr_ref, AnyHeaderOffsetsMut::Text(_))
                         {
-                            hdr_ref.truncate(overlap.get());
+                            overlaps.push(t2h_overlap(hdr_seg, overlap));
                         } else {
                             errors.push(err(hdr_seg));
                         }
@@ -280,8 +278,7 @@ impl FinalHeaderOffsets {
                     // since we know that no more HEADER offsets can overlap.
                     if let Some(overlap) = txt_seg.get_tail_offset_overlap(&hdr_seg) {
                         overlaps.push(t2h_overlap(hdr_seg, overlap));
-                        if overlap.get() <= limit.0 {
-                            s.truncate(overlap.get());
+                        if s.truncate(overlap.get(), limit.0).is_some() {
                             return LogResult::new_ok(overlaps);
                         }
                         errors.push(err(hdr_seg));
@@ -295,10 +292,11 @@ impl FinalHeaderOffsets {
                     // If overlap within limit and we have not encountered an
                     // error yet, truncate TEXT and return early without error.
                     // Otherwise push error.
-                    overlaps.push(t2h_overlap(hdr_seg, overlap));
-                    if overlap.get() <= limit.0 && errors.is_empty() {
-                        s.truncate(overlap.get());
-                        return LogResult::new_ok(overlaps);
+                    if s.truncate(overlap.get(), limit.0).is_some() {
+                        overlaps.push(t2h_overlap(hdr_seg, overlap));
+                        if errors.is_empty() {
+                            return LogResult::new_ok(overlaps);
+                        }
                     }
                     errors.push(err(hdr_seg));
                 } else {
@@ -403,10 +401,9 @@ impl FinalHeaderOffsets {
         while let Some(((ref0, seg0), rest)) = remainder.split_first_mut() {
             for (_, seg1) in rest {
                 if let Some(overlap) = seg0.get_tail_offset_overlap(seg1) {
-                    if overlap.get() <= limit.0 {
+                    if ref0.truncate(overlap.get(), limit.0).is_some() {
                         let overlap_ret = HeaderToHeaderOffsetsOverlap::new(*seg0, *seg1, overlap);
                         fixed.push(overlap_ret);
-                        ref0.truncate(overlap.get());
                         // break early because any offset after this one is
                         // guaranteed to be after the new truncated ending due
                         // to sorting
@@ -448,12 +445,12 @@ impl AnyHeaderOffsetsMut<'_> {
         }
     }
 
-    fn truncate(&mut self, n: u64) {
+    fn truncate(&mut self, n: u64, limit: u64) -> Option<u64> {
         match self {
-            Self::Text(s) => s.truncate(n),
-            Self::Data(s) => s.truncate(n),
-            Self::Analysis(s) => s.truncate(n),
-            Self::Other(s) => s.seg.truncate(n),
+            Self::Text(s) => s.truncate(n, limit),
+            Self::Data(s) => s.truncate(n, limit),
+            Self::Analysis(s) => s.truncate(n, limit),
+            Self::Other(s) => s.seg.truncate(n, limit),
         }
     }
 }

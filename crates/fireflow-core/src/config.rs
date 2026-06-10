@@ -344,16 +344,19 @@ pub struct ReadOffsetConfig {
     /// This flag will treat all such offsets as if they were written as `0,0`.
     pub allow_pseudoempty: AllowPseudoempty,
 
-    /// Maximum that may be truncated from offsets that exceed EOF.
+    /// Maximum to be truncated from offsets that exceed the end of the dataset.
+    ///
+    /// The end of a dataset is defined either by end of file (EOF) or $NEXTDATA
+    /// if set.
     ///
     /// For some files, the DATA ending offset is one greater than it should be,
-    /// which means it points to the byte directly after the file ending. Set
+    /// which means it points to the byte directly after the dataset end. Set
     /// this to `1` to allow truncating this ending offset down by one byte.
     ///
-    /// In other cases, offsets far beyond EOF likely mean the file was
-    /// incompletely written, which is a larger problem itself. Setting this to
-    /// a large value will at least allow these files to be read.
-    pub truncate_offset_limit: TruncateOffsetLimit,
+    /// In other cases, offsets far beyond the dataset end likely mean the file
+    /// was incompletely written, which is a larger problem itself. Setting this
+    /// to a large value will at least allow these files to be read.
+    pub dataset_overflow_limit: DatasetOverflowLimit,
 
     /// Number of bytes to adjust ending offsets in case of overlap.
     ///
@@ -1413,7 +1416,7 @@ pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
 /// The maximum number of bytes that an offset may be truncated if beyond EOF.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct TruncateOffsetLimit(pub u64);
+pub struct DatasetOverflowLimit(pub u64);
 
 /// The maximum number of bytes an ending offset may be decreased to avoid overlap.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
@@ -1688,7 +1691,7 @@ impl HasStrategy for ReadOffsetConfig {
         self.allow_pseudoempty = true.into();
         // Allow automatic correction of off-by-one offset errors. This won't
         // always work but will likely take care of 80% of cases.
-        self.truncate_offset_limit = 1.into();
+        self.dataset_overflow_limit = 1.into();
         self.overlap_correction_limit = 1.into();
     }
 }

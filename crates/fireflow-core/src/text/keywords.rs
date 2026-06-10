@@ -1,5 +1,5 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit, ProcessOptionalFailure,
+    ConfigFlag as _, DatasetOverflowLimit, DummyTriFlag, ProcessOptionalFailure,
     ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _,
     TrimIntraValueWhitespace,
 };
@@ -132,7 +132,7 @@ impl Nextdata {
     pub(crate) fn validate_text_offset<N, I>(
         self,
         s: &mut TEXTOffsets<I>,
-        limit: OverlapCorrectionLimit,
+        limit: DatasetOverflowLimit,
     ) -> Result<Option<OffsetsOverflow<N>>, NextdataOffsetsError<N>>
     where
         I: HasRegion + AreNamedOffsets<N, Params = ()>,

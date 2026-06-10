@@ -4556,17 +4556,17 @@ class TestConfig:
         assert out.final_offsets.others[0][0] == (0, (0, 0))
 
     @all_versions
-    def test_truncate_offset_limit(
+    def test_dataset_overflow_limit(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
-        """Test the truncate_offset_limit flag."""
+        """Test the dataset_overflow_limit flag."""
         p = tmp_path / "thing.fcs"
         self.mock_header(p, version, t=(58, 59), rest=b"/")
 
         with pytest.RaisesGroup(pf.FileLayoutError):
-            pf.api.fcs_read_header(p, truncate_offset_limit=0)
+            pf.api.fcs_read_header(p, dataset_overflow_limit=0)
 
-        out = pf.api.fcs_read_header(p, truncate_offset_limit=1)
+        out = pf.api.fcs_read_header(p, dataset_overflow_limit=1)
         assert out.final_offsets.text == (58, 58)
 
     @all_versions

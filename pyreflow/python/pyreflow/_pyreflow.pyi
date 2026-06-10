@@ -1640,7 +1640,7 @@ class CoreDataset3_0(
         nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
-        truncate_offset_limit: int = 0,
+        dataset_overflow_limit: int = 0,
         overlap_correction_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
@@ -1776,7 +1776,7 @@ class CoreDataset3_1(
         nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
-        truncate_offset_limit: int = 0,
+        dataset_overflow_limit: int = 0,
         overlap_correction_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
@@ -1912,7 +1912,7 @@ class CoreDataset3_2(
         nonstd: pft.NonStdKeywords,
         # offset args
         allow_pseudoempty: bool = False,
-        truncate_offset_limit: int = 0,
+        dataset_overflow_limit: int = 0,
         overlap_correction_limit: int = 0,
         # std args
         dedup_measurement_names: bool = False,
@@ -2607,7 +2607,7 @@ def fcs_read_header(
     squish_offsets: bool = False,
     allow_pseudoempty: bool = False,
     # offset args
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     dataset_offset: int = 0,
 ) -> Header: ...
@@ -2626,7 +2626,7 @@ def fcs_read_flat_text(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -2675,7 +2675,7 @@ def fcs_read_std_text(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -2757,7 +2757,7 @@ def fcs_read_flat_dataset(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -2824,7 +2824,7 @@ def fcs_read_std_dataset(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -2915,7 +2915,7 @@ def fcs_read_flat_texts(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -2965,7 +2965,7 @@ def fcs_read_std_texts(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -3048,7 +3048,7 @@ def fcs_read_flat_datasets(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -3116,7 +3116,7 @@ def fcs_read_std_datasets(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,
@@ -3197,7 +3197,7 @@ def fcs_read_flat_dataset_with_keywords(
     std: dict[str, str],
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # layout args
     text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -3239,7 +3239,7 @@ def fcs_summarize(
     squish_offsets: bool = False,
     # offset args
     allow_pseudoempty: bool = False,
-    truncate_offset_limit: int = 0,
+    dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # flat args
     version_override: pft.VersionOverride | None = None,

@@ -1874,16 +1874,17 @@ impl SuppTEXTOffsetsOutput {
         let config_corr = hconf.supp_text_correction;
 
         let validate_offsets = |hdr: &mut Header, mut corr_supp, uncorr_supp, other_index| {
-            let limit = oconf.overlap_correction_limit;
+            let overflow_limit = oconf.dataset_overflow_limit;
+            let overlap_limit = oconf.overlap_correction_limit;
             let nd_res = nextdata
                 .map_or(Ok(None), |nd| {
-                    nd.validate_text_offset(&mut corr_supp, limit)
+                    nd.validate_text_offset(&mut corr_supp, overflow_limit)
                 })
                 .map_err(STextOffsetsError::from)
                 .into_log();
             let val_res = hdr
                 .final_offsets
-                .validate_supp_text(&mut corr_supp, limit)
+                .validate_supp_text(&mut corr_supp, overlap_limit)
                 .map_errors(STextOffsetsError::from)
                 .set_err_value(());
             nd_res

@@ -2,9 +2,9 @@
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
-    AllowPseudoempty, ConfigFlag, DatasetOffset, DummyTriFlag, FileLen, IgnoreTEXTAnalysisOffsets,
-    IgnoreTEXTDataOffsets, ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig,
-    ReadOffsetConfig, ReadState, TruncateOffsetLimit,
+    AllowPseudoempty, ConfigFlag, DatasetOffset, DatasetOverflowLimit, DummyTriFlag, FileLen,
+    IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
 };
 use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -327,7 +327,7 @@ pub struct NewOffsetsConfig<I, S> {
     file_len: FileLen,
     dataset_offset: DatasetOffset,
     allow_pseudoempty: AllowPseudoempty,
-    truncate_offset_limit: TruncateOffsetLimit,
+    truncate_offset_limit: DatasetOverflowLimit,
 }
 
 impl<I, S> NewOffsetsConfig<I, S> {
@@ -341,7 +341,7 @@ impl<I, S> NewOffsetsConfig<I, S> {
             st.file_len,
             st.dataset_offset,
             oconf.allow_pseudoempty,
-            oconf.truncate_offset_limit,
+            oconf.dataset_overflow_limit,
         )
     }
 }
@@ -694,6 +694,7 @@ where
         Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, ignore, st)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn with_req_pair_default<C>(
         pair: ReqPair<Self::B, Self::E>,
         segs: &mut HeaderAndSuppOffsets,
@@ -715,7 +716,8 @@ where
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let missing_flag = dconf.allow_missing_required_offsets;
-        let limit = oconf.overlap_correction_limit;
+        let overflow_limit = oconf.dataset_overflow_limit;
+        let overlap_limit = oconf.overlap_correction_limit;
 
         let text_missing = |es: Vec<ReqOffsetsWithDefaultError<Self>>| {
             let hpair = header_pair(ChoseHeaderReason::Unparsed);
@@ -737,12 +739,14 @@ where
                 Ok(mut text_seg) => {
                     let nd_res = segs
                         .nextdata
-                        .map_or(Ok(None), |nd| nd.validate_text_offset(&mut text_seg, limit))
+                        .map_or(Ok(None), |nd| {
+                            nd.validate_text_offset(&mut text_seg, overflow_limit)
+                        })
                         .map_err(ReqOffsetsWithDefaultErrorInner::from)
                         .into_deferred_switchable3(missing_flag)
                         .switchable_into_commutative();
                     let val_res = segs
-                        .validate_text_offsets(&mut text_seg, limit)
+                        .validate_text_offsets(&mut text_seg, overlap_limit)
                         .map_errors(ReqOffsetsWithDefaultErrorInner::from)
                         .nowarn_into_switchable3(missing_flag)
                         .switchable_into_commutative();
@@ -977,7 +981,8 @@ where
         // TODO configure this
         let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
-        let limit = oconf.overlap_correction_limit;
+        let overflow_limit = oconf.dataset_overflow_limit;
+        let overlap_limit = oconf.overlap_correction_limit;
 
         let mut pair_to_text = |uncorr_txt: OriginalOffsets, mismatch_warn, header_is_empty| {
             // mismatch_warn and header_is_empty need to be independent because we
@@ -989,12 +994,14 @@ where
                 Ok(mut text_seg) => {
                     let nd_res = segs
                         .nextdata
-                        .map_or(Ok(None), |nd| nd.validate_text_offset(&mut text_seg, limit))
+                        .map_or(Ok(None), |nd| {
+                            nd.validate_text_offset(&mut text_seg, overflow_limit)
+                        })
                         .map_err(OptOffsetsWithDefaultWarning::from)
                         .into_deferred_switchable(drop_flag)
                         .switchable_into_commutative();
                     let val_res = segs
-                        .validate_text_offsets(&mut text_seg, limit)
+                        .validate_text_offsets(&mut text_seg, overlap_limit)
                         .nowarn_into_switchable(drop_flag)
                         .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
                         .switchable_into_commutative();

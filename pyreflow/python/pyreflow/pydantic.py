@@ -47,7 +47,7 @@ class _HeaderConfig(BaseModel):
 
 class _OffsetConfig(BaseModel):
     allow_pseudoempty: bool = False
-    truncate_offset_limit: int = 0
+    dataset_overflow_limit: int = 0
     overlap_correction_limit: int = 0
 
 

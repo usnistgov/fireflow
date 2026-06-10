@@ -9242,7 +9242,7 @@ impl DocArgParam {
         } else {
             vec![
                 Self::new_allow_pseudoempty_param(),
-                Self::new_truncate_offset_limit_param(),
+                Self::new_dataset_overflow_limit_param(),
                 Self::new_overlap_correction_limit_param(),
             ]
         };
@@ -9847,9 +9847,11 @@ impl DocArgParam {
         Self::new_bool_param("allow_pseudoempty", d)
     }
 
-    fn new_truncate_offset_limit_param() -> Self {
-        let d = "Limit by which offsets can be truncated if they exceed end of file.";
-        Self::new_param("truncate_offset_limit", RsInt::U64, d).def_auto()
+    fn new_dataset_overflow_limit_param() -> Self {
+        let d = format!(
+            "Limit by which offsets can be truncated if they exceed end of file or {NEXTDATA}."
+        );
+        Self::new_param("dataset_overflow_limit", RsInt::U64, d).def_auto()
     }
 
     fn new_overlap_correction_limit_param() -> Self {

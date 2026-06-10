@@ -282,7 +282,7 @@ fn run() -> AppResult<()> {
     let truncate_offset_limit = Arg::new(TRUNCATE_OFFSET_LIMIT)
         .long(TRUNCATE_OFFSET_LIMIT)
         .value_name("LIMIT")
-        .value_parser(value_parser!(cfg::TruncateOffsetLimit))
+        .value_parser(value_parser!(cfg::DatasetOverflowLimit))
         .help("Limit by which offsets can be truncated if they exceed end of file.");
 
     let overlap_correction_limit = Arg::new(OVERLAP_CORRECTION_LIMIT)
@@ -1348,7 +1348,7 @@ fn get_offsets_config(s: &ArgMatches) -> cfg::ReadOffsetConfig {
     let mut c = cfg::ReadOffsetConfig::new_with_strategy(strat);
 
     get_flag(s, ALLOW_PSEUDOEMPTY, |x| c.allow_pseudoempty = x);
-    get_opt(s, TRUNCATE_OFFSET_LIMIT, |x| c.truncate_offset_limit = x);
+    get_opt(s, TRUNCATE_OFFSET_LIMIT, |x| c.dataset_overflow_limit = x);
     get_opt(s, OVERLAP_CORRECTION_LIMIT, |x| {
         c.overlap_correction_limit = x;
     });
@@ -1873,7 +1873,7 @@ const SQUISH_OFFSETS: &str = cli_arg!(ReadHeaderInnerConfig::squish_offsets);
 // offset config flags
 
 const ALLOW_PSEUDOEMPTY: &str = cli_arg!(ReadOffsetConfig::allow_pseudoempty);
-const TRUNCATE_OFFSET_LIMIT: &str = cli_arg!(ReadOffsetConfig::truncate_offset_limit);
+const TRUNCATE_OFFSET_LIMIT: &str = cli_arg!(ReadOffsetConfig::dataset_overflow_limit);
 const OVERLAP_CORRECTION_LIMIT: &str = cli_arg!(ReadOffsetConfig::overlap_correction_limit);
 
 // flat text config flags

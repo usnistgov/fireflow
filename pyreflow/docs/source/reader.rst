@@ -188,10 +188,10 @@ Common outputs
 
 These are which are reused when returning data from the above functions.
 
-.. autoclass:: pyreflow.api.UncorrectedHeaderSegments
+.. autoclass:: pyreflow.api.OriginalHeaderOffsets
    :members:
 
-.. autoclass:: pyreflow.api.ParsedHeaderSegments
+.. autoclass:: pyreflow.api.FinalHeaderOffsets
    :members:
 
 .. autoclass:: pyreflow.api.HeaderAndSuppOffsets
@@ -200,7 +200,7 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.ValidKeywords
    :members:
 
-.. autoclass:: pyreflow.api.DatasetSegments
+.. autoclass:: pyreflow.api.DatasetOffsets
    :members:
 
 .. autoclass:: pyreflow.api.FlatTEXTDiagnostics
@@ -230,18 +230,19 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.TEXTOffsetsOrigin
    :members:
 
-Offset-$NEXTDATA Overlap Outputs
-++++++++++++++++++++++++++++++++
+Offset Overflow Outputs
++++++++++++++++++++++++
 
-These classes are produced when an offset pair exceeds $NEXTDATA.
+These classes are produced when an offset pair exceeds *$NEXTDATA* or EOF (end
+of file)
 
-.. autoclass:: pyreflow.api.HeaderOffsetToNextdataOverlap
+.. autoclass:: pyreflow.api.HeaderOffsetsOverflow
    :members:
 
-.. autoclass:: pyreflow.api.TextOffsetToNextdataOverlap
+.. autoclass:: pyreflow.api.TextOffsetsOverflow
    :members:
 
-.. autoclass:: pyreflow.api.SuppOffsetToNextdataOverlap
+.. autoclass:: pyreflow.api.SuppOffsetsOverflow
    :members:
 
 Offset-Offset Overlap Outputs
@@ -249,14 +250,14 @@ Offset-Offset Overlap Outputs
 
 These classes are produced when two offsets overlap each other.
 
-.. autoclass:: pyreflow.api.HeaderToHeaderOffsetOverlap
+.. autoclass:: pyreflow.api.HeaderToHeaderOffsetsOverlap
    :members:
 
-.. autoclass:: pyreflow.api.TextToHeaderOffsetOverlap
+.. autoclass:: pyreflow.api.TextToHeaderOffsetsOverlap
    :members:
 
-.. autoclass:: pyreflow.api.SuppToHeaderOffsetOverlap
+.. autoclass:: pyreflow.api.SuppToHeaderOffsetsOverlap
    :members:
 
-.. autoclass:: pyreflow.api.TextToHeaderOrSuppOffsetOverlap
+.. autoclass:: pyreflow.api.TextToHeaderOrSuppOffsetsOverlap
    :members:

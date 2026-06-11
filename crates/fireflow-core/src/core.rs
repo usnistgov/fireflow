@@ -5239,7 +5239,7 @@ where
             .then(|| {
                 self.meas
                     .meta()
-                    .indexed_opt_names()
+                    .opt_names()
                     .flatten()
                     .enumerate()
                     .map(|(i, v)| OptMeasKeyword::from_ref(v, i))
@@ -5274,7 +5274,7 @@ where
             .then(|| {
                 self.meas
                     .meta()
-                    .indexed_opt_names()
+                    .opt_names()
                     .flatten()
                     .enumerate()
                     .map(|(i, v)| ReqMeasKeyword::from_ref(v, i))

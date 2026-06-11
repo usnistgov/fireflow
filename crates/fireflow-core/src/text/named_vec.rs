@@ -432,7 +432,7 @@ impl<K, U, V> NamedVec<K, U, V> {
     }
 
     /// Return all existing names in the vector with their indices
-    pub(crate) fn indexed_opt_names(&self) -> impl Iterator<Item = Option<&Shortname>>
+    pub(crate) fn opt_names(&self) -> impl Iterator<Item = Option<&Shortname>>
     where
         K: MightHave<Shortname>,
     {
@@ -2525,6 +2525,9 @@ mod test {
             new in any::<Shortname>(),
             index in 0_usize..10
         ) {
+            prop_assume! {
+                xs.opt_names().flatten().all(|n| n != &new)
+            }
             // get old name
             let old = xs
                 .get(index.into()).unwrap()
@@ -2534,7 +2537,7 @@ mod test {
                 );
             let ret = xs.rename(index.into(), Identity(new.clone()));
             // output should be old name and new name
-            assert_eq!(ret, Ok((old, new)));
+            prop_assert_eq!(ret, Ok((old, new)));
         }
     }
 
@@ -2544,11 +2547,14 @@ mod test {
             mut xs in new_named_vec3_1(10),
             new in any::<Shortname>(),
         ) {
+            prop_assume! {
+                xs.opt_names().flatten().all(|n| n != &new)
+            }
             // get name of center prior to mutation
             let old = xs.as_center().map(|p| p.key.clone());
             let ret = xs.rename_center(new);
             // output should equal old name
-            assert_eq!(ret, Ok(old));
+            prop_assert_eq!(ret, Ok(old));
         }
     }
 

@@ -22,9 +22,7 @@ use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 use crate::validated::ascii_uint::{
     ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
 };
-use crate::validated::header_offsets::{
-    HEADER_LEN, NextdataOffsetsError, TextToHeaderOrSuppOffsetsValidationError,
-};
+use crate::validated::header_offsets::{HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError};
 use crate::validated::keys::{
     AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
 };
@@ -74,15 +72,23 @@ pub struct OffsetsCorrection<I, S> {
 }
 
 /// An offset pair that corresponds to a specific byte sequence in the file.
-#[derive(Clone, Copy, new, PartialEq, Debug)]
+#[derive(new, PartialEq, Debug)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "serde", serde(transparent))]
 #[new(visibility = "")]
 pub struct Offsets<I, S> {
-    inner: InnerOffsets<DatasetOffset>,
+    inner: InnerOffsets,
     _id: PhantomData<I>,
     _src: PhantomData<S>,
 }
+
+impl<I, S> Clone for Offsets<I, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<I, S> Copy for Offsets<I, S> {}
 
 /// Segment offsets as read straight from the file with no corrections.
 ///
@@ -100,16 +106,18 @@ pub struct OriginalOffsets {
 /// "The end" can be defined either by $NEXTDATA or EOF, whichever is lower.
 #[derive(Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct OffsetsOverflow<N> {
+pub struct OffsetsOverflow<N, const IS_EOF: bool> {
     /// The offsets with a name.
     pub offsets: NamedOffsets<N>,
     /// Amount by which the end of the segment offsets exceeds EOF/$NEXTDATA.
     pub overflow: NonZeroU64,
 }
 
-pub type HeaderOffsetsOverflow = OffsetsOverflow<HeaderOffsetsName>;
-pub type TextOffsetsOverflow = OffsetsOverflow<TextOffsetsName>;
-pub type SuppOffsetsOverflow = OffsetsOverflow<SuppTextOffsetsName>;
+pub type HeaderOffsetsEOFOverflow = OffsetsOverflow<HeaderOffsetsName, true>;
+
+pub type HeaderOffsetsNextdataOverflow = OffsetsOverflow<HeaderOffsetsName, false>;
+pub type TextOffsetsNextdataOverflow = OffsetsOverflow<TextOffsetsName, false>;
+pub type SuppOffsetsNextdataOverflow = OffsetsOverflow<SuppTextOffsetsName, false>;
 
 /// Two offsets from HEADER which overlap.
 #[derive(Clone, PartialEq, new)]
@@ -152,9 +160,9 @@ pub type TextToHeaderOrSuppOffsetsOverlap =
 #[derive(Clone, Copy, Debug, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NamedOffsets<N> {
-    pub name: N,
-    pub begin: u64,
-    pub length: NonZeroU64,
+    name: N,
+    begin: u64,
+    length: NonZeroU64,
 }
 
 impl_kind1!(pub NamedOffsetsFamily, NamedOffsets);
@@ -167,29 +175,61 @@ impl_functor_once!(
 );
 
 impl<N> NamedOffsets<N> {
-    pub(crate) fn as_pair(&self) -> (u64, u64) {
-        (self.begin, self.end())
-    }
+    //     pub(crate) fn as_pair(&self) -> (u64, u64) {
+    //         (self.begin, self.end())
+    //     }
 
     pub(crate) fn end(&self) -> u64 {
         self.begin + self.length.get() - 1
     }
 
-    pub(crate) fn get_tail_offset_overlap<N0>(
-        &self,
-        other: &NamedOffsets<N0>,
-    ) -> Option<NonZeroU64> {
-        NonZeroU64::new((self.end() + 1).saturating_sub(other.begin))
-    }
+    //     pub(crate) fn get_tail_offset_overlap<N0>(
+    //         &self,
+    //         other: &NamedOffsets<N0>,
+    //     ) -> Option<NonZeroU64> {
+    //         NonZeroU64::new((self.end() + 1).saturating_sub(other.begin))
+    //     }
 
-    pub(crate) fn get_tail_nextdata_overlap(&self, n: Nextdata) -> Option<NonZeroU64> {
-        let nn = u64::from(n.0);
-        if nn == 0 {
-            None
-        } else {
-            NonZeroU64::new((self.end() + 1).saturating_sub(nn))
-        }
-    }
+    //     pub(crate) fn get_tail_nextdata_overlap(&self, n: Nextdata) -> Option<NonZeroU64> {
+    //         let nn = u64::from(n.0);
+    //         if nn == 0 {
+    //             None
+    //         } else {
+    //             NonZeroU64::new((self.end() + 1).saturating_sub(nn))
+    //         }
+    //     }
+}
+
+/// Error when a non-empty offset pair occurs within the first 58 bytes of the file.
+#[derive(Debug, Error, PartialEq, Clone, Display)]
+#[display(
+    "{} segment offsets ({}, {}) is within HEADER region",
+    self.0.name,
+    self.0.begin,
+    self.0.end()
+)]
+#[display(bound(N: fmt::Display))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(N: fmt::Display))]
+pub struct InHeaderError<N>(pub NamedOffsets<N>);
+
+/// Error when segment offsets exceed $NEXTDATA.
+#[derive(Debug, Error, new, PartialEq, Clone, Display)]
+#[display(
+    "{} segment offsets ({}, {}) exceeds $NEXTDATA ({})",
+    self.offsets.name,
+    self.offsets.begin,
+    self.offsets.end(),
+    u64::from(self.nextdata)
+)]
+#[display(bound(N: fmt::Display))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(N: fmt::Display))]
+pub struct NextdataOffsetsError<N> {
+    nextdata: Nextdata,
+    offsets: NamedOffsets<N>,
 }
 
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
@@ -393,16 +433,31 @@ pub type OptOffsetsWithDefaultWarning<T> =
     OptOffsetsWithDefaultWarningInner<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
-enum InnerOffsets<O> {
-    NonEmpty(NonEmptyOffsets<O>),
+enum InnerOffsets {
+    NonEmpty(NonEmptyOffsetsInner),
     #[default]
     Empty,
 }
 
+/// A mutable reference to offsets which are guaranteed to be non-empty.
+///
+/// This needs to wrap the entire struct since one of the operations this will
+/// permit will be truncating offsets, possibly down to empty.
+pub struct NonEmptyOffsets<I, S>(Offsets<I, S>);
+
+/// A mutable reference to offsets which are guaranteed to be non-empty.
+///
+/// This needs to wrap the entire struct since one of the operations this will
+/// permit will be truncating offsets, possibly down to empty.
+pub struct NonEmptyOffsetsMut<'a, I, S>(&'a mut Offsets<I, S>);
+
+pub(crate) type AnyNonEmptyDataOffsets<'a> =
+    NonEmptyOffsetsMut<'a, DataSegmentId, OffsetsFromAnywhere>;
+
 /// An offset as shown in an FCS file.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-struct NonEmptyOffsets<O> {
+struct NonEmptyOffsetsInner {
     /// First coordinate (zero indexed)
     begin: u64,
 
@@ -438,7 +493,7 @@ struct NonEmptyOffsets<O> {
     /// $NEXTDATA values for all previous datasets relative to the dataset in
     /// which this segment belongs (which implies it will be zero for the first
     /// dataset)
-    dataset_offset: O,
+    dataset_offset: DatasetOffset,
 }
 
 /// A valid ASCII char in an OTHER segment.
@@ -471,6 +526,85 @@ impl From<u8> for CharType {
 impl CharType {
     fn is_digit_or_minus(self) -> bool {
         matches!(self, Self::Digit | Self::Minus)
+    }
+}
+
+/// A type which has a beginning and end offset that defines a byte segment.
+///
+/// For a given pair X,Y, X is the offset of the first byte, and Y is the offset
+/// immediately after the last byte.
+pub(crate) trait IsOffsetPair {
+    /// The first position
+    fn begin(&self) -> u64;
+
+    /// The second position
+    fn end(&self) -> u64;
+
+    /// First and second position
+    fn slice_pair(&self) -> (u64, u64) {
+        (self.begin(), self.end())
+    }
+
+    /// The length of the slice
+    fn nbytes(&self) -> u64 {
+        self.end() - self.begin()
+    }
+
+    /// Get the overlap between two offset pairs.
+    ///
+    /// Will panic if first `other` offset is less than first offset of `self`.
+    fn tail_overlap_pair<P>(&self, other: &P) -> Option<NonZeroU64>
+    where
+        P: IsOffsetPair,
+    {
+        assert!(
+            self.begin() <= other.begin(),
+            "other pair must start after this pair"
+        );
+        NonZeroU64::new((self.end()).saturating_sub(other.begin()))
+    }
+
+    /// Get the overlap between this pair and another offset.
+    ///
+    /// Will panic if `other` offset is less than first offset of `self`.
+    fn tail_overlap_offset(&self, other: u64) -> Option<NonZeroU64> {
+        assert!(
+            self.begin() <= other,
+            "other ({other}) must start after this pair ({}, {})",
+            self.begin(),
+            self.end()
+        );
+        NonZeroU64::new((self.end()).saturating_sub(other))
+    }
+}
+
+impl<I, S> IsOffsetPair for NonEmptyOffsets<I, S> {
+    fn begin(&self) -> u64 {
+        self.inner().begin()
+    }
+
+    fn end(&self) -> u64 {
+        self.inner().end()
+    }
+}
+
+impl<I, S> IsOffsetPair for NonEmptyOffsetsMut<'_, I, S> {
+    fn begin(&self) -> u64 {
+        self.inner().begin()
+    }
+
+    fn end(&self) -> u64 {
+        self.inner().end()
+    }
+}
+
+impl IsOffsetPair for NonEmptyOffsetsInner {
+    fn begin(&self) -> u64 {
+        self.begin
+    }
+
+    fn end(&self) -> u64 {
+        self.begin + self.length.get()
     }
 }
 
@@ -1298,49 +1432,13 @@ impl<I, S> Offsets<I, S> {
         Offsets::new(self.inner)
     }
 
-    /// Return the first and last byte with offset or `None` if empty
-    pub(crate) fn try_coords(&self) -> Option<(u64, u64, DatasetOffset)> {
-        self.inner.try_as_nonempty().map(|x| {
-            let (a, b) = x.coords();
-            (a, b, x.dataset_offset)
-        })
-    }
-
-    /// Return the first and last byte with offset or `None` if empty
-    pub(crate) fn try_abs_coords(&self) -> Option<(u64, u64)> {
-        self.try_coords().map(|(a, b, o)| {
-            let x = u64::from(o);
-            (a + x, b + x)
-        })
-    }
-
-    /// Subtract n bytes off the end of this offset
-    ///
-    /// Ensure that the truncated length won't be more than `limit`.
-    ///
-    /// Return total truncated amount if truncation was performed.
-    ///
-    /// Will panic if offsets are initially empty. It only makes sense to
-    /// truncate non-empty offsets.
-    pub(crate) fn truncate(&mut self, n: u64, limit: u64) -> Option<u64> {
-        let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.inner) else {
-            panic!("attempted to truncate empty offsets")
-        };
-        let total_truncation = ne.truncated_len() + n;
-        if total_truncation > limit {
-            // truncation exceeds limit, do nothing (ie restore the original
-            // non-empty)
-            self.inner = InnerOffsets::NonEmpty(ne);
-            None
-        } else if let Some(new_length) = ne.length.get().checked_sub(n).and_then(NonZeroU64::new) {
-            // truncation is within limit and new length is > 0, set new length
-            ne.length = new_length;
-            let truncated_n = ne.truncated_len();
-            self.inner = InnerOffsets::NonEmpty(ne);
-            Some(truncated_n)
+    /// Return the first and last byte with offset or `0,0` if empty.
+    #[cfg(feature = "python")]
+    pub(crate) fn fcs_offset_pair(&self) -> (u64, u64) {
+        if let InnerOffsets::NonEmpty(ne) = self.inner {
+            ne.fcs_offset_pair()
         } else {
-            // Entire length was truncated and offset is now empty
-            Some(ne.original_length.get())
+            (0, 0)
         }
     }
 
@@ -1355,25 +1453,7 @@ impl<I, S> Offsets<I, S> {
     {
         match self.inner {
             InnerOffsets::Empty => Ok(()),
-            InnerOffsets::NonEmpty(s) => {
-                let begin = s.begin + s.dataset_offset.0;
-                let nbytes = u64::from(s.nbytes());
-
-                #[cfg(debug_assertions)]
-                {
-                    let end = begin + nbytes;
-                    let file_size = h.seek(SeekFrom::End(0))?;
-                    h.seek(SeekFrom::Start(begin))?;
-                    assert!(
-                        end <= file_size,
-                        "end of segment ({end}) exceeds file ({file_size})"
-                    );
-                }
-
-                h.seek(SeekFrom::Start(begin))?;
-                h.take(nbytes).read_to_end(buf)?;
-                Ok(())
-            }
+            InnerOffsets::NonEmpty(s) => s.h_read_contents(h, buf),
         }
     }
 
@@ -1383,26 +1463,13 @@ impl<I, S> Offsets<I, S> {
     }
 
     /// Return the number of bytes in this segment
-    pub(crate) fn len(&self) -> u64 {
+    pub(crate) fn nbytes(&self) -> u64 {
         // NOTE In FCS a 0,0 means "empty" but this also means one byte
-        // according to the spec's on definitions. The first number points to
+        // according to the spec's own definitions. The first number points to
         // the first byte in a segment, and the second number points to the last
         // byte, therefore 0,0 means "0 is both the first and last byte, which
         // also means there is one byte".
-        self.inner
-            .try_as_nonempty()
-            .map_or(0, |s| u64::from(s.nbytes()))
-    }
-
-    pub(crate) fn try_as_named<N>(&self, args: I::Params) -> Option<NamedOffsets<N>>
-    where
-        I: HasRegion + AreNamedOffsets<N>,
-        S: HasSource,
-    {
-        self.inner.try_as_nonempty().map(|ne| {
-            // let (begin, end) = x.coords();
-            NamedOffsets::new(I::segname(args), ne.begin, ne.length)
-        })
+        self.as_nonempty().map_or(0, |s| s.nbytes())
     }
 
     fn try_new(
@@ -1416,7 +1483,191 @@ impl<I, S> Offsets<I, S> {
     {
         InnerOffsets::try_new::<I, S>(begin, end, conf).map(Self::new)
     }
+
+    pub(crate) fn as_nonempty(&self) -> Option<NonEmptyOffsets<I, S>> {
+        matches!(self.inner, InnerOffsets::NonEmpty(_)).then_some(NonEmptyOffsets(*self))
+    }
+
+    pub(crate) fn as_nonempty_mut(&mut self) -> Option<NonEmptyOffsetsMut<'_, I, S>> {
+        matches!(self.inner, InnerOffsets::NonEmpty(_)).then_some(NonEmptyOffsetsMut(self))
+    }
 }
+
+impl<I, S> NonEmptyOffsets<I, S> {
+    fn inner(&self) -> &NonEmptyOffsetsInner {
+        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
+            panic!("offsets should always be non-empty in this struct")
+        };
+        ne
+    }
+
+    pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
+    where
+        I: AreNamedOffsets<N>,
+    {
+        let inner = self.inner();
+        NamedOffsets::new(I::segname(args), inner.begin, inner.length)
+    }
+}
+
+impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
+    pub(crate) fn begin_abs(&self) -> u64 {
+        self.begin() + self.inner().dataset_offset.0
+    }
+
+    pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
+    where
+        I: AreNamedOffsets<N>,
+    {
+        let inner = self.inner();
+        NamedOffsets::new(I::segname(args), inner.begin, inner.length)
+    }
+
+    /// Return `true` if end offset can be truncated.
+    ///
+    /// Specifically, only return `true` if amount to be truncated + amount
+    /// already truncated is less than/equal to the lesser of `limit` or the
+    /// number of bytes of the offset pair.
+    fn over_truncation_limit(&self, offset: u64, limit: u64) -> bool {
+        if let Some(n) = self.tail_overlap_offset(offset) {
+            let to_truncate = self.inner().truncated_len() + n.get();
+            let trunc_limit = limit.min(self.inner().length.get());
+            to_truncate > trunc_limit
+        } else {
+            false
+        }
+    }
+
+    /// Filter items that cannot be truncated and truncate the first that can.
+    ///
+    /// Items are assumed to be offset-like object. The sequence of items must
+    /// be sorted. `f_begin` is a function that must return the beginning offset
+    /// of the item.
+    #[allow(clippy::unused_peekable, reason = "false positive")]
+    pub(crate) fn filter_and_truncate<F, X>(
+        self,
+        limit: u64,
+        mut f_begin: F,
+        xs: impl IntoIterator<Item = X>,
+    ) -> (Vec<X>, Option<(X, NonZeroU64)>)
+    where
+        F: FnMut(&X) -> u64,
+    {
+        let mut it = xs.into_iter().peekable();
+        // Automatically convert any offset pair that cannot be truncated
+        // because they exceed the allowed limit.
+        let exceed_limit = it
+            .peeking_take_while(|x| self.over_truncation_limit(f_begin(x), limit))
+            .collect();
+        // If there is one more offset, truncate it if necessary. We just
+        // removed all the prior offsets which cannot be truncated, so
+        // truncation in this case should not fail if it is needed. Regardless,
+        // this is the last offset pair we need to consider because truncation
+        // will decrease the end of `self` such that the remaining pairs no
+        // longer overlap, or they don't overlap to begin with. Either way, no
+        // more to do.
+        let last_res = if let Some(x) = it.next() {
+            match self.tail_overlap_offset_and_truncate(f_begin(&x), limit) {
+                // If no overlaps, we can assume there are no more overlaps
+                // since the HEADER offsets are sorted. Break early.
+                TruncateOffsetResult::NoOverlap(_) => None,
+                // If overlap within limit and we have not encountered an
+                // error yet, truncate TEXT and return early without error.
+                // Otherwise push error.
+                TruncateOffsetResult::Truncated(overlap) => Some((x, overlap)),
+                TruncateOffsetResult::LimitExceeded(_, _) => {
+                    panic!("offset should be truncatable")
+                }
+            }
+        } else {
+            None
+        };
+        (exceed_limit, last_res)
+    }
+
+    pub(crate) fn tail_overlap_pair_and_truncate<P>(
+        self,
+        other: &P,
+        limit: u64,
+    ) -> TruncateOffsetResult<Self>
+    where
+        P: IsOffsetPair,
+    {
+        self.tail_overlap_offset_and_truncate(other.begin(), limit)
+    }
+
+    pub(crate) fn tail_overlap_offset_and_truncate(
+        self,
+        other: u64,
+        limit: u64,
+    ) -> TruncateOffsetResult<Self> {
+        if let Some(overlap) = self.tail_overlap_offset(other) {
+            match self.truncate(overlap.get(), limit) {
+                Ok(_) => TruncateOffsetResult::Truncated(overlap),
+                Err(old) => TruncateOffsetResult::LimitExceeded(overlap, old),
+            }
+        } else {
+            TruncateOffsetResult::NoOverlap(self)
+        }
+    }
+
+    /// Subtract n bytes off the end of this offset
+    ///
+    /// Ensure that the truncated length won't be more than `limit`.
+    ///
+    /// Return new length if successful, otherwise `self` unchanged.
+    pub(crate) fn truncate(self, n: u64, limit: u64) -> Result<u64, Self> {
+        let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.0.inner) else {
+            panic!("offsets should always be non-empty in this struct")
+        };
+        let to_truncate = (ne.truncated_len() + n).min(ne.length.get());
+        if to_truncate <= limit
+            && let Some(diff) = ne.length.get().checked_sub(n)
+        {
+            let new_length = if let Some(new_length) = NonZeroU64::new(diff) {
+                // Amount of truncation is within limit and new length is > 0,
+                // set new length
+                ne.length = new_length;
+                self.0.inner = InnerOffsets::NonEmpty(ne);
+                new_length.get()
+            } else {
+                // Entire length was truncated and offset is now empty
+                0
+            };
+            return Ok(new_length);
+        }
+        // Amount to truncate is larger than offset pair length or exceeds
+        // allowed limit, return unchanged
+        self.0.inner = InnerOffsets::NonEmpty(ne);
+        Err(self)
+    }
+
+    fn inner(&self) -> &NonEmptyOffsetsInner {
+        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
+            panic!("offsets should always be non-empty in this struct")
+        };
+        ne
+    }
+}
+
+pub(crate) enum TruncateOffsetResult<T> {
+    NoOverlap(T),
+    Truncated(NonZeroU64),
+    LimitExceeded(NonZeroU64, T),
+}
+
+impl_kind1!(pub(crate) TruncateOffsetResultFamily, TruncateOffsetResult);
+
+impl_functor_once!(
+    TruncateOffsetResult,
+    self,
+    mut f,
+    match self {
+        Self::NoOverlap(x) => TruncateOffsetResult::NoOverlap(f(x)),
+        Self::Truncated(x) => TruncateOffsetResult::Truncated(x),
+        Self::LimitExceeded(x, y) => TruncateOffsetResult::LimitExceeded(x, f(y)),
+    }
+);
 
 impl<I: Copy> HeaderOffsets<I> {
     pub(crate) fn h_read_primary<C, R>(
@@ -1819,7 +2070,7 @@ impl OtherOffsets20 {
     }
 }
 
-impl InnerOffsets<DatasetOffset> {
+impl InnerOffsets {
     fn try_new<I: HasRegion, S: HasSource>(
         begin: i128,
         end: i128,
@@ -1906,74 +2157,61 @@ impl InnerOffsets<DatasetOffset> {
             // If no overlap, return original length
             new_length
         };
-        let ne = NonEmptyOffsets::new(new_begin, truncated_length, new_length, conf.dataset_offset);
+        let ne =
+            NonEmptyOffsetsInner::new(new_begin, truncated_length, new_length, conf.dataset_offset);
         Ok(Self::NonEmpty(ne))
     }
-}
 
-impl<O> InnerOffsets<O> {
     fn is_empty(&self) -> bool {
         matches!(self, Self::Empty)
     }
-
-    fn try_as_nonempty(&self) -> Option<NonEmptyOffsets<O>>
-    where
-        O: Copy,
-    {
-        match self {
-            Self::Empty => None,
-            Self::NonEmpty(x) => Some(*x),
-        }
-    }
-
-    // /// Get the number of bytes by which this offset pair has been truncated.
-    // pub(crate) fn current_truncation(&self) -> u64
-    // where
-    //     T: Into<u64> + Copy,
-    // {
-    //     if let Self::NonEmpty(x) = self {
-    //         let o = x.original_end;
-    //         let e = x.end.into();
-    //         assert!(e <= o, "end should be less than or equal to original end");
-    //         o - e
-    //     } else {
-    //         0
-    //     }
-    // }
-
-    // /// Subtract n bytes off the end of this offset
-    // pub(crate) fn try_truncate(&mut self, n: u64, limit: u64)
-    // where
-    //     T: TryFrom<u64> + Copy + Into<u64>,
-    //     T::Error: Debug,
-    // {
-    //     if let Self::NonEmpty(x) = self {
-    //         let cur = self.current_truncation();
-    //         if n + cur <= limit {
-    //             x.end = T::try_from(u64::from(x.end).saturating_sub(n))
-    //                 .expect("smaller T should convert from u64");
-    //         } else {
-    //         }
-    //     }
-    // }
 }
 
-impl<O> NonEmptyOffsets<O> {
+impl NonEmptyOffsetsInner {
     /// Return the number of bytes in this segment
     fn nbytes(&self) -> NonZeroU64 {
         self.length
     }
 
     /// Return the first and last byte or this segment
-    fn coords(&self) -> (u64, u64) {
+    #[cfg(feature = "python")]
+    fn fcs_offset_pair(&self) -> (u64, u64) {
         (self.begin, self.begin + self.length.get() - 1)
     }
 
-    fn truncated_len(&self) -> u64 {
+    pub(crate) fn truncated_len(&self) -> u64 {
         let o = self.original_length.get();
         let l = self.length.get();
         o.checked_sub(l)
             .unwrap_or_else(|| panic!("original length ({o}) should be >= length ({l})"))
+    }
+
+    /// Read bytes within this segment
+    pub(crate) fn h_read_contents<R>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
+    ) -> io::Result<()>
+    where
+        R: Read + Seek,
+    {
+        let absolute_begin = self.begin + self.dataset_offset.0;
+        let nbytes = self.nbytes().get();
+
+        #[cfg(debug_assertions)]
+        {
+            let end = absolute_begin + nbytes;
+            let file_size = h.seek(SeekFrom::End(0))?;
+            h.seek(SeekFrom::Start(absolute_begin))?;
+            assert!(
+                end <= file_size,
+                "end of segment ({end}) exceeds file ({file_size})"
+            );
+        }
+
+        h.seek(SeekFrom::Start(absolute_begin))?;
+        h.take(nbytes).read_to_end(buf)?;
+        Ok(())
     }
 }
 
@@ -2494,7 +2732,7 @@ mod serialize {
 
     use serde::ser::{Serialize, SerializeStruct as _, Serializer};
 
-    impl<O: Serialize> Serialize for InnerOffsets<O> {
+    impl Serialize for InnerOffsets {
         fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
         where
             S: Serializer,
@@ -2516,8 +2754,8 @@ mod serialize {
 mod python {
     use super::{
         HeaderOffsetsName, HeaderOrSuppOffsetsName, IndexedOtherOffsets, InnerOffsets,
-        NamedOffsets, NonEmptyOffsets, Offsets, OffsetsCorrection, OriginalOffsets, OtherOffsets20,
-        SuppTextOffsetsName, TextOffsetsName,
+        NamedOffsets, NonEmptyOffsetsInner, Offsets, OffsetsCorrection, OriginalOffsets,
+        OtherOffsets20, SuppTextOffsetsName, TextOffsetsName,
     };
 
     use crate::config::DatasetOffset;
@@ -2562,7 +2800,7 @@ mod python {
                 // will be considered relative to current dataset (ie just like
                 // they are in an FCS file)
                 let dso = DatasetOffset(0);
-                InnerOffsets::NonEmpty(NonEmptyOffsets::new(begin, length, length, dso))
+                InnerOffsets::NonEmpty(NonEmptyOffsetsInner::new(begin, length, length, dso))
             } else {
                 // Use ConfigError because these offsets will be supplied to
                 // functions which "configure" a reader to look in a certain
@@ -2582,9 +2820,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.try_coords()
-                .map_or((0, 0), |(b, e, _)| (b, e))
-                .into_pyobject(py)
+            self.fcs_offset_pair().into_pyobject(py)
         }
     }
 

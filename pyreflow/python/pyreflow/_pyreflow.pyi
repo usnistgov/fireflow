@@ -2168,7 +2168,7 @@ class _OffsetsOverlap(Generic[_N0, _N1]):
     @property
     def dict(self) -> dict[str, Any]: ...
 
-class _OffsetsOverflow(Generic[_N0]):
+class _OffsetsNextdataOverflow(Generic[_N0]):
     def __new__(
         cls,
         offsets: pft.NamedOffsets[_N0],
@@ -2207,15 +2207,15 @@ class TextToHeaderOrSuppOffsetsOverlap(
     pass
 
 @final
-class HeaderOffsetsOverflow(_OffsetsOverflow[pft.HeaderOffsetsName]):
+class HeaderOffsetsNextdataOverflow(_OffsetsNextdataOverflow[pft.HeaderOffsetsName]):
     pass
 
 @final
-class TextOffsetsOverflow(_OffsetsOverflow[pft.TextOffsetsName]):
+class TextOffsetsNextdataOverflow(_OffsetsNextdataOverflow[pft.TextOffsetsName]):
     pass
 
 @final
-class SuppOffsetsOverflow(_OffsetsOverflow[pft.SuppTextOffsetsName]):
+class SuppOffsetsNextdataOverflow(_OffsetsNextdataOverflow[pft.SuppTextOffsetsName]):
     pass
 
 @final
@@ -2227,7 +2227,7 @@ class SuppTEXTOffsetsOutput:
         original_offsets: pft.Offsets | None,
         other_index: int | None,
         overlaps: list[SuppToHeaderOffsetsOverlap],
-        overflow: SuppOffsetsOverflow | None,
+        overflow: SuppOffsetsNextdataOverflow | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2241,7 +2241,7 @@ class SuppTEXTOffsetsOutput:
     @property
     def overlaps(self) -> list[SuppToHeaderOffsetsOverlap]: ...
     @property
-    def overflow(self) -> SuppOffsetsOverflow | None: ...
+    def overflow(self) -> SuppOffsetsNextdataOverflow | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2252,7 +2252,7 @@ class TEXTOffsetsOrigin:
         origin_type: pft.TEXTOffsetsOriginType,
         original_offsets: pft.Offsets | None,
         overlaps: list[TextToHeaderOrSuppOffsetsOverlap],
-        overflow: TextOffsetsOverflow | None,
+        overflow: TextOffsetsNextdataOverflow | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2262,7 +2262,7 @@ class TEXTOffsetsOrigin:
     @property
     def overlaps(self) -> list[TextToHeaderOrSuppOffsetsOverlap]: ...
     @property
-    def overflow(self) -> TextOffsetsOverflow | None: ...
+    def overflow(self) -> TextOffsetsNextdataOverflow | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2289,7 +2289,7 @@ class FlatTEXTDiagnostics:
     def __new__(
         cls,
         header_supp: HeaderAndSuppOffsets,
-        header_overflows: list[HeaderOffsetsOverflow],
+        header_overflows: list[HeaderOffsetsNextdataOverflow],
         byte_pairs: list[tuple[bytes | str, bytes | str]],
         non_unique_std_keywords: list[tuple[str, str]],
         non_unique_nonstd_keywords: list[tuple[str, str]],
@@ -2303,7 +2303,7 @@ class FlatTEXTDiagnostics:
     @property
     def header_supp(self) -> HeaderAndSuppOffsets: ...
     @property
-    def header_overflows(self) -> list[HeaderOffsetsOverflow]: ...
+    def header_overflows(self) -> list[HeaderOffsetsNextdataOverflow]: ...
     @property
     def byte_pairs(self) -> list[tuple[bytes | str, bytes | str]]: ...
     @property
@@ -3358,9 +3358,9 @@ __all__ = [
     "TextToHeaderOffsetsOverlap",
     "SuppToHeaderOffsetsOverlap",
     "TextToHeaderOrSuppOffsetsOverlap",
-    "HeaderOffsetsOverflow",
-    "TextOffsetsOverflow",
-    "SuppOffsetsOverflow",
+    "HeaderOffsetsNextdataOverflow",
+    "TextOffsetsNextdataOverflow",
+    "SuppOffsetsNextdataOverflow",
     "SuppTEXTOffsetsOutput",
     "TEXTOffsetsOrigin",
     "HeaderAndSuppOffsets",

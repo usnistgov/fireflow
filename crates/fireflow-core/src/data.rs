@@ -124,7 +124,7 @@ use crate::meas::{
     CheckedScaleTransform, MeasMeta, ScaleDatatypeMismatchError, VMeasMeta,
     VNamedTemporalsAndOpticalsWithScale, VersionMeasSet, wrap_scaled_opticals,
 };
-use crate::segment::AnyDataOffsets;
+use crate::segment::{AnyDataOffsets, AnyNonEmptyDataOffsets, IsOffsetPair as _};
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
     Endian, FixedWidthToBytesError, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBitsOrChars,
@@ -853,12 +853,12 @@ impl_functor_once!(
 
 /// Result of possibly truncated value
 #[derive(new)]
-pub struct TruncatedResult {
+pub struct TruncatedValueResult {
     truncated: bool,
     error: EventOverRangeError,
 }
 
-impl TruncatedResult {
+impl TruncatedValueResult {
     fn as_col(&self) -> (usize, bool) {
         (self.error.row, self.truncated)
     }
@@ -1893,7 +1893,7 @@ where
         &mut self,
         h: &mut BufReader<R>,
         tot: Self::Tot,
-        seg: &mut AnyDataOffsets,
+        offsets: &mut AnyDataOffsets,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         ReadDataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
@@ -1905,39 +1905,36 @@ where
         R: Read + Seek,
         <Self as DataSchemaToEmptyDataFrame>::DfTarget: DataFrameCheckRanges,
     {
-        match seg.try_abs_coords() {
+        if let Some(ne_offsets) = offsets.as_nonempty_mut() {
+            // seek to start using absolute coordinates
+            io_to_log!(h.seek(SeekFrom::Start(ne_offsets.begin_abs())));
+            // normalize layout (which is why self must be mut)
+            self.normalize();
+            // read dataframe
+            self.h_read_df_inner(h, tot, ne_offsets, conf)
+                .map_pure_errors(ReadCheckedDataframeError::from)
+                .map_commutative_warnings(ReadCheckedDataframeWarning::from)
+                .and_then_commutative(|mut res| {
+                    // check dataframe ranges (if configured)
+                    let trunc = conf.over_bitmask_action;
+                    let flag = conf.over_range_action;
+                    res.dataframe
+                        .check_ranges_mut(trunc, flag)
+                        .group()
+                        .map_error(ReadCheckedDataframeError::from)
+                        .map_error(IOErrorGroup::new_pure_one)
+                        .map_commutative_warnings(ReadCheckedDataframeWarning::from)
+                        .map_ok_value(|overrange| {
+                            let df = res.dataframe;
+                            let diag = res.diagnostics;
+                            ReadDataFrameResult::new(df, diag.add_overrange(overrange))
+                        })
+                })
+        } else {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
-            None => {
-                let ret = ReadDataFrameResult::new(self.empty(), EventsDiagnostics::default());
-                LogResult::new_ok(ret)
-            }
-            Some((begin, _)) => {
-                // seek to start
-                io_to_log!(h.seek(SeekFrom::Start(begin)));
-                // normalize layout (which is why self must be mut)
-                self.normalize();
-                // read dataframe
-                self.h_read_df_inner(h, tot, seg, conf)
-                    .map_pure_errors(ReadCheckedDataframeError::from)
-                    .map_commutative_warnings(ReadCheckedDataframeWarning::from)
-                    .and_then_commutative(|mut res| {
-                        // check dataframe ranges (if configured)
-                        let trunc = conf.over_bitmask_action;
-                        let flag = conf.over_range_action;
-                        res.dataframe
-                            .check_ranges_mut(trunc, flag)
-                            .group()
-                            .map_error(ReadCheckedDataframeError::from)
-                            .map_error(IOErrorGroup::new_pure_one)
-                            .map_commutative_warnings(ReadCheckedDataframeWarning::from)
-                            .map_ok_value(|overrange| {
-                                let df = res.dataframe;
-                                let diag = res.diagnostics;
-                                ReadDataFrameResult::new(df, diag.add_overrange(overrange))
-                            })
-                    })
-            }
+            let ret = ReadDataFrameResult::new(self.empty(), EventsDiagnostics::default());
+            LogResult::new_ok(ret)
         }
     }
 }
@@ -3030,7 +3027,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         &self,
         h: &mut BufReader<R>,
         tot: T,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<PreDataFrameResult<X>, ReadDataframeWarning, ReadDataframeError, ()>
     where
@@ -3038,7 +3035,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         T: IsTot,
         Self::DfTarget: Into<X>,
     {
-        self.h_read_df_inner(h, tot, seg, conf)
+        self.h_read_df_inner(h, tot, offsets, conf)
             .map_ok_value(Functor::fmap_into)
     }
 
@@ -3046,7 +3043,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         &self,
         h: &mut BufReader<R>,
         tot: T,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3063,7 +3060,7 @@ impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
         &self,
         h: &mut BufReader<R>,
         tot: Identity<Tot>,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3072,8 +3069,8 @@ impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
         (),
     > {
         match self {
-            Self::NonMixed(x) => x.h_read_into(h, tot, seg, conf),
-            Self::Mixed(x) => x.h_read_into(h, tot, seg, conf),
+            Self::NonMixed(x) => x.h_read_into(h, tot, offsets, conf),
+            Self::Mixed(x) => x.h_read_into(h, tot, offsets, conf),
         }
     }
 }
@@ -3093,7 +3090,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3104,7 +3101,7 @@ where
     where
         TotType: IsTot,
     {
-        match_any_datatype!(self, x, x.h_read_into(h, tot, seg, conf))
+        match_any_datatype!(self, x, x.h_read_into(h, tot, offsets, conf))
     }
 }
 
@@ -3119,7 +3116,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: Identity<Tot>,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3127,7 +3124,7 @@ where
         ReadDataframeError,
         (),
     > {
-        match_any_endian_uint!(self, x, x.h_read_into(h, tot, seg, conf))
+        match_any_endian_uint!(self, x, x.h_read_into(h, tot, offsets, conf))
     }
 }
 
@@ -3142,7 +3139,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3154,7 +3151,7 @@ where
         R: Read,
         TotType: IsTot,
     {
-        match_any_ascii!(self, x, x.h_read_into(h, tot, seg, conf))
+        match_any_ascii!(self, x, x.h_read_into(h, tot, offsets, conf))
     }
 }
 
@@ -3182,7 +3179,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3193,7 +3190,7 @@ where
     where
         TotType: IsTot,
     {
-        match_any_uint!(self, x, x.h_read_into(h, tot, seg, conf))
+        match_any_uint!(self, x, x.h_read_into(h, tot, offsets, conf))
     }
 }
 
@@ -3210,7 +3207,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3221,7 +3218,7 @@ where
     where
         TotType: IsTot,
     {
-        self.compute_nrows(seg, conf)
+        self.compute_nrows(offsets, conf)
             .map_non_commutative_warnings(ReadDataframeWarning::from)
             .non_commutative_into_commutative()
             .map_errors(ReadDataframeError::from)
@@ -3272,7 +3269,7 @@ where
         &self,
         h: &mut BufReader<R>,
         tot: TotType,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         _: &ReadEventsConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
@@ -3293,7 +3290,7 @@ where
             };
         }
 
-        let nbytes = seg.len().u64_to_usize();
+        let nbytes = offsets.nbytes().u64_to_usize();
 
         let res = if let Some(rs) = NESlice::try_from_slice(&self.container[..]) {
             let res = TotType::with_tot(
@@ -5453,7 +5450,7 @@ pub trait DataFrameCheckRanges {
         &mut self,
         bitmask_trunc: OverLimitMode,
         range_trunc: OverLimitMode,
-    ) -> Vec<Option<TruncatedResult>>;
+    ) -> Vec<Option<TruncatedValueResult>>;
 
     fn check_ranges(
         &self,
@@ -5477,7 +5474,7 @@ pub trait DataFrameCheckRanges {
         let rs = self.check_ranges_inner_mut(bitmask_trunc, range_trunc);
         let overrange = rs
             .iter()
-            .map(|r| r.as_ref().map(TruncatedResult::as_col))
+            .map(|r| r.as_ref().map(TruncatedValueResult::as_col))
             .collect();
 
         let bitmask_flag = DummyTriFlag::from_over_limit_action(bitmask.0).is_error();
@@ -5527,7 +5524,7 @@ where
         &mut self,
         bitmask_trunc: OverLimitMode,
         range_trunc: OverLimitMode,
-    ) -> Vec<Option<TruncatedResult>> {
+    ) -> Vec<Option<TruncatedValueResult>> {
         self.container.check_ranges_mut(bitmask_trunc, range_trunc)
     }
 }
@@ -6868,7 +6865,7 @@ pub(crate) trait CheckRange {
         i: MeasIndex,
         bitmask_trunc: OverLimitMode,
         range_trunc: OverLimitMode,
-    ) -> Option<TruncatedResult>;
+    ) -> Option<TruncatedValueResult>;
 }
 
 // General strategy: Find the max value in series and compare to the range or
@@ -6949,7 +6946,7 @@ where
         i: MeasIndex,
         bitmask_trunc: OverLimitMode,
         range_trunc: OverLimitMode,
-    ) -> Option<TruncatedResult> {
+    ) -> Option<TruncatedValueResult> {
         let trunc = |self_: &mut Self, limit, exceed| {
             self_
                 .series
@@ -7051,7 +7048,7 @@ where
         };
         res.map(|(truncated, rowi, t)| {
             let e = EventOverRangeError::new(rowi, i, rng.text_range, t);
-            TruncatedResult::new(truncated, e)
+            TruncatedValueResult::new(truncated, e)
         })
     }
 }
@@ -7071,7 +7068,7 @@ impl CheckRange for VariableUintSeries {
         i: MeasIndex,
         bitmask_trunc: OverLimitMode,
         range_trunc: OverLimitMode,
-    ) -> Option<TruncatedResult> {
+    ) -> Option<TruncatedValueResult> {
         match_any_uint!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
     }
 }
@@ -7091,7 +7088,7 @@ impl CheckRange for MixedSeries {
         i: MeasIndex,
         bitmask_trunc: OverLimitMode,
         range_trunc: OverLimitMode,
-    ) -> Option<TruncatedResult> {
+    ) -> Option<TruncatedValueResult> {
         match_any_datatype!(self, x, x.check_range_mut(i, bitmask_trunc, range_trunc))
     }
 }
@@ -7661,7 +7658,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
     #[allow(clippy::trivially_copy_pass_by_ref)]
     fn compute_nrows<X>(
         &self,
-        seg: &mut AnyDataOffsets,
+        offsets: AnyNonEmptyDataOffsets<'_>,
         conf: &ReadEventsConfig,
     ) -> WarningOrErrorResult<ComputedRowsResult, (), UnevenEventWidthError, EventWidthError>
     where
@@ -7669,16 +7666,15 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
         X: ColumnIsFixed,
         L: Clone,
     {
-        let n = seg.len();
+        let n = offsets.nbytes();
         let w = self.event_width().usize_to_u64();
-        // TODO return truncated segment result here
         if let Some(total_events) = n.checked_div(w) {
             let limit = conf.data_remainder_limit;
             let remainder = n % w;
             let out = ComputedRowsResult::new(total_events, w, remainder);
             // If within remainder limit, truncate offset and return without
             // error
-            if seg.truncate(remainder, limit.0).is_some() {
+            if offsets.truncate(remainder, limit.0).is_ok() {
                 return LogResult::new_ok(out);
             }
             let is_ok = remainder == 0;

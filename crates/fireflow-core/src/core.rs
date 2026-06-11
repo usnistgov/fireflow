@@ -57,10 +57,11 @@ use crate::meas::{
 };
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisOffsets, AnyDataOffsets, DataSegmentId, HeaderOrTextOffsets,
-    IndexedOtherOffsets, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
-    OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning, OriginalOffsets,
-    ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
-    TextToHeaderOrSuppOffsetsOverlap,
+    IndexedOtherOffsets, IsOffsetPair as _, KeyedOptSegmentWithDefault as _,
+    KeyedReqSegmentWithDefault as _, OffsetPairsOverlapError, OffsetsMismatchError,
+    OptOffsetsWithDefaultWarning, OriginalOffsets, ReqOffsetsWithDefaultError,
+    ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsNextdataOverflow,
+    TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
@@ -1097,7 +1098,7 @@ pub struct MismatchedTEXTOffsetOrigin {
     header_is_empty: bool,
     uncorr: OriginalOffsets,
     overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
-    overflow: Option<TextOffsetsOverflow>,
+    overflow: Option<TextOffsetsNextdataOverflow>,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -6841,29 +6842,34 @@ impl DatasetOffsets {
         // Check for overlaps if we have two non-empty segments that are both
         // from TEXT. We can assume that if they are both from HEADER that
         // this has already been checked.
-        let mut da_overlap = None;
-        if let (
+        let da_overlap = if let (
             HeaderOrTextOffsets::Text { seg: dt, .. },
             HeaderOrTextOffsets::Text { seg: at, .. },
         ) = (&mut data, &mut analysis)
-            && let (Some(dq), Some(aq)) = (dt.try_as_named(()), at.try_as_named(()))
+            && let (Some(d_ne), Some(a_ne)) = (dt.as_nonempty_mut(), at.as_nonempty_mut())
         {
-            if dq.begin < aq.begin {
-                if let Some(overlap) = dq.get_tail_offset_overlap(&aq) {
-                    if dt.truncate(overlap.get(), limit.0).is_some() {
-                        da_overlap = Some(overlap);
-                    } else {
-                        return Err(OffsetPairsOverlapError::new(dq, aq));
+            let dn = d_ne.as_named(());
+            let an = a_ne.as_named(());
+            if d_ne.begin() < a_ne.begin() {
+                match d_ne.tail_overlap_pair_and_truncate(&a_ne, limit.0) {
+                    TruncateOffsetResult::NoOverlap(_) => None,
+                    TruncateOffsetResult::Truncated(overlap) => Some(overlap),
+                    TruncateOffsetResult::LimitExceeded(_, _) => {
+                        return Err(OffsetPairsOverlapError::new(dn, an));
                     }
                 }
-            } else if let Some(overlap) = aq.get_tail_offset_overlap(&dq) {
-                if at.truncate(overlap.get(), limit.0).is_some() {
-                    da_overlap = Some(overlap);
-                } else {
-                    return Err(OffsetPairsOverlapError::new(aq, dq));
+            } else {
+                match a_ne.tail_overlap_pair_and_truncate(&d_ne, limit.0) {
+                    TruncateOffsetResult::NoOverlap(_) => None,
+                    TruncateOffsetResult::Truncated(overlap) => Some(overlap),
+                    TruncateOffsetResult::LimitExceeded(_, _) => {
+                        return Err(OffsetPairsOverlapError::new(an, dn));
+                    }
                 }
             }
-        }
+        } else {
+            None
+        };
         let (dseg, dorig) = data.into_any();
         let (aseg, aorig) = analysis.into_any();
         Ok(Self::new(dseg, aseg, dorig, aorig, da_overlap))
@@ -6876,7 +6882,7 @@ impl TEXTOffsetsOrigin {
         level: py::TEXTOffsetOriginType,
         uncorr: Option<OriginalOffsets>,
         offset_overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
-        nextdata_overlap: Option<TextOffsetsOverflow>,
+        nextdata_overlap: Option<TextOffsetsNextdataOverflow>,
     ) -> PyResult<Self> {
         let ret = match (level, uncorr, &offset_overlaps[..], nextdata_overlap) {
             (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None) => Self::EmptyTEXT,
@@ -6945,7 +6951,7 @@ impl TEXTOffsetsOrigin {
 
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_overflow(&self) -> Option<TextOffsetsOverflow> {
+    pub fn py_overflow(&self) -> Option<TextOffsetsNextdataOverflow> {
         if let Self::MismatchTEXT(x) = self {
             x.overflow
         } else {

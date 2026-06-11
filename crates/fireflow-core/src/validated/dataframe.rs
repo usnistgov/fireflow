@@ -4,7 +4,7 @@
 //! internal types, (f32, f64, all unsigned int widths 1-8 bytes).
 
 use crate::config::{AllowOverBitmask, DisallowOverRange};
-use crate::data::{CheckRange, EventOverRangeError, TruncatedResult};
+use crate::data::{CheckRange, EventOverRangeError, TruncatedValueResult};
 use crate::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
@@ -1119,7 +1119,7 @@ impl<C> DataFrame<C> {
         &mut self,
         trunc_bitmask: OverLimitMode,
         trunc_range: OverLimitMode,
-    ) -> Vec<Option<TruncatedResult>>
+    ) -> Vec<Option<TruncatedValueResult>>
     where
         C: CheckRange,
     {

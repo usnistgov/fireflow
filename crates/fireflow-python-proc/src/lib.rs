@@ -1164,9 +1164,9 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
         )
     });
 
-    let nextdata_overlap = DocArg::new_param(
+    let nextdata_overflow = DocArg::new_param(
         OVERFLOW,
-        PyOpt::new1(PyClass::new_py(["api"], "SuppOffsetsOverflow")),
+        PyOpt::new1(PyClass::new_py(["api"], "SuppOffsetsNextdataOverflow")),
         format!("Amount by which supp {TEXT} exceeded {NEXTDATA} or end of file."),
     )
     .into_ro(|_, _| quote!(self.0.py_overflow().map(Into::into)));
@@ -1177,7 +1177,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
         original_offsets,
         other_index,
         offset_overlaps,
-        nextdata_overlap,
+        nextdata_overflow,
     ];
 
     let doc = DocString::new_class(format!(
@@ -1331,7 +1331,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
 
     let overflow = DocArg::new_param(
         OVERFLOW,
-        PyOpt::new1(PyClass::new_py(["api"], "TextOffsetsOverflow")),
+        PyOpt::new1(PyClass::new_py(["api"], "TextOffsetsNextdataOverflow")),
         format!("Amount by which this offset exceeded {NEXTDATA} or end of file."),
     )
     .into_ro(|_, _| quote!(self.0.py_overflow().map(Into::into)));
@@ -1578,9 +1578,9 @@ pub fn impl_py_offsets_overflow(input: TokenStream) -> TokenStream {
     let sname = name.to_string();
 
     let offsets_pt = match sname.as_str() {
-        "HeaderOffsetsOverflow" => PyTuple::new_header_named_offsets(),
-        "TextOffsetsOverflow" => PyTuple::new_text_named_offsets(),
-        "SuppOffsetsOverflow" => PyTuple::new_supp_text_named_offsets(),
+        "HeaderOffsetsNextdataOverflow" => PyTuple::new_header_named_offsets(),
+        "TextOffsetsNextdataOverflow" => PyTuple::new_text_named_offsets(),
+        "SuppOffsetsNextdataOverflow" => PyTuple::new_supp_text_named_offsets(),
         _ => panic!("incompatible overflow type"),
     };
 
@@ -2152,7 +2152,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let header_overflows = DocArg::new_param(
         "header_overflows",
-        PyList::new1(PyClass::new_py(["api"], "HeaderOffsetsOverflow")),
+        PyList::new1(PyClass::new_py(["api"], "HeaderOffsetsNextdataOverflow")),
         format!("Offsets from {HEADER} which exceed {NEXTDATA} or end of file."),
     )
     .into_ro(|_, _| {
@@ -9052,7 +9052,7 @@ impl DocArgParam {
         let seg = PyTuple::new_other_offsets();
         let indexed_seg = PyTuple::new1(RsInt::Usize).add(seg);
         let width = PyInt::new_other_width();
-        let rstype = parse_quote!(fireflow_core::validated::header_offsets::PyParsedOtherOffsets);
+        let rstype = parse_quote!(fireflow_core::validated::header_offsets::PyFinalOtherOffsets);
         let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(indexed_seg, None)).add(width))
             .rstype(rstype);
         let d = format!("The {OTHER} offsets from {HEADER}.");

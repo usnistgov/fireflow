@@ -140,9 +140,9 @@ fpp::impl_py_new_std_dataset_with_kws_output!(core::NewStdDatasetFromKwsOutput);
 
 fpp::impl_py_dataset_summary!(api::DatasetSummary);
 
-fpp::impl_py_offsets_overflow!(segment::HeaderOffsetsOverflow);
-fpp::impl_py_offsets_overflow!(segment::TextOffsetsOverflow);
-fpp::impl_py_offsets_overflow!(segment::SuppOffsetsOverflow);
+fpp::impl_py_offsets_overflow!(segment::HeaderOffsetsNextdataOverflow);
+fpp::impl_py_offsets_overflow!(segment::TextOffsetsNextdataOverflow);
+fpp::impl_py_offsets_overflow!(segment::SuppOffsetsNextdataOverflow);
 
 fpp::impl_py_offsets_overlap!(segment::HeaderToHeaderOffsetsOverlap);
 fpp::impl_py_offsets_overlap!(segment::TextToHeaderOffsetsOverlap);

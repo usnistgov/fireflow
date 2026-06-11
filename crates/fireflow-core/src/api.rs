@@ -26,11 +26,12 @@ use crate::logging::{
 use crate::macros::def_summary;
 use crate::segment::{
     AnyRegion, AreNamedOffsets, GuessOtherWidthError, HasRegion, HeaderOffsetsName,
-    HeaderOffsetsOverflow, IsDataOrAnalysis, KeyedOptSegment as _, KeyedReqSegment as _,
-    OffsetPairsOverlapError, OptOffsetsError, OriginalOffsets, OversetsOverlap, PairResult,
-    PrimaryTextOffsets, ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName,
-    SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, SupplementalTextSegmentId, TEXTOffsets,
-    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
+    HeaderOffsetsNextdataOverflow, IsDataOrAnalysis, IsOffsetPair as _, KeyedOptSegment as _,
+    KeyedReqSegment as _, NextdataOffsetsError, OffsetPairsOverlapError, OptOffsetsError,
+    OriginalOffsets, OversetsOverlap, PairResult, PrimaryTextOffsets, ReqOffsetsError,
+    SuppOffsetsNextdataOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
+    SupplementalTextOffsets, SupplementalTextSegmentId, TEXTOffsets, TextOffsetsName,
+    TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadNextdataError, Tot,
@@ -38,8 +39,8 @@ use crate::text::keywords::{
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_offsets::{
-    FinalHeaderOffsets, NextdataOffsetsError, OffsetsValidationError,
-    SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
+    FinalHeaderOffsets, OffsetsValidationError, SuppToHeaderOffsetsValidationError,
+    TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
@@ -485,7 +486,7 @@ pub struct FlatTEXTDiagnostics {
     pub header_supp: HeaderAndSuppOffsets,
 
     /// HEADER offsets which exceed $NEXTDATA or end of file.
-    pub header_overflows: Vec<HeaderOffsetsOverflow>,
+    pub header_overflows: Vec<HeaderOffsetsNextdataOverflow>,
 
     /// Keywords that could not be parsed.
     ///
@@ -573,7 +574,7 @@ pub struct ValidSuppTEXTOffsets {
     /// Overlaps between supp TEXT and other offsets in HEADER.
     overlaps: Vec<SuppToHeaderOffsetsOverlap>,
     /// Overlap with $NEXTDATA if applicable.
-    overflow: Option<SuppOffsetsOverflow>,
+    overflow: Option<SuppOffsetsNextdataOverflow>,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -1024,7 +1025,7 @@ impl HeaderAndSuppOffsets {
     /// offsets don't overlap with HEADER itself.
     pub(crate) fn validate_text_offsets<I>(
         &mut self,
-        s: &mut TEXTOffsets<I>,
+        offsets: &mut TEXTOffsets<I>,
         limit: OverlapCorrectionLimit,
     ) -> DeferredErrors<
         Vec<TextToHeaderOrSuppOffsetsOverlap>,
@@ -1033,41 +1034,40 @@ impl HeaderAndSuppOffsets {
     where
         I: HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()> + IsDataOrAnalysis,
     {
-        if let Some(this_named) = s.try_as_named(()) {
+        if let Some(this_ne) = offsets.as_nonempty_mut() {
             // Check for overlap with STEXT offsets. This offset pair should not
             // be modified since it has already been read. Therefore, only
             // change the offsets of the new pair if its ending offset is within
             // STEXT.
+            let this_named = this_ne.as_named(());
             let mut supp_overlap = None;
-            let stxt_error = self.supp_text.as_offset_pair().and_then(|supp_pair| {
-                let supp_named = supp_pair.try_as_named(())?;
+            let stxt_error = self.supp_text.as_offset_pair().and_then(|mut supp_pair| {
+                let supp_ne = supp_pair.as_nonempty_mut()?;
                 let inner_err =
-                    OffsetPairsOverlapError::new(this_named, supp_named.fmap_into_once());
+                    OffsetPairsOverlapError::new(this_named, supp_ne.as_named(()).fmap_into_once());
                 let err = OffsetsValidationError::from(inner_err);
-                if this_named.as_pair() < supp_named.as_pair() {
-                    if let Some(overlap) = this_named.get_tail_offset_overlap(&supp_named) {
-                        if s.truncate(overlap.get(), limit.0).is_some() {
+                if this_ne.slice_pair() < supp_ne.slice_pair() {
+                    match this_ne.tail_overlap_pair_and_truncate(&supp_ne, limit.0) {
+                        TruncateOffsetResult::NoOverlap(_) => None,
+                        TruncateOffsetResult::Truncated(overlap) => {
                             supp_overlap = Some(OversetsOverlap::new(
                                 this_named,
-                                supp_named.fmap_into_once(),
+                                supp_ne.as_named(()).fmap_into_once(),
                                 overlap,
                             ));
                             None
-                        } else {
-                            Some(err)
                         }
-                    } else {
-                        None
+                        TruncateOffsetResult::LimitExceeded(_, _) => Some(err),
                     }
                 } else {
-                    supp_named.get_tail_offset_overlap(&this_named).map(|_| err)
+                    supp_ne.tail_overlap_pair(&this_ne).map(|_| err)
                 }
             });
             // Check for any errors between this offset pair and HEADER offset
             // pair, modifying as necessary and as overlap limit permits.
             self.header
                 .final_offsets
-                .validate_text_data_or_analysis(s, limit)
+                .validate_text_data_or_analysis(offsets, limit)
                 .map_errors(OffsetsValidationError::into2)
                 .extend_errors(stxt_error, |v| v)
                 .map_deferred_value(|hdr_overlaps| {
@@ -1091,9 +1091,9 @@ impl FlatDatasetOutput {
         let txt = AsRef::<PrimaryTextOffsets>::as_ref(&hdr.final_offsets);
         DatasetSummary {
             version: hdr.version,
-            text_len: txt.len(),
-            data_len: ds.dataset_offsets.final_data.len(),
-            analysis_len: ds.dataset_offsets.final_analysis.len(),
+            text_len: txt.nbytes(),
+            data_len: ds.dataset_offsets.final_data.nbytes(),
+            analysis_len: ds.dataset_offsets.final_analysis.nbytes(),
             n_events: ds.data.nrows(),
             n_measurements: ds.data.ncols(),
             n_other: ds.others.0.len(),
@@ -1254,7 +1254,7 @@ impl FlatTEXTOutput {
                     // Check if any HEADER offsets exceed $NEXTDATA
                     let hdr_nextdata_res = if let Some(n) = nextdata {
                         let oconf: &ReadOffsetConfig = st.conf.as_ref();
-                        let limit = oconf.overlap_correction_limit;
+                        let limit = oconf.dataset_overflow_limit;
                         header
                             .final_offsets
                             .validate_nextdata(n, limit)
@@ -2091,7 +2091,7 @@ impl SuppTEXTOffsetsOutput {
         uncorr: Option<OriginalOffsets>,
         other_index: Option<usize>,
         offset_overlaps: Vec<SuppToHeaderOffsetsOverlap>,
-        overflow: Option<SuppOffsetsOverflow>,
+        overflow: Option<SuppOffsetsNextdataOverflow>,
     ) -> PyResult<Self> {
         match (
             level,
@@ -2207,7 +2207,7 @@ impl SuppTEXTOffsetsOutput {
     /// The OTHER index that duplicates these offsets if applicable.
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_overflow(&self) -> Option<SuppOffsetsOverflow> {
+    pub fn py_overflow(&self) -> Option<SuppOffsetsNextdataOverflow> {
         if let Self::Valid(x) = self {
             x.overflow
         } else {

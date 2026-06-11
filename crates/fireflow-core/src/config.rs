@@ -1432,23 +1432,55 @@ pub struct DataRemainderLimit(pub u64);
 #[derive(Clone, Default, From, Into)]
 pub struct TemporalOpticalKeys(pub HashSet<TemporalOpticalKey>);
 
-/// State pertinent to reading a file
+/// State pertinent to reading a file and/or dataset.
 #[derive(new)]
-pub struct ReadState<C> {
+pub struct ReadState<C, D> {
+    /// The length of the entire FCS file.
     pub(crate) file_len: FileLen,
+    /// The offset of the current FCS dataset.
+    ///
+    /// This will almost always be zero unless there are multiple datasets in
+    /// the file.
     pub(crate) dataset_offset: DatasetOffset,
+    /// The length of the current dataset (if available).
+    ///
+    /// This will almost always be equal to `file_len`.
+    ///
+    /// This is only known once $NEXTDATA is read, thus this only applies after
+    /// TEXT is read.
+    pub(crate) dataset_len: D,
+    /// A read-only configuration to be used with this state.
     pub(crate) conf: C,
 }
 
+/// Read state after HEADER is parsed.
+pub type HeaderReadState<C> = ReadState<C, ()>;
+
+/// Read state after HEADER and TEXT are parsed.
+pub type TEXTReadState<C> = ReadState<C, DatasetLen>;
+
+/// The length of the entire FCS file in bytes.
 #[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
 pub(crate) struct FileLen(pub(crate) u64);
 
+/// The length of the current dataset in bytes.
+///
+/// For files with one dataset, this will be exactly equal to [`FileLen`]; this
+/// is 99% of files. For files with multiple datasets via $NEXTDATA, this will
+/// be the length of the current individual dataset.
+#[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
+pub struct DatasetLen(pub(crate) u64);
+
+/// The offset of the current dataset in bytes.
+///
+/// This will be zero except in files with multiple datasets for all but the
+/// first dataset.
 #[derive(From, Into, Clone, Copy, Debug, PartialEq, Default, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[cfg_attr(feature = "python", derive(FromInnerPyObject))]
 pub struct DatasetOffset(pub u64);
 
-impl<C> ReadState<C> {
+impl<C> HeaderReadState<C> {
     pub(crate) fn open(
         p: &PathBuf,
         dataset_offset: DatasetOffset,
@@ -1469,13 +1501,50 @@ impl<C> ReadState<C> {
             let e = DatasetOffsetError(dataset_offset, fl);
             return Err(ImpureError::Pure(e));
         }
-        Ok(Self::new(fl, dataset_offset, conf))
+        Ok(Self::new(fl, dataset_offset, (), conf))
     }
 
     pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
         let pos = h.stream_position()?;
         let remaining = u64::from(self.file_len) - pos;
         Ok(remaining)
+    }
+
+    pub(crate) fn maybe_with_dataset_length(
+        self,
+        dataset_len: Option<DatasetLen>,
+    ) -> Result<TEXTReadState<C>, DatasetLenEOFError> {
+        if let Some(dl) = dataset_len {
+            let f = self.file_len;
+            let d = self.dataset_offset;
+            if d.0 + dl.0 <= f.0 {
+                Ok(self.with_dataset_length(dl))
+            } else {
+                Err(DatasetLenEOFError(d, dl, f))
+            }
+        } else {
+            Ok(self.into_last_dataset())
+        }
+    }
+
+    pub(crate) fn with_dataset_length(self, dataset_len: DatasetLen) -> TEXTReadState<C> {
+        let f = self.file_len;
+        let d = self.dataset_offset;
+        assert!(
+            d.0 + dataset_len.0 <= f.0,
+            "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
+        );
+        ReadState::new(f, d, dataset_len, self.conf)
+    }
+
+    // this should only be called if $NEXTDATA is 0 or missing (if allowed)
+    pub(crate) fn into_last_dataset(self) -> TEXTReadState<C> {
+        let f = self.file_len;
+        let d = self.dataset_offset;
+        let dl =
+            f.0.checked_sub(d.0)
+                .expect("dataset offset should not exceed file length");
+        ReadState::new(f, d, DatasetLen(dl), self.conf)
     }
 }
 
@@ -1484,6 +1553,12 @@ impl<C> ReadState<C> {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct DatasetOffsetError(DatasetOffset, FileLen);
+
+#[derive(Error, Debug, PartialEq, Clone)]
+#[error("dataset offset ({0}) + new length ({1}) exceeds file length ({2})")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct DatasetLenEOFError(DatasetOffset, DatasetLen, FileLen);
 
 type TemporalOpticalResult = WarningsAndErrorsResult<
     Vec<(StdKey, NEString)>,

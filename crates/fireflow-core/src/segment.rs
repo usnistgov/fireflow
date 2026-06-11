@@ -3,8 +3,8 @@
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowPseudoempty, ConfigFlag, DatasetOffset, DatasetOverflowLimit, DummyTriFlag, FileLen,
-    IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
+    HeaderReadState, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TEXTReadState,
 };
 use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -366,24 +366,24 @@ pub struct IndexedOtherOffsets {
 #[derive(new)]
 pub struct NewOffsetsConfig<I, S> {
     corr: OffsetsCorrection<I, S>,
-    file_len: FileLen,
+    // file_len: FileLen,
     dataset_offset: DatasetOffset,
     allow_pseudoempty: AllowPseudoempty,
-    truncate_offset_limit: DatasetOverflowLimit,
+    // truncate_offset_limit: DatasetOverflowLimit,
 }
 
 impl<I, S> NewOffsetsConfig<I, S> {
-    fn from_read_config<C>(corr: OffsetsCorrection<I, S>, st: &ReadState<C>) -> Self
+    fn from_read_config<C, D>(corr: OffsetsCorrection<I, S>, st: &ReadState<C, D>) -> Self
     where
         C: AsRef<ReadOffsetConfig>,
     {
         let oconf = st.conf.as_ref();
         Self::new(
             corr,
-            st.file_len,
+            // st.file_len,
             st.dataset_offset,
             oconf.allow_pseudoempty,
-            oconf.dataset_overflow_limit,
+            // oconf.dataset_overflow_limit,
         )
     }
 }
@@ -692,11 +692,11 @@ pub trait KeyedOffsets: Sized + Copy {
 pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::result_large_err)]
-    fn pair_to_segment<C>(
+    fn pair_to_offsets<C, D>(
         x0: i128,
         x1: i128,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C>,
+        st: &ReadState<C, D>,
     ) -> (
         Result<Offsets<Self, OffsetsFromTEXT>, SegmentOffsetError>,
         OriginalOffsets,
@@ -734,10 +734,10 @@ where
 {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::result_large_err)]
-    fn with_req_pair<C>(
+    fn with_req_pair<C, D>(
         pair: ReqPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C>,
+        st: &ReadState<C, D>,
     ) -> PairResult<Self, ReqSegmentKeyError<Self::B, Self::E>>
     where
         C: AsRef<ReadOffsetConfig>,
@@ -747,7 +747,7 @@ where
     {
         match pair {
             Ok((x0, x1)) => {
-                let (res, raw) = Self::pair_to_segment(x0, x1, corr, st);
+                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
                 match res {
                     Ok(final_pair) => PairResult::Valid(final_pair, raw),
                     Err(e) => PairResult::Malformed(raw, e),
@@ -799,7 +799,7 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C>,
+        st: &TEXTReadState<C>,
     ) -> ReqSegResult<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -817,7 +817,7 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C>,
+        st: &TEXTReadState<C>,
     ) -> ReqSegResult<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -836,7 +836,7 @@ where
         segs: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
         ignore: Self::IgnoreFlag,
-        st: &ReadState<C>,
+        st: &TEXTReadState<C>,
     ) -> ReqSegResult<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -995,10 +995,10 @@ where
 {
     #[allow(clippy::result_large_err)]
     #[allow(clippy::type_complexity)]
-    fn with_opt_pair<C>(
+    fn with_opt_pair<C, D>(
         pair: OptPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C>,
+        st: &ReadState<C, D>,
     ) -> Option<PairResult<Self, OptSegmentKeyError<Self::B, Self::E>>>
     where
         C: AsRef<ReadOffsetConfig>,
@@ -1009,7 +1009,7 @@ where
         match pair {
             Ok(None) => None,
             Ok(Some((x0, x1))) => {
-                let (res, raw) = Self::pair_to_segment(x0, x1, corr, st);
+                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
                 match res {
                     Ok(final_pair) => Some(PairResult::Valid(final_pair, raw)),
                     Err(e) => Some(PairResult::Malformed(raw, e)),
@@ -1064,7 +1064,7 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C>,
+        st: &TEXTReadState<C>,
     ) -> OptSegRes<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -1083,7 +1083,7 @@ where
         segs: &mut HeaderAndSuppOffsets,
         ignore: Self::IgnoreFlag,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C>,
+        st: &TEXTReadState<C>,
     ) -> OptSegRes<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -1102,7 +1102,7 @@ where
         segs: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
         ignore: Self::IgnoreFlag,
-        st: &ReadState<C>,
+        st: &TEXTReadState<C>,
     ) -> OptSegRes<Self>
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
@@ -1696,7 +1696,7 @@ impl<I: Copy> HeaderOffsets<I> {
         is_text: bool,
         corr: HeaderCorrection<I>,
         version: Version,
-        st: &ReadState<C>,
+        st: &HeaderReadState<C>,
     ) -> Result<(Self, OriginalOffsets), IOErrorGroup<HeaderSegmentError, ()>>
     where
         R: Read + Seek,
@@ -1775,7 +1775,7 @@ impl OtherOffsets20 {
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
         first_seg_begin: u64,
-        st: &ReadState<C>,
+        st: &HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
         GuessOtherWidthError,
@@ -2114,19 +2114,17 @@ impl InnerOffsets {
         } else if corrected_begin == 0 && corrected_end == 0 {
             // Return empty if both offsets are zero
             return Ok(Self::Empty);
-        } else if corrected_begin < i128::from(HEADER_LEN) {
-            // Check if segment overlaps with HEADER (sans OTHER segments) which
-            // is automatically invalid since the HEADER has a minimum length
-            return Err(err(SegmentOffsetErrorKind::InHeader));
+        // } else if corrected_begin < i128::from(HEADER_LEN) {
+        //     // Check if segment overlaps with HEADER (sans OTHER segments) which
+        //     // is automatically invalid since the HEADER has a minimum length
+        //     return Err(err(SegmentOffsetErrorKind::InHeader));
         } else if corrected_begin > corrected_end {
             // Return error if ending offset is greater than beginning offset
             return Err(err(SegmentOffsetErrorKind::Inverted));
         }
 
-        // At this point, we know:
-        // - each offset must be >= HEADER_LEN (58 bytes)
-        // - begin offset should be <= the end offset (which means segment is at
-        //   least one byte long)
+        // At this point, we know that the begin offset should be <= the end
+        // offset (which means segment is at least one byte long)
 
         let new_length = corrected_end
             .checked_sub(corrected_begin)
@@ -2138,48 +2136,47 @@ impl InnerOffsets {
 
         let new_begin = u64::try_from(corrected_begin).expect("offset begin exceeded u64");
 
-        let dso = conf.dataset_offset.0;
-        let fl = conf.file_len.0;
-        assert!(dso <= fl, "dataset offset exceeds file length");
+        // let dso = conf.dataset_offset.0;
+        // let fl = conf.file_len.0;
+        // assert!(dso <= fl, "dataset offset exceeds file length");
 
-        // put offset in absolute coordinates to check for
-        // truncation
-        //
-        // TODO it would be marginally better to return an error rather than
-        // panic here since we could exceed u64 if the user simply supplies a
-        // large dataset offset, which is much more likely than encountering a
-        // file that is ~4EB
-        let abs_new_begin = dso.checked_add(new_begin).expect("abs begin exceeded u64");
+        // // put offset in absolute coordinates to check for
+        // // truncation
+        // //
+        // // TODO it would be marginally better to return an error rather than
+        // // panic here since we could exceed u64 if the user simply supplies a
+        // // large dataset offset, which is much more likely than encountering a
+        // // file that is ~4EB
+        // let abs_new_begin = dso.checked_add(new_begin).expect("abs begin exceeded u64");
 
-        let truncated_length = if let Some(overflow) = abs_new_begin
-            .checked_add(new_length.get())
-            .expect("abs end exceeded u64")
-            .checked_sub(fl)
-        {
-            // Check by how much the final offset exceeds EOF (if anything)
-            let trunc_limit = conf.truncate_offset_limit.0;
-            if overflow > trunc_limit {
-                return Err(err(SegmentOffsetErrorKind::Truncated(conf.file_len)));
-            } else if let Some(l) = new_length.get().checked_sub(overflow) {
-                if let Some(truncated_length) = NonZeroU64::new(l) {
-                    // length - overflow is greater than one, return new length
-                    truncated_length
-                } else {
-                    // length - overflow is exactly zero, in which case this
-                    // offset is empty after truncation
-                    return Ok(Self::Empty);
-                }
-            } else {
-                // length - overflow is less than zero, which is an error
-                // because the first offset cannot move
-                return Err(err(SegmentOffsetErrorKind::BeginEOF(conf.file_len)));
-            }
-        } else {
-            // If no overlap, return original length
-            new_length
-        };
-        let ne =
-            NonEmptyOffsetsInner::new(new_begin, truncated_length, new_length, conf.dataset_offset);
+        // let truncated_length = if let Some(overflow) = abs_new_begin
+        //     .checked_add(new_length.get())
+        //     .expect("abs end exceeded u64")
+        //     .checked_sub(fl)
+        // {
+        //     // Check by how much the final offset exceeds EOF (if anything)
+        //     let trunc_limit = conf.truncate_offset_limit.0;
+        //     if overflow > trunc_limit {
+        //         return Err(err(SegmentOffsetErrorKind::Truncated(conf.file_len)));
+        //     } else if let Some(l) = new_length.get().checked_sub(overflow) {
+        //         if let Some(truncated_length) = NonZeroU64::new(l) {
+        //             // length - overflow is greater than one, return new length
+        //             truncated_length
+        //         } else {
+        //             // length - overflow is exactly zero, in which case this
+        //             // offset is empty after truncation
+        //             return Ok(Self::Empty);
+        //         }
+        //     } else {
+        //         // length - overflow is less than zero, which is an error
+        //         // because the first offset cannot move
+        //         return Err(err(SegmentOffsetErrorKind::BeginEOF(conf.file_len)));
+        //     }
+        // } else {
+        //     // If no overlap, return original length
+        //     new_length
+        // };
+        let ne = NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
         Ok(Self::NonEmpty(ne))
     }
 
@@ -2404,9 +2401,9 @@ pub struct SegmentOffsetError {
 #[derive(Debug, PartialEq, Clone)]
 enum SegmentOffsetErrorKind {
     Inverted,
-    BeginEOF(FileLen),
-    InHeader,
-    Truncated(FileLen),
+    // BeginEOF(FileLen),
+    // InHeader,
+    // Truncated(FileLen),
 }
 
 impl fmt::Display for SegmentOffsetError {
@@ -2414,14 +2411,14 @@ impl fmt::Display for SegmentOffsetError {
         let (x0, x1) = self.coords;
         let (c0, c1) = self.correction;
         let kind_text = match &self.kind {
-            SegmentOffsetErrorKind::Inverted => "Begin after end".into(),
-            SegmentOffsetErrorKind::BeginEOF(size) => {
-                format!("Begin exceeds file size ({size} bytes)")
-            }
-            SegmentOffsetErrorKind::InHeader => "Begins within HEADER (first 58 bytes)".into(),
-            SegmentOffsetErrorKind::Truncated(size) => {
-                format!("Segment exceeds file size ({size} bytes)")
-            }
+            SegmentOffsetErrorKind::Inverted => "Begin after end",
+            // SegmentOffsetErrorKind::BeginEOF(size) => {
+            //     format!("Begin exceeds file size ({size} bytes)")
+            // }
+            // SegmentOffsetErrorKind::InHeader => "Begins within HEADER (first 58 bytes)",
+            // SegmentOffsetErrorKind::Truncated(size) => {
+            //     format!("Segment exceeds file size ({size} bytes)")
+            // }
         };
         write!(
             f,

@@ -1,7 +1,7 @@
 //! Reading and writing the HEADER segment
 
 use crate::config::{
-    AppendableFlag, ConfigFlag as _, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState,
+    AppendableFlag, ConfigFlag as _, HeaderReadState, ReadHeaderInnerConfig, ReadOffsetConfig,
     SelectVersionStrategy, VersionOverride,
 };
 use crate::core::{Other, WriteHeaderAndTextConfig};
@@ -126,7 +126,7 @@ pub struct Header {
 impl Header {
     pub fn h_read<C, R>(
         h: &mut BufReader<R>,
-        st: &ReadState<C>,
+        st: &HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<Self, GuessOtherWidthError, HeaderError, ()>
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
@@ -207,7 +207,10 @@ struct ReqHeader {
 }
 
 impl ReqHeader {
-    fn h_read<C, R>(h: &mut BufReader<R>, st: &ReadState<C>) -> IOGroupResult<Self, HeaderError, ()>
+    fn h_read<C, R>(
+        h: &mut BufReader<R>,
+        st: &HeaderReadState<C>,
+    ) -> IOGroupResult<Self, HeaderError, ()>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
@@ -249,7 +252,7 @@ impl ReqHeader {
 
     fn h_read_spaces<R, C>(
         h: &mut BufReader<R>,
-        st: &ReadState<C>,
+        st: &HeaderReadState<C>,
     ) -> Result<(), IOAnonErrorGroup<HeaderSpacesError>>
     where
         R: Read + Seek,
@@ -273,7 +276,7 @@ impl ReqHeader {
 
 fn h_read_version<R, C>(
     h: &mut BufReader<R>,
-    st: &ReadState<C>,
+    st: &HeaderReadState<C>,
 ) -> IOGroupResult<Version, VersionError, ()>
 where
     R: Read + Seek,

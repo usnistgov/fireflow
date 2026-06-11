@@ -1,10 +1,11 @@
 use crate::config::{
-    ConfigFlag as _, DatasetOverflowLimit, DummyTriFlag, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _,
-    TrimIntraValueWhitespace,
+    ConfigFlag as _, DatasetLen, DatasetOverflowLimit, DummyTriFlag, FileLen, HeaderReadState,
+    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig,
+    TEXTReadState, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
+    WarningAndErrorResult, WarningAndErrorsResult, WarningsAndErrorsResult,
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::{
@@ -45,7 +46,6 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use nonempty_collections::{NEMap, NESlice, NonEmptyArrayExt as _};
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey};
@@ -54,8 +54,8 @@ use fireflow_types::keywords::{
     VersionMembership,
 };
 use fireflow_types::nonempty_string::{
-    NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr, NEString, ToDisplayNE,
-    ToNE, ambassador_impl_ToDisplayNE,
+    DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr,
+    NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
 };
 use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
 
@@ -68,7 +68,8 @@ use hashbrown::HashMap;
 use itertools::Itertools as _;
 use ndarray::Array2;
 use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _, iter::once,
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEMap, NESlice, NEVec, NonEmptyArrayExt as _,
+    NonEmptyIterator as _, iter::once,
 };
 use num_traits::{Bounded, One as _, ToPrimitive as _, Zero as _};
 use thiserror::Error;
@@ -110,15 +111,47 @@ impl Nextdata {
     // TODO unlike all other keyword lookup ops this won't demote a bad key on
     // failure since it is read-only. Not sure how to fix this without
     // destroying many other things
-    pub(crate) fn lookup_ro(
+    pub(crate) fn lookup_ro<C>(
+        kws: &StdKeywords,
+        st: HeaderReadState<C>,
+    ) -> WarningAndErrorResult<
+        (Option<Self>, TEXTReadState<C>),
+        (),
+        ReadNextdataError,
+        LookupNextdataError,
+    >
+    where
+        C: AsRef<ReadHeaderAndTEXTConfig>,
+    {
+        Self::lookup_ro_inner(kws, st.conf.as_ref())
+            .map_errors(LookupNextdataError::from)
+            .and_then_nowarn_commutative(|nextdata| {
+                let res = if let Some(nd) = nextdata {
+                    let n = u64::from(nd);
+                    let f = st.file_len;
+                    if n == 0 {
+                        Ok(st.into_last_dataset())
+                    } else if n < u64::from(f) {
+                        Ok(st.with_dataset_length(DatasetLen(u64::from(nd))))
+                    } else {
+                        Err(LookupNextdataError::FileLength(NextdataEOFError(nd, f)))
+                    }
+                } else {
+                    Ok(st.into_last_dataset())
+                };
+                res.map(|txt_st| (nextdata, txt_st)).into_nowarn1()
+            })
+    }
+
+    pub(crate) fn lookup_ro_inner(
         kws: &StdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
-    ) -> DeferredWarningAndError<Option<Self>, ReadNextdataError, ReadNextdataError> {
+    ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
         let k = SpecificKey::default();
         if let Some(is_err) = conf.allow_missing_nextdata.is_error() {
             let res = Self::get_req_with(kws, k, (), conf).map(|x| Some(x.native));
             if is_err {
-                res.into_log().set_err_value(None)
+                res.into_log()
             } else {
                 LogResult::Succ(res.into_succ())
             }
@@ -178,6 +211,14 @@ impl FromStrWith for Nextdata {
     }
 }
 
+/// Error when parsing or validating [`Nextdata`].
+#[derive(Debug, Display, From, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum LookupNextdataError {
+    Parse(ReadNextdataError),
+    FileLength(NextdataEOFError),
+}
+
 pub type ReadNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata, ()>;
 
 /// Error when parsing [`Nextdata`] from [`String`]
@@ -187,6 +228,17 @@ pub enum ParseNextdataError {
     Int(ParseIntError),
     Negative(NegativeNextdataError),
 }
+
+/// Error when $NEXTDATA exceeds EOF.
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error(
+    "$NEXTDATA ({}) exceeds file length ({})",
+    self.0.as_displayable(),
+    self.1
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct NextdataEOFError(Nextdata, FileLen);
 
 /// Error when $NEXTDATA is negative
 #[derive(Debug, Error, PartialEq, Clone)]

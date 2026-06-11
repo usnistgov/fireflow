@@ -1353,15 +1353,15 @@ impl<V, X, WC> Success<V, X, WC> {
         }
     }
 
-    // fn with_log_nowarn<F, Vf, Pf, E, EC>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
-    // where
-    //     F: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
-    // {
-    //     match f(self.value) {
-    //         Succ(s) => Succ(Success::new(s.value, (), self.warnings)),
-    //         Fail(e) => Fail(Failure::new(self.warnings, e.errors, e.value)),
-    //     }
-    // }
+    fn with_log_nowarn<F, Vf, Pf, E, EC>(self, f: F) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        F: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+    {
+        match f(self.value) {
+            Succ(s) => Succ(Success::new(s.value, (), self.warnings)),
+            Fail(e) => Fail(Failure::new(self.warnings, e.errors, e.value)),
+        }
+    }
 
     pub(crate) fn with_failure<F, P, Pf, E, EC>(
         self,
@@ -1903,30 +1903,30 @@ impl<V, P, WC, E, EC> CommutativeResult<V, P, WC, E, EC> {
         }
     }
 
-    // pub(crate) fn and_then_nowarn_commutative<F, Vf>(
-    //     self,
-    //     f: F,
-    // ) -> CommutativeResult<Vf, P, WC, E, EC>
-    // where
-    //     F: FnOnce(V) -> NowarnResult<Vf, P, E, EC>,
-    // {
-    //     self.and_then_nowarn_commutative_(|p| p, f)
-    // }
+    pub(crate) fn and_then_nowarn_commutative<F, Vf>(
+        self,
+        f: F,
+    ) -> CommutativeResult<Vf, P, WC, E, EC>
+    where
+        F: FnOnce(V) -> NowarnResult<Vf, P, E, EC>,
+    {
+        self.and_then_nowarn_commutative_(|p| p, f)
+    }
 
-    // pub(crate) fn and_then_nowarn_commutative_<Fp, Fr, Vf, Pf>(
-    //     self,
-    //     fp: Fp,
-    //     fr: Fr,
-    // ) -> CommutativeResult<Vf, Pf, WC, E, EC>
-    // where
-    //     Fr: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
-    //     Fp: FnOnce(P) -> Pf,
-    // {
-    //     match self {
-    //         Succ(x) => x.with_log_nowarn(fr),
-    //         Fail(x) => Fail(x.fmap_once(fp)),
-    //     }
-    // }
+    pub(crate) fn and_then_nowarn_commutative_<Fp, Fr, Vf, Pf>(
+        self,
+        fp: Fp,
+        fr: Fr,
+    ) -> CommutativeResult<Vf, Pf, WC, E, EC>
+    where
+        Fr: FnOnce(V) -> NowarnResult<Vf, Pf, E, EC>,
+        Fp: FnOnce(P) -> Pf,
+    {
+        match self {
+            Succ(x) => x.with_log_nowarn(fr),
+            Fail(x) => Fail(x.fmap_once(fp)),
+        }
+    }
 
     /// Combine two commutative results.
     ///

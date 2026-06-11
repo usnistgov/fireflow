@@ -236,13 +236,22 @@ Offset Overflow Outputs
 These classes are produced when an offset pair exceeds *$NEXTDATA* or EOF (end
 of file)
 
-.. autoclass:: pyreflow.api.HeaderOffsetsOverflow
+.. autoclass:: pyreflow.api.HeaderOffsetsEOFOverflow
    :members:
 
-.. autoclass:: pyreflow.api.TextOffsetsOverflow
+.. autoclass:: pyreflow.api.TextOffsetsEOFOverflow
    :members:
 
-.. autoclass:: pyreflow.api.SuppOffsetsOverflow
+.. autoclass:: pyreflow.api.SuppOffsetsEOFOverflow
+   :members:
+
+.. autoclass:: pyreflow.api.HeaderOffsetsNextdataOverflow
+   :members:
+
+.. autoclass:: pyreflow.api.TextOffsetsNextdataOverflow
+   :members:
+
+.. autoclass:: pyreflow.api.SuppOffsetsNextdataOverflow
    :members:
 
 Offset-Offset Overlap Outputs

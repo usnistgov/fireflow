@@ -53,9 +53,13 @@ from ._pyreflow import NewCoreDatasetConfig as NewCoreDatasetConfig
 from ._pyreflow import SuppTEXTOffsetsOutput as SuppTEXTOffsetsOutput
 from ._pyreflow import TEXTOffsetsOrigin as TEXTOffsetsOrigin
 
+from ._pyreflow import HeaderOffsetsEOFOverflow as HeaderOffsetsEOFOverflow
+from ._pyreflow import TextOffsetsEOFOverflow as TextOffsetsEOFOverflow
+from ._pyreflow import SuppOffsetsEOFOverflow as SuppOffsetsEOFOverflow
 from ._pyreflow import HeaderOffsetsNextdataOverflow as HeaderOffsetsNextdataOverflow
 from ._pyreflow import TextOffsetsNextdataOverflow as TextOffsetsNextdataOverflow
 from ._pyreflow import SuppOffsetsNextdataOverflow as SuppOffsetsNextdataOverflow
+
 from ._pyreflow import HeaderToHeaderOffsetsOverlap as HeaderToHeaderOffsetsOverlap
 from ._pyreflow import TextToHeaderOffsetsOverlap as TextToHeaderOffsetsOverlap
 from ._pyreflow import SuppToHeaderOffsetsOverlap as SuppToHeaderOffsetsOverlap

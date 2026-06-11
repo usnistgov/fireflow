@@ -11,8 +11,8 @@ use crate::logging::{
 };
 use crate::segment::{
     GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
-    HeaderSegmentError, HeaderToHeaderOffsetsOverlap, IsOffsetPair as _, OriginalOffsets,
-    OtherOffsets20, PrimaryTextOffsets,
+    HeaderOffsetsEOFOverflow, HeaderSegmentError, HeaderToHeaderOffsetsOverlap, IsOffsetPair as _,
+    OriginalOffsets, OtherOffsets20, PrimaryTextOffsets,
 };
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, OffsetKeyword, OptKeyword, ReqKeyword,
@@ -120,7 +120,7 @@ pub struct Header {
     pub final_offsets: FinalHeaderOffsets,
     pub original_offsets: OriginalHeaderOffsets,
     pub overlaps: Vec<HeaderToHeaderOffsetsOverlap>,
-    // pub overflows: Vec<HeaderOffsetsEOFOverflow>,
+    pub overflows: Vec<HeaderOffsetsEOFOverflow>,
 }
 
 impl Header {
@@ -135,9 +135,11 @@ impl Header {
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         io_to_log!(h.seek(SeekFrom::Start(st.dataset_offset.0)));
         let req = io_to_log!(ReqHeader::h_read(h, st));
+
         let (text, text_orig) = req.text;
         let (data, data_orig) = req.data;
         let (analysis, analysis_orig) = req.analysis;
+
         let min_coord = [
             text.as_nonempty().map(|x| x.begin()),
             data.as_nonempty().map(|x| x.begin()),
@@ -146,28 +148,36 @@ impl Header {
         .into_iter()
         .flatten()
         .min();
+
         let other_res = if let Some(m) = min_coord {
             OtherOffsets20::h_read_others(h, m, st)
         } else {
             LogResult::new_ok(None)
         };
-        // let to_overflow = |ne: &NonEmptyOffsets| {
-        //     let named = ne.as_named(());
-        //     let n = NonZeroU64::new(ne.truncated_len())?;
-        //     Some(HeaderOffsetsEOFOverflow::new(named, n))
-        // };
-        // let text_overflow = text.as_nonempty().and_then(to_overflow);
-        // let analysis_overflow = analysis.as_nonempty().and_then(to_overflow);
-        // let data_overflow = data.as_nonempty().and_then(to_overflow);
-        // let overflows: Vec<_> = [text_overflow, analysis_overflow, data_overflow]
-        //     .into_iter()
-        //     .flatten()
-        //     .collect();
+
+        // collect EOF overflows before any offset pairs are modified in later
+        // validation steps
+        let mut overflows: Vec<_> = [
+            text.as_nonempty().and_then(|x| x.eof_overflow(())),
+            data.as_nonempty().and_then(|x| x.eof_overflow(())),
+            analysis.as_nonempty().and_then(|x| x.eof_overflow(())),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+
         other_res
             .map_pure_errors(HeaderError::from)
             .and_then_commutative(|other| {
                 let (os, os_orig) = if let Some((os, w)) = other {
                     let (final_, orig): (NEVec<_>, NEVec<_>) = os.into_nonempty_iter().unzip();
+                    // Add OTHER overflows to the other three segments. This
+                    // also must be done before the later validation steps
+                    // further truncate the offsets.
+                    let other_overflows = final_
+                        .iter()
+                        .filter_map(|o| o.seg.as_nonempty()?.eof_overflow(o.index));
+                    overflows.extend(other_overflows);
                     (Some((final_, w)), Vec::from(orig))
                 } else {
                     (None, vec![])
@@ -183,7 +193,7 @@ impl Header {
                     .map_ok_value(|(segs, overlaps)| (segs, original, overlaps))
             })
             .map_ok_value(|(final_, original, overlaps)| {
-                Self::new(req.version, final_, original, overlaps)
+                Self::new(req.version, final_, original, overlaps, overflows)
             })
     }
 }

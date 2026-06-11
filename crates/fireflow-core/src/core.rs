@@ -60,8 +60,8 @@ use crate::segment::{
     IndexedOtherOffsets, IsOffsetPair as _, KeyedOptSegmentWithDefault as _,
     KeyedReqSegmentWithDefault as _, OffsetPairsOverlapError, OffsetsMismatchError,
     OptOffsetsWithDefaultWarning, OriginalOffsets, ReqOffsetsWithDefaultError,
-    ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsNextdataOverflow,
-    TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
+    ReqOffsetsWithDefaultWarning, TextOffsetsEOFOverflow, TextOffsetsName,
+    TextOffsetsNextdataOverflow, TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
@@ -1098,7 +1098,8 @@ pub struct MismatchedTEXTOffsetOrigin {
     header_is_empty: bool,
     uncorr: OriginalOffsets,
     overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
-    overflow: Option<TextOffsetsNextdataOverflow>,
+    eof_overflow: Option<TextOffsetsEOFOverflow>,
+    nextdata_overflow: Option<TextOffsetsNextdataOverflow>,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -6882,23 +6883,42 @@ impl TEXTOffsetsOrigin {
         level: py::TEXTOffsetOriginType,
         uncorr: Option<OriginalOffsets>,
         offset_overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
-        nextdata_overlap: Option<TextOffsetsNextdataOverflow>,
+        eof_overflow: Option<TextOffsetsEOFOverflow>,
+        nextdata_overflow: Option<TextOffsetsNextdataOverflow>,
     ) -> PyResult<Self> {
-        let ret = match (level, uncorr, &offset_overlaps[..], nextdata_overlap) {
-            (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None) => Self::EmptyTEXT,
-            (py::TEXTOffsetOriginType::Ignored, u, [], None) => Self::Ignored(u),
-            (py::TEXTOffsetOriginType::Unparsed, None, [], None) => Self::Unparsed,
-            (py::TEXTOffsetOriginType::Malformed, Some(u), [], None) => Self::Malformed(u),
-            (py::TEXTOffsetOriginType::Match, None, [], None) => Self::Match,
-            (py::TEXTOffsetOriginType::MismatchHeader, Some(u), [], None) => {
+        let ret = match (
+            level,
+            uncorr,
+            &offset_overlaps[..],
+            eof_overflow,
+            nextdata_overflow,
+        ) {
+            (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None, None) => Self::EmptyTEXT,
+            (py::TEXTOffsetOriginType::Ignored, u, [], None, None) => Self::Ignored(u),
+            (py::TEXTOffsetOriginType::Unparsed, None, [], None, None) => Self::Unparsed,
+            (py::TEXTOffsetOriginType::Malformed, Some(u), [], None, None) => Self::Malformed(u),
+            (py::TEXTOffsetOriginType::Match, None, [], None, None) => Self::Match,
+            (py::TEXTOffsetOriginType::MismatchHeader, Some(u), [], None, None) => {
                 Self::MismatchHeader(u)
             }
-            (py::TEXTOffsetOriginType::MismatchTEXT, Some(u), _, _) => Self::MismatchTEXT(
-                MismatchedTEXTOffsetOrigin::new(false, u, offset_overlaps, nextdata_overlap),
-            ),
-            (py::TEXTOffsetOriginType::EmptyHeader, Some(u), _, _) => Self::MismatchTEXT(
-                MismatchedTEXTOffsetOrigin::new(true, u, offset_overlaps, nextdata_overlap),
-            ),
+            (py::TEXTOffsetOriginType::MismatchTEXT, Some(u), _, _, _) => {
+                Self::MismatchTEXT(MismatchedTEXTOffsetOrigin::new(
+                    false,
+                    u,
+                    offset_overlaps,
+                    eof_overflow,
+                    nextdata_overflow,
+                ))
+            }
+            (py::TEXTOffsetOriginType::EmptyHeader, Some(u), _, _, _) => {
+                Self::MismatchTEXT(MismatchedTEXTOffsetOrigin::new(
+                    true,
+                    u,
+                    offset_overlaps,
+                    eof_overflow,
+                    nextdata_overflow,
+                ))
+            }
             _ => {
                 return Err(PyValueError::new_err(
                     "invalid combination of level and values, see class-level docstring",
@@ -6951,9 +6971,19 @@ impl TEXTOffsetsOrigin {
 
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_overflow(&self) -> Option<TextOffsetsNextdataOverflow> {
+    pub fn py_eof_overflow(&self) -> Option<TextOffsetsEOFOverflow> {
         if let Self::MismatchTEXT(x) = self {
-            x.overflow
+            x.eof_overflow
+        } else {
+            None
+        }
+    }
+
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_nextdata_overflow(&self) -> Option<TextOffsetsNextdataOverflow> {
+        if let Self::MismatchTEXT(x) = self {
+            x.nextdata_overflow
         } else {
             None
         }

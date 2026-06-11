@@ -29,9 +29,9 @@ use crate::segment::{
     HeaderOffsetsNextdataOverflow, IsDataOrAnalysis, IsOffsetPair as _, KeyedOptSegment as _,
     KeyedReqSegment as _, NextdataOffsetsError, OffsetPairsOverlapError, OptOffsetsError,
     OriginalOffsets, OversetsOverlap, PairResult, PrimaryTextOffsets, ReqOffsetsError,
-    SuppOffsetsNextdataOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
-    SupplementalTextOffsets, SupplementalTextSegmentId, TEXTOffsets, TextOffsetsName,
-    TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
+    SuppOffsetsEOFOverflow, SuppOffsetsNextdataOverflow, SuppTextOffsetsName,
+    SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, SupplementalTextSegmentId, TEXTOffsets,
+    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, Nextdata, ReadNextdataError, Tot,
@@ -573,8 +573,10 @@ pub struct ValidSuppTEXTOffsets {
     duplicated_other: Option<usize>,
     /// Overlaps between supp TEXT and other offsets in HEADER.
     overlaps: Vec<SuppToHeaderOffsetsOverlap>,
-    /// Overlap with $NEXTDATA if applicable.
-    overflow: Option<SuppOffsetsNextdataOverflow>,
+    /// Amount the offset exceeds EOF if applicable.
+    eof_overflow: Option<SuppOffsetsEOFOverflow>,
+    /// Amount the offset exceeds $NEXTDATA if applicable
+    nextdata_overflow: Option<SuppOffsetsNextdataOverflow>,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -1873,34 +1875,37 @@ impl SuppTEXTOffsetsOutput {
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
         let config_corr = hconf.supp_text_correction;
 
-        let validate_offsets = |hdr: &mut Header, mut corr_supp, uncorr_supp, other_index| {
-            let overflow_limit = oconf.dataset_overflow_limit;
-            let overlap_limit = oconf.overlap_correction_limit;
-            let nd_res = nextdata
-                .map_or(Ok(None), |nd| {
-                    nd.validate_text_offset(&mut corr_supp, overflow_limit)
-                })
-                .map_err(STextOffsetsError::from)
-                .into_log();
-            let val_res = hdr
-                .final_offsets
-                .validate_supp_text(&mut corr_supp, overlap_limit)
-                .map_errors(STextOffsetsError::from)
-                .set_err_value(());
-            nd_res
-                .zip_commutative(val_res)
-                .map_ok_value(|(nd_overlap, offset_overlaps)| {
-                    let valid = ValidSuppTEXTOffsets::new(
-                        corr_supp,
-                        uncorr_supp,
-                        other_index,
-                        offset_overlaps,
-                        nd_overlap,
-                    );
-                    Self::Valid(valid)
-                })
-                .nowarn_into_warn()
-        };
+        let validate_offsets =
+            |hdr: &mut Header, mut final_supp: SupplementalTextOffsets, orig_supp, other_index| {
+                let overflow_limit = oconf.dataset_overflow_limit;
+                let overlap_limit = oconf.overlap_correction_limit;
+                let eof_overflow = final_supp.as_nonempty().and_then(|x| x.eof_overflow(()));
+                let nd_res = nextdata
+                    .map_or(Ok(None), |nd| {
+                        nd.validate_text_offset(&mut final_supp, overflow_limit)
+                    })
+                    .map_err(STextOffsetsError::from)
+                    .into_log();
+                let val_res = hdr
+                    .final_offsets
+                    .validate_supp_text(&mut final_supp, overlap_limit)
+                    .map_errors(STextOffsetsError::from)
+                    .set_err_value(());
+                nd_res
+                    .zip_commutative(val_res)
+                    .map_ok_value(|(nd_overflow, offset_overlaps)| {
+                        let valid = ValidSuppTEXTOffsets::new(
+                            final_supp,
+                            orig_supp,
+                            other_index,
+                            offset_overlaps,
+                            eof_overflow,
+                            nd_overflow,
+                        );
+                        Self::Valid(valid)
+                    })
+                    .nowarn_into_warn()
+            };
 
         // At this point, we have not yet overridden the version since we have
         // not read STEXT and therefore might not have all keywords. This puts
@@ -2001,10 +2006,10 @@ impl SuppTEXTOffsetsOutput {
                     };
                     LogResult::new_ok(out)
                 }
-                OffsetResult::Valid(corr_supp, uncorr_supp) => {
+                OffsetResult::Valid(final_supp, orig_supp) => {
                     // Return original without any processing if ignored
                     if hconf.ignore_supp_text.is_set() {
-                        return LogResult::new_ok(Self::Ignored(Some(uncorr_supp)));
+                        return LogResult::new_ok(Self::Ignored(Some(orig_supp)));
                     }
 
                     // Offsets found, check for validity
@@ -2019,25 +2024,31 @@ impl SuppTEXTOffsetsOutput {
                         // TODO it may be necessary to configure which pair to
                         // keep in the future.
                         let flag = hconf.allow_duplicated_supp_text;
-                        let e = DuplicateSTextError::new(uncorr_supp, loc, false);
+                        let e = DuplicateSTextError::new(orig_supp, loc, false);
                         SwitchableErrorsResult::new_switchable3(ret, (), e, flag)
                             .map_switchable_errors(STextOffsetsError::from)
                             .switchable_into_commutative()
                             .map_commutative_warnings(STextOffsetsWarning::from)
                     };
 
-                    if corr_supp.is_empty() {
+                    if final_supp.is_empty() {
                         // supp TEXT is empty, return as-is
-                        let valid =
-                            ValidSuppTEXTOffsets::new(corr_supp, uncorr_supp, None, vec![], None);
+                        let valid = ValidSuppTEXTOffsets::new(
+                            final_supp,
+                            orig_supp,
+                            None,
+                            vec![],
+                            None,
+                            None,
+                        );
                         LogResult::new_ok(Self::Valid(valid))
-                    } else if uncorr_ptxt == uncorr_supp {
+                    } else if uncorr_ptxt == orig_supp {
                         // Primary and supp are identical, keep primary
                         go(AnyRegion::Text, Self::DuplicatesPrimaryTEXT)
                     } else if uncorr_ptxt == uncorr_anal {
                         // Supp and ANALYSIS are the same, keep latter
                         go(AnyRegion::Analysis, Self::DuplicatesAnalysis)
-                    } else if let Some(i) = uncorr_others.iter().position(|s| s == &uncorr_supp) {
+                    } else if let Some(i) = uncorr_others.iter().position(|s| s == &orig_supp) {
                         // Supp and one OTHER offset are the same, keep Supp and
                         // remove matching OTHER with the assumption that Supp
                         // is actually a real supp text and not some binary
@@ -2051,20 +2062,20 @@ impl SuppTEXTOffsetsOutput {
                         // example of this configuration
                         header.final_offsets.remove_other(i);
                         let flag = hconf.allow_duplicated_supp_text;
-                        let e = DuplicateSTextError::new(uncorr_supp, AnyRegion::Other, true);
+                        let e = DuplicateSTextError::new(orig_supp, AnyRegion::Other, true);
                         SwitchableErrorsResult::new_switchable3((), (), e, flag)
                             .map_switchable_errors(STextOffsetsError::from)
                             .switchable_into_commutative()
                             .map_commutative_warnings(STextOffsetsWarning::from)
                             .and_then_commutative(|()| {
-                                validate_offsets(header, corr_supp, uncorr_supp, Some(i))
+                                validate_offsets(header, final_supp, orig_supp, Some(i))
                             })
                     } else {
                         // Supp not identical to anything else, check for
                         // overlaps and keep if there are none. ASSUME the
                         // HEADER offsets have already been validated and
                         // adjusted such that they do not overlap.
-                        validate_offsets(header, corr_supp, uncorr_supp, None)
+                        validate_offsets(header, final_supp, orig_supp, None)
                     }
                 }
             }
@@ -2091,7 +2102,8 @@ impl SuppTEXTOffsetsOutput {
         uncorr: Option<OriginalOffsets>,
         other_index: Option<usize>,
         offset_overlaps: Vec<SuppToHeaderOffsetsOverlap>,
-        overflow: Option<SuppOffsetsNextdataOverflow>,
+        eof_overflow: Option<SuppOffsetsEOFOverflow>,
+        nd_overflow: Option<SuppOffsetsNextdataOverflow>,
     ) -> PyResult<Self> {
         match (
             level,
@@ -2099,36 +2111,59 @@ impl SuppTEXTOffsetsOutput {
             uncorr,
             other_index,
             &offset_overlaps[..],
-            overflow,
+            eof_overflow,
+            nd_overflow,
         ) {
-            (py::SuppTEXTOffsetOriginType::Empty, None, None, None, [], None) => Ok(Self::Empty),
-            (py::SuppTEXTOffsetOriginType::Unparsed, None, None, None, [], None) => {
+            (py::SuppTEXTOffsetOriginType::Empty, None, None, None, [], None, None) => {
+                Ok(Self::Empty)
+            }
+            (py::SuppTEXTOffsetOriginType::Unparsed, None, None, None, [], None, None) => {
                 Ok(Self::Unparsed)
             }
-            (py::SuppTEXTOffsetOriginType::Malformed, None, Some(u), None, [], None) => {
+            (py::SuppTEXTOffsetOriginType::Malformed, None, Some(u), None, [], None, None) => {
                 Ok(Self::Malformed(u))
             }
-            (py::SuppTEXTOffsetOriginType::DuplicatesPrimaryTEXT, None, None, None, [], None) => {
-                Ok(Self::DuplicatesPrimaryTEXT)
-            }
-            (py::SuppTEXTOffsetOriginType::DuplicatesAnalysis, None, None, None, [], None) => {
-                Ok(Self::DuplicatesAnalysis)
-            }
-            (py::SuppTEXTOffsetOriginType::Ignored, None, u, None, [], None) => {
+            (
+                py::SuppTEXTOffsetOriginType::DuplicatesPrimaryTEXT,
+                None,
+                None,
+                None,
+                [],
+                None,
+                None,
+            ) => Ok(Self::DuplicatesPrimaryTEXT),
+            (
+                py::SuppTEXTOffsetOriginType::DuplicatesAnalysis,
+                None,
+                None,
+                None,
+                [],
+                None,
+                None,
+            ) => Ok(Self::DuplicatesAnalysis),
+            (py::SuppTEXTOffsetOriginType::Ignored, None, u, None, [], None, None) => {
                 Ok(Self::Ignored(u))
             }
-            (py::SuppTEXTOffsetOriginType::DuplicatesOther, Some(s), Some(u), Some(i), _, _) => {
+            (py::SuppTEXTOffsetOriginType::DuplicatesOther, Some(s), Some(u), Some(i), _, _, _) => {
                 Ok(Self::Valid(ValidSuppTEXTOffsets::new(
                     s,
                     u,
                     Some(i),
                     offset_overlaps,
-                    overflow,
+                    eof_overflow,
+                    nd_overflow,
                 )))
             }
-            (py::SuppTEXTOffsetOriginType::Valid, Some(s), Some(u), None, _, _) => Ok(Self::Valid(
-                ValidSuppTEXTOffsets::new(s, u, None, offset_overlaps, overflow),
-            )),
+            (py::SuppTEXTOffsetOriginType::Valid, Some(s), Some(u), None, _, _, _) => {
+                Ok(Self::Valid(ValidSuppTEXTOffsets::new(
+                    s,
+                    u,
+                    None,
+                    offset_overlaps,
+                    eof_overflow,
+                    nd_overflow,
+                )))
+            }
             _ => Err(PyValueError::new_err(
                 "invalid combination of level and values, see class-level docstring",
             )),
@@ -2204,12 +2239,23 @@ impl SuppTEXTOffsetsOutput {
         }
     }
 
-    /// The OTHER index that duplicates these offsets if applicable.
+    /// The amount by which this offset exceeds EOF if applicable.
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_overflow(&self) -> Option<SuppOffsetsNextdataOverflow> {
+    pub fn py_eof_overflow(&self) -> Option<SuppOffsetsEOFOverflow> {
         if let Self::Valid(x) = self {
-            x.overflow
+            x.eof_overflow
+        } else {
+            None
+        }
+    }
+
+    /// The amount by which this offset exceeds $NEXTDATA if applicable.
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_nextdata_overflow(&self) -> Option<SuppOffsetsNextdataOverflow> {
+        if let Self::Valid(x) = self {
+            x.nextdata_overflow
         } else {
             None
         }

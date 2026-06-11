@@ -114,6 +114,8 @@ pub struct OffsetsOverflow<N, const IS_EOF: bool> {
 }
 
 pub type HeaderOffsetsEOFOverflow = OffsetsOverflow<HeaderOffsetsName, true>;
+pub type SuppOffsetsEOFOverflow = OffsetsOverflow<SuppTextOffsetsName, true>;
+pub type TextOffsetsEOFOverflow = OffsetsOverflow<TextOffsetsName, true>;
 
 pub type HeaderOffsetsNextdataOverflow = OffsetsOverflow<HeaderOffsetsName, false>;
 pub type TextOffsetsNextdataOverflow = OffsetsOverflow<TextOffsetsName, false>;
@@ -863,39 +865,41 @@ where
             res
         };
 
-        let mut pair_to_text = |uncorr_txt: OriginalOffsets, mismatch_warn, header_is_empty| {
+        let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
             // mismatch_warn and header_is_empty need to be independent because we
             // may or may not throw a warning if a mismatch actually happened
-            let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
-            let seg_res = Offsets::try_new(uncorr_txt.begin, uncorr_txt.end, &seg_conf)
+            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
+            let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
                 .map_err(ReqOffsetsError::Segment);
-            match seg_res {
-                Ok(mut text_seg) => {
+            match offsets_res {
+                Ok(mut offsets) => {
+                    let eof_overflow = offsets.as_nonempty().and_then(|x| x.eof_overflow(()));
                     let nd_res = segs
                         .nextdata
                         .map_or(Ok(None), |nd| {
-                            nd.validate_text_offset(&mut text_seg, overflow_limit)
+                            nd.validate_text_offset(&mut offsets, overflow_limit)
                         })
                         .map_err(ReqOffsetsWithDefaultErrorInner::from)
                         .into_deferred_switchable3(missing_flag)
                         .switchable_into_commutative();
                     let val_res = segs
-                        .validate_text_offsets(&mut text_seg, overlap_limit)
+                        .validate_text_offsets(&mut offsets, overlap_limit)
                         .map_errors(ReqOffsetsWithDefaultErrorInner::from)
                         .nowarn_into_switchable3(missing_flag)
                         .switchable_into_commutative();
                     let mut res = nd_res
                         .zip_commutative(val_res)
                         .map_commutative_warnings(ReqOffsetsWithDefaultWarning::from)
-                        .map_ok_value(|(nd_overlap, offset_overlaps)| {
+                        .map_ok_value(|(nd_overflow, offset_overlaps)| {
                             let origin = MismatchedTEXTOffsetOrigin::new(
                                 header_is_empty,
-                                uncorr_txt,
+                                txt_orig,
                                 offset_overlaps,
-                                nd_overlap,
+                                eof_overflow,
+                                nd_overflow,
                             );
                             HeaderOrTextOffsets::Text {
-                                seg: text_seg,
+                                seg: offsets,
                                 origin,
                             }
                         });
@@ -1118,37 +1122,39 @@ where
         let overflow_limit = oconf.dataset_overflow_limit;
         let overlap_limit = oconf.overlap_correction_limit;
 
-        let mut pair_to_text = |uncorr_txt: OriginalOffsets, mismatch_warn, header_is_empty| {
+        let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
             // mismatch_warn and header_is_empty need to be independent because we
             // may or may not throw a warning if a mismatch actually happened
-            let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
-            let seg_res = Offsets::try_new(uncorr_txt.begin, uncorr_txt.end, &seg_conf)
+            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
+            let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
                 .map_err(OptOffsetsError::Segment);
-            match seg_res {
-                Ok(mut text_seg) => {
+            match offsets_res {
+                Ok(mut offsets) => {
+                    let eof_overflow = offsets.as_nonempty().and_then(|x| x.eof_overflow(()));
                     let nd_res = segs
                         .nextdata
                         .map_or(Ok(None), |nd| {
-                            nd.validate_text_offset(&mut text_seg, overflow_limit)
+                            nd.validate_text_offset(&mut offsets, overflow_limit)
                         })
                         .map_err(OptOffsetsWithDefaultWarning::from)
                         .into_deferred_switchable(drop_flag)
                         .switchable_into_commutative();
                     let val_res = segs
-                        .validate_text_offsets(&mut text_seg, overlap_limit)
+                        .validate_text_offsets(&mut offsets, overlap_limit)
                         .nowarn_into_switchable(drop_flag)
                         .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
                         .switchable_into_commutative();
                     let mut res = nd_res.zip_commutative(val_res).map_ok_value(
-                        |(nd_overlaps, offset_overlaps)| {
+                        |(nd_overflow, offset_overlaps)| {
                             let origin = MismatchedTEXTOffsetOrigin::new(
                                 header_is_empty,
-                                uncorr_txt,
+                                txt_orig,
                                 offset_overlaps,
-                                nd_overlaps,
+                                eof_overflow,
+                                nd_overflow,
                             );
                             HeaderOrTextOffsets::Text {
-                                seg: text_seg,
+                                seg: offsets,
                                 origin,
                             }
                         },
@@ -1159,7 +1165,7 @@ where
                 Err(e) => SwitchableErrorsResult::new_deferred_switchable((), e, drop_flag)
                     .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
                     .switchable_into_commutative()
-                    .set_ok_value(header_pair(ChoseHeaderReason::Malformed(uncorr_txt))),
+                    .set_ok_value(header_pair(ChoseHeaderReason::Malformed(txt_orig))),
             }
         };
 
@@ -1507,6 +1513,21 @@ impl<I, S> NonEmptyOffsets<I, S> {
     {
         let inner = self.inner();
         NamedOffsets::new(I::segname(args), inner.begin, inner.length)
+    }
+
+    /// Project this non-empty offset pair to an overflow error if applicable.
+    ///
+    /// This will simply take the difference between the original length and the
+    /// current length and convert it to an overflow error. It is only meant to
+    /// be used for EOF overflow since this corresponds to when the offsets were
+    /// first created and the file length was checked.
+    pub(crate) fn eof_overflow<N>(&self, args: I::Params) -> Option<OffsetsOverflow<N, true>>
+    where
+        I: AreNamedOffsets<N>,
+    {
+        let n = self.as_named(args);
+        let l = NonZeroU64::new(self.inner().truncated_len())?;
+        Some(OffsetsOverflow::new(n, l))
     }
 }
 

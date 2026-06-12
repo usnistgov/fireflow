@@ -1,18 +1,20 @@
-use crate::config::{DatasetOverflowLimit, OverlapCorrectionLimit};
+use crate::config::{
+    DatasetOffset, FileLen, HeaderReadState, OverlapCorrectionLimit, ReadOffsetConfig,
+    TEXTReadState,
+};
 use crate::core::{DatasetOffsets, OthersReader, TEXTOffsetsOrigin};
 use crate::logging::{DeferredErrors, ErrorGroup, ErrorsResult, LogResult};
 use crate::macros::def_summary;
 use crate::segment::{
-    AnalysisSegmentId, AreNamedOffsets, DataSegmentId, HasRegion, HasSource, HeaderAnalysisOffsets,
-    HeaderDataOffsets, HeaderOffsetPairOverlapOverlapError, HeaderOffsetsName,
-    HeaderOffsetsNextdataOverflow, HeaderOrSuppOffsetsName, HeaderToHeaderOffsetsOverlap,
-    InHeaderError, IndexedOtherOffsets, IsDataOrAnalysis, IsOffsetPair, NamedOffsets,
-    NextdataOffsetsError, NonEmptyOffsetsMut, OffsetPairsOverlapError, Offsets, OffsetsFromHeader,
-    OffsetsOverflow, OtherSegmentId, OversetsOverlap, PrimaryTextOffsets, PrimaryTextSegmentId,
-    SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets,
-    TextOffsetsName, TextToHeaderOffsetsOverlap, TruncateOffsetResult,
+    AnalysisSegmentId, AreNamedOffsets, DataSegmentId, DatasetOverflowError, HasRegion, HasSource,
+    HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsetPairOverlapOverlapError,
+    HeaderOffsetsName, HeaderOffsetsOverflow, HeaderOrSuppOffsetsName,
+    HeaderToHeaderOffsetsOverlap, InHeaderError, IndexedOtherOffsets, IsDataOrAnalysis,
+    IsOffsetPair, NamedOffsets, NonEmptyOffsetsMut, OffsetPairsOverlapError, Offsets,
+    OffsetsFromHeader, OffsetsOverflow, OffsetsOverlap, OtherSegmentId, PrimaryTextOffsets,
+    PrimaryTextSegmentId, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap, SupplementalTextOffsets,
+    TEXTOffsets, TextOffsetsName, TextToHeaderOffsetsOverlap, TruncateOffsetResult,
 };
-use crate::text::keywords::Nextdata;
 use crate::validated::ascii_range::OtherWidth;
 
 use type_families::{BifunctorOnce as _, FunctorOnce as _};
@@ -31,7 +33,8 @@ use serde::Serialize;
 #[cfg(feature = "python")]
 use {
     crate::nonempty::FcsNEVec,
-    fireflow_core_proc::AllIntoPyErr,
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    fireflow_types::python as py,
     nonempty_collections::{IntoNonEmptyIterator as _, NonEmptyIterator as _},
     std::fmt,
 };
@@ -177,7 +180,7 @@ impl FinalHeaderOffsets {
         let contains = self
             .contains_offsets(s, ())
             .map(OffsetsValidationError::from);
-        let hs = self.as_mut_nonempty_offsets_filtered::<I>();
+        let hs = self.as_mut_nonempty_offsets_no_data_analysis::<I>();
         Self::fix_text_overlap(hs, s, limit)
             .map_errors(OffsetsValidationError::from)
             .extend_errors(contains, |v| v)
@@ -193,34 +196,100 @@ impl FinalHeaderOffsets {
         OthersReader::new(self.as_others().copied().collect())
     }
 
-    /// Fix offsets that exceed $NEXTDATA or return error if this fails.
-    pub(crate) fn validate_nextdata(
+    /// Truncate primary TEXT offsets that exceed EOF.
+    ///
+    /// Return the amount that was truncated (possibly none) on success, or
+    /// return error if truncation would exceed limit set by user.
+    pub(crate) fn try_truncate_primary_text<C>(
         &mut self,
-        nd: Nextdata,
-        limit: DatasetOverflowLimit,
-    ) -> ErrorsResult<Vec<HeaderOffsetsNextdataOverflow>, (), NextdataOffsetsError<HeaderOffsetsName>>
+        st: &HeaderReadState<C>,
+    ) -> Result<u64, PrimaryTEXTOverflowError>
+    where
+        C: AsRef<ReadOffsetConfig>,
     {
-        // TODO not DRY
-        let n = u64::from(nd);
-        if n == 0 {
-            return LogResult::new_ok(vec![]);
+        let local_file_len = st.local_file_len();
+        let conf: &ReadOffsetConfig = st.conf.as_ref();
+        let limit = conf.dataset_overflow_limit;
+        if let Some(ne) = self.text.as_nonempty_mut() {
+            match ne.tail_overlap_offset_and_truncate(local_file_len, limit.0) {
+                TruncateOffsetResult::NoOverlap(_) => Ok(0),
+                TruncateOffsetResult::Truncated { truncated_len, .. } => Ok(truncated_len.get()),
+                TruncateOffsetResult::LimitExceeded(overlap, old) => {
+                    let e = PrimaryTEXTOverflowError::new(
+                        old.begin(),
+                        old.end(),
+                        st.dataset_offset,
+                        st.file_len,
+                        overlap,
+                    );
+                    Err(e)
+                }
+            }
+        } else {
+            Ok(0)
         }
+    }
+
+    /// Truncate non-primary TEXT offsets that exceed EOF or $NEXTDATA.
+    ///
+    /// Return amount truncated for each offset pair or error if truncation
+    /// amount is beyond limit.
+    pub(crate) fn try_truncate_non_primary_text<C>(
+        &mut self,
+        st: &TEXTReadState<C>,
+    ) -> ErrorsResult<Vec<HeaderOffsetsOverflow>, (), DatasetOverflowError<HeaderOffsetsName>>
+    where
+        C: AsRef<ReadOffsetConfig>,
+    {
+        let bounds = st.dataset_bounds;
+        let dataset_len = bounds.len.0;
+        let conf: &ReadOffsetConfig = st.conf.as_ref();
+        let limit = conf.dataset_overflow_limit;
         let mut overlaps = vec![];
         let mut errors = vec![];
-        for ne in self.as_mut_nonempty_offsets() {
+        for ne in self.as_mut_nonempty_offsets_no_text() {
             let named = ne.as_named();
-            match ne.tail_overlap_offset_and_truncate(n, limit.0) {
+            let mk_overflow = |n| OffsetsOverflow::new(named, n, dataset_len, bounds.from_nextdata);
+            match ne.tail_overlap_offset_and_truncate(dataset_len, limit.0) {
                 TruncateOffsetResult::NoOverlap(_) => (),
-                TruncateOffsetResult::Truncated(overlap) => {
-                    overlaps.push(OffsetsOverflow::new(named, overlap));
+                TruncateOffsetResult::Truncated { truncated_len, .. } => {
+                    overlaps.push(mk_overflow(truncated_len));
                 }
-                TruncateOffsetResult::LimitExceeded(_, old) => {
-                    errors.push(NextdataOffsetsError::new(nd, old.as_named()));
+                TruncateOffsetResult::LimitExceeded(overflow, _) => {
+                    errors.push(DatasetOverflowError(mk_overflow(overflow)));
                 }
             }
         }
         LogResult::new_from_err_iter(errors, overlaps, ())
     }
+
+    // /// Fix offsets that exceed $NEXTDATA or return error if this fails.
+    // pub(crate) fn validate_nextdata(
+    //     &mut self,
+    //     nd: Nextdata,
+    //     limit: DatasetOverflowLimit,
+    // ) -> ErrorsResult<Vec<HeaderOffsetsOverflow>, (), DatasetOverflowError<HeaderOffsetsName>> {
+    //     // TODO not DRY
+    //     let n = u64::from(nd);
+    //     if n == 0 {
+    //         return LogResult::new_ok(vec![]);
+    //     }
+    //     let mut overlaps = vec![];
+    //     let mut errors = vec![];
+    //     for ne in self.as_mut_nonempty_offsets() {
+    //         let named = ne.as_named();
+    //         match ne.tail_overlap_offset_and_truncate(n, limit.0) {
+    //             TruncateOffsetResult::NoOverlap(_) => (),
+    //             TruncateOffsetResult::Truncated(overlap) => {
+    //                 overlaps.push(OffsetsOverflow::new(named, overlap));
+    //             }
+    //             TruncateOffsetResult::LimitExceeded(_, old) => {
+    //                 errors.push(DatasetOverflowError::new(nd, old.as_named()));
+    //             }
+    //         }
+    //     }
+    //     LogResult::new_from_err_iter(errors, overlaps, ())
+    // }
 
     /// Set OTHER offsets at index to empty.
     ///
@@ -235,12 +304,14 @@ impl FinalHeaderOffsets {
         self.other.iter().flat_map(|(os, _)| os.iter())
     }
 
+    // TODO this won't return anything if TEXT offset input itself is truncated,
+    // only if HEADER offsets need to be truncated based on its value.
     fn fix_text_overlap<'a, I, N>(
         xs: impl IntoIterator<Item = AnyHeaderOffsetsMut<'a>>,
         offsets: &mut TEXTOffsets<I>,
         limit: OverlapCorrectionLimit,
     ) -> DeferredErrors<
-        Vec<OversetsOverlap<N, HeaderOffsetsName>>,
+        Vec<OffsetsOverlap<N, HeaderOffsetsName>>,
         OffsetPairsOverlapError<N, HeaderOffsetsName>,
     >
     where
@@ -253,12 +324,13 @@ impl FinalHeaderOffsets {
         let mut errors = vec![];
         let mut overlaps = vec![];
 
-        let err = |txt_named, hdr_named| OffsetPairsOverlapError::new(txt_named, hdr_named);
         let t2h_overlap =
-            |txt_named, hdr_named, overlap| OversetsOverlap::new(txt_named, hdr_named, overlap);
+            |txt_named, hdr_named, overlap| OffsetsOverlap::new(txt_named, hdr_named, overlap);
+        let err = |txt_named, hdr_named, overlap| {
+            OffsetPairsOverlapError(t2h_overlap(txt_named, hdr_named, overlap))
+        };
 
         if let Some(txt_ne) = offsets.as_nonempty_mut() {
-            let txt_named = txt_ne.as_named(());
             let mut last_hdr_ne = None;
             // Skip all HEADER offsets that come before TEXT offsets
             for hdr_ne in it.by_ref() {
@@ -272,24 +344,30 @@ impl FinalHeaderOffsets {
             // after the TEXT begin offset, and thus may overlap the beginning
             // of TEXT, be totally within TEXT, or overlap the ending of TEXT.
             if let Some(hdr_ne) = last_hdr_ne {
-                let hdr_named = hdr_ne.as_named();
                 if hdr_ne.begin() < txt_ne.begin() {
+                    let txt_named = txt_ne.as_named(());
                     // HEADER starts before TEXT. Check if the HEADER offsets
                     // pair is for TEXT itself. If so, throw error regardless
                     // since we already read it at this point and thus should
                     // not alter it. If not, truncate if within the limit.
-                    if matches!(hdr_ne, AnyHeaderOffsetsMut::Text(_))
-                        && hdr_ne.tail_overlap_pair(&txt_ne).is_some()
+                    if let Some(overlap_len) = hdr_ne.tail_overlap_pair(&txt_ne)
+                        && matches!(hdr_ne, AnyHeaderOffsetsMut::Text(_))
                     {
-                        errors.push(err(txt_named, hdr_named));
+                        errors.push(err(txt_named, hdr_ne.as_named(), overlap_len));
                     } else {
+                        let hdr_begin = hdr_ne.begin();
+                        let hdr_name = hdr_ne.segname();
                         match hdr_ne.tail_overlap_pair_and_truncate(&txt_ne, limit.0) {
                             TruncateOffsetResult::NoOverlap(_) => (),
-                            TruncateOffsetResult::Truncated(overlap) => {
-                                overlaps.push(t2h_overlap(txt_named, hdr_named, overlap));
+                            TruncateOffsetResult::Truncated {
+                                truncated_len,
+                                new_len,
+                            } => {
+                                let hdr_named = NamedOffsets::new(hdr_name, hdr_begin, new_len);
+                                overlaps.push(t2h_overlap(txt_named, hdr_named, truncated_len));
                             }
-                            TruncateOffsetResult::LimitExceeded(_, old) => {
-                                errors.push(err(txt_named, old.as_named()));
+                            TruncateOffsetResult::LimitExceeded(truncated_len, old) => {
+                                errors.push(err(txt_named, old.as_named(), truncated_len));
                             }
                         }
                     }
@@ -299,9 +377,11 @@ impl FinalHeaderOffsets {
                     // since we know that no more HEADER offsets can overlap.
                     match txt_ne.tail_overlap_pair_and_truncate(&hdr_ne, limit.0) {
                         TruncateOffsetResult::NoOverlap(_) => (),
-                        TruncateOffsetResult::Truncated(_) => return LogResult::new_ok(overlaps),
-                        TruncateOffsetResult::LimitExceeded(_, _) => {
-                            errors.push(err(txt_named, hdr_named));
+                        TruncateOffsetResult::Truncated { .. } => {
+                            return LogResult::new_ok(overlaps);
+                        }
+                        TruncateOffsetResult::LimitExceeded(truncated_len, old) => {
+                            errors.push(err(old.as_named(()), hdr_ne.as_named(), truncated_len));
                         }
                     }
                 }
@@ -317,7 +397,11 @@ impl FinalHeaderOffsets {
             let tn = txt_ne.as_named(());
             let (exceed_limit, trunc) =
                 txt_ne.filter_and_truncate(limit.0, IsOffsetPair::begin, it);
-            errors.extend(exceed_limit.into_iter().map(|h| err(tn, h.as_named())));
+            errors.extend(
+                exceed_limit
+                    .into_iter()
+                    .map(|(h, overlap)| err(tn, h.as_named(), overlap)),
+            );
             if let Some((last_hdr, overlap)) = trunc {
                 overlaps.push(t2h_overlap(tn, last_hdr.as_named(), overlap));
             }
@@ -387,7 +471,12 @@ impl FinalHeaderOffsets {
             .sorted_by_key(IsOffsetPair::slice_pair)
     }
 
-    fn as_mut_nonempty_offsets_filtered<I>(
+    fn as_mut_nonempty_offsets_no_text(&mut self) -> impl Iterator<Item = AnyHeaderOffsetsMut<'_>> {
+        self.as_mut_nonempty_offsets()
+            .filter(|k| !matches!(k, AnyHeaderOffsetsMut::Text(_)))
+    }
+
+    fn as_mut_nonempty_offsets_no_data_analysis<I>(
         &mut self,
     ) -> impl Iterator<Item = AnyHeaderOffsetsMut<'_>>
     where
@@ -419,11 +508,10 @@ impl FinalHeaderOffsets {
             let named0 = p.as_named();
             let ts = tmp[i + 1..].iter().copied();
             let (exceeded, res) = p.filter_and_truncate(limit.0, |(b, _)| *b, ts);
-            errors.extend(
-                exceeded
-                    .into_iter()
-                    .map(|(_, named1)| OffsetPairsOverlapError::new(named0, named1)),
-            );
+            errors.extend(exceeded.into_iter().map(|((_, named1), overlap)| {
+                let o = OffsetsOverlap::new(named0, named1, overlap);
+                OffsetPairsOverlapError(o)
+            }));
             if let Some(((_, named1), overlap)) = res {
                 let overlap_ret = HeaderToHeaderOffsetsOverlap::new(named0, named1, overlap);
                 fixed.push(overlap_ret);
@@ -481,12 +569,22 @@ impl AnyHeaderOffsetsMut<'_> {
         }
     }
 
+    pub(crate) fn segname(&self) -> HeaderOffsetsName {
+        match self {
+            Self::Text(s) => s.segname(()),
+            Self::Data(s) => s.segname(()),
+            Self::Analysis(s) => s.segname(()),
+            Self::Other(s, i) => s.segname(*i),
+        }
+    }
+
+    #[allow(clippy::type_complexity)]
     pub(crate) fn filter_and_truncate<F, X>(
         self,
         limit: u64,
         f_begin: F,
         xs: impl IntoIterator<Item = X>,
-    ) -> (Vec<X>, Option<(X, NonZeroU64)>)
+    ) -> (Vec<(X, NonZeroU64)>, Option<(X, NonZeroU64)>)
     where
         F: FnMut(&X) -> u64,
     {
@@ -525,6 +623,26 @@ impl AnyHeaderOffsetsMut<'_> {
                 .fmap_once(|x| Self::Other(x, i)),
         }
     }
+}
+
+/// Error when segment offsets exceed $NEXTDATA.
+///
+/// This is special and different from [`OffsetsOverflow`] since primary TEXT
+/// can only be validated against EOF and not both EOF and $NEXTDATA; the latter
+/// doesn't exist until primary TEXT is read.
+#[derive(Debug, Error, new, PartialEq, Clone)]
+#[error(
+    "primary TEXT offsets offsets ({begin}, {end}) exceed file length {file_len} \
+     by {overflow} bytes given dataset offset of {dataset_offset}"
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct PrimaryTEXTOverflowError {
+    begin: u64,
+    end: u64,
+    dataset_offset: DatasetOffset,
+    file_len: FileLen,
+    overflow: NonZeroU64,
 }
 
 /// Error when validating offsets in HEADER

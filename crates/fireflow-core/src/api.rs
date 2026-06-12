@@ -26,11 +26,11 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    AnyRegion, AreNamedOffsets, GuessOtherWidthError, HasRegion, HeaderOffsetsName,
-    HeaderOffsetsNextdataOverflow, IsDataOrAnalysis, IsOffsetPair as _, KeyedOptSegment as _,
-    KeyedReqSegment as _, NextdataOffsetsError, OffsetPairsOverlapError, OptOffsetsError,
-    OriginalOffsets, OversetsOverlap, PairResult, PrimaryTextOffsets, ReqOffsetsError,
-    SuppOffsetsEOFOverflow, SuppOffsetsNextdataOverflow, SuppTextOffsetsName,
+    AnyRegion, AreNamedOffsets, DatasetOverflowError, GuessOtherWidthError, HasRegion,
+    HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
+    KeyedOptSegment as _, KeyedReqSegment as _, NamedOffsets, NonEmptyOffsets,
+    OffsetPairsOverlapError, OffsetsFromTEXT, OffsetsOverlap, OptOffsetsError, OriginalOffsets,
+    PairResult, PrimaryTextOffsets, ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName,
     SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, SupplementalTextSegmentId, TEXTOffsets,
     TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
 };
@@ -41,8 +41,8 @@ use crate::text::keywords::{
 use crate::text::lookup::ReqMetarootKey as _;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_offsets::{
-    FinalHeaderOffsets, OffsetsValidationError, SuppToHeaderOffsetsValidationError,
-    TextToHeaderOrSuppOffsetsValidationError,
+    FinalHeaderOffsets, OffsetsValidationError, PrimaryTEXTOverflowError,
+    SuppToHeaderOffsetsValidationError, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
@@ -52,12 +52,12 @@ use crate::validated::keys::{
 
 use fireflow_types::config::{DelimEscapeMode, Encoding};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
+use fireflow_types::nonempty_string::NESliceExt as _;
 use hashbrown::HashMap;
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use fireflow_types::nonempty_string::NESliceExt as _;
 use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
@@ -494,8 +494,11 @@ pub struct FlatTEXTDiagnostics {
     /// HEADER data and supplemental TEXT offsets
     pub header_supp: HeaderAndSuppOffsets,
 
-    /// HEADER offsets which exceed $NEXTDATA or end of file.
-    pub header_overflows: Vec<HeaderOffsetsNextdataOverflow>,
+    /// Amount by which which primary TEXT exceeded EOF.
+    pub primary_text_overflow: u64,
+
+    /// Amounts by which non-primary-TEXT HEADER offsets exceeded the dataset length.
+    pub header_overflows: Vec<HeaderOffsetsOverflow>,
 
     /// Keywords that could not be parsed.
     ///
@@ -582,10 +585,8 @@ pub struct ValidSuppTEXTOffsets {
     duplicated_other: Option<usize>,
     /// Overlaps between supp TEXT and other offsets in HEADER.
     overlaps: Vec<SuppToHeaderOffsetsOverlap>,
-    /// Amount the offset exceeds EOF if applicable.
-    eof_overflow: Option<SuppOffsetsEOFOverflow>,
-    /// Amount the offset exceeds $NEXTDATA if applicable
-    nextdata_overflow: Option<SuppOffsetsNextdataOverflow>,
+    /// Amount the offset exceeds $NEXTDATA or EOF if applicable
+    overflow: Option<SuppOffsetsOverflow>,
 }
 
 /// Data pertaining to parsing the TEXT segment.
@@ -743,7 +744,7 @@ pub enum STextOffsetsError {
     ReqOffsets(ReqOffsetsError<Beginstext, Endstext>),
     Overlap(SuppToHeaderOffsetsValidationError),
     Duplicated(DuplicateSTextError),
-    Nextdata(NextdataOffsetsError<SuppTextOffsetsName>),
+    Nextdata(DatasetOverflowError<SuppTextOffsetsName>),
 }
 
 /// Warning when looking up and parsing supplemental TEXT offsets from primary TEXT.
@@ -841,14 +842,16 @@ pub enum ParseFlatTEXTWarning {
 #[derive(From, Display, Error, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum ParseFlatTEXTError {
-    Delim(DelimVerifyError),
+    Empty(EmptyTEXTError),
+    PrimaryTEXTOverflow(PrimaryTEXTOverflowError),
+    Delim(DelimCharError),
     Primary(ParseKeywordsIssue),
     Supplemental(ParseSupplementalTEXTError),
     SuppOffsets(STextOffsetsError),
     Nextdata(LookupNextdataError),
     InvalidKeyword(InvalidKeywordCharsError),
     InvalidChars(StdPresent),
-    NextdataOffset(NextdataOffsetsError<HeaderOffsetsName>),
+    NextdataOffset(DatasetOverflowError<HeaderOffsetsName>),
 }
 
 /// Error when parsing supplemental TEXT
@@ -870,14 +873,6 @@ pub enum ParseKeywordsIssue {
     Insert(KeywordInsertError),
     Bound(DelimBoundError),
     Leading(LeadingDelimError),
-}
-
-/// Error when verifying TEXT delimiter
-#[derive(From, Display, Error, Debug, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum DelimVerifyError {
-    Empty(EmptyTEXTError),
-    Char(DelimCharError),
 }
 
 /// Error when TEXT delimiter is not ASCII
@@ -1050,28 +1045,43 @@ impl HeaderAndSuppOffsets {
             // be modified since it has already been read. Therefore, only
             // change the offsets of the new pair if its ending offset is within
             // STEXT.
-            let this_named = this_ne.as_named(());
+            let this_begin = this_ne.begin();
+            let this_name = this_ne.segname(());
             let mut supp_overlap = None;
             let stxt_error = self.supp_text.as_offset_pair().and_then(|mut supp_pair| {
                 let supp_ne = supp_pair.as_nonempty_mut()?;
-                let inner_err =
-                    OffsetPairsOverlapError::new(this_named, supp_ne.as_named(()).fmap_into_once());
-                let err = OffsetsValidationError::from(inner_err);
+                let mk_overlap = |named, overlap| {
+                    OffsetsOverlap::new(named, supp_ne.as_named(()).fmap_into_once(), overlap)
+                };
                 if this_ne.slice_pair() < supp_ne.slice_pair() {
                     match this_ne.tail_overlap_pair_and_truncate(&supp_ne, limit.0) {
                         TruncateOffsetResult::NoOverlap(_) => None,
-                        TruncateOffsetResult::Truncated(overlap) => {
-                            supp_overlap = Some(OversetsOverlap::new(
+                        TruncateOffsetResult::Truncated {
+                            truncated_len,
+                            new_len,
+                        } => {
+                            let this_named = NamedOffsets::new(this_name, this_begin, new_len);
+                            supp_overlap = Some(OffsetsOverlap::new(
                                 this_named,
                                 supp_ne.as_named(()).fmap_into_once(),
-                                overlap,
+                                truncated_len,
                             ));
                             None
                         }
-                        TruncateOffsetResult::LimitExceeded(_, _) => Some(err),
+                        TruncateOffsetResult::LimitExceeded(truncated_len, old) => Some(
+                            OffsetPairsOverlapError(mk_overlap(old.as_named(()), truncated_len)),
+                        ),
                     }
                 } else {
-                    supp_ne.tail_overlap_pair(&this_ne).map(|_| err)
+                    supp_ne.tail_overlap_pair(&this_ne).map(|truncated_len| {
+                        // TODO these offsets should be flipped
+                        let o = OffsetsOverlap::new(
+                            this_ne.as_named(()),
+                            supp_ne.as_named(()).fmap_into_once(),
+                            truncated_len,
+                        );
+                        OffsetPairsOverlapError(o)
+                    })
                 }
             });
             // Check for any errors between this offset pair and HEADER offset
@@ -1080,7 +1090,7 @@ impl HeaderAndSuppOffsets {
                 .final_offsets
                 .validate_text_data_or_analysis(offsets, limit)
                 .map_errors(OffsetsValidationError::into2)
-                .extend_errors(stxt_error, |v| v)
+                .extend_errors(stxt_error.map(OffsetsValidationError::from), |v| v)
                 .map_deferred_value(|hdr_overlaps| {
                     hdr_overlaps
                         .into_iter()
@@ -1207,14 +1217,28 @@ impl FlatTEXTOutput {
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
     {
+        // Clip the primary TEXT offsets if they exceed EOF.
+        let ptext_overflow = match header.final_offsets.try_truncate_primary_text(&st) {
+            Ok(overflow) => overflow,
+            Err(e) => {
+                let pure = IOErrorGroup::new_pure_one(ParseFlatTEXTError::from(e));
+                return LogResult::new_err(pure);
+            }
+        };
+
         let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-        let mut buf = vec![];
         let ptext_offsets: &PrimaryTextOffsets = header.final_offsets.as_ref();
 
-        io_to_log!(ptext_offsets.h_read_contents(h, &mut buf));
-        let enc = conf.use_encoding.choose(&buf[..]);
+        let Some(ne_ptext_offsets) = ptext_offsets.as_nonempty() else {
+            let e = IOErrorGroup::new_pure_one(EmptyTEXTError.into());
+            return LogResult::new_err(e);
+        };
 
-        let delim_res = split_first_delim(&buf, conf)
+        let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(h));
+        let enc = conf.use_encoding.choose(ptext_bytes.as_ref());
+
+        let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
+        let delim_res = split_first_delim(&ptext_ne_slice, conf)
             .map_errors(ParseFlatTEXTError::from)
             .map_commutative_warnings(ParseFlatTEXTWarning::from)
             .into_semigroup();
@@ -1228,7 +1252,7 @@ impl FlatTEXTOutput {
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .and_then_commutative(|(kws, prim_diag)| {
-                        Nextdata::lookup_ro(&kws.std, st)
+                        Nextdata::lookup_ro(&kws.std, ptext_offsets, st)
                             .map_commutative_warnings(ParseFlatTEXTWarning::from)
                             .map_errors(ParseFlatTEXTError::from)
                             .into_semigroup()
@@ -1241,26 +1265,18 @@ impl FlatTEXTOutput {
             })
             // Parse supplemental TEXT if applicable
             .and_then_commutative(|(mut kws, delim, prim_diag, nextdata, txt_st)| {
-                SuppTEXTOffsetsOutput::lookup(&kws.std, &mut header, nextdata, &txt_st)
+                SuppTEXTOffsetsOutput::lookup(&kws.std, &mut header, &txt_st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|supp_out| {
-                        if let Some(final_pair) = supp_out.as_offset_pair() {
-                            buf.clear();
-                            SplitTEXTDiagnostics::h_read_supp(
-                                h,
-                                &final_pair,
-                                &mut kws,
-                                &mut buf,
-                                delim,
-                                enc,
-                                txt_st.conf.as_ref(),
-                            )
-                            .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                            .map_pure_errors(ParseFlatTEXTError::from)
-                            .map_ok_value(|supp_diag| (supp_out, supp_diag))
+                        if let Some(ne) = supp_out.as_offset_pair().and_then(|p| p.as_nonempty()) {
+                            let c = txt_st.conf.as_ref();
+                            SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut kws, delim, enc, c)
+                                .map_commutative_warnings(ParseFlatTEXTWarning::from)
+                                .map_pure_errors(ParseFlatTEXTError::from)
+                                .map_ok_value(|supp_diag| (supp_out, supp_diag))
                         } else {
                             LogResult::new_ok((supp_out, None))
                         }
@@ -1272,17 +1288,11 @@ impl FlatTEXTOutput {
             .and_then_commutative(
                 |(mut kws, nextdata, supp_text_offsets, prim_out, supp_out, txt_st)| {
                     // Check if any HEADER offsets exceed $NEXTDATA
-                    let hdr_nextdata_res = if let Some(n) = nextdata {
-                        let oconf: &ReadOffsetConfig = txt_st.conf.as_ref();
-                        let limit = oconf.dataset_overflow_limit;
-                        header
-                            .final_offsets
-                            .validate_nextdata(n, limit)
-                            .nowarn_into_warn()
-                            .map_errors(ParseFlatTEXTError::from)
-                    } else {
-                        LogResult::new_ok(vec![])
-                    };
+                    let hdr_trunc_res = header
+                        .final_offsets
+                        .try_truncate_non_primary_text(&txt_st)
+                        .nowarn_into_warn()
+                        .map_errors(ParseFlatTEXTError::from);
 
                     let hconf: &ReadHeaderAndTEXTConfig = txt_st.conf.as_ref();
 
@@ -1295,7 +1305,7 @@ impl FlatTEXTOutput {
 
                     let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
-                    hdr_nextdata_res
+                    hdr_trunc_res
                         .zip_commutative(append_res)
                         .and_then_commutative(|(nd_overlaps, ())| {
                             // Build diagnostics output, throw errors for any badly
@@ -1308,6 +1318,7 @@ impl FlatTEXTOutput {
                             kws.diag
                                 .into_flat_diag(
                                     header_supp,
+                                    ptext_overflow,
                                     nd_overlaps,
                                     prim_out,
                                     supp_out,
@@ -1389,9 +1400,8 @@ impl SplitTEXTDiagnostics {
     /// Read supp TEXT from file handle and store keywords in hash table.
     fn h_read_supp<R: Read + Seek>(
         h: &mut BufReader<R>,
-        seg: &SupplementalTextOffsets,
+        offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         kws: &mut ParsedKeywords,
-        buf: &mut Vec<u8>,
         delim: u8,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
@@ -1401,8 +1411,9 @@ impl SplitTEXTDiagnostics {
         ParseSupplementalTEXTError,
         (),
     > {
-        io_to_log!(seg.h_read_contents(h, buf));
-        Self::supp_from_bytes(kws, delim, buf, enc, conf)
+        let bytes = io_to_log!(offsets.h_read_contents(h));
+        let ne = bytes.as_nonempty_slice();
+        Self::supp_from_bytes(kws, delim, &ne, enc, conf)
             .group()
             .map_error(IOErrorGroup::Pure)
     }
@@ -1446,7 +1457,7 @@ impl SplitTEXTDiagnostics {
     fn supp_from_bytes(
         kws: &mut ParsedKeywords,
         delim: u8,
-        bytes: &[u8],
+        bytes: &NESlice<'_, u8>,
         enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndErrorsResult<
@@ -1455,23 +1466,19 @@ impl SplitTEXTDiagnostics {
         ParseSupplementalTEXTError,
         ParseSupplementalTEXTError,
     > {
-        if let Some((byte0, rest)) = bytes.split_first() {
-            let flag = conf.allow_supp_text_own_delim;
-            let raw_tokens = Self::split_bytes(*byte0, rest);
-            let raw_slice = raw_tokens.as_nonempty_slice();
-            Self::from_bytes_inner(kws, *byte0, &raw_slice, TEXTKind::Supplemental, enc, conf)
-                .map_warnings_and_errors(ParseSupplementalTEXTError::from)
-                .eval_warning_or_error3(
-                    flag,
-                    |_| (),
-                    |()| (),
-                    |_| (*byte0 != delim).then_some(DelimMismatch::new(delim, *byte0)),
-                )
-                .map_ok_value(Some)
-        } else {
-            // if empty do nothing, this is expected for most files
-            LogResult::new_ok(None)
-        }
+        let (b0, bs) = bytes.split_first();
+        let flag = conf.allow_supp_text_own_delim;
+        let raw_tokens = Self::split_bytes(*b0, bs);
+        let raw_slice = raw_tokens.as_nonempty_slice();
+        Self::from_bytes_inner(kws, *b0, &raw_slice, TEXTKind::Supplemental, enc, conf)
+            .map_warnings_and_errors(ParseSupplementalTEXTError::from)
+            .eval_warning_or_error3(
+                flag,
+                |_| (),
+                |()| (),
+                |_| (*b0 != delim).then_some(DelimMismatch::new(delim, *b0)),
+            )
+            .map_ok_value(Some)
     }
 
     fn split_bytes(delim: u8, xs: &[u8]) -> NEVec<&[u8]> {
@@ -1884,7 +1891,6 @@ impl SuppTEXTOffsetsOutput {
     fn lookup<C>(
         kws: &StdKeywords,
         header: &mut Header,
-        nextdata: Option<Nextdata>,
         st: &TEXTReadState<C>,
     ) -> WarningsAndErrorsResult<Self, (), STextOffsetsWarning, STextOffsetsError>
     where
@@ -1903,30 +1909,28 @@ impl SuppTEXTOffsetsOutput {
 
         let validate_offsets =
             |hdr: &mut Header, mut final_supp: SupplementalTextOffsets, orig_supp, other_index| {
-                let overflow_limit = oconf.dataset_overflow_limit;
                 let overlap_limit = oconf.overlap_correction_limit;
-                let eof_overflow = final_supp.as_nonempty().and_then(|x| x.eof_overflow(()));
-                let nd_res = nextdata
-                    .map_or(Ok(None), |nd| {
-                        nd.validate_text_offset(&mut final_supp, overflow_limit)
-                    })
-                    .map_err(STextOffsetsError::from)
-                    .into_log();
-                let val_res = hdr
+                let overflow_res = if let Some(ne) = final_supp.as_nonempty_mut() {
+                    ne.truncate_dataset_len((), st)
+                        .map_err(STextOffsetsError::from)
+                        .into_log()
+                } else {
+                    LogResult::new_ok(None)
+                };
+                let overlap_res = hdr
                     .final_offsets
                     .validate_supp_text(&mut final_supp, overlap_limit)
                     .map_errors(STextOffsetsError::from)
                     .set_err_value(());
-                nd_res
-                    .zip_commutative(val_res)
-                    .map_ok_value(|(nd_overflow, offset_overlaps)| {
+                overflow_res
+                    .zip_commutative(overlap_res)
+                    .map_ok_value(|(overflow, overlaps)| {
                         let valid = ValidSuppTEXTOffsets::new(
                             final_supp,
                             orig_supp,
                             other_index,
-                            offset_overlaps,
-                            eof_overflow,
-                            nd_overflow,
+                            overlaps,
+                            overflow,
                         );
                         Self::Valid(valid)
                     })
@@ -1966,25 +1970,33 @@ impl SuppTEXTOffsetsOutput {
                     PairResult::Valid(corr, uncorr) => {
                         LogResult::new_ok(OffsetResult::Valid(corr, uncorr))
                     }
-                    PairResult::Malformed(uncorr, e) => {
-                        let flag = hconf.allow_missing_supp_text;
-                        let r = OffsetResult::Malformed(uncorr);
-                        SwitchableErrorsResult::new_deferred_switchable3(r, e, flag)
-                            .map_switchable_errors(ReqOffsetsError::Segment)
-                            .map_switchable_errors(STextOffsetsError::from)
-                            .switchable_into_commutative()
-                            .map_commutative_warnings(STextOffsetsWarning::from)
+                    PairResult::Malformed(orig, e) => {
+                        let r = OffsetResult::Malformed(orig);
+                        if hconf.ignore_supp_text.is_set() {
+                            LogResult::new_ok(r)
+                        } else {
+                            let flag = hconf.allow_missing_supp_text;
+                            SwitchableErrorsResult::new_deferred_switchable3(r, e, flag)
+                                .map_switchable_errors(ReqOffsetsError::Segment)
+                                .map_switchable_errors(STextOffsetsError::from)
+                                .switchable_into_commutative()
+                                .map_commutative_warnings(STextOffsetsWarning::from)
+                        }
                     }
                     PairResult::Unparsed(es) => {
-                        let (e0, e1) = es.split();
-                        let flag = hconf.allow_missing_supp_text;
                         let r = OffsetResult::Missing;
-                        SwitchableErrorsResult::new_deferred_switchable3(r, e0, flag)
-                            .extend_deferred_switchable_errors3(e1)
-                            .map_switchable_errors(ReqOffsetsError::Key)
-                            .map_switchable_errors(STextOffsetsError::from)
-                            .switchable_into_commutative()
-                            .map_commutative_warnings(STextOffsetsWarning::from)
+                        if hconf.ignore_supp_text.is_set() {
+                            LogResult::new_ok(r)
+                        } else {
+                            let (e0, e1) = es.split();
+                            let flag = hconf.allow_missing_supp_text;
+                            SwitchableErrorsResult::new_deferred_switchable3(r, e0, flag)
+                                .extend_deferred_switchable_errors3(e1)
+                                .map_switchable_errors(ReqOffsetsError::Key)
+                                .map_switchable_errors(STextOffsetsError::from)
+                                .switchable_into_commutative()
+                                .map_commutative_warnings(STextOffsetsWarning::from)
+                        }
                     }
                 }
             }
@@ -1997,17 +2009,25 @@ impl SuppTEXTOffsetsOutput {
                     }
                     Some(PairResult::Malformed(uncorr, e)) => {
                         let r = OffsetResult::Malformed(uncorr);
-                        let mut res = DeferredWarningsAndErrors::new_ok(r);
-                        res.extend_commutative_warnings([e]);
-                        res.map_commutative_warnings(OptOffsetsError::Segment)
-                            .map_commutative_warnings(STextOffsetsWarning::from)
+                        if hconf.ignore_supp_text.is_set() {
+                            LogResult::new_ok(r)
+                        } else {
+                            let mut res = DeferredWarningsAndErrors::new_ok(r);
+                            res.extend_commutative_warnings([e]);
+                            res.map_commutative_warnings(OptOffsetsError::Segment)
+                                .map_commutative_warnings(STextOffsetsWarning::from)
+                        }
                     }
                     Some(PairResult::Unparsed(es)) => {
                         let r = OffsetResult::Missing;
-                        let mut res = DeferredWarningsAndErrors::new_ok(r);
-                        res.extend_commutative_warnings(es);
-                        res.map_commutative_warnings(OptOffsetsError::Key)
-                            .map_commutative_warnings(STextOffsetsWarning::from)
+                        if hconf.ignore_supp_text.is_set() {
+                            LogResult::new_ok(r)
+                        } else {
+                            let mut res = DeferredWarningsAndErrors::new_ok(r);
+                            res.extend_commutative_warnings(es);
+                            res.map_commutative_warnings(OptOffsetsError::Key)
+                                .map_commutative_warnings(STextOffsetsWarning::from)
+                        }
                     }
                 }
             }
@@ -2059,14 +2079,8 @@ impl SuppTEXTOffsetsOutput {
 
                     if final_supp.is_empty() {
                         // supp TEXT is empty, return as-is
-                        let valid = ValidSuppTEXTOffsets::new(
-                            final_supp,
-                            orig_supp,
-                            None,
-                            vec![],
-                            None,
-                            None,
-                        );
+                        let valid =
+                            ValidSuppTEXTOffsets::new(final_supp, orig_supp, None, vec![], None);
                         LogResult::new_ok(Self::Valid(valid))
                     } else if uncorr_ptxt == orig_supp {
                         // Primary and supp are identical, keep primary
@@ -2127,69 +2141,32 @@ impl SuppTEXTOffsetsOutput {
         seg: Option<SupplementalTextOffsets>,
         uncorr: Option<OriginalOffsets>,
         other_index: Option<usize>,
-        offset_overlaps: Vec<SuppToHeaderOffsetsOverlap>,
-        eof_overflow: Option<SuppOffsetsEOFOverflow>,
-        nd_overflow: Option<SuppOffsetsNextdataOverflow>,
+        overlaps: Vec<SuppToHeaderOffsetsOverlap>,
+        overflow: Option<SuppOffsetsOverflow>,
     ) -> PyResult<Self> {
-        match (
-            level,
-            seg,
-            uncorr,
-            other_index,
-            &offset_overlaps[..],
-            eof_overflow,
-            nd_overflow,
-        ) {
-            (py::SuppTEXTOffsetOriginType::Empty, None, None, None, [], None, None) => {
-                Ok(Self::Empty)
-            }
-            (py::SuppTEXTOffsetOriginType::Unparsed, None, None, None, [], None, None) => {
+        match (level, seg, uncorr, other_index, &overlaps[..], overflow) {
+            (py::SuppTEXTOffsetOriginType::Empty, None, None, None, [], None) => Ok(Self::Empty),
+            (py::SuppTEXTOffsetOriginType::Unparsed, None, None, None, [], None) => {
                 Ok(Self::Unparsed)
             }
-            (py::SuppTEXTOffsetOriginType::Malformed, None, Some(u), None, [], None, None) => {
+            (py::SuppTEXTOffsetOriginType::Malformed, None, Some(u), None, [], None) => {
                 Ok(Self::Malformed(u))
             }
-            (
-                py::SuppTEXTOffsetOriginType::DuplicatesPrimaryTEXT,
-                None,
-                None,
-                None,
-                [],
-                None,
-                None,
-            ) => Ok(Self::DuplicatesPrimaryTEXT),
-            (
-                py::SuppTEXTOffsetOriginType::DuplicatesAnalysis,
-                None,
-                None,
-                None,
-                [],
-                None,
-                None,
-            ) => Ok(Self::DuplicatesAnalysis),
-            (py::SuppTEXTOffsetOriginType::Ignored, None, u, None, [], None, None) => {
+            (py::SuppTEXTOffsetOriginType::DuplicatesPrimaryTEXT, None, None, None, [], None) => {
+                Ok(Self::DuplicatesPrimaryTEXT)
+            }
+            (py::SuppTEXTOffsetOriginType::DuplicatesAnalysis, None, None, None, [], None) => {
+                Ok(Self::DuplicatesAnalysis)
+            }
+            (py::SuppTEXTOffsetOriginType::Ignored, None, u, None, [], None) => {
                 Ok(Self::Ignored(u))
             }
-            (py::SuppTEXTOffsetOriginType::DuplicatesOther, Some(s), Some(u), Some(i), _, _, _) => {
-                Ok(Self::Valid(ValidSuppTEXTOffsets::new(
-                    s,
-                    u,
-                    Some(i),
-                    offset_overlaps,
-                    eof_overflow,
-                    nd_overflow,
-                )))
-            }
-            (py::SuppTEXTOffsetOriginType::Valid, Some(s), Some(u), None, _, _, _) => {
-                Ok(Self::Valid(ValidSuppTEXTOffsets::new(
-                    s,
-                    u,
-                    None,
-                    offset_overlaps,
-                    eof_overflow,
-                    nd_overflow,
-                )))
-            }
+            (py::SuppTEXTOffsetOriginType::DuplicatesOther, Some(s), Some(u), Some(i), _, _) => Ok(
+                Self::Valid(ValidSuppTEXTOffsets::new(s, u, Some(i), overlaps, overflow)),
+            ),
+            (py::SuppTEXTOffsetOriginType::Valid, Some(s), Some(u), None, _, _) => Ok(Self::Valid(
+                ValidSuppTEXTOffsets::new(s, u, None, overlaps, overflow),
+            )),
             _ => Err(PyValueError::new_err(
                 "invalid combination of level and values, see class-level docstring",
             )),
@@ -2265,23 +2242,12 @@ impl SuppTEXTOffsetsOutput {
         }
     }
 
-    /// The amount by which this offset exceeds EOF if applicable.
+    /// The amount by which this offset exceeds $NEXTDATA or EOF if applicable.
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_eof_overflow(&self) -> Option<SuppOffsetsEOFOverflow> {
+    pub fn py_overflow(&self) -> Option<SuppOffsetsOverflow> {
         if let Self::Valid(x) = self {
-            x.eof_overflow
-        } else {
-            None
-        }
-    }
-
-    /// The amount by which this offset exceeds $NEXTDATA if applicable.
-    #[cfg(feature = "python")]
-    #[must_use]
-    pub fn py_nextdata_overflow(&self) -> Option<SuppOffsetsNextdataOverflow> {
-        if let Self::Valid(x) = self {
-            x.nextdata_overflow
+            x.overflow
         } else {
             None
         }
@@ -2384,19 +2350,15 @@ where
 }
 
 fn split_first_delim<'a>(
-    bytes: &'a [u8],
+    bytes: &'a NESlice<'_, u8>,
     conf: &ReadHeaderAndTEXTConfig,
-) -> WarningAndErrorResult<(u8, &'a [u8]), (), DelimCharError, DelimVerifyError> {
-    if let Some((delim, rest)) = bytes.split_first() {
-        let is_ok = (1..=126).contains(delim);
-        let e = DelimCharError(*delim);
-        let flag = conf.allow_non_ascii_delim;
-        SwitchableErrorResult::new_switchable_ok_if3(is_ok, (*delim, rest), (), e, flag)
-            .switchable_into_commutative()
-            .map_errors(DelimVerifyError::from)
-    } else {
-        LogResult::new_err(EmptyTEXTError.into())
-    }
+) -> WarningAndErrorResult<(u8, &'a [u8]), (), DelimCharError, DelimCharError> {
+    let (delim, rest) = bytes.split_first();
+    let is_ok = (1..=126).contains(delim);
+    let e = DelimCharError(*delim);
+    let flag = conf.allow_non_ascii_delim;
+    SwitchableErrorResult::new_switchable_ok_if3(is_ok, (*delim, rest), (), e, flag)
+        .switchable_into_commutative()
 }
 
 #[cfg(test)]

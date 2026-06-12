@@ -4564,10 +4564,15 @@ class TestConfig:
         self.mock_header(p, version, t=(58, 59), rest=b"/")
 
         with pytest.RaisesGroup(pf.FileLayoutError):
-            pf.api.fcs_read_header(p, dataset_overflow_limit=0)
+            pf.api.fcs_read_flat_text(p, dataset_overflow_limit=0)
 
-        out = pf.api.fcs_read_header(p, dataset_overflow_limit=1)
-        assert out.final_offsets.text == (58, 58)
+        out = pf.api.fcs_read_flat_text(
+            p,
+            dataset_overflow_limit=1,
+            allow_missing_nextdata="silent",
+            ignore_supp_text=True,
+        )
+        assert out.flat_diagnostics.header_supp.header.final_offsets.text == (58, 58)
 
     @all_versions
     def test_overlap_correction_limit(
@@ -6706,7 +6711,7 @@ class TestPydantic:
         pydantic_seen = []
 
         # ignore kw args that are not supposed to be in pydantic classes
-        ignore = ["dataset_offset"]
+        ignore = ["dataset_offset", "dataset_len"]
 
         # get dict of pydantic attrs and types
         sig = ins.signature(pydantic_class)
@@ -6735,6 +6740,7 @@ class TestPydantic:
         for arg, default in zip(all_args[diff:], all_defaults):
             pyi_default = ast.unparse(default)
             name = arg.arg
+            print(name)
             if arg.annotation and name not in ignore:
                 try:
                     (t, d) = sigmap[name]

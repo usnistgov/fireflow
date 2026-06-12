@@ -17,7 +17,7 @@ use crate::segment::{
 };
 use crate::text::byteord::Bytes;
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{self as kws, Timestep};
+use crate::text::keywords::{self as kws, Nextdata, Timestep};
 use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
@@ -1448,7 +1448,7 @@ pub struct ReadState<C, D> {
     ///
     /// This is only known once $NEXTDATA is read, thus this only applies after
     /// TEXT is read.
-    pub(crate) dataset_len: D,
+    pub(crate) dataset_bounds: D,
     /// A read-only configuration to be used with this state.
     pub(crate) conf: C,
 }
@@ -1457,7 +1457,13 @@ pub struct ReadState<C, D> {
 pub type HeaderReadState<C> = ReadState<C, ()>;
 
 /// Read state after HEADER and TEXT are parsed.
-pub type TEXTReadState<C> = ReadState<C, DatasetLen>;
+pub type TEXTReadState<C> = ReadState<C, DatasetBounds>;
+
+#[derive(Clone, Copy, new)]
+pub struct DatasetBounds {
+    pub(crate) len: DatasetLen,
+    pub(crate) from_nextdata: bool,
+}
 
 /// The length of the entire FCS file in bytes.
 #[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
@@ -1465,11 +1471,12 @@ pub(crate) struct FileLen(pub(crate) u64);
 
 /// The length of the current dataset in bytes.
 ///
-/// For files with one dataset, this will be exactly equal to [`FileLen`]; this
-/// is 99% of files. For files with multiple datasets via $NEXTDATA, this will
-/// be the length of the current individual dataset.
+/// For files with one dataset, this will be exactly equal to the file length;
+/// this is 99% of files. For files with multiple datasets via $NEXTDATA, this
+/// will be the length of the current individual dataset.
 #[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
-pub struct DatasetLen(pub(crate) u64);
+#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
+pub struct DatasetLen(pub u64);
 
 /// The offset of the current dataset in bytes.
 ///
@@ -1504,12 +1511,6 @@ impl<C> HeaderReadState<C> {
         Ok(Self::new(fl, dataset_offset, (), conf))
     }
 
-    pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
-        let pos = h.stream_position()?;
-        let remaining = u64::from(self.file_len) - pos;
-        Ok(remaining)
-    }
-
     pub(crate) fn maybe_with_dataset_length(
         self,
         dataset_len: Option<DatasetLen>,
@@ -1518,7 +1519,7 @@ impl<C> HeaderReadState<C> {
             let f = self.file_len;
             let d = self.dataset_offset;
             if d.0 + dl.0 <= f.0 {
-                Ok(self.with_dataset_length(dl))
+                Ok(self.with_dataset_length(dl, false))
             } else {
                 Err(DatasetLenEOFError(d, dl, f))
             }
@@ -1527,14 +1528,26 @@ impl<C> HeaderReadState<C> {
         }
     }
 
-    pub(crate) fn with_dataset_length(self, dataset_len: DatasetLen) -> TEXTReadState<C> {
+    pub(crate) fn local_file_len(&self) -> u64 {
+        let f = self.file_len;
+        let d = self.dataset_offset;
+        f.0.checked_sub(d.0)
+            .unwrap_or_else(|| panic!("dataset offset ({d}) exceeds file length ({f})"))
+    }
+
+    pub(crate) fn with_nextdata(self, nd: Nextdata) -> TEXTReadState<C> {
+        self.with_dataset_length(DatasetLen(u64::from(nd)), true)
+    }
+
+    fn with_dataset_length(self, dataset_len: DatasetLen, from_nextdata: bool) -> TEXTReadState<C> {
         let f = self.file_len;
         let d = self.dataset_offset;
         assert!(
             d.0 + dataset_len.0 <= f.0,
             "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
         );
-        ReadState::new(f, d, dataset_len, self.conf)
+        let bounds = DatasetBounds::new(dataset_len, from_nextdata);
+        ReadState::new(f, d, bounds, self.conf)
     }
 
     // this should only be called if $NEXTDATA is 0 or missing (if allowed)
@@ -1544,7 +1557,16 @@ impl<C> HeaderReadState<C> {
         let dl =
             f.0.checked_sub(d.0)
                 .expect("dataset offset should not exceed file length");
-        ReadState::new(f, d, DatasetLen(dl), self.conf)
+        let bounds = DatasetBounds::new(DatasetLen(dl), false);
+        ReadState::new(f, d, bounds, self.conf)
+    }
+}
+
+impl<C, D> ReadState<C, D> {
+    pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
+        let pos = h.stream_position()?;
+        let remaining = u64::from(self.file_len) - pos;
+        Ok(remaining)
     }
 }
 

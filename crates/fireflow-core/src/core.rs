@@ -58,10 +58,10 @@ use crate::meas::{
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisOffsets, AnyDataOffsets, DataSegmentId, HeaderOrTextOffsets,
     IndexedOtherOffsets, IsOffsetPair as _, KeyedOptSegmentWithDefault as _,
-    KeyedReqSegmentWithDefault as _, OffsetPairsOverlapError, OffsetsMismatchError,
+    KeyedReqSegmentWithDefault as _, OffsetPairsOverlapError, OffsetsMismatchError, OffsetsOverlap,
     OptOffsetsWithDefaultWarning, OriginalOffsets, ReqOffsetsWithDefaultError,
-    ReqOffsetsWithDefaultWarning, TextOffsetsEOFOverflow, TextOffsetsName,
-    TextOffsetsNextdataOverflow, TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
+    ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
+    TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
@@ -1098,8 +1098,7 @@ pub struct MismatchedTEXTOffsetOrigin {
     header_is_empty: bool,
     uncorr: OriginalOffsets,
     overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
-    eof_overflow: Option<TextOffsetsEOFOverflow>,
-    nextdata_overflow: Option<TextOffsetsNextdataOverflow>,
+    overflow: Option<TextOffsetsOverflow>,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -6876,20 +6875,24 @@ impl DatasetOffsets {
         {
             let dn = d_ne.as_named(());
             let an = a_ne.as_named(());
+            // TODO use new_len somehow
             if d_ne.begin() < a_ne.begin() {
+                // TODO abstract over this pattern (and the overflow pattern)
                 match d_ne.tail_overlap_pair_and_truncate(&a_ne, limit.0) {
                     TruncateOffsetResult::NoOverlap(_) => None,
-                    TruncateOffsetResult::Truncated(overlap) => Some(overlap),
-                    TruncateOffsetResult::LimitExceeded(_, _) => {
-                        return Err(OffsetPairsOverlapError::new(dn, an));
+                    TruncateOffsetResult::Truncated { truncated_len, .. } => Some(truncated_len),
+                    TruncateOffsetResult::LimitExceeded(truncated_len, _) => {
+                        let o = OffsetsOverlap::new(dn, an, truncated_len);
+                        return Err(OffsetPairsOverlapError(o));
                     }
                 }
             } else {
                 match a_ne.tail_overlap_pair_and_truncate(&d_ne, limit.0) {
                     TruncateOffsetResult::NoOverlap(_) => None,
-                    TruncateOffsetResult::Truncated(overlap) => Some(overlap),
-                    TruncateOffsetResult::LimitExceeded(_, _) => {
-                        return Err(OffsetPairsOverlapError::new(an, dn));
+                    TruncateOffsetResult::Truncated { truncated_len, .. } => Some(truncated_len),
+                    TruncateOffsetResult::LimitExceeded(truncated_len, _) => {
+                        let o = OffsetsOverlap::new(an, dn, truncated_len);
+                        return Err(OffsetPairsOverlapError(o));
                     }
                 }
             }
@@ -6907,42 +6910,23 @@ impl TEXTOffsetsOrigin {
     pub fn py_try_new(
         level: py::TEXTOffsetOriginType,
         uncorr: Option<OriginalOffsets>,
-        offset_overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
-        eof_overflow: Option<TextOffsetsEOFOverflow>,
-        nextdata_overflow: Option<TextOffsetsNextdataOverflow>,
+        overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
+        overflow: Option<TextOffsetsOverflow>,
     ) -> PyResult<Self> {
-        let ret = match (
-            level,
-            uncorr,
-            &offset_overlaps[..],
-            eof_overflow,
-            nextdata_overflow,
-        ) {
-            (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None, None) => Self::EmptyTEXT,
-            (py::TEXTOffsetOriginType::Ignored, u, [], None, None) => Self::Ignored(u),
-            (py::TEXTOffsetOriginType::Unparsed, None, [], None, None) => Self::Unparsed,
-            (py::TEXTOffsetOriginType::Malformed, Some(u), [], None, None) => Self::Malformed(u),
-            (py::TEXTOffsetOriginType::Match, None, [], None, None) => Self::Match,
-            (py::TEXTOffsetOriginType::MismatchHeader, Some(u), [], None, None) => {
+        let ret = match (level, uncorr, &overlaps[..], overflow) {
+            (py::TEXTOffsetOriginType::EmptyTEXT, None, [], None) => Self::EmptyTEXT,
+            (py::TEXTOffsetOriginType::Ignored, u, [], None) => Self::Ignored(u),
+            (py::TEXTOffsetOriginType::Unparsed, None, [], None) => Self::Unparsed,
+            (py::TEXTOffsetOriginType::Malformed, Some(u), [], None) => Self::Malformed(u),
+            (py::TEXTOffsetOriginType::Match, None, [], None) => Self::Match,
+            (py::TEXTOffsetOriginType::MismatchHeader, Some(u), [], None) => {
                 Self::MismatchHeader(u)
             }
-            (py::TEXTOffsetOriginType::MismatchTEXT, Some(u), _, _, _) => {
-                Self::MismatchTEXT(MismatchedTEXTOffsetOrigin::new(
-                    false,
-                    u,
-                    offset_overlaps,
-                    eof_overflow,
-                    nextdata_overflow,
-                ))
-            }
-            (py::TEXTOffsetOriginType::EmptyHeader, Some(u), _, _, _) => {
-                Self::MismatchTEXT(MismatchedTEXTOffsetOrigin::new(
-                    true,
-                    u,
-                    offset_overlaps,
-                    eof_overflow,
-                    nextdata_overflow,
-                ))
+            (py::TEXTOffsetOriginType::MismatchTEXT, Some(u), _, _) => Self::MismatchTEXT(
+                MismatchedTEXTOffsetOrigin::new(false, u, overlaps, overflow),
+            ),
+            (py::TEXTOffsetOriginType::EmptyHeader, Some(u), _, _) => {
+                Self::MismatchTEXT(MismatchedTEXTOffsetOrigin::new(true, u, overlaps, overflow))
             }
             _ => {
                 return Err(PyValueError::new_err(
@@ -6996,19 +6980,9 @@ impl TEXTOffsetsOrigin {
 
     #[cfg(feature = "python")]
     #[must_use]
-    pub fn py_eof_overflow(&self) -> Option<TextOffsetsEOFOverflow> {
+    pub fn py_overflow(&self) -> Option<TextOffsetsOverflow> {
         if let Self::MismatchTEXT(x) = self {
-            x.eof_overflow
-        } else {
-            None
-        }
-    }
-
-    #[cfg(feature = "python")]
-    #[must_use]
-    pub fn py_nextdata_overflow(&self) -> Option<TextOffsetsNextdataOverflow> {
-        if let Self::MismatchTEXT(x) = self {
-            x.nextdata_overflow
+            x.overflow
         } else {
             None
         }

@@ -1,17 +1,13 @@
 use crate::config::{
-    ConfigFlag as _, DatasetLen, DatasetOverflowLimit, DummyTriFlag, FileLen, HeaderReadState,
-    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig,
-    TEXTReadState, TriErrorFlag as _, TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, FileLen, HeaderReadState, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TEXTReadState,
+    TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::logging::{
-    DeferredError, DeferredSwitchableErrors, DeferredWarningAndError, LogResult, ResultExt as _,
-    WarningAndErrorResult, WarningAndErrorsResult, WarningsAndErrorsResult,
+    DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
 use crate::macros::impl_newtype_try_from;
-use crate::segment::{
-    AreNamedOffsets, HasRegion, NextdataOffsetsError, OffsetsOverflow, TEXTOffsets,
-    TruncateOffsetResult,
-};
+use crate::segment::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::text::byteord::{
     ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes,
 };
@@ -113,6 +109,7 @@ impl Nextdata {
     // destroying many other things
     pub(crate) fn lookup_ro<C>(
         kws: &StdKeywords,
+        primary_text: &PrimaryTextOffsets,
         st: HeaderReadState<C>,
     ) -> WarningAndErrorResult<
         (Option<Self>, TEXTReadState<C>),
@@ -126,15 +123,28 @@ impl Nextdata {
         Self::lookup_ro_inner(kws, st.conf.as_ref())
             .map_errors(LookupNextdataError::from)
             .and_then_nowarn_commutative(|nextdata| {
+                // If $NEXTDATA exists (almost all the time) validate that it is
+                // a) less than the length of the FCS file from which it was
+                // read and b) beyond the end of the TEXT segment from which it
+                // was read.
                 let res = if let Some(nd) = nextdata {
                     let n = u64::from(nd);
                     let f = st.file_len;
                     if n == 0 {
                         Ok(st.into_last_dataset())
-                    } else if n < u64::from(f) {
-                        Ok(st.with_dataset_length(DatasetLen(u64::from(nd))))
+                    } else if let Some(ptext_end) = primary_text.as_nonempty().map(|t| t.end())
+                        // TODO this should always be some since we know that
+                        // the TEXT segment is non-empty (otherwise how did we
+                        // get $NEXTDATA?)
+                        && n < ptext_end
+                    {
+                        let e = NextdataInPrimaryError(nd, ptext_end);
+                        Err(LookupNextdataError::PrimaryTEXT(e))
+                    } else if n >= u64::from(f) {
+                        let e = NextdataEOFError(nd, f);
+                        Err(LookupNextdataError::FileLength(e))
                     } else {
-                        Err(LookupNextdataError::FileLength(NextdataEOFError(nd, f)))
+                        Ok(st.with_nextdata(nd))
                     }
                 } else {
                     Ok(st.into_last_dataset())
@@ -161,33 +171,6 @@ impl Nextdata {
                 .and_then(|v| Self::from_str_with(v.as_ne_str(), (), conf).ok())
                 .map(|x| x.native);
             LogResult::new_ok(ret)
-        }
-    }
-
-    pub(crate) fn validate_text_offset<N, I>(
-        self,
-        s: &mut TEXTOffsets<I>,
-        limit: DatasetOverflowLimit,
-    ) -> Result<Option<OffsetsOverflow<N, false>>, NextdataOffsetsError<N>>
-    where
-        I: HasRegion + AreNamedOffsets<N, Params = ()>,
-    {
-        let n = u64::from(self);
-        if let Some(ne) = s.as_nonempty_mut()
-            && n > 0
-        {
-            let named = ne.as_named(());
-            match ne.tail_overlap_offset_and_truncate(n, limit.0) {
-                TruncateOffsetResult::NoOverlap(_) => Ok(None),
-                TruncateOffsetResult::Truncated(overlap) => {
-                    Ok(Some(OffsetsOverflow::new(named, overlap)))
-                }
-                TruncateOffsetResult::LimitExceeded(_, old) => {
-                    Err(NextdataOffsetsError::new(self, old.as_named(())))
-                }
-            }
-        } else {
-            Ok(None)
         }
     }
 }
@@ -217,6 +200,7 @@ impl FromStrWith for Nextdata {
 pub enum LookupNextdataError {
     Parse(ReadNextdataError),
     FileLength(NextdataEOFError),
+    PrimaryTEXT(NextdataInPrimaryError),
 }
 
 pub type ReadNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata, ()>;
@@ -239,6 +223,17 @@ pub enum ParseNextdataError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub struct NextdataEOFError(Nextdata, FileLen);
+
+/// Error when $NEXTDATA exceeds EOF.
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error(
+    "$NEXTDATA ({}) occurs before primary TEXT ends (offset = {})",
+    self.0.as_displayable(),
+    self.1
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct NextdataInPrimaryError(Nextdata, u64);
 
 /// Error when $NEXTDATA is negative
 #[derive(Debug, Error, PartialEq, Clone)]

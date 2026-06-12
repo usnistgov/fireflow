@@ -2,8 +2,8 @@
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
-    AllowPseudoempty, ConfigFlag, DatasetOffset, DatasetOverflowLimit, DummyTriFlag, FileLen,
-    HeaderReadState, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
+    AllowPseudoempty, ConfigFlag, DatasetOffset, DummyTriFlag, HeaderReadState,
+    IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
     ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TEXTReadState,
 };
 use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
@@ -12,9 +12,7 @@ use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::text::keywords::{
-    Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, Nextdata,
-};
+use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
@@ -104,27 +102,27 @@ pub struct OriginalOffsets {
 /// A segment offset that exceeds the end of the dataset.
 ///
 /// "The end" can be defined either by $NEXTDATA or EOF, whichever is lower.
-#[derive(Clone, Copy, PartialEq, new)]
+#[derive(Clone, Copy, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct OffsetsOverflow<N, const IS_EOF: bool> {
+pub struct OffsetsOverflow<N> {
     /// The offsets with a name.
     pub offsets: NamedOffsets<N>,
     /// Amount by which the end of the segment offsets exceeds EOF/$NEXTDATA.
     pub overflow: NonZeroU64,
+    /// The length of the dataset that was exceeded.
+    pub dataset_len: u64,
+    /// `true` if the upper dataset bound is imposed by $NEXTDATA or EOF
+    pub bound_is_nextdata: bool,
 }
 
-pub type HeaderOffsetsEOFOverflow = OffsetsOverflow<HeaderOffsetsName, true>;
-pub type SuppOffsetsEOFOverflow = OffsetsOverflow<SuppTextOffsetsName, true>;
-pub type TextOffsetsEOFOverflow = OffsetsOverflow<TextOffsetsName, true>;
-
-pub type HeaderOffsetsNextdataOverflow = OffsetsOverflow<HeaderOffsetsName, false>;
-pub type TextOffsetsNextdataOverflow = OffsetsOverflow<TextOffsetsName, false>;
-pub type SuppOffsetsNextdataOverflow = OffsetsOverflow<SuppTextOffsetsName, false>;
+pub type HeaderOffsetsOverflow = OffsetsOverflow<HeaderOffsetsName>;
+pub type TextOffsetsOverflow = OffsetsOverflow<TextOffsetsName>;
+pub type SuppOffsetsOverflow = OffsetsOverflow<SuppTextOffsetsName>;
 
 /// Two offsets from HEADER which overlap.
-#[derive(Clone, PartialEq, new)]
+#[derive(Clone, PartialEq, Debug, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct OversetsOverlap<N0, N1> {
+pub struct OffsetsOverlap<N0, N1> {
     /// First offsets
     pub offsets0: NamedOffsets<N0>,
     /// Second offsets
@@ -133,38 +131,38 @@ pub struct OversetsOverlap<N0, N1> {
     pub overlap: NonZeroU64,
 }
 
-impl_kind2!(pub OffsetOverlapFamily, OversetsOverlap);
+impl_kind2!(pub OffsetOverlapFamily, OffsetsOverlap);
 
-impl<A, B> BifunctorOnce<A, B> for OversetsOverlap<A, B> {
+impl<A, B> BifunctorOnce<A, B> for OffsetsOverlap<A, B> {
     fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
-        OversetsOverlap::new(self.offsets0.fmap_once(f), self.offsets1, self.overlap)
+        OffsetsOverlap::new(self.offsets0.fmap_once(f), self.offsets1, self.overlap)
     }
 
     fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
-        OversetsOverlap::new(self.offsets0, self.offsets1.fmap_once(f), self.overlap)
+        OffsetsOverlap::new(self.offsets0, self.offsets1.fmap_once(f), self.overlap)
     }
 }
 
-pub type HeaderToHeaderOffsetsOverlap = OversetsOverlap<HeaderOffsetsName, HeaderOffsetsName>;
-pub type TextToHeaderOffsetsOverlap = OversetsOverlap<TextOffsetsName, HeaderOffsetsName>;
-pub type SuppToHeaderOffsetsOverlap = OversetsOverlap<SuppTextOffsetsName, HeaderOffsetsName>;
+pub type HeaderToHeaderOffsetsOverlap = OffsetsOverlap<HeaderOffsetsName, HeaderOffsetsName>;
+pub type TextToHeaderOffsetsOverlap = OffsetsOverlap<TextOffsetsName, HeaderOffsetsName>;
+pub type SuppToHeaderOffsetsOverlap = OffsetsOverlap<SuppTextOffsetsName, HeaderOffsetsName>;
 pub type TextToHeaderOrSuppOffsetsOverlap =
-    OversetsOverlap<TextOffsetsName, HeaderOrSuppOffsetsName>;
+    OffsetsOverlap<TextOffsetsName, HeaderOrSuppOffsetsName>;
 
-/// Segment offsets which have a name to identify them
+/// Segment offsets which have a name to identify them.
 ///
-/// Used when processing and diagnosing overlaps.
+/// Used to represent overlaps and overflows. `length` may more may not
+/// correspond to the original length in the file since this value may reflect
+/// the result of truncation.
 ///
-/// Note that `begin` and `end` may or may not match the original values of
-/// the offsets as read from the file because some segments can go through
-/// multiple rounds of overlap corrections. These values reflect the state of
-/// offsets immediately before the overlap correction.
+/// `length` may be empty, which means that the offsets were truncated down to
+/// nothing.
 #[derive(Clone, Copy, Debug, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NamedOffsets<N> {
     name: N,
     begin: u64,
-    length: NonZeroU64,
+    length: u64,
 }
 
 impl_kind1!(pub NamedOffsetsFamily, NamedOffsets);
@@ -177,29 +175,9 @@ impl_functor_once!(
 );
 
 impl<N> NamedOffsets<N> {
-    //     pub(crate) fn as_pair(&self) -> (u64, u64) {
-    //         (self.begin, self.end())
-    //     }
-
     pub(crate) fn end(&self) -> u64 {
-        self.begin + self.length.get() - 1
+        self.begin + self.length - 1
     }
-
-    //     pub(crate) fn get_tail_offset_overlap<N0>(
-    //         &self,
-    //         other: &NamedOffsets<N0>,
-    //     ) -> Option<NonZeroU64> {
-    //         NonZeroU64::new((self.end() + 1).saturating_sub(other.begin))
-    //     }
-
-    //     pub(crate) fn get_tail_nextdata_overlap(&self, n: Nextdata) -> Option<NonZeroU64> {
-    //         let nn = u64::from(n.0);
-    //         if nn == 0 {
-    //             None
-    //         } else {
-    //             NonZeroU64::new((self.end() + 1).saturating_sub(nn))
-    //         }
-    //     }
 }
 
 /// Error when a non-empty offset pair occurs within the first 58 bytes of the file.
@@ -217,22 +195,20 @@ impl<N> NamedOffsets<N> {
 pub struct InHeaderError<N>(pub NamedOffsets<N>);
 
 /// Error when segment offsets exceed $NEXTDATA.
-#[derive(Debug, Error, new, PartialEq, Clone, Display)]
+#[derive(Debug, Error, PartialEq, Clone, Display)]
 #[display(
-    "{} segment offsets ({}, {}) exceeds $NEXTDATA ({})",
-    self.offsets.name,
-    self.offsets.begin,
-    self.offsets.end(),
-    u64::from(self.nextdata)
+    "{} segment offsets ({}, {}) exceeds {} ({})",
+    self.0.offsets.name,
+    self.0.offsets.begin,
+    self.0.offsets.end(),
+    if self.0.bound_is_nextdata { "$NEXTDATA" } else { "EOF" },
+    self.0.dataset_len
 )]
 #[display(bound(N: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[cfg_attr(feature = "python", bound(N: fmt::Display))]
-pub struct NextdataOffsetsError<N> {
-    nextdata: Nextdata,
-    offsets: NamedOffsets<N>,
-}
+pub struct DatasetOverflowError<N>(pub OffsetsOverflow<N>);
 
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
@@ -852,7 +828,6 @@ where
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
         let missing_flag = dconf.allow_missing_required_offsets;
-        let overflow_limit = oconf.dataset_overflow_limit;
         let overlap_limit = oconf.overlap_correction_limit;
 
         let text_missing = |es: Vec<ReqOffsetsWithDefaultError<Self>>| {
@@ -873,30 +848,28 @@ where
                 .map_err(ReqOffsetsError::Segment);
             match offsets_res {
                 Ok(mut offsets) => {
-                    let eof_overflow = offsets.as_nonempty().and_then(|x| x.eof_overflow(()));
-                    let nd_res = segs
-                        .nextdata
-                        .map_or(Ok(None), |nd| {
-                            nd.validate_text_offset(&mut offsets, overflow_limit)
-                        })
-                        .map_err(ReqOffsetsWithDefaultErrorInner::from)
-                        .into_deferred_switchable3(missing_flag)
-                        .switchable_into_commutative();
+                    let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
+                        ne.truncate_dataset_len((), st)
+                            .map_err(ReqOffsetsWithDefaultErrorInner::from)
+                            .into_deferred_switchable3(missing_flag)
+                            .switchable_into_commutative()
+                    } else {
+                        LogResult::new_ok(None)
+                    };
                     let val_res = segs
                         .validate_text_offsets(&mut offsets, overlap_limit)
                         .map_errors(ReqOffsetsWithDefaultErrorInner::from)
                         .nowarn_into_switchable3(missing_flag)
                         .switchable_into_commutative();
-                    let mut res = nd_res
+                    let mut res = overflow_res
                         .zip_commutative(val_res)
                         .map_commutative_warnings(ReqOffsetsWithDefaultWarning::from)
-                        .map_ok_value(|(nd_overflow, offset_overlaps)| {
+                        .map_ok_value(|(overflow, overlaps)| {
                             let origin = MismatchedTEXTOffsetOrigin::new(
                                 header_is_empty,
                                 txt_orig,
-                                offset_overlaps,
-                                eof_overflow,
-                                nd_overflow,
+                                overlaps,
+                                overflow,
                             );
                             HeaderOrTextOffsets::Text {
                                 seg: offsets,
@@ -1099,7 +1072,7 @@ where
 
     fn with_opt_pair_default<C>(
         pair: OptPair<Self::B, Self::E>,
-        segs: &mut HeaderAndSuppOffsets,
+        hdr_supp_offsets: &mut HeaderAndSuppOffsets,
         corr: TEXTCorrection<Self>,
         ignore: Self::IgnoreFlag,
         st: &TEXTReadState<C>,
@@ -1114,12 +1087,11 @@ where
     {
         let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
         let oconf: &ReadOffsetConfig = st.conf.as_ref();
-        let (header_seg, uncorr_hdr) = Self::offset_pair(segs);
+        let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
         // TODO configure this
         let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
-        let overflow_limit = oconf.dataset_overflow_limit;
         let overlap_limit = oconf.overlap_correction_limit;
 
         let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
@@ -1130,28 +1102,26 @@ where
                 .map_err(OptOffsetsError::Segment);
             match offsets_res {
                 Ok(mut offsets) => {
-                    let eof_overflow = offsets.as_nonempty().and_then(|x| x.eof_overflow(()));
-                    let nd_res = segs
-                        .nextdata
-                        .map_or(Ok(None), |nd| {
-                            nd.validate_text_offset(&mut offsets, overflow_limit)
-                        })
-                        .map_err(OptOffsetsWithDefaultWarning::from)
-                        .into_deferred_switchable(drop_flag)
-                        .switchable_into_commutative();
-                    let val_res = segs
+                    let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
+                        ne.truncate_dataset_len((), st)
+                            .map_err(OptOffsetsWithDefaultWarning::from)
+                            .into_deferred_switchable(drop_flag)
+                            .switchable_into_commutative()
+                    } else {
+                        LogResult::new_ok(None)
+                    };
+                    let overlap_res = hdr_supp_offsets
                         .validate_text_offsets(&mut offsets, overlap_limit)
                         .nowarn_into_switchable(drop_flag)
                         .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
                         .switchable_into_commutative();
-                    let mut res = nd_res.zip_commutative(val_res).map_ok_value(
-                        |(nd_overflow, offset_overlaps)| {
+                    let mut res = overflow_res.zip_commutative(overlap_res).map_ok_value(
+                        |(overflow, overlaps)| {
                             let origin = MismatchedTEXTOffsetOrigin::new(
                                 header_is_empty,
                                 txt_orig,
-                                offset_overlaps,
-                                eof_overflow,
-                                nd_overflow,
+                                overlaps,
+                                overflow,
                             );
                             HeaderOrTextOffsets::Text {
                                 seg: offsets,
@@ -1500,11 +1470,15 @@ impl<I, S> Offsets<I, S> {
 }
 
 impl<I, S> NonEmptyOffsets<I, S> {
-    fn inner(&self) -> &NonEmptyOffsetsInner {
-        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
-            panic!("offsets should always be non-empty in this struct")
-        };
-        ne
+    /// Read bytes within this segment
+    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<NEVec<u8>>
+    where
+        R: Read + Seek,
+    {
+        let mut buf = vec![];
+        self.inner().h_read_contents(h, &mut buf)?;
+        Ok(NEVec::try_from_vec(buf)
+            .expect("offsets are non-empty, therefore buffer should be non-empty"))
     }
 
     pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
@@ -1512,22 +1486,14 @@ impl<I, S> NonEmptyOffsets<I, S> {
         I: AreNamedOffsets<N>,
     {
         let inner = self.inner();
-        NamedOffsets::new(I::segname(args), inner.begin, inner.length)
+        NamedOffsets::new(I::segname(args), inner.begin, inner.length.get())
     }
 
-    /// Project this non-empty offset pair to an overflow error if applicable.
-    ///
-    /// This will simply take the difference between the original length and the
-    /// current length and convert it to an overflow error. It is only meant to
-    /// be used for EOF overflow since this corresponds to when the offsets were
-    /// first created and the file length was checked.
-    pub(crate) fn eof_overflow<N>(&self, args: I::Params) -> Option<OffsetsOverflow<N, true>>
-    where
-        I: AreNamedOffsets<N>,
-    {
-        let n = self.as_named(args);
-        let l = NonZeroU64::new(self.inner().truncated_len())?;
-        Some(OffsetsOverflow::new(n, l))
+    fn inner(&self) -> &NonEmptyOffsetsInner {
+        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
+            panic!("offsets should always be non-empty in this struct")
+        };
+        ne
     }
 }
 
@@ -1536,26 +1502,30 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
         self.begin() + self.inner().dataset_offset.0
     }
 
+    #[allow(clippy::unused_self, reason = "needed for coherence")]
+    pub(crate) fn segname<N>(&self, args: I::Params) -> N
+    where
+        I: AreNamedOffsets<N>,
+    {
+        I::segname(args)
+    }
+
     pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
     where
         I: AreNamedOffsets<N>,
     {
         let inner = self.inner();
-        NamedOffsets::new(I::segname(args), inner.begin, inner.length)
+        NamedOffsets::new(I::segname(args), inner.begin, inner.length.get())
     }
 
-    /// Return `true` if end offset can be truncated.
-    ///
-    /// Specifically, only return `true` if amount to be truncated + amount
-    /// already truncated is less than/equal to the lesser of `limit` or the
-    /// number of bytes of the offset pair.
-    fn over_truncation_limit(&self, offset: u64, limit: u64) -> bool {
+    /// Return amount to be truncated if over limit.
+    fn exceeds_limit(&self, offset: u64, limit: u64) -> Option<u64> {
         if let Some(n) = self.tail_overlap_offset(offset) {
             let to_truncate = self.inner().truncated_len() + n.get();
             let trunc_limit = limit.min(self.inner().length.get());
-            to_truncate > trunc_limit
+            (to_truncate > trunc_limit).then_some(to_truncate)
         } else {
-            false
+            None
         }
     }
 
@@ -1565,21 +1535,26 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
     /// be sorted. `f_begin` is a function that must return the beginning offset
     /// of the item.
     #[allow(clippy::unused_peekable, reason = "false positive")]
+    #[allow(clippy::type_complexity)]
     pub(crate) fn filter_and_truncate<F, X>(
         self,
         limit: u64,
         mut f_begin: F,
         xs: impl IntoIterator<Item = X>,
-    ) -> (Vec<X>, Option<(X, NonZeroU64)>)
+    ) -> (Vec<(X, NonZeroU64)>, Option<(X, NonZeroU64)>)
     where
         F: FnMut(&X) -> u64,
     {
         let mut it = xs.into_iter().peekable();
         // Automatically convert any offset pair that cannot be truncated
         // because they exceed the allowed limit.
-        let exceed_limit = it
-            .peeking_take_while(|x| self.over_truncation_limit(f_begin(x), limit))
-            .collect();
+        let mut exceed_limit = vec![];
+        while let Some(overlap) = it.peek().and_then(|x| {
+            self.exceeds_limit(f_begin(x), limit)
+                .and_then(NonZeroU64::new)
+        }) {
+            exceed_limit.push((it.next().unwrap(), overlap));
+        }
         // If there is one more offset, truncate it if necessary. We just
         // removed all the prior offsets which cannot be truncated, so
         // truncation in this case should not fail if it is needed. Regardless,
@@ -1595,7 +1570,7 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
                 // If overlap within limit and we have not encountered an
                 // error yet, truncate TEXT and return early without error.
                 // Otherwise push error.
-                TruncateOffsetResult::Truncated(overlap) => Some((x, overlap)),
+                TruncateOffsetResult::Truncated { truncated_len, .. } => Some((x, truncated_len)),
                 TruncateOffsetResult::LimitExceeded(_, _) => {
                     panic!("offset should be truncatable")
                 }
@@ -1617,15 +1592,54 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
         self.tail_overlap_offset_and_truncate(other.begin(), limit)
     }
 
+    /// Truncate non-primary TEXT offsets that exceed EOF or $NEXTDATA.
+    ///
+    /// Return amount truncated for each offset pair or error if truncation
+    /// amount is beyond limit.
+    pub(crate) fn truncate_dataset_len<C, N>(
+        self,
+        args: I::Params,
+        st: &TEXTReadState<C>,
+    ) -> Result<Option<OffsetsOverflow<N>>, DatasetOverflowError<N>>
+    where
+        C: AsRef<ReadOffsetConfig>,
+        I: AreNamedOffsets<N>,
+    {
+        let bounds = st.dataset_bounds;
+        let dataset_len = bounds.len.0;
+        let conf: &ReadOffsetConfig = st.conf.as_ref();
+        let limit = conf.dataset_overflow_limit;
+        let mk_overflow =
+            |named, n| OffsetsOverflow::new(named, n, dataset_len, bounds.from_nextdata);
+        let old_begin = self.begin();
+        match self.tail_overlap_offset_and_truncate(dataset_len, limit.0) {
+            TruncateOffsetResult::NoOverlap(_) => Ok(None),
+            TruncateOffsetResult::Truncated {
+                truncated_len,
+                new_len,
+            } => {
+                let named = NamedOffsets::new(I::segname(args), old_begin, new_len);
+                Ok(Some(mk_overflow(named, truncated_len)))
+            }
+            TruncateOffsetResult::LimitExceeded(overflow, old) => {
+                let e = DatasetOverflowError(mk_overflow(old.as_named(args), overflow));
+                Err(e)
+            }
+        }
+    }
+
     pub(crate) fn tail_overlap_offset_and_truncate(
         self,
         other: u64,
         limit: u64,
     ) -> TruncateOffsetResult<Self> {
-        if let Some(overlap) = self.tail_overlap_offset(other) {
-            match self.truncate(overlap.get(), limit) {
-                Ok(_) => TruncateOffsetResult::Truncated(overlap),
-                Err(old) => TruncateOffsetResult::LimitExceeded(overlap, old),
+        if let Some(truncated_len) = self.tail_overlap_offset(other) {
+            match self.truncate(truncated_len.get(), limit) {
+                Ok(new_len) => TruncateOffsetResult::Truncated {
+                    truncated_len,
+                    new_len,
+                },
+                Err(old) => TruncateOffsetResult::LimitExceeded(truncated_len, old),
             }
         } else {
             TruncateOffsetResult::NoOverlap(self)
@@ -1673,7 +1687,10 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
 
 pub(crate) enum TruncateOffsetResult<T> {
     NoOverlap(T),
-    Truncated(NonZeroU64),
+    Truncated {
+        truncated_len: NonZeroU64,
+        new_len: u64,
+    },
     LimitExceeded(NonZeroU64, T),
 }
 
@@ -1685,7 +1702,13 @@ impl_functor_once!(
     mut f,
     match self {
         Self::NoOverlap(x) => TruncateOffsetResult::NoOverlap(f(x)),
-        Self::Truncated(x) => TruncateOffsetResult::Truncated(x),
+        Self::Truncated {
+            truncated_len,
+            new_len,
+        } => TruncateOffsetResult::Truncated {
+            truncated_len,
+            new_len,
+        },
         Self::LimitExceeded(x, y) => TruncateOffsetResult::LimitExceeded(x, f(y)),
     }
 );
@@ -2098,12 +2121,6 @@ impl InnerOffsets {
         conf: &NewOffsetsConfig<I, S>,
     ) -> Result<Self, SegmentOffsetError> {
         let corr = &conf.corr;
-        let err = |kind| {
-            let o = conf.dataset_offset;
-            let c = (corr.begin, corr.end);
-            SegmentOffsetError::new((begin, end), c, o, kind, I::REGION, S::SRC)
-        };
-
         let corrected_begin = begin + i128::from(corr.begin);
         let corrected_end = end + i128::from(corr.end);
 
@@ -2114,13 +2131,12 @@ impl InnerOffsets {
         } else if corrected_begin == 0 && corrected_end == 0 {
             // Return empty if both offsets are zero
             return Ok(Self::Empty);
-        // } else if corrected_begin < i128::from(HEADER_LEN) {
-        //     // Check if segment overlaps with HEADER (sans OTHER segments) which
-        //     // is automatically invalid since the HEADER has a minimum length
-        //     return Err(err(SegmentOffsetErrorKind::InHeader));
         } else if corrected_begin > corrected_end {
             // Return error if ending offset is greater than beginning offset
-            return Err(err(SegmentOffsetErrorKind::Inverted));
+            let o = conf.dataset_offset;
+            let c = (corr.begin, corr.end);
+            let e = SegmentOffsetError::new((begin, end), c, o, I::REGION, S::SRC);
+            return Err(e);
         }
 
         // At this point, we know that the begin offset should be <= the end
@@ -2136,46 +2152,6 @@ impl InnerOffsets {
 
         let new_begin = u64::try_from(corrected_begin).expect("offset begin exceeded u64");
 
-        // let dso = conf.dataset_offset.0;
-        // let fl = conf.file_len.0;
-        // assert!(dso <= fl, "dataset offset exceeds file length");
-
-        // // put offset in absolute coordinates to check for
-        // // truncation
-        // //
-        // // TODO it would be marginally better to return an error rather than
-        // // panic here since we could exceed u64 if the user simply supplies a
-        // // large dataset offset, which is much more likely than encountering a
-        // // file that is ~4EB
-        // let abs_new_begin = dso.checked_add(new_begin).expect("abs begin exceeded u64");
-
-        // let truncated_length = if let Some(overflow) = abs_new_begin
-        //     .checked_add(new_length.get())
-        //     .expect("abs end exceeded u64")
-        //     .checked_sub(fl)
-        // {
-        //     // Check by how much the final offset exceeds EOF (if anything)
-        //     let trunc_limit = conf.truncate_offset_limit.0;
-        //     if overflow > trunc_limit {
-        //         return Err(err(SegmentOffsetErrorKind::Truncated(conf.file_len)));
-        //     } else if let Some(l) = new_length.get().checked_sub(overflow) {
-        //         if let Some(truncated_length) = NonZeroU64::new(l) {
-        //             // length - overflow is greater than one, return new length
-        //             truncated_length
-        //         } else {
-        //             // length - overflow is exactly zero, in which case this
-        //             // offset is empty after truncation
-        //             return Ok(Self::Empty);
-        //         }
-        //     } else {
-        //         // length - overflow is less than zero, which is an error
-        //         // because the first offset cannot move
-        //         return Err(err(SegmentOffsetErrorKind::BeginEOF(conf.file_len)));
-        //     }
-        // } else {
-        //     // If no overlap, return original length
-        //     new_length
-        // };
         let ne = NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
         Ok(Self::NonEmpty(ne))
     }
@@ -2387,79 +2363,52 @@ pub struct OtherOffsetsNoBytesError {
 
 /// Error when creating a new segment
 #[derive(Debug, Error, new, PartialEq, Clone)]
+#[error(
+    "Begin after end for {location} offsets from {src}; \
+     coords=({}, {}), correction=({}, {}), offset={dataset_offset}",
+    self.coords.0,
+    self.coords.1,
+    self.correction.0,
+    self.correction.1,
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct SegmentOffsetError {
     coords: (i128, i128),
     correction: (i32, i32),
     dataset_offset: DatasetOffset,
-    kind: SegmentOffsetErrorKind,
     location: AnyRegion,
     src: AnySrc,
 }
 
-#[derive(Debug, PartialEq, Clone)]
-enum SegmentOffsetErrorKind {
-    Inverted,
-    // BeginEOF(FileLen),
-    // InHeader,
-    // Truncated(FileLen),
-}
-
-impl fmt::Display for SegmentOffsetError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let (x0, x1) = self.coords;
-        let (c0, c1) = self.correction;
-        let kind_text = match &self.kind {
-            SegmentOffsetErrorKind::Inverted => "Begin after end",
-            // SegmentOffsetErrorKind::BeginEOF(size) => {
-            //     format!("Begin exceeds file size ({size} bytes)")
-            // }
-            // SegmentOffsetErrorKind::InHeader => "Begins within HEADER (first 58 bytes)",
-            // SegmentOffsetErrorKind::Truncated(size) => {
-            //     format!("Segment exceeds file size ({size} bytes)")
-            // }
-        };
-        write!(
-            f,
-            "{kind_text} for {} offsets from {}; \
-             coords=({x0}, {x1}), correction=({c0}, {c1}), offset={}",
-            self.location, self.src, self.dataset_offset
-        )
-    }
-}
-
 /// Error when one offset pair overlaps with another
-#[derive(Debug, Error, new, PartialEq, Clone, Display)]
+#[derive(Debug, Error, PartialEq, Clone, Display)]
 #[display(
-    "{} segment offsets ({}, {}) overlaps with {} segment offsets ({}, {})",
-    self.seg0.name,
-    self.seg0.begin,
-    self.seg0.end(),
-    self.seg1.name,
-    self.seg1.begin,
-    self.seg1.end(),
+    "{} segment offsets ({}, {}) overlaps with {} segment offsets ({}, {}) by {} bytes",
+    self.0.offsets0.name,
+    self.0.offsets0.begin,
+    self.0.offsets0.end(),
+    self.0.offsets1.name,
+    self.0.offsets1.begin,
+    self.0.offsets1.end(),
+    self.0.overlap,
 )]
 #[display(bound(N0: fmt::Display, N1: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 #[cfg_attr(feature = "python", bound(N0: fmt::Display))]
 #[cfg_attr(feature = "python", bound(N1: fmt::Display))]
-#[new(visibilty(""))]
-pub struct OffsetPairsOverlapError<N0, N1> {
-    seg0: NamedOffsets<N0>,
-    seg1: NamedOffsets<N1>,
-}
+pub struct OffsetPairsOverlapError<N0, N1>(pub OffsetsOverlap<N0, N1>);
 
 impl_kind2!(pub OffsetPairsOverlapErrorFamily, OffsetPairsOverlapError);
 
 impl<A, B> BifunctorOnce<A, B> for OffsetPairsOverlapError<A, B> {
     fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
-        OffsetPairsOverlapError::new(self.seg0.fmap_once(f), self.seg1)
+        OffsetPairsOverlapError(self.0.first_once(f))
     }
 
     fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
-        OffsetPairsOverlapError::new(self.seg0, self.seg1.fmap_once(f))
+        OffsetPairsOverlapError(self.0.second_once(f))
     }
 }
 
@@ -2553,7 +2502,7 @@ pub enum ReqOffsetsWithDefaultErrorInner<I, B, E> {
     Req(ReqOffsetsError<B, E>),
     Mismatch(OffsetsMismatchError<I>),
     Validation(TextToHeaderOrSuppOffsetsValidationError),
-    Nextdata(NextdataOffsetsError<TextOffsetsName>),
+    Nextdata(DatasetOverflowError<TextOffsetsName>),
 }
 
 impl<I, B, E> Clone for ReqOffsetsWithDefaultErrorInner<I, B, E> {
@@ -2615,7 +2564,7 @@ pub enum OptOffsetsWithDefaultWarningInner<I, B, E> {
     Opt(OptOffsetsError<B, E>),
     Mismatch(OffsetsMismatchError<I>),
     Validation(TextToHeaderOrSuppOffsetsValidationError),
-    Nextdata(NextdataOffsetsError<TextOffsetsName>),
+    Nextdata(DatasetOverflowError<TextOffsetsName>),
 }
 
 impl<I, B, E> Clone for OptOffsetsWithDefaultWarningInner<I, B, E> {
@@ -3038,10 +2987,10 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             let (name, begin, end) = obj.extract::<(N, u64, u64)>()?;
-            if let Some(length) = begin.checked_sub(end).and_then(NonZeroU64::new) {
+            if let Some(length) = begin.checked_sub(end) {
                 Ok(Self::new(name, begin, length))
             } else {
-                Err(PyValueError::new_err("begin must be less than end"))
+                Err(PyValueError::new_err("begin must be <= end"))
             }
         }
     }

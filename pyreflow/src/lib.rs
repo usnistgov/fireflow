@@ -102,12 +102,9 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyNewCoreTEXTConfig>()?;
     m.add_class::<ff::PyNewCoreDatasetConfig>()?;
 
-    m.add_class::<ff::PyHeaderOffsetsEOFOverflow>()?;
-    m.add_class::<ff::PyTextOffsetsEOFOverflow>()?;
-    m.add_class::<ff::PySuppOffsetsEOFOverflow>()?;
-    m.add_class::<ff::PyHeaderOffsetsNextdataOverflow>()?;
-    m.add_class::<ff::PyTextOffsetsNextdataOverflow>()?;
-    m.add_class::<ff::PySuppOffsetsNextdataOverflow>()?;
+    m.add_class::<ff::PyHeaderOffsetsOverflow>()?;
+    m.add_class::<ff::PyTextOffsetsOverflow>()?;
+    m.add_class::<ff::PySuppOffsetsOverflow>()?;
 
     m.add_class::<ff::PyHeaderToHeaderOffsetsOverlap>()?;
     m.add_class::<ff::PyTextToHeaderOffsetsOverlap>()?;

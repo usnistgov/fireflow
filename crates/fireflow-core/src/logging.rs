@@ -2843,32 +2843,32 @@ impl<T, X, WC, E, EC> LogResult<T, T, WC, Nothing<()>, X, E, EC> {
         }
     }
 
-    /// Push switchable errors to a deferred Result (tri flag version)
-    ///
-    /// If Result is Ok, the result will be converted to an error.
-    ///
-    /// This must be deferred because the value type will be the same
-    /// if the Result needs to flip from Ok to Error.
-    pub(crate) fn extend_deferred_switchable_errors3(
-        self,
-        errors: impl IntoIterator<Item = E>,
-    ) -> Self
-    where
-        EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
-        EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
-        X: TriErrorFlag,
-    {
-        match self {
-            Succ(succ) => {
-                let ws = succ.warnings.into_iter().chain(errors);
-                Self::new_deferred_switchable_iter3(succ.value, ws, succ.flag)
-            }
-            Fail(mut fail) => {
-                fail.extend_errors(errors);
-                Fail(fail)
-            }
-        }
-    }
+    // /// Push switchable errors to a deferred Result (tri flag version)
+    // ///
+    // /// If Result is Ok, the result will be converted to an error.
+    // ///
+    // /// This must be deferred because the value type will be the same
+    // /// if the Result needs to flip from Ok to Error.
+    // pub(crate) fn extend_deferred_switchable_errors3(
+    //     self,
+    //     errors: impl IntoIterator<Item = E>,
+    // ) -> Self
+    // where
+    //     EC: Extend<E> + Default + SwitchableErrorContainer<Warn = WC, Inner = E>,
+    //     EC::Warn: Extend<E> + IntoIterator<Item = E> + Default,
+    //     X: TriErrorFlag,
+    // {
+    //     match self {
+    //         Succ(succ) => {
+    //             let ws = succ.warnings.into_iter().chain(errors);
+    //             Self::new_deferred_switchable_iter3(succ.value, ws, succ.flag)
+    //         }
+    //         Fail(mut fail) => {
+    //             fail.extend_errors(errors);
+    //             Fail(fail)
+    //         }
+    //     }
+    // }
 
     pub(crate) fn eval_deferred_switchable_error3<F>(self, f: F) -> Self
     where

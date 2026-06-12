@@ -15,6 +15,7 @@ use crate::core::{
     StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };
 use crate::data::{EventOverRangeError, EventsDiagnostics};
+use crate::fixed_vec::OneOrTwo;
 use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
 };
@@ -1966,33 +1967,24 @@ impl SuppTEXTOffsetsOutput {
             Version::FCS2_0 => LogResult::new_ok(OffsetResult::Empty),
             Version::FCS3_0 | Version::FCS3_1 => {
                 let pair = SupplementalTextSegmentId::get_req_pair(kws);
-                match SupplementalTextSegmentId::with_req_pair(pair, config_corr, st) {
-                    PairResult::Valid(corr, uncorr) => {
-                        LogResult::new_ok(OffsetResult::Valid(corr, uncorr))
-                    }
+                let res = match SupplementalTextSegmentId::with_req_pair(pair, config_corr, st) {
+                    PairResult::Valid(final_, orig) => Ok(OffsetResult::Valid(final_, orig)),
                     PairResult::Malformed(orig, e) => {
                         let r = OffsetResult::Malformed(orig);
-                        if hconf.ignore_supp_text.is_set() {
-                            LogResult::new_ok(r)
-                        } else {
-                            let flag = hconf.allow_missing_supp_text;
-                            SwitchableErrorsResult::new_deferred_switchable3(r, e, flag)
-                                .map_switchable_errors(ReqOffsetsError::Segment)
-                                .map_switchable_errors(STextOffsetsError::from)
-                                .switchable_into_commutative()
-                                .map_commutative_warnings(STextOffsetsWarning::from)
-                        }
+                        Err((r, OneOrTwo::One(ReqOffsetsError::Segment(e))))
                     }
                     PairResult::Unparsed(es) => {
-                        let r = OffsetResult::Missing;
+                        Err((OffsetResult::Missing, es.fmap(ReqOffsetsError::Key)))
+                    }
+                };
+                match res {
+                    Ok(x) => LogResult::new_ok(x),
+                    Err((x, es)) => {
                         if hconf.ignore_supp_text.is_set() {
-                            LogResult::new_ok(r)
+                            LogResult::new_ok(x)
                         } else {
-                            let (e0, e1) = es.split();
                             let flag = hconf.allow_missing_supp_text;
-                            SwitchableErrorsResult::new_deferred_switchable3(r, e0, flag)
-                                .extend_deferred_switchable_errors3(e1)
-                                .map_switchable_errors(ReqOffsetsError::Key)
+                            SwitchableErrorsResult::new_deferred_switchable_iter3(x, es, flag)
                                 .map_switchable_errors(STextOffsetsError::from)
                                 .switchable_into_commutative()
                                 .map_commutative_warnings(STextOffsetsWarning::from)
@@ -2002,31 +1994,26 @@ impl SuppTEXTOffsetsOutput {
             }
             Version::FCS3_2 => {
                 let pair = SupplementalTextSegmentId::get_opt_pair(kws);
-                match SupplementalTextSegmentId::with_opt_pair(pair, config_corr, st) {
-                    None => LogResult::new_ok(OffsetResult::Empty),
-                    Some(PairResult::Valid(corr, uncorr)) => {
-                        LogResult::new_ok(OffsetResult::Valid(corr, uncorr))
-                    }
-                    Some(PairResult::Malformed(uncorr, e)) => {
-                        let r = OffsetResult::Malformed(uncorr);
-                        if hconf.ignore_supp_text.is_set() {
-                            LogResult::new_ok(r)
-                        } else {
-                            let mut res = DeferredWarningsAndErrors::new_ok(r);
-                            res.extend_commutative_warnings([e]);
-                            res.map_commutative_warnings(OptOffsetsError::Segment)
-                                .map_commutative_warnings(STextOffsetsWarning::from)
-                        }
+                let res = match SupplementalTextSegmentId::with_opt_pair(pair, config_corr, st) {
+                    None => Ok(OffsetResult::Empty),
+                    Some(PairResult::Valid(final_, orig)) => Ok(OffsetResult::Valid(final_, orig)),
+                    Some(PairResult::Malformed(orig, e)) => {
+                        let r = OffsetResult::Malformed(orig);
+                        Err((r, OneOrTwo::One(OptOffsetsError::Segment(e))))
                     }
                     Some(PairResult::Unparsed(es)) => {
-                        let r = OffsetResult::Missing;
+                        Err((OffsetResult::Missing, es.fmap(OptOffsetsError::Key)))
+                    }
+                };
+                match res {
+                    Ok(x) => LogResult::new_ok(x),
+                    Err((x, es)) => {
                         if hconf.ignore_supp_text.is_set() {
-                            LogResult::new_ok(r)
+                            LogResult::new_ok(x)
                         } else {
-                            let mut res = DeferredWarningsAndErrors::new_ok(r);
-                            res.extend_commutative_warnings(es);
-                            res.map_commutative_warnings(OptOffsetsError::Key)
-                                .map_commutative_warnings(STextOffsetsWarning::from)
+                            let mut out = DeferredWarningsAndErrors::new_ok(x);
+                            out.extend_commutative_warnings(es);
+                            out.map_commutative_warnings(STextOffsetsWarning::from)
                         }
                     }
                 }

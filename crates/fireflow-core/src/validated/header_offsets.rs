@@ -263,34 +263,6 @@ impl FinalHeaderOffsets {
         LogResult::new_from_err_iter(errors, overlaps, ())
     }
 
-    // /// Fix offsets that exceed $NEXTDATA or return error if this fails.
-    // pub(crate) fn validate_nextdata(
-    //     &mut self,
-    //     nd: Nextdata,
-    //     limit: DatasetOverflowLimit,
-    // ) -> ErrorsResult<Vec<HeaderOffsetsOverflow>, (), DatasetOverflowError<HeaderOffsetsName>> {
-    //     // TODO not DRY
-    //     let n = u64::from(nd);
-    //     if n == 0 {
-    //         return LogResult::new_ok(vec![]);
-    //     }
-    //     let mut overlaps = vec![];
-    //     let mut errors = vec![];
-    //     for ne in self.as_mut_nonempty_offsets() {
-    //         let named = ne.as_named();
-    //         match ne.tail_overlap_offset_and_truncate(n, limit.0) {
-    //             TruncateOffsetResult::NoOverlap(_) => (),
-    //             TruncateOffsetResult::Truncated(overlap) => {
-    //                 overlaps.push(OffsetsOverflow::new(named, overlap));
-    //             }
-    //             TruncateOffsetResult::LimitExceeded(_, old) => {
-    //                 errors.push(DatasetOverflowError::new(nd, old.as_named()));
-    //             }
-    //         }
-    //     }
-    //     LogResult::new_from_err_iter(errors, overlaps, ())
-    // }
-
     /// Set OTHER offsets at index to empty.
     ///
     /// Will panic if out of bounds.

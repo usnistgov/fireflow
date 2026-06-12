@@ -342,10 +342,8 @@ pub struct IndexedOtherOffsets {
 #[derive(new)]
 pub struct NewOffsetsConfig<I, S> {
     corr: OffsetsCorrection<I, S>,
-    // file_len: FileLen,
     dataset_offset: DatasetOffset,
     allow_pseudoempty: AllowPseudoempty,
-    // truncate_offset_limit: DatasetOverflowLimit,
 }
 
 impl<I, S> NewOffsetsConfig<I, S> {
@@ -354,13 +352,7 @@ impl<I, S> NewOffsetsConfig<I, S> {
         C: AsRef<ReadOffsetConfig>,
     {
         let oconf = st.conf.as_ref();
-        Self::new(
-            corr,
-            // st.file_len,
-            st.dataset_offset,
-            oconf.allow_pseudoempty,
-            // oconf.dataset_overflow_limit,
-        )
+        Self::new(corr, st.dataset_offset, oconf.allow_pseudoempty)
     }
 }
 

@@ -1558,7 +1558,7 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
             match self.tail_overlap_offset_and_truncate(f_begin(&x), limit) {
                 // If no overlaps, we can assume there are no more overlaps
                 // since the HEADER offsets are sorted. Break early.
-                TruncateOffsetResult::NoOverlap(_) => None,
+                TruncateOffsetResult::NoOverlap => None,
                 // If overlap within limit and we have not encountered an
                 // error yet, truncate TEXT and return early without error.
                 // Otherwise push error.
@@ -1605,7 +1605,7 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
             |named, n| OffsetsOverflow::new(named, n, dataset_len, bounds.from_nextdata);
         let old_begin = self.begin();
         match self.tail_overlap_offset_and_truncate(dataset_len, limit.0) {
-            TruncateOffsetResult::NoOverlap(_) => Ok(None),
+            TruncateOffsetResult::NoOverlap => Ok(None),
             TruncateOffsetResult::Truncated {
                 truncated_len,
                 new_len,
@@ -1634,7 +1634,7 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
                 Err(old) => TruncateOffsetResult::LimitExceeded(truncated_len, old),
             }
         } else {
-            TruncateOffsetResult::NoOverlap(self)
+            TruncateOffsetResult::NoOverlap
         }
     }
 
@@ -1678,7 +1678,7 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
 }
 
 pub(crate) enum TruncateOffsetResult<T> {
-    NoOverlap(T),
+    NoOverlap,
     Truncated {
         truncated_len: NonZeroU64,
         new_len: u64,
@@ -1693,7 +1693,7 @@ impl_functor_once!(
     self,
     mut f,
     match self {
-        Self::NoOverlap(x) => TruncateOffsetResult::NoOverlap(f(x)),
+        Self::NoOverlap => TruncateOffsetResult::NoOverlap,
         Self::Truncated {
             truncated_len,
             new_len,

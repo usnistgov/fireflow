@@ -1056,7 +1056,7 @@ impl HeaderAndSuppOffsets {
                 };
                 if this_ne.slice_pair() < supp_ne.slice_pair() {
                     match this_ne.tail_overlap_pair_and_truncate(&supp_ne, limit.0) {
-                        TruncateOffsetResult::NoOverlap(_) => None,
+                        TruncateOffsetResult::NoOverlap => None,
                         TruncateOffsetResult::Truncated {
                             truncated_len,
                             new_len,

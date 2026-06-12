@@ -6879,7 +6879,7 @@ impl DatasetOffsets {
             if d_ne.begin() < a_ne.begin() {
                 // TODO abstract over this pattern (and the overflow pattern)
                 match d_ne.tail_overlap_pair_and_truncate(&a_ne, limit.0) {
-                    TruncateOffsetResult::NoOverlap(_) => None,
+                    TruncateOffsetResult::NoOverlap => None,
                     TruncateOffsetResult::Truncated { truncated_len, .. } => Some(truncated_len),
                     TruncateOffsetResult::LimitExceeded(truncated_len, _) => {
                         let o = OffsetsOverlap::new(dn, an, truncated_len);
@@ -6888,7 +6888,7 @@ impl DatasetOffsets {
                 }
             } else {
                 match a_ne.tail_overlap_pair_and_truncate(&d_ne, limit.0) {
-                    TruncateOffsetResult::NoOverlap(_) => None,
+                    TruncateOffsetResult::NoOverlap => None,
                     TruncateOffsetResult::Truncated { truncated_len, .. } => Some(truncated_len),
                     TruncateOffsetResult::LimitExceeded(truncated_len, _) => {
                         let o = OffsetsOverlap::new(an, dn, truncated_len);

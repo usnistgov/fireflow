@@ -9,8 +9,6 @@ use crate::config::{
     WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
-#[cfg(feature = "python")]
-use crate::data::FullRange;
 use crate::data::{
     ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
     DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0, DataSchema3_1,
@@ -34,8 +32,6 @@ use crate::logging::{
 };
 use crate::macros::{assert_eq_msg, def_summary};
 use crate::match_many_to_one;
-#[cfg(feature = "python")]
-use crate::meas::VTemporalOrOptical;
 use crate::meas::{
     ConvertFromOptical, ConvertFromScale, ConvertFromShortname, ConvertFromTemporal,
     CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError,
@@ -58,10 +54,10 @@ use crate::meas::{
 use crate::segment::{
     AnalysisSegmentId, AnyAnalysisOffsets, AnyDataOffsets, DataSegmentId, HeaderOrTextOffsets,
     IndexedOtherOffsets, IsOffsetPair as _, KeyedOptSegmentWithDefault as _,
-    KeyedReqSegmentWithDefault as _, OffsetPairsOverlapError, OffsetsMismatchError, OffsetsOverlap,
+    KeyedReqSegmentWithDefault as _, OffsetPairsOverlapError, OffsetsMismatchError,
     OptOffsetsWithDefaultWarning, OriginalOffsets, ReqOffsetsWithDefaultError,
     ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
-    TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
+    TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
@@ -161,6 +157,8 @@ use {
 
 #[cfg(feature = "python")]
 use {
+    crate::data::FullRange,
+    crate::meas::VTemporalOrOptical,
     crate::text::named_vec::EitherPair,
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
@@ -6873,28 +6871,20 @@ impl DatasetOffsets {
         ) = (&mut data, &mut analysis)
             && let (Some(d_ne), Some(a_ne)) = (dt.as_nonempty_mut(), at.as_nonempty_mut())
         {
-            let dn = d_ne.as_named(());
-            let an = a_ne.as_named(());
-            // TODO use new_len somehow
-            if d_ne.begin() < a_ne.begin() {
-                // TODO abstract over this pattern (and the overflow pattern)
-                match d_ne.tail_overlap_pair_and_truncate(&a_ne, limit.0) {
-                    TruncateOffsetResult::NoOverlap => None,
-                    TruncateOffsetResult::Truncated { truncated_len, .. } => Some(truncated_len),
-                    TruncateOffsetResult::LimitExceeded(truncated_len, _) => {
-                        let o = OffsetsOverlap::new(dn, an, truncated_len);
-                        return Err(OffsetPairsOverlapError(o));
-                    }
+            let res = if d_ne.begin() < a_ne.begin() {
+                d_ne.tail_overlap_pair_and_truncate(&a_ne, limit.0, ())
+            } else {
+                a_ne.tail_overlap_pair_and_truncate(&d_ne, limit.0, ())
+            };
+            if let Some(r) = res {
+                if r.truncated {
+                    // TODO add more detail
+                    Some(r.overlap.overlap)
+                } else {
+                    return Err(OffsetPairsOverlapError(r.overlap));
                 }
             } else {
-                match a_ne.tail_overlap_pair_and_truncate(&d_ne, limit.0) {
-                    TruncateOffsetResult::NoOverlap => None,
-                    TruncateOffsetResult::Truncated { truncated_len, .. } => Some(truncated_len),
-                    TruncateOffsetResult::LimitExceeded(truncated_len, _) => {
-                        let o = OffsetsOverlap::new(an, dn, truncated_len);
-                        return Err(OffsetPairsOverlapError(o));
-                    }
-                }
+                None
             }
         } else {
             None

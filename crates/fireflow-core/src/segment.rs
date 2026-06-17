@@ -131,6 +131,12 @@ pub struct OffsetsOverlap<N0, N1> {
     pub overlap: NonZeroU64,
 }
 
+impl<N0, N1> OffsetsOverlap<N0, N1> {
+    pub(crate) fn flip(self) -> OffsetsOverlap<N1, N0> {
+        OffsetsOverlap::new(self.offsets1, self.offsets0, self.overlap)
+    }
+}
+
 impl_kind2!(pub OffsetOverlapFamily, OffsetsOverlap);
 
 impl<A, B> BifunctorOnce<A, B> for OffsetsOverlap<A, B> {
@@ -160,9 +166,9 @@ pub type TextToHeaderOrSuppOffsetsOverlap =
 #[derive(Clone, Copy, Debug, new, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct NamedOffsets<N> {
-    name: N,
-    begin: u64,
-    length: u64,
+    pub(crate) name: N,
+    pub(crate) begin: u64,
+    pub(crate) length: u64,
 }
 
 impl_kind1!(pub NamedOffsetsFamily, NamedOffsets);
@@ -545,6 +551,16 @@ pub(crate) trait IsOffsetPair {
             self.end()
         );
         NonZeroU64::new((self.end()).saturating_sub(other))
+    }
+}
+
+impl<N> IsOffsetPair for NamedOffsets<N> {
+    fn begin(&self) -> u64 {
+        self.begin
+    }
+
+    fn end(&self) -> u64 {
+        self.begin + self.length
     }
 }
 
@@ -1213,6 +1229,18 @@ pub(crate) trait HasRegion {
 }
 
 /// A type which has a segment name.
+pub(crate) trait HasOneName<N> {
+    fn segname1(&self) -> N;
+
+    fn as_named1(&self) -> NamedOffsets<N>
+    where
+        Self: IsOffsetPair,
+    {
+        NamedOffsets::new(self.segname1(), self.begin(), self.nbytes())
+    }
+}
+
+/// A type which has a segment name.
 pub(crate) trait AreNamedOffsets<N> {
     type Params;
 
@@ -1311,6 +1339,21 @@ impl HasRegion for PrimaryTextSegmentId {
 
 impl HasRegion for OtherSegmentId {
     const REGION: AnyRegion = AnyRegion::Other;
+}
+
+impl<I, S, N> HasOneName<N> for NonEmptyOffsetsMut<'_, I, S>
+where
+    I: AreNamedOffsets<N, Params = ()>,
+{
+    fn segname1(&self) -> N {
+        self.segname(())
+    }
+}
+
+impl<N: Clone> HasOneName<N> for NamedOffsets<N> {
+    fn segname1(&self) -> N {
+        self.name.clone()
+    }
 }
 
 impl AreNamedOffsets<HeaderOffsetsName> for PrimaryTextSegmentId {
@@ -1502,86 +1545,44 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
         I::segname(args)
     }
 
-    pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
-    where
-        I: AreNamedOffsets<N>,
-    {
-        let inner = self.inner();
-        NamedOffsets::new(I::segname(args), inner.begin, inner.length.get())
-    }
-
     /// Return amount to be truncated if over limit.
-    fn exceeds_limit(&self, offset: u64, limit: u64) -> Option<u64> {
+    pub(crate) fn exceeds_limit(&self, offset: u64, limit: u64) -> Option<NonZeroU64> {
         if let Some(n) = self.tail_overlap_offset(offset) {
-            let to_truncate = self.inner().truncated_len() + n.get();
+            let to_truncate = n.saturating_add(self.inner().truncated_len());
             let trunc_limit = limit.min(self.inner().length.get());
-            (to_truncate > trunc_limit).then_some(to_truncate)
+            (to_truncate.get() > trunc_limit).then_some(to_truncate)
         } else {
             None
         }
     }
 
-    /// Filter items that cannot be truncated and truncate the first that can.
-    ///
-    /// Items are assumed to be offset-like object. The sequence of items must
-    /// be sorted. `f_begin` is a function that must return the beginning offset
-    /// of the item.
-    #[allow(clippy::unused_peekable, reason = "false positive")]
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn filter_and_truncate<F, X>(
-        self,
-        limit: u64,
-        mut f_begin: F,
-        xs: impl IntoIterator<Item = X>,
-    ) -> (Vec<(X, NonZeroU64)>, Option<(X, NonZeroU64)>)
-    where
-        F: FnMut(&X) -> u64,
-    {
-        let mut it = xs.into_iter().peekable();
-        // Automatically convert any offset pair that cannot be truncated
-        // because they exceed the allowed limit.
-        let mut exceed_limit = vec![];
-        while let Some(overlap) = it.peek().and_then(|x| {
-            self.exceeds_limit(f_begin(x), limit)
-                .and_then(NonZeroU64::new)
-        }) {
-            exceed_limit.push((it.next().unwrap(), overlap));
-        }
-        // If there is one more offset, truncate it if necessary. We just
-        // removed all the prior offsets which cannot be truncated, so
-        // truncation in this case should not fail if it is needed. Regardless,
-        // this is the last offset pair we need to consider because truncation
-        // will decrease the end of `self` such that the remaining pairs no
-        // longer overlap, or they don't overlap to begin with. Either way, no
-        // more to do.
-        let last_res = if let Some(x) = it.next() {
-            match self.tail_overlap_offset_and_truncate(f_begin(&x), limit) {
-                // If no overlaps, we can assume there are no more overlaps
-                // since the HEADER offsets are sorted. Break early.
-                TruncateOffsetResult::NoOverlap => None,
-                // If overlap within limit and we have not encountered an
-                // error yet, truncate TEXT and return early without error.
-                // Otherwise push error.
-                TruncateOffsetResult::Truncated { truncated_len, .. } => Some((x, truncated_len)),
-                TruncateOffsetResult::LimitExceeded(_, _) => {
-                    panic!("offset should be truncatable")
-                }
-            }
-        } else {
-            None
-        };
-        (exceed_limit, last_res)
-    }
-
-    pub(crate) fn tail_overlap_pair_and_truncate<P>(
+    pub(crate) fn tail_overlap_pair_and_truncate<P, N0, N1>(
         self,
         other: &P,
         limit: u64,
-    ) -> TruncateOffsetResult<Self>
+        args0: I::Params,
+    ) -> Option<OverlapResult<N0, N1>>
     where
-        P: IsOffsetPair,
+        I: AreNamedOffsets<N0>,
+        P: IsOffsetPair + HasOneName<N1>,
     {
-        self.tail_overlap_offset_and_truncate(other.begin(), limit)
+        let truncated_len = self.tail_overlap_offset(other.begin())?;
+        let named1 = other.as_named1();
+        let n0 = self.segname(args0);
+        let b0 = self.begin();
+        let ret = match self.truncate(truncated_len.get(), limit) {
+            Ok(new_len) => {
+                let named0 = NamedOffsets::new(n0, b0, new_len);
+                let overlap = OffsetsOverlap::new(named0, named1, truncated_len);
+                OverlapResult::new(overlap, true)
+            }
+            Err(old) => {
+                let named0 = NamedOffsets::new(n0, b0, old.nbytes());
+                let overlap = OffsetsOverlap::new(named0, named1, truncated_len);
+                OverlapResult::new(overlap, false)
+            }
+        };
+        Some(ret)
     }
 
     /// Truncate non-primary TEXT offsets that exceed EOF or $NEXTDATA.
@@ -1601,41 +1602,42 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
         let dataset_len = bounds.len.0;
         let conf: &ReadOffsetConfig = st.conf.as_ref();
         let limit = conf.dataset_overflow_limit;
-        let mk_overflow =
-            |named, n| OffsetsOverflow::new(named, n, dataset_len, bounds.from_nextdata);
-        let old_begin = self.begin();
-        match self.tail_overlap_offset_and_truncate(dataset_len, limit.0) {
-            TruncateOffsetResult::NoOverlap => Ok(None),
-            TruncateOffsetResult::Truncated {
-                truncated_len,
-                new_len,
-            } => {
-                let named = NamedOffsets::new(I::segname(args), old_begin, new_len);
-                Ok(Some(mk_overflow(named, truncated_len)))
+        if let Some(res) = self.tail_overlap_offset_and_truncate(dataset_len, limit.0, args) {
+            let o =
+                OffsetsOverflow::new(res.offsets, res.overflow, dataset_len, bounds.from_nextdata);
+            if res.truncated {
+                Ok(Some(o))
+            } else {
+                Err(DatasetOverflowError(o))
             }
-            TruncateOffsetResult::LimitExceeded(overflow, old) => {
-                let e = DatasetOverflowError(mk_overflow(old.as_named(args), overflow));
-                Err(e)
-            }
+        } else {
+            Ok(None)
         }
     }
 
-    pub(crate) fn tail_overlap_offset_and_truncate(
+    pub(crate) fn tail_overlap_offset_and_truncate<N>(
         self,
         other: u64,
         limit: u64,
-    ) -> TruncateOffsetResult<Self> {
-        if let Some(truncated_len) = self.tail_overlap_offset(other) {
-            match self.truncate(truncated_len.get(), limit) {
-                Ok(new_len) => TruncateOffsetResult::Truncated {
-                    truncated_len,
-                    new_len,
-                },
-                Err(old) => TruncateOffsetResult::LimitExceeded(truncated_len, old),
+        args: I::Params,
+    ) -> Option<OverflowResult<N>>
+    where
+        I: AreNamedOffsets<N>,
+    {
+        let truncated_len = self.tail_overlap_offset(other)?;
+        let name = self.segname(args);
+        let begin = self.begin();
+        let ret = match self.truncate(truncated_len.get(), limit) {
+            Ok(new_len) => {
+                let named = NamedOffsets::new(name, begin, new_len);
+                OverflowResult::new(named, truncated_len, true)
             }
-        } else {
-            TruncateOffsetResult::NoOverlap
-        }
+            Err(old) => {
+                let named = NamedOffsets::new(name, old.begin(), old.nbytes());
+                OverflowResult::new(named, truncated_len, false)
+            }
+        };
+        Some(ret)
     }
 
     /// Subtract n bytes off the end of this offset
@@ -1677,33 +1679,18 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
     }
 }
 
-pub(crate) enum TruncateOffsetResult<T> {
-    NoOverlap,
-    Truncated {
-        truncated_len: NonZeroU64,
-        new_len: u64,
-    },
-    LimitExceeded(NonZeroU64, T),
+#[derive(new)]
+pub(crate) struct OverlapResult<N0, N1> {
+    pub(crate) overlap: OffsetsOverlap<N0, N1>,
+    pub(crate) truncated: bool,
 }
 
-impl_kind1!(pub(crate) TruncateOffsetResultFamily, TruncateOffsetResult);
-
-impl_functor_once!(
-    TruncateOffsetResult,
-    self,
-    mut f,
-    match self {
-        Self::NoOverlap => TruncateOffsetResult::NoOverlap,
-        Self::Truncated {
-            truncated_len,
-            new_len,
-        } => TruncateOffsetResult::Truncated {
-            truncated_len,
-            new_len,
-        },
-        Self::LimitExceeded(x, y) => TruncateOffsetResult::LimitExceeded(x, f(y)),
-    }
-);
+#[derive(new)]
+pub(crate) struct OverflowResult<N> {
+    pub(crate) offsets: NamedOffsets<N>,
+    pub(crate) overflow: NonZeroU64,
+    pub(crate) truncated: bool,
+}
 
 impl<I: Copy> HeaderOffsets<I> {
     pub(crate) fn h_read_primary<C, R>(

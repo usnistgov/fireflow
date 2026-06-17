@@ -27,13 +27,13 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    AnyRegion, AreNamedOffsets, DatasetOverflowError, GuessOtherWidthError, HasRegion,
-    HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
-    KeyedOptSegment as _, KeyedReqSegment as _, NamedOffsets, NonEmptyOffsets,
-    OffsetPairsOverlapError, OffsetsFromTEXT, OffsetsOverlap, OptOffsetsError, OriginalOffsets,
-    PairResult, PrimaryTextOffsets, ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName,
+    AnyRegion, AreNamedOffsets, DatasetOverflowError, GuessOtherWidthError, HasOneName as _,
+    HasRegion, HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
+    KeyedOptSegment as _, KeyedReqSegment as _, NonEmptyOffsets, OffsetPairsOverlapError,
+    OffsetsFromTEXT, OffsetsOverlap, OptOffsetsError, OriginalOffsets, PairResult,
+    PrimaryTextOffsets, ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName,
     SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, SupplementalTextSegmentId, TEXTOffsets,
-    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap, TruncateOffsetResult,
+    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, LookupNextdataError, Nextdata,
@@ -1046,39 +1046,24 @@ impl HeaderAndSuppOffsets {
             // be modified since it has already been read. Therefore, only
             // change the offsets of the new pair if its ending offset is within
             // STEXT.
-            let this_begin = this_ne.begin();
-            let this_name = this_ne.segname(());
             let mut supp_overlap = None;
             let stxt_error = self.supp_text.as_offset_pair().and_then(|mut supp_pair| {
                 let supp_ne = supp_pair.as_nonempty_mut()?;
-                let mk_overlap = |named, overlap| {
-                    OffsetsOverlap::new(named, supp_ne.as_named(()).fmap_into_once(), overlap)
-                };
                 if this_ne.slice_pair() < supp_ne.slice_pair() {
-                    match this_ne.tail_overlap_pair_and_truncate(&supp_ne, limit.0) {
-                        TruncateOffsetResult::NoOverlap => None,
-                        TruncateOffsetResult::Truncated {
-                            truncated_len,
-                            new_len,
-                        } => {
-                            let this_named = NamedOffsets::new(this_name, this_begin, new_len);
-                            supp_overlap = Some(OffsetsOverlap::new(
-                                this_named,
-                                supp_ne.as_named(()).fmap_into_once(),
-                                truncated_len,
-                            ));
-                            None
-                        }
-                        TruncateOffsetResult::LimitExceeded(truncated_len, old) => Some(
-                            OffsetPairsOverlapError(mk_overlap(old.as_named(()), truncated_len)),
-                        ),
+                    let res = this_ne.tail_overlap_pair_and_truncate(&supp_ne, limit.0, ())?;
+                    let o = res.overlap.second_into_once();
+                    if res.truncated {
+                        supp_overlap = Some(o);
+                        None
+                    } else {
+                        Some(OffsetPairsOverlapError(o))
                     }
                 } else {
                     supp_ne.tail_overlap_pair(&this_ne).map(|truncated_len| {
                         // TODO these offsets should be flipped
                         let o = OffsetsOverlap::new(
-                            this_ne.as_named(()),
-                            supp_ne.as_named(()).fmap_into_once(),
+                            this_ne.as_named1(),
+                            supp_ne.as_named1().fmap_into_once(),
                             truncated_len,
                         );
                         OffsetPairsOverlapError(o)

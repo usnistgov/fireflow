@@ -80,14 +80,6 @@ pub struct Offsets<I, S> {
     _src: PhantomData<S>,
 }
 
-impl<I, S> Clone for Offsets<I, S> {
-    fn clone(&self) -> Self {
-        *self
-    }
-}
-
-impl<I, S> Copy for Offsets<I, S> {}
-
 /// Segment offsets as read straight from the file with no corrections.
 ///
 /// Useful for diagnostics.
@@ -180,35 +172,7 @@ impl_functor_once!(
     NamedOffsets::new(f(self.name), self.begin, self.length)
 );
 
-/// Error when a non-empty offset pair occurs within the first 58 bytes of the file.
-#[derive(Debug, Error, PartialEq, Clone, Display)]
-#[display(
-    "{} segment offsets with begin offset of {} is within HEADER region",
-    self.0.name,
-    self.0.begin,
-)]
-#[display(bound(N: fmt::Display))]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-#[cfg_attr(feature = "python", bound(N: fmt::Display))]
-pub struct InHeaderError<N>(pub NamedOffsets<N>);
-
-/// Error when segment offsets exceed $NEXTDATA.
-#[derive(Debug, Error, PartialEq, Clone, Display)]
-#[display(
-    "{} segment offsets (begin = {}, length = {}) exceeds {} ({})",
-    self.0.offsets.name,
-    self.0.offsets.begin,
-    self.0.offsets.length,
-    if self.0.bound_is_nextdata { "$NEXTDATA" } else { "EOF" },
-    self.0.dataset_len
-)]
-#[display(bound(N: fmt::Display))]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-#[cfg_attr(feature = "python", bound(N: fmt::Display))]
-pub struct DatasetOverflowError<N>(pub OffsetsOverflow<N>);
-
+/// The name for a HEADER segment.
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum HeaderOffsetsName {
@@ -222,6 +186,7 @@ pub enum HeaderOffsetsName {
     Other(usize),
 }
 
+/// The name for a HEADER or the supplemental TEXT segment.
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum HeaderOrSuppOffsetsName {
@@ -254,11 +219,13 @@ impl From<SuppTextOffsetsName> for HeaderOrSuppOffsetsName {
     }
 }
 
+/// The name for the supplemental TEXT segment.
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 #[display("Supplemental TEXT")]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SuppTextOffsetsName;
 
+/// Any name for an offset in TEXT (sans supplemental TEXT which is special)
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum TextOffsetsName {
@@ -268,6 +235,7 @@ pub enum TextOffsetsName {
     Analysis,
 }
 
+/// Any segment source type from an FCS file.
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 pub(crate) enum AnySrc {
     #[display("HEADER")]
@@ -276,6 +244,7 @@ pub(crate) enum AnySrc {
     Text,
 }
 
+/// Any segment region type from an FCS file.
 #[derive(Clone, Copy, Debug, Display, PartialEq)]
 pub(crate) enum AnyRegion {
     #[display("ANALYSIS")]
@@ -355,59 +324,6 @@ impl<I, S> NewOffsetsConfig<I, S> {
     }
 }
 
-pub type PrimaryTextOffsets = Offsets<PrimaryTextSegmentId, OffsetsFromHeader>;
-pub type SupplementalTextOffsets = Offsets<SupplementalTextSegmentId, OffsetsFromTEXT>;
-
-type DataOffsets<S> = Offsets<DataSegmentId, S>;
-pub type HeaderDataOffsets = DataOffsets<OffsetsFromHeader>;
-pub type TEXTDataOffsets = DataOffsets<OffsetsFromTEXT>;
-
-type AnalysisOffsets<S> = Offsets<AnalysisSegmentId, S>;
-pub type HeaderAnalysisOffsets = AnalysisOffsets<OffsetsFromHeader>;
-pub type TEXTAnalysisOffsets = AnalysisOffsets<OffsetsFromTEXT>;
-
-pub type HeaderOffsets<I> = Offsets<I, OffsetsFromHeader>;
-pub type TEXTOffsets<I> = Offsets<I, OffsetsFromTEXT>;
-pub type AnyOffsets<I> = Offsets<I, OffsetsFromAnywhere>;
-
-pub type HeaderCorrection<I> = OffsetsCorrection<I, OffsetsFromHeader>;
-pub type TEXTCorrection<I> = OffsetsCorrection<I, OffsetsFromTEXT>;
-
-pub type AnyDataOffsets = DataOffsets<OffsetsFromAnywhere>;
-pub type AnyAnalysisOffsets = AnalysisOffsets<OffsetsFromAnywhere>;
-
-pub type OtherOffsets20 = Offsets<OtherSegmentId, OffsetsFromHeader>;
-
-pub(crate) type ReqSegResult<I> = WarningsAndErrorsResult<
-    HeaderOrTextOffsets<I>,
-    (),
-    ReqOffsetsWithDefaultWarning<I>,
-    ReqOffsetsWithDefaultError<I>,
->;
-
-pub(crate) type OptSegRes<I> = WarningsAndErrorsResult<
-    HeaderOrTextOffsets<I>,
-    (),
-    OptOffsetsWithDefaultWarning<I>,
-    OptOffsetsWithDefaultWarning<I>,
->;
-
-pub type ReqOffsetsWithDefaultWarning<T> =
-    ReqOffsetsWithDefaultWarning_<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
-
-pub type ReqOffsetsWithDefaultError<T> =
-    ReqOffsetsWithDefaultErrorInner<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
-
-pub type OptOffsetsWithDefaultWarning<T> =
-    OptOffsetsWithDefaultWarningInner<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
-
-#[derive(Debug, Clone, Copy, PartialEq, Default)]
-enum InnerOffsets {
-    NonEmpty(NonEmptyOffsetsInner),
-    #[default]
-    Empty,
-}
-
 /// A mutable reference to offsets which are guaranteed to be non-empty.
 ///
 /// This needs to wrap the entire struct since one of the operations this will
@@ -422,6 +338,14 @@ pub struct NonEmptyOffsetsMut<'a, I, S>(&'a mut Offsets<I, S>);
 
 pub(crate) type AnyNonEmptyDataOffsets<'a> =
     NonEmptyOffsetsMut<'a, DataSegmentId, OffsetsFromAnywhere>;
+
+/// Inner wrapper for [`Offsets`]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+enum InnerOffsets {
+    NonEmpty(NonEmptyOffsetsInner),
+    #[default]
+    Empty,
+}
 
 /// An offset as shown in an FCS file.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
@@ -465,140 +389,6 @@ struct NonEmptyOffsetsInner {
     dataset_offset: DatasetOffset,
 }
 
-/// A valid ASCII char in an OTHER segment.
-#[derive(Clone, Copy, PartialEq)]
-enum CharType {
-    /// Minus sign ('-')
-    Minus,
-    /// space or \0
-    Null,
-    /// Any ASCII digit 0-9
-    Digit,
-    /// Anything else
-    Other,
-}
-
-impl From<u8> for CharType {
-    fn from(value: u8) -> Self {
-        if value == 0 || value == 32 {
-            Self::Null
-        } else if value == 45 {
-            Self::Minus
-        } else if (48..=57).contains(&value) {
-            Self::Digit
-        } else {
-            Self::Other
-        }
-    }
-}
-
-impl CharType {
-    fn is_digit_or_minus(self) -> bool {
-        matches!(self, Self::Digit | Self::Minus)
-    }
-}
-
-/// A type which has a beginning and end offset that defines a byte segment.
-///
-/// For a given pair X,Y, X is the offset of the first byte, and Y is the offset
-/// immediately after the last byte.
-pub(crate) trait IsOffsetPair {
-    /// The first position
-    fn begin(&self) -> u64;
-
-    /// The second position
-    fn end(&self) -> u64;
-
-    /// First and second offsets as used as a slice.
-    ///
-    /// This is NOT the same as what is written in FCS files. For instance,
-    /// the interval 5,11 here means "bytes 5 up to and including 10".
-    fn slice_pair(&self) -> (u64, u64) {
-        (self.begin(), self.end())
-    }
-
-    /// The length of the slice
-    fn nbytes(&self) -> u64 {
-        self.end() - self.begin()
-    }
-
-    /// Get the overlap between two offset pairs.
-    ///
-    /// Will panic if first `other` offset is less than first offset of `self`.
-    fn tail_overlap_pair<P>(&self, other: &P) -> Option<NonZeroU64>
-    where
-        P: IsOffsetPair,
-    {
-        assert!(
-            self.begin() <= other.begin(),
-            "other pair must start after this pair"
-        );
-        NonZeroU64::new((self.end()).saturating_sub(other.begin()))
-    }
-
-    /// Get the overlap between this pair and another offset.
-    ///
-    /// Will panic if `other` offset is less than first offset of `self`.
-    fn tail_overlap_offset(&self, other: u64) -> Option<NonZeroU64> {
-        assert!(
-            self.begin() <= other,
-            "other ({other}) must start after this pair ({}, {})",
-            self.begin(),
-            self.end()
-        );
-        NonZeroU64::new((self.end()).saturating_sub(other))
-    }
-}
-
-impl<N> IsOffsetPair for NamedOffsets<N> {
-    fn begin(&self) -> u64 {
-        self.begin
-    }
-
-    fn end(&self) -> u64 {
-        self.begin + self.length
-    }
-}
-
-impl<I, S> IsOffsetPair for NonEmptyOffsets<I, S> {
-    fn begin(&self) -> u64 {
-        self.inner().begin()
-    }
-
-    fn end(&self) -> u64 {
-        self.inner().end()
-    }
-}
-
-impl<I, S> IsOffsetPair for NonEmptyOffsetsMut<'_, I, S> {
-    fn begin(&self) -> u64 {
-        self.inner().begin()
-    }
-
-    fn end(&self) -> u64 {
-        self.inner().end()
-    }
-}
-
-impl IsOffsetPair for NonEmptyOffsetsInner {
-    fn begin(&self) -> u64 {
-        self.begin
-    }
-
-    fn end(&self) -> u64 {
-        self.begin + self.length.get()
-    }
-}
-
-pub(crate) trait HasOffsetPair: Sized {
-    fn final_offsets(segs: &HeaderAndSuppOffsets) -> HeaderOffsets<Self>;
-    fn original_offsets(segs: &HeaderAndSuppOffsets) -> OriginalOffsets;
-
-    fn offset_pair(segs: &HeaderAndSuppOffsets) -> (HeaderOffsets<Self>, OriginalOffsets) {
-        (Self::final_offsets(segs), Self::original_offsets(segs))
-    }
-}
-
 /// Segment offsets which can either be from HEADER or TEXT.
 ///
 /// This only applies to ANALYSIS and DATA.
@@ -633,28 +423,6 @@ pub(crate) enum ChoseHeaderReason {
     Mismatch(OriginalOffsets),
 }
 
-impl<I> HeaderOrTextOffsets<I> {
-    pub(crate) fn into_any(self) -> (AnyOffsets<I>, TEXTOffsetsOrigin) {
-        match self {
-            Self::Header(seg, reason) => {
-                let anyseg = seg.into_any();
-                let origin = match reason {
-                    ChoseHeaderReason::Empty => TEXTOffsetsOrigin::EmptyTEXT,
-                    ChoseHeaderReason::Ignored(uncorr) => TEXTOffsetsOrigin::Ignored(uncorr),
-                    ChoseHeaderReason::Unparsed => TEXTOffsetsOrigin::Unparsed,
-                    ChoseHeaderReason::Malformed(uncorr) => TEXTOffsetsOrigin::Malformed(uncorr),
-                    ChoseHeaderReason::Match => TEXTOffsetsOrigin::Match,
-                    ChoseHeaderReason::Mismatch(uncorr) => {
-                        TEXTOffsetsOrigin::MismatchHeader(uncorr)
-                    }
-                };
-                (anyseg, origin)
-            }
-            Self::Text { seg, origin } => (seg.into_any(), TEXTOffsetsOrigin::MismatchTEXT(origin)),
-        }
-    }
-}
-
 /// Result from parsing a pair of strings into a segment offset pair
 pub(crate) enum PairResult<T, E> {
     Valid(Offsets<T, OffsetsFromTEXT>, OriginalOffsets),
@@ -662,1521 +430,54 @@ pub(crate) enum PairResult<T, E> {
     Unparsed(OneOrTwo<E>),
 }
 
-/// Operations to obtain optional segment from TEXT keywords
-pub trait KeyedOffsets: Sized + Copy {
-    type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
-    type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
-}
-
-/// Operations to obtain optional segment from TEXT keywords
-pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
-    #[allow(clippy::type_complexity)]
-    #[allow(clippy::result_large_err)]
-    fn pair_to_offsets<C, D>(
-        x0: i128,
-        x1: i128,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<C, D>,
-    ) -> (
-        Result<Offsets<Self, OffsetsFromTEXT>, SegmentOffsetError>,
-        OriginalOffsets,
-    )
-    where
-        C: AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        let new_conf = NewOffsetsConfig::from_read_config(corr, st);
-        let raw = OriginalOffsets::new(x0, x1);
-        (Offsets::try_new(x0, x1, &new_conf), raw)
-    }
-}
-
-macro_rules! lookup_req {
-    ($kws:ident, $fun:ident) => {{
-        let k = SpecificKey::default();
-        match $kws.$fun(&k.as_std_key()) {
-            Some(v) => v
-                .parse::<i128>()
-                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
-                .map_err(ReqKeyErrorInner::from),
-            None => Err(ReqKeyErrorInner::from(MissingKeyError(k.into()))),
-        }
-    }};
-}
-
-/// Operations to obtain required segment from TEXT keywords
-pub(crate) trait KeyedReqSegment: KeyedSegmentInner
-where
-    Self::B: ReqMetarootKey,
-    Self::E: ReqMetarootKey,
-{
-    #[allow(clippy::type_complexity)]
-    #[allow(clippy::result_large_err)]
-    fn with_req_pair<C, D>(
-        pair: ReqPair<Self::B, Self::E>,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<C, D>,
-    ) -> PairResult<Self, ReqSegmentKeyError<Self::B, Self::E>>
-    where
-        C: AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        match pair {
-            Ok((x0, x1)) => {
-                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
-                match res {
-                    Ok(final_pair) => PairResult::Valid(final_pair, raw),
-                    Err(e) => PairResult::Malformed(raw, e),
-                }
-            }
-            Err(e) => PairResult::Unparsed(e),
-        }
-    }
-
-    fn get_req_pair(kws: &StdKeywords) -> ReqPair<Self::B, Self::E> {
-        let x0 = Self::get_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
-        let x1 = Self::get_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
-        OneOrTwo::from_results(x0, x1)
-    }
-
-    fn remove_req_pair(kws: &mut StdKeywords) -> ReqPair<Self::B, Self::E> {
-        let x0 = Self::remove_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
-        let x1 = Self::remove_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
-        OneOrTwo::from_results(x0, x1)
-    }
-
-    fn get_req<K>(kws: &StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
-    where
-        K: Key,
-    {
-        lookup_req!(kws, get)
-    }
-
-    fn remove_req<K>(kws: &mut StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
-    where
-        K: Key,
-    {
-        lookup_req!(kws, remove)
-    }
-}
-
-/// Operations to obtain required segment from TEXT keywords with a default segment
-pub(crate) trait KeyedReqSegmentWithDefault
-where
-    Self: KeyedReqSegment + HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()>,
-    Self::B: ReqMetarootKey,
-    Self::E: ReqMetarootKey,
-{
-    type IgnoreFlag: ConfigFlag;
-    type OtherDataId: HasRegion;
-
-    fn get_req_or<C>(
-        kws: &StdKeywords,
-        segs: &mut HeaderAndSuppOffsets,
-        ignore: Self::IgnoreFlag,
-        corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
-    ) -> ReqSegResult<Self>
-    where
-        Self: HasOffsetPair + IsDataOrAnalysis,
-        Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, ignore, st)
-    }
-
-    fn remove_req_or<C>(
-        kws: &mut StdKeywords,
-        segs: &mut HeaderAndSuppOffsets,
-        ignore: Self::IgnoreFlag,
-        corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
-    ) -> ReqSegResult<Self>
-    where
-        Self: HasOffsetPair + IsDataOrAnalysis,
-        Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, ignore, st)
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn with_req_pair_default<C>(
-        pair: ReqPair<Self::B, Self::E>,
-        segs: &mut HeaderAndSuppOffsets,
-        corr: TEXTCorrection<Self>,
-        ignore: Self::IgnoreFlag,
-        st: &TEXTReadState<C>,
-    ) -> ReqSegResult<Self>
-    where
-        Self: HasOffsetPair + IsDataOrAnalysis,
-        Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
-        let (header_seg, uncorr_hdr) = Self::offset_pair(segs);
-        let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
-        let mismatch_flag = dconf.allow_header_text_offset_mismatch;
-        let missing_flag = dconf.allow_missing_required_offsets;
-        let overlap_limit = oconf.overlap_correction_limit;
-
-        let text_missing = |es: Vec<ReqOffsetsWithDefaultError<Self>>| {
-            let hpair = header_pair(ChoseHeaderReason::Unparsed);
-            let mut res = LogResult::new_switchable_iter3(hpair, (), es, missing_flag)
-                .switchable_into_commutative()
-                .map_commutative_warnings(ReqOffsetsWithDefaultWarning::from);
-            let w = ReqOffsetsWithDefaultWarning::from(SegmentOffsetsDefaultWarning::default());
-            res.eval_warning(|_| Some(w));
-            res
-        };
-
-        let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
-            // mismatch_warn and header_is_empty need to be independent because we
-            // may or may not throw a warning if a mismatch actually happened
-            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
-            let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
-                .map_err(ReqOffsetsError::Segment);
-            match offsets_res {
-                Ok(mut offsets) => {
-                    let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
-                        ne.truncate_dataset_len((), st)
-                            .map_err(ReqOffsetsWithDefaultErrorInner::from)
-                            .into_deferred_switchable3(missing_flag)
-                            .switchable_into_commutative()
-                    } else {
-                        LogResult::new_ok(None)
-                    };
-                    let val_res = segs
-                        .validate_text_offsets(&mut offsets, overlap_limit)
-                        .map_errors(ReqOffsetsWithDefaultErrorInner::from)
-                        .nowarn_into_switchable3(missing_flag)
-                        .switchable_into_commutative();
-                    let mut res = overflow_res
-                        .zip_commutative(val_res)
-                        .map_commutative_warnings(ReqOffsetsWithDefaultWarning::from)
-                        .map_ok_value(|(overflow, overlaps)| {
-                            let origin = MismatchedTEXTOffsetOrigin::new(
-                                header_is_empty,
-                                txt_orig,
-                                overlaps,
-                                overflow,
-                            );
-                            HeaderOrTextOffsets::Text {
-                                seg: offsets,
-                                origin,
-                            }
-                        });
-                    res.extend_commutative_warnings(mismatch_warn);
-                    res
-                }
-                Err(e) => text_missing(vec![ReqOffsetsWithDefaultErrorInner::from(e)]),
-            }
-        };
-
-        let mut mismatch_choose = |uncorr_txt| {
-            if header_seg.is_empty() {
-                // HEADER is empty, ignore the mismatch and get TEXT offsets
-                // without mismatch warning
-                pair_to_text(uncorr_txt, None, false)
-            } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
-                // Not an error, choose offset and optionally throw warning
-                let e = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
-                let w = do_warn
-                    .then_some(e)
-                    .map(ReqOffsetsWithDefaultErrorInner::from)
-                    .map(ReqOffsetsWithDefaultWarning::from);
-                if choose_header {
-                    // We choose HEADER, return it possibly with warning
-                    let ws = w.into_iter().collect::<Vec<_>>();
-                    LogResult::new_ok(header_pair(ChoseHeaderReason::Mismatch(uncorr_txt)))
-                        .set_commutative_warnings(ws)
-                } else {
-                    // We choose TEXT, convert offsets to segment, validate, and
-                    // possibly attach warning for mismatch
-                    pair_to_text(uncorr_txt, w, true)
-                }
-            } else {
-                // Error for mismatch, don't bother processing offsets
-                let e = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, None);
-                WarningsAndErrorsResult::new_err(e).map_errors(ReqOffsetsWithDefaultError::from)
-            }
-        };
-
-        match pair {
-            // TEXT offsets found, compare with HEADER
-            Ok((x0, x1)) => {
-                let uncorr_txt = OriginalOffsets::new(x0, x1);
-                if ignore.is_set() {
-                    // If ignore is set, return immediately with uncorrected offsets
-                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
-                } else if uncorr_txt == uncorr_hdr {
-                    // Uncorrected offsets are identical, not a mismatch.
-                    LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
-                } else {
-                    // Offsets not identical, choose one
-                    mismatch_choose(uncorr_txt)
-                }
-            }
-            // TEXT offsets not found, throw error or warning depending on
-            // if we want to enforce required offsets
-            Err(es) => {
-                if ignore.is_set() {
-                    // If ignore is set, bypass errors and return nothing
-                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(None)))
-                } else {
-                    // Otherwise return all the errors to make user a better and
-                    // more enlightened person
-                    let es0 = es
-                        .fmap(ReqOffsetsError::Key)
-                        .fmap(ReqOffsetsWithDefaultErrorInner::from)
-                        .into_iter()
-                        .collect();
-                    text_missing(es0)
-                }
-            }
-        }
-    }
-}
-
-macro_rules! lookup_opt {
-    ($kws:ident, $fun:ident) => {{
-        let k = SpecificKey::default();
-        $kws.$fun(&k.as_std_key())
-            .map(|v| {
-                v.parse::<i128>()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
-            })
-            .transpose()
-    }};
-}
-
-/// Operations to obtain optional segment from TEXT keywords
-pub(crate) trait KeyedOptSegment: KeyedSegmentInner
-where
-    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
-    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
-{
-    #[allow(clippy::result_large_err)]
-    #[allow(clippy::type_complexity)]
-    fn with_opt_pair<C, D>(
-        pair: OptPair<Self::B, Self::E>,
-        corr: TEXTCorrection<Self>,
-        st: &ReadState<C, D>,
-    ) -> Option<PairResult<Self, OptSegmentKeyError<Self::B, Self::E>>>
-    where
-        C: AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        match pair {
-            Ok(None) => None,
-            Ok(Some((x0, x1))) => {
-                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
-                match res {
-                    Ok(final_pair) => Some(PairResult::Valid(final_pair, raw)),
-                    Err(e) => Some(PairResult::Malformed(raw, e)),
-                }
-            }
-            Err(e) => Some(PairResult::Unparsed(e)),
-        }
-    }
-
-    fn get_opt_pair(kws: &StdKeywords) -> OptPair<Self::B, Self::E> {
-        let x0 = Self::get_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
-        let x1 = Self::get_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
-        OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
-    }
-
-    fn remove_opt_pair(kws: &mut StdKeywords) -> OptPair<Self::B, Self::E> {
-        // TODO these should process optional keywords the same as everything else
-        let x0 = Self::remove_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
-        let x1 = Self::remove_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
-        OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
-    }
-
-    fn get_opt<K>(kws: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
-    where
-        K: Key,
-    {
-        lookup_opt!(kws, get)
-    }
-
-    fn remove_opt<K>(
-        kws: &mut StdKeywords,
-    ) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
-    where
-        K: Key,
-    {
-        lookup_opt!(kws, remove)
-    }
-}
-
-/// Operations to obtain optional segment from TEXT keywords with a default segment
-pub(crate) trait KeyedOptSegmentWithDefault
-where
-    Self: KeyedOptSegment + HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()>,
-    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
-    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
-{
-    type IgnoreFlag: ConfigFlag;
-    type OtherDataId: HasRegion;
-
-    fn get_opt_or<C>(
-        kws: &StdKeywords,
-        segs: &mut HeaderAndSuppOffsets,
-        ignore: Self::IgnoreFlag,
-        corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
-    ) -> OptSegRes<Self>
-    where
-        Self: HasOffsetPair + IsDataOrAnalysis,
-        Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        let pair = Self::get_opt_pair(kws);
-        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
-    }
-
-    fn remove_opt_or<C>(
-        kws: &mut StdKeywords,
-        segs: &mut HeaderAndSuppOffsets,
-        ignore: Self::IgnoreFlag,
-        corr: TEXTCorrection<Self>,
-        st: &TEXTReadState<C>,
-    ) -> OptSegRes<Self>
-    where
-        Self: HasOffsetPair + IsDataOrAnalysis,
-        Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        let pair = Self::remove_opt_pair(kws);
-        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
-    }
-
-    fn with_opt_pair_default<C>(
-        pair: OptPair<Self::B, Self::E>,
-        hdr_supp_offsets: &mut HeaderAndSuppOffsets,
-        corr: TEXTCorrection<Self>,
-        ignore: Self::IgnoreFlag,
-        st: &TEXTReadState<C>,
-    ) -> OptSegRes<Self>
-    where
-        Self: HasOffsetPair + IsDataOrAnalysis,
-        Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
-        i128: From<Self::B> + From<Self::E>,
-        Self::B: Copy,
-        Self::E: Copy,
-    {
-        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
-        let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
-        let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
-        // TODO configure this
-        let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
-        let mismatch_flag = dconf.allow_header_text_offset_mismatch;
-        let overlap_limit = oconf.overlap_correction_limit;
-
-        let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
-            // mismatch_warn and header_is_empty need to be independent because we
-            // may or may not throw a warning if a mismatch actually happened
-            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
-            let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
-                .map_err(OptOffsetsError::Segment);
-            match offsets_res {
-                Ok(mut offsets) => {
-                    let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
-                        ne.truncate_dataset_len((), st)
-                            .map_err(OptOffsetsWithDefaultWarning::from)
-                            .into_deferred_switchable(drop_flag)
-                            .switchable_into_commutative()
-                    } else {
-                        LogResult::new_ok(None)
-                    };
-                    let overlap_res = hdr_supp_offsets
-                        .validate_text_offsets(&mut offsets, overlap_limit)
-                        .nowarn_into_switchable(drop_flag)
-                        .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
-                        .switchable_into_commutative();
-                    let mut res = overflow_res.zip_commutative(overlap_res).map_ok_value(
-                        |(overflow, overlaps)| {
-                            let origin = MismatchedTEXTOffsetOrigin::new(
-                                header_is_empty,
-                                txt_orig,
-                                overlaps,
-                                overflow,
-                            );
-                            HeaderOrTextOffsets::Text {
-                                seg: offsets,
-                                origin,
-                            }
-                        },
-                    );
-                    res.extend_commutative_warnings(mismatch_warn);
-                    res
-                }
-                Err(e) => SwitchableErrorsResult::new_deferred_switchable((), e, drop_flag)
-                    .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
-                    .switchable_into_commutative()
-                    .set_ok_value(header_pair(ChoseHeaderReason::Malformed(txt_orig))),
-            }
-        };
-
-        let mut choose = |uncorr_txt| {
-            if header_seg.is_empty() {
-                // HEADER is empty, ignore the mismatch and get TEXT offsets
-                // without mismatch warning
-                pair_to_text(uncorr_txt, None, false)
-            } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
-                // Not an error, figure out which segment we want
-                let me = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
-                let w = do_warn
-                    .then_some(me)
-                    .map(OptOffsetsWithDefaultWarning::from);
-                if choose_header {
-                    // We choose HEADER, return it possibly with warning
-                    let ws = w.into_iter().collect::<Vec<_>>();
-                    let hpair = header_pair(ChoseHeaderReason::Mismatch(uncorr_txt));
-                    LogResult::new_ok(hpair).set_commutative_warnings(ws)
-                } else {
-                    // We choose TEXT, create new TEXT segment from pairs,
-                    // validate it, and possibly attach a warning
-                    pair_to_text(uncorr_txt, w, true)
-                }
-            } else {
-                // Error, don't bother with any segment processing
-                let e = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, None);
-                WarningsAndErrorsResult::new_err(e).map_errors(OptOffsetsWithDefaultWarning::from)
-            }
-        };
-
-        match pair {
-            // No TEXT segment found, but no errors either, just use HEADER
-            Ok(None) => LogResult::new_ok(header_pair(ChoseHeaderReason::Empty)),
-            // TEXT offsets found without errors, compare with HEADER
-            Ok(Some((x0, x1))) => {
-                let uncorr_txt = OriginalOffsets::new(x0, x1);
-                if ignore.is_set() {
-                    // Ignore is set, return uncorrected offsets immediately
-                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
-                } else if uncorr_txt == uncorr_hdr {
-                    // Uncorrected HEADER and TEXT are identical, just use HEADER
-                    LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
-                } else {
-                    // Segments are mismatched, figure out what to do
-                    choose(uncorr_txt)
-                }
-            }
-            // TEXT pairs found with errors, use HEADER
-            Err(es) => {
-                if ignore.is_set() {
-                    // Ignore is set, bypass errors
-                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(None)))
-                } else {
-                    // Otherwise throw lots of errors so user will have more
-                    // information to contemplate their life's decisions.
-                    let (e0, e1) = es.split();
-                    let hpair = header_pair(ChoseHeaderReason::Unparsed);
-                    SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
-                        .extend_deferred_switchable_errors(e1)
-                        .set_ok_value(hpair)
-                        .map_switchable_errors(OptOffsetsError::Key)
-                        .map_switchable_errors(OptOffsetsWithDefaultWarningInner::from)
-                        .switchable_into_commutative()
-                }
-            }
-        }
-    }
-}
-
-type ReqPair<B, E> = Result<(i128, i128), OneOrTwo<ReqSegmentKeyError<B, E>>>;
-
-type OptPair<B, E> = Result<Option<(i128, i128)>, OneOrTwo<OptSegmentKeyError<B, E>>>;
-
-/// Denotes that a type comes from a specific part of the FCS file
-pub(crate) trait HasSource {
-    const SRC: AnySrc;
-}
-
-/// Denotes that a type pertains to a region of the FCS file
-pub(crate) trait HasRegion {
-    const REGION: AnyRegion;
-}
-
-/// A type which has a segment name.
-pub(crate) trait HasOneName<N> {
-    fn segname1(&self) -> N;
-
-    fn as_named1(&self) -> NamedOffsets<N>
-    where
-        Self: IsOffsetPair,
-    {
-        NamedOffsets::new(self.segname1(), self.begin(), self.nbytes())
-    }
-}
-
-/// A type which has a segment name.
-pub(crate) trait AreNamedOffsets<N> {
-    type Params;
-
-    fn segname(args: Self::Params) -> N;
-}
-
-/// Denotes that a type pertains to a region of the FCS file
-pub(crate) trait IsDataOrAnalysis {
-    const IS_DATA: bool;
-}
-
-impl HasOffsetPair for DataSegmentId {
-    fn final_offsets(segs: &HeaderAndSuppOffsets) -> HeaderOffsets<Self> {
-        *AsRef::<HeaderOffsets<Self>>::as_ref(&segs.header.final_offsets)
-    }
-
-    fn original_offsets(segs: &HeaderAndSuppOffsets) -> OriginalOffsets {
-        segs.header.original_offsets.data
-    }
-}
-
-impl HasOffsetPair for AnalysisSegmentId {
-    fn final_offsets(segs: &HeaderAndSuppOffsets) -> HeaderOffsets<Self> {
-        *AsRef::<HeaderOffsets<Self>>::as_ref(&segs.header.final_offsets)
-    }
-
-    fn original_offsets(segs: &HeaderAndSuppOffsets) -> OriginalOffsets {
-        segs.header.original_offsets.analysis
-    }
-}
-
-impl KeyedOffsets for AnalysisSegmentId {
-    type B = Beginanalysis;
-    type E = Endanalysis;
-}
-
-impl KeyedOffsets for DataSegmentId {
-    type B = Begindata;
-    type E = Enddata;
-}
-
-impl KeyedOffsets for SupplementalTextSegmentId {
-    type B = Beginstext;
-    type E = Endstext;
-}
-
-impl KeyedSegmentInner for AnalysisSegmentId {}
-impl KeyedSegmentInner for DataSegmentId {}
-impl KeyedSegmentInner for SupplementalTextSegmentId {}
-
-impl KeyedReqSegment for AnalysisSegmentId {}
-impl KeyedReqSegment for DataSegmentId {}
-impl KeyedReqSegment for SupplementalTextSegmentId {}
-
-impl KeyedOptSegment for AnalysisSegmentId {}
-impl KeyedOptSegment for SupplementalTextSegmentId {}
-
-impl KeyedReqSegmentWithDefault for AnalysisSegmentId {
-    type IgnoreFlag = IgnoreTEXTAnalysisOffsets;
-    type OtherDataId = DataSegmentId;
-}
-
-impl KeyedOptSegmentWithDefault for AnalysisSegmentId {
-    type IgnoreFlag = IgnoreTEXTAnalysisOffsets;
-    type OtherDataId = DataSegmentId;
-}
-
-impl KeyedReqSegmentWithDefault for DataSegmentId {
-    type IgnoreFlag = IgnoreTEXTDataOffsets;
-    type OtherDataId = AnalysisSegmentId;
-}
-
-impl HasSource for OffsetsFromHeader {
-    const SRC: AnySrc = AnySrc::Header;
-}
-
-impl HasSource for OffsetsFromTEXT {
-    const SRC: AnySrc = AnySrc::Text;
-}
-
-impl HasRegion for AnalysisSegmentId {
-    const REGION: AnyRegion = AnyRegion::Analysis;
-}
-
-impl HasRegion for DataSegmentId {
-    const REGION: AnyRegion = AnyRegion::Data;
-}
-
-impl HasRegion for SupplementalTextSegmentId {
-    const REGION: AnyRegion = AnyRegion::Stext;
-}
-
-impl HasRegion for PrimaryTextSegmentId {
-    const REGION: AnyRegion = AnyRegion::Text;
-}
-
-impl HasRegion for OtherSegmentId {
-    const REGION: AnyRegion = AnyRegion::Other;
-}
-
-impl<I, S, N> HasOneName<N> for NonEmptyOffsetsMut<'_, I, S>
-where
-    I: AreNamedOffsets<N, Params = ()>,
-{
-    fn segname1(&self) -> N {
-        self.segname(())
-    }
-}
-
-impl<N: Clone> HasOneName<N> for NamedOffsets<N> {
-    fn segname1(&self) -> N {
-        self.name.clone()
-    }
-}
-
-impl AreNamedOffsets<HeaderOffsetsName> for PrimaryTextSegmentId {
-    type Params = ();
-
-    fn segname((): Self::Params) -> HeaderOffsetsName {
-        HeaderOffsetsName::Text
-    }
-}
-
-impl AreNamedOffsets<HeaderOffsetsName> for AnalysisSegmentId {
-    type Params = ();
-
-    fn segname((): Self::Params) -> HeaderOffsetsName {
-        HeaderOffsetsName::Analysis
-    }
-}
-
-impl AreNamedOffsets<HeaderOffsetsName> for DataSegmentId {
-    type Params = ();
-
-    fn segname((): Self::Params) -> HeaderOffsetsName {
-        HeaderOffsetsName::Data
-    }
-}
-
-impl AreNamedOffsets<HeaderOffsetsName> for OtherSegmentId {
-    type Params = usize;
-
-    fn segname(args: Self::Params) -> HeaderOffsetsName {
-        HeaderOffsetsName::Other(args)
-    }
-}
-
-impl AreNamedOffsets<SuppTextOffsetsName> for SupplementalTextSegmentId {
-    type Params = ();
-
-    fn segname((): Self::Params) -> SuppTextOffsetsName {
-        SuppTextOffsetsName
-    }
-}
-
-impl AreNamedOffsets<TextOffsetsName> for AnalysisSegmentId {
-    type Params = ();
-
-    fn segname((): Self::Params) -> TextOffsetsName {
-        TextOffsetsName::Analysis
-    }
-}
-
-impl AreNamedOffsets<TextOffsetsName> for DataSegmentId {
-    type Params = ();
-
-    fn segname((): Self::Params) -> TextOffsetsName {
-        TextOffsetsName::Data
-    }
-}
-
-impl IsDataOrAnalysis for AnalysisSegmentId {
-    const IS_DATA: bool = false;
-}
-
-impl IsDataOrAnalysis for DataSegmentId {
-    const IS_DATA: bool = true;
-}
-
-impl<I, S> From<(i32, i32)> for OffsetsCorrection<I, S> {
-    fn from(value: (i32, i32)) -> Self {
-        Self::new(value.0, value.1)
-    }
-}
-
-impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetsCorrection<I, S> {
-    fn from(value: (Option<i32>, Option<i32>)) -> Self {
-        Self::from((value.0.unwrap_or_default(), value.1.unwrap_or_default()))
-    }
-}
-
-impl<I, S> Default for Offsets<I, S> {
-    fn default() -> Self {
-        Self::new(InnerOffsets::Empty)
-    }
-}
-
-impl<I, S> Offsets<I, S> {
-    pub(crate) fn into_any(self) -> AnyOffsets<I> {
-        Offsets::new(self.inner)
-    }
-
-    /// Return the first and last byte with offset or `0,0` if empty.
-    #[cfg(feature = "python")]
-    pub(crate) fn slice_pair(&self) -> (u64, u64) {
-        if let InnerOffsets::NonEmpty(ne) = self.inner {
-            ne.slice_pair()
-        } else {
-            (0, 0)
-        }
-    }
-
-    /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut Vec<u8>,
-    ) -> io::Result<()>
-    where
-        R: Read + Seek,
-    {
-        match self.inner {
-            InnerOffsets::Empty => Ok(()),
-            InnerOffsets::NonEmpty(s) => s.h_read_contents(h, buf),
-        }
-    }
-
-    /// Return true if segment has 0 bytes
-    pub(crate) fn is_empty(&self) -> bool {
-        self.inner.is_empty()
-    }
-
-    /// Return the number of bytes in this segment
-    pub(crate) fn nbytes(&self) -> u64 {
-        // NOTE In FCS a 0,0 means "empty" but this also means one byte
-        // according to the spec's own definitions. The first number points to
-        // the first byte in a segment, and the second number points to the last
-        // byte, therefore 0,0 means "0 is both the first and last byte, which
-        // also means there is one byte".
-        self.as_nonempty().map_or(0, |s| s.nbytes())
-    }
-
-    fn try_new(
-        begin: i128,
-        end: i128,
-        conf: &NewOffsetsConfig<I, S>,
-    ) -> Result<Self, SegmentOffsetError>
-    where
-        I: HasRegion,
-        S: HasSource,
-    {
-        InnerOffsets::try_new::<I, S>(begin, end, conf).map(Self::new)
-    }
-
-    pub(crate) fn as_nonempty(&self) -> Option<NonEmptyOffsets<I, S>> {
-        matches!(self.inner, InnerOffsets::NonEmpty(_)).then_some(NonEmptyOffsets(*self))
-    }
-
-    pub(crate) fn as_nonempty_mut(&mut self) -> Option<NonEmptyOffsetsMut<'_, I, S>> {
-        matches!(self.inner, InnerOffsets::NonEmpty(_)).then_some(NonEmptyOffsetsMut(self))
-    }
-}
-
-impl<I, S> NonEmptyOffsets<I, S> {
-    /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<NEVec<u8>>
-    where
-        R: Read + Seek,
-    {
-        let mut buf = vec![];
-        self.inner().h_read_contents(h, &mut buf)?;
-        Ok(NEVec::try_from_vec(buf)
-            .expect("offsets are non-empty, therefore buffer should be non-empty"))
-    }
-
-    pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
-    where
-        I: AreNamedOffsets<N>,
-    {
-        let inner = self.inner();
-        NamedOffsets::new(I::segname(args), inner.begin, inner.length.get())
-    }
-
-    fn inner(&self) -> &NonEmptyOffsetsInner {
-        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
-            panic!("offsets should always be non-empty in this struct")
-        };
-        ne
-    }
-}
-
-impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
-    pub(crate) fn begin_abs(&self) -> u64 {
-        self.begin() + self.inner().dataset_offset.0
-    }
-
-    #[allow(clippy::unused_self, reason = "needed for coherence")]
-    pub(crate) fn segname<N>(&self, args: I::Params) -> N
-    where
-        I: AreNamedOffsets<N>,
-    {
-        I::segname(args)
-    }
-
-    /// Return amount to be truncated if over limit.
-    pub(crate) fn exceeds_limit(&self, offset: u64, limit: u64) -> Option<NonZeroU64> {
-        if let Some(n) = self.tail_overlap_offset(offset) {
-            let to_truncate = n.saturating_add(self.inner().truncated_len());
-            let trunc_limit = limit.min(self.inner().length.get());
-            (to_truncate.get() > trunc_limit).then_some(to_truncate)
-        } else {
-            None
-        }
-    }
-
-    pub(crate) fn tail_overlap_pair_and_truncate<P, N0, N1>(
-        self,
-        other: &P,
-        limit: u64,
-        args0: I::Params,
-    ) -> Option<OverlapResult<N0, N1>>
-    where
-        I: AreNamedOffsets<N0>,
-        P: IsOffsetPair + HasOneName<N1>,
-    {
-        let truncated_len = self.tail_overlap_offset(other.begin())?;
-        let named1 = other.as_named1();
-        let n0 = self.segname(args0);
-        let b0 = self.begin();
-        let ret = match self.truncate(truncated_len.get(), limit) {
-            Ok(new_len) => {
-                let named0 = NamedOffsets::new(n0, b0, new_len);
-                let overlap = OffsetsOverlap::new(named0, named1, truncated_len);
-                OverlapResult::new(overlap, true)
-            }
-            Err(old) => {
-                let named0 = NamedOffsets::new(n0, b0, old.nbytes());
-                let overlap = OffsetsOverlap::new(named0, named1, truncated_len);
-                OverlapResult::new(overlap, false)
-            }
-        };
-        Some(ret)
-    }
-
-    /// Truncate non-primary TEXT offsets that exceed EOF or $NEXTDATA.
-    ///
-    /// Return amount truncated for each offset pair or error if truncation
-    /// amount is beyond limit.
-    pub(crate) fn truncate_dataset_len<C, N>(
-        self,
-        args: I::Params,
-        st: &TEXTReadState<C>,
-    ) -> Result<Option<OffsetsOverflow<N>>, DatasetOverflowError<N>>
-    where
-        C: AsRef<ReadOffsetConfig>,
-        I: AreNamedOffsets<N>,
-    {
-        let bounds = st.dataset_bounds;
-        let dataset_len = bounds.len.0;
-        let conf: &ReadOffsetConfig = st.conf.as_ref();
-        let limit = conf.dataset_overflow_limit;
-        if let Some(res) = self.tail_overlap_offset_and_truncate(dataset_len, limit.0, args) {
-            let o =
-                OffsetsOverflow::new(res.offsets, res.overflow, dataset_len, bounds.from_nextdata);
-            if res.truncated {
-                Ok(Some(o))
-            } else {
-                Err(DatasetOverflowError(o))
-            }
-        } else {
-            Ok(None)
-        }
-    }
-
-    pub(crate) fn tail_overlap_offset_and_truncate<N>(
-        self,
-        other: u64,
-        limit: u64,
-        args: I::Params,
-    ) -> Option<OverflowResult<N>>
-    where
-        I: AreNamedOffsets<N>,
-    {
-        let truncated_len = self.tail_overlap_offset(other)?;
-        let name = self.segname(args);
-        let begin = self.begin();
-        let ret = match self.truncate(truncated_len.get(), limit) {
-            Ok(new_len) => {
-                let named = NamedOffsets::new(name, begin, new_len);
-                OverflowResult::new(named, truncated_len, true)
-            }
-            Err(old) => {
-                let named = NamedOffsets::new(name, old.begin(), old.nbytes());
-                OverflowResult::new(named, truncated_len, false)
-            }
-        };
-        Some(ret)
-    }
-
-    /// Subtract n bytes off the end of this offset
-    ///
-    /// Ensure that the truncated length won't be more than `limit`.
-    ///
-    /// Return new length if successful, otherwise `self` unchanged.
-    pub(crate) fn truncate(self, n: u64, limit: u64) -> Result<u64, Self> {
-        let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.0.inner) else {
-            panic!("offsets should always be non-empty in this struct")
-        };
-        let to_truncate = (ne.truncated_len() + n).min(ne.length.get());
-        if to_truncate <= limit
-            && let Some(diff) = ne.length.get().checked_sub(n)
-        {
-            let new_length = if let Some(new_length) = NonZeroU64::new(diff) {
-                // Amount of truncation is within limit and new length is > 0,
-                // set new length
-                ne.length = new_length;
-                self.0.inner = InnerOffsets::NonEmpty(ne);
-                new_length.get()
-            } else {
-                // Entire length was truncated and offset is now empty
-                0
-            };
-            return Ok(new_length);
-        }
-        // Amount to truncate is larger than offset pair length or exceeds
-        // allowed limit, return unchanged
-        self.0.inner = InnerOffsets::NonEmpty(ne);
-        Err(self)
-    }
-
-    fn inner(&self) -> &NonEmptyOffsetsInner {
-        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
-            panic!("offsets should always be non-empty in this struct")
-        };
-        ne
-    }
-}
-
+/// An intermediate result struct for overlaps
 #[derive(new)]
 pub(crate) struct OverlapResult<N0, N1> {
+    /// The overlap itself
     pub(crate) overlap: OffsetsOverlap<N0, N1>,
+    /// `true` if overlap was truncated off.
     pub(crate) truncated: bool,
 }
 
+/// An intermediate result struct for overflows
 #[derive(new)]
 pub(crate) struct OverflowResult<N> {
+    /// The offsets with an overflow.
     pub(crate) offsets: NamedOffsets<N>,
+    /// The amount of overflow.
     pub(crate) overflow: NonZeroU64,
+    /// `true` if overflow was truncated off.
     pub(crate) truncated: bool,
 }
 
-impl<I: Copy> HeaderOffsets<I> {
-    pub(crate) fn h_read_primary<C, R>(
-        h: &mut BufReader<R>,
-        is_text: bool,
-        corr: HeaderCorrection<I>,
-        version: Version,
-        st: &HeaderReadState<C>,
-    ) -> Result<(Self, OriginalOffsets), IOErrorGroup<HeaderSegmentError, ()>>
-    where
-        R: Read + Seek,
-        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
-        I: HasRegion + Copy,
-    {
-        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
-        let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
+/// Error when a non-empty offset pair occurs within the first 58 bytes of the file.
+#[derive(Debug, Error, PartialEq, Clone, Display)]
+#[display(
+    "{} segment offsets with begin offset of {} is within HEADER region",
+    self.0.name,
+    self.0.begin,
+)]
+#[display(bound(N: fmt::Display))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(N: fmt::Display))]
+pub struct InHeaderError<N>(pub NamedOffsets<N>);
 
-        let mut buf0 = [0_u8; 8];
-        let mut buf1 = [0_u8; 8];
-
-        let remaining = st.remaining_bytes(h)?;
-
-        if remaining < 16 {
-            let pos = h.stream_position()?;
-            let e = OffsetsNoBytesError::new(pos, remaining, 16, I::REGION, AnySrc::Header);
-            return Err(IOErrorGroup::new_pure_one(e.into()));
-        }
-
-        h.read_exact(&mut buf0)?;
-        h.read_exact(&mut buf1)?;
-
-        let parse_one = |bs, is_begin| {
-            // TEXT segment should never be blank
-            let allow_blank = !is_text;
-            UintSpacePad8::from_bytes(bs, allow_blank).map_err(|error| {
-                let src = NEStringOrBytes::from(bs.into_nonempty_vec());
-                ParseOffsetError::new(error, is_begin, I::REGION, src).into()
-            })
-        };
-
-        let begin_res = parse_one(buf0, true).into_nowarn();
-        let end_res = parse_one(buf1, false).into_nowarn();
-        begin_res
-            .zip_commutative(end_res)
-            .and_then_commutative(|(begin, end)| {
-                // TEXT segment is not squishable
-                let allow_squish = !is_text;
-                let squish = hconf.squish_offsets.is_set() && allow_squish;
-                let raw = OriginalOffsets::new(begin, end);
-                Self::try_new_squish(begin, end, squish, version, &seg_conf)
-                    .map(|x| (x, raw))
-                    .map_err(HeaderSegmentError::from)
-                    .into_log()
-            })
-            .group()
-            .resolve_nowarn()
-            .map_err(IOErrorGroup::Pure)
-    }
-
-    fn try_new_squish(
-        begin: i128,
-        end: i128,
-        squish_offsets: bool,
-        version: Version,
-        conf: &NewOffsetsConfig<I, OffsetsFromHeader>,
-    ) -> Result<Self, SegmentOffsetError>
-    where
-        I: HasRegion,
-    {
-        // never run on 2.0 since offset "squishing" only applies to HEADER
-        // offsets that overflow and necessitate TEXT offsets, which don't exist
-        // in 2.0
-        let (b, e) = if version > Version::FCS2_0 && squish_offsets && end == 0 && begin > 0 {
-            (0, 0)
-        } else {
-            (begin, end)
-        };
-        Self::try_new(b, e, conf)
-    }
-}
-
-impl OtherOffsets20 {
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn h_read_others<C, R>(
-        h: &mut BufReader<R>,
-        first_seg_begin: u64,
-        st: &HeaderReadState<C>,
-    ) -> WarningsAndIOGroupResult<
-        Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
-        GuessOtherWidthError,
-        HeaderSegmentError,
-        (),
-    >
-    where
-        R: Read + Seek,
-        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
-    {
-        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
-
-        // Get maximum length of OTHER offset region according to first required
-        // offset. If zero, exit early.
-        let Ok(max_other_len): Result<NonZeroU64, _> = first_seg_begin
-            .checked_sub(u64::from(HEADER_LEN))
-            .expect("minimal offset greater than 58")
-            .try_into()
-        else {
-            return LogResult::new_ok(None);
-        };
-
-        // Get max desired number of segments; If zero, exit early.
-        let Ok(max_other) = hconf
-            .max_other
-            .map(|x| u64::try_from(x).expect("usize overflow"))
-            .map(NonZeroU64::try_from)
-            .transpose()
-        else {
-            return LogResult::new_ok(None);
-        };
-
-        // Check that we have enough bytes left to read the offsets.
-        let remaining = io_to_log!(st.remaining_bytes(h));
-        if remaining < u64::from(max_other_len) {
-            // ASSUME this will always be at byte 58 (that's what the error says)
-            let e = OtherOffsetsNoBytesError::new(remaining, max_other_len);
-            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
-        }
-
-        // Read the offsets.
-        //
-        // TODO (minor optimization opportunity) This will take all bytes
-        // between offset 58 and the next *required* offset (ie from
-        // TEXT/DATA/ANALYSIS in HEADER). In %99.9999 of case, the first segment
-        // will be one of these three. However, it is theoretically possible
-        // that this region has both the OTHER offsets and the OTHER segments
-        // themselves. This is technically standards compliant since OTHER
-        // segments only need to be within the first 99,999,999 bytes as of 3.2
-        // (in earlier versions this was even less restricted since they did not
-        // specify a width). In these cases, reading bytes like this will
-        // result in the OTHER segments themselves being read twice (here they
-        // will be read and ignored).
-        let mut buf = vec![];
-        io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
-
-        // Only consider bytes which are spaces, nulls, minus sign, or digits
-        // where a minus sign must always immediately precede a digit
-        let mut n_valid_bytes = 0;
-        let mut prev_was_minus = false;
-        for &c in &buf {
-            let t = CharType::from(c);
-            if prev_was_minus && t != CharType::Digit {
-                // Char is not a digit following a minus sign, decrement by one
-                // byte before breaking loop since the previous minus sign does
-                // not go with a digit. ASSUME this will not underflow because
-                // the previous char cannot be minus on the first iteration.
-                n_valid_bytes -= 1;
-                break;
-            }
-            match t {
-                CharType::Minus => prev_was_minus = true,
-                CharType::Null | CharType::Digit => prev_was_minus = false,
-                CharType::Other => break,
-            }
-            n_valid_bytes += 1;
-        }
-
-        // Exit early if there are no valid chars or all bytes are null or space
-        let valid_buf = if let Some(ne) = NESlice::try_from_slice(&buf[0..n_valid_bytes])
-            && !(ne.iter().all(|&x| x == 0) | ne.iter().all(|&x| x == 32))
-        {
-            ne
-        } else {
-            return LogResult::new_ok(None);
-        };
-
-        // Guess offset width if desired.
-        let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
-        let width_res = if let Some(guess) = guess_maybe {
-            match Self::guess_other_width(&valid_buf, max_other) {
-                Ok(w) => WarningsAndErrorsResult::new_ok(w),
-                Err(e) => {
-                    let w = hconf.other_width;
-                    LogResult::new_switchable3(w, (), e, guess).switchable_into_commutative()
-                }
-            }
-        } else {
-            WarningsAndErrorsResult::new_ok(hconf.other_width)
-        };
-
-        width_res
-            .map_errors(HeaderSegmentError::from)
-            .and_then_commutative(|width| {
-                let corrs = hconf
-                    .other_corrections
-                    .iter()
-                    .copied()
-                    .chain(repeat(OffsetsCorrection::default()));
-                let limit = hconf.max_other.unwrap_or(usize::MAX);
-                valid_buf
-                    .nonempty_chunks(width.into())
-                    .into_iter()
-                    .tuples()
-                    .zip(corrs)
-                    .take(limit)
-                    .enumerate()
-                    .filter_map(|(i, ((buf0, buf1), corr))| {
-                        let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
-                        let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
-                        (!(all_are(0) || all_are(32) || all_are(48))).then(|| {
-                            Self::parse_other(&buf0, &buf1, &seg_conf)
-                                .map_ok_value(|(s, d)| (IndexedOtherOffsets::new(i, s), d))
-                        })
-                    })
-                    .sequence_commutative()
-                    .nowarn_into_warn()
-                    .map_ok_value(|xs| NEVec::try_from_vec(xs).map(|ys| (ys, width)))
-            })
-            .group()
-            .map_error(IOErrorGroup::Pure)
-    }
-
-    fn parse_other(
-        bs0: &NESlice<'_, u8>,
-        bs1: &NESlice<'_, u8>,
-        conf: &NewOffsetsConfig<OtherSegmentId, OffsetsFromHeader>,
-    ) -> ErrorsResult<(Self, OriginalOffsets), (), HeaderSegmentError> {
-        let parse_one = |bs: &NESlice<'_, u8>, is_begin| {
-            UintSpacePad20::from_bytes(bs.as_ref()).map_err(|error| {
-                let src = NEStringOrBytes::from(bs.to_ne_vec());
-                ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, src).into()
-            })
-        };
-
-        let begin_res = parse_one(bs0, true).into_nowarn();
-        let end_res = parse_one(bs1, false).into_nowarn();
-        begin_res
-            .zip_commutative(end_res)
-            .and_then_commutative(|(begin, end)| {
-                let raw = OriginalOffsets::new(begin, end);
-                Self::try_new(begin, end, conf)
-                    .map(|x| (x, raw))
-                    .map_err(HeaderSegmentError::from)
-                    .into_log()
-            })
-    }
-
-    #[allow(clippy::too_many_lines)]
-    fn guess_other_width(
-        xs: &NESlice<'_, u8>,
-        max_other: Option<NonZeroU64>,
-    ) -> Result<OtherWidth, GuessOtherWidthError> {
-        #[cfg(debug_assertions)]
-        {
-            let cs: NEVec<_> = xs.nonempty_iter().copied().map(CharType::from).collect();
-            assert!(
-                cs.iter().all(|&x| x != CharType::Other),
-                "stream must be all one of null, space, minus sign, or a digit"
-            );
-            assert!(
-                !cs.iter()
-                    .tuple_windows()
-                    .any(|(&prev, &this)| prev == CharType::Minus && this != CharType::Digit),
-                "stream has minus sign which is not followed by digit"
-            );
-            assert!(cs.last() != &CharType::Minus, "stream ends with minus sign");
-        }
-
-        // Indices where chars changed (false = null->digit, true = digit->null)
-        let mut digit_starts: Vec<usize> = vec![];
-        let mut digit_ends: Vec<usize> = vec![];
-
-        // Iterate through all possible widths and test if the width is
-        // compatible with the bytestring.
-        let mut go = |w: OtherWidth| {
-            digit_starts.clear();
-            digit_ends.clear();
-
-            // Limit bytes if limit for maximum segment number is given.
-            let total_bytes = if let Some(n) = max_other {
-                const N: NonZeroUsize = NonZeroUsize::new(2).unwrap();
-                NonZeroUsize::try_from(n)
-                    .expect("overflow")
-                    .checked_mul(NonZeroUsize::from(w))
-                    .expect("overflow")
-                    .checked_mul(N)
-                    .expect("overflow")
-            } else {
-                xs.len()
-            };
-
-            // Get boundaries of "digit streams" which are contiguous streams of
-            // digit characters separated by at least one space or null char
-            // which may or may not have a minus sign in front. The boundaries
-            // will be constructed as intervals like (start, end) where start
-            // and end are the indices of the start and end of the stream.
-            let (x0, rest) = xs.nonempty_iter().take(total_bytes).next();
-            let mut prev_char_type = CharType::from(*x0);
-            // If first char is digit or minus, push start boundary to balance the ends
-            if prev_char_type.is_digit_or_minus() {
-                digit_starts.push(0);
-            }
-            for (i, &x) in rest.enumerate() {
-                let this_char_type = CharType::from(x);
-                if prev_char_type != this_char_type {
-                    if this_char_type == CharType::Null {
-                        digit_ends.push(i + 1);
-                    } else if prev_char_type == CharType::Null {
-                        digit_starts.push(i);
-                    }
-                }
-                prev_char_type = this_char_type;
-            }
-            if prev_char_type == CharType::Digit {
-                // If previous was a digit, add a boundary to the end
-                digit_ends.push(usize::from(total_bytes));
-            } else if prev_char_type == CharType::Minus {
-                // If previous was a minus, the last char in the last digit is
-                // a minus for this width, which is invalid.
-                return false;
-            }
-            let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
-            debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
-
-            // Compute number of segments that fit into digits. Use the last
-            // found digit as the end of the bytes to be considered. If segment
-            // number is odd, this width is not valid since offsets come in
-            // pairs.
-            let ww = usize::from(NonZeroUsize::from(w));
-            let n_segs = final_digit_position / ww;
-            if n_segs & 1 == 1 {
-                return false;
-            }
-
-            // Match intervals of digits computed by positions of digit bytes
-            // themselves with offset boundaries as defined by the width.
-            //
-            // Criteria for passing width
-            // - the right position of all digit streams should correspond to
-            //   an offset boundary
-            // - all offset boundaries should be in a digit stream
-            let mut seg_ends = (0..n_segs).map(|x| (x + 1) * ww);
-            let mut cur_end = seg_ends.by_ref().next();
-            let digit_intervals = digit_starts.iter().copied().zip(digit_ends.iter().copied());
-            for (a, b) in digit_intervals {
-                if let Some(s) = cur_end {
-                    if s == b {
-                        // offset end and digit end are equal, this digit stream
-                        // is satisfied
-                        cur_end = seg_ends.by_ref().next();
-                        continue;
-                    } else if a < s && s < b {
-                        // offset end is in digit stream, which is allowed but
-                        // we still need to match the current digit stream's
-                        // ending offset. Advance until we either find a match
-                        // (pass) or we overshoot (fail)
-                        while cur_end.is_some_and(|s0| s0 < b) {
-                            cur_end = seg_ends.by_ref().next();
-                        }
-                        if cur_end.is_some_and(|s0| s0 == b) {
-                            cur_end = seg_ends.by_ref().next();
-                            continue;
-                        }
-                        return false;
-                    }
-                    // offset end is before the start of digit stream, invalid
-                    return false;
-                }
-                // we ran out of segment ends, this digit stream is not
-                // matched which is a fail
-                return false;
-            }
-            true
-        };
-        // TODO use NZU8 directly (this is not yet stable)
-        let candidates = (MIN_OTHER_WIDTH.get()..=MAX_CHARS.get())
-            .filter_map(|w| OtherWidth::try_from(w).ok())
-            .filter(|&w| go(w));
-
-        // TODO for now we are assuming that checking digit boundaries is good
-        // enough to figure out what the offset width should be. We could also
-        // parse the offsets to check that the digits make sense, and also
-        // check for overlaps. This is obviously much more complex. This
-        // would only be necessary in the case of ties where multiple widths
-        // are valid. In theory, ties are most likely for widths 8, 9, and 10
-        // which could be mistaken instead of 16, 18, and 20 respectively. There
-        // may be other edge cases as well.
-        //
-        // Example of a tie: '   11111   22222' could either be 1,1111 and
-        // 2,2222 or 11111,22222 (width is 4 or 8 respectively)
-        if let Some(ne) = candidates.try_into_nonempty_iter() {
-            let (w0, mut ws) = ne.next();
-            if ws.by_ref().peek().is_none() {
-                Ok(w0)
-            } else {
-                let mw = once(w0).chain(ws).collect();
-                Err(GuessOtherWidthError::MultiWidth(mw))
-            }
-        } else {
-            Err(GuessOtherWidthError::NoWidth)
-        }
-    }
-}
-
-impl InnerOffsets {
-    fn try_new<I: HasRegion, S: HasSource>(
-        begin: i128,
-        end: i128,
-        conf: &NewOffsetsConfig<I, S>,
-    ) -> Result<Self, SegmentOffsetError> {
-        let corr = &conf.corr;
-        let corrected_begin = begin + i128::from(corr.begin);
-        let corrected_end = end + i128::from(corr.end);
-
-        if corrected_begin == corrected_end + 1 && conf.allow_pseudoempty.is_set() {
-            // Check if this offset is pseudoempty
-            // TODO possibly throw warning if this happens
-            return Ok(Self::Empty);
-        } else if corrected_begin == 0 && corrected_end == 0 {
-            // Return empty if both offsets are zero
-            return Ok(Self::Empty);
-        } else if corrected_begin > corrected_end {
-            // Return error if ending offset is greater than beginning offset
-            let o = conf.dataset_offset;
-            let c = (corr.begin, corr.end);
-            let e = SegmentOffsetError::new((begin, end), c, o, I::REGION, S::SRC);
-            return Err(e);
-        }
-
-        // At this point, we know that the begin offset should be <= the end
-        // offset (which means segment is at least one byte long)
-
-        let new_length = corrected_end
-            .checked_sub(corrected_begin)
-            .expect("end should be greater than end")
-            .try_into()
-            .ok()
-            .and_then(|n| NonZeroU64::MIN.checked_add(n))
-            .expect("offset length should be within u64");
-
-        let new_begin = u64::try_from(corrected_begin).expect("offset begin exceeded u64");
-
-        let ne = NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
-        Ok(Self::NonEmpty(ne))
-    }
-
-    fn is_empty(&self) -> bool {
-        matches!(self, Self::Empty)
-    }
-}
-
-impl NonEmptyOffsetsInner {
-    /// Return the number of bytes in this segment
-    fn nbytes(&self) -> NonZeroU64 {
-        self.length
-    }
-
-    pub(crate) fn truncated_len(&self) -> u64 {
-        let o = self.original_length.get();
-        let l = self.length.get();
-        o.checked_sub(l)
-            .unwrap_or_else(|| panic!("original length ({o}) should be >= length ({l})"))
-    }
-
-    /// Read bytes within this segment
-    pub(crate) fn h_read_contents<R>(
-        &self,
-        h: &mut BufReader<R>,
-        buf: &mut Vec<u8>,
-    ) -> io::Result<()>
-    where
-        R: Read + Seek,
-    {
-        let absolute_begin = self.begin + self.dataset_offset.0;
-        let nbytes = self.nbytes().get();
-
-        #[cfg(debug_assertions)]
-        {
-            let end = absolute_begin + nbytes;
-            let file_size = h.seek(SeekFrom::End(0))?;
-            h.seek(SeekFrom::Start(absolute_begin))?;
-            assert!(
-                end <= file_size,
-                "end of segment ({end}) exceeds file ({file_size})"
-            );
-        }
-
-        h.seek(SeekFrom::Start(absolute_begin))?;
-        h.take(nbytes).read_to_end(buf)?;
-        Ok(())
-    }
-}
+/// Error when segment offsets exceed $NEXTDATA.
+#[derive(Debug, Error, PartialEq, Clone, Display)]
+#[display(
+    "{} segment offsets (begin = {}, length = {}) exceeds {} ({})",
+    self.0.offsets.name,
+    self.0.offsets.begin,
+    self.0.offsets.length,
+    if self.0.bound_is_nextdata { "$NEXTDATA" } else { "EOF" },
+    self.0.dataset_len
+)]
+#[display(bound(N: fmt::Display))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+#[cfg_attr(feature = "python", bound(N: fmt::Display))]
+pub struct DatasetOverflowError<N>(pub OffsetsOverflow<N>);
 
 /// Error when parsing or creating required segment offsets from TEXT
 #[derive(Display, Debug, Error)]
@@ -2569,6 +870,1768 @@ pub enum GuessOtherWidthError {
     NoWidth,
     #[error("Multiple possible widths for OTHER offsets: {}", _0.iter().join(","))]
     MultiWidth(NEVec<OtherWidth>),
+}
+
+pub type PrimaryTextOffsets = Offsets<PrimaryTextSegmentId, OffsetsFromHeader>;
+pub type SupplementalTextOffsets = Offsets<SupplementalTextSegmentId, OffsetsFromTEXT>;
+
+type DataOffsets<S> = Offsets<DataSegmentId, S>;
+pub type HeaderDataOffsets = DataOffsets<OffsetsFromHeader>;
+pub type TEXTDataOffsets = DataOffsets<OffsetsFromTEXT>;
+
+type AnalysisOffsets<S> = Offsets<AnalysisSegmentId, S>;
+pub type HeaderAnalysisOffsets = AnalysisOffsets<OffsetsFromHeader>;
+pub type TEXTAnalysisOffsets = AnalysisOffsets<OffsetsFromTEXT>;
+
+pub type HeaderOffsets<I> = Offsets<I, OffsetsFromHeader>;
+pub type TEXTOffsets<I> = Offsets<I, OffsetsFromTEXT>;
+pub type AnyOffsets<I> = Offsets<I, OffsetsFromAnywhere>;
+
+pub type HeaderCorrection<I> = OffsetsCorrection<I, OffsetsFromHeader>;
+pub type TEXTCorrection<I> = OffsetsCorrection<I, OffsetsFromTEXT>;
+
+pub type AnyDataOffsets = DataOffsets<OffsetsFromAnywhere>;
+pub type AnyAnalysisOffsets = AnalysisOffsets<OffsetsFromAnywhere>;
+
+pub type OtherOffsets20 = Offsets<OtherSegmentId, OffsetsFromHeader>;
+
+pub(crate) type ReqSegResult<I> = WarningsAndErrorsResult<
+    HeaderOrTextOffsets<I>,
+    (),
+    ReqOffsetsWithDefaultWarning<I>,
+    ReqOffsetsWithDefaultError<I>,
+>;
+
+pub(crate) type OptSegRes<I> = WarningsAndErrorsResult<
+    HeaderOrTextOffsets<I>,
+    (),
+    OptOffsetsWithDefaultWarning<I>,
+    OptOffsetsWithDefaultWarning<I>,
+>;
+
+pub type ReqOffsetsWithDefaultWarning<T> =
+    ReqOffsetsWithDefaultWarning_<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
+
+pub type ReqOffsetsWithDefaultError<T> =
+    ReqOffsetsWithDefaultErrorInner<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
+
+pub type OptOffsetsWithDefaultWarning<T> =
+    OptOffsetsWithDefaultWarningInner<T, <T as KeyedOffsets>::B, <T as KeyedOffsets>::E>;
+
+// Implement trait for general offset pair-like operations
+//
+// NOTE "offset pair" here refers to a "real" offset pair that acts like a slice
+// in most programming languages (A <= x < B) and not what is in FCS files
+// (A <= x <= B).
+
+/// A type which has a beginning and end offset that defines a byte segment.
+///
+/// For a given pair X,Y, X is the offset of the first byte, and Y is the offset
+/// immediately after the last byte.
+pub(crate) trait IsOffsetPair {
+    /// The first position
+    fn begin(&self) -> u64;
+
+    /// The second position
+    fn end(&self) -> u64;
+
+    /// First and second offsets as used as a slice.
+    ///
+    /// This is NOT the same as what is written in FCS files. For instance,
+    /// the interval 5,11 here means "bytes 5 up to and including 10".
+    fn slice_pair(&self) -> (u64, u64) {
+        (self.begin(), self.end())
+    }
+
+    /// The length of the slice
+    fn nbytes(&self) -> u64 {
+        self.end() - self.begin()
+    }
+
+    /// Get the overlap between two offset pairs.
+    ///
+    /// Will panic if first `other` offset is less than first offset of `self`.
+    fn tail_overlap_pair<P>(&self, other: &P) -> Option<NonZeroU64>
+    where
+        P: IsOffsetPair,
+    {
+        assert!(
+            self.begin() <= other.begin(),
+            "other pair must start after this pair"
+        );
+        NonZeroU64::new((self.end()).saturating_sub(other.begin()))
+    }
+
+    /// Get the overlap between this pair and another offset.
+    ///
+    /// Will panic if `other` offset is less than first offset of `self`.
+    fn tail_overlap_offset(&self, other: u64) -> Option<NonZeroU64> {
+        assert!(
+            self.begin() <= other,
+            "other ({other}) must start after this pair ({}, {})",
+            self.begin(),
+            self.end()
+        );
+        NonZeroU64::new((self.end()).saturating_sub(other))
+    }
+}
+
+impl<N> IsOffsetPair for NamedOffsets<N> {
+    fn begin(&self) -> u64 {
+        self.begin
+    }
+
+    fn end(&self) -> u64 {
+        self.begin + self.length
+    }
+}
+
+impl<I, S> IsOffsetPair for NonEmptyOffsets<I, S> {
+    fn begin(&self) -> u64 {
+        self.inner().begin()
+    }
+
+    fn end(&self) -> u64 {
+        self.inner().end()
+    }
+}
+
+impl<I, S> IsOffsetPair for NonEmptyOffsetsMut<'_, I, S> {
+    fn begin(&self) -> u64 {
+        self.inner().begin()
+    }
+
+    fn end(&self) -> u64 {
+        self.inner().end()
+    }
+}
+
+impl IsOffsetPair for NonEmptyOffsetsInner {
+    fn begin(&self) -> u64 {
+        self.begin
+    }
+
+    fn end(&self) -> u64 {
+        self.begin + self.length.get()
+    }
+}
+
+// Implement mapping between segment ID and offsets in HEADER struct
+
+pub(crate) trait HasOffsetPair: Sized {
+    fn final_offsets(segs: &HeaderAndSuppOffsets) -> HeaderOffsets<Self>;
+    fn original_offsets(segs: &HeaderAndSuppOffsets) -> OriginalOffsets;
+
+    fn offset_pair(segs: &HeaderAndSuppOffsets) -> (HeaderOffsets<Self>, OriginalOffsets) {
+        (Self::final_offsets(segs), Self::original_offsets(segs))
+    }
+}
+
+impl HasOffsetPair for DataSegmentId {
+    fn final_offsets(segs: &HeaderAndSuppOffsets) -> HeaderOffsets<Self> {
+        *AsRef::<HeaderOffsets<Self>>::as_ref(&segs.header.final_offsets)
+    }
+
+    fn original_offsets(segs: &HeaderAndSuppOffsets) -> OriginalOffsets {
+        segs.header.original_offsets.data
+    }
+}
+
+impl HasOffsetPair for AnalysisSegmentId {
+    fn final_offsets(segs: &HeaderAndSuppOffsets) -> HeaderOffsets<Self> {
+        *AsRef::<HeaderOffsets<Self>>::as_ref(&segs.header.final_offsets)
+    }
+
+    fn original_offsets(segs: &HeaderAndSuppOffsets) -> OriginalOffsets {
+        segs.header.original_offsets.analysis
+    }
+}
+
+// Implement mapping between segment ID and TEXT keyword types
+
+/// Operations to obtain optional segment from TEXT keywords
+pub trait KeyedOffsets: Sized + Copy {
+    type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
+    type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
+}
+
+/// Operations to obtain optional segment from TEXT keywords
+pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
+    #[allow(clippy::type_complexity)]
+    #[allow(clippy::result_large_err)]
+    fn pair_to_offsets<C, D>(
+        x0: i128,
+        x1: i128,
+        corr: TEXTCorrection<Self>,
+        st: &ReadState<C, D>,
+    ) -> (
+        Result<Offsets<Self, OffsetsFromTEXT>, SegmentOffsetError>,
+        OriginalOffsets,
+    )
+    where
+        C: AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        let new_conf = NewOffsetsConfig::from_read_config(corr, st);
+        let raw = OriginalOffsets::new(x0, x1);
+        (Offsets::try_new(x0, x1, &new_conf), raw)
+    }
+}
+
+impl KeyedOffsets for AnalysisSegmentId {
+    type B = Beginanalysis;
+    type E = Endanalysis;
+}
+
+impl KeyedOffsets for DataSegmentId {
+    type B = Begindata;
+    type E = Enddata;
+}
+
+impl KeyedOffsets for SupplementalTextSegmentId {
+    type B = Beginstext;
+    type E = Endstext;
+}
+
+impl KeyedSegmentInner for AnalysisSegmentId {}
+impl KeyedSegmentInner for DataSegmentId {}
+impl KeyedSegmentInner for SupplementalTextSegmentId {}
+
+// Implement operations for TEXT segments which are required
+
+type ReqPair<B, E> = Result<(i128, i128), OneOrTwo<ReqSegmentKeyError<B, E>>>;
+
+macro_rules! lookup_req {
+    ($kws:ident, $fun:ident) => {{
+        let k = SpecificKey::default();
+        match $kws.$fun(&k.as_std_key()) {
+            Some(v) => v
+                .parse::<i128>()
+                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
+                .map_err(ReqKeyErrorInner::from),
+            None => Err(ReqKeyErrorInner::from(MissingKeyError(k.into()))),
+        }
+    }};
+}
+
+/// Operations to obtain required segment from TEXT keywords
+pub(crate) trait KeyedReqSegment: KeyedSegmentInner
+where
+    Self::B: ReqMetarootKey,
+    Self::E: ReqMetarootKey,
+{
+    #[allow(clippy::type_complexity)]
+    #[allow(clippy::result_large_err)]
+    fn with_req_pair<C, D>(
+        pair: ReqPair<Self::B, Self::E>,
+        corr: TEXTCorrection<Self>,
+        st: &ReadState<C, D>,
+    ) -> PairResult<Self, ReqSegmentKeyError<Self::B, Self::E>>
+    where
+        C: AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        match pair {
+            Ok((x0, x1)) => {
+                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
+                match res {
+                    Ok(final_pair) => PairResult::Valid(final_pair, raw),
+                    Err(e) => PairResult::Malformed(raw, e),
+                }
+            }
+            Err(e) => PairResult::Unparsed(e),
+        }
+    }
+
+    fn get_req_pair(kws: &StdKeywords) -> ReqPair<Self::B, Self::E> {
+        let x0 = Self::get_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
+        let x1 = Self::get_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
+        OneOrTwo::from_results(x0, x1)
+    }
+
+    fn remove_req_pair(kws: &mut StdKeywords) -> ReqPair<Self::B, Self::E> {
+        let x0 = Self::remove_req::<Self::B>(kws).map_err(ReqSegmentKeyError::Begin);
+        let x1 = Self::remove_req::<Self::E>(kws).map_err(ReqSegmentKeyError::End);
+        OneOrTwo::from_results(x0, x1)
+    }
+
+    fn get_req<K>(kws: &StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_req!(kws, get)
+    }
+
+    fn remove_req<K>(kws: &mut StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_req!(kws, remove)
+    }
+}
+
+impl KeyedReqSegment for AnalysisSegmentId {}
+impl KeyedReqSegment for DataSegmentId {}
+impl KeyedReqSegment for SupplementalTextSegmentId {}
+
+// Implement operations for TEXT segments which are required and have
+// a "default" segment from HEADER (DATA and ANALYSIS but not supplemental TEXT)
+
+/// Operations to obtain required segment from TEXT keywords with a default segment
+pub(crate) trait KeyedReqSegmentWithDefault
+where
+    Self: KeyedReqSegment + HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()>,
+    Self::B: ReqMetarootKey,
+    Self::E: ReqMetarootKey,
+{
+    type IgnoreFlag: ConfigFlag;
+    type OtherDataId: HasRegion;
+
+    fn get_req_or<C>(
+        kws: &StdKeywords,
+        segs: &mut HeaderAndSuppOffsets,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
+        st: &TEXTReadState<C>,
+    ) -> ReqSegResult<Self>
+    where
+        Self: HasOffsetPair + IsDataOrAnalysis,
+        Self::OtherDataId: HasOffsetPair,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        Self::with_req_pair_default(Self::get_req_pair(kws), segs, corr, ignore, st)
+    }
+
+    fn remove_req_or<C>(
+        kws: &mut StdKeywords,
+        segs: &mut HeaderAndSuppOffsets,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
+        st: &TEXTReadState<C>,
+    ) -> ReqSegResult<Self>
+    where
+        Self: HasOffsetPair + IsDataOrAnalysis,
+        Self::OtherDataId: HasOffsetPair,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        Self::with_req_pair_default(Self::remove_req_pair(kws), segs, corr, ignore, st)
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn with_req_pair_default<C>(
+        pair: ReqPair<Self::B, Self::E>,
+        segs: &mut HeaderAndSuppOffsets,
+        corr: TEXTCorrection<Self>,
+        ignore: Self::IgnoreFlag,
+        st: &TEXTReadState<C>,
+    ) -> ReqSegResult<Self>
+    where
+        Self: HasOffsetPair + IsDataOrAnalysis,
+        Self::OtherDataId: HasOffsetPair,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
+        let oconf: &ReadOffsetConfig = st.conf.as_ref();
+        let (header_seg, uncorr_hdr) = Self::offset_pair(segs);
+        let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
+        let mismatch_flag = dconf.allow_header_text_offset_mismatch;
+        let missing_flag = dconf.allow_missing_required_offsets;
+        let overlap_limit = oconf.overlap_correction_limit;
+
+        let text_missing = |es: Vec<ReqOffsetsWithDefaultError<Self>>| {
+            let hpair = header_pair(ChoseHeaderReason::Unparsed);
+            let mut res = LogResult::new_switchable_iter3(hpair, (), es, missing_flag)
+                .switchable_into_commutative()
+                .map_commutative_warnings(ReqOffsetsWithDefaultWarning::from);
+            let w = ReqOffsetsWithDefaultWarning::from(SegmentOffsetsDefaultWarning::default());
+            res.eval_warning(|_| Some(w));
+            res
+        };
+
+        let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
+            // mismatch_warn and header_is_empty need to be independent because we
+            // may or may not throw a warning if a mismatch actually happened
+            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
+            let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
+                .map_err(ReqOffsetsError::Segment);
+            match offsets_res {
+                Ok(mut offsets) => {
+                    let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
+                        ne.truncate_dataset_len((), st)
+                            .map_err(ReqOffsetsWithDefaultErrorInner::from)
+                            .into_deferred_switchable3(missing_flag)
+                            .switchable_into_commutative()
+                    } else {
+                        LogResult::new_ok(None)
+                    };
+                    let val_res = segs
+                        .validate_text_offsets(&mut offsets, overlap_limit)
+                        .map_errors(ReqOffsetsWithDefaultErrorInner::from)
+                        .nowarn_into_switchable3(missing_flag)
+                        .switchable_into_commutative();
+                    let mut res = overflow_res
+                        .zip_commutative(val_res)
+                        .map_commutative_warnings(ReqOffsetsWithDefaultWarning::from)
+                        .map_ok_value(|(overflow, overlaps)| {
+                            let origin = MismatchedTEXTOffsetOrigin::new(
+                                header_is_empty,
+                                txt_orig,
+                                overlaps,
+                                overflow,
+                            );
+                            HeaderOrTextOffsets::Text {
+                                seg: offsets,
+                                origin,
+                            }
+                        });
+                    res.extend_commutative_warnings(mismatch_warn);
+                    res
+                }
+                Err(e) => text_missing(vec![ReqOffsetsWithDefaultErrorInner::from(e)]),
+            }
+        };
+
+        let mut mismatch_choose = |uncorr_txt| {
+            if header_seg.is_empty() {
+                // HEADER is empty, ignore the mismatch and get TEXT offsets
+                // without mismatch warning
+                pair_to_text(uncorr_txt, None, false)
+            } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
+                // Not an error, choose offset and optionally throw warning
+                let e = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
+                let w = do_warn
+                    .then_some(e)
+                    .map(ReqOffsetsWithDefaultErrorInner::from)
+                    .map(ReqOffsetsWithDefaultWarning::from);
+                if choose_header {
+                    // We choose HEADER, return it possibly with warning
+                    let ws = w.into_iter().collect::<Vec<_>>();
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Mismatch(uncorr_txt)))
+                        .set_commutative_warnings(ws)
+                } else {
+                    // We choose TEXT, convert offsets to segment, validate, and
+                    // possibly attach warning for mismatch
+                    pair_to_text(uncorr_txt, w, true)
+                }
+            } else {
+                // Error for mismatch, don't bother processing offsets
+                let e = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, None);
+                WarningsAndErrorsResult::new_err(e).map_errors(ReqOffsetsWithDefaultError::from)
+            }
+        };
+
+        match pair {
+            // TEXT offsets found, compare with HEADER
+            Ok((x0, x1)) => {
+                let uncorr_txt = OriginalOffsets::new(x0, x1);
+                if ignore.is_set() {
+                    // If ignore is set, return immediately with uncorrected offsets
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
+                } else if uncorr_txt == uncorr_hdr {
+                    // Uncorrected offsets are identical, not a mismatch.
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
+                } else {
+                    // Offsets not identical, choose one
+                    mismatch_choose(uncorr_txt)
+                }
+            }
+            // TEXT offsets not found, throw error or warning depending on
+            // if we want to enforce required offsets
+            Err(es) => {
+                if ignore.is_set() {
+                    // If ignore is set, bypass errors and return nothing
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(None)))
+                } else {
+                    // Otherwise return all the errors to make user a better and
+                    // more enlightened person
+                    let es0 = es
+                        .fmap(ReqOffsetsError::Key)
+                        .fmap(ReqOffsetsWithDefaultErrorInner::from)
+                        .into_iter()
+                        .collect();
+                    text_missing(es0)
+                }
+            }
+        }
+    }
+}
+
+impl KeyedReqSegmentWithDefault for DataSegmentId {
+    type IgnoreFlag = IgnoreTEXTDataOffsets;
+    type OtherDataId = AnalysisSegmentId;
+}
+
+impl KeyedReqSegmentWithDefault for AnalysisSegmentId {
+    type IgnoreFlag = IgnoreTEXTAnalysisOffsets;
+    type OtherDataId = DataSegmentId;
+}
+
+// Implement operations for TEXT segments which are optional
+
+type OptPair<B, E> = Result<Option<(i128, i128)>, OneOrTwo<OptSegmentKeyError<B, E>>>;
+
+macro_rules! lookup_opt {
+    ($kws:ident, $fun:ident) => {{
+        let k = SpecificKey::default();
+        $kws.$fun(&k.as_std_key())
+            .map(|v| {
+                v.parse::<i128>()
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
+            })
+            .transpose()
+    }};
+}
+
+/// Operations to obtain optional segment from TEXT keywords
+pub(crate) trait KeyedOptSegment: KeyedSegmentInner
+where
+    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
+    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
+{
+    #[allow(clippy::result_large_err)]
+    #[allow(clippy::type_complexity)]
+    fn with_opt_pair<C, D>(
+        pair: OptPair<Self::B, Self::E>,
+        corr: TEXTCorrection<Self>,
+        st: &ReadState<C, D>,
+    ) -> Option<PairResult<Self, OptSegmentKeyError<Self::B, Self::E>>>
+    where
+        C: AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        match pair {
+            Ok(None) => None,
+            Ok(Some((x0, x1))) => {
+                let (res, raw) = Self::pair_to_offsets(x0, x1, corr, st);
+                match res {
+                    Ok(final_pair) => Some(PairResult::Valid(final_pair, raw)),
+                    Err(e) => Some(PairResult::Malformed(raw, e)),
+                }
+            }
+            Err(e) => Some(PairResult::Unparsed(e)),
+        }
+    }
+
+    fn get_opt_pair(kws: &StdKeywords) -> OptPair<Self::B, Self::E> {
+        let x0 = Self::get_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
+        let x1 = Self::get_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
+        OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
+    }
+
+    fn remove_opt_pair(kws: &mut StdKeywords) -> OptPair<Self::B, Self::E> {
+        // TODO these should process optional keywords the same as everything else
+        let x0 = Self::remove_opt::<Self::B>(kws).map_err(OptSegmentKeyError::Begin);
+        let x1 = Self::remove_opt::<Self::E>(kws).map_err(OptSegmentKeyError::End);
+        OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
+    }
+
+    fn get_opt<K>(kws: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_opt!(kws, get)
+    }
+
+    fn remove_opt<K>(
+        kws: &mut StdKeywords,
+    ) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
+    where
+        K: Key,
+    {
+        lookup_opt!(kws, remove)
+    }
+}
+
+impl KeyedOptSegment for AnalysisSegmentId {}
+impl KeyedOptSegment for SupplementalTextSegmentId {}
+
+// Implement operations for TEXT segments which are optional and have
+// a "default" segment from HEADER (ANALYSIS in 3.2)
+
+/// Operations to obtain optional segment from TEXT keywords with a default segment
+pub(crate) trait KeyedOptSegmentWithDefault
+where
+    Self: KeyedOptSegment + HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()>,
+    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
+    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
+{
+    type IgnoreFlag: ConfigFlag;
+    type OtherDataId: HasRegion;
+
+    fn get_opt_or<C>(
+        kws: &StdKeywords,
+        segs: &mut HeaderAndSuppOffsets,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
+        st: &TEXTReadState<C>,
+    ) -> OptSegRes<Self>
+    where
+        Self: HasOffsetPair + IsDataOrAnalysis,
+        Self::OtherDataId: HasOffsetPair,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        let pair = Self::get_opt_pair(kws);
+        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
+    }
+
+    fn remove_opt_or<C>(
+        kws: &mut StdKeywords,
+        segs: &mut HeaderAndSuppOffsets,
+        ignore: Self::IgnoreFlag,
+        corr: TEXTCorrection<Self>,
+        st: &TEXTReadState<C>,
+    ) -> OptSegRes<Self>
+    where
+        Self: HasOffsetPair + IsDataOrAnalysis,
+        Self::OtherDataId: HasOffsetPair,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        let pair = Self::remove_opt_pair(kws);
+        Self::with_opt_pair_default(pair, segs, corr, ignore, st)
+    }
+
+    fn with_opt_pair_default<C>(
+        pair: OptPair<Self::B, Self::E>,
+        hdr_supp_offsets: &mut HeaderAndSuppOffsets,
+        corr: TEXTCorrection<Self>,
+        ignore: Self::IgnoreFlag,
+        st: &TEXTReadState<C>,
+    ) -> OptSegRes<Self>
+    where
+        Self: HasOffsetPair + IsDataOrAnalysis,
+        Self::OtherDataId: HasOffsetPair,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        i128: From<Self::B> + From<Self::E>,
+        Self::B: Copy,
+        Self::E: Copy,
+    {
+        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
+        let oconf: &ReadOffsetConfig = st.conf.as_ref();
+        let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
+        let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
+        // TODO configure this
+        let drop_flag = ProcessOptionalFailure(ProcessKeywordFailure::DropWarn);
+        let mismatch_flag = dconf.allow_header_text_offset_mismatch;
+        let overlap_limit = oconf.overlap_correction_limit;
+
+        let mut pair_to_text = |txt_orig: OriginalOffsets, mismatch_warn, header_is_empty| {
+            // mismatch_warn and header_is_empty need to be independent because we
+            // may or may not throw a warning if a mismatch actually happened
+            let offsets_conf = NewOffsetsConfig::from_read_config(corr, st);
+            let offsets_res = Offsets::try_new(txt_orig.begin, txt_orig.end, &offsets_conf)
+                .map_err(OptOffsetsError::Segment);
+            match offsets_res {
+                Ok(mut offsets) => {
+                    let overflow_res = if let Some(ne) = offsets.as_nonempty_mut() {
+                        ne.truncate_dataset_len((), st)
+                            .map_err(OptOffsetsWithDefaultWarning::from)
+                            .into_deferred_switchable(drop_flag)
+                            .switchable_into_commutative()
+                    } else {
+                        LogResult::new_ok(None)
+                    };
+                    let overlap_res = hdr_supp_offsets
+                        .validate_text_offsets(&mut offsets, overlap_limit)
+                        .nowarn_into_switchable(drop_flag)
+                        .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
+                        .switchable_into_commutative();
+                    let mut res = overflow_res.zip_commutative(overlap_res).map_ok_value(
+                        |(overflow, overlaps)| {
+                            let origin = MismatchedTEXTOffsetOrigin::new(
+                                header_is_empty,
+                                txt_orig,
+                                overlaps,
+                                overflow,
+                            );
+                            HeaderOrTextOffsets::Text {
+                                seg: offsets,
+                                origin,
+                            }
+                        },
+                    );
+                    res.extend_commutative_warnings(mismatch_warn);
+                    res
+                }
+                Err(e) => SwitchableErrorsResult::new_deferred_switchable((), e, drop_flag)
+                    .map_switchable_errors(OptOffsetsWithDefaultWarning::from)
+                    .switchable_into_commutative()
+                    .set_ok_value(header_pair(ChoseHeaderReason::Malformed(txt_orig))),
+            }
+        };
+
+        let mut choose = |uncorr_txt| {
+            if header_seg.is_empty() {
+                // HEADER is empty, ignore the mismatch and get TEXT offsets
+                // without mismatch warning
+                pair_to_text(uncorr_txt, None, false)
+            } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
+                // Not an error, figure out which segment we want
+                let me = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
+                let w = do_warn
+                    .then_some(me)
+                    .map(OptOffsetsWithDefaultWarning::from);
+                if choose_header {
+                    // We choose HEADER, return it possibly with warning
+                    let ws = w.into_iter().collect::<Vec<_>>();
+                    let hpair = header_pair(ChoseHeaderReason::Mismatch(uncorr_txt));
+                    LogResult::new_ok(hpair).set_commutative_warnings(ws)
+                } else {
+                    // We choose TEXT, create new TEXT segment from pairs,
+                    // validate it, and possibly attach a warning
+                    pair_to_text(uncorr_txt, w, true)
+                }
+            } else {
+                // Error, don't bother with any segment processing
+                let e = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, None);
+                WarningsAndErrorsResult::new_err(e).map_errors(OptOffsetsWithDefaultWarning::from)
+            }
+        };
+
+        match pair {
+            // No TEXT segment found, but no errors either, just use HEADER
+            Ok(None) => LogResult::new_ok(header_pair(ChoseHeaderReason::Empty)),
+            // TEXT offsets found without errors, compare with HEADER
+            Ok(Some((x0, x1))) => {
+                let uncorr_txt = OriginalOffsets::new(x0, x1);
+                if ignore.is_set() {
+                    // Ignore is set, return uncorrected offsets immediately
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(Some(uncorr_txt))))
+                } else if uncorr_txt == uncorr_hdr {
+                    // Uncorrected HEADER and TEXT are identical, just use HEADER
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Match))
+                } else {
+                    // Segments are mismatched, figure out what to do
+                    choose(uncorr_txt)
+                }
+            }
+            // TEXT pairs found with errors, use HEADER
+            Err(es) => {
+                if ignore.is_set() {
+                    // Ignore is set, bypass errors
+                    LogResult::new_ok(header_pair(ChoseHeaderReason::Ignored(None)))
+                } else {
+                    // Otherwise throw lots of errors so user will have more
+                    // information to contemplate their life's decisions.
+                    let (e0, e1) = es.split();
+                    let hpair = header_pair(ChoseHeaderReason::Unparsed);
+                    SwitchableErrorsResult::new_deferred_switchable((), e0, drop_flag)
+                        .extend_deferred_switchable_errors(e1)
+                        .set_ok_value(hpair)
+                        .map_switchable_errors(OptOffsetsError::Key)
+                        .map_switchable_errors(OptOffsetsWithDefaultWarningInner::from)
+                        .switchable_into_commutative()
+                }
+            }
+        }
+    }
+}
+
+impl KeyedOptSegmentWithDefault for AnalysisSegmentId {
+    type IgnoreFlag = IgnoreTEXTAnalysisOffsets;
+    type OtherDataId = DataSegmentId;
+}
+
+// Implement mapping between source marker type and valued enum
+
+/// Denotes that a type comes from a specific part of the FCS file
+pub(crate) trait HasSource {
+    const SRC: AnySrc;
+}
+
+impl HasSource for OffsetsFromHeader {
+    const SRC: AnySrc = AnySrc::Header;
+}
+
+impl HasSource for OffsetsFromTEXT {
+    const SRC: AnySrc = AnySrc::Text;
+}
+
+// Implement mapping between region marker type and valued enum
+
+/// Denotes that a type pertains to a region of the FCS file
+pub(crate) trait HasRegion {
+    const REGION: AnyRegion;
+}
+
+impl HasRegion for AnalysisSegmentId {
+    const REGION: AnyRegion = AnyRegion::Analysis;
+}
+
+impl HasRegion for DataSegmentId {
+    const REGION: AnyRegion = AnyRegion::Data;
+}
+
+impl HasRegion for SupplementalTextSegmentId {
+    const REGION: AnyRegion = AnyRegion::Stext;
+}
+
+impl HasRegion for PrimaryTextSegmentId {
+    const REGION: AnyRegion = AnyRegion::Text;
+}
+
+impl HasRegion for OtherSegmentId {
+    const REGION: AnyRegion = AnyRegion::Other;
+}
+
+// Implement mapping between offset pair-like types and a single name
+
+/// A type which has a segment name.
+pub(crate) trait HasOneName<N> {
+    fn segname1(&self) -> N;
+
+    fn as_named1(&self) -> NamedOffsets<N>
+    where
+        Self: IsOffsetPair,
+    {
+        NamedOffsets::new(self.segname1(), self.begin(), self.nbytes())
+    }
+}
+
+impl<I, S, N> HasOneName<N> for NonEmptyOffsetsMut<'_, I, S>
+where
+    I: AreNamedOffsets<N, Params = ()>,
+{
+    fn segname1(&self) -> N {
+        self.segname(())
+    }
+}
+
+impl<N: Clone> HasOneName<N> for NamedOffsets<N> {
+    fn segname1(&self) -> N {
+        self.name.clone()
+    }
+}
+
+// Implement mapping between segment ID and segment name.
+//
+// All IDs map one-to-one to a single name except for OTHER segments which
+// need an index.
+
+/// A type which has a segment name.
+pub(crate) trait AreNamedOffsets<N> {
+    type Params;
+
+    fn segname(args: Self::Params) -> N;
+}
+
+impl AreNamedOffsets<HeaderOffsetsName> for PrimaryTextSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> HeaderOffsetsName {
+        HeaderOffsetsName::Text
+    }
+}
+
+impl AreNamedOffsets<HeaderOffsetsName> for AnalysisSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> HeaderOffsetsName {
+        HeaderOffsetsName::Analysis
+    }
+}
+
+impl AreNamedOffsets<HeaderOffsetsName> for DataSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> HeaderOffsetsName {
+        HeaderOffsetsName::Data
+    }
+}
+
+impl AreNamedOffsets<HeaderOffsetsName> for OtherSegmentId {
+    type Params = usize;
+
+    fn segname(args: Self::Params) -> HeaderOffsetsName {
+        HeaderOffsetsName::Other(args)
+    }
+}
+
+impl AreNamedOffsets<SuppTextOffsetsName> for SupplementalTextSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> SuppTextOffsetsName {
+        SuppTextOffsetsName
+    }
+}
+
+impl AreNamedOffsets<TextOffsetsName> for AnalysisSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> TextOffsetsName {
+        TextOffsetsName::Analysis
+    }
+}
+
+impl AreNamedOffsets<TextOffsetsName> for DataSegmentId {
+    type Params = ();
+
+    fn segname((): Self::Params) -> TextOffsetsName {
+        TextOffsetsName::Data
+    }
+}
+
+// Implement mapping between segment ID and if it is DATA or ANALYSIS.
+//
+// Obviously only applies to the DATA or ANALYSIS segment.
+
+/// Denotes that a type is either a DATA or ANALYSIS segment
+pub(crate) trait IsDataOrAnalysis {
+    const IS_DATA: bool;
+}
+
+impl IsDataOrAnalysis for AnalysisSegmentId {
+    const IS_DATA: bool = false;
+}
+
+impl IsDataOrAnalysis for DataSegmentId {
+    const IS_DATA: bool = true;
+}
+
+// Implement methods for Offsets type
+
+impl<I, S> Clone for Offsets<I, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<I, S> Copy for Offsets<I, S> {}
+
+impl<I, S> Default for Offsets<I, S> {
+    fn default() -> Self {
+        Self::new(InnerOffsets::Empty)
+    }
+}
+
+impl<I, S> Offsets<I, S> {
+    pub(crate) fn into_any(self) -> AnyOffsets<I> {
+        Offsets::new(self.inner)
+    }
+
+    /// Return the first and last byte with offset or `0,0` if empty.
+    #[cfg(feature = "python")]
+    pub(crate) fn slice_pair(&self) -> (u64, u64) {
+        if let InnerOffsets::NonEmpty(ne) = self.inner {
+            ne.slice_pair()
+        } else {
+            (0, 0)
+        }
+    }
+
+    /// Read bytes within this segment
+    pub(crate) fn h_read_contents<R>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
+    ) -> io::Result<()>
+    where
+        R: Read + Seek,
+    {
+        match self.inner {
+            InnerOffsets::Empty => Ok(()),
+            InnerOffsets::NonEmpty(s) => s.h_read_contents(h, buf),
+        }
+    }
+
+    /// Return true if segment has 0 bytes
+    pub(crate) fn is_empty(&self) -> bool {
+        self.inner.is_empty()
+    }
+
+    /// Return the number of bytes in this segment
+    pub(crate) fn nbytes(&self) -> u64 {
+        // NOTE In FCS a 0,0 means "empty" but this also means one byte
+        // according to the spec's own definitions. The first number points to
+        // the first byte in a segment, and the second number points to the last
+        // byte, therefore 0,0 means "0 is both the first and last byte, which
+        // also means there is one byte".
+        self.as_nonempty().map_or(0, |s| s.nbytes())
+    }
+
+    fn try_new(
+        begin: i128,
+        end: i128,
+        conf: &NewOffsetsConfig<I, S>,
+    ) -> Result<Self, SegmentOffsetError>
+    where
+        I: HasRegion,
+        S: HasSource,
+    {
+        InnerOffsets::try_new::<I, S>(begin, end, conf).map(Self::new)
+    }
+
+    pub(crate) fn as_nonempty(&self) -> Option<NonEmptyOffsets<I, S>> {
+        matches!(self.inner, InnerOffsets::NonEmpty(_)).then_some(NonEmptyOffsets(*self))
+    }
+
+    pub(crate) fn as_nonempty_mut(&mut self) -> Option<NonEmptyOffsetsMut<'_, I, S>> {
+        matches!(self.inner, InnerOffsets::NonEmpty(_)).then_some(NonEmptyOffsetsMut(self))
+    }
+}
+
+impl InnerOffsets {
+    fn try_new<I: HasRegion, S: HasSource>(
+        begin: i128,
+        end: i128,
+        conf: &NewOffsetsConfig<I, S>,
+    ) -> Result<Self, SegmentOffsetError> {
+        let corr = &conf.corr;
+        let corrected_begin = begin + i128::from(corr.begin);
+        let corrected_end = end + i128::from(corr.end);
+
+        if corrected_begin == corrected_end + 1 && conf.allow_pseudoempty.is_set() {
+            // Check if this offset is pseudoempty
+            // TODO possibly throw warning if this happens
+            return Ok(Self::Empty);
+        } else if corrected_begin == 0 && corrected_end == 0 {
+            // Return empty if both offsets are zero
+            return Ok(Self::Empty);
+        } else if corrected_begin > corrected_end {
+            // Return error if ending offset is greater than beginning offset
+            let o = conf.dataset_offset;
+            let c = (corr.begin, corr.end);
+            let e = SegmentOffsetError::new((begin, end), c, o, I::REGION, S::SRC);
+            return Err(e);
+        }
+
+        // At this point, we know that the begin offset should be <= the end
+        // offset (which means segment is at least one byte long)
+
+        let new_length = corrected_end
+            .checked_sub(corrected_begin)
+            .expect("end should be greater than end")
+            .try_into()
+            .ok()
+            .and_then(|n| NonZeroU64::MIN.checked_add(n))
+            .expect("offset length should be within u64");
+
+        let new_begin = u64::try_from(corrected_begin).expect("offset begin exceeded u64");
+
+        let ne = NonEmptyOffsetsInner::new(new_begin, new_length, new_length, conf.dataset_offset);
+        Ok(Self::NonEmpty(ne))
+    }
+
+    fn is_empty(&self) -> bool {
+        matches!(self, Self::Empty)
+    }
+}
+
+impl NonEmptyOffsetsInner {
+    /// Return the number of bytes in this segment
+    fn nbytes(&self) -> NonZeroU64 {
+        self.length
+    }
+
+    pub(crate) fn truncated_len(&self) -> u64 {
+        let o = self.original_length.get();
+        let l = self.length.get();
+        o.checked_sub(l)
+            .unwrap_or_else(|| panic!("original length ({o}) should be >= length ({l})"))
+    }
+
+    /// Read bytes within this segment
+    pub(crate) fn h_read_contents<R>(
+        &self,
+        h: &mut BufReader<R>,
+        buf: &mut Vec<u8>,
+    ) -> io::Result<()>
+    where
+        R: Read + Seek,
+    {
+        let absolute_begin = self.begin + self.dataset_offset.0;
+        let nbytes = self.nbytes().get();
+
+        #[cfg(debug_assertions)]
+        {
+            let end = absolute_begin + nbytes;
+            let file_size = h.seek(SeekFrom::End(0))?;
+            h.seek(SeekFrom::Start(absolute_begin))?;
+            assert!(
+                end <= file_size,
+                "end of segment ({end}) exceeds file ({file_size})"
+            );
+        }
+
+        h.seek(SeekFrom::Start(absolute_begin))?;
+        h.take(nbytes).read_to_end(buf)?;
+        Ok(())
+    }
+}
+
+// Implement methods for non-empty read-only offset wrapper
+
+impl<I, S> NonEmptyOffsets<I, S> {
+    /// Read bytes within this segment
+    pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<NEVec<u8>>
+    where
+        R: Read + Seek,
+    {
+        let mut buf = vec![];
+        self.inner().h_read_contents(h, &mut buf)?;
+        Ok(NEVec::try_from_vec(buf)
+            .expect("offsets are non-empty, therefore buffer should be non-empty"))
+    }
+
+    pub(crate) fn as_named<N>(&self, args: I::Params) -> NamedOffsets<N>
+    where
+        I: AreNamedOffsets<N>,
+    {
+        let inner = self.inner();
+        NamedOffsets::new(I::segname(args), inner.begin, inner.length.get())
+    }
+
+    fn inner(&self) -> &NonEmptyOffsetsInner {
+        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
+            panic!("offsets should always be non-empty in this struct")
+        };
+        ne
+    }
+}
+
+// Implement methods for non-empty read-write offset wrapper
+
+impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
+    pub(crate) fn begin_abs(&self) -> u64 {
+        self.begin() + self.inner().dataset_offset.0
+    }
+
+    #[allow(clippy::unused_self, reason = "needed for coherence")]
+    pub(crate) fn segname<N>(&self, args: I::Params) -> N
+    where
+        I: AreNamedOffsets<N>,
+    {
+        I::segname(args)
+    }
+
+    /// Return amount to be truncated if over limit.
+    pub(crate) fn exceeds_limit(&self, offset: u64, limit: u64) -> Option<NonZeroU64> {
+        if let Some(n) = self.tail_overlap_offset(offset) {
+            let to_truncate = n.saturating_add(self.inner().truncated_len());
+            let trunc_limit = limit.min(self.inner().length.get());
+            (to_truncate.get() > trunc_limit).then_some(to_truncate)
+        } else {
+            None
+        }
+    }
+
+    pub(crate) fn tail_overlap_pair_and_truncate<P, N0, N1>(
+        self,
+        other: &P,
+        limit: u64,
+        args0: I::Params,
+    ) -> Option<OverlapResult<N0, N1>>
+    where
+        I: AreNamedOffsets<N0>,
+        P: IsOffsetPair + HasOneName<N1>,
+    {
+        let truncated_len = self.tail_overlap_offset(other.begin())?;
+        let named1 = other.as_named1();
+        let n0 = self.segname(args0);
+        let b0 = self.begin();
+        let ret = match self.truncate(truncated_len.get(), limit) {
+            Ok(new_len) => {
+                let named0 = NamedOffsets::new(n0, b0, new_len);
+                let overlap = OffsetsOverlap::new(named0, named1, truncated_len);
+                OverlapResult::new(overlap, true)
+            }
+            Err(old) => {
+                let named0 = NamedOffsets::new(n0, b0, old.nbytes());
+                let overlap = OffsetsOverlap::new(named0, named1, truncated_len);
+                OverlapResult::new(overlap, false)
+            }
+        };
+        Some(ret)
+    }
+
+    /// Truncate non-primary TEXT offsets that exceed EOF or $NEXTDATA.
+    ///
+    /// Return amount truncated for each offset pair or error if truncation
+    /// amount is beyond limit.
+    pub(crate) fn truncate_dataset_len<C, N>(
+        self,
+        args: I::Params,
+        st: &TEXTReadState<C>,
+    ) -> Result<Option<OffsetsOverflow<N>>, DatasetOverflowError<N>>
+    where
+        C: AsRef<ReadOffsetConfig>,
+        I: AreNamedOffsets<N>,
+    {
+        let bounds = st.dataset_bounds;
+        let dataset_len = bounds.len.0;
+        let conf: &ReadOffsetConfig = st.conf.as_ref();
+        let limit = conf.dataset_overflow_limit;
+        if let Some(res) = self.tail_overlap_offset_and_truncate(dataset_len, limit.0, args) {
+            let o =
+                OffsetsOverflow::new(res.offsets, res.overflow, dataset_len, bounds.from_nextdata);
+            if res.truncated {
+                Ok(Some(o))
+            } else {
+                Err(DatasetOverflowError(o))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub(crate) fn tail_overlap_offset_and_truncate<N>(
+        self,
+        other: u64,
+        limit: u64,
+        args: I::Params,
+    ) -> Option<OverflowResult<N>>
+    where
+        I: AreNamedOffsets<N>,
+    {
+        let truncated_len = self.tail_overlap_offset(other)?;
+        let name = self.segname(args);
+        let begin = self.begin();
+        let ret = match self.truncate(truncated_len.get(), limit) {
+            Ok(new_len) => {
+                let named = NamedOffsets::new(name, begin, new_len);
+                OverflowResult::new(named, truncated_len, true)
+            }
+            Err(old) => {
+                let named = NamedOffsets::new(name, old.begin(), old.nbytes());
+                OverflowResult::new(named, truncated_len, false)
+            }
+        };
+        Some(ret)
+    }
+
+    /// Subtract n bytes off the end of this offset
+    ///
+    /// Ensure that the truncated length won't be more than `limit`.
+    ///
+    /// Return new length if successful, otherwise `self` unchanged.
+    pub(crate) fn truncate(self, n: u64, limit: u64) -> Result<u64, Self> {
+        let InnerOffsets::NonEmpty(mut ne) = mem::take(&mut self.0.inner) else {
+            panic!("offsets should always be non-empty in this struct")
+        };
+        let to_truncate = (ne.truncated_len() + n).min(ne.length.get());
+        if to_truncate <= limit
+            && let Some(diff) = ne.length.get().checked_sub(n)
+        {
+            let new_length = if let Some(new_length) = NonZeroU64::new(diff) {
+                // Amount of truncation is within limit and new length is > 0,
+                // set new length
+                ne.length = new_length;
+                self.0.inner = InnerOffsets::NonEmpty(ne);
+                new_length.get()
+            } else {
+                // Entire length was truncated and offset is now empty
+                0
+            };
+            return Ok(new_length);
+        }
+        // Amount to truncate is larger than offset pair length or exceeds
+        // allowed limit, return unchanged
+        self.0.inner = InnerOffsets::NonEmpty(ne);
+        Err(self)
+    }
+
+    fn inner(&self) -> &NonEmptyOffsetsInner {
+        let InnerOffsets::NonEmpty(ne) = &self.0.inner else {
+            panic!("offsets should always be non-empty in this struct")
+        };
+        ne
+    }
+}
+
+// Implement methods for header offsets bundle type
+
+impl<I: Copy> HeaderOffsets<I> {
+    pub(crate) fn h_read_primary<C, R>(
+        h: &mut BufReader<R>,
+        is_text: bool,
+        corr: HeaderCorrection<I>,
+        version: Version,
+        st: &HeaderReadState<C>,
+    ) -> Result<(Self, OriginalOffsets), IOErrorGroup<HeaderSegmentError, ()>>
+    where
+        R: Read + Seek,
+        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
+        I: HasRegion + Copy,
+    {
+        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
+        let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
+
+        let mut buf0 = [0_u8; 8];
+        let mut buf1 = [0_u8; 8];
+
+        let remaining = st.remaining_bytes(h)?;
+
+        if remaining < 16 {
+            let pos = h.stream_position()?;
+            let e = OffsetsNoBytesError::new(pos, remaining, 16, I::REGION, AnySrc::Header);
+            return Err(IOErrorGroup::new_pure_one(e.into()));
+        }
+
+        h.read_exact(&mut buf0)?;
+        h.read_exact(&mut buf1)?;
+
+        let parse_one = |bs, is_begin| {
+            // TEXT segment should never be blank
+            let allow_blank = !is_text;
+            UintSpacePad8::from_bytes(bs, allow_blank).map_err(|error| {
+                let src = NEStringOrBytes::from(bs.into_nonempty_vec());
+                ParseOffsetError::new(error, is_begin, I::REGION, src).into()
+            })
+        };
+
+        let begin_res = parse_one(buf0, true).into_nowarn();
+        let end_res = parse_one(buf1, false).into_nowarn();
+        begin_res
+            .zip_commutative(end_res)
+            .and_then_commutative(|(begin, end)| {
+                // TEXT segment is not squishable
+                let allow_squish = !is_text;
+                let squish = hconf.squish_offsets.is_set() && allow_squish;
+                let raw = OriginalOffsets::new(begin, end);
+                Self::try_new_squish(begin, end, squish, version, &seg_conf)
+                    .map(|x| (x, raw))
+                    .map_err(HeaderSegmentError::from)
+                    .into_log()
+            })
+            .group()
+            .resolve_nowarn()
+            .map_err(IOErrorGroup::Pure)
+    }
+
+    fn try_new_squish(
+        begin: i128,
+        end: i128,
+        squish_offsets: bool,
+        version: Version,
+        conf: &NewOffsetsConfig<I, OffsetsFromHeader>,
+    ) -> Result<Self, SegmentOffsetError>
+    where
+        I: HasRegion,
+    {
+        // never run on 2.0 since offset "squishing" only applies to HEADER
+        // offsets that overflow and necessitate TEXT offsets, which don't exist
+        // in 2.0
+        let (b, e) = if version > Version::FCS2_0 && squish_offsets && end == 0 && begin > 0 {
+            (0, 0)
+        } else {
+            (begin, end)
+        };
+        Self::try_new(b, e, conf)
+    }
+}
+
+// Implement methods for OTHER segment offsets
+
+impl OtherOffsets20 {
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn h_read_others<C, R>(
+        h: &mut BufReader<R>,
+        first_seg_begin: u64,
+        st: &HeaderReadState<C>,
+    ) -> WarningsAndIOGroupResult<
+        Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
+        GuessOtherWidthError,
+        HeaderSegmentError,
+        (),
+    >
+    where
+        R: Read + Seek,
+        C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
+    {
+        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
+
+        // Get maximum length of OTHER offset region according to first required
+        // offset. If zero, exit early.
+        let Ok(max_other_len): Result<NonZeroU64, _> = first_seg_begin
+            .checked_sub(u64::from(HEADER_LEN))
+            .expect("minimal offset greater than 58")
+            .try_into()
+        else {
+            return LogResult::new_ok(None);
+        };
+
+        // Get max desired number of segments; If zero, exit early.
+        let Ok(max_other) = hconf
+            .max_other
+            .map(|x| u64::try_from(x).expect("usize overflow"))
+            .map(NonZeroU64::try_from)
+            .transpose()
+        else {
+            return LogResult::new_ok(None);
+        };
+
+        // Check that we have enough bytes left to read the offsets.
+        let remaining = io_to_log!(st.remaining_bytes(h));
+        if remaining < u64::from(max_other_len) {
+            // ASSUME this will always be at byte 58 (that's what the error says)
+            let e = OtherOffsetsNoBytesError::new(remaining, max_other_len);
+            return LogResult::new_err(IOErrorGroup::new_pure_one(e.into()));
+        }
+
+        // Read the offsets.
+        //
+        // TODO (minor optimization opportunity) This will take all bytes
+        // between offset 58 and the next *required* offset (ie from
+        // TEXT/DATA/ANALYSIS in HEADER). In %99.9999 of case, the first segment
+        // will be one of these three. However, it is theoretically possible
+        // that this region has both the OTHER offsets and the OTHER segments
+        // themselves. This is technically standards compliant since OTHER
+        // segments only need to be within the first 99,999,999 bytes as of 3.2
+        // (in earlier versions this was even less restricted since they did not
+        // specify a width). In these cases, reading bytes like this will
+        // result in the OTHER segments themselves being read twice (here they
+        // will be read and ignored).
+        let mut buf = vec![];
+        io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
+
+        // Only consider bytes which are spaces, nulls, minus sign, or digits
+        // where a minus sign must always immediately precede a digit
+        let mut n_valid_bytes = 0;
+        let mut prev_was_minus = false;
+        for &c in &buf {
+            let t = CharType::from(c);
+            if prev_was_minus && t != CharType::Digit {
+                // Char is not a digit following a minus sign, decrement by one
+                // byte before breaking loop since the previous minus sign does
+                // not go with a digit. ASSUME this will not underflow because
+                // the previous char cannot be minus on the first iteration.
+                n_valid_bytes -= 1;
+                break;
+            }
+            match t {
+                CharType::Minus => prev_was_minus = true,
+                CharType::Null | CharType::Digit => prev_was_minus = false,
+                CharType::Other => break,
+            }
+            n_valid_bytes += 1;
+        }
+
+        // Exit early if there are no valid chars or all bytes are null or space
+        let valid_buf = if let Some(ne) = NESlice::try_from_slice(&buf[0..n_valid_bytes])
+            && !(ne.iter().all(|&x| x == 0) | ne.iter().all(|&x| x == 32))
+        {
+            ne
+        } else {
+            return LogResult::new_ok(None);
+        };
+
+        // Guess offset width if desired.
+        let guess_maybe = DummyTriFlag::from_guess_other_width(hconf.guess_other_width);
+        let width_res = if let Some(guess) = guess_maybe {
+            match Self::guess_other_width(&valid_buf, max_other) {
+                Ok(w) => WarningsAndErrorsResult::new_ok(w),
+                Err(e) => {
+                    let w = hconf.other_width;
+                    LogResult::new_switchable3(w, (), e, guess).switchable_into_commutative()
+                }
+            }
+        } else {
+            WarningsAndErrorsResult::new_ok(hconf.other_width)
+        };
+
+        width_res
+            .map_errors(HeaderSegmentError::from)
+            .and_then_commutative(|width| {
+                let corrs = hconf
+                    .other_corrections
+                    .iter()
+                    .copied()
+                    .chain(repeat(OffsetsCorrection::default()));
+                let limit = hconf.max_other.unwrap_or(usize::MAX);
+                valid_buf
+                    .nonempty_chunks(width.into())
+                    .into_iter()
+                    .tuples()
+                    .zip(corrs)
+                    .take(limit)
+                    .enumerate()
+                    .filter_map(|(i, ((buf0, buf1), corr))| {
+                        let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
+                        let all_are = |c| buf0.iter().chain(buf1.iter()).all(|&x| x == c);
+                        (!(all_are(0) || all_are(32) || all_are(48))).then(|| {
+                            Self::parse_other(&buf0, &buf1, &seg_conf)
+                                .map_ok_value(|(s, d)| (IndexedOtherOffsets::new(i, s), d))
+                        })
+                    })
+                    .sequence_commutative()
+                    .nowarn_into_warn()
+                    .map_ok_value(|xs| NEVec::try_from_vec(xs).map(|ys| (ys, width)))
+            })
+            .group()
+            .map_error(IOErrorGroup::Pure)
+    }
+
+    fn parse_other(
+        bs0: &NESlice<'_, u8>,
+        bs1: &NESlice<'_, u8>,
+        conf: &NewOffsetsConfig<OtherSegmentId, OffsetsFromHeader>,
+    ) -> ErrorsResult<(Self, OriginalOffsets), (), HeaderSegmentError> {
+        let parse_one = |bs: &NESlice<'_, u8>, is_begin| {
+            UintSpacePad20::from_bytes(bs.as_ref()).map_err(|error| {
+                let src = NEStringOrBytes::from(bs.to_ne_vec());
+                ParseOffsetError::new(error, is_begin, OtherSegmentId::REGION, src).into()
+            })
+        };
+
+        let begin_res = parse_one(bs0, true).into_nowarn();
+        let end_res = parse_one(bs1, false).into_nowarn();
+        begin_res
+            .zip_commutative(end_res)
+            .and_then_commutative(|(begin, end)| {
+                let raw = OriginalOffsets::new(begin, end);
+                Self::try_new(begin, end, conf)
+                    .map(|x| (x, raw))
+                    .map_err(HeaderSegmentError::from)
+                    .into_log()
+            })
+    }
+
+    #[allow(clippy::too_many_lines)]
+    fn guess_other_width(
+        xs: &NESlice<'_, u8>,
+        max_other: Option<NonZeroU64>,
+    ) -> Result<OtherWidth, GuessOtherWidthError> {
+        #[cfg(debug_assertions)]
+        {
+            let cs: NEVec<_> = xs.nonempty_iter().copied().map(CharType::from).collect();
+            assert!(
+                cs.iter().all(|&x| x != CharType::Other),
+                "stream must be all one of null, space, minus sign, or a digit"
+            );
+            assert!(
+                !cs.iter()
+                    .tuple_windows()
+                    .any(|(&prev, &this)| prev == CharType::Minus && this != CharType::Digit),
+                "stream has minus sign which is not followed by digit"
+            );
+            assert!(cs.last() != &CharType::Minus, "stream ends with minus sign");
+        }
+
+        // Indices where chars changed (false = null->digit, true = digit->null)
+        let mut digit_starts: Vec<usize> = vec![];
+        let mut digit_ends: Vec<usize> = vec![];
+
+        // Iterate through all possible widths and test if the width is
+        // compatible with the bytestring.
+        let mut go = |w: OtherWidth| {
+            digit_starts.clear();
+            digit_ends.clear();
+
+            // Limit bytes if limit for maximum segment number is given.
+            let total_bytes = if let Some(n) = max_other {
+                const N: NonZeroUsize = NonZeroUsize::new(2).unwrap();
+                NonZeroUsize::try_from(n)
+                    .expect("overflow")
+                    .checked_mul(NonZeroUsize::from(w))
+                    .expect("overflow")
+                    .checked_mul(N)
+                    .expect("overflow")
+            } else {
+                xs.len()
+            };
+
+            // Get boundaries of "digit streams" which are contiguous streams of
+            // digit characters separated by at least one space or null char
+            // which may or may not have a minus sign in front. The boundaries
+            // will be constructed as intervals like (start, end) where start
+            // and end are the indices of the start and end of the stream.
+            let (x0, rest) = xs.nonempty_iter().take(total_bytes).next();
+            let mut prev_char_type = CharType::from(*x0);
+            // If first char is digit or minus, push start boundary to balance the ends
+            if prev_char_type.is_digit_or_minus() {
+                digit_starts.push(0);
+            }
+            for (i, &x) in rest.enumerate() {
+                let this_char_type = CharType::from(x);
+                if prev_char_type != this_char_type {
+                    if this_char_type == CharType::Null {
+                        digit_ends.push(i + 1);
+                    } else if prev_char_type == CharType::Null {
+                        digit_starts.push(i);
+                    }
+                }
+                prev_char_type = this_char_type;
+            }
+            if prev_char_type == CharType::Digit {
+                // If previous was a digit, add a boundary to the end
+                digit_ends.push(usize::from(total_bytes));
+            } else if prev_char_type == CharType::Minus {
+                // If previous was a minus, the last char in the last digit is
+                // a minus for this width, which is invalid.
+                return false;
+            }
+            let final_digit_position = digit_ends.iter().copied().last().unwrap_or_default();
+            debug_assert!(digit_starts.len() == digit_ends.len(), "start != end");
+
+            // Compute number of segments that fit into digits. Use the last
+            // found digit as the end of the bytes to be considered. If segment
+            // number is odd, this width is not valid since offsets come in
+            // pairs.
+            let ww = usize::from(NonZeroUsize::from(w));
+            let n_segs = final_digit_position / ww;
+            if n_segs & 1 == 1 {
+                return false;
+            }
+
+            // Match intervals of digits computed by positions of digit bytes
+            // themselves with offset boundaries as defined by the width.
+            //
+            // Criteria for passing width
+            // - the right position of all digit streams should correspond to
+            //   an offset boundary
+            // - all offset boundaries should be in a digit stream
+            let mut seg_ends = (0..n_segs).map(|x| (x + 1) * ww);
+            let mut cur_end = seg_ends.by_ref().next();
+            let digit_intervals = digit_starts.iter().copied().zip(digit_ends.iter().copied());
+            for (a, b) in digit_intervals {
+                if let Some(s) = cur_end {
+                    if s == b {
+                        // offset end and digit end are equal, this digit stream
+                        // is satisfied
+                        cur_end = seg_ends.by_ref().next();
+                        continue;
+                    } else if a < s && s < b {
+                        // offset end is in digit stream, which is allowed but
+                        // we still need to match the current digit stream's
+                        // ending offset. Advance until we either find a match
+                        // (pass) or we overshoot (fail)
+                        while cur_end.is_some_and(|s0| s0 < b) {
+                            cur_end = seg_ends.by_ref().next();
+                        }
+                        if cur_end.is_some_and(|s0| s0 == b) {
+                            cur_end = seg_ends.by_ref().next();
+                            continue;
+                        }
+                        return false;
+                    }
+                    // offset end is before the start of digit stream, invalid
+                    return false;
+                }
+                // we ran out of segment ends, this digit stream is not
+                // matched which is a fail
+                return false;
+            }
+            true
+        };
+        // TODO use NZU8 directly (this is not yet stable)
+        let candidates = (MIN_OTHER_WIDTH.get()..=MAX_CHARS.get())
+            .filter_map(|w| OtherWidth::try_from(w).ok())
+            .filter(|&w| go(w));
+
+        // TODO for now we are assuming that checking digit boundaries is good
+        // enough to figure out what the offset width should be. We could also
+        // parse the offsets to check that the digits make sense, and also
+        // check for overlaps. This is obviously much more complex. This
+        // would only be necessary in the case of ties where multiple widths
+        // are valid. In theory, ties are most likely for widths 8, 9, and 10
+        // which could be mistaken instead of 16, 18, and 20 respectively. There
+        // may be other edge cases as well.
+        //
+        // Example of a tie: '   11111   22222' could either be 1,1111 and
+        // 2,2222 or 11111,22222 (width is 4 or 8 respectively)
+        if let Some(ne) = candidates.try_into_nonempty_iter() {
+            let (w0, mut ws) = ne.next();
+            if ws.by_ref().peek().is_none() {
+                Ok(w0)
+            } else {
+                let mw = once(w0).chain(ws).collect();
+                Err(GuessOtherWidthError::MultiWidth(mw))
+            }
+        } else {
+            Err(GuessOtherWidthError::NoWidth)
+        }
+    }
+}
+
+/// A valid ASCII char in an OTHER segment.
+#[derive(Clone, Copy, PartialEq)]
+enum CharType {
+    /// Minus sign ('-')
+    Minus,
+    /// space or \0
+    Null,
+    /// Any ASCII digit 0-9
+    Digit,
+    /// Anything else
+    Other,
+}
+
+impl From<u8> for CharType {
+    fn from(value: u8) -> Self {
+        if value == 0 || value == 32 {
+            Self::Null
+        } else if value == 45 {
+            Self::Minus
+        } else if (48..=57).contains(&value) {
+            Self::Digit
+        } else {
+            Self::Other
+        }
+    }
+}
+
+impl CharType {
+    fn is_digit_or_minus(self) -> bool {
+        matches!(self, Self::Digit | Self::Minus)
+    }
+}
+
+// Implement methods for correction type
+
+impl<I, S> From<(i32, i32)> for OffsetsCorrection<I, S> {
+    fn from(value: (i32, i32)) -> Self {
+        Self::new(value.0, value.1)
+    }
+}
+
+impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetsCorrection<I, S> {
+    fn from(value: (Option<i32>, Option<i32>)) -> Self {
+        Self::from((value.0.unwrap_or_default(), value.1.unwrap_or_default()))
+    }
+}
+
+// Implement methods for misc types
+
+impl<I> HeaderOrTextOffsets<I> {
+    pub(crate) fn into_any(self) -> (AnyOffsets<I>, TEXTOffsetsOrigin) {
+        match self {
+            Self::Header(seg, reason) => {
+                let anyseg = seg.into_any();
+                let origin = match reason {
+                    ChoseHeaderReason::Empty => TEXTOffsetsOrigin::EmptyTEXT,
+                    ChoseHeaderReason::Ignored(uncorr) => TEXTOffsetsOrigin::Ignored(uncorr),
+                    ChoseHeaderReason::Unparsed => TEXTOffsetsOrigin::Unparsed,
+                    ChoseHeaderReason::Malformed(uncorr) => TEXTOffsetsOrigin::Malformed(uncorr),
+                    ChoseHeaderReason::Match => TEXTOffsetsOrigin::Match,
+                    ChoseHeaderReason::Mismatch(uncorr) => {
+                        TEXTOffsetsOrigin::MismatchHeader(uncorr)
+                    }
+                };
+                (anyseg, origin)
+            }
+            Self::Text { seg, origin } => (seg.into_any(), TEXTOffsetsOrigin::MismatchTEXT(origin)),
+        }
+    }
 }
 
 #[cfg(test)]

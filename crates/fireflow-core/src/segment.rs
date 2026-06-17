@@ -180,19 +180,12 @@ impl_functor_once!(
     NamedOffsets::new(f(self.name), self.begin, self.length)
 );
 
-impl<N> NamedOffsets<N> {
-    pub(crate) fn end(&self) -> u64 {
-        self.begin + self.length - 1
-    }
-}
-
 /// Error when a non-empty offset pair occurs within the first 58 bytes of the file.
 #[derive(Debug, Error, PartialEq, Clone, Display)]
 #[display(
-    "{} segment offsets ({}, {}) is within HEADER region",
+    "{} segment offsets with begin offset of {} is within HEADER region",
     self.0.name,
     self.0.begin,
-    self.0.end()
 )]
 #[display(bound(N: fmt::Display))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -203,10 +196,10 @@ pub struct InHeaderError<N>(pub NamedOffsets<N>);
 /// Error when segment offsets exceed $NEXTDATA.
 #[derive(Debug, Error, PartialEq, Clone, Display)]
 #[display(
-    "{} segment offsets ({}, {}) exceeds {} ({})",
+    "{} segment offsets (begin = {}, length = {}) exceeds {} ({})",
     self.0.offsets.name,
     self.0.offsets.begin,
-    self.0.offsets.end(),
+    self.0.offsets.length,
     if self.0.bound_is_nextdata { "$NEXTDATA" } else { "EOF" },
     self.0.dataset_len
 )]
@@ -516,7 +509,10 @@ pub(crate) trait IsOffsetPair {
     /// The second position
     fn end(&self) -> u64;
 
-    /// First and second position
+    /// First and second offsets as used as a slice.
+    ///
+    /// This is NOT the same as what is written in FCS files. For instance,
+    /// the interval 5,11 here means "bytes 5 up to and including 10".
     fn slice_pair(&self) -> (u64, u64) {
         (self.begin(), self.end())
     }
@@ -1445,9 +1441,9 @@ impl<I, S> Offsets<I, S> {
 
     /// Return the first and last byte with offset or `0,0` if empty.
     #[cfg(feature = "python")]
-    pub(crate) fn fcs_offset_pair(&self) -> (u64, u64) {
+    pub(crate) fn slice_pair(&self) -> (u64, u64) {
         if let InnerOffsets::NonEmpty(ne) = self.inner {
-            ne.fcs_offset_pair()
+            ne.slice_pair()
         } else {
             (0, 0)
         }
@@ -2146,12 +2142,6 @@ impl NonEmptyOffsetsInner {
         self.length
     }
 
-    /// Return the first and last byte or this segment
-    #[cfg(feature = "python")]
-    fn fcs_offset_pair(&self) -> (u64, u64) {
-        (self.begin, self.begin + self.length.get() - 1)
-    }
-
     pub(crate) fn truncated_len(&self) -> u64 {
         let o = self.original_length.get();
         let l = self.length.get();
@@ -2363,13 +2353,14 @@ pub struct SegmentOffsetError {
 /// Error when one offset pair overlaps with another
 #[derive(Debug, Error, PartialEq, Clone, Display)]
 #[display(
-    "{} segment offsets ({}, {}) overlaps with {} segment offsets ({}, {}) by {} bytes",
+    "{} segment offsets (begin = {}, length = {}) overlaps with {} segment \
+     offsets (begin = {}, length = {}) by {} bytes",
     self.0.offsets0.name,
     self.0.offsets0.begin,
-    self.0.offsets0.end(),
+    self.0.offsets0.length,
     self.0.offsets1.name,
     self.0.offsets1.begin,
-    self.0.offsets1.end(),
+    self.0.offsets1.length,
     self.0.overlap,
 )]
 #[display(bound(N0: fmt::Display, N1: fmt::Display))]
@@ -2734,29 +2725,19 @@ mod python {
         }
     }
 
-    // offsets will be tuples like (int, int)
+    // offsets will be tuples like (int, int) where first number is starting
+    // offset and second is length (NOT the final byte as in FCS files)
     impl<'a, 'py, I, S> FromPyObject<'a, 'py> for Offsets<I, S> {
         type Error = PyErr;
         fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
-            let (begin, end): (u64, u64) = obj.extract()?;
-            let ret = if begin == 0 && end == 0 {
-                InnerOffsets::Empty
-            } else if let Some(length) = end.checked_sub(begin).and_then(NonZeroU64::new) {
-                // NOTE use zero for offset since all segments from Python-land
-                // will be considered relative to current dataset (ie just like
-                // they are in an FCS file)
+            let (begin, length): (u64, u64) = obj.extract()?;
+            let inner = if let Some(n) = NonZeroU64::new(length) {
                 let dso = DatasetOffset(0);
-                InnerOffsets::NonEmpty(NonEmptyOffsetsInner::new(begin, length, length, dso))
+                InnerOffsets::NonEmpty(NonEmptyOffsetsInner::new(begin, n, n, dso))
             } else {
-                // Use ConfigError because these offsets will be supplied to
-                // functions which "configure" a reader to look in a certain
-                // location for something (a stretch, but that's the closest we
-                // have now)
-                return Err(py::ConfigError::new_err(
-                    "offsets must both be zero or the first must be less than the second",
-                ));
+                InnerOffsets::Empty
             };
-            Ok(Self::new(ret))
+            Ok(Self::new(inner))
         }
     }
 
@@ -2766,7 +2747,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.fcs_offset_pair().into_pyobject(py)
+            self.slice_pair().into_pyobject(py)
         }
     }
 
@@ -2965,12 +2946,8 @@ mod python {
     {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (name, begin, end) = obj.extract::<(N, u64, u64)>()?;
-            if let Some(length) = begin.checked_sub(end) {
-                Ok(Self::new(name, begin, length))
-            } else {
-                Err(PyValueError::new_err("begin must be <= end"))
-            }
+            let (name, begin, length) = obj.extract::<(N, u64, u64)>()?;
+            Ok(Self::new(name, begin, length))
         }
     }
 
@@ -2983,8 +2960,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let end = self.end();
-            (self.name, self.begin, end).into_pyobject(py)
+            (self.name, self.begin, self.length).into_pyobject(py)
         }
     }
 }

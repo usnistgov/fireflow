@@ -218,8 +218,7 @@ impl FinalHeaderOffsets {
                 } else {
                     let e = PrimaryTEXTOverflowError::new(
                         res.offsets.begin,
-                        // TODO this end might be off by one
-                        res.offsets.end(),
+                        res.offsets.length,
                         st.dataset_offset,
                         st.file_len,
                         res.overflow,
@@ -587,14 +586,15 @@ impl AnyHeaderOffsetsMut<'_> {
 /// doesn't exist until primary TEXT is read.
 #[derive(Debug, Error, new, PartialEq, Clone)]
 #[error(
-    "primary TEXT offsets offsets ({begin}, {end}) exceed file length {file_len} \
-     by {overflow} bytes given dataset offset of {dataset_offset}"
+    "primary TEXT offsets offsets (begin = {begin}, length = {length}) exceed \
+     file length {file_len} by {overflow} bytes given dataset offset of \
+     {dataset_offset}"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct PrimaryTEXTOverflowError {
     begin: u64,
-    end: u64,
+    length: u64,
     dataset_offset: DatasetOffset,
     file_len: FileLen,
     overflow: NonZeroU64,

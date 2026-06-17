@@ -4322,9 +4322,13 @@ class TestConfig:
             # this should trigger an error if it is read at all since it starts
             # in the header
             text = (0, 1)
+            real_header = (0, 0)
+            real_text = (0, 2)
         else:
             header = (222, 225)
             text = (222, 224)
+            real_header = (222, 226)
+            real_text = (222, 225)
         if is_analysis:
             hd = (0, 0)
             td = (0, 0)
@@ -4356,21 +4360,22 @@ class TestConfig:
             else:
                 return uncore.dataset_offsets.final_data_offsets
 
+
         if version == "FCS2.0":
-            assert go("error") == header
-            assert go("header_warn") == header
-            assert go("header_silent") == header
-            assert go("text_warn") == header
-            assert go("text_silent") == header
+            assert go("error") == real_header
+            assert go("header_warn") == real_header
+            assert go("header_silent") == real_header
+            assert go("text_warn") == real_header
+            assert go("text_silent") == real_header
         else:
             with pytest.RaisesGroup(pf.FileLayoutError):
-                assert go("error") == header
+                assert go("error") == real_header
             with pytest.warns(pf.PyreflowWarning):
-                assert go("header_warn") == header
+                assert go("header_warn") == real_header
             with pytest.warns(pf.PyreflowWarning):
-                assert go("text_warn") == text
-            assert go("header_silent") == header
-            assert go("text_silent") == text
+                assert go("text_warn") == real_text
+            assert go("header_silent") == real_header
+            assert go("text_silent") == real_text
 
     @all_versions
     @pytest.mark.parametrize(
@@ -4572,7 +4577,8 @@ class TestConfig:
             allow_missing_nextdata="silent",
             ignore_supp_text=True,
         )
-        assert out.flat_diagnostics.header_supp.header.final_offsets.text == (58, 58)
+        # note, second offset is next byte and not last byte
+        assert out.flat_diagnostics.header_supp.header.final_offsets.text == (58, 59)
 
     @all_versions
     def test_overlap_correction_limit(
@@ -4586,8 +4592,9 @@ class TestConfig:
             pf.api.fcs_read_header(p, overlap_correction_limit=0)
 
         out = pf.api.fcs_read_header(p, overlap_correction_limit=1)
-        assert out.final_offsets.text == (58, 58)
-        assert out.final_offsets.data == (59, 62)
+        # note, second offset is next byte and not last byte
+        assert out.final_offsets.text == (58, 59)
+        assert out.final_offsets.data == (59, 63)
 
     # TODO test data_remainder_limit
 
@@ -4678,6 +4685,7 @@ class TestConfig:
         # STEXT and OTHER are duplicated, keep STEXT
         p = tmp_path / "thing.fcs"
         stext_coords = (117, 163)
+        real_stext_coords = (117, 164)
         stext = b"/This/is/what/it/sounds/like/when/devs/cry/.../"
         self.mock_header_text(
             p,
@@ -4704,7 +4712,7 @@ class TestConfig:
             comp0: pt.SuppTEXTOffsetsOriginType = "empty"
             self._test_tri_flag_nofail(go2, comp0)
         else:
-            comp1: Out3 = ("dup_other", stext_coords, 0)
+            comp1: Out3 = ("dup_other", real_stext_coords, 0)
             self._test_tri_flag(go3, comp1, [pf.FileLayoutError])
 
             out = pf.api.fcs_read_flat_text(p, ignore_supp_text=True)
@@ -4716,7 +4724,7 @@ class TestConfig:
                 out.flat_diagnostics.header_supp.header.final_offsets.others is not None
             )
             assert out.flat_diagnostics.header_supp.header.final_offsets.others[0] == [
-                (0, stext_coords)
+                (0, real_stext_coords)
             ]
 
     @all_versions

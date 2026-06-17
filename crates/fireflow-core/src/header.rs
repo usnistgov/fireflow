@@ -9,10 +9,15 @@ use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
     WarningsAndIOGroupResult, io_to_log, split_io,
 };
-use crate::segment::{
+use crate::segment::read::{
     GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
     HeaderSegmentError, HeaderToHeaderOffsetsOverlap, IsOffsetPair as _, OriginalOffsets,
     OtherOffsets20, PrimaryTextOffsets,
+};
+use crate::segment::write::{
+    HeaderAnalysisOffsetsToWrite, HeaderDataOffsetsToWrite, OffsetsToWrite, OtherOffsetsToWrite,
+    PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
+    TEXTDataOffsetsToWrite,
 };
 use crate::text::keyword_enum::{
     AnyKeyword, Escaped, Keyword0FromValue as _, OffsetKeyword, OptKeyword, ReqKeyword,
@@ -28,11 +33,6 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
-use crate::validated::write_offsets::{
-    HeaderAnalysisOffsetsToWrite, HeaderDataOffsetsToWrite, OffsetsToWrite, OtherOffsetsToWrite,
-    PrimaryTextOffsetsToWrite, SupplementalTextOffsetsToWrite, TEXTAnalysisOffsetsToWrite,
-    TEXTDataOffsetsToWrite,
-};
 
 use fireflow_types::config::EnumStrIter as _;
 use fireflow_types::keywords::{Version, VersionFormatError};

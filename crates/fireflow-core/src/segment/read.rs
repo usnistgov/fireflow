@@ -1,4 +1,9 @@
-//! Reading and writing offsets in an FCS file
+//! Types and methods to deal with offsets when reading FCS files.
+
+use super::{
+    AnalysisSegmentId, DataSegmentId, KeyedOffsets, OffsetsFromHeader, OffsetsFromTEXT,
+    OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
+};
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
@@ -12,14 +17,11 @@ use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
-use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext};
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
 use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
-use crate::validated::ascii_uint::{
-    ParseFixedUintError, UintSpacePad8, UintSpacePad20, UintZeroPad20,
-};
+use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad8, UintSpacePad20};
 use crate::validated::header_offsets::{HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError};
 use crate::validated::keys::{
     AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
@@ -49,7 +51,6 @@ use std::iter::repeat;
 use std::marker::PhantomData;
 use std::mem;
 use std::num::{NonZeroU64, NonZeroUsize, ParseIntError};
-use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -259,44 +260,9 @@ pub(crate) enum AnyRegion {
     Other,
 }
 
-/// Denotes [`Offsets`] came from HEADER
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct OffsetsFromHeader;
-
-/// Denotes [`Offsets`] came from TEXT
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct OffsetsFromTEXT;
-
 /// Denotes [`Offsets`] came from either TEXT or HEADER
 #[derive(Clone, Copy, PartialEq)]
 pub struct OffsetsFromAnywhere;
-
-/// Denotes [`Offsets`] pertains to primary TEXT
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct PrimaryTextSegmentId;
-
-/// Denotes [`Offsets`] pertains to supplemental TEXT
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct SupplementalTextSegmentId;
-
-/// Denotes [`Offsets`] pertains to DATA
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct DataSegmentId;
-
-/// Denotes [`Offsets`] pertains to ANALYSIS
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct AnalysisSegmentId;
-
-/// Denotes [`Offsets`] pertains to OTHER
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct OtherSegmentId;
 
 /// A [`Offsets`] pertains to OTHER with its index in the HEADER.
 #[derive(Debug, Clone, Copy, PartialEq, new)]
@@ -1050,12 +1016,6 @@ impl HasOffsetPair for AnalysisSegmentId {
 // Implement mapping between segment ID and TEXT keyword types
 
 /// Operations to obtain optional segment from TEXT keywords
-pub trait KeyedOffsets: Sized + Copy {
-    type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
-    type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
-}
-
-/// Operations to obtain optional segment from TEXT keywords
 pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::result_large_err)]
@@ -1078,21 +1038,6 @@ pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
         let raw = OriginalOffsets::new(x0, x1);
         (Offsets::try_new(x0, x1, &new_conf), raw)
     }
-}
-
-impl KeyedOffsets for AnalysisSegmentId {
-    type B = Beginanalysis;
-    type E = Endanalysis;
-}
-
-impl KeyedOffsets for DataSegmentId {
-    type B = Begindata;
-    type E = Enddata;
-}
-
-impl KeyedOffsets for SupplementalTextSegmentId {
-    type B = Beginstext;
-    type E = Endstext;
 }
 
 impl KeyedSegmentInner for AnalysisSegmentId {}

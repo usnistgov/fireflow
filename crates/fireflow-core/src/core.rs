@@ -52,12 +52,14 @@ use crate::meas::{
     VersionMeasSet, impl_ref_specific_ro, impl_ref_specific_rw,
 };
 use crate::segment::{
-    AnalysisSegmentId, AnyAnalysisOffsets, AnyDataOffsets, DataSegmentId, HeaderOrTextOffsets,
-    IndexedOtherOffsets, IsOffsetPair as _, KeyedOptSegmentWithDefault as _,
-    KeyedReqSegmentWithDefault as _, OffsetPairsOverlapError, OffsetsMismatchError,
-    OptOffsetsWithDefaultWarning, OriginalOffsets, ReqOffsetsWithDefaultError,
-    ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
-    TextToHeaderOrSuppOffsetsOverlap,
+    AnalysisSegmentId, DataSegmentId,
+    read::{
+        AnyAnalysisOffsets, AnyDataOffsets, HeaderOrTextOffsets, IndexedOtherOffsets,
+        IsOffsetPair as _, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
+        OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning,
+        OriginalOffsets, ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName,
+        TextOffsetsOverflow, TextToHeaderOrSuppOffsetsOverlap,
+    },
 };
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,

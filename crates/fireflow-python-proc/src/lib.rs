@@ -7761,8 +7761,8 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_header_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::HeaderOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let nt = quote!(fireflow_core::segment::read::HeaderOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
         let header_levels: PyLiteral = [
             tp::SEGMENT_NAME_TEXT,
             tp::SEGMENT_NAME_DATA,
@@ -7779,8 +7779,8 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_header_or_supp_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::HeaderOrSuppOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let nt = quote!(fireflow_core::segment::read::HeaderOrSuppOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
         let header_levels: PyLiteral = [
             tp::SEGMENT_NAME_TEXT,
             tp::SEGMENT_NAME_STEXT,
@@ -7798,8 +7798,8 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_text_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::TextOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let nt = quote!(fireflow_core::segment::read::TextOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
         let name_pt: PyLiteral = [tp::SEGMENT_NAME_DATA, tp::SEGMENT_NAME_ANALYSIS]
             .into_iter()
             .map(NEStr::as_str)
@@ -7811,8 +7811,8 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_supp_text_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::SuppTextOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::NamedOffsets<#nt>);
+        let nt = quote!(fireflow_core::segment::read::SuppTextOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
         let name_pt = PyLiteral::new1(tp::SEGMENT_NAME_STEXT.as_str());
         Self::new1(name_pt)
             .add(RsInt::U64)
@@ -7821,22 +7821,13 @@ impl<E: From<PyException>> PyTuple<E> {
     }
 
     fn new_original_offsets() -> Self {
-        let p = parse_quote!(fireflow_core::segment::OriginalOffsets);
+        let p = parse_quote!(fireflow_core::segment::read::OriginalOffsets);
         repeat_n(RsInt::I128, 2).collect::<Self>().rstype(p)
     }
 
     fn new_offset_pair(n: &str) -> Self {
         let t = format_ident!("{n}");
-        let p = parse_quote!(fireflow_core::segment::#t);
-        // let desc = format!(
-        //     "if {ARG_TOKEN} has offsets which exceed the end of the file, \
-        //      are inverted (begin after end), or are either negative \
-        //      or greater than {max}",
-        //     max = code("2**64-1")
-        // );
-        // let exc = PyException::new_value().desc(desc);
-        // NOTE don't use ints with overflow exceptions since this is captured
-        // in the overall exception for the entire type
+        let p = parse_quote!(fireflow_core::segment::read::#t);
         repeat_n(RsInt::U64, 2).collect::<Self>().rstype(p)
     }
 
@@ -11228,7 +11219,7 @@ impl AnySegment {
         let s = format_ident!("{src}");
         let i = self.id();
         let root = quote!(fireflow_core::segment);
-        parse_quote! (#root::OffsetsCorrection<#root::#i, #root::#s>)
+        parse_quote! (#root::read::OffsetsCorrection<#root::#i, #root::#s>)
     }
 }
 

@@ -1,7 +1,7 @@
 use fireflow_core::api;
 use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
 use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::segment::OffsetsCorrection;
+use fireflow_core::segment::read::OffsetsCorrection;
 use fireflow_core::text::byteord::Bytes;
 use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0, Timestep};
 use fireflow_core::validated::ascii_range::OtherWidth;

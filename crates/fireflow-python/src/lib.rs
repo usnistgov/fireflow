@@ -140,14 +140,14 @@ fpp::impl_py_new_std_dataset_with_kws_output!(core::NewStdDatasetFromKwsOutput);
 
 fpp::impl_py_dataset_summary!(api::DatasetSummary);
 
-fpp::impl_py_offsets_overflow!(segment::HeaderOffsetsOverflow);
-fpp::impl_py_offsets_overflow!(segment::TextOffsetsOverflow);
-fpp::impl_py_offsets_overflow!(segment::SuppOffsetsOverflow);
+fpp::impl_py_offsets_overflow!(segment::read::HeaderOffsetsOverflow);
+fpp::impl_py_offsets_overflow!(segment::read::TextOffsetsOverflow);
+fpp::impl_py_offsets_overflow!(segment::read::SuppOffsetsOverflow);
 
-fpp::impl_py_offsets_overlap!(segment::HeaderToHeaderOffsetsOverlap);
-fpp::impl_py_offsets_overlap!(segment::TextToHeaderOffsetsOverlap);
-fpp::impl_py_offsets_overlap!(segment::SuppToHeaderOffsetsOverlap);
-fpp::impl_py_offsets_overlap!(segment::TextToHeaderOrSuppOffsetsOverlap);
+fpp::impl_py_offsets_overlap!(segment::read::HeaderToHeaderOffsetsOverlap);
+fpp::impl_py_offsets_overlap!(segment::read::TextToHeaderOffsetsOverlap);
+fpp::impl_py_offsets_overlap!(segment::read::SuppToHeaderOffsetsOverlap);
+fpp::impl_py_offsets_overlap!(segment::read::TextToHeaderOrSuppOffsetsOverlap);
 
 // Implement python classes for core* structs
 //

@@ -1,4 +1,6 @@
-use crate::segment::{
+//! Types and methods to deal with offsets when writing FCS files.
+
+use super::{
     AnalysisSegmentId, DataSegmentId, KeyedOffsets, OffsetsFromHeader, OffsetsFromTEXT,
     OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
 };

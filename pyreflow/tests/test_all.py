@@ -4360,7 +4360,6 @@ class TestConfig:
             else:
                 return uncore.dataset_offsets.final_data_offsets
 
-
         if version == "FCS2.0":
             assert go("error") == real_header
             assert go("header_warn") == real_header

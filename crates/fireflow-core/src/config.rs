@@ -12,8 +12,9 @@
 
 use crate::logging::{IOResult, ImpureError, LogResult, WarningsAndErrorsResult};
 use crate::segment::{
-    AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
-    SupplementalTextSegmentId, TEXTCorrection,
+    AnalysisSegmentId, DataSegmentId, OtherSegmentId, PrimaryTextSegmentId,
+    SupplementalTextSegmentId,
+    read::{HeaderCorrection, TEXTCorrection},
 };
 use crate::text::byteord::Bytes;
 use crate::text::index::MeasIndex;

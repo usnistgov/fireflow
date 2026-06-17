@@ -6,14 +6,17 @@ use crate::core::{DatasetOffsets, OthersReader, TEXTOffsetsOrigin};
 use crate::logging::{DeferredErrors, ErrorGroup, ErrorsResult, LogResult};
 use crate::macros::def_summary;
 use crate::segment::{
-    AnalysisSegmentId, AreNamedOffsets, DataSegmentId, DatasetOverflowError, HasOneName, HasRegion,
-    HasSource, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsetPairOverlapOverlapError,
-    HeaderOffsetsName, HeaderOffsetsOverflow, HeaderOrSuppOffsetsName,
-    HeaderToHeaderOffsetsOverlap, InHeaderError, IndexedOtherOffsets, IsDataOrAnalysis,
-    IsOffsetPair, NonEmptyOffsetsMut, OffsetPairsOverlapError, Offsets, OffsetsFromHeader,
-    OffsetsOverflow, OffsetsOverlap, OtherSegmentId, OverflowResult, OverlapResult,
-    PrimaryTextOffsets, PrimaryTextSegmentId, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
-    SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOffsetsOverlap,
+    AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId, PrimaryTextSegmentId,
+    read::{
+        AreNamedOffsets, DatasetOverflowError, HasOneName, HasRegion, HasSource,
+        HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsetPairOverlapOverlapError,
+        HeaderOffsetsName, HeaderOffsetsOverflow, HeaderOrSuppOffsetsName,
+        HeaderToHeaderOffsetsOverlap, InHeaderError, IndexedOtherOffsets, IsDataOrAnalysis,
+        IsOffsetPair, NonEmptyOffsetsMut, OffsetPairsOverlapError, Offsets, OffsetsOverflow,
+        OffsetsOverlap, OverflowResult, OverlapResult, PrimaryTextOffsets, SuppTextOffsetsName,
+        SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets, TextOffsetsName,
+        TextToHeaderOffsetsOverlap,
+    },
 };
 use crate::validated::ascii_range::OtherWidth;
 

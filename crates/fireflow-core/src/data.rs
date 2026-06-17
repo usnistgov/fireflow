@@ -124,7 +124,7 @@ use crate::meas::{
     CheckedScaleTransform, MeasMeta, ScaleDatatypeMismatchError, VMeasMeta,
     VNamedTemporalsAndOpticalsWithScale, VersionMeasSet, wrap_scaled_opticals,
 };
-use crate::segment::{AnyDataOffsets, AnyNonEmptyDataOffsets, IsOffsetPair as _};
+use crate::segment::read::{AnyDataOffsets, AnyNonEmptyDataOffsets, IsOffsetPair as _};
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
     Endian, FixedWidthToBytesError, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBitsOrChars,

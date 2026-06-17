@@ -3,7 +3,7 @@ use crate::config::{AllowNonunique, DummyTriFlag, ReadHeaderAndTEXTConfig, TriEr
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
-use crate::segment::HeaderOffsetsOverflow;
+use crate::segment::read::HeaderOffsetsOverflow;
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,

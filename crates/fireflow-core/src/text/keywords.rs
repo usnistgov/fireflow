@@ -7,7 +7,7 @@ use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
 use crate::macros::impl_newtype_try_from;
-use crate::segment::{IsOffsetPair as _, PrimaryTextOffsets};
+use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::text::byteord::{
     ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes,
 };

@@ -21,7 +21,7 @@ use crate::logging::{
     WarningsAndIOGroupResult,
 };
 use crate::macros::{assert_eq_msg, def_summary};
-use crate::segment::AnyDataOffsets;
+use crate::segment::read::AnyDataOffsets;
 use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,

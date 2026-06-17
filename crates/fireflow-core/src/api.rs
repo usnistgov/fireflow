@@ -27,13 +27,15 @@ use crate::logging::{
 };
 use crate::macros::def_summary;
 use crate::segment::{
-    AnyRegion, AreNamedOffsets, DatasetOverflowError, GuessOtherWidthError, HasOneName as _,
-    HasRegion, HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
-    KeyedOptSegment as _, KeyedReqSegment as _, NonEmptyOffsets, OffsetPairsOverlapError,
-    OffsetsFromTEXT, OffsetsOverlap, OptOffsetsError, OriginalOffsets, PairResult,
-    PrimaryTextOffsets, ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName,
-    SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, SupplementalTextSegmentId, TEXTOffsets,
-    TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
+    OffsetsFromTEXT, SupplementalTextSegmentId,
+    read::{
+        AnyRegion, AreNamedOffsets, DatasetOverflowError, GuessOtherWidthError, HasOneName as _,
+        HasRegion, HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
+        KeyedOptSegment as _, KeyedReqSegment as _, NonEmptyOffsets, OffsetPairsOverlapError,
+        OffsetsOverlap, OptOffsetsError, OriginalOffsets, PairResult, PrimaryTextOffsets,
+        ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
+        SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
+    },
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, LookupNextdataError, Nextdata,

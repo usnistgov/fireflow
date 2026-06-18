@@ -146,6 +146,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
 
     let skip_arg = DocArg::new_skip_param("Number of datasets to skip");
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+    let scan_arg = DocArg::new_scan_param();
 
     let conf_args: Vec<_> = header_args
         .into_iter()
@@ -174,6 +175,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
     .arg(path_arg)
     .arg(skip_arg)
     .arg(limit_arg)
+    .arg(scan_arg)
     .args(conf_args)
     .returns(DocReturn::new(PyList::new1(ret_pt)).exc(xs));
 
@@ -205,7 +207,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_texts(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, Into::into))
         }
     }
@@ -244,6 +246,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
          dataset in the file.",
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+    let scan_arg = DocArg::new_scan_param();
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER} or {TEXT} are unparsable"));
@@ -271,6 +274,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     .arg(path_arg)
     .arg(skip_arg)
     .arg(limit_arg)
+    .arg(scan_arg)
     .args(conf_args)
     .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
 
@@ -304,7 +308,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_texts(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, |(c, d)| (c.into(), d.into())))
         }
     }
@@ -336,6 +340,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
          dataset in the file.",
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+    let scan_arg = DocArg::new_scan_param();
 
     let conf_args = header_args
         .into_iter()
@@ -370,6 +375,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .arg(path_arg.clone())
         .arg(skip_arg.clone())
         .arg(limit_arg.clone())
+        .arg(scan_arg.clone())
         .args(conf_args.clone())
         .returns(DocReturn::new(PyList::new1(pt_data_ret)).exc(xs.clone()));
 
@@ -377,6 +383,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .arg(path_arg)
         .arg(skip_arg)
         .arg(limit_arg)
+        .arg(scan_arg)
         .args(conf_args)
         .returns(DocReturn::new(PyList::new1(pt_smry_ret)).exc(xs));
 
@@ -411,7 +418,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_datasets(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, Into::into))
         }
 
@@ -420,7 +427,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_summarize(#smry_fun_args) -> #smry_ret_path {
             #conf_q
-            let xs = #fun_smry_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            let xs = #fun_smry_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, Into::into))
         }
     }
@@ -461,6 +468,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
          dataset in the file.",
     ));
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
+    let scan_arg = DocArg::new_scan_param();
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
         .desc(format!("If {HEADER}, {TEXT}, or {DATA} are unparsable"));
@@ -487,6 +495,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .arg(path_arg)
         .arg(skip_arg)
         .arg(limit_arg)
+        .arg(scan_arg)
         .args(conf_args)
         .returns(DocReturn::new(PyList::new1(pt_ret)).exc(xs));
 
@@ -521,7 +530,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_datasets(#many_fun_args) -> #many_ret_path {
             #conf_q
-            let xs = #fun_many_path(&path, skip, limit, &conf).py_resolve_commutative()?;
+            let xs = #fun_many_path(&path, skip, limit, scan, &conf).py_resolve_commutative()?;
             Ok(type_families::Functor::fmap(xs, |(c, d)| (c.into(), d.into())))
         }
     }
@@ -9013,6 +9022,14 @@ impl DocArgParam {
     fn new_limit_param(desc: &str) -> Self {
         let pt = PyOpt::new1(PyInt::new_int(RsInt::Usize));
         Self::new_param("limit", pt, desc).def_auto()
+    }
+
+    fn new_scan_param() -> Self {
+        let desc = format!(
+            "If {TRUE}, scan through file to find next dataset based on version \
+             tags rather than relying on {NEXTDATA}."
+        );
+        Self::new_param("scan", PyBool::default(), desc).def_auto()
     }
 
     fn new_path_param(read: bool) -> Self {

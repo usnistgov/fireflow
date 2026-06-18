@@ -403,8 +403,6 @@ pub struct ReadHeaderAndTEXTConfig {
     #[as_ref(TEXTCorrection<SupplementalTextSegmentId>)]
     pub supp_text_correction: TEXTCorrection<SupplementalTextSegmentId>,
 
-    // TODO try to guess this by looking for the string "FCS" after this dataset
-    // (very slow but should be effective in most cases)
     /// Correction to apply to $NEXTDATA.
     ///
     /// Will only be applied if $NEXTDATA is non-zero. If $NEXTDATA is negative

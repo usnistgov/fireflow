@@ -249,6 +249,7 @@ pub fn fcs_read_flat_texts(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
+    scan: bool,
     conf: &ReadFlatTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<FlatTEXTOutput>,
@@ -256,18 +257,29 @@ pub fn fcs_read_flat_texts(
     HeaderOrFlatTextError,
     FlatTEXTSummary,
 > {
-    let mut dataset_offset = Some(DatasetOffset::default());
+    let offset_overrides = if scan {
+        let os = io_to_log!(fcs_scan_dataset_boundaries(path));
+        os.into_iter().map(|(_, o)| o).collect()
+    } else {
+        vec![]
+    };
+    let mut oo_iter = offset_overrides.into_iter();
+    let mut dataset_offset = Some(oo_iter.next().unwrap_or_default());
     let mut count = 0_usize;
     let mut results = vec![];
     while let Some(dso) = dataset_offset
         && limit.is_none_or(|x| count <= x)
     {
+        let dataset_offset_override = oo_iter.next();
         let res = fcs_read_flat_text(path, dso, conf);
         let succ = split_log!(res);
         let nextdata_res = succ.fmap_once(|ret| {
             let hns = &ret.flat_diagnostics.header_supp;
             let nd = hns.nextdata.map(u64::from);
-            dataset_offset = nd.and_then(|n| (n > 0).then_some(DatasetOffset(dso.0 + n)));
+            dataset_offset = dataset_offset_override.or_else(|| {
+                let n = nd?;
+                (n > 0).then_some(DatasetOffset(dso.0 + n))
+            });
             ret
         });
         results.push(nextdata_res);
@@ -286,6 +298,7 @@ pub fn fcs_read_std_texts(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
+    scan: bool,
     conf: &ReadStdTEXTConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<(AnyCoreTEXT, StdTEXTOutput)>,
@@ -297,6 +310,7 @@ pub fn fcs_read_std_texts(
         path,
         skip,
         limit,
+        scan,
         conf,
         StdTEXTSummary,
         fcs_read_std_text,
@@ -310,6 +324,7 @@ pub fn fcs_read_flat_datasets(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
+    scan: bool,
     conf: &ReadFlatDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<FlatDatasetOutput>,
@@ -321,6 +336,7 @@ pub fn fcs_read_flat_datasets(
         path,
         skip,
         limit,
+        scan,
         conf,
         FlatDatasetSummary,
         fcs_read_flat_dataset,
@@ -334,6 +350,7 @@ pub fn fcs_read_std_datasets(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
+    scan: bool,
     conf: &ReadStdDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<(AnyCoreDataset, StdDatasetOutput)>,
@@ -345,6 +362,7 @@ pub fn fcs_read_std_datasets(
         path,
         skip,
         limit,
+        scan,
         conf,
         StdDatasetSummary,
         fcs_read_std_dataset,
@@ -358,6 +376,7 @@ pub fn fcs_summarize(
     path: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
+    scan: bool,
     conf: &ReadFlatDatasetConfig,
 ) -> WarningsAndIOGroupResult<
     Vec<DatasetSummary>,
@@ -365,7 +384,7 @@ pub fn fcs_summarize(
     MultiFlatDatasetError,
     FlatDatasetSummary,
 > {
-    fcs_read_flat_datasets(path, skip, limit, conf)
+    fcs_read_flat_datasets(path, skip, limit, scan, conf)
         .map_ok_value(|x| x.fmap(FlatDatasetOutput::summarize))
 }
 
@@ -376,7 +395,7 @@ pub fn fcs_summarize(
 ///
 /// Specifically, this will look for the pattern "FCS2.0|FCS3.0|FCS3.1|FCS3.2"
 /// followed by 4 spaces.
-pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, usize)>> {
+pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, DatasetOffset)>> {
     // General strategy:
     // 1. take overlapping buffers of some size
     // 2. iterate over all overlapping windows in this buffer
@@ -402,7 +421,7 @@ pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, u
     while buf.len() >= WINDOW_SIZE {
         for w in buf[..].array_windows() {
             if let Some(v) = go(w) {
-                bounds.push((v, file_pos));
+                bounds.push((v, DatasetOffset(file_pos)));
             }
             file_pos += 1;
         }
@@ -2281,10 +2300,12 @@ impl SuppTEXTOffsetsOutput {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 fn read_nextdata_loop<X, W, E, Wi, Ei, G, C, Fsucc, Fnext>(
     p: &PathBuf,
     skip: Option<usize>,
     limit: Option<usize>,
+    scan: bool,
     conf: &C,
     g: G,
     mut f0: Fsucc,
@@ -2301,7 +2322,18 @@ where
         + AsRef<ReadSharedConfig>,
     G: Copy,
 {
-    let mut dataset_offset = Some(DatasetOffset::default());
+    // TODO this is very inefficient since it will read each file twice. A
+    // better way to do this would be to seek from the end of the last dataset
+    // and find the first (and only the first) which will read almost every byte
+    // in the file only once.
+    let offset_overrides = if scan {
+        let os = io_to_log!(fcs_scan_dataset_boundaries(p));
+        os.into_iter().map(|(_, o)| o).collect()
+    } else {
+        vec![]
+    };
+    let mut oo_iter = offset_overrides.into_iter();
+    let mut dataset_offset = Some(oo_iter.next().unwrap_or_default());
     let mut count = 0_usize;
     let mut results = vec![];
     let rconf = ReadFlatTEXTConfig {
@@ -2313,6 +2345,7 @@ where
     while let Some(dso) = dataset_offset
         && limit.is_none_or(|x| count < x)
     {
+        let dataset_offset_override = oo_iter.next();
         let nextdata_res = if skip.is_some_and(|s| count < s) {
             let res = fcs_read_flat_text(p, dso, &rconf)
                 .map_commutative_warnings(W::from)
@@ -2322,7 +2355,10 @@ where
             succ.fmap_once(|ret| {
                 let hns = ret.flat_diagnostics.header_supp;
                 let nd = hns.nextdata.map(u64::from);
-                dataset_offset = nd.and_then(|n| (n > 0).then_some(DatasetOffset(dso.0 + n)));
+                dataset_offset = dataset_offset_override.or_else(|| {
+                    let n = nd?;
+                    (n > 0).then_some(DatasetOffset(dso.0 + n))
+                });
                 None
             })
         } else {
@@ -2331,9 +2367,10 @@ where
                 .map_pure_errors(E::from);
             let succ = split_log!(res);
             succ.fmap_once(|ret| {
-                dataset_offset = fnext(&ret)
-                    .map(u64::from)
-                    .and_then(|nd| (nd > 0).then_some(DatasetOffset(dso.0 + nd)));
+                dataset_offset = dataset_offset_override.or_else(|| {
+                    let nd = u64::from(fnext(&ret)?);
+                    (nd > 0).then_some(DatasetOffset(dso.0 + nd))
+                });
                 Some(ret)
             })
         };

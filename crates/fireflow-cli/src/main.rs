@@ -1,5 +1,7 @@
 use fireflow_core::api;
-use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
+use fireflow_core::config::{
+    self as cfg, ByteordOverride, DatasetOffset, FixIntWidths, HasStrategy as _,
+};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::read::OffsetsCorrection;
 use fireflow_core::text::byteord::Bytes;
@@ -967,6 +969,14 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(usize))
         .help("Number of datasets to return");
 
+    let scan_arg = Arg::new(SCAN)
+        .long(SCAN)
+        .action(ArgAction::SetTrue)
+        .help(format!(
+            "If given, scan for the next dataset by looking for version \
+             tags rather then relying on {nextdata}"
+        ));
+
     let input_arg = Arg::new(INPUT_PATH)
         .short('i')
         .long(INPUT_PATH)
@@ -1089,6 +1099,7 @@ fn run() -> AppResult<()> {
         .args(&all_write_args)
         .arg(&skip_arg)
         .arg(&limit_arg)
+        .arg(&scan_arg)
         .after_long_help(&std_long_help);
 
     let summarize_cmd = Command::new(SUBCMD_SUMMARIZE)
@@ -1102,7 +1113,8 @@ fn run() -> AppResult<()> {
         .args(&all_read_dataset_args)
         .args(&all_read_shared_args)
         .arg(&skip_arg)
-        .arg(&limit_arg);
+        .arg(&limit_arg)
+        .arg(&scan_arg);
 
     let scan_cmd = Command::new(SUBCMD_SCAN)
         .about("Scan FCS file for dataset boundaries")
@@ -1141,7 +1153,7 @@ fn run() -> AppResult<()> {
             let conf = get_read_flat_text_config(subcmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?[0])?;
@@ -1153,7 +1165,7 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1166,7 +1178,7 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1178,7 +1190,7 @@ fn run() -> AppResult<()> {
             let conf = get_read_std_text_config(&cmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, uncore) = &res?[0];
@@ -1192,8 +1204,7 @@ fn run() -> AppResult<()> {
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
-
-            let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), &conf)
+            let (ws, res) = api::fcs_read_std_datasets(filepath, skip, Some(1), false, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             let (core, _) = &res?[0];
@@ -1207,9 +1218,11 @@ fn run() -> AppResult<()> {
             let ipath = get_path(sargs, INPUT_PATH);
             let opath = get_path(sargs, OUTPUT_PATH);
             let skip = get_skip(sargs);
+            let scan = get_scan(sargs);
             let limit = get_limit(sargs);
-            let (read_ws, read_res) = api::fcs_read_std_datasets(ipath, skip, limit, &read_conf)
-                .resolve_commutative(|ws| ws, |s| s);
+            let (read_ws, read_res) =
+                api::fcs_read_std_datasets(ipath, skip, limit, scan, &read_conf)
+                    .resolve_commutative(|ws| ws, |s| s);
             let (cores, outs): (Vec<_>, Vec<_>) = read_res?.into_iter().unzip();
             let (write_ws, write_res) = api::fcs_write_datasets(opath, &cores[..], &write_conf)
                 .resolve_commutative(|ws| ws, |e| e);
@@ -1225,7 +1238,8 @@ fn run() -> AppResult<()> {
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_skip(sargs);
             let limit = get_limit(sargs);
-            let (ws, res) = api::fcs_summarize(filepath, skip, limit, &conf)
+            let scan = get_scan(sargs);
+            let (ws, res) = api::fcs_summarize(filepath, skip, limit, scan, &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;
@@ -1236,7 +1250,7 @@ fn run() -> AppResult<()> {
             #[derive(Serialize)]
             struct Bounds {
                 version: tk::Version,
-                offset: usize,
+                offset: DatasetOffset,
             }
             let filepath = get_path(sargs, INPUT_PATH);
             let bounds = api::fcs_scan_dataset_boundaries(filepath)?;
@@ -1613,6 +1627,10 @@ fn get_skip(sargs: &ArgMatches) -> Option<usize> {
 
 fn get_limit(sargs: &ArgMatches) -> Option<usize> {
     sargs.get_one::<usize>(LIMIT).copied()
+}
+
+fn get_scan(sargs: &ArgMatches) -> bool {
+    sargs.get_flag(SCAN)
 }
 
 fn get_delim(sargs: &ArgMatches) -> u8 {
@@ -2054,6 +2072,8 @@ const BIG_OTHER: &str = "skip-conversion-check";
 const SKIP: &str = "skip";
 
 const LIMIT: &str = "limit";
+
+const SCAN: &str = "scan";
 
 const INPUT_PATH: &str = "input-path";
 

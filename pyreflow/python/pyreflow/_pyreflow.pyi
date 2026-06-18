@@ -2917,6 +2917,7 @@ def fcs_read_flat_texts(
     path: Path,
     skip: int | None = None,
     limit: int | None = None,
+    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -2967,6 +2968,7 @@ def fcs_read_std_texts(
     path: Path,
     skip: int | None = None,
     limit: int | None = None,
+    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3050,6 +3052,7 @@ def fcs_read_flat_datasets(
     path: Path,
     skip: int | None = None,
     limit: int | None = None,
+    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3118,6 +3121,7 @@ def fcs_read_std_datasets(
     path: Path,
     skip: int | None = None,
     limit: int | None = None,
+    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),
@@ -3242,6 +3246,7 @@ def fcs_summarize(
     path: Path,
     skip: int | None = None,
     limit: int | None = None,
+    scan: bool = False,
     # header args
     text_correction: pft.OffsetCorrection = (0, 0),
     data_correction: pft.OffsetCorrection = (0, 0),

@@ -26,6 +26,7 @@ use const_format::str_replace;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
 use regex::Regex;
+use serde::Serialize;
 use serde_json::{json, to_writer};
 use zmij::Buffer as FBuf;
 
@@ -1103,6 +1104,10 @@ fn run() -> AppResult<()> {
         .arg(&skip_arg)
         .arg(&limit_arg);
 
+    let scan_cmd = Command::new(SUBCMD_SCAN)
+        .about("Scan FCS file for dataset boundaries")
+        .arg(&input_arg);
+
     let mut cmd = Command::new("fireflow")
         .about("Read FCS files in standards-compliant manner")
         .arg_required_else_help(true)
@@ -1115,7 +1120,8 @@ fn run() -> AppResult<()> {
         .subcommand(spill_cmd)
         .subcommand(data_cmd)
         .subcommand(repair_cmd)
-        .subcommand(summarize_cmd);
+        .subcommand(summarize_cmd)
+        .subcommand(scan_cmd);
 
     let args = cmd.clone().get_matches();
 
@@ -1223,6 +1229,22 @@ fn run() -> AppResult<()> {
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;
+            Ok(())
+        }
+
+        Some((SUBCMD_SCAN, sargs)) => {
+            #[derive(Serialize)]
+            struct Bounds {
+                version: tk::Version,
+                offset: usize,
+            }
+            let filepath = get_path(sargs, INPUT_PATH);
+            let bounds = api::fcs_scan_dataset_boundaries(filepath)?;
+            let arr: Vec<_> = bounds
+                .into_iter()
+                .map(|(version, offset)| Bounds { version, offset })
+                .collect();
+            to_writer(stdout, &arr)?;
             Ok(())
         }
 
@@ -1852,6 +1874,8 @@ const SUBCMD_STD: &str = "std";
 const SUBCMD_DATA: &str = "data";
 
 const SUBCMD_SUMMARIZE: &str = "summarize";
+
+const SUBCMD_SCAN: &str = "scan";
 
 const SUBCMD_MEAS: &str = "measurements";
 

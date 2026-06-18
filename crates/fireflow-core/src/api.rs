@@ -8,6 +8,7 @@ use crate::config::{
     TEXTReadState, VersionOverride, WriteDatasetInnerConfig, WriteMultiConfig,
     WriteMultiDatasetConfig,
 };
+use crate::convert::UsizeExt as _;
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, DatasetOffsets,
     LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _,
@@ -67,7 +68,7 @@ use thiserror::Error;
 
 use core::fmt;
 use std::fs;
-use std::io::{BufReader, Read, Seek};
+use std::io::{self, BufReader, Read, Seek};
 use std::iter;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
@@ -366,6 +367,58 @@ pub fn fcs_summarize(
 > {
     fcs_read_flat_datasets(path, skip, limit, conf)
         .map_ok_value(|x| x.fmap(FlatDatasetOutput::summarize))
+}
+
+/// Scan through an FCS file and look for the starting offset of a dataset.
+///
+/// This is useful for situations where the $NEXTDATA keyword cannot be trusted
+/// and one suspects that there may be multiple datasets in a file.
+///
+/// Specifically, this will look for the pattern "FCS2.0|FCS3.0|FCS3.1|FCS3.2"
+/// followed by 4 spaces.
+pub fn fcs_scan_dataset_boundaries(path: &PathBuf) -> io::Result<Vec<(Version, usize)>> {
+    // General strategy:
+    // 1. take overlapping buffers of some size
+    // 2. iterate over all overlapping windows in this buffer
+    // 3. test each window against the version pattern for a match
+    const WINDOW_SIZE: usize = 10;
+    const OVERLAP_SIZE: usize = WINDOW_SIZE - 1;
+    const BUF_SIZE: u64 = 32000;
+
+    let mut file = fs::File::options().read(true).open(path)?;
+    let mut bounds = vec![];
+    let mut buf = vec![];
+    let mut file_pos = 0;
+    file.by_ref().take(BUF_SIZE).read_to_end(&mut buf)?;
+
+    let go = |xs: &[u8; WINDOW_SIZE]| match xs {
+        b"FCS2.0    " => Some(Version::FCS2_0),
+        b"FCS3.0    " => Some(Version::FCS3_0),
+        b"FCS3.1    " => Some(Version::FCS3_1),
+        b"FCS3.2    " => Some(Version::FCS3_2),
+        _ => None,
+    };
+
+    while buf.len() >= WINDOW_SIZE {
+        for w in buf[..].array_windows() {
+            if let Some(v) = go(w) {
+                bounds.push((v, file_pos));
+            }
+            file_pos += 1;
+        }
+        // Shift the last WINDOW_SIZE - 1 bytes from the end to the front of
+        // the buffer. We don't want the full window size because that would
+        // double-count the last window in the buffer.
+        let mut tmp = [0_u8; OVERLAP_SIZE];
+        tmp.copy_from_slice(&buf[buf.len() - OVERLAP_SIZE..]);
+        buf.clear();
+        buf.extend(tmp);
+        file.by_ref()
+            .take(BUF_SIZE - OVERLAP_SIZE.usize_to_u64())
+            .read_to_end(&mut buf)?;
+    }
+
+    Ok(bounds)
 }
 
 /// Write multiple FCS datasets (of any version) to a file.

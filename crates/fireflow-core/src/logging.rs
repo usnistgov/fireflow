@@ -331,9 +331,9 @@ impl<E> IOErrorGroup<E, ()> {
         }
     }
 
-    pub(crate) fn deanonymize<G: Default>(self) -> IOErrorGroup<E, G> {
-        self.deanonymize_as(G::default())
-    }
+    // pub(crate) fn deanonymize<G: Default>(self) -> IOErrorGroup<E, G> {
+    //     self.deanonymize_as(G::default())
+    // }
 }
 
 impl<E> Extend<E> for IOErrorGroup<E, ()> {

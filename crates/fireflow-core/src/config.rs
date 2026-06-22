@@ -10,7 +10,7 @@
 //! is an error. This will work in most cases with a few exceptions where the
 //! standard is unclear.
 
-use crate::logging::{IOResult, ImpureError, LogResult, WarningsAndErrorsResult};
+use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId,
@@ -52,7 +52,6 @@ use std::collections::HashSet;
 use std::fmt;
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufReader, Seek};
-use std::path::PathBuf;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -1431,9 +1430,9 @@ pub struct DataRemainderLimit(pub u64);
 #[derive(Clone, Default, From, Into)]
 pub struct TemporalOpticalKeys(pub HashSet<TemporalOpticalKey>);
 
-/// State pertinent to reading a file and/or dataset.
+/// State pertinent to reading a dataset.
 #[derive(new)]
-pub struct ReadState<C, D> {
+pub struct ReadDatasetState<C, D> {
     /// The length of the entire FCS file.
     pub(crate) file_len: FileLen,
     /// The offset of the current FCS dataset.
@@ -1453,10 +1452,10 @@ pub struct ReadState<C, D> {
 }
 
 /// Read state after HEADER is parsed.
-pub type HeaderReadState<C> = ReadState<C, ()>;
+pub type HeaderReadState<C> = ReadDatasetState<C, ()>;
 
 /// Read state after HEADER and TEXT are parsed.
-pub type TEXTReadState<C> = ReadState<C, DatasetBounds>;
+pub type TEXTReadState<C> = ReadDatasetState<C, DatasetBounds>;
 
 #[derive(Clone, Copy, new)]
 pub struct DatasetBounds {
@@ -1487,25 +1486,14 @@ pub struct DatasetLen(pub u64);
 pub struct DatasetOffset(pub u64);
 
 impl<C> HeaderReadState<C> {
-    pub(crate) fn open(
-        p: &PathBuf,
-        dataset_offset: DatasetOffset,
-        conf: C,
-    ) -> IOResult<(Self, File), DatasetOffsetError> {
-        let file = File::options().read(true).open(p)?;
-        Self::init(&file, dataset_offset, conf).map(|st| (st, file))
-    }
-
     pub(crate) fn init(
-        f: &File,
+        fl: FileLen,
         dataset_offset: DatasetOffset,
         conf: C,
-    ) -> IOResult<Self, DatasetOffsetError> {
-        let m = f.metadata()?;
-        let fl = m.len().into();
+    ) -> Result<Self, DatasetOffsetError> {
         if u64::from(fl) < u64::from(dataset_offset) {
             let e = DatasetOffsetError(dataset_offset, fl);
-            return Err(ImpureError::Pure(e));
+            return Err(e);
         }
         Ok(Self::new(fl, dataset_offset, (), conf))
     }
@@ -1546,7 +1534,7 @@ impl<C> HeaderReadState<C> {
             "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
         );
         let bounds = DatasetBounds::new(dataset_len, from_nextdata);
-        ReadState::new(f, d, bounds, self.conf)
+        ReadDatasetState::new(f, d, bounds, self.conf)
     }
 
     // this should only be called if $NEXTDATA is 0 or missing (if allowed)
@@ -1557,11 +1545,11 @@ impl<C> HeaderReadState<C> {
             f.0.checked_sub(d.0)
                 .expect("dataset offset should not exceed file length");
         let bounds = DatasetBounds::new(DatasetLen(dl), false);
-        ReadState::new(f, d, bounds, self.conf)
+        ReadDatasetState::new(f, d, bounds, self.conf)
     }
 }
 
-impl<C, D> ReadState<C, D> {
+impl<C, D> ReadDatasetState<C, D> {
     pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
         let pos = h.stream_position()?;
         let remaining = u64::from(self.file_len) - pos;

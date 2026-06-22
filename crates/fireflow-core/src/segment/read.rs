@@ -9,7 +9,8 @@ use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
     AllowPseudoempty, ConfigFlag, DatasetOffset, DummyTriFlag, HeaderReadState,
     IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadState, TEXTReadState,
+    ReadDataKeywordsConfig, ReadDatasetState, ReadHeaderInnerConfig, ReadOffsetConfig,
+    TEXTReadState,
 };
 use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -281,7 +282,7 @@ pub struct NewOffsetsConfig<I, S> {
 }
 
 impl<I, S> NewOffsetsConfig<I, S> {
-    fn from_read_config<C, D>(corr: OffsetsCorrection<I, S>, st: &ReadState<C, D>) -> Self
+    fn from_read_config<C, D>(corr: OffsetsCorrection<I, S>, st: &ReadDatasetState<C, D>) -> Self
     where
         C: AsRef<ReadOffsetConfig>,
     {
@@ -1023,7 +1024,7 @@ pub(crate) trait KeyedSegmentInner: KeyedOffsets + HasRegion {
         x0: i128,
         x1: i128,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C, D>,
+        st: &ReadDatasetState<C, D>,
     ) -> (
         Result<Offsets<Self, OffsetsFromTEXT>, SegmentOffsetError>,
         OriginalOffsets,
@@ -1072,7 +1073,7 @@ where
     fn with_req_pair<C, D>(
         pair: ReqPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C, D>,
+        st: &ReadDatasetState<C, D>,
     ) -> PairResult<Self, ReqSegmentKeyError<Self::B, Self::E>>
     where
         C: AsRef<ReadOffsetConfig>,
@@ -1351,7 +1352,7 @@ where
     fn with_opt_pair<C, D>(
         pair: OptPair<Self::B, Self::E>,
         corr: TEXTCorrection<Self>,
-        st: &ReadState<C, D>,
+        st: &ReadDatasetState<C, D>,
     ) -> Option<PairResult<Self, OptSegmentKeyError<Self::B, Self::E>>>
     where
         C: AsRef<ReadOffsetConfig>,

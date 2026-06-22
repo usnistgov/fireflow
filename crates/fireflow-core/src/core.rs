@@ -1,11 +1,11 @@
 //! Data structures representing standardized TEXT segment
 
-use crate::api::HeaderAndSuppOffsets;
+use crate::api::{FCSFileReader, HeaderAndSuppOffsets};
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetLen, DatasetLenEOFError,
     DatasetOffset, DatasetOffsetError, DummyTriFlag, OverlapCorrectionLimit,
     ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
-    ReadSharedConfig, ReadState, ReadStdKeywordsConfig, TEXTReadState, WriteDatasetInnerConfig,
+    ReadSharedConfig, ReadStdKeywordsConfig, TEXTReadState, WriteDatasetInnerConfig,
     WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
@@ -6193,20 +6193,19 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             clippy::result_large_err,
             reason = "top level function, shouldn't be used often, large call stack won't matter much"
         )]
-        ReadState::open(p, dataset_offset, conf)
+        FCSFileReader::open_with_state(p, dataset_offset, conf)
             .map_err(|e| e.fmap_once(StdDatasetFromFlatTextErrorInner::from))
             .map_err(|e| e.fmap_once(StdDatasetFromKeywordsError::from))
-            .and_then(|(st, file)| {
+            .and_then(|(fr, st)| {
                 st.maybe_with_dataset_length(dataset_len)
-                    .map(|txt_st| (txt_st, file))
+                    .map(|txt_st| (fr, txt_st))
                     .map_err(StdDatasetFromKeywordsError::from)
                     .map_err(ImpureError::Pure)
             })
             .map_err(IOErrorGroup::from)
             .into_log()
-            .and_then_commutative(|(txt_st, file)| {
-                let mut h = BufReader::new(file);
-                Self::new_from_keywords_inner(&mut h, kws, &mut hns, &txt_st)
+            .and_then_commutative(|(mut fr, txt_st)| {
+                Self::new_from_keywords_inner(&mut fr.buf_read, kws, &mut hns, &txt_st)
                     .map_pure_errors(StdDatasetFromKeywordsError::from)
             })
             .map_ok_value(|(ret, dataset)| {

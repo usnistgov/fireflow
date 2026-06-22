@@ -1,6 +1,6 @@
 //! Data structures representing standardized TEXT segment
 
-use crate::api::{FCSFileReader, HeaderAndSuppOffsets};
+use crate::api::{CRCOutput, FCSFileReader, HeaderAndSuppOffsets};
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetLen, DatasetLenEOFError,
     DatasetOffset, DatasetOffsetError, DummyTriFlag, OverlapCorrectionLimit,
@@ -1011,7 +1011,7 @@ impl OthersReader {
         let mut buf = vec![];
         let mut others = vec![];
         for s in &self.offsets {
-            s.seg.h_read_contents(h, &mut buf)?;
+            s.offsets.h_read_contents(h, &mut buf)?;
             others.push(Other(buf.clone()));
             buf.clear();
         }
@@ -1041,6 +1041,9 @@ pub struct StdDatasetFromKwsOutput {
 
     /// Diagnostic output from parsing DATA segment
     pub events_diagnostics: EventsDiagnostics,
+
+    /// Value of the cyclic redundancy check (CRC)
+    pub crc: Option<CRCOutput>,
 }
 
 // TODO split this into sub structs for analysis and data since they are both
@@ -6249,6 +6252,13 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                 let other = io_to_log!(or.h_read(h));
                 let analysis = io_to_log!(ar.h_read(h));
+                let hns_max = hns.max_end_offset();
+                let da_max = offsets.offsets.max_end_offset();
+                let crc = if let Some(crc_start) = hns_max.max(da_max) {
+                    io_to_log!(st.read_crc(h, crc_start))
+                } else {
+                    None
+                };
                 text.meas
                     .h_read_df(
                         h,
@@ -6264,6 +6274,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                             offsets.offsets,
                             extra,
                             df_out.diagnostics,
+                            crc,
                         );
                         (new, diag)
                     })
@@ -6893,6 +6904,12 @@ impl DatasetOffsets {
         let (dseg, dorig) = data.into_any();
         let (aseg, aorig) = analysis.into_any();
         Ok(Self::new(dseg, aseg, dorig, aorig, da_overlap))
+    }
+
+    pub(crate) fn max_end_offset(&self) -> Option<u64> {
+        let d = self.final_data.as_nonempty().map(|o| o.end());
+        let a = self.final_analysis.as_nonempty().map(|o| o.end());
+        d.max(a)
     }
 }
 

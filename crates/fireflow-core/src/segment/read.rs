@@ -270,7 +270,7 @@ pub struct OffsetsFromAnywhere;
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct IndexedOtherOffsets {
     pub index: usize,
-    pub seg: OtherOffsets20,
+    pub offsets: OtherOffsets20,
 }
 
 /// Configuration for making a new [`Offsets`]
@@ -2776,7 +2776,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (self.index, self.seg).into_pyobject(py)
+            (self.index, self.offsets).into_pyobject(py)
         }
     }
 

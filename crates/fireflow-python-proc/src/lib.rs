@@ -1041,8 +1041,9 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
+    let crc = DocArg::new_crc_param().into_ro(|_, _| quote!(self.0.crc));
 
-    let args = [data, analysis, others, dataset_offsets, event];
+    let args = [data, analysis, others, dataset_offsets, event, crc];
     let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
@@ -1053,7 +1054,8 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     analysis,
                     others,
                     dataset_offsets.into(),
-                    events_diagnostics.into()
+                    events_diagnostics.into(),
+                    crc,
                 ).into()
             }
 
@@ -1066,6 +1068,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ret.set_item("others", self.others())?;
                 ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("event_diagnostics", self.events_diagnostics().dict(py)?)?;
+                ret.set_item("crc", self.crc())?;
                 Ok(ret.into())
             }
         }
@@ -2054,11 +2057,12 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
+    let crc = DocArg::new_crc_param().into_ro(|_, _| quote!(self.0.crc));
 
     let doc = DocString::new_class(format!(
         "Miscellaneous data when standardizing {TEXT} from keywords."
     ))
-    .args([dataset_offsets, std, event]);
+    .args([dataset_offsets, std, event, crc]);
 
     let new = |fun_args| {
         quote! {
@@ -2066,7 +2070,8 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 #path::new(
                     dataset_offsets.into(),
                     std_diagnostics.into(),
-                    events_diagnostics.into()
+                    events_diagnostics.into(),
+                    crc,
                 ).into()
             }
 
@@ -2077,6 +2082,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
                 ret.set_item("events_diagnostics", self.events_diagnostics().dict(py)?)?;
+                ret.set_item("crc", self.crc())?;
                 Ok(ret.into())
             }
         }
@@ -2510,6 +2516,8 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.datatype),
     );
 
+    let crc = DocArg::new_crc_param().into_ro(|_, _| quote!(self.0.crc));
+
     let args = [
         version,
         text_len,
@@ -2520,6 +2528,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         n_other,
         others_len,
         datatype,
+        crc,
     ];
 
     let doc = DocString::new_class("High-level data describing an FCS dataset").args(args);
@@ -2544,6 +2553,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
                 ret.set_item("n_other", self.n_other())?;
                 ret.set_item("others_len", self.others_len())?;
                 ret.set_item("datatype", self.datatype())?;
+                ret.set_item("crc", self.crc())?;
                 Ok(ret.into())
             }
         }
@@ -6133,6 +6143,7 @@ struct PyTuple<E> {
 #[derive(Clone)]
 enum RsInt {
     U8,
+    U16,
     U32,
     U64,
     I32,
@@ -6469,6 +6480,7 @@ impl HasRustPath for RsInt {
     fn as_rust_type(&self) -> Type {
         match self {
             Self::U8 => parse_quote!(u8),
+            Self::U16 => parse_quote!(u16),
             Self::U32 => parse_quote!(u32),
             Self::U64 => parse_quote!(u64),
             Self::Usize => parse_quote!(usize),
@@ -9085,6 +9097,19 @@ impl DocArgParam {
         let d = format!("Diagnostic output from parsing {DATA} segment.");
         let p = PyClass::new_py(["api"], "EventsDiagnostics");
         Self::new_param("events_diagnostics", p, d)
+    }
+
+    fn new_crc_param() -> Self {
+        let d = format!(
+            "The value of the cyclic redundancy check (CRC) value. \
+             Will be an integer if a valid CRC was found. \
+             Will be an 8-character string if the CRC was found \
+             but could not be parsed. Will be {NONE} if not found at all."
+        );
+        let path = parse_quote!(fireflow_core::api::CRCOutput);
+        let inner = PyUnion::new2(PyBytes::default(), RsInt::U16).rstype(path);
+        let p = PyOpt::new1(inner);
+        Self::new_param("crc", p, d).def_auto()
     }
 
     fn new_uncorrected_header_offsets_param(argname: &str, seg: AnySegment) -> Self {

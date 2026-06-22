@@ -500,6 +500,19 @@ pub struct FlatDatasetFromKwsOutput {
 
     /// Diagnostic output from parsing DATA segment
     pub events_diagnostics: EventsDiagnostics,
+
+    /// Value of the cyclic redundancy check (CRC)
+    pub crc: Option<CRCOutput>,
+}
+
+/// The output of parsing the CRC at the end of the last dataset.
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum CRCOutput {
+    /// CRC was a valid 16 bit decimal number.
+    Valid(u16),
+    /// CRC bytes were found but did not parse to a 16-bit number.
+    Invalid([u8; 8]),
 }
 
 // TODO should all these std/nonstd keys just be keystrings since the $ is implied?
@@ -682,6 +695,9 @@ pub struct DatasetSummary {
 
     /// The value of $DATATYPE
     pub datatype: Option<AlphaNumType>,
+
+    /// Value of the cyclic redundancy check (CRC)
+    pub crc: Option<CRCOutput>,
 }
 
 /// Warning when parsing [`Header`]
@@ -1461,6 +1477,16 @@ impl HeaderAndSuppOffsets {
             LogResult::new_ok(vec![])
         }
     }
+
+    pub(crate) fn max_end_offset(&self) -> Option<u64> {
+        let hdr_max = self.header.final_offsets.max_end_offset();
+        let supp_max = self
+            .supp_text
+            .final_offsets()
+            .and_then(|o| o.as_nonempty())
+            .map(|o| o.end());
+        hdr_max.max(supp_max)
+    }
 }
 
 impl FlatDatasetOutput {
@@ -1479,6 +1505,7 @@ impl FlatDatasetOutput {
             n_other: ds.others.0.len(),
             others_len: ds.others.0.iter().map(|x| x.0.len()).sum(),
             datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
+            crc: ds.crc,
         }
     }
 }
@@ -1504,8 +1531,16 @@ impl FlatDatasetFromKwsOutput {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
+                let hns_max = hns.max_end_offset();
+                let da_max = dataset_offsets.max_end_offset();
+                let crc = if let Some(crc_start) = hns_max.max(da_max) {
+                    io_to_log!(st.read_crc(h, crc_start))
+                } else {
+                    None
+                };
                 let or = hns.header.final_offsets.others_reader();
-                let go = |others| Self::new(data, analysis, others, dataset_offsets, event_out);
+                let go =
+                    |others| Self::new(data, analysis, others, dataset_offsets, event_out, crc);
                 or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
             })
     }
@@ -2530,14 +2565,19 @@ impl SuppTEXTOffsetsOutput {
     }
 
     /// The final offsets if they exist.
-    #[cfg(feature = "python")]
-    #[must_use]
-    pub fn py_final_offsets(&self) -> Option<SupplementalTextOffsets> {
+    pub(crate) fn final_offsets(&self) -> Option<SupplementalTextOffsets> {
         if let Self::Valid(x) = self {
             Some(x.final_)
         } else {
             None
         }
+    }
+
+    /// The final offsets if they exist.
+    #[cfg(feature = "python")]
+    #[must_use]
+    pub fn py_final_offsets(&self) -> Option<SupplementalTextOffsets> {
+        self.final_offsets()
     }
 
     /// The OTHER index that duplicates these offsets if applicable.
@@ -2699,5 +2739,40 @@ mod tests {
     #[test]
     fn guess_leading_delim_key_escaped() {
         assert_guessed_mode("/aaa/bbb/bb//b/ccc/", GuessedEscapeMode::Ambiguous);
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::CRCOutput;
+
+    use fireflow_types::python::ConfigError;
+    use pyo3::{IntoPyObjectExt as _, prelude::*};
+
+    impl<'py> FromPyObject<'_, 'py> for CRCOutput {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(b) = obj.extract::<[u8; 8]>() {
+                return Ok(Self::Invalid(b));
+            } else if let Ok(b) = obj.extract::<u16>() {
+                return Ok(Self::Valid(b));
+            }
+            Err(ConfigError::new_err(
+                "must be an 8-character byte string or a 16-bit integer",
+            ))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for CRCOutput {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Valid(v) => v.into_bound_py_any(py),
+                Self::Invalid(v) => v.into_bound_py_any(py),
+            }
+        }
     }
 }

@@ -276,7 +276,7 @@ impl FinalHeaderOffsets {
     /// Will panic if out of bounds.
     pub(crate) fn remove_other(&mut self, i: usize) {
         if let Some((xs, _)) = self.other.as_mut() {
-            xs[i].seg = Offsets::default();
+            xs[i].offsets = Offsets::default();
         }
     }
 
@@ -403,7 +403,7 @@ impl FinalHeaderOffsets {
         let os = self
             .as_others()
             .enumerate()
-            .map(|(i, o)| self.contains_offsets(&o.seg, i));
+            .map(|(i, o)| self.contains_offsets(&o.offsets, i));
         [t, d, a].into_iter().chain(os).flatten()
     }
 
@@ -432,7 +432,7 @@ impl FinalHeaderOffsets {
             .iter_mut()
             .flat_map(|(os, _)| os.iter_mut())
             .filter_map(|x| {
-                x.seg
+                x.offsets
                     .as_nonempty_mut()
                     .map(|y| AnyHeaderOffsetsMut::Other(y, x.index))
             })
@@ -497,6 +497,25 @@ impl FinalHeaderOffsets {
             let n = u64::try_from(usize::from(os.len())).expect("usize overflow");
             n * u64::from(u8::from(*width))
         })
+    }
+
+    pub(crate) fn max_end_offset(&self) -> Option<u64> {
+        [
+            self.text.as_nonempty().map(|o| o.end()),
+            self.analysis.as_nonempty().map(|o| o.end()),
+            self.data.as_nonempty().map(|o| o.end()),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(
+            self.other
+                .as_ref()
+                .into_iter()
+                .flat_map(|(o, _)| o.iter())
+                .filter_map(|o| o.offsets.as_nonempty())
+                .map(|o| o.end()),
+        )
+        .max()
     }
 }
 

@@ -10,6 +10,7 @@
 //! is an error. This will work in most cases with a few exceptions where the
 //! standard is unclear.
 
+use crate::api::CRCOutput;
 use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, OtherSegmentId, PrimaryTextSegmentId,
@@ -51,7 +52,7 @@ use thiserror::Error;
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufReader, Seek};
+use std::io::{self, BufReader, Read, Seek};
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -1546,6 +1547,34 @@ impl<C> HeaderReadState<C> {
                 .expect("dataset offset should not exceed file length");
         let bounds = DatasetBounds::new(DatasetLen(dl), false);
         ReadDatasetState::new(f, d, bounds, self.conf)
+    }
+}
+
+impl<C> TEXTReadState<C> {
+    pub(crate) fn read_crc<R>(
+        &self,
+        h: &mut BufReader<R>,
+        crc_start: u64,
+    ) -> io::Result<Option<CRCOutput>>
+    where
+        R: Read + Seek,
+    {
+        h.seek(io::SeekFrom::Start(self.dataset_offset.0 + crc_start))?;
+        let rem = self.remaining_bytes(h)?;
+        if rem < 8 {
+            Ok(None)
+        } else {
+            let mut buf = [0_u8; 8];
+            h.read_exact(&mut buf)?;
+            // NOTE the CRC has 8 digits but must parse to a 16-bit number.
+            // It isn't clear why the CRC isn't just 5 bytes, since the max
+            // u16 is ~64k.
+            let ret = str::from_utf8(&buf)
+                .ok()
+                .and_then(|s| s.parse::<u16>().ok())
+                .map_or(CRCOutput::Invalid(buf), CRCOutput::Valid);
+            Ok(Some(ret))
+        }
     }
 }
 

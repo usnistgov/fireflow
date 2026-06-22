@@ -273,3 +273,5 @@ TEXTOffsetsOriginType: TypeAlias = Literal[
     "mismatch_text",
     "empty_header",
 ]
+
+CRCOutput: TypeAlias = bytes | int | None

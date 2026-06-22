@@ -9104,7 +9104,8 @@ impl DocArgParam {
             "The value of the cyclic redundancy check (CRC) value. \
              Will be an integer if a valid CRC was found. \
              Will be an 8-character string if the CRC was found \
-             but could not be parsed. Will be {NONE} if not found at all."
+             but could not be parsed. Will be {NONE} if not found at all. \
+             FCS 2.0 will always return {NONE}."
         );
         let path = parse_quote!(fireflow_core::api::CRCOutput);
         let inner = PyUnion::new2(PyBytes::default(), RsInt::U16).rstype(path);

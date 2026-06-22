@@ -501,7 +501,9 @@ pub struct FlatDatasetFromKwsOutput {
     /// Diagnostic output from parsing DATA segment
     pub events_diagnostics: EventsDiagnostics,
 
-    /// Value of the cyclic redundancy check (CRC)
+    /// Value of the cyclic redundancy check (CRC) as read from the file.
+    ///
+    /// Will always be `None` for 2.0.
     pub crc: Option<CRCOutput>,
 }
 
@@ -696,7 +698,9 @@ pub struct DatasetSummary {
     /// The value of $DATATYPE
     pub datatype: Option<AlphaNumType>,
 
-    /// Value of the cyclic redundancy check (CRC)
+    /// Value of the cyclic redundancy check (CRC) as read from the file.
+    ///
+    /// Will always be `None` for 2.0.
     pub crc: Option<CRCOutput>,
 }
 
@@ -1534,7 +1538,7 @@ impl FlatDatasetFromKwsOutput {
                 let hns_max = hns.max_end_offset();
                 let da_max = dataset_offsets.max_end_offset();
                 let crc = if let Some(crc_start) = hns_max.max(da_max) {
-                    io_to_log!(st.read_crc(h, crc_start))
+                    io_to_log!(st.read_crc(h, crc_start, new_version))
                 } else {
                     None
                 };

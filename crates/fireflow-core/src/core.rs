@@ -6255,7 +6255,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let hns_max = hns.max_end_offset();
                 let da_max = offsets.offsets.max_end_offset();
                 let crc = if let Some(crc_start) = hns_max.max(da_max) {
-                    io_to_log!(st.read_crc(h, crc_start))
+                    io_to_log!(st.read_crc(h, crc_start, text.fcs_version()))
                 } else {
                     None
                 };

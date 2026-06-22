@@ -1555,10 +1555,14 @@ impl<C> TEXTReadState<C> {
         &self,
         h: &mut BufReader<R>,
         crc_start: u64,
+        version: Version,
     ) -> io::Result<Option<CRCOutput>>
     where
         R: Read + Seek,
     {
+        if version == Version::FCS2_0 {
+            return Ok(None);
+        }
         h.seek(io::SeekFrom::Start(self.dataset_offset.0 + crc_start))?;
         let rem = self.remaining_bytes(h)?;
         if rem < 8 {

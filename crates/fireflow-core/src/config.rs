@@ -10,7 +10,6 @@
 //! is an error. This will work in most cases with a few exceptions where the
 //! standard is unclear.
 
-use crate::api::CRCOutput;
 use crate::logging::{LogResult, WarningsAndErrorsResult};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, OtherSegmentId, PrimaryTextSegmentId,
@@ -19,7 +18,7 @@ use crate::segment::{
 };
 use crate::text::byteord::Bytes;
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{self as kws, Nextdata, Timestep};
+use crate::text::keywords::{self as kws, Timestep};
 use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
@@ -52,11 +51,7 @@ use thiserror::Error;
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{self, BufReader, Read, Seek};
 use std::str::FromStr;
-
-#[cfg(feature = "serde")]
-use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
@@ -1430,177 +1425,6 @@ pub struct DataRemainderLimit(pub u64);
 /// Set of temporal optical keys.
 #[derive(Clone, Default, From, Into)]
 pub struct TemporalOpticalKeys(pub HashSet<TemporalOpticalKey>);
-
-/// State pertinent to reading a dataset.
-#[derive(new)]
-pub struct ReadDatasetState<C, D> {
-    /// The length of the entire FCS file.
-    pub(crate) file_len: FileLen,
-    /// The offset of the current FCS dataset.
-    ///
-    /// This will almost always be zero unless there are multiple datasets in
-    /// the file.
-    pub(crate) dataset_offset: DatasetOffset,
-    /// The length of the current dataset (if available).
-    ///
-    /// This will almost always be equal to `file_len`.
-    ///
-    /// This is only known once $NEXTDATA is read, thus this only applies after
-    /// TEXT is read.
-    pub(crate) dataset_bounds: D,
-    /// A read-only configuration to be used with this state.
-    pub(crate) conf: C,
-}
-
-/// Read state after HEADER is parsed.
-pub type HeaderReadState<C> = ReadDatasetState<C, ()>;
-
-/// Read state after HEADER and TEXT are parsed.
-pub type TEXTReadState<C> = ReadDatasetState<C, DatasetBounds>;
-
-#[derive(Clone, Copy, new)]
-pub struct DatasetBounds {
-    pub(crate) len: DatasetLen,
-    pub(crate) from_nextdata: bool,
-}
-
-/// The length of the entire FCS file in bytes.
-#[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
-pub(crate) struct FileLen(pub(crate) u64);
-
-/// The length of the current dataset in bytes.
-///
-/// For files with one dataset, this will be exactly equal to the file length;
-/// this is 99% of files. For files with multiple datasets via $NEXTDATA, this
-/// will be the length of the current individual dataset.
-#[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
-#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-pub struct DatasetLen(pub u64);
-
-/// The offset of the current dataset in bytes.
-///
-/// This will be zero except in files with multiple datasets for all but the
-/// first dataset.
-#[derive(From, Into, Clone, Copy, Debug, PartialEq, Default, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
-pub struct DatasetOffset(pub u64);
-
-impl<C> HeaderReadState<C> {
-    pub(crate) fn init(
-        fl: FileLen,
-        dataset_offset: DatasetOffset,
-        conf: C,
-    ) -> Result<Self, DatasetOffsetError> {
-        if u64::from(fl) < u64::from(dataset_offset) {
-            let e = DatasetOffsetError(dataset_offset, fl);
-            return Err(e);
-        }
-        Ok(Self::new(fl, dataset_offset, (), conf))
-    }
-
-    pub(crate) fn maybe_with_dataset_length(
-        self,
-        dataset_len: Option<DatasetLen>,
-    ) -> Result<TEXTReadState<C>, DatasetLenEOFError> {
-        if let Some(dl) = dataset_len {
-            let f = self.file_len;
-            let d = self.dataset_offset;
-            if d.0 + dl.0 <= f.0 {
-                Ok(self.with_dataset_length(dl, false))
-            } else {
-                Err(DatasetLenEOFError(d, dl, f))
-            }
-        } else {
-            Ok(self.into_last_dataset())
-        }
-    }
-
-    pub(crate) fn local_file_len(&self) -> u64 {
-        let f = self.file_len;
-        let d = self.dataset_offset;
-        f.0.checked_sub(d.0)
-            .unwrap_or_else(|| panic!("dataset offset ({d}) exceeds file length ({f})"))
-    }
-
-    pub(crate) fn with_nextdata(self, nd: Nextdata) -> TEXTReadState<C> {
-        self.with_dataset_length(DatasetLen(u64::from(nd)), true)
-    }
-
-    fn with_dataset_length(self, dataset_len: DatasetLen, from_nextdata: bool) -> TEXTReadState<C> {
-        let f = self.file_len;
-        let d = self.dataset_offset;
-        assert!(
-            d.0 + dataset_len.0 <= f.0,
-            "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
-        );
-        let bounds = DatasetBounds::new(dataset_len, from_nextdata);
-        ReadDatasetState::new(f, d, bounds, self.conf)
-    }
-
-    // this should only be called if $NEXTDATA is 0 or missing (if allowed)
-    pub(crate) fn into_last_dataset(self) -> TEXTReadState<C> {
-        let f = self.file_len;
-        let d = self.dataset_offset;
-        let dl =
-            f.0.checked_sub(d.0)
-                .expect("dataset offset should not exceed file length");
-        let bounds = DatasetBounds::new(DatasetLen(dl), false);
-        ReadDatasetState::new(f, d, bounds, self.conf)
-    }
-}
-
-impl<C> TEXTReadState<C> {
-    pub(crate) fn read_crc<R>(
-        &self,
-        h: &mut BufReader<R>,
-        crc_start: u64,
-        version: Version,
-    ) -> io::Result<Option<CRCOutput>>
-    where
-        R: Read + Seek,
-    {
-        if version == Version::FCS2_0 {
-            return Ok(None);
-        }
-        h.seek(io::SeekFrom::Start(self.dataset_offset.0 + crc_start))?;
-        let rem = self.remaining_bytes(h)?;
-        if rem < 8 {
-            Ok(None)
-        } else {
-            let mut buf = [0_u8; 8];
-            h.read_exact(&mut buf)?;
-            // NOTE the CRC has 8 digits but must parse to a 16-bit number.
-            // It isn't clear why the CRC isn't just 5 bytes, since the max
-            // u16 is ~64k.
-            let ret = str::from_utf8(&buf)
-                .ok()
-                .and_then(|s| s.parse::<u16>().ok())
-                .map_or(CRCOutput::Invalid(buf), CRCOutput::Valid);
-            Ok(Some(ret))
-        }
-    }
-}
-
-impl<C, D> ReadDatasetState<C, D> {
-    pub(crate) fn remaining_bytes<R: Seek>(&self, h: &mut BufReader<R>) -> io::Result<u64> {
-        let pos = h.stream_position()?;
-        let remaining = u64::from(self.file_len) - pos;
-        Ok(remaining)
-    }
-}
-
-#[derive(Error, Debug, PartialEq, Clone)]
-#[error("dataset offset ({0}) exceeds file length ({1})")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct DatasetOffsetError(DatasetOffset, FileLen);
-
-#[derive(Error, Debug, PartialEq, Clone)]
-#[error("dataset offset ({0}) + new length ({1}) exceeds file length ({2})")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct DatasetLenEOFError(DatasetOffset, DatasetLen, FileLen);
 
 type TemporalOpticalResult = WarningsAndErrorsResult<
     Vec<(StdKey, NEString)>,

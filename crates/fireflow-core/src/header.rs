@@ -1,17 +1,17 @@
 //! Reading and writing the HEADER segment
 
 use crate::config::{
-    AppendableFlag, ConfigFlag as _, HeaderReadState, ReadHeaderInnerConfig, ReadOffsetConfig,
+    AppendableFlag, ConfigFlag as _, ReadHeaderInnerConfig, ReadOffsetConfig,
     SelectVersionStrategy, VersionOverride,
 };
 use crate::core::{Other, WriteHeaderAndTextConfig};
 use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
-    WarningsAndIOGroupResult, io_to_log, split_io,
+    WarningsAndIOGroupResult, io_to_log,
 };
 use crate::segment::read::{
     GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
-    HeaderSegmentError, HeaderToHeaderOffsetsOverlap, IsOffsetPair as _, OriginalOffsets,
+    HeaderOffsetsError, HeaderToHeaderOffsetsOverlap, IsOffsetPair as _, OriginalOffsets,
     OtherOffsets20, PrimaryTextOffsets,
 };
 use crate::segment::write::{
@@ -32,6 +32,7 @@ use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
 use crate::validated::keys::{Key as _, StdKeywords};
+use crate::validated::read_state::HeaderReadState;
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
 use fireflow_types::config::EnumStrIter as _;
@@ -134,14 +135,13 @@ pub struct Header {
 impl Header {
     pub fn h_read<C, R>(
         h: &mut BufReader<R>,
-        st: &HeaderReadState<C>,
+        st: &mut HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<Self, GuessOtherWidthError, HeaderError, ()>
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
         R: Read + Seek,
     {
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
-        io_to_log!(h.seek(SeekFrom::Start(st.dataset_offset.0)));
+        io_to_log!(h.seek(SeekFrom::Start(st.dataset_offset().0)));
         let req = io_to_log!(ReqHeader::h_read(h, st));
 
         let (text, text_orig) = req.text;
@@ -162,6 +162,8 @@ impl Header {
         } else {
             LogResult::new_ok(None)
         };
+
+        let oconf: &ReadOffsetConfig = st.conf().as_ref();
 
         other_res
             .map_pure_errors(HeaderError::from)
@@ -199,40 +201,71 @@ struct ReqHeader {
 impl ReqHeader {
     fn h_read<C, R>(
         h: &mut BufReader<R>,
-        st: &HeaderReadState<C>,
+        st: &mut HeaderReadState<C>,
     ) -> IOGroupResult<Self, HeaderError, ()>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        let conf: &ReadHeaderInnerConfig = st.conf.as_ref();
+        let conf: &ReadHeaderInnerConfig = st.conf().as_ref();
         let text_cor = conf.text_correction;
         let data_cor = conf.data_correction;
         let anal_cor = conf.analysis_correction;
 
-        let vers_res = split_io!(h_read_version(h, st))
-            .ungroup()
-            .map_errors(HeaderError::from);
-        let space_res = split_io!(Self::h_read_spaces(h, st))
-            .ungroup()
-            .map_errors(HeaderError::from);
+        #[allow(clippy::as_conversions, reason = "const not stable yet")]
+        let mut buf = [0_u8; HEADER_LEN as usize];
+        let remaining = st.remaining_bytes(h)?;
+        if remaining < HEADER_LEN.into() {
+            let e = HeaderNoBytesError(remaining).into();
+            return Err(IOAnonErrorGroup::new_pure_one(e));
+        }
+        h.read_exact(&mut buf)?;
+
+        st.update_digest(&buf[..]);
+
+        let vers_res = read_version(&buf).map_err(HeaderError::from);
+        let space_res = Self::read_spaces(&buf).map_err(HeaderError::from);
 
         let (version, ()) = vers_res
-            .zip_commutative(space_res)
+            .zip(space_res)
             .group()
             .resolve_nowarn()
             .map_err(IOErrorGroup::Pure)?;
 
-        let text_res = HeaderOffsets::h_read_primary(h, true, text_cor, version, st);
-        let data_res = HeaderOffsets::h_read_primary(h, false, data_cor, version, st);
-        let anal_res = HeaderOffsets::h_read_primary(h, false, anal_cor, version, st);
+        macro_rules! slice8 {
+            ($from:expr, $to:expr) => {{
+                const _: () = assert!($to - $from == 8, "slice should be 8");
+                buf[$from..$to].try_into().unwrap()
+            }};
+        }
 
-        let pure_text_res = split_io!(text_res).ungroup();
-        let pure_data_res = split_io!(data_res).ungroup();
-        let pure_anal_res = split_io!(anal_res).ungroup();
+        let text_res = HeaderOffsets::read_primary(
+            slice8!(10, 18),
+            slice8!(18, 26),
+            true,
+            text_cor,
+            version,
+            st,
+        );
+        let data_res = HeaderOffsets::read_primary(
+            slice8!(26, 34),
+            slice8!(34, 42),
+            false,
+            data_cor,
+            version,
+            st,
+        );
+        let anal_res = HeaderOffsets::read_primary(
+            slice8!(42, 50),
+            slice8!(50, 58),
+            false,
+            anal_cor,
+            version,
+            st,
+        );
 
-        pure_text_res
-            .zip3_commutative(pure_data_res, pure_anal_res)
+        text_res
+            .zip3_commutative(data_res, anal_res)
             .map_errors(HeaderError::from)
             .group()
             .resolve_nowarn()
@@ -240,51 +273,20 @@ impl ReqHeader {
             .map(|(t, d, a)| Self::new(version, t, d, a))
     }
 
-    fn h_read_spaces<R, C>(
-        h: &mut BufReader<R>,
-        st: &HeaderReadState<C>,
-    ) -> Result<(), IOAnonErrorGroup<HeaderSpacesError>>
-    where
-        R: Read + Seek,
-    {
-        let remaining = st.remaining_bytes(h)?;
-        if remaining < 4 {
-            let e = HeaderSpacesNoBytesError(remaining).into();
-            return Err(IOAnonErrorGroup::new_pure_one(e));
-        }
-        let mut buf = [0_u8; 4];
-        h.read_exact(&mut buf)?;
-        if buf.iter().all(|x| *x == 32) {
+    fn read_spaces(buf: &HeaderBuf) -> Result<(), HeaderSpacesFormatError> {
+        if buf[6..10].iter().all(|x| *x == 32) {
             Ok(())
         } else {
-            Err(IOAnonErrorGroup::new_pure_one(
-                HeaderSpacesFormatError.into(),
-            ))
+            Err(HeaderSpacesFormatError)
         }
     }
 }
 
-fn h_read_version<R, C>(
-    h: &mut BufReader<R>,
-    st: &HeaderReadState<C>,
-) -> IOGroupResult<Version, VersionError, ()>
-where
-    R: Read + Seek,
-{
-    let remaining = st.remaining_bytes(h)?;
-    if remaining < 6 {
-        let e = VersionNoBytesError(remaining).into();
-        return Err(IOAnonErrorGroup::new_pure_one(e));
-    }
-    let mut buf = [0; 6];
-    h.read_exact(&mut buf)?;
-    if let Ok(s) = str::from_utf8(&buf) {
-        s.parse()
-            .map_err(VersionError::from)
-            .map_err(IOErrorGroup::new_pure_one)
+fn read_version(buf: &HeaderBuf) -> Result<Version, VersionError> {
+    if let Ok(s) = str::from_utf8(&buf[0..6]) {
+        s.parse().map_err(VersionError::from)
     } else {
-        let e = VersionNonUtf8Error(buf.to_vec());
-        Err(IOErrorGroup::new_pure_one(e.into()))
+        Err(VersionNonUtf8Error(buf.to_vec()).into())
     }
 }
 
@@ -352,18 +354,11 @@ pub(crate) fn autodetect_version(
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum HeaderError {
-    Segment(HeaderSegmentError),
+    Segment(HeaderOffsetsError),
     Version(VersionError),
     Validation(HeaderOffsetsValidationError),
-    Space(HeaderSpacesError),
-}
-
-/// Error when parsing spaces after FCS version
-#[derive(From, Display, Debug, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum HeaderSpacesError {
-    Format(HeaderSpacesFormatError),
-    Bytes(HeaderSpacesNoBytesError),
+    Space(HeaderSpacesFormatError),
+    NoBytes(HeaderNoBytesError),
 }
 
 /// Error when version is not follow by proper number of spaces in HEADER
@@ -373,12 +368,12 @@ pub enum HeaderSpacesError {
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct HeaderSpacesFormatError;
 
-/// Error when spaces could not be read because not enough bytes were present
+/// Error when HEADER could not be read because the byte stream was exhausted.
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("needed 4 bytes to read spaces after FCS version, got {0}")]
+#[error("need {HEADER_LEN} bytes to read HEADER, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct HeaderSpacesNoBytesError(u64);
+pub struct HeaderNoBytesError(u64);
 
 /// Error when validating segments in HEADER
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
@@ -386,7 +381,6 @@ pub struct HeaderSpacesNoBytesError(u64);
 pub enum VersionError {
     Format(VersionFormatError),
     NonUtf8(VersionNonUtf8Error),
-    Bytes(VersionNoBytesError),
 }
 
 /// Error when parsing FCS version
@@ -395,13 +389,6 @@ pub enum VersionError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
 pub struct VersionNonUtf8Error(Vec<u8>);
-
-/// Error when not enough bytes to parse version
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("needed 6 bytes to parse FCS version, got {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-pub struct VersionNoBytesError(u64);
 
 /// Error when trying to guess FCS version from keywords
 #[derive(Debug, Error, PartialEq, Clone)]
@@ -718,6 +705,9 @@ impl<T> HeaderKeywordsToWrite<T> {
         Nextdata(ret)
     }
 }
+
+#[allow(clippy::as_conversions, reason = "const not stable yet")]
+type HeaderBuf = [u8; HEADER_LEN as usize];
 
 /// Length of $(BEGIN/END)(STEXT/ANALYSIS/DATA) and $NEXTDATA offset length.
 ///

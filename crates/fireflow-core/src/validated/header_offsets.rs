@@ -1,7 +1,4 @@
-use crate::config::{
-    DatasetOffset, FileLen, HeaderReadState, OverlapCorrectionLimit, ReadOffsetConfig,
-    TEXTReadState,
-};
+use crate::config::{OverlapCorrectionLimit, ReadOffsetConfig};
 use crate::core::{DatasetOffsets, OthersReader, TEXTOffsetsOrigin};
 use crate::logging::{DeferredErrors, ErrorGroup, ErrorsResult, LogResult};
 use crate::macros::def_summary;
@@ -19,6 +16,7 @@ use crate::segment::{
     },
 };
 use crate::validated::ascii_range::OtherWidth;
+use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReadState, TEXTReadState};
 
 use type_families::BifunctorOnce as _;
 
@@ -212,7 +210,7 @@ impl FinalHeaderOffsets {
         C: AsRef<ReadOffsetConfig>,
     {
         let local_file_len = st.local_file_len();
-        let conf: &ReadOffsetConfig = st.conf.as_ref();
+        let conf: &ReadOffsetConfig = st.conf().as_ref();
         let limit = conf.dataset_overflow_limit;
         if let Some(ne) = self.text.as_nonempty_mut() {
             if let Some(res) = ne.tail_overlap_offset_and_truncate(local_file_len, limit.0, ()) {
@@ -222,8 +220,8 @@ impl FinalHeaderOffsets {
                     let e = PrimaryTEXTOverflowError::new(
                         res.offsets.begin,
                         res.offsets.length,
-                        st.dataset_offset,
-                        st.file_len,
+                        st.dataset_offset(),
+                        st.file_len(),
                         res.overflow,
                     );
                     Err(e)
@@ -247,9 +245,9 @@ impl FinalHeaderOffsets {
     where
         C: AsRef<ReadOffsetConfig>,
     {
-        let bounds = st.dataset_bounds;
+        let bounds = st.dataset_bounds();
         let dataset_len = bounds.len.0;
-        let conf: &ReadOffsetConfig = st.conf.as_ref();
+        let conf: &ReadOffsetConfig = st.conf().as_ref();
         let limit = conf.dataset_overflow_limit;
         let mut overlaps = vec![];
         let mut errors = vec![];

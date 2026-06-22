@@ -7,10 +7,8 @@ use super::{
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
-    AllowPseudoempty, ConfigFlag, DatasetOffset, DummyTriFlag, HeaderReadState,
-    IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadDatasetState, ReadHeaderInnerConfig, ReadOffsetConfig,
-    TEXTReadState,
+    AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
+    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
 };
 use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -26,6 +24,9 @@ use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad8, UintSpace
 use crate::validated::header_offsets::{HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError};
 use crate::validated::keys::{
     AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
+};
+use crate::validated::read_state::{
+    DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };
 
 use fireflow_types::config::ProcessKeywordFailure;
@@ -286,8 +287,8 @@ impl<I, S> NewOffsetsConfig<I, S> {
     where
         C: AsRef<ReadOffsetConfig>,
     {
-        let oconf = st.conf.as_ref();
-        Self::new(corr, st.dataset_offset, oconf.allow_pseudoempty)
+        let oconf = st.conf().as_ref();
+        Self::new(corr, st.dataset_offset(), oconf.allow_pseudoempty)
     }
 }
 
@@ -561,28 +562,11 @@ impl<B, E> PartialEq for OptSegmentKeyError<B, E> {
 /// Error when parsing a segment from HEADER
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum HeaderSegmentError {
+pub enum HeaderOffsetsError {
     New(SegmentOffsetError),
     Parse(ParseOffsetError),
-    SegmentBytes(OffsetsNoBytesError),
     OtherBytes(OtherOffsetsNoBytesError),
     Guess(GuessOtherWidthError),
-}
-
-/// Error when there are not enough bytes in file to read offsets
-#[derive(Debug, Error, new, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
-#[error(
-    "needed {required} bytes to parse {location} offset from {src} at byte \
-     {position}, only {remaining} bytes left in file"
-)]
-pub struct OffsetsNoBytesError {
-    position: u64,
-    remaining: u64,
-    required: u64,
-    location: AnyRegion,
-    src: AnySrc,
 }
 
 /// Error when there are not enough bytes in file to read OTHER segments
@@ -1189,8 +1173,8 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
+        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
+        let oconf: &ReadOffsetConfig = st.conf().as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(segs);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
         let mismatch_flag = dconf.allow_header_text_offset_mismatch;
@@ -1472,8 +1456,8 @@ where
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &ReadDataKeywordsConfig = st.conf.as_ref();
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
+        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
+        let oconf: &ReadOffsetConfig = st.conf().as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
         // TODO configure this
@@ -2023,9 +2007,9 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
         C: AsRef<ReadOffsetConfig>,
         I: AreNamedOffsets<N>,
     {
-        let bounds = st.dataset_bounds;
+        let bounds = st.dataset_bounds();
         let dataset_len = bounds.len.0;
-        let conf: &ReadOffsetConfig = st.conf.as_ref();
+        let conf: &ReadOffsetConfig = st.conf().as_ref();
         let limit = conf.dataset_overflow_limit;
         if let Some(res) = self.tail_overlap_offset_and_truncate(dataset_len, limit.0, args) {
             let o =
@@ -2107,34 +2091,20 @@ impl<I, S> NonEmptyOffsetsMut<'_, I, S> {
 // Implement methods for header offsets bundle type
 
 impl<I: Copy> HeaderOffsets<I> {
-    pub(crate) fn h_read_primary<C, R>(
-        h: &mut BufReader<R>,
+    pub(crate) fn read_primary<C>(
+        buf0: [u8; 8],
+        buf1: [u8; 8],
         is_text: bool,
         corr: HeaderCorrection<I>,
         version: Version,
         st: &HeaderReadState<C>,
-    ) -> Result<(Self, OriginalOffsets), IOErrorGroup<HeaderSegmentError, ()>>
+    ) -> ErrorsResult<(Self, OriginalOffsets), (), HeaderOffsetsError>
     where
-        R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
         I: HasRegion + Copy,
     {
-        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
+        let hconf: &ReadHeaderInnerConfig = st.conf().as_ref();
         let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
-
-        let mut buf0 = [0_u8; 8];
-        let mut buf1 = [0_u8; 8];
-
-        let remaining = st.remaining_bytes(h)?;
-
-        if remaining < 16 {
-            let pos = h.stream_position()?;
-            let e = OffsetsNoBytesError::new(pos, remaining, 16, I::REGION, AnySrc::Header);
-            return Err(IOErrorGroup::new_pure_one(e.into()));
-        }
-
-        h.read_exact(&mut buf0)?;
-        h.read_exact(&mut buf1)?;
 
         let parse_one = |bs, is_begin| {
             // TEXT segment should never be blank
@@ -2156,12 +2126,9 @@ impl<I: Copy> HeaderOffsets<I> {
                 let raw = OriginalOffsets::new(begin, end);
                 Self::try_new_squish(begin, end, squish, version, &seg_conf)
                     .map(|x| (x, raw))
-                    .map_err(HeaderSegmentError::from)
+                    .map_err(HeaderOffsetsError::from)
                     .into_log()
             })
-            .group()
-            .resolve_nowarn()
-            .map_err(IOErrorGroup::Pure)
     }
 
     fn try_new_squish(
@@ -2193,19 +2160,17 @@ impl OtherOffsets20 {
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
         first_seg_begin: u64,
-        st: &HeaderReadState<C>,
+        st: &mut HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
         GuessOtherWidthError,
-        HeaderSegmentError,
+        HeaderOffsetsError,
         (),
     >
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        let hconf: &ReadHeaderInnerConfig = st.conf.as_ref();
-
         // Get maximum length of OTHER offset region according to first required
         // offset. If zero, exit early.
         let Ok(max_other_len): Result<NonZeroU64, _> = first_seg_begin
@@ -2217,7 +2182,7 @@ impl OtherOffsets20 {
         };
 
         // Get max desired number of segments; If zero, exit early.
-        let Ok(max_other) = hconf
+        let Ok(max_other) = AsRef::<ReadHeaderInnerConfig>::as_ref(st.conf())
             .max_other
             .map(|x| u64::try_from(x).expect("usize overflow"))
             .map(NonZeroU64::try_from)
@@ -2249,6 +2214,15 @@ impl OtherOffsets20 {
         // will be read and ignored).
         let mut buf = vec![];
         io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
+
+        // Update the CRC with the entire segment between required HEADER and
+        // start of first segment. The standard is not clear on how this should
+        // be read, since it isn't clear if the whitespace after the last OTHER
+        // offset and the next segment counts toward the CRC. This is easiest,
+        // and probably will work for most files anyways.
+        st.update_digest(&buf[..]);
+
+        let hconf: &ReadHeaderInnerConfig = st.conf().as_ref();
 
         // Only consider bytes which are spaces, nulls, minus sign, or digits
         // where a minus sign must always immediately precede a digit
@@ -2296,7 +2270,7 @@ impl OtherOffsets20 {
         };
 
         width_res
-            .map_errors(HeaderSegmentError::from)
+            .map_errors(HeaderOffsetsError::from)
             .and_then_commutative(|width| {
                 let corrs = hconf
                     .other_corrections
@@ -2331,7 +2305,7 @@ impl OtherOffsets20 {
         bs0: &NESlice<'_, u8>,
         bs1: &NESlice<'_, u8>,
         conf: &NewOffsetsConfig<OtherSegmentId, OffsetsFromHeader>,
-    ) -> ErrorsResult<(Self, OriginalOffsets), (), HeaderSegmentError> {
+    ) -> ErrorsResult<(Self, OriginalOffsets), (), HeaderOffsetsError> {
         let parse_one = |bs: &NESlice<'_, u8>, is_begin| {
             UintSpacePad20::from_bytes(bs.as_ref()).map_err(|error| {
                 let src = NEStringOrBytes::from(bs.to_ne_vec());
@@ -2347,7 +2321,7 @@ impl OtherOffsets20 {
                 let raw = OriginalOffsets::new(begin, end);
                 Self::try_new(begin, end, conf)
                     .map(|x| (x, raw))
-                    .map_err(HeaderSegmentError::from)
+                    .map_err(HeaderOffsetsError::from)
                     .into_log()
             })
     }
@@ -2704,7 +2678,7 @@ mod python {
         OtherOffsets20, SuppTextOffsetsName, TextOffsetsName,
     };
 
-    use crate::config::DatasetOffset;
+    use crate::validated::read_state::DatasetOffset;
 
     use fireflow_types::python as py;
 

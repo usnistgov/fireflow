@@ -1,7 +1,6 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, FileLen, HeaderReadState, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TEXTReadState,
-    TriErrorFlag as _, TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
@@ -38,6 +37,7 @@ use crate::validated::keys::{
     NonStdKeywords, NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords,
     TruncatedNEString, VersionedKey,
 };
+use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use crate::validated::unaligned::{U24, U40, U48, U56};
@@ -120,7 +120,7 @@ impl Nextdata {
     where
         C: AsRef<ReadHeaderAndTEXTConfig>,
     {
-        Self::lookup_ro_inner(kws, st.conf.as_ref())
+        Self::lookup_ro_inner(kws, st.conf().as_ref())
             .map_errors(LookupNextdataError::from)
             .and_then_nowarn_commutative(|nextdata| {
                 // If $NEXTDATA exists (almost all the time) validate that it is
@@ -129,7 +129,7 @@ impl Nextdata {
                 // was read.
                 let res = if let Some(nd) = nextdata {
                     let n = u64::from(nd);
-                    let f = st.file_len;
+                    let f = st.file_len();
                     if n == 0 {
                         Ok(st.into_last_dataset())
                     } else if let Some(ptext_end) = primary_text.as_nonempty().map(|t| t.end())

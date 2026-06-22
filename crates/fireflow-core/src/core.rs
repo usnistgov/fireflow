@@ -2,11 +2,10 @@
 
 use crate::api::{CRCOutput, FCSFileReader, HeaderAndSuppOffsets};
 use crate::config::{
-    AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DatasetLen, DatasetLenEOFError,
-    DatasetOffset, DatasetOffsetError, DummyTriFlag, OverlapCorrectionLimit,
+    AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit,
     ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
-    ReadSharedConfig, ReadStdKeywordsConfig, TEXTReadState, WriteDatasetInnerConfig,
-    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    ReadSharedConfig, ReadStdKeywordsConfig, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
@@ -118,6 +117,9 @@ use crate::validated::keys::{
     StdKey, StdKeywords, ValidKeywords,
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
+use crate::validated::read_state::{
+    DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, TEXTReadState,
+};
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
 
@@ -264,6 +266,14 @@ pub struct Other(pub Vec<u8>);
 #[derive(Clone, Default, From, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Others(pub Vec<Other>);
+
+impl Others {
+    fn update_digest<C>(&self, st: &mut TEXTReadState<C>) {
+        for o in &self.0 {
+            st.update_digest(&o.0[..]);
+        }
+    }
+}
 
 /// Root of the metadata hierarchy.
 ///
@@ -490,7 +500,7 @@ impl AnyCoreTEXT {
             };
         }
 
-        let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
 
         match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
             Ok((ver, scores)) => match ver {
@@ -556,7 +566,7 @@ impl AnyCoreDataset {
             };
         }
 
-        let sconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
+        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
 
         match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
             Ok((ver, scores)) => match ver {
@@ -2073,7 +2083,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_err(LookupAndReadDataAnalysisError::from)
             .into_log()
             .and_then_commutative(|par| {
-                Self::DataSchema::lookup_ro(kws, par, st.conf.as_ref())
+                Self::DataSchema::lookup_ro(kws, par, st.conf().as_ref())
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_errors(LookupAndReadDataAnalysisError::from)
             });
@@ -2092,7 +2102,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
                         h,
                         offsets.tot,
                         &mut offsets.offsets.final_data,
-                        st.conf.as_ref(),
+                        st.conf().as_ref(),
                     )
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -2377,7 +2387,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        Tot::remove_or_drop_root_opt(std, nonstd, dropped, st.conf.as_ref())
+        Tot::remove_or_drop_root_opt(std, nonstd, dropped, st.conf().as_ref())
             .map_ok_value(|tot| {
                 let s = offsets.header.final_offsets.as_dataset_offsets_2_0();
                 TEXTOffsets::new(s, tot)
@@ -2413,7 +2423,7 @@ macro_rules! lookup_offsets_3_0 {
         let tot_res = Tot::$tot($std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let dconf: &ReadDataKeywordsConfig = $st.conf.as_ref();
+        let dconf: &ReadDataKeywordsConfig = $st.conf().as_ref();
         let data_ignore = dconf.ignore_text_data_offsets;
         let data_corr = dconf.text_data_correction;
         let data_res = DataSegmentId::$lookup($std, $offsets, data_ignore, data_corr, $st)
@@ -2427,7 +2437,7 @@ macro_rules! lookup_offsets_3_0 {
         tot_res
             .zip3_commutative(data_res, anal_res)
             .and_then_commutative(|(tot, d, a)| {
-                let oconf: &ReadOffsetConfig = $st.conf.as_ref();
+                let oconf: &ReadOffsetConfig = $st.conf().as_ref();
                 let limit = oconf.overlap_correction_limit;
                 DatasetOffsets::try_new(d, a, limit)
                     .map(|dos| TEXTOffsets::new(dos, Identity(tot)))
@@ -2470,7 +2480,7 @@ macro_rules! lookup_offsets_3_2 {
         let tot_res = Tot::$tot($std)
             .map_err(LookupTEXTOffsetsError::from)
             .into_log();
-        let dconf: &ReadDataKeywordsConfig = $st.conf.as_ref();
+        let dconf: &ReadDataKeywordsConfig = $st.conf().as_ref();
         let data_corr = dconf.text_data_correction;
         let data_ignore = dconf.ignore_text_data_offsets;
         let data_res = DataSegmentId::$lookup_req($std, $offsets, data_ignore, data_corr, $st)
@@ -2484,7 +2494,7 @@ macro_rules! lookup_offsets_3_2 {
         tot_res
             .zip3_commutative(data_res, anal_res)
             .and_then_commutative(|(tot, d, a)| {
-                let oconf: &ReadOffsetConfig = $st.conf.as_ref();
+                let oconf: &ReadOffsetConfig = $st.conf().as_ref();
                 let limit = oconf.overlap_correction_limit;
                 DatasetOffsets::try_new(d, a, limit)
                     .map(|dos| TEXTOffsets::new(dos, Identity(tot)))
@@ -5705,7 +5715,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
                 .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
-        Self::lookup_inner(kws, dropped, &st.conf)
+        Self::lookup_inner(kws, dropped, &st.conf())
             .zip_commutative(offsets_res)
             .map_ok_value(|((x, y), z)| (x, y, z))
     }
@@ -6264,7 +6274,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                         h,
                         offsets.tot,
                         &mut offsets.offsets.final_data,
-                        st.conf.as_ref(),
+                        st.conf().as_ref(),
                     )
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)

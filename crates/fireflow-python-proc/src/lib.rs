@@ -7224,12 +7224,12 @@ impl<E: From<PyException>> PyInt<E> {
     }
 
     fn new_dataset_offset() -> Self {
-        let p = parse_quote!(fireflow_core::config::DatasetOffset);
+        let p = parse_quote!(fireflow_core::validated::read_state::DatasetOffset);
         Self::new_int(RsInt::U64).rstype(p).no_exc()
     }
 
     fn new_dataset_len() -> Self {
-        let p = parse_quote!(fireflow_core::config::DatasetLen);
+        let p = parse_quote!(fireflow_core::validated::read_state::DatasetLen);
         Self::new_int(RsInt::U64).rstype(p).no_exc()
     }
 

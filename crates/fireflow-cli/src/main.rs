@@ -1,7 +1,5 @@
 use fireflow_core::api;
-use fireflow_core::config::{
-    self as cfg, ByteordOverride, DatasetOffset, FixIntWidths, HasStrategy as _,
-};
+use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::read::OffsetsCorrection;
 use fireflow_core::text::byteord::Bytes;
@@ -10,6 +8,7 @@ use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{KeyString, KeyStringOrPattern};
 use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
+use fireflow_core::validated::read_state::DatasetOffset;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_core::validated::timepattern::TimePattern;
@@ -1141,7 +1140,7 @@ fn run() -> AppResult<()> {
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = get_header_config(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
-            let (ws, res) = api::fcs_read_header(filepath, cfg::DatasetOffset(0), &conf)
+            let (ws, res) = api::fcs_read_header(filepath, DatasetOffset(0), &conf)
                 .resolve_commutative(|ws| ws, |s| s);
             print_warnings(ws, &mut stderr)?;
             to_writer(stdout, &res?)?;

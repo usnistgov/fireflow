@@ -1,12 +1,10 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    AppendFlag, AppendableFlag, ConfigFlag as _, DatasetLen, DatasetOffset, DatasetOffsetError,
-    FileLen, HeaderReadState, OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadEventsConfig,
-    ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
+    AppendFlag, AppendableFlag, ConfigFlag as _, OverlapCorrectionLimit, ReadDataKeywordsConfig,
+    ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
     ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
     ReadSharedConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig,
-    TEXTReadState, VersionOverride, WriteDatasetInnerConfig, WriteMultiConfig,
-    WriteMultiDatasetConfig,
+    VersionOverride, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::core::{
@@ -53,6 +51,9 @@ use crate::validated::keys::{
     ParsedKeywords, ParsedKeywordsDiagnostic, StdKey, StdKeywords, StdPresent, StringOrBytes,
     TruncatedNEString, ValidKeywords,
 };
+use crate::validated::read_state::{
+    DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
+};
 
 use fireflow_types::config::{DelimEscapeMode, Encoding};
 use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
@@ -96,8 +97,8 @@ pub fn fcs_read_header(
         .map_err(ReadHeaderError::from)
         .map_err(IOAnonErrorGroup::new_pure_one)
         .into_log()
-        .and_then_commutative(|st| {
-            Header::h_read(&mut fr.buf_read, &st).map_error(|e| e.fmap(ReadHeaderError::from))
+        .and_then_commutative(|mut st| {
+            Header::h_read(&mut fr.buf_read, &mut st).map_error(|e| e.fmap(ReadHeaderError::from))
             // .warnings_to_pure_errors(&conf.shared, ReadHeaderError::from)
         })
         .deanonymize()
@@ -1554,7 +1555,7 @@ impl FlatTEXTOutput {
     /// Read flat TEXT from file handle.
     fn h_read<C, R>(
         h: &mut BufReader<R>,
-        st: HeaderReadState<C>,
+        mut st: HeaderReadState<C>,
     ) -> WarningsAndErrorResult<
         (Self, TEXTReadState<C>),
         (),
@@ -1565,7 +1566,7 @@ impl FlatTEXTOutput {
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        Header::h_read(h, &st)
+        Header::h_read(h, &mut st)
             .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
             .map_pure_errors(HeaderOrFlatTextError::from)
             .and_then_commutative(|header| {
@@ -1579,7 +1580,7 @@ impl FlatTEXTOutput {
     fn h_read_from_header<C, R>(
         h: &mut BufReader<R>,
         mut header: Header,
-        st: HeaderReadState<C>,
+        mut st: HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, TEXTReadState<C>),
         ParseFlatTEXTWarning,
@@ -1599,7 +1600,6 @@ impl FlatTEXTOutput {
             }
         };
 
-        let conf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
         let ptext_offsets: &PrimaryTextOffsets = header.final_offsets.as_ref();
 
         let Some(ne_ptext_offsets) = ptext_offsets.as_nonempty() else {
@@ -1608,6 +1608,9 @@ impl FlatTEXTOutput {
         };
 
         let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(h));
+        st.update_digest(ptext_bytes.as_ref());
+
+        let conf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
         let enc = conf.use_encoding.choose(ptext_bytes.as_ref());
 
         let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
@@ -1621,7 +1624,7 @@ impl FlatTEXTOutput {
             .map_error(IOErrorGroup::Pure)
             // Parse primary TEXT and get $NEXTDATA if it exists
             .and_then_commutative(|(delim, bytes)| {
-                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, enc, st.conf.as_ref())
+                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, enc, st.conf().as_ref())
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .and_then_commutative(|(kws, prim_diag)| {
@@ -1637,7 +1640,7 @@ impl FlatTEXTOutput {
                     .map_error(IOErrorGroup::Pure)
             })
             // Parse supplemental TEXT if applicable
-            .and_then_commutative(|(mut kws, delim, prim_diag, nextdata, txt_st)| {
+            .and_then_commutative(|(mut kws, delim, prim_diag, nextdata, mut txt_st)| {
                 SuppTEXTOffsetsOutput::lookup(&kws.std, &mut header, &txt_st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
@@ -1645,8 +1648,8 @@ impl FlatTEXTOutput {
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|supp_out| {
                         if let Some(ne) = supp_out.as_offset_pair().and_then(|p| p.as_nonempty()) {
-                            let c = txt_st.conf.as_ref();
-                            SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut kws, delim, enc, c)
+                            let s = &mut txt_st;
+                            SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut kws, delim, enc, s)
                                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                                 .map_pure_errors(ParseFlatTEXTError::from)
                                 .map_ok_value(|supp_diag| (supp_out, supp_diag))
@@ -1667,7 +1670,7 @@ impl FlatTEXTOutput {
                         .nowarn_into_warn()
                         .map_errors(ParseFlatTEXTError::from);
 
-                    let hconf: &ReadHeaderAndTEXTConfig = txt_st.conf.as_ref();
+                    let hconf: &ReadHeaderAndTEXTConfig = txt_st.conf().as_ref();
 
                     // Combine primary and supp TEXT keywords; check for uniqueness
                     let append_res = kws
@@ -1695,7 +1698,7 @@ impl FlatTEXTOutput {
                                     nd_overlaps,
                                     prim_out,
                                     supp_out,
-                                    txt_st.conf.as_ref(),
+                                    txt_st.conf().as_ref(),
                                 )
                                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                                 .map_errors(ParseFlatTEXTError::from)
@@ -1771,22 +1774,26 @@ impl FlatTEXTOutput {
 
 impl SplitTEXTDiagnostics {
     /// Read supp TEXT from file handle and store keywords in hash table.
-    fn h_read_supp<R: Read + Seek>(
+    fn h_read_supp<R: Read + Seek, C>(
         h: &mut BufReader<R>,
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         kws: &mut ParsedKeywords,
         delim: u8,
         enc: Encoding,
-        conf: &ReadHeaderAndTEXTConfig,
+        st: &mut TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Option<Self>,
         ParseSupplementalTEXTError,
         ParseSupplementalTEXTError,
         (),
-    > {
+    >
+    where
+        C: AsRef<ReadHeaderAndTEXTConfig>,
+    {
         let bytes = io_to_log!(offsets.h_read_contents(h));
+        st.update_digest(bytes.as_ref());
         let ne = bytes.as_nonempty_slice();
-        Self::supp_from_bytes(kws, delim, &ne, enc, conf)
+        Self::supp_from_bytes(kws, delim, &ne, enc, st.conf().as_ref())
             .group()
             .map_error(IOErrorGroup::Pure)
     }
@@ -2276,8 +2283,8 @@ impl SuppTEXTOffsetsOutput {
             Valid(SupplementalTextOffsets, OriginalOffsets),
         }
 
-        let hconf: &ReadHeaderAndTEXTConfig = st.conf.as_ref();
-        let oconf: &ReadOffsetConfig = st.conf.as_ref();
+        let hconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
+        let oconf: &ReadOffsetConfig = st.conf().as_ref();
         let config_corr = hconf.supp_text_correction;
 
         let validate_offsets =

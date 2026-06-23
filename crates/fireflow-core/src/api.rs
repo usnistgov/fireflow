@@ -519,7 +519,7 @@ pub struct FlatDatasetFromKwsOutput {
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum CRCOutput {
     /// CRC was a valid 16 bit decimal number.
-    Valid(u16),
+    Valid { crc: u16, offset: u64 },
     /// CRC bytes were found but did not parse to a 16-bit number.
     Invalid(StringOrBytes),
 }
@@ -2792,8 +2792,8 @@ mod python {
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(b) = obj.extract::<Vec<u8>>() {
                 return Ok(Self::Invalid(StringOrBytes::from(b)));
-            } else if let Ok(b) = obj.extract::<u16>() {
-                return Ok(Self::Valid(b));
+            } else if let Ok((crc, offset)) = obj.extract::<(u16, u64)>() {
+                return Ok(Self::Valid { crc, offset });
             }
             Err(ConfigError::new_err(
                 "must be an 8-character byte string or a 16-bit integer",
@@ -2808,7 +2808,7 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Valid(v) => v.into_bound_py_any(py),
+                Self::Valid { crc, offset } => (crc, offset).into_bound_py_any(py),
                 Self::Invalid(v) => v.into_bound_py_any(py),
             }
         }

@@ -216,7 +216,7 @@ impl<C> TEXTReadState<C> {
                 SwitchableErrorResult::new_switchable3(computed_crc, (), e, conf.allow_missing_crc)
                     .switchable_into_commutative()
             }
-            CRCOutput::Valid(file_crc) => {
+            CRCOutput::Valid { crc: file_crc, .. } => {
                 if matches!(conf.compute_crc, ComputeCRC::Never) {
                     LogResult::new_ok(None)
                 } else {
@@ -249,10 +249,12 @@ impl<C> TEXTReadState<C> {
             let ret = str::from_utf8(&buf)
                 .ok()
                 .and_then(|s| s.parse::<u16>().ok())
-                .map_or(
-                    CRCOutput::Invalid(StringOrBytes::from(buf)),
-                    CRCOutput::Valid,
-                );
+                .map_or(CRCOutput::Invalid(StringOrBytes::from(buf)), |crc| {
+                    CRCOutput::Valid {
+                        crc,
+                        offset: crc_start,
+                    }
+                });
             Ok(ret)
         } else {
             Ok(CRCOutput::Invalid(StringOrBytes::from(buf)))

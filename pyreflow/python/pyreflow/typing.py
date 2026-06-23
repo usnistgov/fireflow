@@ -274,6 +274,6 @@ TEXTOffsetsOriginType: TypeAlias = Literal[
     "empty_header",
 ]
 
-CRCOutput: TypeAlias = bytes | int | None
+CRCOutput: TypeAlias = bytes | str | tuple[int, int] | None
 
 ComputeReadCRC: TypeAlias = Literal["never", "always", "test"]

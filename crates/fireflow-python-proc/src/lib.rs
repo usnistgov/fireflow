@@ -9144,13 +9144,15 @@ impl DocArgParam {
     fn new_file_crc_param() -> Self {
         let d = format!(
             "The value of the cyclic redundancy check (CRC) value. \
-             Will be an integer if a valid CRC was found. \
-             Will be an 8-character string if the CRC was found \
-             but could not be parsed. Will be {NONE} if not found at all. \
+             Will be a tuple pair if a valid CRC was found, where the first \
+             integer is the CRC and the second is its offset. \
+             Will be up to an 8-character string if the CRC could not be parsed. \
+             Will be {NONE} if not found at all. \
              FCS 2.0 will always return {NONE}."
         );
         let path = parse_quote!(fireflow_core::api::CRCOutput);
-        let inner = PyUnion::new2(PyBytes::default(), RsInt::U16).rstype(path);
+        let pair: PyTuple<_> = [RsInt::U16, RsInt::U64].into_iter().collect();
+        let inner = PyUnion::new2(PyBytes::default(), pair).rstype(path);
         let p = PyOpt::new1(inner);
         Self::new_param("file_crc", p, d).def_auto()
     }

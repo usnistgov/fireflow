@@ -2037,12 +2037,15 @@ class OriginalHeaderOffsets:
 class Header:
     def __new__(
         cls,
+        dataset_offset: int,
         version: pft.FCSVersion,
         final_offsets: FinalHeaderOffsets,
         original_offsets: OriginalHeaderOffsets,
         overlaps: list[HeaderToHeaderOffsetsOverlap],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def dataset_offset(self) -> int: ...
     @property
     def version(self) -> pft.FCSVersion: ...
     @property

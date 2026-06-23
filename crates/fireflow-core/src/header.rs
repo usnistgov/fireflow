@@ -32,7 +32,7 @@ use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
 use crate::validated::keys::{Key as _, StdKeywords};
-use crate::validated::read_state::{HeaderReadState, WriteFCSDigest};
+use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
 use fireflow_types::config::EnumStrIter as _;
@@ -124,6 +124,9 @@ impl<T> WriteHeaderSegments<T> {
 #[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct Header {
+    /// The offset in the FCS file where this HEADER appears.
+    pub dataset_offset: DatasetOffset,
+
     /// FCS version (first 6 bytes)
     pub version: Version,
 
@@ -192,7 +195,7 @@ impl Header {
                     .map_ok_value(|(segs, overlaps)| (segs, original, overlaps))
             })
             .map_ok_value(|(final_, original, overlaps)| {
-                Self::new(req.version, final_, original, overlaps)
+                Self::new(st.dataset_offset(), req.version, final_, original, overlaps)
             })
     }
 }

@@ -782,16 +782,23 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
+    let dataset_offset = DocArgROIvar::new_ivar_ro(
+        "dataset_offset",
+        RsInt::U64,
+        format!("The offset in the FCS file where this {HEADER} appears"),
+        |_, _| quote!(self.0.dataset_offset.0),
+    );
+
     let version = DocArgROIvar::new_version_ivar();
 
-    let segments = DocArgROIvar::new_ivar_ro(
+    let final_offsets = DocArgROIvar::new_ivar_ro(
         "final_offsets",
         PyClass::new_py(["api"], "FinalHeaderOffsets"),
         format!("The offsets from {HEADER} after corrections were applied."),
         |_, _| quote!(self.0.final_offsets.clone().into()),
     );
 
-    let origina_offsets = DocArgROIvar::new_ivar_ro(
+    let original_offsets = DocArgROIvar::new_ivar_ro(
         "original_offsets",
         PyClass::new_py(["api"], "OriginalHeaderOffsets"),
         format!("The original offset pairs from {HEADER} as written in the file."),
@@ -805,7 +812,13 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.overlaps.iter().cloned().map(Into::into).collect()),
     );
 
-    let args = [version, segments, origina_offsets, overlaps];
+    let args = [
+        dataset_offset,
+        version,
+        final_offsets,
+        original_offsets,
+        overlaps,
+    ];
 
     let doc = DocString::new_class(format!("The {HEADER} segment from an FCS dataset.")).args(args);
 
@@ -813,6 +826,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         quote! {
             fn new(#fun_args) -> Self {
                 #path::new(
+                    dataset_offset.into(),
                     version.into(),
                     final_offsets.into(),
                     original_offsets.into(),
@@ -824,6 +838,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
             #[getter]
             fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
                 let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("dataset_offset", self.dataset_offset())?;
                 ret.set_item("version", self.version())?;
                 ret.set_item("final_offsets", self.final_offsets().dict(py)?)?;
                 ret.set_item("original_offsets", self.original_offsets().dict(py)?)?;

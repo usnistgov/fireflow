@@ -1594,6 +1594,7 @@ impl HasStrategy for ReadFlatDatasetConfig {
         self.offset.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
+        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -1602,6 +1603,7 @@ impl HasStrategy for ReadFlatDatasetConfig {
         self.offset.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
+        self.crc.with_sledgehammer();
     }
 }
 
@@ -1613,6 +1615,7 @@ impl HasStrategy for ReadStdDatasetConfig {
         self.standard.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
+        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -1622,6 +1625,7 @@ impl HasStrategy for ReadStdDatasetConfig {
         self.standard.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
+        self.crc.with_sledgehammer();
     }
 }
 
@@ -1630,12 +1634,14 @@ impl HasStrategy for ReadFlatDatasetFromKeywordsConfig {
         self.offset.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
+        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
         self.offset.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
+        self.crc.with_sledgehammer();
     }
 }
 
@@ -1657,6 +1663,7 @@ impl HasStrategy for NewCoreDatasetConfig {
         self.standard.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
+        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -1664,6 +1671,7 @@ impl HasStrategy for NewCoreDatasetConfig {
         self.standard.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
+        self.crc.with_sledgehammer();
     }
 }
 

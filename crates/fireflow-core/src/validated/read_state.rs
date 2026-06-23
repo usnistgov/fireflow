@@ -222,7 +222,7 @@ impl<C> TEXTReadState<C> {
                     let computed_crc = io_to_log!(self.compute_crc(h, crc_start));
                     let e = CRCError::from(FailedChecksumError::new(file_crc, computed_crc));
                     let flag = conf.allow_mismatch_crc;
-                    let crc_match = file_crc == computed_crc;
+                    let crc_match = file_crc == 0 || file_crc == computed_crc;
                     let v = Some(computed_crc);
                     SwitchableErrorResult::new_switchable_ok_if3(crc_match, v, (), e, flag)
                         .switchable_into_commutative()

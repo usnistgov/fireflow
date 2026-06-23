@@ -521,7 +521,7 @@ pub enum CRCOutput {
     /// CRC was a valid 16 bit decimal number.
     Valid(u16),
     /// CRC bytes were found but did not parse to a 16-bit number.
-    Invalid(Vec<u8>),
+    Invalid(StringOrBytes),
 }
 
 // TODO should all these std/nonstd keys just be keystrings since the $ is implied?
@@ -2780,6 +2780,8 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::validated::keys::StringOrBytes;
+
     use super::CRCOutput;
 
     use fireflow_types::python::ConfigError;
@@ -2789,7 +2791,7 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(b) = obj.extract::<Vec<u8>>() {
-                return Ok(Self::Invalid(b));
+                return Ok(Self::Invalid(StringOrBytes::from(b)));
             } else if let Ok(b) = obj.extract::<u16>() {
                 return Ok(Self::Valid(b));
             }

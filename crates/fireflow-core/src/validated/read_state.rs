@@ -3,6 +3,7 @@ use crate::{
     config::{CRCConfig, ComputeWriteCRC, ConfigFlag as _},
     logging::{IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log},
     text::keywords::Nextdata,
+    validated::keys::StringOrBytes,
 };
 
 use crc_fast::{CrcAlgorithm, Digest};
@@ -248,10 +249,13 @@ impl<C> TEXTReadState<C> {
             let ret = str::from_utf8(&buf)
                 .ok()
                 .and_then(|s| s.parse::<u16>().ok())
-                .map_or(CRCOutput::Invalid(buf), CRCOutput::Valid);
+                .map_or(
+                    CRCOutput::Invalid(StringOrBytes::from(buf)),
+                    CRCOutput::Valid,
+                );
             Ok(ret)
         } else {
-            Ok(CRCOutput::Invalid(buf))
+            Ok(CRCOutput::Invalid(StringOrBytes::from(buf)))
         }
     }
 

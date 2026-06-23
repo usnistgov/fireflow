@@ -365,6 +365,21 @@ When writing, `fireflow` will arrange segments in the following order:
 fit within the first 99,999,999 bytes. Everything else can go in any order
 since they can be addressed using "large" offsets.
 
-## Other unsupported features
+## Cyclic Redundancy Check (CRC)
 
-* cyclic redundancy check (CRC)
+`fireflow` supports both reading and writing CRC words at the end of each
+dataset. However, computation of the CRC value based on the contents of the
+dataset is turned off by default; it is unclear who uses CRC values currently
+and computing them adds overhead to reading and writing (in the former case,
+this is substantial). The presence of the 8-byte CRC word at the end of a
+dataset is checked by default for versions 3.0 and up.
+
+When reading, the CRC will be computed against all bytes in the dataset,
+incuding those from "dead spaces" which are not part of a segment. In order to
+make this work, the entire dataset with these dead spaces must be read once to
+compute the CRC. This is in addition to the IO performed to read the real data
+from *TEXT*, *DATA*, etc. Thus in the case of reading, computing the CRC will
+read most of the file twice. In the future, this may be optimized.
+
+When writing, the CRC will be computed on-the-fly as bytes are being written,
+which is much faster than the case for reading.

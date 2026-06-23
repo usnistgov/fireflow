@@ -370,7 +370,7 @@ fn next_dataset_boundary<R: Read + Seek>(
             if match_bytes_version(w).is_some() {
                 return Ok(Some(DatasetOffset(file_offset)));
             }
-            file_offset += file_offset;
+            file_offset += 1;
         }
         let mut tmp = [0_u8; OVERLAP_SIZE];
         tmp.copy_from_slice(&buf[buf.len() - OVERLAP_SIZE..]);

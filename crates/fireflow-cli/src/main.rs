@@ -913,6 +913,33 @@ fn run() -> AppResult<()> {
         row_buffer_size,
     ];
 
+    // crc args
+
+    let allow_missing_crc = tri_flag_arg::<cfg::AllowMissingCRC>(
+        ALLOW_MISSING_CRC,
+        "Allow CRC word at the end of the dataset to be missing.",
+    );
+
+    let allow_mismatch_crc = tri_flag_arg::<cfg::AllowMismatchCRC>(
+        ALLOW_MISMATCH_CRC,
+        "Allow computed CRC to not match the CRC word at the end of the dataset.",
+    );
+
+    let compute_crc = Arg::new(COMPUTE_CRC)
+        .long(COMPUTE_CRC)
+        .value_name("LEVEL")
+        .value_parser(value_parser!(tc::ComputeCRC))
+        .help(format!(
+            "When to compute the CRC of the dataset. \
+             Pass {} to never compute, pass {} to always compute, and pass {} \
+             to compute only when the CRC word is available.",
+            tc::COMPUTE_CRC_NEVER_LEVEL,
+            tc::COMPUTE_CRC_ALWAYS_LEVEL,
+            tc::COMPUTE_CRC_TEST_LEVEL,
+        ));
+
+    let all_crc_args = [allow_missing_crc, allow_mismatch_crc, compute_crc];
+
     // shared args
 
     let warnings_are_errors = flag_arg(WARNINGS_ARE_ERRORS, "Treat all warnings as fatal errors.");
@@ -1080,6 +1107,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_std_args)
         .args(&all_read_layout_args)
         .args(&all_read_dataset_args)
+        .args(&all_crc_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
@@ -1094,6 +1122,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_std_args)
         .args(&all_read_layout_args)
         .args(&all_read_dataset_args)
+        .args(&all_crc_args)
         .args(&all_read_shared_args)
         .args(&all_write_args)
         .arg(&skip_arg)
@@ -1110,6 +1139,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_flat_args)
         .args(&all_read_layout_args)
         .args(&all_read_dataset_args)
+        .args(&all_crc_args)
         .args(&all_read_shared_args)
         .arg(&skip_arg)
         .arg(&limit_arg)
@@ -1550,6 +1580,17 @@ fn get_events_config(s: &ArgMatches) -> cfg::ReadEventsConfig {
     c
 }
 
+fn get_crc_config(s: &ArgMatches) -> cfg::CRCConfig {
+    let strat = get_strategy(s);
+    let mut c = cfg::CRCConfig::new_with_strategy(strat);
+
+    get_opt(s, ALLOW_MISSING_CRC, |x| c.allow_missing_crc = x);
+    get_opt(s, ALLOW_MISMATCH_CRC, |x| c.allow_mismatch_crc = x);
+    get_opt(s, COMPUTE_CRC, |x| c.compute_crc = x);
+
+    c
+}
+
 fn get_read_shared_config(sargs: &ArgMatches) -> cfg::ReadSharedConfig {
     cfg::ReadSharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
@@ -1584,7 +1625,7 @@ fn get_read_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadF
         offset: get_offsets_config(sargs),
         layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
-        crc: cfg::CRCConfig::default(),
+        crc: get_crc_config(sargs),
         shared: get_read_shared_config(sargs),
     }
 }
@@ -1597,7 +1638,7 @@ fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadSt
         standard: get_std_kws_config(sargs),
         layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
-        crc: cfg::CRCConfig::default(),
+        crc: get_crc_config(sargs),
         shared: get_read_shared_config(sargs),
     }
 }
@@ -2054,6 +2095,12 @@ const ALLOW_TOT_MISMATCH: &str = cli_arg!(ReadEventsConfig::allow_tot_mismatch);
 const OVER_BITMASK_ACTION: &str = cli_arg!(ReadEventsConfig::over_bitmask_action);
 const OVER_RANGE_ACTION: &str = cli_arg!(ReadEventsConfig::over_range_action);
 const ROW_BUFFER_SIZE: &str = cli_arg!(ReadEventsConfig::row_buffer_size);
+
+// read crc config flags
+
+const ALLOW_MISSING_CRC: &str = cli_arg!(CRCConfig::allow_missing_crc);
+const ALLOW_MISMATCH_CRC: &str = cli_arg!(CRCConfig::allow_mismatch_crc);
+const COMPUTE_CRC: &str = cli_arg!(CRCConfig::compute_crc);
 
 // shared config flags
 

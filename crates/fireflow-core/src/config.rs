@@ -1765,6 +1765,12 @@ impl HasStrategy for ReadEventsConfig {
     }
 }
 
+impl HasStrategy for CRCConfig {
+    fn with_scalpal(&mut self) {
+        self.allow_missing_crc = TriFlag::True.into();
+    }
+}
+
 impl ReadHeaderAndTEXTConfig {
     pub(crate) fn as_matchers(&self) -> AllKeyMatchers<'_> {
         AllKeyMatchers {

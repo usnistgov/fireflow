@@ -1857,6 +1857,7 @@ mod python {
         standard,
         layout,
         data,
+        crc,
         shared
     );
 
@@ -1865,12 +1866,21 @@ mod python {
         offset,
         layout,
         data,
+        crc,
         shared
     );
 
     impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
 
-    impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
+    impl_into_flat_dict!(
+        NewCoreDatasetConfig,
+        offset,
+        standard,
+        layout,
+        data,
+        crc,
+        shared
+    );
 
     impl<'py> FromPyObject<'_, 'py> for TemporalOpticalKeys {
         type Error = PyErr;

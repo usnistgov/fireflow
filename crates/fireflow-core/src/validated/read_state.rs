@@ -21,6 +21,7 @@ use serde::Serialize;
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
+    pyo3::prelude::*,
 };
 
 /// Read state after HEADER is parsed.
@@ -55,7 +56,7 @@ pub struct DatasetLen(pub u64);
 /// first dataset.
 #[derive(From, Into, Clone, Copy, Debug, PartialEq, Default, Display)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromInnerPyObject))]
+#[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
 pub struct DatasetOffset(pub u64);
 
 #[derive(Error, Debug, PartialEq, Clone)]

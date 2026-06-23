@@ -2574,6 +2574,7 @@ class DatasetSummary:
         n_other: int,
         others_len: int,
         datatype: pft.Datatype,
+        dataset_offset: int,
         file_crc: pft.CRCOutput = None,
         computed_crc: int | None = None,
     ) -> Self: ...
@@ -2596,6 +2597,8 @@ class DatasetSummary:
     def others_len(self) -> int: ...
     @property
     def datatype(self) -> pft.Datatype: ...
+    @property
+    def dataset_offset(self) -> int: ...
     @property
     def file_crc(self) -> pft.CRCOutput: ...
     @property

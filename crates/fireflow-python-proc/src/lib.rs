@@ -108,7 +108,7 @@ pub fn def_fcs_read_header(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(true))
         .args(header_args)
         .args(offset_args)
-        .arg(DocArg::new_dataset_offset_param())
+        .arg(DocArg::new_dataset_offset_param(true))
         .returns(DocReturn::new(PyClass::new_py(["api"], "Header")).exc([exc]));
 
     let fun_args = doc.fun_args();
@@ -142,7 +142,7 @@ pub fn def_fcs_read_flat_text(input: TokenStream) -> TokenStream {
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
-    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
 
     let skip_arg = DocArg::new_skip_param("Number of datasets to skip");
     let limit_arg = DocArg::new_limit_param("Parse up to this many datasets");
@@ -230,7 +230,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
-    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
 
     let conf_args = header_args
         .into_iter()
@@ -334,7 +334,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
-    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
 
     let skip_arg = DocArg::new_skip_param(format!(
         "Number of datasets to skip. The {HEADER} and {TEXT} from skipped \
@@ -456,7 +456,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
     let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
-    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
 
     let conf_args = header_args
         .into_iter()
@@ -553,7 +553,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let path_arg = DocArg::new_path_param(true);
     let header_arg = DocArg::new_header_and_supp_param();
     let std_arg = DocArg::new_std_keywords_param();
-    let dataset_offset_arg = DocArg::new_dataset_offset_param();
+    let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
     let dataset_len_arg = DocArg::new_dataset_len_param();
 
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
@@ -782,12 +782,8 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let dataset_offset = DocArgROIvar::new_ivar_ro(
-        "dataset_offset",
-        RsInt::U64,
-        format!("The offset in the FCS file where this {HEADER} appears"),
-        |_, _| quote!(self.0.dataset_offset.0),
-    );
+    let dataset_offset =
+        DocArg::new_dataset_offset_param(false).into_ro(|_, _| quote!(self.0.dataset_offset));
 
     let version = DocArgROIvar::new_version_ivar();
 
@@ -826,7 +822,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         quote! {
             fn new(#fun_args) -> Self {
                 #path::new(
-                    dataset_offset.into(),
+                    dataset_offset,
                     version.into(),
                     final_offsets.into(),
                     original_offsets.into(),
@@ -2558,6 +2554,9 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.datatype),
     );
 
+    let dataset_offset =
+        DocArg::new_dataset_offset_param(false).into_ro(|_, _| quote!(self.0.dataset_offset));
+
     let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
 
     let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
@@ -2572,6 +2571,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         n_other,
         others_len,
         datatype,
+        dataset_offset,
         file_crc,
         comp_crc,
     ];
@@ -2598,6 +2598,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
                 ret.set_item("n_other", self.n_other())?;
                 ret.set_item("others_len", self.others_len())?;
                 ret.set_item("datatype", self.datatype())?;
+                ret.set_item("dataset_offset", self.dataset_offset())?;
                 ret.set_item("file_crc", self.file_crc())?;
                 ret.set_item("computed_crc", self.computed_crc())?;
                 Ok(ret.into())
@@ -4169,7 +4170,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         PyDict::new_nonstd_keywords(),
         "Non-Standard keywords.",
     );
-    let dataset_offset_param = DocArg::new_dataset_offset_param();
+    let dataset_offset_param = DocArg::new_dataset_offset_param(true);
     let dataset_len_param = DocArg::new_dataset_len_param();
 
     let exc0 = PyException::new_parse_keyval();
@@ -9069,9 +9070,9 @@ impl DocArgParam {
         DocArgRWIvar::new(self.argname, self.pytype, self.desc, self.default, methods)
     }
 
-    fn new_dataset_offset_param() -> Self {
+    fn new_dataset_offset_param(default: bool) -> Self {
         let desc = "Starting position in the file of the dataset to be read.";
-        Self::new_param("dataset_offset", PyInt::new_dataset_offset(), desc).def_auto()
+        Self::new_param("dataset_offset", PyInt::new_dataset_offset(), desc).def_auto_if(default)
     }
 
     fn new_dataset_len_param() -> Self {

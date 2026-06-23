@@ -705,6 +705,9 @@ pub struct DatasetSummary {
     /// The value of $DATATYPE
     pub datatype: Option<AlphaNumType>,
 
+    /// The offset in the FCS file where this HEADER appears.
+    pub dataset_offset: DatasetOffset,
+
     /// Value of the cyclic redundancy check (CRC) as read from the file.
     ///
     /// Will always be `None` for 2.0.
@@ -1521,6 +1524,7 @@ impl FlatDatasetOutput {
             n_other: ds.others.0.len(),
             others_len: ds.others.0.iter().map(|x| x.0.len()).sum(),
             datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
+            dataset_offset: hdr.dataset_offset,
             file_crc: ds.file_crc,
             computed_crc: ds.computed_crc,
         }

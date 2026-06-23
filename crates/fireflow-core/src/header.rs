@@ -32,7 +32,7 @@ use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
 use crate::validated::keys::{Key as _, StdKeywords};
-use crate::validated::read_state::HeaderReadState;
+use crate::validated::read_state::{HeaderReadState, WriteFCSDigest};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
 use fireflow_types::config::EnumStrIter as _;
@@ -48,8 +48,8 @@ use nonempty_collections::{
 use num_traits::identities::Zero;
 use thiserror::Error;
 
-use std::fmt;
-use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::fmt::{self, Write as _};
+use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write as _};
 use std::iter::once;
 
 #[cfg(feature = "serde")]
@@ -91,20 +91,27 @@ pub(crate) struct WriteHeaderSegments<T> {
 }
 
 impl<T> WriteHeaderSegments<T> {
-    pub(crate) fn h_write<W: Write>(&self, h: &mut BufWriter<W>, version: Version) -> io::Result<()>
+    pub(crate) fn h_write<W: io::Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        version: Version,
+        digest: &mut WriteFCSDigest,
+    ) -> io::Result<()>
     where
         T: Zero + fmt::Display + Copy,
     {
         // 6+4+16+16+16 bytes
+        let mut buf = String::new();
         write!(
-            h,
+            buf,
             "{version}    {}{}{}",
             self.text, self.data, self.analysis
-        )?;
+        )
+        .unwrap();
         for o in &self.other {
-            write!(h, "{o}")?;
+            write!(buf, "{o}").unwrap();
         }
-        Ok(())
+        digest.update_and_write(h, buf.as_bytes())
     }
 }
 
@@ -201,7 +208,7 @@ struct ReqHeader {
 impl ReqHeader {
     fn h_read<C, R>(
         h: &mut BufReader<R>,
-        st: &mut HeaderReadState<C>,
+        st: &HeaderReadState<C>,
     ) -> IOGroupResult<Self, HeaderError, ()>
     where
         R: Read + Seek,
@@ -220,8 +227,6 @@ impl ReqHeader {
             return Err(IOAnonErrorGroup::new_pure_one(e));
         }
         h.read_exact(&mut buf)?;
-
-        st.update_digest(&buf[..]);
 
         let vers_res = read_version(&buf).map_err(HeaderError::from);
         let space_res = Self::read_spaces(&buf).map_err(HeaderError::from);
@@ -438,23 +443,31 @@ pub(crate) enum TEXTToWrite {
 }
 
 impl TEXTToWrite {
-    fn write_primary<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn write_primary<W: io::Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
+    ) -> io::Result<()> {
         match self {
-            Self::Combined2_0(s) => h.write_all(s.as_str().as_bytes()),
+            Self::Combined2_0(s) => digest.update_and_write(h, s.as_str().as_bytes()),
             Self::Combined(r, o) => {
-                h.write_all(r.as_str().as_bytes())?;
+                digest.update_and_write(h, r.as_str().as_bytes())?;
                 if let Some((_, o_no_delim)) = o.as_str().split_at_checked(1) {
-                    h.write_all(o_no_delim.as_bytes())?;
+                    digest.update_and_write(h, o_no_delim.as_bytes())?;
                 }
                 Ok(())
             }
-            Self::Split(p, _) => h.write_all(p.as_str().as_bytes()),
+            Self::Split(p, _) => digest.update_and_write(h, p.as_str().as_bytes()),
         }
     }
 
-    fn write_supplemental<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn write_supplemental<W: io::Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
+    ) -> io::Result<()> {
         if let Self::Split(_, s) = self {
-            h.write_all(s.as_str().as_bytes())
+            digest.update_and_write(h, s.as_str().as_bytes())
         } else {
             Ok(())
         }
@@ -496,7 +509,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let anal_begin = data_seg.try_next_byte().map_or(data_begin, u64::from);
         let anal_seg = HeaderAnalysisOffsetsToWrite::try_new_with_len(anal_begin, anal_len)?;
 
-        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata, true);
         let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
         Escaped::new(delim, &nextdata_kw).write_str(&mut text);
@@ -599,7 +612,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         let h_anal_seg = anal_seg.as_header();
         let h_data_seg = data_seg.as_header();
 
-        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata);
+        let nextdata = Self::get_nextdata(anal_begin, &anal_seg, conf.has_nextdata, false);
         let nextdata_kw = OffsetKeyword::from_value(nextdata);
 
         // Add offset keywords to the end of required TEXT buffer.
@@ -628,20 +641,21 @@ impl<T> HeaderKeywordsToWrite<T> {
         Ok(Self::new(header, text, nextdata))
     }
 
-    pub(crate) fn h_write<W: Write>(
+    pub(crate) fn h_write<W: io::Write>(
         &self,
         h: &mut BufWriter<W>,
         version: Version,
         other_segs: &[Other],
+        digest: &mut WriteFCSDigest,
     ) -> io::Result<()>
     where
         T: Copy + Zero + fmt::Display,
     {
         // write HEADER
-        self.header.h_write(h, version)?;
+        self.header.h_write(h, version, digest)?;
 
         // write primary TEXT
-        self.text.write_primary(h)?;
+        self.text.write_primary(h, digest)?;
 
         // write OTHER
         for o in other_segs {
@@ -649,7 +663,7 @@ impl<T> HeaderKeywordsToWrite<T> {
         }
 
         // write supplemental TEXT
-        self.text.write_supplemental(h)?;
+        self.text.write_supplemental(h, digest)?;
         Ok(())
     }
 
@@ -692,13 +706,16 @@ impl<T> HeaderKeywordsToWrite<T> {
         offset_begin: u64,
         offsets: &OffsetsToWrite<I, S, T0>,
         flag: AppendableFlag,
+        is_2_0: bool,
     ) -> Nextdata
     where
         T0: Copy + Into<u64> + Zero,
     {
+        const CRC_WORD_WIDTH: u64 = 8;
         let ret = if flag.is_set() {
             let n = offsets.try_next_byte().map_or(offset_begin, u64::from);
-            UintZeroPad20(n)
+            let c = if is_2_0 { 0 } else { CRC_WORD_WIDTH };
+            UintZeroPad20(n + c)
         } else {
             UintZeroPad20(0)
         };

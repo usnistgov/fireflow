@@ -315,6 +315,7 @@ pub fn def_fcs_read_std_text(input: TokenStream) -> TokenStream {
     .into()
 }
 
+#[allow(clippy::too_many_lines)]
 #[proc_macro]
 pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as ReadPaths3);
@@ -331,6 +332,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
+    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
@@ -348,6 +350,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .chain(flat_args)
         .chain(layout_args)
         .chain(data_args)
+        .chain(crc_args)
         .chain(shared_args);
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
@@ -400,8 +403,9 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         let flat = #flat_conf { #(#flat_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
+        let crc = #crc_conf { #(#crc_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { header, flat, offset, layout, data, shared };
+        let conf = #conf_path { header, flat, offset, layout, data, crc, shared };
     };
 
     quote! {
@@ -450,6 +454,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
+    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param();
 
@@ -460,6 +465,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .chain(std_args)
         .chain(layout_args)
         .chain(data_args)
+        .chain(crc_args)
         .chain(shared_args);
 
     let skip_arg = DocArg::new_skip_param(format!(
@@ -511,8 +517,9 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         let standard = #std_conf { #(#std_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
+        let crc = #crc_conf { #(#crc_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { header, flat, offset, standard, layout, data, shared };
+        let conf = #conf_path { header, flat, offset, standard, layout, data, crc, shared };
     };
 
     quote! {
@@ -553,6 +560,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
+    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
@@ -574,6 +582,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         .args(offset_args)
         .args(layout_args)
         .args(data_args)
+        .args(crc_args)
         .args(shared_args)
         .arg(dataset_offset_arg)
         .arg(dataset_len_arg)
@@ -590,8 +599,9 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let offset = #offset_conf { #(#offset_recs),* };
             let layout = #layout_conf { #(#layout_recs),* };
             let data = #data_conf { #(#data_recs),* };
+            let crc = #crc_conf { #(#crc_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { offset, layout, data, shared };
+            let conf = #conf_path { offset, layout, data, crc, shared };
             let ret = #fun_path(
                 &path,
                 header.into(),
@@ -637,6 +647,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(cores_arg)
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
+        .arg(DocArg::new_compute_write_crc_param())
         .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size(false))
@@ -648,10 +659,12 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
     quote! {
         #[pyfunction]
         #doc
+        #[allow(clippy::too_many_arguments)]
         pub fn fcs_write_datasets(#fun_args) -> #ret_path {
             let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
                 delim,
                 big_other.into(),
+                compute_crc.into(),
             );
             let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                 tconf,
@@ -1041,9 +1054,18 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
-    let crc = DocArg::new_crc_param().into_ro(|_, _| quote!(self.0.crc));
+    let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
+    let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
 
-    let args = [data, analysis, others, dataset_offsets, event, crc];
+    let args = [
+        data,
+        analysis,
+        others,
+        dataset_offsets,
+        event,
+        file_crc,
+        comp_crc,
+    ];
     let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
@@ -1055,7 +1077,8 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     others,
                     dataset_offsets.into(),
                     events_diagnostics.into(),
-                    crc,
+                    file_crc,
+                    computed_crc,
                 ).into()
             }
 
@@ -1068,7 +1091,8 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ret.set_item("others", self.others())?;
                 ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("event_diagnostics", self.events_diagnostics().dict(py)?)?;
-                ret.set_item("crc", self.crc())?;
+                ret.set_item("file_crc", self.file_crc())?;
+                ret.set_item("computed_crc", self.computed_crc())?;
                 Ok(ret.into())
             }
         }
@@ -2057,12 +2081,13 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
-    let crc = DocArg::new_crc_param().into_ro(|_, _| quote!(self.0.crc));
+    let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
+    let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
 
     let doc = DocString::new_class(format!(
         "Miscellaneous data when standardizing {TEXT} from keywords."
     ))
-    .args([dataset_offsets, std, event, crc]);
+    .args([dataset_offsets, std, event, file_crc, comp_crc]);
 
     let new = |fun_args| {
         quote! {
@@ -2071,7 +2096,8 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     dataset_offsets.into(),
                     std_diagnostics.into(),
                     events_diagnostics.into(),
-                    crc,
+                    file_crc,
+                    computed_crc,
                 ).into()
             }
 
@@ -2082,7 +2108,8 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
                 ret.set_item("events_diagnostics", self.events_diagnostics().dict(py)?)?;
-                ret.set_item("crc", self.crc())?;
+                ret.set_item("file_crc", self.file_crc())?;
+                ret.set_item("computed_crc", self.computed_crc())?;
                 Ok(ret.into())
             }
         }
@@ -2516,7 +2543,9 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.datatype),
     );
 
-    let crc = DocArg::new_crc_param().into_ro(|_, _| quote!(self.0.crc));
+    let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
+
+    let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
 
     let args = [
         version,
@@ -2528,7 +2557,8 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         n_other,
         others_len,
         datatype,
-        crc,
+        file_crc,
+        comp_crc,
     ];
 
     let doc = DocString::new_class("High-level data describing an FCS dataset").args(args);
@@ -2553,7 +2583,8 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
                 ret.set_item("n_other", self.n_other())?;
                 ret.set_item("others_len", self.others_len())?;
                 ret.set_item("datatype", self.datatype())?;
-                ret.set_item("crc", self.crc())?;
+                ret.set_item("file_crc", self.file_crc())?;
+                ret.set_item("computed_crc", self.computed_crc())?;
                 Ok(ret.into())
             }
         }
@@ -2908,6 +2939,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
+        .arg(DocArg::new_compute_write_crc_param())
         .arg(DocArg::new_appendable_param())
         .arg(DocArg::new_append_param())
         .returns(ret);
@@ -2923,6 +2955,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
                 let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
                     delim,
                     big_other.into(),
+                    compute_crc.into(),
                 );
                 let mconf = fireflow_core::config::WriteMultiConfig::new(
                     appendable.into(),
@@ -2960,6 +2993,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
+        .arg(DocArg::new_compute_write_crc_param())
         .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size(false))
@@ -2979,6 +3013,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                 let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
                     delim,
                     big_other.into(),
+                    compute_crc.into(),
                 );
                 let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                     tconf,
@@ -4099,6 +4134,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(v);
     let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
+    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(v);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let config_args: Vec<_> = offset_args
@@ -4106,6 +4142,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .chain(std_args)
         .chain(layout_args)
         .chain(data_args)
+        .chain(crc_args)
         .chain(shared_args)
         .collect();
 
@@ -4182,11 +4219,16 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                     ..#data_conf::default()
                 };
                 #[allow(clippy::needless_update)]
+                let crc = #crc_conf {
+                    #(#crc_recs,)*
+                    ..#crc_conf::default()
+                };
+                #[allow(clippy::needless_update)]
                 let shared = #shared_conf {
                     #(#shared_recs,)*
                     ..#shared_conf::default()
                 };
-                let conf = #core_conf { offset, standard, layout, data, shared };
+                let conf = #core_conf { offset, standard, layout, data, crc, shared };
                 let (core, uncore) = #path::new_from_keywords(
                     &path,
                     header.into(),
@@ -9099,7 +9141,7 @@ impl DocArgParam {
         Self::new_param("events_diagnostics", p, d)
     }
 
-    fn new_crc_param() -> Self {
+    fn new_file_crc_param() -> Self {
         let d = format!(
             "The value of the cyclic redundancy check (CRC) value. \
              Will be an integer if a valid CRC was found. \
@@ -9110,7 +9152,16 @@ impl DocArgParam {
         let path = parse_quote!(fireflow_core::api::CRCOutput);
         let inner = PyUnion::new2(PyBytes::default(), RsInt::U16).rstype(path);
         let p = PyOpt::new1(inner);
-        Self::new_param("crc", p, d).def_auto()
+        Self::new_param("file_crc", p, d).def_auto()
+    }
+
+    fn new_computed_crc_param() -> Self {
+        let d = format!(
+            "The value of the cyclic redundancy check (CRC) value as computed \
+             based on file contents. Will be {NONE} for 2.0 or if the the user \
+             chose not to compute the CRC."
+        );
+        Self::new_param("computed_crc", PyOpt::new1(RsInt::U16), d).def_auto()
     }
 
     fn new_uncorrected_header_offsets_param(argname: &str, seg: AnySegment) -> Self {
@@ -9158,6 +9209,11 @@ impl DocArgParam {
     fn new_big_other_param() -> Self {
         let desc = format!("If {TRUE} use 20 chars for {OTHER} segment offsets, and 8 otherwise.");
         Self::new_bool_param(BIG_OTHER, desc)
+    }
+
+    fn new_compute_write_crc_param() -> Self {
+        let desc = format!("If {TRUE} compute the CRC when writing.");
+        Self::new_bool_param("compute_crc", desc)
     }
 
     fn new_appendable_param() -> Self {
@@ -9477,11 +9533,27 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
+    fn new_crc_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("CRCConfig");
+        let ps = if version == Some(Version::FCS2_0) {
+            vec![]
+        } else {
+            vec![
+                Self::new_allow_missing_crc_param(),
+                Self::new_allow_mismatch_crc_param(),
+                Self::new_compute_crc_param(),
+            ]
+        };
+        let js = ps.iter().map(IsDocArg::record_into).collect();
+        (conf, ps, js)
+    }
+
     fn new_write_text_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
         let delim = Self::new_textdelim_param();
         let big_other = Self::new_big_other_param();
+        let compute_crc = Self::new_compute_write_crc_param();
         let conf = config_path("WriteTEXTInnerConfig");
-        let ps = vec![delim, big_other];
+        let ps = vec![delim, big_other, compute_crc];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
@@ -10388,6 +10460,34 @@ impl DocArgParam {
         let pt = PyInt::new_int(RsInt::Usize).rstype(path);
         let def = tc::RowBufferSize::default().into();
         Self::new_param("row_buffer_size", pt, d).def(DocDefault::Int(def))
+    }
+
+    fn new_allow_missing_crc_param() -> Self {
+        let n = "allow_missing_crc";
+        let d = "Choose what to do when CRC is missing from the end of a dataset.";
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowMissingCRC", d, e)
+    }
+
+    fn new_allow_mismatch_crc_param() -> Self {
+        let n = "allow_mismatch_crc";
+        let d = "Choose what to do when computed CRC and CRC at the end of a \
+                 dataset do not match.";
+        let e = PyreflowError::FileLayout;
+        Self::new_tri_flag_param(n, true, "AllowMismatchCRC", d, e)
+    }
+
+    fn new_compute_crc_param() -> Self {
+        let n = "compute_crc";
+        let d = "Choose when to compute the CRC for a dataset.";
+        let path = types_config_path("ComputeCRC");
+        let options = [
+            tc::COMPUTE_CRC_NEVER_LEVEL,
+            tc::COMPUTE_CRC_ALWAYS_LEVEL,
+            tc::COMPUTE_CRC_TEST_LEVEL,
+        ];
+        let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
+        Self::new_param(n, pt, d).def_auto()
     }
 
     fn new_warnings_are_errors_param() -> Self {

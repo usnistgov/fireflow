@@ -19,6 +19,7 @@ use std::convert::Infallible;
 use std::io::{self, BufReader, BufWriter, Read, Write};
 
 use super::dataframe::HasLen;
+use super::read_state::WriteFCSDigest;
 
 /// A cache-friendly buffer for reading and writing DATA.
 ///
@@ -404,19 +405,24 @@ impl ReadBuffer {
 }
 
 impl WriteBuffer {
-    fn write<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
-        h.write_all(&self.bytes[..])
+    fn write<W: Write>(&self, h: &mut BufWriter<W>, digest: &mut WriteFCSDigest) -> io::Result<()> {
+        digest.update_and_write(h, &self.bytes[..])
     }
 
-    fn write_remainder<W: Write>(&self, h: &mut BufWriter<W>) -> io::Result<()> {
+    fn write_remainder<W: Write>(
+        &self,
+        h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
+    ) -> io::Result<()> {
         let n = self.remainder_bytes();
-        h.write_all(&self.bytes[..n])
+        digest.update_and_write(h, &self.bytes[..n])
     }
 
     fn write_columns<C, W, Fp, Fw>(
         &mut self,
         h: &mut BufWriter<W>,
         columns: &[C],
+        digest: &mut WriteFCSDigest,
         mut fpush: Fp,
         fwidth: Fw,
     ) -> io::Result<()>
@@ -443,7 +449,7 @@ impl WriteBuffer {
                 dst_col_offset += src_width;
             }
             src_row_offset += self.rows_per_buffer;
-            self.write(h)?;
+            self.write(h, digest)?;
         }
 
         // Read remaining rows if they exist
@@ -458,7 +464,7 @@ impl WriteBuffer {
             dst_col_offset += fwidth(c);
         }
 
-        self.write_remainder(h)?;
+        self.write_remainder(h, digest)?;
 
         Ok(())
     }
@@ -468,6 +474,7 @@ impl WriteBuffer {
         &mut self,
         h: &mut BufWriter<W>,
         columns: &[&[T]],
+        digest: &mut WriteFCSDigest,
         to_buf: F,
     ) -> io::Result<()>
     where
@@ -512,7 +519,7 @@ impl WriteBuffer {
                     };
                 }
             }
-            self.write(h)?;
+            self.write(h, digest)?;
         }
 
         // Write remaining rows if they exist
@@ -532,7 +539,7 @@ impl WriteBuffer {
             }
         }
 
-        self.write_remainder(h)?;
+        self.write_remainder(h, digest)?;
 
         Ok(())
     }
@@ -542,6 +549,7 @@ impl WriteBuffer {
         &mut self,
         h: &mut BufWriter<W>,
         cols: &[&[T]],
+        digest: &mut WriteFCSDigest,
         endian: Endian,
     ) -> io::Result<()>
     where
@@ -549,8 +557,8 @@ impl WriteBuffer {
         T: ToBytes<Bytes = T::FileBuf> + FCSRepr,
     {
         match endian {
-            Endian::Big => self.write_matrix(h, cols, T::to_be_bytes),
-            Endian::Little => self.write_matrix(h, cols, T::to_le_bytes),
+            Endian::Big => self.write_matrix(h, cols, digest, T::to_be_bytes),
+            Endian::Little => self.write_matrix(h, cols, digest, T::to_le_bytes),
         }
     }
 
@@ -560,6 +568,7 @@ impl WriteBuffer {
         &mut self,
         h: &mut BufWriter<W>,
         cols: &[&[T]],
+        digest: &mut WriteFCSDigest,
         s: ArrayByteOrd<LEN>,
     ) -> io::Result<()>
     where
@@ -570,9 +579,9 @@ impl WriteBuffer {
         ArrayByteOrd<LEN>: AsRef<T::ByteOrd>,
     {
         if let Some(e) = s.as_endian() {
-            self.write_endian_matrix(h, cols, e)
+            self.write_endian_matrix(h, cols, digest, e)
         } else {
-            self.write_matrix(h, cols, |bs| T::to_ordered_bytes(bs, s.as_ref()))
+            self.write_matrix(h, cols, digest, |bs| T::to_ordered_bytes(bs, s.as_ref()))
         }
     }
 
@@ -581,10 +590,12 @@ impl WriteBuffer {
         &mut self,
         h: &mut BufWriter<W>,
         cols: &[NativeSeries<FixedAsciiRange>],
+        digest: &mut WriteFCSDigest,
     ) -> io::Result<()> {
         self.write_columns(
             h,
             cols,
+            digest,
             |src, src_index, dst, dst_index| {
                 let v = src.as_ref()[src_index.0];
                 src.column_schema().as_slice_unchecked(v, dst, &dst_index);
@@ -598,12 +609,13 @@ impl WriteBuffer {
         &mut self,
         h: &mut BufWriter<W>,
         cols: &[VariableUintSeries],
+        digest: &mut WriteFCSDigest,
         endian: Endian,
     ) -> io::Result<()> {
         let get_width = |c: &VariableUintSeries| usize::from(u8::from(c.bytes()));
         match endian {
-            Endian::Big => self.write_columns(h, cols, AnyUint::write_be, get_width),
-            Endian::Little => self.write_columns(h, cols, AnyUint::write_le, get_width),
+            Endian::Big => self.write_columns(h, cols, digest, AnyUint::write_be, get_width),
+            Endian::Little => self.write_columns(h, cols, digest, AnyUint::write_le, get_width),
         }
     }
 
@@ -612,6 +624,7 @@ impl WriteBuffer {
         &mut self,
         h: &mut BufWriter<W>,
         cols: &[MixedSeries],
+        digest: &mut WriteFCSDigest,
         endian: Endian,
     ) -> io::Result<()> {
         let get_width = |c: &MixedSeries| match c {
@@ -621,8 +634,8 @@ impl WriteBuffer {
             AnyDatatype::F64(_) => 8,
         };
         match endian {
-            Endian::Big => self.write_columns(h, cols, AnyDatatype::write_be, get_width),
-            Endian::Little => self.write_columns(h, cols, AnyDatatype::write_le, get_width),
+            Endian::Big => self.write_columns(h, cols, digest, AnyDatatype::write_be, get_width),
+            Endian::Little => self.write_columns(h, cols, digest, AnyDatatype::write_le, get_width),
         }
     }
 }

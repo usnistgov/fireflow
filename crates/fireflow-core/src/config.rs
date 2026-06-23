@@ -33,8 +33,8 @@ use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
-    self as tc, AllowHeaderTEXTOffsetMismatch, DelimEscapeMode, ForceLinearScale, GuessOtherWidth,
-    OverBitmaskAction, OverLimitAction, OverRangeAction, ProcessKeywordFailure,
+    self as tc, AllowHeaderTEXTOffsetMismatch, ComputeCRC, DelimEscapeMode, ForceLinearScale,
+    GuessOtherWidth, OverBitmaskAction, OverLimitAction, OverRangeAction, ProcessKeywordFailure,
     ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize, SpilloverMeasurementMode,
     TemporalOpticalKey, TriFlag, TrimValueWhitespace, UseEncoding,
 };
@@ -122,6 +122,9 @@ pub struct ReadFlatDatasetConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
+    #[as_ref(CRCConfig)]
+    pub crc: CRCConfig,
+
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
 }
@@ -147,6 +150,9 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
+    #[as_ref(CRCConfig)]
+    pub crc: CRCConfig,
+
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
 }
@@ -162,6 +168,9 @@ pub struct ReadFlatDatasetFromKeywordsConfig {
 
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
+
+    #[as_ref(CRCConfig)]
+    pub crc: CRCConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -195,6 +204,9 @@ pub struct NewCoreDatasetConfig {
     #[as_ref(ReadEventsConfig)]
     pub data: ReadEventsConfig,
 
+    #[as_ref(CRCConfig)]
+    pub crc: CRCConfig,
+
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
 }
@@ -225,6 +237,9 @@ pub struct WriteTEXTInnerConfig {
 
     /// If `true` use 20 chars for OTHER offset width, otherwise 8.
     pub big_other: BigOther,
+
+    /// If `true` compute the CRC while writing
+    pub compute_crc: ComputeWriteCRC,
 }
 
 /// Specific configuration for writing one dataset
@@ -951,6 +966,38 @@ pub struct ReadEventsConfig {
     pub row_buffer_size: RowBufferSize,
 }
 
+/// CRC-specific instructions.
+///
+/// These have no effect on 2.0 files which do not have checksums.
+#[derive(Default, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct CRCConfig {
+    /// Permit the CRC word after the final segment to be missing.
+    ///
+    /// In FCS 3.0 and up, if the CRC is not stored then the 8 bytes after
+    /// the last segment must be set to ASCII `0`.
+    pub allow_missing_crc: AllowMissingCRC,
+
+    /// Permit the computed checksum to not match the CRC word.
+    pub allow_mismatch_crc: AllowMismatchCRC,
+
+    /// Compute the CRC for the dataset.
+    ///
+    /// This is disabled by default because in reality most FCS files don't seem
+    /// to use checksums, thus the added compute cost (mostly IO, see below for
+    /// full explanation) is not worth it.
+    ///
+    /// The CRC will be computed for every byte in the dataset up to the end of
+    /// the final segment in the dataset. This includes all "dead space" in
+    /// between segments which may be filled with spaces, null characters, or
+    /// whatever else the software decided to throw in. This entire byte region
+    /// will be read from disk in one fell swoop to compute the checksum, but
+    /// this also means that previously read segments for TEXT, DATA, etc will
+    /// be read twice. In the future, this may be optimized, but for now it is
+    /// the easiest and sanest way to compute this.
+    pub compute_crc: ComputeCRC,
+}
+
 /// Configuration options for across all reading functions
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
@@ -1223,6 +1270,7 @@ impl_config_flag!(DisallowLocaltime);
 
 impl_config_flag!(SkipConversionCheck);
 impl_config_flag!(BigOther);
+impl_config_flag!(ComputeWriteCRC);
 impl_config_flag!(AppendableFlag);
 impl_config_flag!(AppendFlag);
 
@@ -1273,6 +1321,9 @@ impl_tri_error_flag!(false_is_error AllowLoss);
 // flag or controlling how to deal with overrange values in read-only case
 impl_tri_error_flag!(true_is_error AllowOverBitmask);
 impl_tri_error_flag!(true_is_error DisallowOverRange);
+
+impl_tri_error_flag!(false_is_error AllowMissingCRC);
+impl_tri_error_flag!(false_is_error AllowMismatchCRC);
 
 /// Fake 2-way flag to use for non-public switchable errors
 #[derive(From, Into, Clone, Copy)]

@@ -2,10 +2,11 @@
 
 use crate::api::{CRCOutput, FCSFileReader, HeaderAndSuppOffsets};
 use crate::config::{
-    AllowLoss, AppendFlag, AppendableFlag, ConfigFlag as _, DummyTriFlag, OverlapCorrectionLimit,
-    ReadDataKeywordsConfig, ReadEventsConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
-    ReadSharedConfig, ReadStdKeywordsConfig, WriteDatasetInnerConfig, WriteMultiConfig,
-    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    AllowLoss, AppendFlag, AppendableFlag, CRCConfig, ComputeWriteCRC, ConfigFlag as _,
+    DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadEventsConfig,
+    ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig,
+    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
+    WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
@@ -118,7 +119,8 @@ use crate::validated::keys::{
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::read_state::{
-    DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, TEXTReadState,
+    CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, TEXTReadState,
+    WriteFCSDigest,
 };
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
@@ -266,14 +268,6 @@ pub struct Other(pub Vec<u8>);
 #[derive(Clone, Default, From, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
 pub struct Others(pub Vec<Other>);
-
-impl Others {
-    fn update_digest<C>(&self, st: &mut TEXTReadState<C>) {
-        for o in &self.0 {
-            st.update_digest(&o.0[..]);
-        }
-    }
-}
 
 /// Root of the metadata hierarchy.
 ///
@@ -555,7 +549,8 @@ impl AnyCoreDataset {
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadEventsConfig>,
+            + AsRef<ReadEventsConfig>
+            + AsRef<CRCConfig>,
     {
         let version = hns.header.version;
         macro_rules! go {
@@ -1052,8 +1047,15 @@ pub struct StdDatasetFromKwsOutput {
     /// Diagnostic output from parsing DATA segment
     pub events_diagnostics: EventsDiagnostics,
 
-    /// Value of the cyclic redundancy check (CRC)
-    pub crc: Option<CRCOutput>,
+    /// Value of the cyclic redundancy check (CRC) as read from the file.
+    ///
+    /// Will always be `None` for 2.0.
+    pub file_crc: Option<CRCOutput>,
+
+    /// Value of the computed cyclic redundancy check (CRC) of the dataset.
+    ///
+    /// Will always be `None` for 2.0.
+    pub computed_crc: Option<u16>,
 }
 
 // TODO split this into sub structs for analysis and data since they are both
@@ -1396,6 +1398,7 @@ pub enum StdDatasetFromFlatTextErrorInner {
     TEXT(StdTEXTFromFlatTEXTErrorInner),
     Dataframe(ReadCheckedDataframeError),
     Offsets(LookupTEXTOffsetsError),
+    CRC(CRCError),
 }
 
 /// Warning when reading standardized DATA from keyword pairs
@@ -1405,6 +1408,7 @@ pub enum StdDatasetFromFlatTEXTWarning {
     TEXT(StdTEXTFromFlatTEXTWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Layout(ReadCheckedDataframeWarning),
+    CRC(CRCError),
 }
 
 /// Error when metaroot is changed to new FCS version
@@ -1441,6 +1445,7 @@ pub enum LookupAndReadDataAnalysisError {
     DataSchema(LookupDataSchemaError),
     Dataframe(ReadCheckedDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
+    CRC(CRCError),
 }
 
 /// Warning when reading DATA offsets from already-parsed keywords
@@ -1450,6 +1455,7 @@ pub enum LookupAndReadDataAnalysisWarning {
     Offsets(LookupTEXTOffsetsWarning),
     DataSchema(LookupDataSchemaWarning),
     Data(ReadCheckedDataframeWarning),
+    CRC(CRCError),
 }
 
 /// Error when looking up offsets for parsing DATA
@@ -3930,10 +3936,12 @@ where
     where
         L: LayoutKeywords + LayoutOptMeasKeywords,
     {
+        let d = conf.delim;
+        let c = conf.compute_crc;
         if conf.big_other.is_set() {
-            self.h_write_text_inner1::<_, UintSpacePad20>(h, conf.delim, has_nextdata)
+            self.h_write_text_inner1::<_, UintSpacePad20>(h, d, has_nextdata, c)
         } else {
-            self.h_write_text_inner1::<_, UintSpacePad8>(h, conf.delim, has_nextdata)
+            self.h_write_text_inner1::<_, UintSpacePad8>(h, d, has_nextdata, c)
         }
     }
 
@@ -3942,6 +3950,7 @@ where
         h: &mut BufWriter<W>,
         delim: TEXTDelim,
         has_nextdata: AppendableFlag,
+        compute_crc: ComputeWriteCRC,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         L: LayoutKeywords + LayoutOptMeasKeywords,
@@ -3953,13 +3962,17 @@ where
             + Into<u64>,
     {
         let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
-        self.h_write_text_inner::<_, T>(h, &conf)
+        let mut digest = WriteFCSDigest::new(compute_crc, V::as_version());
+        let nextdata = self.h_write_text_inner::<_, T>(h, &conf, &mut digest)?;
+        digest.write_final(h)?;
+        Ok(nextdata)
     }
 
     fn h_write_text_inner<W: Write, T>(
         &self,
         h: &mut BufWriter<W>,
         conf: &WriteHeaderAndTextConfig<'_>,
+        digest: &mut WriteFCSDigest,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         L: LayoutKeywords + LayoutOptMeasKeywords,
@@ -3973,7 +3986,7 @@ where
         let hdr_kws: HeaderKeywordsToWrite<T> = self
             .header_and_flat_keywords(conf)
             .map_err(ImpureError::Pure)?;
-        hdr_kws.h_write(h, V::as_version(), conf.other_segs)?;
+        hdr_kws.h_write(h, V::as_version(), conf.other_segs, digest)?;
         Ok(hdr_kws.nextdata)
     }
 
@@ -6200,7 +6213,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
             + AsRef<ReadEventsConfig>
-            + AsRef<ReadSharedConfig>,
+            + AsRef<ReadSharedConfig>
+            + AsRef<CRCConfig>,
     {
         #[allow(
             clippy::result_large_err,
@@ -6250,7 +6264,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadEventsConfig>,
+            + AsRef<ReadEventsConfig>
+            + AsRef<CRCConfig>,
     {
         VersionedCoreTEXT::<V>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -6264,11 +6279,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let analysis = io_to_log!(ar.h_read(h));
                 let hns_max = hns.max_end_offset();
                 let da_max = offsets.offsets.max_end_offset();
-                let crc = if let Some(crc_start) = hns_max.max(da_max) {
-                    io_to_log!(st.read_crc(h, crc_start, text.fcs_version()))
-                } else {
-                    None
-                };
+                let version = text.fcs_version();
                 text.meas
                     .h_read_df(
                         h,
@@ -6278,15 +6289,26 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     )
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
-                    .map_ok_value(|df_out| {
-                        let new = Self::new(text.rootmeta, df_out.inner, analysis, other);
-                        let diag = StdDatasetFromKwsOutput::new(
-                            offsets.offsets,
-                            extra,
-                            df_out.diagnostics,
-                            crc,
-                        );
-                        (new, diag)
+                    .and_then_commutative(|df_out| {
+                        let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
+                            st.test_crc(h, crc_start, version, *st.conf().as_ref())
+                                .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+                                .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
+                                .repack_warnings()
+                        } else {
+                            LogResult::new_ok((None, None))
+                        };
+                        crc_res.map_ok_value(|(file_crc, computed_crc)| {
+                            let new = Self::new(text.rootmeta, df_out.inner, analysis, other);
+                            let diag = StdDatasetFromKwsOutput::new(
+                                offsets.offsets,
+                                extra,
+                                df_out.diagnostics,
+                                file_crc,
+                                computed_crc,
+                            );
+                            (new, diag)
+                        })
                     })
             })
     }
@@ -6317,6 +6339,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         let tot = Tot(df.nrows());
         let analysis_len = self.analysis.0.len().usize_to_u64();
         let other_segs = &self.others.0[..];
+        let mut digest = WriteFCSDigest::new(conf.text.compute_crc, V::as_version());
 
         df.check_ranges(conf.allow_over_bitmask, conf.disallow_over_range)
             .map_errors(StdWriterError::from)
@@ -6334,18 +6357,19 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     has_nextdata,
                 };
                 let res = if conf.text.big_other.is_set() {
-                    self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf)
+                    self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf, &mut digest)
                 } else {
-                    self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf)
+                    self.h_write_text_inner::<_, UintSpacePad8>(h, &ht_conf, &mut digest)
                 };
                 res.map_err(|e| e.fmap_once(StdWriterError::from))
                     .map_err(IOErrorGroup::from)
                     .into_log()
             })
-            // write DATA and ANALYSIS
+            // write DATA+ANALYSIS+CRC
             .and_commutative(|| {
-                io_to_log!(df.h_write_df(h, conf));
-                io_to_log!(h.write_all(&self.analysis.0));
+                io_to_log!(df.h_write_df(h, &mut digest, conf));
+                io_to_log!(digest.update_and_write(h, &self.analysis.0[..]));
+                io_to_log!(digest.write_final(h));
                 LogResult::new_ok(())
             })
             .deanonymize()

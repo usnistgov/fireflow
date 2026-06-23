@@ -6154,7 +6154,11 @@ class TestConfig:
         )
 
         def go(f: TriFlag) -> int | None:
-            out = pf.api.fcs_read_flat_dataset(p, allow_uneven_event_width=f)
+            out = pf.api.fcs_read_flat_dataset(
+                p,
+                allow_uneven_event_width=f,
+                allow_missing_crc="silent",
+            )
             return out.dataset.events_diagnostics.event_data_remainder
 
         comp: int | None = remainder
@@ -6189,7 +6193,11 @@ class TestConfig:
         )
 
         def go(f: TriFlag) -> bool | None:
-            out = pf.api.fcs_read_flat_dataset(p, allow_tot_mismatch=f)
+            out = pf.api.fcs_read_flat_dataset(
+                p,
+                allow_tot_mismatch=f,
+                allow_missing_crc="silent",
+            )
             return out.dataset.events_diagnostics.tot_event_mismatch
 
         comp: bool | None = True
@@ -6237,6 +6245,7 @@ class TestConfig:
                 p,
                 over_bitmask_action=f,
                 over_range_action=g,
+                allow_missing_crc="silent",
             )
             c = out.dataset.events_diagnostics.overrange_columns
             val = out.dataset.data[0, 0]
@@ -6355,6 +6364,7 @@ class TestConfig:
                 p,
                 over_bitmask_action=f,
                 over_range_action=g,
+                allow_missing_crc="silent",
             )
             return out.dataset.events_diagnostics.overrange_columns
 

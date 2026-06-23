@@ -275,3 +275,5 @@ TEXTOffsetsOriginType: TypeAlias = Literal[
 ]
 
 CRCOutput: TypeAlias = bytes | int | None
+
+ComputeReadCRC: TypeAlias = Literal["never", "always", "test"]

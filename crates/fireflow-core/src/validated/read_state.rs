@@ -1,19 +1,24 @@
-use crate::{api::CRCOutput, text::keywords::Nextdata};
+use crate::{
+    api::CRCOutput,
+    config::{CRCConfig, ComputeWriteCRC, ConfigFlag as _},
+    logging::{IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log},
+    text::keywords::Nextdata,
+};
 
-use crc::CRC_16_KERMIT;
+use crc_fast::{CrcAlgorithm, Digest};
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use fireflow_types::keywords::Version;
+use fireflow_types::{config::ComputeCRC, keywords::Version};
 use thiserror::Error;
 
-use std::io::{self, BufReader, Read, Seek};
+use std::io::{self, BufReader, Read, Seek, Write as _};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject},
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject},
     fireflow_types::python as py,
 };
 
@@ -22,6 +27,13 @@ pub type HeaderReadState<C> = ReadDatasetState<C, ()>;
 
 /// Read state after HEADER and TEXT are parsed.
 pub type TEXTReadState<C> = ReadDatasetState<C, DatasetBounds>;
+
+/// The live CRC of the file as it is being written.
+pub struct WriteFCSDigest {
+    digest: Digest,
+    compute_digest: ComputeWriteCRC,
+    is_2_0: bool,
+}
 
 /// The length of the entire FCS file in bytes.
 #[derive(From, Into, Clone, Copy, Debug, Display, PartialEq, Eq)]
@@ -57,6 +69,31 @@ pub struct DatasetOffsetError(DatasetOffset, FileLen);
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct DatasetLenEOFError(DatasetOffset, DatasetLen, FileLen);
 
+/// Error when computing or testing the CRC.
+#[derive(Debug, Display, Error, PartialEq, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum CRCError {
+    Missing(MissingCRCError),
+    Failed(FailedChecksumError),
+}
+
+/// Error when CRC word is missing from end of dataset (3.0+)
+#[derive(Error, Debug, PartialEq, Clone)]
+#[error("CRC word is missing at offset {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct MissingCRCError(u64);
+
+/// Error when computed checksum of a dataset does not match the CRC word
+#[derive(Error, Debug, PartialEq, Clone, new)]
+#[error("dataset checksum failed, expected {file}, got {computed}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::FileLayoutError))]
+pub struct FailedChecksumError {
+    file: u16,
+    computed: u16,
+}
+
 /// State pertinent to reading a dataset.
 #[derive(new)]
 pub struct ReadDatasetState<C, D> {
@@ -68,9 +105,6 @@ pub struct ReadDatasetState<C, D> {
     /// This will almost always be zero unless there are multiple datasets in
     /// the file.
     dataset_offset: DatasetOffset,
-
-    /// The current CRC digest of the file.
-    digest: crc::Digest<'static, u16>,
 
     /// The length of the current dataset (if available).
     ///
@@ -91,12 +125,6 @@ pub struct DatasetBounds {
     pub(crate) from_nextdata: bool,
 }
 
-/// The CRC algorithm to use for FCS files.
-///
-/// The standards (since 3.0) specify this must be CRC-16/CCITT, which is the
-/// same thing as CRC-16/KERMIT (not the same as CRC-16/CCITT-FALSE).
-const FCS_CRC: crc::Crc<u16> = crc::Crc::<u16>::new(&CRC_16_KERMIT);
-
 impl<C> HeaderReadState<C> {
     pub(crate) fn init(
         fl: FileLen,
@@ -107,8 +135,7 @@ impl<C> HeaderReadState<C> {
             let e = DatasetOffsetError(dataset_offset, fl);
             return Err(e);
         }
-        let digest = FCS_CRC.digest();
-        Ok(Self::new(fl, dataset_offset, digest, (), conf))
+        Ok(Self::new(fl, dataset_offset, (), conf))
     }
 
     pub(crate) fn maybe_with_dataset_length(
@@ -147,7 +174,7 @@ impl<C> HeaderReadState<C> {
             "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
         );
         let bounds = DatasetBounds::new(dataset_len, from_nextdata);
-        ReadDatasetState::new(f, d, self.digest, bounds, self.conf)
+        ReadDatasetState::new(f, d, bounds, self.conf)
     }
 
     // this should only be called if $NEXTDATA is 0 or missing (if allowed)
@@ -158,30 +185,63 @@ impl<C> HeaderReadState<C> {
             f.0.checked_sub(d.0)
                 .expect("dataset offset should not exceed file length");
         let bounds = DatasetBounds::new(DatasetLen(dl), false);
-        ReadDatasetState::new(f, d, self.digest, bounds, self.conf)
+        ReadDatasetState::new(f, d, bounds, self.conf)
     }
 }
 
 impl<C> TEXTReadState<C> {
-    pub(crate) fn read_crc<R>(
+    pub(crate) fn test_crc<R>(
         &self,
         h: &mut BufReader<R>,
         crc_start: u64,
         version: Version,
-    ) -> io::Result<Option<CRCOutput>>
+        conf: CRCConfig,
+    ) -> WarningAndIOGroupResult<(Option<CRCOutput>, Option<u16>), CRCError, CRCError, ()>
     where
         R: Read + Seek,
     {
         if version == Version::FCS2_0 {
-            return Ok(None);
+            return LogResult::new_ok((None, None));
         }
+        let file_crc_out = io_to_log!(self.read_crc(h, crc_start));
+        let res = match file_crc_out {
+            CRCOutput::Invalid(_) => {
+                let e = CRCError::from(MissingCRCError(crc_start));
+                let computed_crc = if matches!(conf.compute_crc, ComputeCRC::Always) {
+                    Some(io_to_log!(self.compute_crc(h, crc_start)))
+                } else {
+                    None
+                };
+                SwitchableErrorResult::new_switchable3(computed_crc, (), e, conf.allow_missing_crc)
+                    .switchable_into_commutative()
+            }
+            CRCOutput::Valid(file_crc) => {
+                if matches!(conf.compute_crc, ComputeCRC::Never) {
+                    LogResult::new_ok(None)
+                } else {
+                    let computed_crc = io_to_log!(self.compute_crc(h, crc_start));
+                    let e = CRCError::from(FailedChecksumError::new(file_crc, computed_crc));
+                    let flag = conf.allow_mismatch_crc;
+                    let crc_match = file_crc == computed_crc;
+                    let v = Some(computed_crc);
+                    SwitchableErrorResult::new_switchable_ok_if3(crc_match, v, (), e, flag)
+                        .switchable_into_commutative()
+                }
+            }
+        };
+        res.map_ok_value(|computed| (Some(file_crc_out), computed))
+            .group()
+            .map_errors(IOErrorGroup::Pure)
+    }
+
+    fn read_crc<R>(&self, h: &mut BufReader<R>, crc_start: u64) -> io::Result<CRCOutput>
+    where
+        R: Read + Seek,
+    {
         h.seek(io::SeekFrom::Start(self.dataset_offset.0 + crc_start))?;
-        let rem = self.remaining_bytes(h)?;
-        if rem < 8 {
-            Ok(None)
-        } else {
-            let mut buf = [0_u8; 8];
-            h.read_exact(&mut buf)?;
+        let mut buf = vec![];
+        h.take(8).read_to_end(&mut buf)?;
+        if buf.len() == 8 {
             // NOTE the CRC has 8 digits but must parse to a 16-bit number.
             // It isn't clear why the CRC isn't just 5 bytes, since the max
             // u16 is ~64k.
@@ -189,8 +249,21 @@ impl<C> TEXTReadState<C> {
                 .ok()
                 .and_then(|s| s.parse::<u16>().ok())
                 .map_or(CRCOutput::Invalid(buf), CRCOutput::Valid);
-            Ok(Some(ret))
+            Ok(ret)
+        } else {
+            Ok(CRCOutput::Invalid(buf))
         }
+    }
+
+    fn compute_crc<R>(&self, h: &mut BufReader<R>, crc_start: u64) -> io::Result<u16>
+    where
+        R: Read + Seek,
+    {
+        h.seek(io::SeekFrom::Start(self.dataset_offset.0))?;
+        let mut digest = Digest::new(FCS_CRC);
+        io::copy(&mut h.take(crc_start), &mut digest)?;
+        let crc = u16::try_from(digest.finalize()).expect("CRC should be 16 bit");
+        Ok(crc)
     }
 
     pub(crate) fn dataset_bounds(&self) -> &DatasetBounds {
@@ -216,8 +289,48 @@ impl<C, D> ReadDatasetState<C, D> {
         let remaining = u64::from(self.file_len) - pos;
         Ok(remaining)
     }
+}
 
-    pub(crate) fn update_digest(&mut self, bytes: &[u8]) {
-        self.digest.update(bytes);
+impl WriteFCSDigest {
+    pub(crate) fn new(compute_digest: ComputeWriteCRC, version: Version) -> Self {
+        Self {
+            digest: Digest::new(FCS_CRC),
+            compute_digest,
+            is_2_0: version == Version::FCS2_0,
+        }
+    }
+
+    pub(crate) fn update_and_write<W: io::Write>(
+        &mut self,
+        h: &mut io::BufWriter<W>,
+        bs: &[u8],
+    ) -> io::Result<()> {
+        self.update(bs);
+        h.write_all(bs)
+    }
+
+    pub(crate) fn update(&mut self, bs: &[u8]) {
+        if !self.is_2_0 && self.compute_digest.is_set() {
+            self.digest.update(bs);
+        }
+    }
+
+    pub(crate) fn write_final<W: io::Write>(&self, h: &mut io::BufWriter<W>) -> io::Result<()> {
+        if self.is_2_0 {
+            return Ok(());
+        }
+        let x = if self.compute_digest.is_set() {
+            self.digest.finalize()
+        } else {
+            0
+        };
+        write!(h, "{x:0>8}")
     }
 }
+
+/// The CRC algorithm to use for FCS files.
+///
+/// CRC-16/KERMIT is the same thing as CRC-16/CCITT (but not the same as
+/// CRC-16/CCITT-FALSE, which is often confused with CCITT). See
+/// https://reveng.sourceforge.io/crc-catalogue/all.htm
+pub(crate) const FCS_CRC: CrcAlgorithm = CrcAlgorithm::Crc16Kermit;

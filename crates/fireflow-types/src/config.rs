@@ -488,6 +488,23 @@ impl AllowHeaderTEXTOffsetMismatch {
     }
 }
 
+pub const COMPUTE_CRC_NEVER_LEVEL: &NEStr = ne_str!("never");
+pub const COMPUTE_CRC_TEST_LEVEL: &NEStr = ne_str!("test");
+pub const COMPUTE_CRC_ALWAYS_LEVEL: &NEStr = ne_str!("always");
+
+impl_config_flag!(
+    /// When to compute the CRC for a dataset
+    pub ComputeCRC,
+    /// Error when parsing [`ComputeCRC`] from [`String`]
+    pub ComputeCRCError,
+    /// Never compute CRC.
+    Never  => COMPUTE_CRC_NEVER_LEVEL,
+    /// Always compute CRC.
+    Always => COMPUTE_CRC_ALWAYS_LEVEL,
+    /// Compute CRC only when the CRC word at the end of the dataset can be read.
+    Test   => COMPUTE_CRC_TEST_LEVEL
+);
+
 const GAIN_LEVEL: &NEStr = ne_str!("G");
 const FILTER_LEVEL: &NEStr = ne_str!("F");
 const WAVELENGTH_LEVEL: &NEStr = ne_str!("L");

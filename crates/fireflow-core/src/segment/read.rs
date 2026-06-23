@@ -2160,7 +2160,7 @@ impl OtherOffsets20 {
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
         first_seg_begin: u64,
-        st: &mut HeaderReadState<C>,
+        st: &HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
         GuessOtherWidthError,
@@ -2171,6 +2171,8 @@ impl OtherOffsets20 {
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
+        let hconf: &ReadHeaderInnerConfig = st.conf().as_ref();
+
         // Get maximum length of OTHER offset region according to first required
         // offset. If zero, exit early.
         let Ok(max_other_len): Result<NonZeroU64, _> = first_seg_begin
@@ -2182,7 +2184,7 @@ impl OtherOffsets20 {
         };
 
         // Get max desired number of segments; If zero, exit early.
-        let Ok(max_other) = AsRef::<ReadHeaderInnerConfig>::as_ref(st.conf())
+        let Ok(max_other) = hconf
             .max_other
             .map(|x| u64::try_from(x).expect("usize overflow"))
             .map(NonZeroU64::try_from)
@@ -2203,26 +2205,17 @@ impl OtherOffsets20 {
         //
         // TODO (minor optimization opportunity) This will take all bytes
         // between offset 58 and the next *required* offset (ie from
-        // TEXT/DATA/ANALYSIS in HEADER). In %99.9999 of case, the first segment
-        // will be one of these three. However, it is theoretically possible
-        // that this region has both the OTHER offsets and the OTHER segments
-        // themselves. This is technically standards compliant since OTHER
-        // segments only need to be within the first 99,999,999 bytes as of 3.2
-        // (in earlier versions this was even less restricted since they did not
-        // specify a width). In these cases, reading bytes like this will
-        // result in the OTHER segments themselves being read twice (here they
-        // will be read and ignored).
+        // TEXT/DATA/ANALYSIS in HEADER). In %99.9999 of cases, the first
+        // segment will be one of these three. However, it is theoretically
+        // possible that this region has both the OTHER offsets and the OTHER
+        // segments themselves. This is technically standards compliant since
+        // OTHER segments only need to be within the first 99,999,999 bytes as
+        // of 3.2 (in earlier versions this was even less restricted since they
+        // did not specify a width). In these cases, reading bytes like this
+        // will result in the OTHER segments themselves being read twice (here
+        // they will be read and ignored).
         let mut buf = vec![];
         io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
-
-        // Update the CRC with the entire segment between required HEADER and
-        // start of first segment. The standard is not clear on how this should
-        // be read, since it isn't clear if the whitespace after the last OTHER
-        // offset and the next segment counts toward the CRC. This is easiest,
-        // and probably will work for most files anyways.
-        st.update_digest(&buf[..]);
-
-        let hconf: &ReadHeaderInnerConfig = st.conf().as_ref();
 
         // Only consider bytes which are spaces, nulls, minus sign, or digits
         // where a minus sign must always immediately precede a digit

@@ -126,6 +126,12 @@ class _ReadEventsConfig(BaseModel):
     row_buffer_size: int = 28000
 
 
+class _CRCConfig(BaseModel):
+    allow_missing_crc: pft.TriFlag = "false"
+    allow_mismatch_crc: pft.TriFlag = "false"
+    compute_crc: pft.ComputeReadCRC = "never"
+
+
 class _ReadSharedConfig(BaseModel):
     warnings_are_errors: bool = False
     hide_warnings: bool = False
@@ -257,6 +263,7 @@ class PyreflowReadFlatDatasetConfig(
     _FlatTEXTMethods,
     _ReadSharedConfig,
     _ReadEventsConfig,
+    _CRCConfig,
     _ReadDataKeywordsConfig,
     _ReadFlatTEXTConfig,
     _OffsetConfig,
@@ -306,6 +313,7 @@ class PyreflowReadStdDatasetConfig(
     _FlatDatasetMethods,
     _ReadSharedConfig,
     _ReadEventsConfig,
+    _CRCConfig,
     _ReadDataKeywordsConfig,
     _ReadStdKeywordsConfig,
     _ReadFlatTEXTConfig,
@@ -345,6 +353,7 @@ class PyreflowReadStdDatasetConfig(
 class PyreflowReadFlatDatasetFromKeywordsConfig(
     _ReadSharedConfig,
     _ReadEventsConfig,
+    _CRCConfig,
     _ReadDataKeywordsConfig,
     _OffsetConfig,
 ):

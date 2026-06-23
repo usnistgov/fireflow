@@ -1,10 +1,11 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    AppendFlag, AppendableFlag, ConfigFlag as _, OverlapCorrectionLimit, ReadDataKeywordsConfig,
-    ReadEventsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
-    ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
-    ReadSharedConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig,
-    VersionOverride, WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
+    AppendFlag, AppendableFlag, CRCConfig, ConfigFlag as _, OverlapCorrectionLimit,
+    ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
+    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
+    ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig,
+    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, VersionOverride,
+    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::core::{
@@ -505,17 +506,22 @@ pub struct FlatDatasetFromKwsOutput {
     /// Value of the cyclic redundancy check (CRC) as read from the file.
     ///
     /// Will always be `None` for 2.0.
-    pub crc: Option<CRCOutput>,
+    pub file_crc: Option<CRCOutput>,
+
+    /// Value of the computed cyclic redundancy check (CRC) of the dataset.
+    ///
+    /// Will always be `None` for 2.0.
+    pub computed_crc: Option<u16>,
 }
 
 /// The output of parsing the CRC at the end of the last dataset.
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum CRCOutput {
     /// CRC was a valid 16 bit decimal number.
     Valid(u16),
     /// CRC bytes were found but did not parse to a 16-bit number.
-    Invalid([u8; 8]),
+    Invalid(Vec<u8>),
 }
 
 // TODO should all these std/nonstd keys just be keystrings since the $ is implied?
@@ -702,7 +708,12 @@ pub struct DatasetSummary {
     /// Value of the cyclic redundancy check (CRC) as read from the file.
     ///
     /// Will always be `None` for 2.0.
-    pub crc: Option<CRCOutput>,
+    pub file_crc: Option<CRCOutput>,
+
+    /// Value of the computed cyclic redundancy check (CRC) of the dataset.
+    ///
+    /// Will always be `None` for 2.0.
+    pub computed_crc: Option<u16>,
 }
 
 /// Warning when parsing [`Header`]
@@ -1510,7 +1521,8 @@ impl FlatDatasetOutput {
             n_other: ds.others.0.len(),
             others_len: ds.others.0.iter().map(|x| x.0.len()).sum(),
             datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
-            crc: ds.crc,
+            file_crc: ds.file_crc,
+            computed_crc: ds.computed_crc,
         }
     }
 }
@@ -1531,22 +1543,40 @@ impl FlatDatasetFromKwsOutput {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
+        C: AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadOffsetConfig>
+            + AsRef<ReadEventsConfig>
+            + AsRef<CRCConfig>,
     {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
                 let hns_max = hns.max_end_offset();
                 let da_max = dataset_offsets.max_end_offset();
-                let crc = if let Some(crc_start) = hns_max.max(da_max) {
-                    io_to_log!(st.read_crc(h, crc_start, new_version))
+                let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
+                    st.test_crc(h, crc_start, new_version, *st.conf().as_ref())
                 } else {
-                    None
+                    LogResult::new_ok((None, None))
                 };
                 let or = hns.header.final_offsets.others_reader();
-                let go =
-                    |others| Self::new(data, analysis, others, dataset_offsets, event_out, crc);
-                or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
+                crc_res
+                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+                    .map_pure_errors(LookupAndReadDataAnalysisError::from)
+                    .repack_warnings()
+                    .and_then_commutative(|(file_crc, computed_crc)| {
+                        let go = |others| {
+                            Self::new(
+                                data,
+                                analysis,
+                                others,
+                                dataset_offsets,
+                                event_out,
+                                file_crc,
+                                computed_crc,
+                            )
+                        };
+                        or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
+                    })
             })
     }
 }
@@ -1580,7 +1610,7 @@ impl FlatTEXTOutput {
     fn h_read_from_header<C, R>(
         h: &mut BufReader<R>,
         mut header: Header,
-        mut st: HeaderReadState<C>,
+        st: HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, TEXTReadState<C>),
         ParseFlatTEXTWarning,
@@ -1591,6 +1621,7 @@ impl FlatTEXTOutput {
         R: Read + Seek,
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadOffsetConfig>,
     {
+        let conf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
         // Clip the primary TEXT offsets if they exceed EOF.
         let ptext_overflow = match header.final_offsets.try_truncate_primary_text(&st) {
             Ok(overflow) => overflow,
@@ -1608,9 +1639,6 @@ impl FlatTEXTOutput {
         };
 
         let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(h));
-        st.update_digest(ptext_bytes.as_ref());
-
-        let conf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
         let enc = conf.use_encoding.choose(ptext_bytes.as_ref());
 
         let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
@@ -1640,7 +1668,7 @@ impl FlatTEXTOutput {
                     .map_error(IOErrorGroup::Pure)
             })
             // Parse supplemental TEXT if applicable
-            .and_then_commutative(|(mut kws, delim, prim_diag, nextdata, mut txt_st)| {
+            .and_then_commutative(|(mut kws, delim, prim_diag, nextdata, txt_st)| {
                 SuppTEXTOffsetsOutput::lookup(&kws.std, &mut header, &txt_st)
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
@@ -1648,7 +1676,7 @@ impl FlatTEXTOutput {
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|supp_out| {
                         if let Some(ne) = supp_out.as_offset_pair().and_then(|p| p.as_nonempty()) {
-                            let s = &mut txt_st;
+                            let s = txt_st.conf().as_ref();
                             SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut kws, delim, enc, s)
                                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                                 .map_pure_errors(ParseFlatTEXTError::from)
@@ -1760,7 +1788,8 @@ impl FlatTEXTOutput {
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadEventsConfig>,
+            + AsRef<ReadEventsConfig>
+            + AsRef<CRCConfig>,
     {
         let hdr = &mut self.flat_diagnostics.header_supp;
         AnyCoreDataset::new_from_keywords(h, hdr, self.keywords, st).map_ok_value(
@@ -1774,26 +1803,22 @@ impl FlatTEXTOutput {
 
 impl SplitTEXTDiagnostics {
     /// Read supp TEXT from file handle and store keywords in hash table.
-    fn h_read_supp<R: Read + Seek, C>(
+    fn h_read_supp<R: Read + Seek>(
         h: &mut BufReader<R>,
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         kws: &mut ParsedKeywords,
         delim: u8,
         enc: Encoding,
-        st: &mut TEXTReadState<C>,
+        conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         Option<Self>,
         ParseSupplementalTEXTError,
         ParseSupplementalTEXTError,
         (),
-    >
-    where
-        C: AsRef<ReadHeaderAndTEXTConfig>,
-    {
+    > {
         let bytes = io_to_log!(offsets.h_read_contents(h));
-        st.update_digest(bytes.as_ref());
         let ne = bytes.as_nonempty_slice();
-        Self::supp_from_bytes(kws, delim, &ne, enc, st.conf().as_ref())
+        Self::supp_from_bytes(kws, delim, &ne, enc, conf)
             .group()
             .map_error(IOErrorGroup::Pure)
     }
@@ -2763,7 +2788,7 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for CRCOutput {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Ok(b) = obj.extract::<[u8; 8]>() {
+            if let Ok(b) = obj.extract::<Vec<u8>>() {
                 return Ok(Self::Invalid(b));
             } else if let Ok(b) = obj.extract::<u16>() {
                 return Ok(Self::Valid(b));

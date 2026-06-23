@@ -453,6 +453,7 @@ class _CoreCommon:
         path: Path,
         delim: int = 30,
         big_other: bool = False,
+        compute_crc: bool = False,
         appendable: bool = False,
         append: bool = False,
     ) -> None: ...
@@ -463,6 +464,7 @@ class _CoreCommon:
         datasets: list[Self],
         delim: int = 30,
         big_other: bool = False,
+        compute_crc: bool = False,
     ) -> None: ...
     @property
     def version(self) -> pft.FCSVersion: ...
@@ -474,6 +476,7 @@ class _CoreDatasetCommon:
         path: Path,
         delim: int = 30,
         big_other: bool = False,
+        compute_crc: bool = False,
         allow_over_bitmask: pft.TriFlag = "false",
         disallow_over_range: pft.TriFlag = "false",
         row_buffer_size: int = 28000,
@@ -1681,6 +1684,10 @@ class CoreDataset3_0(
         over_bitmask_action: pft.OverLimitAction = "trunc_warn",
         over_range_action: pft.OverLimitAction = "warn",
         row_buffer_size: int = 28000,
+        # crc args
+        allow_missing_crc: pft.TriFlag = "false",
+        allow_mismatch_crc: pft.TriFlag = "false",
+        compute_crc: pft.ComputeReadCRC = "never",
         # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1817,6 +1824,10 @@ class CoreDataset3_1(
         over_bitmask_action: pft.OverLimitAction = "trunc_warn",
         over_range_action: pft.OverLimitAction = "warn",
         row_buffer_size: int = 28000,
+        # crc args
+        allow_missing_crc: pft.TriFlag = "false",
+        allow_mismatch_crc: pft.TriFlag = "false",
+        compute_crc: pft.ComputeReadCRC = "never",
         # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1955,6 +1966,10 @@ class CoreDataset3_2(
         over_bitmask_action: pft.OverLimitAction = "trunc_warn",
         over_range_action: pft.OverLimitAction = "warn",
         row_buffer_size: int = 28000,
+        # crc args
+        allow_missing_crc: pft.TriFlag = "false",
+        allow_mismatch_crc: pft.TriFlag = "false",
+        compute_crc: pft.ComputeReadCRC = "never",
         # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -2408,7 +2423,8 @@ class FlatDatasetFromKwsOutput:
         others: list[bytes],
         dataset_offsets: DatasetOffsets,
         events_diagnostics: EventsDiagnostics,
-        crc: pft.CRCOutput = None,
+        file_crc: pft.CRCOutput = None,
+        computed_crc: int | None = None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2422,7 +2438,9 @@ class FlatDatasetFromKwsOutput:
     @property
     def events_diagnostics(self) -> EventsDiagnostics: ...
     @property
-    def crc(self) -> pft.CRCOutput: ...
+    def file_crc(self) -> pft.CRCOutput: ...
+    @property
+    def computed_crc(self) -> int | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2490,7 +2508,8 @@ class StdDatasetFromKwsOutput:
         dataset_offsets: DatasetOffsets,
         std_diagnostics: StdTEXTDiagnostics,
         events_diagnostics: EventsDiagnostics,
-        crc: pft.CRCOutput = None,
+        file_crc: pft.CRCOutput = None,
+        computed_crc: int | None = None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2500,7 +2519,9 @@ class StdDatasetFromKwsOutput:
     @property
     def events_diagnostics(self) -> EventsDiagnostics: ...
     @property
-    def crc(self) -> pft.CRCOutput: ...
+    def file_crc(self) -> pft.CRCOutput: ...
+    @property
+    def computed_crc(self) -> int | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2550,7 +2571,8 @@ class DatasetSummary:
         n_other: int,
         others_len: int,
         datatype: pft.Datatype,
-        crc: pft.CRCOutput = None,
+        file_crc: pft.CRCOutput = None,
+        computed_crc: int | None = None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2572,7 +2594,9 @@ class DatasetSummary:
     @property
     def datatype(self) -> pft.Datatype: ...
     @property
-    def crc(self) -> pft.CRCOutput: ...
+    def file_crc(self) -> pft.CRCOutput: ...
+    @property
+    def computed_crc(self) -> int | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2826,6 +2850,10 @@ def fcs_read_flat_dataset(
     over_bitmask_action: pft.OverLimitAction = "trunc_warn",
     over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
+    # crc args
+    allow_missing_crc: pft.TriFlag = "false",
+    allow_mismatch_crc: pft.TriFlag = "false",
+    compute_crc: pft.ComputeReadCRC = "never",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2915,6 +2943,10 @@ def fcs_read_std_dataset(
     over_bitmask_action: pft.OverLimitAction = "trunc_warn",
     over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
+    # crc args
+    allow_missing_crc: pft.TriFlag = "false",
+    allow_mismatch_crc: pft.TriFlag = "false",
+    compute_crc: pft.ComputeReadCRC = "never",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -3120,6 +3152,10 @@ def fcs_read_flat_datasets(
     over_bitmask_action: pft.OverLimitAction = "trunc_warn",
     over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
+    # crc args
+    allow_missing_crc: pft.TriFlag = "false",
+    allow_mismatch_crc: pft.TriFlag = "false",
+    compute_crc: pft.ComputeReadCRC = "never",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -3211,6 +3247,10 @@ def fcs_read_std_datasets(
     over_bitmask_action: pft.OverLimitAction = "trunc_warn",
     over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
+    # crc args
+    allow_missing_crc: pft.TriFlag = "false",
+    allow_mismatch_crc: pft.TriFlag = "false",
+    compute_crc: pft.ComputeReadCRC = "never",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -3243,6 +3283,10 @@ def fcs_read_flat_dataset_with_keywords(
     over_bitmask_action: pft.OverLimitAction = "trunc_warn",
     over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
+    # crc args
+    allow_missing_crc: pft.TriFlag = "false",
+    allow_mismatch_crc: pft.TriFlag = "false",
+    compute_crc: pft.ComputeReadCRC = "never",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -3314,6 +3358,10 @@ def fcs_summarize(
     over_bitmask_action: pft.OverLimitAction = "trunc_warn",
     over_range_action: pft.OverLimitAction = "warn",
     row_buffer_size: int = 28000,
+    # crc args
+    allow_missing_crc: pft.TriFlag = "false",
+    allow_mismatch_crc: pft.TriFlag = "false",
+    compute_crc: pft.ComputeReadCRC = "never",
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -3325,6 +3373,7 @@ def fcs_write_datasets(
     datasets: list[pft.AnyCoreDataset],
     delim: int = 30,
     big_other: bool = False,
+    compute_crc: bool = False,
     allow_over_bitmask: pft.TriFlag = "false",
     disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,

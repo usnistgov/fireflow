@@ -162,6 +162,7 @@ use crate::validated::finite_float::{
     U64ToFiniteFloatError,
 };
 use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
+use crate::validated::read_state::WriteFCSDigest;
 use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
 
@@ -2151,7 +2152,12 @@ where
         + DataFrameAsDataSchema
         + WithPrimitiveDataFrame,
 {
-    fn h_write_df<W>(&self, h: &mut BufWriter<W>, conf: &WriteDatasetInnerConfig) -> io::Result<()>
+    fn h_write_df<W>(
+        &self,
+        h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
+        conf: &WriteDatasetInnerConfig,
+    ) -> io::Result<()>
     where
         W: Write,
     {
@@ -2164,7 +2170,7 @@ where
                 eprintln!("[WARN] layout is not normalized");
             }
         }
-        self.h_write_df_inner(h, conf)
+        self.h_write_df_inner(h, digest, conf)
     }
 }
 
@@ -3451,6 +3457,7 @@ pub trait DataFrameWriteOps: Sized {
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()>;
 }
@@ -3463,9 +3470,10 @@ where
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
-        self.h_write_fixed_df(h, conf)
+        self.h_write_fixed_df(h, digest, conf)
     }
 }
 
@@ -3484,20 +3492,25 @@ impl<const ORD: bool, TotType, Dtype> DataFrameWriteOps
     fn h_write_df_inner<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         _: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let df = &self.container;
         let ncols = df.ncols();
         let nrows = df.nrows();
 
+        let mut go = |bs: &[u8]| {
+            digest.update(bs);
+            h.write_all(bs)
+        };
         for row_idx in 0..nrows {
             for (col_idx, col) in df.iter().enumerate() {
                 let xs = col.as_ref();
                 let s = xs[row_idx].to_string();
-                h.write_all(s.as_bytes())?;
+                go(s.as_bytes())?;
                 // write delimiter after all but last value
                 if !(row_idx == nrows - 1 && col_idx == ncols - 1) {
-                    h.write_all(&[32])?; // 32 = space in ASCII
+                    go(&[32])?; // 32 = space in ASCII
                 }
             }
         }
@@ -3847,6 +3860,7 @@ trait DataFrameWriteFixed {
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()>;
 }
@@ -3863,6 +3877,7 @@ where
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
@@ -3870,7 +3885,8 @@ where
             WriteBuffer::init(conf.row_buffer_size, nrows, self.event_width())
         {
             let cols: Vec<_> = self.container.iter().map(AsRef::as_ref).collect();
-            self.byteord.write_matrix(h, &mut row_buf, &cols[..])?;
+            self.byteord
+                .write_matrix(h, &mut row_buf, &cols[..], digest)?;
         }
         Ok(())
     }
@@ -3890,6 +3906,7 @@ impl<M, const ORD: bool> DataFrameWriteFixed
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
@@ -3897,7 +3914,7 @@ impl<M, const ORD: bool> DataFrameWriteFixed
             WriteBuffer::init(conf.row_buffer_size, nrows, self.event_width())
         {
             let cols = self.container.as_ref();
-            row_buf.write_char_matrix(h, cols)?;
+            row_buf.write_char_matrix(h, cols, digest)?;
         }
         Ok(())
     }
@@ -3910,6 +3927,7 @@ impl<M> DataFrameWriteFixed
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
@@ -3917,7 +3935,7 @@ impl<M> DataFrameWriteFixed
             WriteBuffer::init(conf.row_buffer_size, nrows, self.event_width())
         {
             let cols = self.container.as_ref();
-            row_buf.write_any_uint_df(h, cols, self.byteord)?;
+            row_buf.write_any_uint_df(h, cols, digest, self.byteord)?;
         }
         Ok(())
     }
@@ -3930,16 +3948,17 @@ impl<M> DataFrameWriteFixed
     fn h_write_fixed_df<W: Write>(
         &self,
         h: &mut BufWriter<W>,
+        digest: &mut WriteFCSDigest,
         conf: &WriteDatasetInnerConfig,
     ) -> io::Result<()> {
         let nrows = self.container.nrows();
         if let Some(mut buf) = WriteBuffer::init(conf.row_buffer_size, nrows, self.event_width()) {
             let en = self.byteord;
             let cols = self.container.as_ref();
-            if !(try_write_single::<_, Any4ByteColumn, F32Range>(h, cols, en, &mut buf)?
-                || try_write_single::<_, Any8ByteColumn, F64Range>(h, cols, en, &mut buf)?)
+            if !(try_write_single::<_, Any4ByteColumn, F32Range>(h, cols, digest, en, &mut buf)?
+                || try_write_single::<_, Any8ByteColumn, F64Range>(h, cols, digest, en, &mut buf)?)
             {
-                buf.write_mixed_df(h, cols, self.byteord)?;
+                buf.write_mixed_df(h, cols, digest, self.byteord)?;
             }
         }
         Ok(())
@@ -3981,6 +4000,7 @@ impl_single_width_column!(Any8ByteColumn, f64, F64, Uint64);
 fn try_write_single<W, T, C>(
     h: &mut BufWriter<W>,
     cols: &[MixedSeries],
+    digest: &mut WriteFCSDigest,
     endian: Endian,
     write_buf: &mut WriteBuffer,
 ) -> io::Result<bool>
@@ -3998,7 +4018,7 @@ where
         .collect::<Result<Vec<_>, _>>()
     {
         let columns: Vec<_> = cs.iter().map(AsRef::as_ref).collect();
-        ByteOrderIO::<C>::write_matrix(&endian, h, write_buf, &columns[..])?;
+        ByteOrderIO::<C>::write_matrix(&endian, h, write_buf, &columns[..], digest)?;
         Ok(true)
     } else {
         Ok(false)
@@ -7115,6 +7135,7 @@ where
         h: &mut BufWriter<W>,
         buf: &mut WriteBuffer,
         cols: &[&[<C as ColumnHasNativeType>::Native]],
+        digest: &mut WriteFCSDigest,
     ) -> io::Result<()>;
 }
 
@@ -7135,8 +7156,9 @@ macro_rules! impl_byte_layout_io {
                 h: &mut BufWriter<W>,
                 buf: &mut WriteBuffer,
                 cols: &[&[<$inner as ColumnHasNativeType>::Native]],
+                digest: &mut WriteFCSDigest,
             ) -> io::Result<()> {
-                buf.$write_fun(h, cols, *self)
+                buf.$write_fun(h, cols, digest, *self)
             }
         }
     };

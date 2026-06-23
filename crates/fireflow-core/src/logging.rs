@@ -64,8 +64,8 @@ use {fireflow_core_proc::AllIntoPyErr, pyo3::prelude::*, std::fmt::Display};
 pub type WarningsAndIOGroupResult<V, W, E, G> =
     WarningsAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
 
-// pub(crate) type WarningAndIOGroupResult<V, W, E, G> =
-//     WarningAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
+pub(crate) type WarningAndIOGroupResult<V, W, E, G> =
+    WarningAndErrorResult<V, (), W, IOErrorGroup<E, G>>;
 
 pub(crate) type WarningsAndGroupResult<V, W, E, S> =
     WarningsAndErrorResult<V, (), W, ErrorGroup<E, S>>;
@@ -765,15 +765,15 @@ pub(crate) trait ResultExt: Sized {
         }
     }
 
-    fn ungroup<E>(self) -> ErrorsResult<Self::Ok, (), E>
-    where
-        Self: ResultExt<Error = AnonErrorGroup<E>>,
-    {
-        match self.into_result() {
-            Ok(x) => LogResult::new_ok(x),
-            Err(g) => Fail(Failure::new_from_many(g.errors, ())),
-        }
-    }
+    // fn ungroup<E>(self) -> ErrorsResult<Self::Ok, (), E>
+    // where
+    //     Self: ResultExt<Error = AnonErrorGroup<E>>,
+    // {
+    //     match self.into_result() {
+    //         Ok(x) => LogResult::new_ok(x),
+    //         Err(g) => Fail(Failure::new_from_many(g.errors, ())),
+    //     }
+    // }
 
     fn sequence_results(
         rs: impl IntoIterator<Item = Self>,
@@ -3277,28 +3277,28 @@ impl<V, P, LWC, RWC, X, E, EC> LogResult<V, P, LWC, RWC, X, E, EC> {
     }
 }
 
-/// Split the IO error away from an impure result.
-///
-/// For results that have an IOErrorGroup, this will throw the entire group
-/// (similar to `?`) if an IO error is present, otherwise return a pure result
-/// with an `ErrorGroup` (ie no IO error).
-///
-/// In effect, this will short-circuit if an IO-error is present.
-macro_rules! split_io {
-    ($x:expr) => {
-        match $x {
-            Ok(x) => Ok(x),
-            Err(x) => match x {
-                e @ crate::logging::IOErrorGroup::IO(_, _) => {
-                    return Err(type_families::Functor::fmap(e, Into::into));
-                }
-                crate::logging::IOErrorGroup::Pure(e) => Err(e),
-            },
-        }
-    };
-}
+// /// Split the IO error away from an impure result.
+// ///
+// /// For results that have an IOErrorGroup, this will throw the entire group
+// /// (similar to `?`) if an IO error is present, otherwise return a pure result
+// /// with an `ErrorGroup` (ie no IO error).
+// ///
+// /// In effect, this will short-circuit if an IO-error is present.
+// macro_rules! split_io {
+//     ($x:expr) => {
+//         match $x {
+//             Ok(x) => Ok(x),
+//             Err(x) => match x {
+//                 e @ crate::logging::IOErrorGroup::IO(_, _) => {
+//                     return Err(type_families::Functor::fmap(e, Into::into));
+//                 }
+//                 crate::logging::IOErrorGroup::Pure(e) => Err(e),
+//             },
+//         }
+//     };
+// }
 
-pub(crate) use split_io;
+// pub(crate) use split_io;
 
 macro_rules! split_log {
     ($x:expr) => {
@@ -3322,7 +3322,7 @@ macro_rules! io_to_log {
         match $x {
             Ok(x) => x,
             Err(e) => {
-                return crate::logging::LogResult::new_err(IOErrorGroup::from(e));
+                return crate::logging::LogResult::new_err(crate::logging::IOErrorGroup::from(e));
             }
         }
     };

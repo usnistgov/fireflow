@@ -1584,6 +1584,7 @@ fn get_read_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadF
         offset: get_offsets_config(sargs),
         layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
+        crc: cfg::CRCConfig::default(),
         shared: get_read_shared_config(sargs),
     }
 }
@@ -1596,6 +1597,7 @@ fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadSt
         standard: get_std_kws_config(sargs),
         layout: get_data_kws_config(sargs),
         data: get_events_config(sargs),
+        crc: cfg::CRCConfig::default(),
         shared: get_read_shared_config(sargs),
     }
 }

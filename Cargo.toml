@@ -29,7 +29,7 @@ phf = "0.13.1"
 const_format = "0.2.36"
 hashbrown = "0.16.1"
 bytemuck = "1.25.0"
-crc = "3.4.0"
+crc-fast = "1.10.0"
 
 # serde
 serde = "1.0.228"

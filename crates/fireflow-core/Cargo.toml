@@ -37,7 +37,7 @@ serde = { workspace = true, features = ["derive"], optional = true }
 ndarray = { workspace = true }
 polars-buffer = { workspace = true }
 nonempty-collections = { workspace = true }
-crc = { workspace = true }
+crc-fast = { workspace = true }
 type_families = { path = "../type_families" }
 fireflow-core-proc = { path = "../fireflow-core-proc" }
 pyo3 = { workspace = true, optional = true }

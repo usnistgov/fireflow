@@ -203,9 +203,10 @@ class PyreflowReadFlatTEXTConfig(
         path: Path,
         skip: int | None = None,
         limit: int | None = None,
+        scan: bool = False,
     ) -> list[pfa.FlatTEXTOutput]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_texts`."""
-        return pfa.fcs_read_flat_texts(path, skip, limit, **self.model_dump())
+        return pfa.fcs_read_flat_texts(path, skip, limit, scan, **self.model_dump())
 
     @classmethod
     def new_scalpal(cls) -> Self:
@@ -243,9 +244,10 @@ class PyreflowReadStdTEXTConfig(
         path: Path,
         skip: int | None = None,
         limit: int | None = None,
+        scan: bool = False,
     ) -> list[tuple[pft.AnyCoreTEXT, pfa.StdTEXTOutput]]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_texts`."""
-        return pfa.fcs_read_std_texts(path, skip, limit, **self.model_dump())
+        return pfa.fcs_read_std_texts(path, skip, limit, scan, **self.model_dump())
 
     @classmethod
     def new_scalpal(cls) -> Self:
@@ -282,18 +284,20 @@ class PyreflowReadFlatDatasetConfig(
         path: Path,
         skip: int | None = None,
         limit: int | None = None,
+        scan: bool = False,
     ) -> list[pfa.FlatDatasetOutput]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_datasets`."""
-        return pfa.fcs_read_flat_datasets(path, skip, limit, **self.model_dump())
+        return pfa.fcs_read_flat_datasets(path, skip, limit, scan, **self.model_dump())
 
     def summarize(
         self,
         path: Path,
         skip: int | None = None,
         limit: int | None = None,
+        scan: bool = False,
     ) -> list[pfa.DatasetSummary]:
         """Wrapper for :func:`~pyreflow.api.fcs_summarize`."""
-        return pfa.fcs_summarize(path, skip, limit, **self.model_dump())
+        return pfa.fcs_summarize(path, skip, limit, scan, **self.model_dump())
 
     @classmethod
     def new_scalpal(cls) -> Self:
@@ -335,9 +339,10 @@ class PyreflowReadStdDatasetConfig(
         path: Path,
         skip: int | None = None,
         limit: int | None = None,
+        scan: bool = False,
     ) -> list[tuple[pft.AnyCoreDataset, pfa.StdDatasetOutput]]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_datasets`."""
-        return pfa.fcs_read_std_datasets(path, skip, limit, **self.model_dump())
+        return pfa.fcs_read_std_datasets(path, skip, limit, scan, **self.model_dump())
 
     @classmethod
     def new_scalpal(cls) -> Self:

@@ -641,7 +641,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_compute_write_crc_param())
         .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
-        .arg(DocArg::new_row_buffer_size(false))
+        .arg(DocArg::new_row_buffer_size_param(false))
         .returns(ret);
 
     let fun_args = doc.fun_args();
@@ -3121,7 +3121,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_compute_write_crc_param())
         .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
-        .arg(DocArg::new_row_buffer_size(false))
+        .arg(DocArg::new_row_buffer_size_param(false))
         .arg(DocArg::new_appendable_param())
         .arg(DocArg::new_append_param())
         .returns(ret);
@@ -9666,7 +9666,10 @@ impl DocArgParam {
                 Self::new_compute_crc_param(),
             ]
         };
-        let args2 = [Self::new_row_buffer_size(true)];
+        let args2 = [
+            Self::new_read_intra_segment_dark_bytes_param(),
+            Self::new_row_buffer_size_param(true),
+        ];
         let ps: Vec<_> = args0.into_iter().chain(args1).chain(args2).collect();
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
@@ -10572,7 +10575,12 @@ impl DocArgParam {
         Self::new_param(n, pt, d).def_auto()
     }
 
-    fn new_row_buffer_size(is_reader: bool) -> Self {
+    fn new_read_intra_segment_dark_bytes_param() -> Self {
+        let d = format!("If {TRUE} read bytes which are between segments.");
+        Self::new_bool_param("read_intra_segment_dark_bytes", d)
+    }
+
+    fn new_row_buffer_size_param(is_reader: bool) -> Self {
         let act = if is_reader { "read" } else { "write" };
         let d = format!(
             "Set the size in bytes for the internal buffer used to {act} {DATA}. \

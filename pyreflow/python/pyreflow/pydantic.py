@@ -126,6 +126,7 @@ class _ReadEventsConfig(BaseModel):
     allow_missing_crc: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_mismatch_crc: pft.TriFlag = _DEFAULT_TRIFLAG
     compute_crc: pft.ComputeReadCRC = "never"
+    read_intra_segment_dark_bytes: bool = False
     row_buffer_size: int = 28000
 
 

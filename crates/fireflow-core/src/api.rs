@@ -1559,14 +1559,19 @@ impl FlatDatasetFromKwsOutput {
             .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
                 let hns_max = hns.text_other_max_end_offset();
                 let da_max = dataset_offsets.max_end_offset();
-                let dark = io_to_log!(IntraSegmentDarkBytes::read_all(
-                    h,
-                    hns.header.final_offsets.text(),
-                    hns.supp_text.final_offsets(),
-                    dataset_offsets.final_data,
-                    dataset_offsets.final_analysis,
-                    hns.header.final_offsets.other_ref(),
-                ));
+                let dconf: &ReadDatasetConfig = st.conf().as_ref();
+                let dark = if dconf.read_intra_segment_dark_bytes.is_set() {
+                    io_to_log!(IntraSegmentDarkBytes::read_all(
+                        h,
+                        hns.header.final_offsets.text(),
+                        hns.supp_text.final_offsets(),
+                        dataset_offsets.final_data,
+                        dataset_offsets.final_analysis,
+                        hns.header.final_offsets.other_ref(),
+                    ))
+                } else {
+                    vec![]
+                };
                 let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
                     st.test_crc(h, crc_start, new_version, st.conf().as_ref())
                 } else {

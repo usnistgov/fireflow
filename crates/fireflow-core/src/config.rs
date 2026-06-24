@@ -965,6 +965,9 @@ pub struct ReadDatasetConfig {
     /// the easiest and sanest way to compute this.
     pub compute_crc: ComputeCRC,
 
+    /// If `true` read bytes which are between segments.
+    pub read_intra_segment_dark_bytes: ReadIntraSegmentDarkBytes,
+
     /// Set the size in bytes for the internal buffer used to read DATA.
     ///
     /// This is a performance tuning parameter which controls the
@@ -1248,6 +1251,7 @@ impl_config_flag!(IntegerWidthsFromByteord);
 impl_config_flag!(TransferDroppedOptional);
 impl_config_flag!(FixLogScaleOffsets);
 impl_config_flag!(DisallowLocaltime);
+impl_config_flag!(ReadIntraSegmentDarkBytes);
 
 impl_config_flag!(SkipConversionCheck);
 impl_config_flag!(BigOther);

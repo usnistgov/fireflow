@@ -1563,6 +1563,7 @@ class CoreDataset2_0(
         allow_tot_mismatch: pft.TriFlag = "false",
         over_bitmask_action: pft.OverLimitAction = "trunc_warn",
         over_range_action: pft.OverLimitAction = "warn",
+        read_intra_segment_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1686,6 +1687,7 @@ class CoreDataset3_0(
         allow_missing_crc: pft.TriFlag = "false",
         allow_mismatch_crc: pft.TriFlag = "false",
         compute_crc: pft.ComputeReadCRC = "never",
+        read_intra_segment_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1825,6 +1827,7 @@ class CoreDataset3_1(
         allow_missing_crc: pft.TriFlag = "false",
         allow_mismatch_crc: pft.TriFlag = "false",
         compute_crc: pft.ComputeReadCRC = "never",
+        read_intra_segment_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1966,6 +1969,7 @@ class CoreDataset3_2(
         allow_missing_crc: pft.TriFlag = "false",
         allow_mismatch_crc: pft.TriFlag = "false",
         compute_crc: pft.ComputeReadCRC = "never",
+        read_intra_segment_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -2888,6 +2892,7 @@ def fcs_read_flat_dataset(
     allow_missing_crc: pft.TriFlag = "false",
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
+    read_intra_segment_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -2980,6 +2985,7 @@ def fcs_read_std_dataset(
     allow_missing_crc: pft.TriFlag = "false",
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
+    read_intra_segment_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3188,6 +3194,7 @@ def fcs_read_flat_datasets(
     allow_missing_crc: pft.TriFlag = "false",
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
+    read_intra_segment_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3282,6 +3289,7 @@ def fcs_read_std_datasets(
     allow_missing_crc: pft.TriFlag = "false",
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
+    read_intra_segment_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3317,6 +3325,7 @@ def fcs_read_flat_dataset_with_keywords(
     allow_missing_crc: pft.TriFlag = "false",
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
+    read_intra_segment_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3391,6 +3400,7 @@ def fcs_summarize(
     allow_missing_crc: pft.TriFlag = "false",
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
+    read_intra_segment_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,

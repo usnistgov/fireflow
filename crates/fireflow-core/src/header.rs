@@ -12,7 +12,7 @@ use crate::logging::{
 use crate::segment::read::{
     GuessOtherWidthError, HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsets,
     HeaderOffsetsError, HeaderToHeaderOffsetsOverlap, IsOffsetPair as _, OriginalOffsets,
-    OtherOffsets20, PrimaryTextOffsets,
+    OtherOffsetOutput, OtherOffsets20, PrimaryTextOffsets,
 };
 use crate::segment::write::{
     HeaderAnalysisOffsetsToWrite, HeaderDataOffsetsToWrite, OffsetsToWrite, OtherOffsetsToWrite,
@@ -31,7 +31,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{Key as _, StdKeywords};
+use crate::validated::keys::{Key as _, StdKeywords, StringOrBytes};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
@@ -42,9 +42,7 @@ use fireflow_types::nonempty_string::{NEStr, NEString};
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{
-    IntoIteratorExt as _, IntoNonEmptyIterator as _, NEVec, iter::NonEmptyIterator as _,
-};
+use nonempty_collections::{IntoIteratorExt as _, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
 use thiserror::Error;
 
@@ -140,6 +138,12 @@ pub struct Header {
 
     /// Overlaps between offsets from HEADER that were corrected.
     pub overlaps: Vec<HeaderToHeaderOffsetsOverlap>,
+
+    /// Bytes between the end of the HEADER and the first segment.
+    ///
+    /// The "end of the HEADER" is the first byte after the second ANALYSIS
+    /// offset or the last OTHER offset pair if it exists.
+    pub dark_bytes: StringOrBytes,
 }
 
 impl Header {
@@ -170,7 +174,7 @@ impl Header {
         let other_res = if let Some(m) = min_coord {
             OtherOffsets20::h_read_others(h, m, st)
         } else {
-            LogResult::new_ok(None)
+            LogResult::new_ok(OtherOffsetOutput::default())
         };
 
         let oconf: &ReadOffsetConfig = st.conf().as_ref();
@@ -178,24 +182,19 @@ impl Header {
         other_res
             .map_pure_errors(HeaderError::from)
             .and_then_commutative(|other| {
-                let (os, os_orig) = if let Some((os, w)) = other {
-                    let (final_, orig): (NEVec<_>, NEVec<_>) = os.into_nonempty_iter().unzip();
-                    (Some((final_, w)), Vec::from(orig))
-                } else {
-                    (None, vec![])
-                };
+                let (os_final, os_orig, dark_other) = other.finalize();
                 let original =
                     OriginalHeaderOffsets::new(text_orig, data_orig, analysis_orig, os_orig);
                 let limit = oconf.overlap_correction_limit;
-                FinalHeaderOffsets::try_new_with_limit(text, data, analysis, os, limit)
+                let d = st.dataset_offset();
+                FinalHeaderOffsets::try_new_with_limit(text, data, analysis, os_final, limit)
                     .map_errors(HeaderError::from)
                     .nowarn_into_warn()
                     .group()
                     .map_error(IOErrorGroup::Pure)
-                    .map_ok_value(|(segs, overlaps)| (segs, original, overlaps))
-            })
-            .map_ok_value(|(final_, original, overlaps)| {
-                Self::new(st.dataset_offset(), req.version, final_, original, overlaps)
+                    .map_ok_value(|(final_, overlaps)| {
+                        Self::new(d, req.version, final_, original, overlaps, dark_other)
+                    })
             })
     }
 }

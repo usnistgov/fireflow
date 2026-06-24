@@ -808,12 +808,20 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.overlaps.iter().cloned().map(Into::into).collect()),
     );
 
+    let dark = DocArgROIvar::new_ivar_ro(
+        "dark_bytes",
+        PyUnion::new_string_or_bytes(),
+        format!("Bytes between the end of the {HEADER} and the first segment."),
+        |_, _| quote!(self.0.dark_bytes.clone()),
+    );
+
     let args = [
         dataset_offset,
         version,
         final_offsets,
         original_offsets,
         overlaps,
+        dark,
     ];
 
     let doc = DocString::new_class(format!("The {HEADER} segment from an FCS dataset.")).args(args);
@@ -827,6 +835,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
                     final_offsets.into(),
                     original_offsets.into(),
                     overlaps.into_iter().map(Into::into).collect(),
+                    dark_bytes,
                 ).into()
             }
 
@@ -839,6 +848,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
                 ret.set_item("final_offsets", self.final_offsets().dict(py)?)?;
                 ret.set_item("original_offsets", self.original_offsets().dict(py)?)?;
                 ret.set_item("overlaps", self.overlaps())?;
+                ret.set_item("dark_bytes", self.dark_bytes())?;
                 Ok(ret.into())
             }
         }

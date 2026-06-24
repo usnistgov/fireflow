@@ -10,6 +10,7 @@ use crate::config::{
     AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
     ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
 };
+use crate::convert::U64Ext as _;
 use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{
@@ -21,9 +22,11 @@ use crate::text::lookup::{
 };
 use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad8, UintSpacePad20};
-use crate::validated::header_offsets::{HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError};
+use crate::validated::header_offsets::{
+    FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
+};
 use crate::validated::keys::{
-    AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
+    AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, StringOrBytes, TruncatedNEString,
 };
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
@@ -33,6 +36,7 @@ use fireflow_types::config::ProcessKeywordFailure;
 use fireflow_types::keywords::Version;
 use fireflow_types::nonempty_string::NESliceExt as _;
 
+use nonempty_collections::IntoNonEmptyIterator as _;
 use type_families::{
     BifunctorOnce, Functor as _, FunctorOnce as _, Sibling2, impl_functor_once, impl_kind1,
     impl_kind2,
@@ -2156,17 +2160,12 @@ impl<I: Copy> HeaderOffsets<I> {
 // Implement methods for OTHER segment offsets
 
 impl OtherOffsets20 {
-    #[allow(clippy::type_complexity)]
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn h_read_others<C, R>(
         h: &mut BufReader<R>,
         first_seg_begin: u64,
         st: &HeaderReadState<C>,
-    ) -> WarningsAndIOGroupResult<
-        Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
-        GuessOtherWidthError,
-        HeaderOffsetsError,
-        (),
-    >
+    ) -> WarningsAndIOGroupResult<OtherOffsetOutput, GuessOtherWidthError, HeaderOffsetsError, ()>
     where
         R: Read + Seek,
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
@@ -2180,17 +2179,7 @@ impl OtherOffsets20 {
             .expect("minimal offset greater than 58")
             .try_into()
         else {
-            return LogResult::new_ok(None);
-        };
-
-        // Get max desired number of segments; If zero, exit early.
-        let Ok(max_other) = hconf
-            .max_other
-            .map(|x| u64::try_from(x).expect("usize overflow"))
-            .map(NonZeroU64::try_from)
-            .transpose()
-        else {
-            return LogResult::new_ok(None);
+            return LogResult::new_ok(OtherOffsetOutput::default());
         };
 
         // Check that we have enough bytes left to read the offsets.
@@ -2216,6 +2205,16 @@ impl OtherOffsets20 {
         // they will be read and ignored).
         let mut buf = vec![];
         io_to_log!(h.take(u64::from(max_other_len)).read_to_end(&mut buf));
+
+        // Get max desired number of segments; If zero, exit early.
+        let Ok(max_other) = hconf
+            .max_other
+            .map(|x| u64::try_from(x).expect("usize overflow"))
+            .map(NonZeroU64::try_from)
+            .transpose()
+        else {
+            return LogResult::new_ok(OtherOffsetOutput::new(None, buf));
+        };
 
         // Only consider bytes which are spaces, nulls, minus sign, or digits
         // where a minus sign must always immediately precede a digit
@@ -2245,7 +2244,7 @@ impl OtherOffsets20 {
         {
             ne
         } else {
-            return LogResult::new_ok(None);
+            return LogResult::new_ok(OtherOffsetOutput::new(None, buf));
         };
 
         // Guess offset width if desired.
@@ -2262,6 +2261,7 @@ impl OtherOffsets20 {
             WarningsAndErrorsResult::new_ok(hconf.other_width)
         };
 
+        // Parse the offsets from the buffer.
         width_res
             .map_errors(HeaderOffsetsError::from)
             .and_then_commutative(|width| {
@@ -2271,6 +2271,13 @@ impl OtherOffsets20 {
                     .copied()
                     .chain(repeat(OffsetsCorrection::default()));
                 let limit = hconf.max_other.unwrap_or(usize::MAX);
+                // Chop the buffer into chunks sized according to the width we
+                // chose/found earlier. Operate on pairs of these chunks, and
+                // only try parsing them if both chunks are not entirely
+                // space/null/0 chars.
+                //
+                // TODO we might miss legit pairs if we screen by zeros since
+                // these can still be real offsets.
                 valid_buf
                     .nonempty_chunks(width.into())
                     .into_iter()
@@ -2288,7 +2295,46 @@ impl OtherOffsets20 {
                     })
                     .sequence_commutative()
                     .nowarn_into_warn()
-                    .map_ok_value(|xs| NEVec::try_from_vec(xs).map(|ys| (ys, width)))
+                    .map_ok_value(|xs| {
+                        // Once we parse all the offset pairs we can, also
+                        // return the unparsed dark bytes for diagnostics. The
+                        // dark bytes will be all bytes after the last OTHER
+                        // offset pair up to the first segment. The only tricky
+                        // bit with this is that this function was called with
+                        // the offset of the first segment known at call time.
+                        // However, the OTHER offsets might start before this
+                        // (it would be weird, but nothing is stopping this from
+                        // happening). Therefore, we need to update this minimum
+                        // with the OTHER offsets we just parsed.
+                        if let Some(ne) = NEVec::try_from_vec(xs) {
+                            let max_index = ne.nonempty_iter().map(|(x, _)| x.index).max();
+                            let min_other_start = ne
+                                .iter()
+                                .filter_map(|(x, _)| x.offsets.as_nonempty())
+                                .map(|n| n.begin())
+                                .min();
+                            let dark_start = (max_index + 1) * 2 * usize::from(u8::from(width));
+                            // It is possible that the updated minimum offset
+                            // start (the end of the dark bytes) occurs in
+                            // HEADER. This is obviously illegal; we can assume
+                            // this error will be caught later when all the
+                            // offset pairs are validated against the HEADER.
+                            // Just ignore the issue here.
+                            let dark_bytes = if let Some(dark_end) = min_other_start
+                                .map_or(first_seg_begin, |x| x.min(first_seg_begin))
+                                .u64_to_usize()
+                                .checked_sub(usize::from(HEADER_LEN))
+                                && dark_start <= dark_end
+                            {
+                                buf[dark_start..dark_end].to_vec()
+                            } else {
+                                vec![]
+                            };
+                            OtherOffsetOutput::new(Some((ne, width)), dark_bytes)
+                        } else {
+                            OtherOffsetOutput::new(None, buf.clone())
+                        }
+                    })
             })
             .group()
             .map_error(IOErrorGroup::Pure)
@@ -2473,6 +2519,24 @@ impl OtherOffsets20 {
         } else {
             Err(GuessOtherWidthError::NoWidth)
         }
+    }
+}
+
+#[derive(new, Default)]
+pub(crate) struct OtherOffsetOutput {
+    pub(crate) offsets: Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
+    pub(crate) dark_bytes: Vec<u8>,
+}
+
+impl OtherOffsetOutput {
+    pub(crate) fn finalize(self) -> (FinalOtherOffsets, Vec<OriginalOffsets>, StringOrBytes) {
+        let (final_, original) = if let Some((os, w)) = self.offsets {
+            let (final_, orig): (NEVec<_>, NEVec<_>) = os.into_nonempty_iter().unzip();
+            (Some((final_, w)), Vec::from(orig))
+        } else {
+            (None, vec![])
+        };
+        (final_, original, StringOrBytes::from(self.dark_bytes))
     }
 }
 

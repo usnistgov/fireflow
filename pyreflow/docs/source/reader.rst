@@ -212,7 +212,7 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.StdTEXTDiagnostics
    :members:
 
-.. autoclass:: pyreflow.api.EventsDiagnostics
+.. autoclass:: pyreflow.api.DatasetDiagnostics
    :members:
 
 .. autoclass:: pyreflow.api.IntraSegmentDarkBytes

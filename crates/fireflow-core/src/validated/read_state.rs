@@ -240,10 +240,17 @@ impl<C> TEXTReadState<C> {
     where
         R: Read + Seek,
     {
-        h.seek(io::SeekFrom::Start(self.dataset_offset.0 + crc_start))?;
+        const CRC_LEN: u8 = 8;
+        let dataset_len = self.dataset_bounds.len.0;
+        let abs_start = dataset_len + crc_start;
+        let remaining = dataset_len
+            .checked_sub(crc_start)
+            .expect("CRC start should be within dataset boundaries");
+        h.seek(io::SeekFrom::Start(abs_start))?;
         let mut buf = vec![];
-        h.take(8).read_to_end(&mut buf)?;
-        if buf.len() == 8 {
+        h.take(remaining.min(CRC_LEN.into()))
+            .read_to_end(&mut buf)?;
+        if buf.len() == usize::from(CRC_LEN) {
             // NOTE the CRC has 8 digits but must parse to a 16-bit number.
             // It isn't clear why the CRC isn't just 5 bytes, since the max
             // u16 is ~64k.

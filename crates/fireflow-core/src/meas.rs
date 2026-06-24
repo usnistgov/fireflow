@@ -1,7 +1,7 @@
 //! The DATA segment and metadata for measurements.
 
 use crate::config::{
-    AllowLoss, ReadDataKeywordsConfig, ReadEventsConfig, ReadStdKeywordsConfig,
+    AllowLoss, ReadDataKeywordsConfig, ReadDatasetConfig, ReadStdKeywordsConfig,
     TemporalHasOpticalKeyError,
 };
 use crate::core::{TrimmedKeywords, Versioned};
@@ -3983,7 +3983,7 @@ where
         h: &mut BufReader<R>,
         tot: <V::DataSchema as VersionedDataSchema>::Tot,
         seg: &mut AnyDataOffsets,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         ReadDataFrameResult<VCoreMeasurements<<V as VersionMeasSet>::DataFrame, V>>,
         ReadCheckedDataframeWarning,

@@ -1,11 +1,11 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    AppendFlag, AppendableFlag, CRCConfig, ConfigFlag as _, OverlapCorrectionLimit,
-    ReadDataKeywordsConfig, ReadEventsConfig, ReadFlatDatasetConfig,
-    ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig,
-    ReadHeaderConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig,
-    ReadStdDatasetConfig, ReadStdKeywordsConfig, ReadStdTEXTConfig, VersionOverride,
-    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig,
+    AppendFlag, AppendableFlag, ConfigFlag as _, OverlapCorrectionLimit, ReadDataKeywordsConfig,
+    ReadDatasetConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
+    ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig,
+    ReadOffsetConfig, ReadSharedConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig,
+    ReadStdTEXTConfig, VersionOverride, WriteDatasetInnerConfig, WriteMultiConfig,
+    WriteMultiDatasetConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::core::{
@@ -1552,10 +1552,7 @@ impl FlatDatasetFromKwsOutput {
     >
     where
         R: Read + Seek,
-        C: AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadOffsetConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<CRCConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
     {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
@@ -1571,7 +1568,7 @@ impl FlatDatasetFromKwsOutput {
                     hns.header.final_offsets.other_ref(),
                 ));
                 let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
-                    st.test_crc(h, crc_start, new_version, *st.conf().as_ref())
+                    st.test_crc(h, crc_start, new_version, st.conf().as_ref())
                 } else {
                     LogResult::new_ok((None, None))
                 };
@@ -1806,8 +1803,7 @@ impl FlatTEXTOutput {
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<CRCConfig>,
+            + AsRef<ReadDatasetConfig>,
     {
         let hdr = &mut self.flat_diagnostics.header_supp;
         AnyCoreDataset::new_from_keywords(h, hdr, self.keywords, st).map_ok_value(
@@ -2687,7 +2683,7 @@ fn kws_to_df_analysis<C, R>(
 >
 where
     R: Read + Seek,
-    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadEventsConfig>,
+    C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
 {
     match new_version {
         Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, st),

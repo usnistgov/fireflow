@@ -108,7 +108,7 @@
 
 use crate::config::{
     AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
-    DummyTriFlag, FixIntWidths, ReadDataKeywordsConfig, ReadEventsConfig, TriErrorFlag as _,
+    DummyTriFlag, FixIntWidths, ReadDataKeywordsConfig, ReadDatasetConfig, TriErrorFlag as _,
     WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
@@ -1895,7 +1895,7 @@ where
         h: &mut BufReader<R>,
         tot: Self::Tot,
         offsets: &mut AnyDataOffsets,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         ReadDataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
         ReadCheckedDataframeWarning,
@@ -3034,7 +3034,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         h: &mut BufReader<R>,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<PreDataFrameResult<X>, ReadDataframeWarning, ReadDataframeError, ()>
     where
         R: Read,
@@ -3050,7 +3050,7 @@ pub trait DataSchemaReadOps<T>: Sized + DataSchemaToEmptyDataFrame {
         h: &mut BufReader<R>,
         tot: T,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3067,7 +3067,7 @@ impl DataSchemaReadOps<Identity<Tot>> for DataSchema3_2 {
         h: &mut BufReader<R>,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3097,7 +3097,7 @@ where
         h: &mut BufReader<R>,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3123,7 +3123,7 @@ where
         h: &mut BufReader<R>,
         tot: Identity<Tot>,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3146,7 +3146,7 @@ where
         h: &mut BufReader<R>,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3186,7 +3186,7 @@ where
         h: &mut BufReader<R>,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3214,7 +3214,7 @@ where
         h: &mut BufReader<R>,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3276,7 +3276,7 @@ where
         h: &mut BufReader<R>,
         tot: TotType,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        _: &ReadEventsConfig,
+        _: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         PreDataFrameResult<Self::DfTarget>,
         ReadDataframeWarning,
@@ -3601,7 +3601,7 @@ trait DataSchemaReadFixed {
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError>;
 }
 
@@ -3619,7 +3619,7 @@ where
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let df = if let Some(mut row_buf) =
             ReadBuffer::init(conf.row_buffer_size, nrows, self.event_width())
@@ -3661,7 +3661,7 @@ impl<M, const ORD: bool> DataSchemaReadFixed
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let row_width = self.event_width();
 
@@ -3699,7 +3699,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<VariableBitmask>, VecFamily, UvarCol,
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let df = if let Some(mut row_buf) =
             ReadBuffer::init(conf.row_buffer_size, nrows, self.event_width())
@@ -3733,7 +3733,7 @@ impl<M> DataSchemaReadFixed for Layout<Vec<MixedRange>, VecFamily, MixedCol, End
         &self,
         h: &mut BufReader<R>,
         nrows: usize,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> IOResult<Self::DfTarget, ReadDataframeError> {
         let Some(mut buf) = ReadBuffer::init(conf.row_buffer_size, nrows, self.event_width())
         else {
@@ -7681,7 +7681,7 @@ impl<C, F, I, L, M, const ORD: bool> Layout<C, F, I, L, M, ORD> {
     fn compute_nrows<X>(
         &self,
         offsets: AnyNonEmptyDataOffsets<'_>,
-        conf: &ReadEventsConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningOrErrorResult<ComputedRowsResult, (), UnevenEventWidthError, EventWidthError>
     where
         C: AsRef<[X]>,

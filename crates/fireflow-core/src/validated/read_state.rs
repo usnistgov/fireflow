@@ -1,6 +1,6 @@
 use crate::{
     api::CRCOutput,
-    config::{CRCConfig, ComputeWriteCRC, ConfigFlag as _},
+    config::{ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},
     logging::{IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log},
     text::keywords::Nextdata,
     validated::keys::StringOrBytes,
@@ -197,7 +197,7 @@ impl<C> TEXTReadState<C> {
         h: &mut BufReader<R>,
         crc_start: u64,
         version: Version,
-        conf: CRCConfig,
+        conf: &ReadDatasetConfig,
     ) -> WarningAndIOGroupResult<(Option<CRCOutput>, Option<u16>), CRCError, CRCError, ()>
     where
         R: Read + Seek,

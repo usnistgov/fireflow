@@ -2,11 +2,10 @@
 
 use crate::api::{CRCOutput, FCSFileReader, HeaderAndSuppOffsets};
 use crate::config::{
-    AllowLoss, AppendFlag, AppendableFlag, CRCConfig, ComputeWriteCRC, ConfigFlag as _,
-    DummyTriFlag, OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadEventsConfig,
-    ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig,
-    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
-    WriteTEXTInnerConfig,
+    AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
+    OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig, WriteDatasetInnerConfig,
+    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
@@ -550,8 +549,7 @@ impl AnyCoreDataset {
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<CRCConfig>,
+            + AsRef<ReadDatasetConfig>,
     {
         let version = hns.header.version;
         macro_rules! go {
@@ -2114,7 +2112,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
         <Self::DataSchema as DataSchemaToEmptyDataFrame>::DfTarget:
             Into<PrimitiveDataFrame> + DataFrameCheckRanges,
         R: Read + Seek,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadEventsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadDatasetConfig> + AsRef<ReadOffsetConfig>,
     {
         let layout_res = Par::get_metaroot_req(kws)
             .map_err(LookupAndReadDataAnalysisError::from)
@@ -6243,9 +6241,8 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<ReadSharedConfig>
-            + AsRef<CRCConfig>,
+            + AsRef<ReadDatasetConfig>
+            + AsRef<ReadSharedConfig>,
     {
         #[allow(
             clippy::result_large_err,
@@ -6295,8 +6292,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         C: AsRef<ReadStdKeywordsConfig>
             + AsRef<ReadOffsetConfig>
             + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadEventsConfig>
-            + AsRef<CRCConfig>,
+            + AsRef<ReadDatasetConfig>,
     {
         VersionedCoreTEXT::<V>::new_from_keywords_with_offsets(kws, hns, st)
             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -6330,7 +6326,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                             hns.header.final_offsets.other_ref(),
                         ));
                         let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
-                            st.test_crc(h, crc_start, version, *st.conf().as_ref())
+                            st.test_crc(h, crc_start, version, st.conf().as_ref())
                                 .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                                 .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                                 .repack_warnings()

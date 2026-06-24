@@ -119,11 +119,8 @@ pub struct ReadFlatDatasetConfig {
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
 
-    #[as_ref(ReadEventsConfig)]
-    pub data: ReadEventsConfig,
-
-    #[as_ref(CRCConfig)]
-    pub crc: CRCConfig,
+    #[as_ref(ReadDatasetConfig)]
+    pub data: ReadDatasetConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -147,11 +144,8 @@ pub struct ReadStdDatasetConfig {
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
 
-    #[as_ref(ReadEventsConfig)]
-    pub data: ReadEventsConfig,
-
-    #[as_ref(CRCConfig)]
-    pub crc: CRCConfig,
+    #[as_ref(ReadDatasetConfig)]
+    pub data: ReadDatasetConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -166,11 +160,8 @@ pub struct ReadFlatDatasetFromKeywordsConfig {
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
 
-    #[as_ref(ReadEventsConfig)]
-    pub data: ReadEventsConfig,
-
-    #[as_ref(CRCConfig)]
-    pub crc: CRCConfig,
+    #[as_ref(ReadDatasetConfig)]
+    pub data: ReadDatasetConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -201,11 +192,8 @@ pub struct NewCoreDatasetConfig {
     #[as_ref(ReadDataKeywordsConfig)]
     pub layout: ReadDataKeywordsConfig,
 
-    #[as_ref(ReadEventsConfig)]
-    pub data: ReadEventsConfig,
-
-    #[as_ref(CRCConfig)]
-    pub crc: CRCConfig,
+    #[as_ref(ReadDatasetConfig)]
+    pub data: ReadDatasetConfig,
 
     #[as_ref(ReadSharedConfig)]
     pub shared: ReadSharedConfig,
@@ -905,10 +893,10 @@ pub struct ReadDataKeywordsConfig {
     pub disallow_range_truncation: DisallowRangeTrunc,
 }
 
-/// Specific instructions for reading events from DATA segment
+/// Specific instructions for reading entire dataset in addition to TEXT.
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct ReadEventsConfig {
+pub struct ReadDatasetConfig {
     /// The maximum number of bytes to correct DATA based on event width.
     ///
     /// For all but ASCII delimited layouts, dividing length of DATA by event
@@ -952,26 +940,6 @@ pub struct ReadEventsConfig {
     /// How to handle overrange values.
     pub over_range_action: OverRangeAction,
 
-    /// Set the size in bytes for the internal buffer used to read DATA.
-    ///
-    /// This is a performance tuning parameter which controls the
-    /// cache-coherence of the data being read. Setting this too low will read
-    /// DATA in smaller chunks which will produce more syscalls (slower);
-    /// setting this too high will cause cache misses (also slower). It should
-    /// generally be 90% of your CPU's L1D cache size.
-    ///
-    /// It defaults to `28_000` with the assumption that most CPUs have 32k L1D
-    /// caches. Setting this to a higher value if your CPU has a larger cache
-    /// may increase throughput.
-    pub row_buffer_size: RowBufferSize,
-}
-
-/// CRC-specific instructions.
-///
-/// These have no effect on 2.0 files which do not have checksums.
-#[derive(Default, Clone, Copy)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct CRCConfig {
     /// Permit the CRC word after the final segment to be missing.
     ///
     /// In FCS 3.0 and up, if the CRC is not stored then the 8 bytes after
@@ -996,6 +964,19 @@ pub struct CRCConfig {
     /// be read twice. In the future, this may be optimized, but for now it is
     /// the easiest and sanest way to compute this.
     pub compute_crc: ComputeCRC,
+
+    /// Set the size in bytes for the internal buffer used to read DATA.
+    ///
+    /// This is a performance tuning parameter which controls the
+    /// cache-coherence of the data being read. Setting this too low will read
+    /// DATA in smaller chunks which will produce more syscalls (slower);
+    /// setting this too high will cause cache misses (also slower). It should
+    /// generally be 90% of your CPU's L1D cache size.
+    ///
+    /// It defaults to `28_000` with the assumption that most CPUs have 32k L1D
+    /// caches. Setting this to a higher value if your CPU has a larger cache
+    /// may increase throughput.
+    pub row_buffer_size: RowBufferSize,
 }
 
 /// Configuration options for across all reading functions
@@ -1594,7 +1575,6 @@ impl HasStrategy for ReadFlatDatasetConfig {
         self.offset.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
-        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -1603,7 +1583,6 @@ impl HasStrategy for ReadFlatDatasetConfig {
         self.offset.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
-        self.crc.with_sledgehammer();
     }
 }
 
@@ -1615,7 +1594,6 @@ impl HasStrategy for ReadStdDatasetConfig {
         self.standard.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
-        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -1625,7 +1603,6 @@ impl HasStrategy for ReadStdDatasetConfig {
         self.standard.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
-        self.crc.with_sledgehammer();
     }
 }
 
@@ -1634,14 +1611,12 @@ impl HasStrategy for ReadFlatDatasetFromKeywordsConfig {
         self.offset.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
-        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
         self.offset.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
-        self.crc.with_sledgehammer();
     }
 }
 
@@ -1663,7 +1638,6 @@ impl HasStrategy for NewCoreDatasetConfig {
         self.standard.with_scalpal();
         self.layout.with_scalpal();
         self.data.with_scalpal();
-        self.crc.with_scalpal();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -1671,7 +1645,6 @@ impl HasStrategy for NewCoreDatasetConfig {
         self.standard.with_sledgehammer();
         self.layout.with_sledgehammer();
         self.data.with_sledgehammer();
-        self.crc.with_sledgehammer();
     }
 }
 
@@ -1765,16 +1738,11 @@ impl HasStrategy for ReadDataKeywordsConfig {
     }
 }
 
-impl HasStrategy for ReadEventsConfig {
+impl HasStrategy for ReadDatasetConfig {
     fn with_scalpal(&mut self) {
         self.data_remainder_limit = 1.into();
         self.allow_uneven_event_width = TriFlag::True.into();
         self.allow_tot_mismatch = TriFlag::True.into();
-    }
-}
-
-impl HasStrategy for CRCConfig {
-    fn with_scalpal(&mut self) {
         self.allow_missing_crc = TriFlag::True.into();
     }
 }
@@ -1857,7 +1825,6 @@ mod python {
         standard,
         layout,
         data,
-        crc,
         shared
     );
 
@@ -1866,21 +1833,12 @@ mod python {
         offset,
         layout,
         data,
-        crc,
         shared
     );
 
     impl_into_flat_dict!(NewCoreTEXTConfig, standard, layout, shared);
 
-    impl_into_flat_dict!(
-        NewCoreDatasetConfig,
-        offset,
-        standard,
-        layout,
-        data,
-        crc,
-        shared
-    );
+    impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
 
     impl<'py> FromPyObject<'_, 'py> for TemporalOpticalKeys {
         type Error = PyErr;

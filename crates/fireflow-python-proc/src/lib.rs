@@ -331,8 +331,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
     let (flat_conf, flat_args, flat_recs) = DocArgParam::new_read_flat_config_params();
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
-    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_dataset_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
 
@@ -350,7 +349,6 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .chain(flat_args)
         .chain(layout_args)
         .chain(data_args)
-        .chain(crc_args)
         .chain(shared_args);
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
@@ -403,9 +401,8 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         let flat = #flat_conf { #(#flat_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
-        let crc = #crc_conf { #(#crc_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { header, flat, offset, layout, data, crc, shared };
+        let conf = #conf_path { header, flat, offset, layout, data, shared };
     };
 
     quote! {
@@ -453,8 +450,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(None);
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
-    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_dataset_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
     let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
 
@@ -465,7 +461,6 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .chain(std_args)
         .chain(layout_args)
         .chain(data_args)
-        .chain(crc_args)
         .chain(shared_args);
 
     let skip_arg = DocArg::new_skip_param(format!(
@@ -517,9 +512,8 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         let standard = #std_conf { #(#std_recs),* };
         let layout = #layout_conf { #(#layout_recs),* };
         let data = #data_conf { #(#data_recs),* };
-        let crc = #crc_conf { #(#crc_recs),* };
         let shared = #shared_conf { #(#shared_recs),* };
-        let conf = #conf_path { header, flat, offset, standard, layout, data, crc, shared };
+        let conf = #conf_path { header, flat, offset, standard, layout, data, shared };
     };
 
     quote! {
@@ -559,8 +553,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let (offset_conf, offset_args, offset_recs) = DocArgParam::new_read_offset_config_params(None);
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(None);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
-    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(None);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_dataset_config_params(None);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let exc0 = PyException::new_pyreflow(PyreflowError::FileLayout)
@@ -582,7 +575,6 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
         .args(offset_args)
         .args(layout_args)
         .args(data_args)
-        .args(crc_args)
         .args(shared_args)
         .arg(dataset_offset_arg)
         .arg(dataset_len_arg)
@@ -599,9 +591,8 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let offset = #offset_conf { #(#offset_recs),* };
             let layout = #layout_conf { #(#layout_recs),* };
             let data = #data_conf { #(#data_recs),* };
-            let crc = #crc_conf { #(#crc_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
-            let conf = #conf_path { offset, layout, data, crc, shared };
+            let conf = #conf_path { offset, layout, data, shared };
             let ret = #fun_path(
                 &path,
                 header.into(),
@@ -4168,8 +4159,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
     let (std_conf, std_args, std_recs) = DocArgParam::new_read_std_config_params(v);
     let (layout_conf, layout_args, layout_recs) =
         DocArgParam::new_read_data_schema_config_params(v);
-    let (data_conf, data_args, data_recs) = DocArgParam::new_read_events_config_params();
-    let (crc_conf, crc_args, crc_recs) = DocArgParam::new_crc_config_params(v);
+    let (data_conf, data_args, data_recs) = DocArgParam::new_read_dataset_config_params(v);
     let (shared_conf, shared_args, shared_recs) = DocArgParam::new_shared_config_params();
 
     let config_args: Vec<_> = offset_args
@@ -4177,7 +4167,6 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
         .chain(std_args)
         .chain(layout_args)
         .chain(data_args)
-        .chain(crc_args)
         .chain(shared_args)
         .collect();
 
@@ -4254,16 +4243,11 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
                     ..#data_conf::default()
                 };
                 #[allow(clippy::needless_update)]
-                let crc = #crc_conf {
-                    #(#crc_recs,)*
-                    ..#crc_conf::default()
-                };
-                #[allow(clippy::needless_update)]
                 let shared = #shared_conf {
                     #(#shared_recs,)*
                     ..#shared_conf::default()
                 };
-                let conf = #core_conf { offset, standard, layout, data, crc, shared };
+                let conf = #core_conf { offset, standard, layout, data, shared };
                 let (core, uncore) = #path::new_from_keywords(
                     &path,
                     header.into(),
@@ -9579,23 +9563,18 @@ impl DocArgParam {
         (conf, ps, js)
     }
 
-    fn new_read_events_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("ReadEventsConfig");
-        let ps = vec![
+    fn new_read_dataset_config_params(
+        version: Option<Version>,
+    ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let conf = config_path("ReadDatasetConfig");
+        let args0 = [
             Self::new_data_remainder_limit_param(),
             Self::new_allow_uneven_event_width_param(),
             Self::new_allow_tot_mismatch_param(),
             Self::new_over_bitmask_action(),
             Self::new_over_range_action(),
-            Self::new_row_buffer_size(true),
         ];
-        let js = ps.iter().map(IsDocArg::record_into).collect();
-        (conf, ps, js)
-    }
-
-    fn new_crc_config_params(version: Option<Version>) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("CRCConfig");
-        let ps = if version == Some(Version::FCS2_0) {
+        let args1 = if version == Some(Version::FCS2_0) {
             vec![]
         } else {
             vec![
@@ -9604,6 +9583,8 @@ impl DocArgParam {
                 Self::new_compute_crc_param(),
             ]
         };
+        let args2 = [Self::new_row_buffer_size(true)];
+        let ps: Vec<_> = args0.into_iter().chain(args1).chain(args2).collect();
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }

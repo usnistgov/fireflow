@@ -893,28 +893,6 @@ fn run() -> AppResult<()> {
             trunc_silent = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
-    let row_buffer_size = Arg::new(ROW_BUFFER_SIZE)
-        .long(ROW_BUFFER_SIZE)
-        .value_name("BYTES")
-        .value_parser(value_parser!(tc::RowBufferSize))
-        .help(format!(
-            "Set the size in bytes for the internal buffer used to read {data_seg}. \
-             This is a performance parameter that balances read syscalls (too low) \
-             and cache misses (too high). It should generally be 90% of the CPU's \
-             L1D cache size. Defaults to {}.",
-            fmt_val(tc::RowBufferSize::default())
-        ));
-
-    let all_read_dataset_args = [
-        allow_uneven_event_width,
-        allow_tot_mismatch,
-        over_bitmask_action,
-        over_range_action,
-        row_buffer_size,
-    ];
-
-    // crc args
-
     let allow_missing_crc = tri_flag_arg::<cfg::AllowMissingCRC>(
         ALLOW_MISSING_CRC,
         "Allow CRC word at the end of the dataset to be missing.",
@@ -938,7 +916,28 @@ fn run() -> AppResult<()> {
             tc::COMPUTE_CRC_TEST_LEVEL,
         ));
 
-    let all_crc_args = [allow_missing_crc, allow_mismatch_crc, compute_crc];
+    let row_buffer_size = Arg::new(ROW_BUFFER_SIZE)
+        .long(ROW_BUFFER_SIZE)
+        .value_name("BYTES")
+        .value_parser(value_parser!(tc::RowBufferSize))
+        .help(format!(
+            "Set the size in bytes for the internal buffer used to read {data_seg}. \
+             This is a performance parameter that balances read syscalls (too low) \
+             and cache misses (too high). It should generally be 90% of the CPU's \
+             L1D cache size. Defaults to {}.",
+            fmt_val(tc::RowBufferSize::default())
+        ));
+
+    let all_read_dataset_args = [
+        allow_uneven_event_width,
+        allow_tot_mismatch,
+        over_bitmask_action,
+        over_range_action,
+        allow_missing_crc,
+        allow_mismatch_crc,
+        compute_crc,
+        row_buffer_size,
+    ];
 
     // shared args
 
@@ -1107,7 +1106,6 @@ fn run() -> AppResult<()> {
         .args(&all_read_std_args)
         .args(&all_read_layout_args)
         .args(&all_read_dataset_args)
-        .args(&all_crc_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
@@ -1122,7 +1120,6 @@ fn run() -> AppResult<()> {
         .args(&all_read_std_args)
         .args(&all_read_layout_args)
         .args(&all_read_dataset_args)
-        .args(&all_crc_args)
         .args(&all_read_shared_args)
         .args(&all_write_args)
         .arg(&skip_arg)
@@ -1139,7 +1136,6 @@ fn run() -> AppResult<()> {
         .args(&all_read_flat_args)
         .args(&all_read_layout_args)
         .args(&all_read_dataset_args)
-        .args(&all_crc_args)
         .args(&all_read_shared_args)
         .arg(&skip_arg)
         .arg(&limit_arg)
@@ -1562,9 +1558,9 @@ fn get_data_kws_config(s: &ArgMatches) -> cfg::ReadDataKeywordsConfig {
     c
 }
 
-fn get_events_config(s: &ArgMatches) -> cfg::ReadEventsConfig {
+fn get_dataset_config(s: &ArgMatches) -> cfg::ReadDatasetConfig {
     let strat = get_strategy(s);
-    let mut c = cfg::ReadEventsConfig::new_with_strategy(strat);
+    let mut c = cfg::ReadDatasetConfig::new_with_strategy(strat);
 
     get_opt(s, DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
     get_opt(s, ALLOW_TOT_MISMATCH, |x| c.allow_tot_mismatch = x);
@@ -1575,18 +1571,10 @@ fn get_events_config(s: &ArgMatches) -> cfg::ReadEventsConfig {
         c.over_bitmask_action = x;
     });
     get_opt(s, OVER_RANGE_ACTION, |x| c.over_range_action = x);
-    get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
-
-    c
-}
-
-fn get_crc_config(s: &ArgMatches) -> cfg::CRCConfig {
-    let strat = get_strategy(s);
-    let mut c = cfg::CRCConfig::new_with_strategy(strat);
-
     get_opt(s, ALLOW_MISSING_CRC, |x| c.allow_missing_crc = x);
     get_opt(s, ALLOW_MISMATCH_CRC, |x| c.allow_mismatch_crc = x);
     get_opt(s, COMPUTE_CRC, |x| c.compute_crc = x);
+    get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
 
     c
 }
@@ -1624,8 +1612,7 @@ fn get_read_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadF
         flat: get_header_and_text_config(cmd, sargs),
         offset: get_offsets_config(sargs),
         layout: get_data_kws_config(sargs),
-        data: get_events_config(sargs),
-        crc: get_crc_config(sargs),
+        data: get_dataset_config(sargs),
         shared: get_read_shared_config(sargs),
     }
 }
@@ -1637,8 +1624,7 @@ fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadSt
         offset: get_offsets_config(sargs),
         standard: get_std_kws_config(sargs),
         layout: get_data_kws_config(sargs),
-        data: get_events_config(sargs),
-        crc: get_crc_config(sargs),
+        data: get_dataset_config(sargs),
         shared: get_read_shared_config(sargs),
     }
 }
@@ -2089,18 +2075,15 @@ const DISALLOW_RANGE_TRUNCATION: &str = cli_arg!(ReadDataKeywordsConfig::disallo
 
 // read data config flags
 
-const DATA_REMAINDER_LIMIT: &str = cli_arg!(ReadEventsConfig::data_remainder_limit);
-const ALLOW_UNEVEN_EVENT_WIDTH: &str = cli_arg!(ReadEventsConfig::allow_uneven_event_width);
-const ALLOW_TOT_MISMATCH: &str = cli_arg!(ReadEventsConfig::allow_tot_mismatch);
-const OVER_BITMASK_ACTION: &str = cli_arg!(ReadEventsConfig::over_bitmask_action);
-const OVER_RANGE_ACTION: &str = cli_arg!(ReadEventsConfig::over_range_action);
-const ROW_BUFFER_SIZE: &str = cli_arg!(ReadEventsConfig::row_buffer_size);
-
-// read crc config flags
-
-const ALLOW_MISSING_CRC: &str = cli_arg!(CRCConfig::allow_missing_crc);
-const ALLOW_MISMATCH_CRC: &str = cli_arg!(CRCConfig::allow_mismatch_crc);
-const COMPUTE_CRC: &str = cli_arg!(CRCConfig::compute_crc);
+const DATA_REMAINDER_LIMIT: &str = cli_arg!(ReadDatasetConfig::data_remainder_limit);
+const ALLOW_UNEVEN_EVENT_WIDTH: &str = cli_arg!(ReadDatasetConfig::allow_uneven_event_width);
+const ALLOW_TOT_MISMATCH: &str = cli_arg!(ReadDatasetConfig::allow_tot_mismatch);
+const OVER_BITMASK_ACTION: &str = cli_arg!(ReadDatasetConfig::over_bitmask_action);
+const OVER_RANGE_ACTION: &str = cli_arg!(ReadDatasetConfig::over_range_action);
+const ALLOW_MISSING_CRC: &str = cli_arg!(ReadDatasetConfig::allow_missing_crc);
+const ALLOW_MISMATCH_CRC: &str = cli_arg!(ReadDatasetConfig::allow_mismatch_crc);
+const COMPUTE_CRC: &str = cli_arg!(ReadDatasetConfig::compute_crc);
+const ROW_BUFFER_SIZE: &str = cli_arg!(ReadDatasetConfig::row_buffer_size);
 
 // shared config flags
 

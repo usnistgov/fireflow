@@ -26,8 +26,9 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningsAndErrors, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, ImpureError,
-    LogResult, ResultExt as _, Success, WarningAndGroupResult, WarningOrErrorResult,
-    WarningsAndErrorsResult, WarningsAndGroupResult, WarningsAndIOGroupResult, io_to_log,
+    LogResult, ResultExt as _, Success, WarningAndGroupResult, WarningAndIOGroupResult,
+    WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
+    WarningsAndIOGroupResult, io_to_log,
 };
 use crate::macros::{assert_eq_msg, def_summary};
 use crate::match_many_to_one;
@@ -6350,52 +6351,21 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                 let other = io_to_log!(or.h_read(h));
                 let analysis = io_to_log!(ar.h_read(h));
-                let hns_max = hns.text_other_max_end_offset();
-                let da_max = offsets.offsets.max_end_offset();
-                let max_end_offset = da_max.map_or(hns_max, |x| x.max(hns_max));
                 let version = text.fcs_version();
+                let final_data = &mut offsets.offsets.final_data;
                 text.meas
-                    .h_read_df(
-                        h,
-                        offsets.tot,
-                        &mut offsets.offsets.final_data,
-                        st.conf().as_ref(),
-                    )
+                    .h_read_df(h, offsets.tot, final_data, st.conf().as_ref())
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                     .and_then_commutative(|df_out| {
-                        let dconf: &ReadDatasetConfig = st.conf().as_ref();
-                        let dark = if dconf.read_intra_segment_dark_bytes.is_set() {
-                            io_to_log!(IntraSegmentDarkBytes::read_all(
-                                h,
-                                hns.header.final_offsets.text(),
-                                hns.supp_text.final_offsets(),
-                                offsets.offsets.final_data,
-                                offsets.offsets.final_analysis,
-                                hns.header.final_offsets.other_ref(),
-                            ))
-                        } else {
-                            vec![]
-                        };
-                        st.test_crc(h, max_end_offset, version, st.conf().as_ref())
+                        let ed = df_out.diagnostics;
+                        let ds_offsets = &offsets.offsets;
+                        DatasetDiagnostics::from_parts(h, version, ed, hns, ds_offsets, st)
                             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                             .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                             .repack_warnings()
-                            .map_ok_value(|(file_crc, computed_crc)| {
-                                let dataset_len =
-                                    if file_crc.is_some() { 8 } else { 0 } + max_end_offset;
+                            .map_ok_value(|ds_diag| {
                                 let new = Self::new(text.rootmeta, df_out.inner, analysis, other);
-                                let ed = df_out.diagnostics;
-                                let ds_diag = DatasetDiagnostics::new(
-                                    ed.pre.event_width,
-                                    ed.pre.event_data_remainder,
-                                    ed.pre.tot_event_mismatch,
-                                    ed.overrange_columns,
-                                    dark,
-                                    file_crc,
-                                    computed_crc,
-                                    dataset_len,
-                                );
                                 let diag =
                                     StdDatasetFromKwsOutput::new(offsets.offsets, extra, ds_diag);
                                 (new, diag)
@@ -7175,6 +7145,52 @@ impl IntraSegmentDarkBytes {
             ret.push(dark);
         }
         Ok(ret)
+    }
+}
+
+impl DatasetDiagnostics {
+    pub(crate) fn from_parts<R, C>(
+        h: &mut BufReader<R>,
+        version: Version,
+        events: EventsDiagnostics,
+        header_supp_offsets: &HeaderAndSuppOffsets,
+        dataset_offsets: &DatasetOffsets,
+        st: &TEXTReadState<C>,
+    ) -> WarningAndIOGroupResult<Self, CRCError, CRCError, ()>
+    where
+        R: Read + Seek,
+        C: AsRef<ReadDatasetConfig>,
+    {
+        let dconf: &ReadDatasetConfig = st.conf().as_ref();
+        let hns_max = header_supp_offsets.text_other_max_end_offset();
+        let da_max = dataset_offsets.max_end_offset();
+        let max_end_offset = da_max.map_or(hns_max, |x| x.max(hns_max));
+        let dark = if dconf.read_intra_segment_dark_bytes.is_set() {
+            io_to_log!(IntraSegmentDarkBytes::read_all(
+                h,
+                header_supp_offsets.header.final_offsets.text(),
+                header_supp_offsets.supp_text.final_offsets(),
+                dataset_offsets.final_data,
+                dataset_offsets.final_analysis,
+                header_supp_offsets.header.final_offsets.other_ref(),
+            ))
+        } else {
+            vec![]
+        };
+        let crc_res = st.test_crc(h, max_end_offset, version, st.conf().as_ref());
+        crc_res.map_ok_value(|(file_crc, computed_crc)| {
+            let dataset_len = if file_crc.is_some() { 8 } else { 0 } + max_end_offset;
+            Self::new(
+                events.pre.event_width,
+                events.pre.event_data_remainder,
+                events.pre.tot_event_mismatch,
+                events.overrange_columns,
+                dark,
+                file_crc,
+                computed_crc,
+                dataset_len,
+            )
+        })
     }
 }
 

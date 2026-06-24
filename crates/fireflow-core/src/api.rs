@@ -10,7 +10,7 @@ use crate::config::{
 use crate::convert::UsizeExt as _;
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, CRCOutput,
-    DatasetDiagnostics, DatasetOffsets, IntraSegmentDarkBytes, LookupAndReadDataAnalysisError,
+    DatasetDiagnostics, DatasetOffsets, LookupAndReadDataAnalysisError,
     LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _, StdDatasetFromFlatTEXTWarning,
     StdDatasetFromKwsOutput, StdTEXTDiagnostics, StdTEXTFromFlatTEXTError,
     StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
@@ -1532,40 +1532,12 @@ impl FlatDatasetFromKwsOutput {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
-                let hns_max = hns.text_other_max_end_offset();
-                let da_max = dataset_offsets.max_end_offset();
-                let max_end_offset = da_max.map_or(hns_max, |x| x.max(hns_max));
-                let dconf: &ReadDatasetConfig = st.conf().as_ref();
-                let dark = if dconf.read_intra_segment_dark_bytes.is_set() {
-                    io_to_log!(IntraSegmentDarkBytes::read_all(
-                        h,
-                        hns.header.final_offsets.text(),
-                        hns.supp_text.final_offsets(),
-                        dataset_offsets.final_data,
-                        dataset_offsets.final_analysis,
-                        hns.header.final_offsets.other_ref(),
-                    ))
-                } else {
-                    vec![]
-                };
-                let crc_res = st.test_crc(h, max_end_offset, new_version, st.conf().as_ref());
                 let or = hns.header.final_offsets.others_reader();
-                crc_res
+                DatasetDiagnostics::from_parts(h, new_version, event_out, hns, &dataset_offsets, st)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .repack_warnings()
-                    .and_then_commutative(|(file_crc, computed_crc)| {
-                        let dataset_len = if file_crc.is_some() { 8 } else { 0 } + max_end_offset;
-                        let ds_diag = DatasetDiagnostics::new(
-                            event_out.pre.event_width,
-                            event_out.pre.event_data_remainder,
-                            event_out.pre.tot_event_mismatch,
-                            event_out.overrange_columns,
-                            dark,
-                            file_crc,
-                            computed_crc,
-                            dataset_len,
-                        );
+                    .and_then_commutative(|ds_diag| {
                         let go =
                             |others| Self::new(data, analysis, others, dataset_offsets, ds_diag);
                         or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()

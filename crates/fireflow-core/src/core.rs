@@ -6277,7 +6277,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                 let other = io_to_log!(or.h_read(h));
                 let analysis = io_to_log!(ar.h_read(h));
-                let hns_max = hns.max_end_offset();
+                let hns_max = hns.text_other_max_end_offset();
                 let da_max = offsets.offsets.max_end_offset();
                 let version = text.fcs_version();
                 text.meas

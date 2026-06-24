@@ -497,23 +497,24 @@ impl FinalHeaderOffsets {
         })
     }
 
-    pub(crate) fn max_end_offset(&self) -> Option<u64> {
-        [
-            self.text.as_nonempty().map(|o| o.end()),
-            self.analysis.as_nonempty().map(|o| o.end()),
-            self.data.as_nonempty().map(|o| o.end()),
-        ]
-        .into_iter()
-        .flatten()
-        .chain(
-            self.other
-                .as_ref()
-                .into_iter()
-                .flat_map(|(o, _)| o.iter())
-                .filter_map(|o| o.offsets.as_nonempty())
-                .map(|o| o.end()),
-        )
-        .max()
+    pub(crate) fn ptext_other_max_end_offset(&self) -> Option<u64> {
+        // Don't include ANALYSIS or DATA here because this will be called in
+        // order to find the CRC, in which case we need to take the TEXT
+        // versions of these offsets into account which may more may not be
+        // different.
+        self.text
+            .as_nonempty()
+            .map(|o| o.end())
+            .into_iter()
+            .chain(
+                self.other
+                    .as_ref()
+                    .into_iter()
+                    .flat_map(|(o, _)| o.iter())
+                    .filter_map(|o| o.offsets.as_nonempty())
+                    .map(|o| o.end()),
+            )
+            .max()
     }
 }
 

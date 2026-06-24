@@ -1497,8 +1497,8 @@ impl HeaderAndSuppOffsets {
         }
     }
 
-    pub(crate) fn max_end_offset(&self) -> Option<u64> {
-        let hdr_max = self.header.final_offsets.max_end_offset();
+    pub(crate) fn text_other_max_end_offset(&self) -> Option<u64> {
+        let hdr_max = self.header.final_offsets.ptext_other_max_end_offset();
         let supp_max = self
             .supp_text
             .final_offsets()
@@ -1555,7 +1555,7 @@ impl FlatDatasetFromKwsOutput {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
-                let hns_max = hns.max_end_offset();
+                let hns_max = hns.text_other_max_end_offset();
                 let da_max = dataset_offsets.max_end_offset();
                 let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
                     st.test_crc(h, crc_start, new_version, *st.conf().as_ref())

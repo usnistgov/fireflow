@@ -243,7 +243,7 @@ pub struct WriteDatasetInnerConfig {
 
     /// Set the size in bytes for the internal buffer used to write DATA.
     ///
-    /// This is the same as [`ReadEventsConfig::row_buffer_size`]; see there
+    /// This is the same as [`ReadDatasetConfig::row_buffer_size`]; see there
     /// for details.
     pub row_buffer_size: RowBufferSize,
 }

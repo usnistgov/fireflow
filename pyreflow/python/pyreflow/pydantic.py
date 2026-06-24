@@ -123,13 +123,10 @@ class _ReadEventsConfig(BaseModel):
     allow_tot_mismatch: pft.TriFlag = _DEFAULT_TRIFLAG
     over_bitmask_action: pft.OverLimitAction = "trunc_warn"
     over_range_action: pft.OverLimitAction = "warn"
-    row_buffer_size: int = 28000
-
-
-class _CRCConfig(BaseModel):
     allow_missing_crc: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_mismatch_crc: pft.TriFlag = _DEFAULT_TRIFLAG
     compute_crc: pft.ComputeReadCRC = "never"
+    row_buffer_size: int = 28000
 
 
 class _ReadSharedConfig(BaseModel):
@@ -264,7 +261,6 @@ class PyreflowReadFlatDatasetConfig(
     _HeaderMethods,
     _FlatTEXTMethods,
     _ReadSharedConfig,
-    _CRCConfig,
     _ReadEventsConfig,
     _ReadDataKeywordsConfig,
     _ReadFlatTEXTConfig,
@@ -316,7 +312,6 @@ class PyreflowReadStdDatasetConfig(
     _StdTEXTMethods,
     _FlatDatasetMethods,
     _ReadSharedConfig,
-    _CRCConfig,
     _ReadEventsConfig,
     _ReadDataKeywordsConfig,
     _ReadStdKeywordsConfig,
@@ -357,7 +352,6 @@ class PyreflowReadStdDatasetConfig(
 
 class PyreflowReadFlatDatasetFromKeywordsConfig(
     _ReadSharedConfig,
-    _CRCConfig,
     _ReadEventsConfig,
     _ReadDataKeywordsConfig,
     _OffsetConfig,

@@ -1916,6 +1916,14 @@ impl NonEmptyOffsetsInner {
 // Implement methods for non-empty read-only offset wrapper
 
 impl<I, S> NonEmptyOffsets<I, S> {
+    pub(crate) fn abs_begin(&self) -> u64 {
+        self.inner().dataset_offset.0 + self.begin()
+    }
+
+    pub(crate) fn abs_end(&self) -> u64 {
+        self.inner().dataset_offset.0 + self.end()
+    }
+
     /// Read bytes within this segment
     pub(crate) fn h_read_contents<R>(&self, h: &mut BufReader<R>) -> io::Result<NEVec<u8>>
     where

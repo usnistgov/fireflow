@@ -10,9 +10,10 @@ use crate::config::{
 use crate::convert::UsizeExt as _;
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, DatasetOffsets,
-    LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _,
-    StdDatasetFromFlatTEXTWarning, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
-    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
+    IntraSegmentDarkBytes, LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning,
+    Others, PrivVersionSet as _, StdDatasetFromFlatTEXTWarning, StdDatasetFromKwsOutput,
+    StdTEXTDiagnostics, StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError,
+    WriteDatasetSummary,
 };
 use crate::data::{EventOverRangeError, EventsDiagnostics};
 use crate::fixed_vec::OneOrTwo;
@@ -487,6 +488,7 @@ pub struct NewFlatDatasetFromKwsOutput {
 
 /// Output when making flat TEXT+DATA
 #[derive(Clone, PartialEq, new)]
+#[allow(clippy::too_many_arguments)]
 pub struct FlatDatasetFromKwsOutput {
     /// DATA output
     pub data: PrimitiveDataFrame,
@@ -502,6 +504,9 @@ pub struct FlatDatasetFromKwsOutput {
 
     /// Diagnostic output from parsing DATA segment
     pub events_diagnostics: EventsDiagnostics,
+
+    /// Unparsed bytes between segments.
+    pub intra_segment_dark_bytes: Vec<IntraSegmentDarkBytes>,
 
     /// Value of the cyclic redundancy check (CRC) as read from the file.
     ///
@@ -1557,6 +1562,14 @@ impl FlatDatasetFromKwsOutput {
             .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
                 let hns_max = hns.text_other_max_end_offset();
                 let da_max = dataset_offsets.max_end_offset();
+                let dark = io_to_log!(IntraSegmentDarkBytes::read_all(
+                    h,
+                    hns.header.final_offsets.text(),
+                    hns.supp_text.final_offsets(),
+                    dataset_offsets.final_data,
+                    dataset_offsets.final_analysis,
+                    hns.header.final_offsets.other_ref(),
+                ));
                 let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
                     st.test_crc(h, crc_start, new_version, *st.conf().as_ref())
                 } else {
@@ -1575,6 +1588,7 @@ impl FlatDatasetFromKwsOutput {
                                 others,
                                 dataset_offsets,
                                 event_out,
+                                dark,
                                 file_crc,
                                 computed_crc,
                             )

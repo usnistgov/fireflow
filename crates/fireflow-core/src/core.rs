@@ -51,6 +51,7 @@ use crate::meas::{
     VPairedTemporalOrOpticalWithScale, VTemporalOrOpticalWithScale, VTemporalsAndOpticals,
     VersionMeasSet, impl_ref_specific_ro, impl_ref_specific_rw,
 };
+use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId,
     read::{
@@ -114,8 +115,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
-    StdKey, StdKeywords, ValidKeywords,
+    DKey0, DKey2, IndexedKey as _, Key as _, NEStringOrBytes, NonStdKey, NonStdKeywords,
+    NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::read_state::{
@@ -1047,6 +1048,9 @@ pub struct StdDatasetFromKwsOutput {
     /// Diagnostic output from parsing DATA segment
     pub events_diagnostics: EventsDiagnostics,
 
+    /// Unparsed bytes between segments.
+    pub intra_segment_dark_bytes: Vec<IntraSegmentDarkBytes>,
+
     /// Value of the cyclic redundancy check (CRC) as read from the file.
     ///
     /// Will always be `None` for 2.0.
@@ -1114,6 +1118,33 @@ pub struct MismatchedTEXTOffsetOrigin {
     uncorr: OriginalOffsets,
     overlaps: Vec<TextToHeaderOrSuppOffsetsOverlap>,
     overflow: Option<TextOffsetsOverflow>,
+}
+
+/// Unparsed bytes which are between two segments in an FCS file.
+#[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct IntraSegmentDarkBytes {
+    /// The name of the segment immediately prior.
+    pub prev: FlankingSegmentName,
+    /// The name of the segment immediately after.
+    pub next: FlankingSegmentName,
+    /// The starting offset of this region.
+    pub start: u64,
+    /// The final offset of this region (one greater than offset of the last byte).
+    pub end: u64,
+    /// The byte contents of this region.
+    pub bytes: NEStringOrBytes,
+}
+
+/// The name of a segment which immediately before/after a region of dark bytes.
+#[derive(Clone, Copy, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum FlankingSegmentName {
+    PrimaryText,
+    SupplementalText,
+    Other(usize),
+    Data,
+    Analysis,
 }
 
 /// Internal configuration options used when writing HEADER+TEXT
@@ -6290,6 +6321,14 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                     .and_then_commutative(|df_out| {
+                        let dark = io_to_log!(IntraSegmentDarkBytes::read_all(
+                            h,
+                            hns.header.final_offsets.text(),
+                            hns.supp_text.final_offsets(),
+                            offsets.offsets.final_data,
+                            offsets.offsets.final_analysis,
+                            hns.header.final_offsets.other_ref(),
+                        ));
                         let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
                             st.test_crc(h, crc_start, version, *st.conf().as_ref())
                                 .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -6304,6 +6343,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                                 offsets.offsets,
                                 extra,
                                 df_out.diagnostics,
+                                dark,
                                 file_crc,
                                 computed_crc,
                             );
@@ -7031,6 +7071,62 @@ impl TEXTOffsetsOrigin {
     }
 }
 
+impl IntraSegmentDarkBytes {
+    pub(crate) fn read_all<R: io::Read + Seek>(
+        h: &mut BufReader<R>,
+        ptext: PrimaryTextOffsets,
+        stext: Option<SupplementalTextOffsets>,
+        data: AnyDataOffsets,
+        analysis: AnyAnalysisOffsets,
+        other: &[IndexedOtherOffsets],
+    ) -> io::Result<Vec<Self>> {
+        macro_rules! go {
+            ($pair:expr, $name:expr) => {
+                $pair
+                    .as_nonempty()
+                    .map(|ne| (ne.abs_begin(), ne.abs_end(), $name))
+            };
+        }
+        let mut ret = vec![];
+        let pairs = [
+            go!(ptext, FlankingSegmentName::PrimaryText),
+            go!(data, FlankingSegmentName::Data),
+            go!(analysis, FlankingSegmentName::Analysis),
+        ]
+        .into_iter()
+        .flatten()
+        .chain(stext.and_then(|s| go!(s, FlankingSegmentName::SupplementalText)))
+        .chain(
+            other
+                .iter()
+                .filter_map(|o| go!(o.offsets, FlankingSegmentName::Other(o.index))),
+        )
+        .sorted_by_key(|(b, _, _)| *b)
+        .tuple_windows();
+        for ((_, end0, n0), (start1, _, n1)) in pairs {
+            let nbytes = start1
+                .checked_sub(end0)
+                .expect("offsets should not overlap");
+            if nbytes == 0 {
+                continue;
+            }
+            let mut buf = vec![];
+            h.seek(io::SeekFrom::Start(end0))?;
+            h.take(nbytes).read_to_end(&mut buf)?;
+            let ne = NEVec::try_from(buf).unwrap();
+            let dark = Self {
+                prev: n0,
+                next: n1,
+                start: end0,
+                end: start1,
+                bytes: NEStringOrBytes::from(ne),
+            };
+            ret.push(dark);
+        }
+        Ok(ret)
+    }
+}
+
 // Misc functions
 
 /// Make all keys unique if they are not already.
@@ -7199,7 +7295,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use fireflow_types::python::{ColumnType, IntegerWidth};
+    use super::{FlankingSegmentName, IntraSegmentDarkBytes};
 
     use crate::data::{
         AnyDatatype, AnyUint, FullRange, MaybeTypedMixedRange, MaybeTypedRange,
@@ -7209,6 +7305,11 @@ mod python {
         OpticalScale2_0, OpticalScale3_0, TemporalOrOptical, TemporalOrOpticalWithScale,
     };
     use crate::text::named_vec::Element;
+    use crate::validated::keys::NEStringOrBytes;
+
+    use fireflow_types::python::{self as py, ColumnType, ConfigError, IntegerWidth};
+
+    use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};
 
     pub trait PySplitScale: Sized {
         type MaybeScale;
@@ -7297,6 +7398,74 @@ mod python {
                     };
                     (x.into(), Some(w))
                 }
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for IntraSegmentDarkBytes {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let (n0, n1, b, e, bytes) = obj.extract::<(
+                FlankingSegmentName,
+                FlankingSegmentName,
+                u64,
+                u64,
+                NEStringOrBytes,
+            )>()?;
+            Ok(Self::new(n0, n1, b, e, bytes))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for IntraSegmentDarkBytes {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            (self.prev, self.next, self.start, self.end, self.bytes).into_pyobject(py)
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for FlankingSegmentName {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(s) = obj.extract::<String>() {
+                let ss = s.as_str();
+                if ss == py::SEGMENT_NAME_TEXT.as_str() {
+                    return Ok(Self::PrimaryText);
+                } else if ss == py::SEGMENT_NAME_STEXT.as_str() {
+                    return Ok(Self::SupplementalText);
+                } else if ss == py::SEGMENT_NAME_DATA.as_str() {
+                    return Ok(Self::Data);
+                } else if ss == py::SEGMENT_NAME_ANALYSIS.as_str() {
+                    return Ok(Self::Analysis);
+                }
+            } else if let Ok(i) = obj.extract::<usize>() {
+                return Ok(Self::Other(i));
+            }
+            Err(ConfigError::new_err(format!(
+                "must be one of {}, {}, {}, {} or a number \
+                 which is the index of an OTHER segment.",
+                py::SEGMENT_NAME_TEXT,
+                py::SEGMENT_NAME_STEXT,
+                py::SEGMENT_NAME_DATA,
+                py::SEGMENT_NAME_ANALYSIS,
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for FlankingSegmentName {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::PrimaryText => py::SEGMENT_NAME_TEXT.as_str().into_bound_py_any(py),
+                Self::SupplementalText => py::SEGMENT_NAME_STEXT.as_str().into_bound_py_any(py),
+                Self::Data => py::SEGMENT_NAME_DATA.as_str().into_bound_py_any(py),
+                Self::Analysis => py::SEGMENT_NAME_ANALYSIS.as_str().into_bound_py_any(py),
+                Self::Other(i) => i.into_bound_py_any(py),
             }
         }
     }

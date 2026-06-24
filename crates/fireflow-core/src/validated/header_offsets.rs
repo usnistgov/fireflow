@@ -90,6 +90,16 @@ impl FinalHeaderOffsets {
             .map(|(xs, w)| (xs.as_nonempty_slice(), *w))
     }
 
+    /// Return parsed OTHER offsets data as slice
+    #[must_use]
+    pub fn other_ref(&self) -> &[IndexedOtherOffsets] {
+        if let Some((offsets, _)) = self.other.as_ref() {
+            offsets.as_ref()
+        } else {
+            &[]
+        }
+    }
+
     /// Return parsed OTHER offsets data
     #[cfg(feature = "python")]
     #[must_use]

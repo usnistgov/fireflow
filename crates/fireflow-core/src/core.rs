@@ -1,6 +1,6 @@
 //! Data structures representing standardized TEXT segment
 
-use crate::api::{CRCOutput, FCSFileReader, HeaderAndSuppOffsets};
+use crate::api::{FCSFileReader, HeaderAndSuppOffsets};
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
     OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
@@ -15,9 +15,9 @@ use crate::data::{
     EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype, LayoutHeight as _,
     LayoutInsert, LayoutInsertScaleCheck, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
     LayoutRemove, LayoutSize as _, LayoutWidth, LookupDataSchemaError, LookupDataSchemaWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataSchemaError, RangeAndSeries,
-    ReadCheckedDataframeError, ReadCheckedDataframeWarning, VersionedDataFrame as _,
-    VersionedDataSchema, WithPrimitiveDataFrame,
+    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataSchemaError, OverrangeColumn,
+    RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
+    VersionedDataFrame as _, VersionedDataSchema, WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -115,7 +115,7 @@ use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NEStringOrBytes, NonStdKey, NonStdKeywords,
-    NonStdKeywordsExt as _, StdKey, StdKeywords, ValidKeywords,
+    NonStdKeywordsExt as _, StdKey, StdKeywords, StringOrBytes, ValidKeywords,
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::read_state::{
@@ -1043,8 +1043,39 @@ pub struct StdDatasetFromKwsOutput {
     /// Keywords that start with '$' that are not part of the standard
     pub std_diagnostics: StdTEXTDiagnostics,
 
-    /// Diagnostic output from parsing DATA segment
-    pub events_diagnostics: EventsDiagnostics,
+    /// Diagnostic output from parsing entire dataset.
+    pub dataset_diagnostics: DatasetDiagnostics,
+}
+
+/// Diagnostic output from reading entire dataset.
+#[derive(Clone, PartialEq, Default, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[allow(clippy::too_many_arguments)]
+pub struct DatasetDiagnostics {
+    /// The width of one event in bytes (if not ASCII delimited).
+    pub event_width: Option<u64>,
+
+    /// The remainder after dividing length of DATA by event width.
+    ///
+    /// For well-formed files, this should be zero.
+    ///
+    /// Will be [`Option::None`] for delimited ASCII layouts.
+    pub event_data_remainder: Option<u64>,
+
+    /// `true` if $TOT does not match the number of events computed via event width.
+    ///
+    /// [`Option::None`] if $TOT is missing (FCS 2.0) or the layout is ASCII
+    /// delimited and there is no event width.
+    pub tot_event_mismatch: Option<bool>,
+
+    /// Columns for which at least one event was over $PnR.
+    ///
+    /// Length of vector will be equal to $PAR. Elements correspond to column
+    /// indices and will be `None` if not overrange. Otherwise, the first
+    /// [`usize`] will be the row that has the first overrange value, and the
+    /// second [`bool`] will be `true` if the value was truncated to fit and
+    /// false otherwise.
+    pub overrange_columns: Vec<OverrangeColumn>,
 
     /// Unparsed bytes between segments.
     pub intra_segment_dark_bytes: Vec<IntraSegmentDarkBytes>,
@@ -1058,6 +1089,21 @@ pub struct StdDatasetFromKwsOutput {
     ///
     /// Will always be `None` for 2.0.
     pub computed_crc: Option<u16>,
+
+    /// The total length of the dataset in bytes.
+    ///
+    /// Will count from the first byte of HEADER to the last segment or the CRC.
+    pub dataset_len: u64,
+}
+
+/// The output of parsing the CRC at the end of the last dataset.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum CRCOutput {
+    /// CRC was a valid 16 bit decimal number.
+    Valid(u16),
+    /// CRC bytes were found but did not parse to a 16-bit number.
+    Invalid(StringOrBytes),
 }
 
 // TODO split this into sub structs for analysis and data since they are both
@@ -6306,6 +6352,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                 let analysis = io_to_log!(ar.h_read(h));
                 let hns_max = hns.text_other_max_end_offset();
                 let da_max = offsets.offsets.max_end_offset();
+                let max_end_offset = da_max.map_or(hns_max, |x| x.max(hns_max));
                 let version = text.fcs_version();
                 text.meas
                     .h_read_df(
@@ -6330,26 +6377,29 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                         } else {
                             vec![]
                         };
-                        let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
-                            st.test_crc(h, crc_start, version, st.conf().as_ref())
-                                .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
-                                .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
-                                .repack_warnings()
-                        } else {
-                            LogResult::new_ok((None, None))
-                        };
-                        crc_res.map_ok_value(|(file_crc, computed_crc)| {
-                            let new = Self::new(text.rootmeta, df_out.inner, analysis, other);
-                            let diag = StdDatasetFromKwsOutput::new(
-                                offsets.offsets,
-                                extra,
-                                df_out.diagnostics,
-                                dark,
-                                file_crc,
-                                computed_crc,
-                            );
-                            (new, diag)
-                        })
+                        st.test_crc(h, max_end_offset, version, st.conf().as_ref())
+                            .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
+                            .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
+                            .repack_warnings()
+                            .map_ok_value(|(file_crc, computed_crc)| {
+                                let dataset_len =
+                                    if file_crc.is_some() { 8 } else { 0 } + max_end_offset;
+                                let new = Self::new(text.rootmeta, df_out.inner, analysis, other);
+                                let ed = df_out.diagnostics;
+                                let ds_diag = DatasetDiagnostics::new(
+                                    ed.pre.event_width,
+                                    ed.pre.event_data_remainder,
+                                    ed.pre.tot_event_mismatch,
+                                    ed.overrange_columns,
+                                    dark,
+                                    file_crc,
+                                    computed_crc,
+                                    dataset_len,
+                                );
+                                let diag =
+                                    StdDatasetFromKwsOutput::new(offsets.offsets, extra, ds_diag);
+                                (new, diag)
+                            })
                     })
             })
     }
@@ -7296,7 +7346,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::FlankingSegmentName;
+    use super::{CRCOutput, FlankingSegmentName};
 
     use crate::data::{
         AnyDatatype, AnyUint, FullRange, MaybeTypedMixedRange, MaybeTypedRange,
@@ -7306,6 +7356,7 @@ mod python {
         OpticalScale2_0, OpticalScale3_0, TemporalOrOptical, TemporalOrOpticalWithScale,
     };
     use crate::text::named_vec::Element;
+    use crate::validated::keys::StringOrBytes;
 
     use fireflow_types::python::{self as py, ColumnType, ConfigError, IntegerWidth};
 
@@ -7442,6 +7493,33 @@ mod python {
                 Self::Data => py::SEGMENT_NAME_DATA.as_str().into_bound_py_any(py),
                 Self::Analysis => py::SEGMENT_NAME_ANALYSIS.as_str().into_bound_py_any(py),
                 Self::Other(i) => i.into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for CRCOutput {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(b) = obj.extract::<Vec<u8>>() {
+                return Ok(Self::Invalid(StringOrBytes::from(b)));
+            } else if let Ok(crc) = obj.extract::<u16>() {
+                return Ok(Self::Valid(crc));
+            }
+            Err(ConfigError::new_err(
+                "must be an 8-character byte string or a 16-bit integer",
+            ))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for CRCOutput {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Valid(crc) => crc.into_bound_py_any(py),
+                Self::Invalid(v) => v.into_bound_py_any(py),
             }
         }
     }

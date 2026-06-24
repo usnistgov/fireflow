@@ -1,6 +1,6 @@
 use crate::{
-    api::CRCOutput,
     config::{ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},
+    core::CRCOutput,
     logging::{IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log},
     text::keywords::Nextdata,
     validated::keys::StringOrBytes,
@@ -217,7 +217,7 @@ impl<C> TEXTReadState<C> {
                 SwitchableErrorResult::new_switchable3(computed_crc, (), e, conf.allow_missing_crc)
                     .switchable_into_commutative()
             }
-            CRCOutput::Valid { crc: file_crc, .. } => {
+            CRCOutput::Valid(file_crc) => {
                 if matches!(conf.compute_crc, ComputeCRC::Never) {
                     LogResult::new_ok(None)
                 } else {
@@ -251,10 +251,7 @@ impl<C> TEXTReadState<C> {
                 .ok()
                 .and_then(|s| s.parse::<u16>().ok())
                 .map_or(CRCOutput::Invalid(StringOrBytes::from(buf)), |crc| {
-                    CRCOutput::Valid {
-                        crc,
-                        offset: crc_start,
-                    }
+                    CRCOutput::Valid(crc)
                 });
             Ok(ret)
         } else {

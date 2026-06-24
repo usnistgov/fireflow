@@ -1064,31 +1064,10 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
     let dataset_offsets = DocArg::new_dataset_offsets_param()
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
-    let event = DocArg::new_event_diagnostics_param()
-        .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
-    let dark = DocArg::new_intra_segment_dark_bytes_param().into_ro(|_, _| {
-        quote!(
-            self.0
-                .intra_segment_dark_bytes
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect()
-        )
-    });
-    let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
-    let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
+    let dataset = DocArg::new_dataset_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.dataset_diagnostics.clone().into()));
 
-    let args = [
-        data,
-        analysis,
-        others,
-        dataset_offsets,
-        event,
-        dark,
-        file_crc,
-        comp_crc,
-    ];
+    let args = [data, analysis, others, dataset_offsets, dataset];
     let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
@@ -1099,10 +1078,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     analysis,
                     others,
                     dataset_offsets.into(),
-                    events_diagnostics.into(),
-                    intra_segment_dark_bytes.into_iter().map(Into::into).collect(),
-                    file_crc,
-                    computed_crc,
+                    dataset_diagnostics.into(),
                 ).into()
             }
 
@@ -1114,10 +1090,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ret.set_item("analysis", self.analysis())?;
                 ret.set_item("others", self.others())?;
                 ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
-                ret.set_item("event_diagnostics", self.events_diagnostics().dict(py)?)?;
-                ret.set_item("intra_segment_dark_bytes", self.intra_segment_dark_bytes())?;
-                ret.set_item("file_crc", self.file_crc())?;
-                ret.set_item("computed_crc", self.computed_crc())?;
+                ret.set_item("dataset_diagnostics", self.dataset_diagnostics().dict(py)?)?;
                 Ok(ret.into())
             }
         }
@@ -1496,7 +1469,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
+pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -1534,20 +1507,51 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.overrange_columns.clone()),
     );
 
+    let dark = DocArg::new_intra_segment_dark_bytes_param().into_ro(|_, _| {
+        quote!(
+            self.0
+                .intra_segment_dark_bytes
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect()
+        )
+    });
+    let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
+    let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
+    let dataset_len = DocArg::new_ivar_ro(
+        "dataset_len",
+        RsInt::U64,
+        "The length of the entire dataset in bytes.",
+        |_, _| quote!(self.0.dataset_len),
+    );
+
     let args = [
         event_width,
         event_data_remainder,
         tot_event_mismatch,
         truncated_columns,
+        dark,
+        file_crc,
+        comp_crc,
+        dataset_len,
     ];
     let doc =
         DocString::new_class(format!("Diagnostic output from reading {DATA} segment.")).args(args);
-    let inner_args = doc.idents();
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(#inner_args).into()
+                #path::new(
+                    event_width,
+                    event_data_remainder,
+                    tot_event_mismatch,
+                    overrange_columns,
+                    intra_segment_dark_bytes.into_iter().map(Into::into).collect(),
+                    file_crc,
+                    computed_crc,
+                    dataset_len,
+                ).into()
             }
 
             /// Dump this class as a dictionary.
@@ -1558,6 +1562,10 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
                 ret.set_item("event_data_remainder", self.event_data_remainder())?;
                 ret.set_item("tot_event_mismatch", self.tot_event_mismatch())?;
                 ret.set_item("overrange_columns", self.overrange_columns())?;
+                ret.set_item("intra_segment_dark_bytes", self.intra_segment_dark_bytes())?;
+                ret.set_item("file_crc", self.file_crc())?;
+                ret.set_item("computed_crc", self.computed_crc())?;
+                ret.set_item("dataset_len", self.dataset_len())?;
                 Ok(ret.into())
             }
         }
@@ -2187,25 +2195,13 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
-    let event = DocArg::new_event_diagnostics_param()
-        .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
-    let dark = DocArg::new_intra_segment_dark_bytes_param().into_ro(|_, _| {
-        quote!(
-            self.0
-                .intra_segment_dark_bytes
-                .iter()
-                .cloned()
-                .map(Into::into)
-                .collect()
-        )
-    });
-    let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
-    let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
+    let dataset = DocArg::new_dataset_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.dataset_diagnostics.clone().into()));
 
     let doc = DocString::new_class(format!(
         "Miscellaneous data when standardizing {TEXT} from keywords."
     ))
-    .args([dataset_offsets, std, event, dark, file_crc, comp_crc]);
+    .args([dataset_offsets, std, dataset]);
 
     let new = |fun_args| {
         quote! {
@@ -2213,10 +2209,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 #path::new(
                     dataset_offsets.into(),
                     std_diagnostics.into(),
-                    events_diagnostics.into(),
-                    intra_segment_dark_bytes.into_iter().map(Into::into).collect(),
-                    file_crc,
-                    computed_crc,
+                    dataset_diagnostics.into(),
                 ).into()
             }
 
@@ -2226,10 +2219,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 let mut ret = pyo3::types::PyDict::new(py);
                 ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
                 ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
-                ret.set_item("events_diagnostics", self.events_diagnostics().dict(py)?)?;
-                ret.set_item("intra_segment_dark_bytes", self.intra_segment_dark_bytes())?;
-                ret.set_item("file_crc", self.file_crc())?;
-                ret.set_item("computed_crc", self.computed_crc())?;
+                ret.set_item("dataset_diagnostics", self.dataset_diagnostics().dict(py)?)?;
                 Ok(ret.into())
             }
         }
@@ -9253,10 +9243,10 @@ impl DocArgParam {
         Self::new_param("flat_diagnostics", p, desc)
     }
 
-    fn new_event_diagnostics_param() -> Self {
+    fn new_dataset_diagnostics_param() -> Self {
         let d = format!("Diagnostic output from parsing {DATA} segment.");
-        let p = PyClass::new_py(["api"], "EventsDiagnostics");
-        Self::new_param("events_diagnostics", p, d)
+        let p = PyClass::new_py(["api"], "DatasetDiagnostics");
+        Self::new_param("dataset_diagnostics", p, d)
     }
 
     fn new_intra_segment_dark_bytes_param() -> Self {
@@ -9275,11 +9265,11 @@ impl DocArgParam {
              Will be {NONE} if not found at all. \
              FCS 2.0 will always return {NONE}."
         );
-        let path = parse_quote!(fireflow_core::api::CRCOutput);
+        let path = parse_quote!(fireflow_core::core::CRCOutput);
         let pair: PyTuple<_> = [RsInt::U16, RsInt::U64].into_iter().collect();
         let inner = PyUnion::new2(PyBytes::default(), pair).rstype(path);
         let p = PyOpt::new1(inner);
-        Self::new_param("file_crc", p, d).def_auto()
+        Self::new_param("file_crc", p, d)
     }
 
     fn new_computed_crc_param() -> Self {
@@ -9288,7 +9278,7 @@ impl DocArgParam {
              based on file contents. Will be {NONE} for 2.0 or if the the user \
              chose not to compute the CRC."
         );
-        Self::new_param("computed_crc", PyOpt::new1(RsInt::U16), d).def_auto()
+        Self::new_param("computed_crc", PyOpt::new1(RsInt::U16), d)
     }
 
     fn new_uncorrected_header_offsets_param(argname: &str, seg: AnySegment) -> Self {

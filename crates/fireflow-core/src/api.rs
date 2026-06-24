@@ -9,11 +9,11 @@ use crate::config::{
 };
 use crate::convert::UsizeExt as _;
 use crate::core::{
-    Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, DatasetOffsets,
-    IntraSegmentDarkBytes, LookupAndReadDataAnalysisError, LookupAndReadDataAnalysisWarning,
-    Others, PrivVersionSet as _, StdDatasetFromFlatTEXTWarning, StdDatasetFromKwsOutput,
-    StdTEXTDiagnostics, StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError,
-    WriteDatasetSummary,
+    Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, CRCOutput,
+    DatasetDiagnostics, DatasetOffsets, IntraSegmentDarkBytes, LookupAndReadDataAnalysisError,
+    LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _, StdDatasetFromFlatTEXTWarning,
+    StdDatasetFromKwsOutput, StdTEXTDiagnostics, StdTEXTFromFlatTEXTError,
+    StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };
 use crate::data::{EventOverRangeError, EventsDiagnostics};
 use crate::fixed_vec::OneOrTwo;
@@ -502,31 +502,8 @@ pub struct FlatDatasetFromKwsOutput {
     /// Offsets used to parse DATA and ANALYSIS
     pub dataset_offsets: DatasetOffsets,
 
-    /// Diagnostic output from parsing DATA segment
-    pub events_diagnostics: EventsDiagnostics,
-
-    /// Unparsed bytes between segments.
-    pub intra_segment_dark_bytes: Vec<IntraSegmentDarkBytes>,
-
-    /// Value of the cyclic redundancy check (CRC) as read from the file.
-    ///
-    /// Will always be `None` for 2.0.
-    pub file_crc: Option<CRCOutput>,
-
-    /// Value of the computed cyclic redundancy check (CRC) of the dataset.
-    ///
-    /// Will always be `None` for 2.0.
-    pub computed_crc: Option<u16>,
-}
-
-/// The output of parsing the CRC at the end of the last dataset.
-#[derive(Clone, PartialEq)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub enum CRCOutput {
-    /// CRC was a valid 16 bit decimal number.
-    Valid { crc: u16, offset: u64 },
-    /// CRC bytes were found but did not parse to a 16-bit number.
-    Invalid(StringOrBytes),
+    /// Diagnostic output from parsing entire dataset.
+    pub dataset_diagnostics: DatasetDiagnostics,
 }
 
 // TODO should all these std/nonstd keys just be keystrings since the $ is implied?
@@ -1502,14 +1479,12 @@ impl HeaderAndSuppOffsets {
         }
     }
 
-    pub(crate) fn text_other_max_end_offset(&self) -> Option<u64> {
+    pub(crate) fn text_other_max_end_offset(&self) -> u64 {
         let hdr_max = self.header.final_offsets.ptext_other_max_end_offset();
-        let supp_max = self
-            .supp_text
+        self.supp_text
             .final_offsets()
             .and_then(|o| o.as_nonempty())
-            .map(|o| o.end());
-        hdr_max.max(supp_max)
+            .map_or(hdr_max, |o| o.end().max(hdr_max))
     }
 }
 
@@ -1530,8 +1505,8 @@ impl FlatDatasetOutput {
             others_len: ds.others.0.iter().map(|x| x.0.len()).sum(),
             datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
             dataset_offset: hdr.dataset_offset,
-            file_crc: ds.file_crc,
-            computed_crc: ds.computed_crc,
+            file_crc: ds.dataset_diagnostics.file_crc,
+            computed_crc: ds.dataset_diagnostics.computed_crc,
         }
     }
 }
@@ -1559,6 +1534,7 @@ impl FlatDatasetFromKwsOutput {
             .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
                 let hns_max = hns.text_other_max_end_offset();
                 let da_max = dataset_offsets.max_end_offset();
+                let max_end_offset = da_max.map_or(hns_max, |x| x.max(hns_max));
                 let dconf: &ReadDatasetConfig = st.conf().as_ref();
                 let dark = if dconf.read_intra_segment_dark_bytes.is_set() {
                     io_to_log!(IntraSegmentDarkBytes::read_all(
@@ -1572,29 +1548,26 @@ impl FlatDatasetFromKwsOutput {
                 } else {
                     vec![]
                 };
-                let crc_res = if let Some(crc_start) = hns_max.max(da_max) {
-                    st.test_crc(h, crc_start, new_version, st.conf().as_ref())
-                } else {
-                    LogResult::new_ok((None, None))
-                };
+                let crc_res = st.test_crc(h, max_end_offset, new_version, st.conf().as_ref());
                 let or = hns.header.final_offsets.others_reader();
                 crc_res
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .repack_warnings()
                     .and_then_commutative(|(file_crc, computed_crc)| {
-                        let go = |others| {
-                            Self::new(
-                                data,
-                                analysis,
-                                others,
-                                dataset_offsets,
-                                event_out,
-                                dark,
-                                file_crc,
-                                computed_crc,
-                            )
-                        };
+                        let dataset_len = if file_crc.is_some() { 8 } else { 0 } + max_end_offset;
+                        let ds_diag = DatasetDiagnostics::new(
+                            event_out.pre.event_width,
+                            event_out.pre.event_data_remainder,
+                            event_out.pre.tot_event_mismatch,
+                            event_out.overrange_columns,
+                            dark,
+                            file_crc,
+                            computed_crc,
+                            dataset_len,
+                        );
+                        let go =
+                            |others| Self::new(data, analysis, others, dataset_offsets, ds_diag);
                         or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
                     })
             })
@@ -2794,42 +2767,5 @@ mod tests {
     #[test]
     fn guess_leading_delim_key_escaped() {
         assert_guessed_mode("/aaa/bbb/bb//b/ccc/", GuessedEscapeMode::Ambiguous);
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use crate::validated::keys::StringOrBytes;
-
-    use super::CRCOutput;
-
-    use fireflow_types::python::ConfigError;
-    use pyo3::{IntoPyObjectExt as _, prelude::*};
-
-    impl<'py> FromPyObject<'_, 'py> for CRCOutput {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Ok(b) = obj.extract::<Vec<u8>>() {
-                return Ok(Self::Invalid(StringOrBytes::from(b)));
-            } else if let Ok((crc, offset)) = obj.extract::<(u16, u64)>() {
-                return Ok(Self::Valid { crc, offset });
-            }
-            Err(ConfigError::new_err(
-                "must be an 8-character byte string or a 16-bit integer",
-            ))
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for CRCOutput {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            match self {
-                Self::Valid { crc, offset } => (crc, offset).into_bound_py_any(py),
-                Self::Invalid(v) => v.into_bound_py_any(py),
-            }
-        }
     }
 }

@@ -2374,13 +2374,17 @@ class FlatTEXTOutput:
     def dict(self) -> dict[str, Any]: ...
 
 @final
-class EventsDiagnostics:
+class DatasetDiagnostics:
     def __new__(
         cls,
         event_width: int | None,
         event_data_remainder: int | None,
         tot_event_mismatch: bool | None,
         overrange_columns: list[tuple[int, bool] | None],
+        intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
+        file_crc: pft.CRCOutput,
+        computed_crc: int | None,
+        dataset_len: int,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2391,6 +2395,14 @@ class EventsDiagnostics:
     def tot_event_mismatch(self) -> bool | None: ...
     @property
     def overrange_columns(self) -> list[tuple[int, bool] | None]: ...
+    @property
+    def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
+    @property
+    def file_crc(self) -> pft.CRCOutput: ...
+    @property
+    def computed_crc(self) -> int | None: ...
+    @property
+    def dataset_len(self) -> int: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2429,10 +2441,7 @@ class FlatDatasetFromKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_offsets: DatasetOffsets,
-        events_diagnostics: EventsDiagnostics,
-        intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
-        file_crc: pft.CRCOutput = None,
-        computed_crc: int | None = None,
+        dataset_diagnostics: DatasetDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2444,13 +2453,7 @@ class FlatDatasetFromKwsOutput:
     @property
     def dataset_offsets(self) -> DatasetOffsets: ...
     @property
-    def events_diagnostics(self) -> EventsDiagnostics: ...
-    @property
-    def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
-    @property
-    def file_crc(self) -> pft.CRCOutput: ...
-    @property
-    def computed_crc(self) -> int | None: ...
+    def dataset_diagnostics(self) -> DatasetDiagnostics: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2541,10 +2544,7 @@ class StdDatasetFromKwsOutput:
         cls,
         dataset_offsets: DatasetOffsets,
         std_diagnostics: StdTEXTDiagnostics,
-        events_diagnostics: EventsDiagnostics,
-        intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
-        file_crc: pft.CRCOutput = None,
-        computed_crc: int | None = None,
+        dataset_diagnostics: DatasetDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2552,13 +2552,7 @@ class StdDatasetFromKwsOutput:
     @property
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
-    def events_diagnostics(self) -> EventsDiagnostics: ...
-    @property
-    def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
-    @property
-    def file_crc(self) -> pft.CRCOutput: ...
-    @property
-    def computed_crc(self) -> int | None: ...
+    def dataset_diagnostics(self) -> DatasetDiagnostics: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2609,8 +2603,8 @@ class DatasetSummary:
         others_len: int,
         datatype: pft.Datatype,
         dataset_offset: int,
-        file_crc: pft.CRCOutput = None,
-        computed_crc: int | None = None,
+        file_crc: pft.CRCOutput,
+        computed_crc: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -3495,7 +3489,7 @@ __all__ = [
     "ValidKeywords",
     "DatasetOffsets",
     "SplitTEXTDiagnostics",
-    "EventsDiagnostics",
+    "DatasetDiagnostics",
     "IntraSegmentDarkBytes",
     "KeywordVersionScore",
     "DatasetSummary",

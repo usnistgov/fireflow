@@ -6159,7 +6159,7 @@ class TestConfig:
                 allow_uneven_event_width=f,
                 allow_missing_crc="silent",
             )
-            return out.dataset.events_diagnostics.event_data_remainder
+            return out.dataset.dataset_diagnostics.event_data_remainder
 
         comp: int | None = remainder
         self._test_tri_flag(go, comp, [pf.FileLayoutError])
@@ -6198,7 +6198,7 @@ class TestConfig:
                 allow_tot_mismatch=f,
                 allow_missing_crc="silent",
             )
-            return out.dataset.events_diagnostics.tot_event_mismatch
+            return out.dataset.dataset_diagnostics.tot_event_mismatch
 
         comp: bool | None = True
         self._test_tri_flag(go, comp, [pf.FileLayoutError])
@@ -6247,7 +6247,7 @@ class TestConfig:
                 over_range_action=g,
                 allow_missing_crc="silent",
             )
-            c = out.dataset.events_diagnostics.overrange_columns
+            c = out.dataset.dataset_diagnostics.overrange_columns
             val = out.dataset.data[0, 0]
             return (c, val)
 
@@ -6366,7 +6366,7 @@ class TestConfig:
                 over_range_action=g,
                 allow_missing_crc="silent",
             )
-            return out.dataset.events_diagnostics.overrange_columns
+            return out.dataset.dataset_diagnostics.overrange_columns
 
         all_over: list[pt.OverLimitAction] = [
             "silent",

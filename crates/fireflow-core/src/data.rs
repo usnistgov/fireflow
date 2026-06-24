@@ -783,51 +783,23 @@ impl_functor_once!(
 );
 
 /// Diagnostic output from reading DATA segment
-#[derive(Clone, PartialEq, Default, new)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct EventsDiagnostics {
-    /// The width of one event in bytes (if not ASCII delimited).
-    pub event_width: Option<u64>,
-
-    /// The remainder after dividing length of DATA by event width.
-    ///
-    /// For well-formed files, this should be zero.
-    ///
-    /// Will be [`Option::None`] for delimited ASCII layouts.
-    pub event_data_remainder: Option<u64>,
-
-    /// `true` if $TOT does not match the number of events computed via event width.
-    ///
-    /// [`Option::None`] if $TOT is missing (FCS 2.0) or the layout is ASCII
-    /// delimited and there is no event width.
-    pub tot_event_mismatch: Option<bool>,
-
-    /// Columns for which at least one event was over $PnR.
-    ///
-    /// Length of vector will be equal to $PAR. Elements correspond to column
-    /// indices and will be `None` if not overrange. Otherwise, the first
-    /// [`usize`] will be the row that has the first overrange value, and the
-    /// second [`bool`] will be `true` if the value was truncated to fit and
-    /// false otherwise.
-    pub overrange_columns: Vec<OverrangeColumn>,
+#[derive(new, Default)]
+pub(crate) struct PreEventsDiagnostics {
+    pub(crate) event_width: Option<u64>,
+    pub(crate) event_data_remainder: Option<u64>,
+    pub(crate) tot_event_mismatch: Option<bool>,
 }
 
 /// Diagnostic output from reading DATA segment
-#[derive(new)]
-struct PreEventsDiagnostics {
-    pub event_width: Option<u64>,
-    pub event_data_remainder: Option<u64>,
-    pub tot_event_mismatch: Option<bool>,
+#[derive(new, Default)]
+pub(crate) struct EventsDiagnostics {
+    pub(crate) pre: PreEventsDiagnostics,
+    pub(crate) overrange_columns: Vec<OverrangeColumn>,
 }
 
 impl PreEventsDiagnostics {
     fn add_overrange(self, cs: Vec<OverrangeColumn>) -> EventsDiagnostics {
-        EventsDiagnostics::new(
-            self.event_width,
-            self.event_data_remainder,
-            self.tot_event_mismatch,
-            cs,
-        )
+        EventsDiagnostics::new(self, cs)
     }
 }
 

@@ -131,6 +131,7 @@ fpp::impl_py_new_flat_dataset_with_kws_output!(api::NewFlatDatasetFromKwsOutput)
 fpp::impl_py_supp_text_offsets_origin!(api::SuppTEXTOffsetsOutput);
 fpp::impl_py_text_offsets_origin!(core::TEXTOffsetsOrigin);
 fpp::impl_py_read_events_diagnostics!(data::EventsDiagnostics);
+fpp::impl_py_intra_segment_dark_bytes!(core::IntraSegmentDarkBytes);
 fpp::impl_py_keyword_version_score!(kws::KeywordVersionScore);
 
 fpp::impl_py_std_text_output!(api::StdTEXTOutput);

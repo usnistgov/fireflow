@@ -2426,6 +2426,7 @@ class FlatDatasetFromKwsOutput:
         others: list[bytes],
         dataset_offsets: DatasetOffsets,
         events_diagnostics: EventsDiagnostics,
+        intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
         file_crc: pft.CRCOutput = None,
         computed_crc: int | None = None,
     ) -> Self: ...
@@ -2440,6 +2441,8 @@ class FlatDatasetFromKwsOutput:
     def dataset_offsets(self) -> DatasetOffsets: ...
     @property
     def events_diagnostics(self) -> EventsDiagnostics: ...
+    @property
+    def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
     @property
     def file_crc(self) -> pft.CRCOutput: ...
     @property
@@ -2505,12 +2508,37 @@ class StdTEXTOutput:
     def dict(self) -> dict[str, Any]: ...
 
 @final
+class IntraSegmentDarkBytes:
+    def __new__(
+        cls,
+        prev: pft.FlankingSegmentName,
+        next: pft.FlankingSegmentName,
+        start: int,
+        end: int,
+        bytes: str | bytes,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def prev(self) -> pft.FlankingSegmentName: ...
+    @property
+    def next(self) -> pft.FlankingSegmentName: ...
+    @property
+    def start(self) -> int: ...
+    @property
+    def end(self) -> int: ...
+    @property
+    def bytes(self) -> str | bytes: ...
+    @property
+    def dict(self) -> dict[str, Any]: ...
+
+@final
 class StdDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset_offsets: DatasetOffsets,
         std_diagnostics: StdTEXTDiagnostics,
         events_diagnostics: EventsDiagnostics,
+        intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
         file_crc: pft.CRCOutput = None,
         computed_crc: int | None = None,
     ) -> Self: ...
@@ -2521,6 +2549,8 @@ class StdDatasetFromKwsOutput:
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
     def events_diagnostics(self) -> EventsDiagnostics: ...
+    @property
+    def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
     @property
     def file_crc(self) -> pft.CRCOutput: ...
     @property
@@ -3456,6 +3486,7 @@ __all__ = [
     "DatasetOffsets",
     "SplitTEXTDiagnostics",
     "EventsDiagnostics",
+    "IntraSegmentDarkBytes",
     "KeywordVersionScore",
     "DatasetSummary",
     "ReadHeaderConfig",

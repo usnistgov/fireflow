@@ -7291,7 +7291,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{FlankingSegmentName, IntraSegmentDarkBytes};
+    use super::FlankingSegmentName;
 
     use crate::data::{
         AnyDatatype, AnyUint, FullRange, MaybeTypedMixedRange, MaybeTypedRange,
@@ -7301,11 +7301,10 @@ mod python {
         OpticalScale2_0, OpticalScale3_0, TemporalOrOptical, TemporalOrOpticalWithScale,
     };
     use crate::text::named_vec::Element;
-    use crate::validated::keys::NEStringOrBytes;
 
     use fireflow_types::python::{self as py, ColumnType, ConfigError, IntegerWidth};
 
-    use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};
+    use pyo3::{IntoPyObjectExt as _, prelude::*};
 
     pub trait PySplitScale: Sized {
         type MaybeScale;
@@ -7395,30 +7394,6 @@ mod python {
                     (x.into(), Some(w))
                 }
             }
-        }
-    }
-
-    impl<'py> FromPyObject<'_, 'py> for IntraSegmentDarkBytes {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (n0, n1, b, e, bytes) = obj.extract::<(
-                FlankingSegmentName,
-                FlankingSegmentName,
-                u64,
-                u64,
-                NEStringOrBytes,
-            )>()?;
-            Ok(Self::new(n0, n1, b, e, bytes))
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for IntraSegmentDarkBytes {
-        type Target = PyTuple;
-        type Output = Bound<'py, Self::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (self.prev, self.next, self.start, self.end, self.bytes).into_pyobject(py)
         }
     }
 

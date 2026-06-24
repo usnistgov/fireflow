@@ -215,6 +215,9 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.EventsDiagnostics
    :members:
 
+.. autoclass:: pyreflow.api.IntraSegmentDarkBytes
+   :members:
+
 .. autoclass:: pyreflow.api.FlatDatasetFromKwsOutput
    :members:
 

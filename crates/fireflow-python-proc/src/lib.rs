@@ -1066,8 +1066,16 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
-    let dark = DocArg::new_intra_segment_dark_bytes_param()
-        .into_ro(|_, _| quote!(self.0.intra_segment_dark_bytes.clone()));
+    let dark = DocArg::new_intra_segment_dark_bytes_param().into_ro(|_, _| {
+        quote!(
+            self.0
+                .intra_segment_dark_bytes
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect()
+        )
+    });
     let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
     let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
 
@@ -1092,7 +1100,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     others,
                     dataset_offsets.into(),
                     events_diagnostics.into(),
-                    intra_segment_dark_bytes,
+                    intra_segment_dark_bytes.into_iter().map(Into::into).collect(),
                     file_crc,
                     computed_crc,
                 ).into()
@@ -1550,6 +1558,89 @@ pub fn impl_py_read_events_diagnostics(input: TokenStream) -> TokenStream {
                 ret.set_item("event_data_remainder", self.event_data_remainder())?;
                 ret.set_item("tot_event_mismatch", self.tot_event_mismatch())?;
                 ret.set_item("overrange_columns", self.overrange_columns())?;
+                Ok(ret.into())
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_intra_segment_dark_bytes(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let flank_path = parse_quote!(fireflow_core::core::FlankingSegmentName);
+    let str_names: PyLiteral = [
+        tp::SEGMENT_NAME_TEXT,
+        tp::SEGMENT_NAME_STEXT,
+        tp::SEGMENT_NAME_DATA,
+        tp::SEGMENT_NAME_ANALYSIS,
+    ]
+    .into_iter()
+    .map(NEStr::as_str)
+    .collect();
+    let flank_name_pt = PyUnion::new2(str_names, RsInt::Usize).rstype(flank_path);
+    let flank_expl = format!(
+        "A string for primary/supplemental {TEXT}, {DATA}, or {ANALYSIS}, \
+         and integer if an {OTHER} segment."
+    );
+
+    let prev = DocArgROIvar::new_ivar_ro(
+        "prev",
+        flank_name_pt.clone(),
+        format!("The name of the segment immediately prior. {flank_expl}"),
+        |_, _| quote!(self.0.prev),
+    );
+
+    let next = DocArgROIvar::new_ivar_ro(
+        "next",
+        flank_name_pt,
+        format!("The name of the segment immediately after. {flank_expl}"),
+        |_, _| quote!(self.0.next),
+    );
+
+    let start = DocArgROIvar::new_ivar_ro(
+        "start",
+        RsInt::U64,
+        "The starting offset of this region.",
+        |_, _| quote!(self.0.start),
+    );
+
+    let end = DocArgROIvar::new_ivar_ro(
+        "end",
+        RsInt::U64,
+        "The final offset of this region (one greater than offset of the last byte).",
+        |_, _| quote!(self.0.end),
+    );
+
+    let bytes = DocArgROIvar::new_ivar_ro(
+        "bytes",
+        PyUnion::new_ne_string_or_bytes(),
+        "The byte contents of this region.",
+        |_, _| quote!(self.0.bytes.clone()),
+    );
+
+    let args = [prev, next, start, end, bytes];
+    let doc = DocString::new_class("Unparsed bytes which are between two segments in an FCS file.")
+        .args(args);
+    let inner_args = doc.idents();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+
+            /// Dump this class as a dictionary.
+            #[getter]
+            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+                let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("prev", self.prev())?;
+                ret.set_item("next", self.next())?;
+                ret.set_item("start", self.start())?;
+                ret.set_item("end", self.end())?;
+                ret.set_item("bytes", self.bytes())?;
                 Ok(ret.into())
             }
         }
@@ -2098,8 +2189,16 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
     let event = DocArg::new_event_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.events_diagnostics.clone().into()));
-    let dark = DocArg::new_intra_segment_dark_bytes_param()
-        .into_ro(|_, _| quote!(self.0.intra_segment_dark_bytes.clone()));
+    let dark = DocArg::new_intra_segment_dark_bytes_param().into_ro(|_, _| {
+        quote!(
+            self.0
+                .intra_segment_dark_bytes
+                .iter()
+                .cloned()
+                .map(Into::into)
+                .collect()
+        )
+    });
     let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
     let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
 
@@ -2115,7 +2214,7 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     dataset_offsets.into(),
                     std_diagnostics.into(),
                     events_diagnostics.into(),
-                    intra_segment_dark_bytes,
+                    intra_segment_dark_bytes.into_iter().map(Into::into).collect(),
                     file_crc,
                     computed_crc,
                 ).into()
@@ -9162,23 +9261,7 @@ impl DocArgParam {
 
     fn new_intra_segment_dark_bytes_param() -> Self {
         let d = "Unparsed bytes between segments.";
-        let path = parse_quote!(fireflow_core::core::IntraSegmentDarkBytes);
-        let str_names: PyLiteral = [
-            tp::SEGMENT_NAME_TEXT,
-            tp::SEGMENT_NAME_STEXT,
-            tp::SEGMENT_NAME_DATA,
-            tp::SEGMENT_NAME_ANALYSIS,
-        ]
-        .into_iter()
-        .map(NEStr::as_str)
-        .collect();
-        let name_pt = PyUnion::new2(str_names, RsInt::Usize);
-        let inner = PyTuple::new1(name_pt.clone())
-            .add(name_pt)
-            .add(RsInt::U64)
-            .add(RsInt::U64)
-            .add(PyUnion::new_string_or_bytes())
-            .rstype(path);
+        let inner = PyClass::new_py(["api"], "IntraSegmentDarkBytes");
         let p = PyList::new1(inner);
         Self::new_param("intra_segment_dark_bytes", p, d)
     }

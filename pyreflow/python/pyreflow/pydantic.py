@@ -127,6 +127,7 @@ class _ReadEventsConfig(BaseModel):
     allow_mismatch_crc: pft.TriFlag = _DEFAULT_TRIFLAG
     compute_crc: pft.ComputeReadCRC = "never"
     read_intra_segment_dark_bytes: bool = False
+    read_post_dataset_dark_bytes: bool = False
     row_buffer_size: int = 28000
 
 
@@ -269,11 +270,14 @@ class PyreflowReadFlatDatasetConfig(
     _HeaderConfig,
 ):
     def read_flat_dataset(
-        self, path: Path, dataset_offset: int = 0
+        self,
+        path: Path,
+        dataset_offset: int = 0,
+        scan: bool = False,
     ) -> pfa.FlatDatasetOutput:
         """Wrapper for :func:`~pyreflow.api.fcs_read_flat_dataset`."""
         return pfa.fcs_read_flat_dataset(
-            path, dataset_offset=dataset_offset, **self.model_dump()
+            path, dataset_offset=dataset_offset, scan=scan, **self.model_dump()
         )
 
     def read_flat_datasets(
@@ -324,10 +328,11 @@ class PyreflowReadStdDatasetConfig(
         self,
         path: Path,
         dataset_offset: int = 0,
+        scan: bool = False,
     ) -> tuple[pft.AnyCoreDataset, pfa.StdDatasetOutput]:
         """Wrapper for :func:`~pyreflow.api.fcs_read_std_dataset`."""
         return pfa.fcs_read_std_dataset(
-            path, dataset_offset=dataset_offset, **self.model_dump()
+            path, dataset_offset=dataset_offset, scan=scan, **self.model_dump()
         )
 
     def read_std_datasets(

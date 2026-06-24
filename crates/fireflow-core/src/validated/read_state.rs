@@ -196,6 +196,7 @@ impl<C> TEXTReadState<C> {
         &self,
         h: &mut BufReader<R>,
         crc_start: u64,
+        next_dataset_abs_offset: u64,
         version: Version,
         conf: &ReadDatasetConfig,
     ) -> WarningAndIOGroupResult<(Option<CRCOutput>, Option<u16>), CRCError, CRCError, ()>
@@ -205,7 +206,7 @@ impl<C> TEXTReadState<C> {
         if version == Version::FCS2_0 {
             return LogResult::new_ok((None, None));
         }
-        let file_crc_out = io_to_log!(self.read_crc(h, crc_start));
+        let file_crc_out = io_to_log!(self.read_crc(h, crc_start, next_dataset_abs_offset));
         let res = match file_crc_out {
             CRCOutput::Invalid(_) => {
                 let e = CRCError::from(MissingCRCError(crc_start));
@@ -236,15 +237,18 @@ impl<C> TEXTReadState<C> {
             .map_errors(IOErrorGroup::Pure)
     }
 
-    fn read_crc<R>(&self, h: &mut BufReader<R>, crc_start: u64) -> io::Result<CRCOutput>
+    fn read_crc<R>(
+        &self,
+        h: &mut BufReader<R>,
+        crc_start: u64,
+        next_dataset_abs_offset: u64,
+    ) -> io::Result<CRCOutput>
     where
         R: Read + Seek,
     {
-        const CRC_LEN: u8 = 8;
-        let dataset_len = self.dataset_bounds.len.0;
-        let abs_start = dataset_len + crc_start;
-        let remaining = dataset_len
-            .checked_sub(crc_start)
+        let abs_start = self.dataset_offset.0 + crc_start;
+        let remaining = next_dataset_abs_offset
+            .checked_sub(abs_start)
             .expect("CRC start should be within dataset boundaries");
         h.seek(io::SeekFrom::Start(abs_start))?;
         let mut buf = vec![];
@@ -345,3 +349,6 @@ impl WriteFCSDigest {
 /// CRC-16/CCITT-FALSE, which is often confused with CCITT). See
 /// https://reveng.sourceforge.io/crc-catalogue/all.htm
 pub(crate) const FCS_CRC: CrcAlgorithm = CrcAlgorithm::Crc16Kermit;
+
+/// The number of bytes for the CRC word at the end of an FCS dataset.
+pub(crate) const CRC_LEN: u8 = 8;

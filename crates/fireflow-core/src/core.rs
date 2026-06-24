@@ -1,6 +1,6 @@
 //! Data structures representing standardized TEXT segment
 
-use crate::api::{FCSFileReader, HeaderAndSuppOffsets};
+use crate::api::{FCSFileReader, HeaderAndSuppOffsets, next_dataset_boundary};
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
     OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
@@ -120,8 +120,8 @@ use crate::validated::keys::{
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::read_state::{
-    CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError, TEXTReadState,
-    WriteFCSDigest,
+    CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
+    TEXTReadState, WriteFCSDigest,
 };
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
@@ -537,6 +537,7 @@ impl AnyCoreDataset {
         h: &mut BufReader<R>,
         hns: &mut HeaderAndSuppOffsets,
         kws: ValidKeywords,
+        scan_next_dataset: bool,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetFromKwsOutput, Option<KeywordVersionScores>),
@@ -555,7 +556,7 @@ impl AnyCoreDataset {
         let version = hns.header.version;
         macro_rules! go {
             ($t:ident, $s:expr) => {
-                $t::new_from_keywords_inner(h, kws, hns, st)
+                $t::new_from_keywords_inner(h, kws, hns, scan_next_dataset, st)
                     .map_ok_value(|(x, y)| (x.into(), y, $s))
                     .map_pure_errors(AnyStdDatasetFromFlatTextError::from)
             };
@@ -1081,6 +1082,9 @@ pub struct DatasetDiagnostics {
     /// Unparsed bytes between segments.
     pub intra_segment_dark_bytes: Vec<IntraSegmentDarkBytes>,
 
+    /// Unparsed bytes between the end of this dataset and the beginning of the next.
+    pub post_dataset_dark_bytes: StringOrBytes,
+
     /// Value of the cyclic redundancy check (CRC) as read from the file.
     ///
     /// Will always be `None` for 2.0.
@@ -1095,6 +1099,18 @@ pub struct DatasetDiagnostics {
     ///
     /// Will count from the first byte of HEADER to the last segment or the CRC.
     pub dataset_len: u64,
+
+    /// The offset of the next dataset if it exists.
+    ///
+    /// This can be obtained either from $NEXTDATA or by manually scanning the
+    /// file for the next dataset.
+    ///
+    /// Will be `None` if this is the last dataset in the FCS file.
+    pub next_dataset_offset: Option<DatasetOffset>,
+
+    /// `true` if the value of [`Self::next_dataset_offset`] was found by
+    /// manually scanning the file.
+    pub next_dataset_manually_scanned: bool,
 }
 
 /// The output of parsing the CRC at the end of the last dataset.
@@ -6307,7 +6323,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(mut fr, txt_st)| {
-                Self::new_from_keywords_inner(&mut fr.buf_read, kws, &mut hns, &txt_st)
+                Self::new_from_keywords_inner(&mut fr.buf_read, kws, &mut hns, false, &txt_st)
                     .map_pure_errors(StdDatasetFromKeywordsError::from)
             })
             .map_ok_value(|(ret, dataset)| {
@@ -6322,6 +6338,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         h: &mut BufReader<R>,
         kws: ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
+        scan_next_dataset: bool,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (Self, StdDatasetFromKwsOutput),
@@ -6359,8 +6376,10 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                     .and_then_commutative(|df_out| {
                         let ed = df_out.diagnostics;
-                        let ds_offsets = &offsets.offsets;
-                        DatasetDiagnostics::from_parts(h, version, ed, hns, ds_offsets, st)
+                        let d = &offsets.offsets;
+                        let v = version;
+                        let s = scan_next_dataset;
+                        DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, st)
                             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                             .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                             .repack_warnings()
@@ -7155,6 +7174,7 @@ impl DatasetDiagnostics {
         events: EventsDiagnostics,
         header_supp_offsets: &HeaderAndSuppOffsets,
         dataset_offsets: &DatasetOffsets,
+        scan_next_dataset: bool,
         st: &TEXTReadState<C>,
     ) -> WarningAndIOGroupResult<Self, CRCError, CRCError, ()>
     where
@@ -7162,10 +7182,20 @@ impl DatasetDiagnostics {
         C: AsRef<ReadDatasetConfig>,
     {
         let dconf: &ReadDatasetConfig = st.conf().as_ref();
+        // First, find next byte after the last segment in the dataset. Find the
+        // max of the TEXT+STEXT+OTHER first followed by DATA+ANALYSIS. The
+        // latter are separate since these could come from either TEXT or
+        // HEADER, and this data is in a separate struct. At minimum, this
+        // should always be at least the byte after TEXT since TEXT should be
+        // valid and non-empty if we got this far.
         let hns_max = header_supp_offsets.text_other_max_end_offset();
         let da_max = dataset_offsets.max_end_offset();
         let max_end_offset = da_max.map_or(hns_max, |x| x.max(hns_max));
-        let dark = if dconf.read_intra_segment_dark_bytes.is_set() {
+
+        // If desired, read any "dark bytes" between segments that have been
+        // previously read. This involves many scattered reads across the file
+        // so it is turned off by default.
+        let intra_seg_dark = if dconf.read_intra_segment_dark_bytes.is_set() {
             io_to_log!(IntraSegmentDarkBytes::read_all(
                 h,
                 header_supp_offsets.header.final_offsets.text(),
@@ -7177,20 +7207,83 @@ impl DatasetDiagnostics {
         } else {
             vec![]
         };
-        let crc_res = st.test_crc(h, max_end_offset, version, st.conf().as_ref());
-        crc_res.map_ok_value(|(file_crc, computed_crc)| {
-            let dataset_len = if file_crc.is_some() { 8 } else { 0 } + max_end_offset;
-            Self::new(
-                events.pre.event_width,
-                events.pre.event_data_remainder,
-                events.pre.tot_event_mismatch,
-                events.overrange_columns,
-                dark,
-                file_crc,
-                computed_crc,
-                dataset_len,
-            )
-        })
+
+        // If desired, manually determine the "real" boundary of this dataset by
+        // scanning the file for a string like "FCSX.Y ". Start this seek after
+        // the last known segment as was read previously. This is also expensive
+        // since it involves another random seek and a multi-byte rolling
+        // comparison across potentially the entire rest of file. This is meant
+        // for cases where $NEXTDATA cannot be trusted (which is surprisingly
+        // often). In the ideal case, $NEXTDATA is correct, in which case this
+        // scan will advance 8 bytes if the CRC exists, and 0 bytes if the CRC
+        // does not exist. This step must be done before finding the CRC since
+        // we do not know a priori if the CRC exists or not, and we should not
+        // bother trying to parse it if there are no bytes left in the dataset.
+        let next_dataset_abs_start = if scan_next_dataset {
+            io_to_log!(h.seek(io::SeekFrom::Start(st.dataset_offset().0 + max_end_offset)));
+            io_to_log!(next_dataset_boundary(h))
+        } else {
+            st.dataset_bounds()
+                .from_nextdata
+                .then_some(st.dataset_offset().0 + st.dataset_bounds().len.0)
+                .map(DatasetOffset)
+        };
+        let dataset_abs_end = next_dataset_abs_start.map_or(st.file_len().0, |x| x.0);
+
+        // Read the CRC value, and optionally test the CRC against the CRC
+        // computed from the dataset contents. The latter is relatively
+        // expensive since we must read the entire dataset again to compute its
+        // CRC; therefore it is turned off by default.
+        st.test_crc(h, max_end_offset, dataset_abs_end, version, dconf)
+            .and_then_nowarn_commutative(|(file_crc, computed_crc)| {
+                // Compute the final dataset length by adding the CRC length
+                // to the value of the byte offset after the last segment found
+                // above.
+                let crc_len = if file_crc.is_some() {
+                    u64::from(CRC_LEN)
+                } else {
+                    0
+                };
+                let dataset_len = crc_len + max_end_offset;
+
+                // If desired, read the "dark bytes" after the CRC and before
+                // the next dataset. This is turned off by default since it
+                // involves another random read to the file. It also could be
+                // potentially large. If $NEXTDATA is 0 and manual scanning was
+                // either turned off or didn't find another dataset, this will
+                // read until EOF and return every byte as-is. Some files
+                // (CyTOF) are known to misuse $NEXTDATA and/or save large data
+                // dumps at the end of an FCS file. This is meant for such cases
+                // where one wants/knows that this data exists, but most users
+                // won't care and it is alot of extra overhead.
+                let post_dataset_abs_start = st.dataset_offset().0 + dataset_len;
+                let post_dark = if let Some(post_dataset_nbytes) =
+                    dataset_abs_end.checked_sub(post_dataset_abs_start)
+                    && dconf.read_post_dataset_dark_bytes.is_set()
+                {
+                    let mut buf = vec![];
+                    io_to_log!(h.seek(io::SeekFrom::Start(post_dataset_abs_start)));
+                    io_to_log!(h.take(post_dataset_nbytes).read_to_end(&mut buf));
+                    buf
+                } else {
+                    vec![]
+                };
+
+                let ret = Self::new(
+                    events.pre.event_width,
+                    events.pre.event_data_remainder,
+                    events.pre.tot_event_mismatch,
+                    events.overrange_columns,
+                    intra_seg_dark,
+                    StringOrBytes::from(post_dark),
+                    file_crc,
+                    computed_crc,
+                    dataset_len,
+                    next_dataset_abs_start,
+                    scan_next_dataset,
+                );
+                LogResult::new_ok(ret)
+            })
     }
 }
 

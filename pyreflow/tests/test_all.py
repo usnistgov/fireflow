@@ -6728,7 +6728,7 @@ class TestPydantic:
         pydantic_seen = []
 
         # ignore kw args that are not supposed to be in pydantic classes
-        ignore = ["dataset_offset", "dataset_len"]
+        ignore = ["dataset_offset", "dataset_len", "scan"]
 
         # get dict of pydantic attrs and types
         sig = ins.signature(pydantic_class)

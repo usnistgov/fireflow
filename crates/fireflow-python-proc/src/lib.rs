@@ -370,6 +370,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         .arg(path_arg.clone())
         .args(conf_args.clone())
         .arg(dataset_offset_arg)
+        .arg(scan_arg.clone())
         .returns(DocReturn::new(pt_data_ret.clone()).exc(xs.clone()));
 
     let many_doc = DocString::new_fun("Read multiple datasets from FCS file in flat mode.")
@@ -411,7 +412,7 @@ pub fn def_fcs_read_flat_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_flat_dataset(#one_fun_args) -> #one_ret_path {
             #conf_q
-            Ok(#fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?.into())
+            Ok(#fun_one_path(&path, dataset_offset, scan, &conf).py_resolve_commutative()?.into())
         }
 
         #[pyfunction]
@@ -490,6 +491,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         .arg(path_arg.clone())
         .args(conf_args.clone())
         .arg(dataset_offset_arg)
+        .arg(scan_arg.clone())
         .returns(DocReturn::new(pt_ret.clone()).exc(xs.clone()));
 
     let many_doc = DocString::new_fun("Read multiple standardized datasets from FCS file.")
@@ -522,7 +524,7 @@ pub fn def_fcs_read_std_dataset(input: TokenStream) -> TokenStream {
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_read_std_dataset(#one_fun_args) -> #one_ret_path {
             #conf_q
-            let (core, data) = #fun_one_path(&path, dataset_offset, &conf).py_resolve_commutative()?;
+            let (core, data) = #fun_one_path(&path, dataset_offset, scan, &conf).py_resolve_commutative()?;
             Ok((core.into(), data.into()))
         }
 
@@ -1469,7 +1471,9 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+#[allow(clippy::too_many_lines)]
 pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
+    const NEXT_DATASET_OFFSET: &str = "next_dataset_offset";
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
@@ -1507,7 +1511,7 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.overrange_columns.clone()),
     );
 
-    let dark = DocArg::new_intra_segment_dark_bytes_param().into_ro(|_, _| {
+    let intra_seg_dark = DocArg::new_intra_segment_dark_bytes_param().into_ro(|_, _| {
         quote!(
             self.0
                 .intra_segment_dark_bytes
@@ -1517,8 +1521,18 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
                 .collect()
         )
     });
+
+    let post_dataset_dark = DocArg::new_param(
+        "post_dataset_dark_bytes",
+        PyUnion::new_string_or_bytes(),
+        "Unparsed bytes between the end of this dataset and the beginning of the next.",
+    )
+    .into_ro(|_, _| quote!(self.0.post_dataset_dark_bytes.clone()));
+
     let file_crc = DocArg::new_file_crc_param().into_ro(|_, _| quote!(self.0.file_crc.clone()));
+
     let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
+
     let dataset_len = DocArg::new_ivar_ro(
         "dataset_len",
         RsInt::U64,
@@ -1526,15 +1540,40 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.dataset_len),
     );
 
+    let next_dataset_offset = DocArg::new_ivar_ro(
+        NEXT_DATASET_OFFSET,
+        PyOpt::new1(PyInt::new_dataset_offset()),
+        format!(
+            "The offset of the next dataset if it exists. This can be \
+             obtained either from {NEXTDATA} or by manually scanning the \
+             file for the next dataset. Will be {NONE} if this is the last \
+             dataset in the FCS file."
+        ),
+        |_, _| quote!(self.0.next_dataset_offset),
+    );
+
+    let next_dataset_manually_scanned = DocArg::new_ivar_ro(
+        "next_dataset_manually_scanned",
+        PyBool::default(),
+        format!(
+            "{TRUE} if the value of {} was found by manually scanning the file.",
+            arg(NEXT_DATASET_OFFSET),
+        ),
+        |_, _| quote!(self.0.next_dataset_manually_scanned),
+    );
+
     let args = [
         event_width,
         event_data_remainder,
         tot_event_mismatch,
         truncated_columns,
-        dark,
+        intra_seg_dark,
+        post_dataset_dark,
         file_crc,
         comp_crc,
         dataset_len,
+        next_dataset_offset,
+        next_dataset_manually_scanned,
     ];
     let doc =
         DocString::new_class(format!("Diagnostic output from reading {DATA} segment.")).args(args);
@@ -1548,9 +1587,12 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
                     tot_event_mismatch,
                     overrange_columns,
                     intra_segment_dark_bytes.into_iter().map(Into::into).collect(),
+                    post_dataset_dark_bytes,
                     file_crc,
                     computed_crc,
                     dataset_len,
+                    next_dataset_offset,
+                    next_dataset_manually_scanned,
                 ).into()
             }
 
@@ -1563,9 +1605,12 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
                 ret.set_item("tot_event_mismatch", self.tot_event_mismatch())?;
                 ret.set_item("overrange_columns", self.overrange_columns())?;
                 ret.set_item("intra_segment_dark_bytes", self.intra_segment_dark_bytes())?;
+                ret.set_item("post_dataset_dark_bytes", self.post_dataset_dark_bytes())?;
                 ret.set_item("file_crc", self.file_crc())?;
                 ret.set_item("computed_crc", self.computed_crc())?;
                 ret.set_item("dataset_len", self.dataset_len())?;
+                ret.set_item("next_dataset_offset", self.next_dataset_offset())?;
+                ret.set_item("next_dataset_manually_scanned", self.next_dataset_manually_scanned())?;
                 Ok(ret.into())
             }
         }
@@ -9658,6 +9703,7 @@ impl DocArgParam {
         };
         let args2 = [
             Self::new_read_intra_segment_dark_bytes_param(),
+            Self::new_read_post_dataset_dark_bytes_param(),
             Self::new_row_buffer_size_param(true),
         ];
         let ps: Vec<_> = args0.into_iter().chain(args1).chain(args2).collect();
@@ -10568,6 +10614,12 @@ impl DocArgParam {
     fn new_read_intra_segment_dark_bytes_param() -> Self {
         let d = format!("If {TRUE} read bytes which are between segments.");
         Self::new_bool_param("read_intra_segment_dark_bytes", d)
+    }
+
+    fn new_read_post_dataset_dark_bytes_param() -> Self {
+        let d =
+            format!("If {TRUE} read bytes between the end of the current dataset and the next.");
+        Self::new_bool_param("read_post_dataset_dark_bytes", d)
     }
 
     fn new_row_buffer_size_param(is_reader: bool) -> Self {

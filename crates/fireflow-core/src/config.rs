@@ -968,6 +968,9 @@ pub struct ReadDatasetConfig {
     /// If `true` read bytes which are between segments.
     pub read_intra_segment_dark_bytes: ReadIntraSegmentDarkBytes,
 
+    /// If `true` read bytes between the end of this dataset and the next.
+    pub read_post_dataset_dark_bytes: ReadPostDatasetDarkBytes,
+
     /// Set the size in bytes for the internal buffer used to read DATA.
     ///
     /// This is a performance tuning parameter which controls the
@@ -1252,6 +1255,7 @@ impl_config_flag!(TransferDroppedOptional);
 impl_config_flag!(FixLogScaleOffsets);
 impl_config_flag!(DisallowLocaltime);
 impl_config_flag!(ReadIntraSegmentDarkBytes);
+impl_config_flag!(ReadPostDatasetDarkBytes);
 
 impl_config_flag!(SkipConversionCheck);
 impl_config_flag!(BigOther);

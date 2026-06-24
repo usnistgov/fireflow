@@ -1564,6 +1564,7 @@ class CoreDataset2_0(
         over_bitmask_action: pft.OverLimitAction = "trunc_warn",
         over_range_action: pft.OverLimitAction = "warn",
         read_intra_segment_dark_bytes: bool = False,
+        read_post_dataset_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
@@ -1688,6 +1689,7 @@ class CoreDataset3_0(
         allow_mismatch_crc: pft.TriFlag = "false",
         compute_crc: pft.ComputeReadCRC = "never",
         read_intra_segment_dark_bytes: bool = False,
+        read_post_dataset_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1828,6 +1830,7 @@ class CoreDataset3_1(
         allow_mismatch_crc: pft.TriFlag = "false",
         compute_crc: pft.ComputeReadCRC = "never",
         read_intra_segment_dark_bytes: bool = False,
+        read_post_dataset_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -1970,6 +1973,7 @@ class CoreDataset3_2(
         allow_mismatch_crc: pft.TriFlag = "false",
         compute_crc: pft.ComputeReadCRC = "never",
         read_intra_segment_dark_bytes: bool = False,
+        read_post_dataset_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
         # shared args
         warnings_are_errors: bool = False,
@@ -2382,9 +2386,12 @@ class DatasetDiagnostics:
         tot_event_mismatch: bool | None,
         overrange_columns: list[tuple[int, bool] | None],
         intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
+        post_dataset_dark_bytes: str | bytes,
         file_crc: pft.CRCOutput,
         computed_crc: int | None,
         dataset_len: int,
+        next_dataset_offset: int | None,
+        next_dataset_manually_scanned: bool,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2398,11 +2405,17 @@ class DatasetDiagnostics:
     @property
     def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
     @property
+    def post_dataset_dark_bytes(self) -> str | bytes: ...
+    @property
     def file_crc(self) -> pft.CRCOutput: ...
     @property
     def computed_crc(self) -> int | None: ...
     @property
     def dataset_len(self) -> int: ...
+    @property
+    def next_dataset_offset(self) -> int | None: ...
+    @property
+    def next_dataset_manually_scanned(self) -> bool: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2887,11 +2900,13 @@ def fcs_read_flat_dataset(
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
     read_intra_segment_dark_bytes: bool = False,
+    read_post_dataset_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
+    scan: bool = False,
 ) -> FlatDatasetOutput: ...
 
 #
@@ -2980,11 +2995,13 @@ def fcs_read_std_dataset(
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
     read_intra_segment_dark_bytes: bool = False,
+    read_post_dataset_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
     dataset_offset: int = 0,
+    scan: bool = False,
 ) -> tuple[pft.AnyCoreDataset, StdDatasetOutput]: ...
 
 #
@@ -3189,6 +3206,7 @@ def fcs_read_flat_datasets(
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
     read_intra_segment_dark_bytes: bool = False,
+    read_post_dataset_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3284,6 +3302,7 @@ def fcs_read_std_datasets(
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
     read_intra_segment_dark_bytes: bool = False,
+    read_post_dataset_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3320,6 +3339,7 @@ def fcs_read_flat_dataset_with_keywords(
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
     read_intra_segment_dark_bytes: bool = False,
+    read_post_dataset_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,
@@ -3395,6 +3415,7 @@ def fcs_summarize(
     allow_mismatch_crc: pft.TriFlag = "false",
     compute_crc: pft.ComputeReadCRC = "never",
     read_intra_segment_dark_bytes: bool = False,
+    read_post_dataset_dark_bytes: bool = False,
     row_buffer_size: int = 28000,
     # shared args
     warnings_are_errors: bool = False,

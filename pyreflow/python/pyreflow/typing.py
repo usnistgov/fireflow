@@ -279,3 +279,5 @@ CRCOutput: TypeAlias = bytes | str | tuple[int, int] | None
 ComputeReadCRC: TypeAlias = Literal["never", "always", "test"]
 
 FlankingSegmentName: TypeAlias = Literal["text", "stext", "data", "analysis"] | int
+
+DarkBytes: TypeAlias = str | bytes | tuple[int, int]

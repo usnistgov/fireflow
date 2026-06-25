@@ -2047,7 +2047,7 @@ class Header:
         final_offsets: FinalHeaderOffsets,
         original_offsets: OriginalHeaderOffsets,
         overlaps: list[HeaderToHeaderOffsetsOverlap],
-        dark_bytes: str | bytes,
+        dark_bytes: pft.DarkBytes | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2061,7 +2061,7 @@ class Header:
     @property
     def overlaps(self) -> list[HeaderToHeaderOffsetsOverlap]: ...
     @property
-    def dark_bytes(self) -> str | bytes: ...
+    def dark_bytes(self) -> pft.DarkBytes | None: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2386,7 +2386,7 @@ class DatasetDiagnostics:
         tot_event_mismatch: bool | None,
         overrange_columns: list[tuple[int, bool] | None],
         intra_segment_dark_bytes: list[IntraSegmentDarkBytes],
-        post_dataset_dark_bytes: str | bytes,
+        post_dataset_dark_bytes: pft.DarkBytes | None,
         file_crc: pft.CRCOutput,
         computed_crc: int | None,
         dataset_len: int,
@@ -2405,7 +2405,7 @@ class DatasetDiagnostics:
     @property
     def intra_segment_dark_bytes(self) -> list[IntraSegmentDarkBytes]: ...
     @property
-    def post_dataset_dark_bytes(self) -> str | bytes: ...
+    def post_dataset_dark_bytes(self) -> pft.DarkBytes | None: ...
     @property
     def file_crc(self) -> pft.CRCOutput: ...
     @property
@@ -2535,7 +2535,7 @@ class IntraSegmentDarkBytes:
         next: pft.FlankingSegmentName,
         start: int,
         end: int,
-        bytes: str | bytes,
+        bytes: pft.DarkBytes,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2547,7 +2547,7 @@ class IntraSegmentDarkBytes:
     @property
     def end(self) -> int: ...
     @property
-    def bytes(self) -> str | bytes: ...
+    def bytes(self) -> pft.DarkBytes: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 

@@ -115,8 +115,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DKey0, DKey2, IndexedKey as _, Key as _, NEStringOrBytes, NonStdKey, NonStdKeywords,
-    NonStdKeywordsExt as _, StdKey, StdKeywords, StringOrBytes, ValidKeywords,
+    DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
+    StdKey, StdKeywords, StringOrBytes, ValidKeywords,
 };
 use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::read_state::{
@@ -132,7 +132,8 @@ use fireflow_types::config::{
 use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
 };
-use fireflow_types::nonempty_string::NEString;
+use fireflow_types::nonempty_string::{NESliceExt as _, NEStr, NEString};
+use nonempty_collections::NESlice;
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 
 use chrono::{DateTime, FixedOffset, NaiveDate, NaiveTime};
@@ -1083,7 +1084,7 @@ pub struct DatasetDiagnostics {
     pub intra_segment_dark_bytes: Vec<IntraSegmentDarkBytes>,
 
     /// Unparsed bytes between the end of this dataset and the beginning of the next.
-    pub post_dataset_dark_bytes: StringOrBytes,
+    pub post_dataset_dark_bytes: Option<DarkBytes>,
 
     /// Value of the cyclic redundancy check (CRC) as read from the file.
     ///
@@ -1194,7 +1195,20 @@ pub struct IntraSegmentDarkBytes {
     /// The final offset of this region (one greater than offset of the last byte).
     pub end: u64,
     /// The byte contents of this region.
-    pub bytes: NEStringOrBytes,
+    pub bytes: DarkBytes,
+}
+
+/// Bytes which are not part of any segment.
+///
+/// Many cases of these will be "padding," which is just one character like a
+/// space or \0 char repeated many times. In these cases, it is more efficient
+/// and more ergonomic to encode this special case.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum DarkBytes {
+    Padding { character: u8, n: usize },
+    Bytes(NEVec<u8>),
+    Utf8(NEString),
 }
 
 /// The name of a segment which immediately before/after a region of dark bytes.
@@ -7128,6 +7142,7 @@ impl IntraSegmentDarkBytes {
             };
         }
         let mut ret = vec![];
+        let mut buf = vec![];
         let pairs = [
             go!(ptext, FlankingSegmentName::PrimaryText),
             go!(data, FlankingSegmentName::Data),
@@ -7150,20 +7165,61 @@ impl IntraSegmentDarkBytes {
             if nbytes == 0 {
                 continue;
             }
-            let mut buf = vec![];
             h.seek(io::SeekFrom::Start(end0))?;
             h.take(nbytes).read_to_end(&mut buf)?;
-            let ne = NEVec::try_from(buf).unwrap();
+            let bytes = DarkBytes::try_from_slice(&buf[..]).unwrap();
             let dark = Self {
                 prev: n0,
                 next: n1,
                 start: end0,
                 end: start1,
-                bytes: NEStringOrBytes::from(ne),
+                bytes,
             };
             ret.push(dark);
+            buf.clear();
         }
         Ok(ret)
+    }
+}
+
+impl DarkBytes {
+    pub(crate) fn try_from_vec(bytes: Vec<u8>) -> Option<Self> {
+        let ne = NEVec::try_from_vec(bytes)?;
+        let (x, x0) = ne.split_first();
+        let ret = if x0.iter().all(|y| y == x) {
+            Self::Padding {
+                character: *x,
+                n: usize::from(ne.len()),
+            }
+        } else {
+            match NEString::from_utf8(ne) {
+                Ok(s) => Self::Utf8(s),
+                Err(e) => Self::Bytes(e.into_bytes()),
+            }
+        };
+        Some(ret)
+    }
+
+    pub(crate) fn try_from_slice(bytes: &[u8]) -> Option<Self> {
+        let ne = NESlice::try_from_slice(bytes)?;
+        let (x, x0) = ne.split_first();
+        let ret = if x0.iter().all(|y| y == x) {
+            Self::Padding {
+                character: *x,
+                n: usize::from(ne.len()),
+            }
+        } else if let Ok(s) = NEStr::from_utf8(&ne) {
+            Self::Utf8(s.to_owned())
+        } else {
+            Self::Bytes(ne.to_ne_vec())
+        };
+        Some(ret)
+    }
+
+    #[cfg(feature = "python")]
+    fn try_from_string(s: String) -> Option<Self> {
+        let ne = NEString::try_from(s).ok()?;
+        Some(Self::Utf8(ne))
     }
 }
 
@@ -7275,7 +7331,7 @@ impl DatasetDiagnostics {
                     events.pre.tot_event_mismatch,
                     events.overrange_columns,
                     intra_seg_dark,
-                    StringOrBytes::from(post_dark),
+                    DarkBytes::try_from_vec(post_dark),
                     file_crc,
                     computed_crc,
                     dataset_len,
@@ -7455,7 +7511,7 @@ mod serialize {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{CRCOutput, FlankingSegmentName};
+    use super::{CRCOutput, DarkBytes, FlankingSegmentName};
 
     use crate::data::{
         AnyDatatype, AnyUint, FullRange, MaybeTypedMixedRange, MaybeTypedRange,
@@ -7629,6 +7685,42 @@ mod python {
             match self {
                 Self::Valid(crc) => crc.into_bound_py_any(py),
                 Self::Invalid(v) => v.into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for DarkBytes {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(b) = obj.extract::<Vec<u8>>()
+                && let Some(ret) = Self::try_from_vec(b)
+            {
+                return Ok(ret);
+            } else if let Ok(s) = obj.extract::<String>()
+                && let Some(ret) = Self::try_from_string(s)
+            {
+                return Ok(ret);
+            } else if let Ok((character, n)) = obj.extract::<(u8, usize)>() {
+                return Ok(Self::Padding { character, n });
+            }
+            Err(ConfigError::new_err(
+                "must be a non-empty string, byte sequence of tuple where first \
+                 element is a byte character and the second is a number \
+                 representing the number of repeats of this character.",
+            ))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for DarkBytes {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Padding { character, n } => (character, n).into_bound_py_any(py),
+                Self::Bytes(b) => Vec::from(b).into_bound_py_any(py),
+                Self::Utf8(b) => b.as_str().into_bound_py_any(py),
             }
         }
     }

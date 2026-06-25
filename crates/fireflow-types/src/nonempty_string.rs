@@ -16,7 +16,6 @@ use std::num::{NonZeroU8, NonZeroU32};
 use std::ptr::from_ref;
 use std::slice;
 use std::str::{FromStr, Utf8Error};
-use std::string::FromUtf8Error;
 use std::{borrow::Borrow, num::NonZeroUsize};
 
 use sealed::DisplayNEInner;
@@ -60,7 +59,10 @@ impl AsRef<NEStr> for NEString {
 
 /// Like a [`FromUtf8Error`] but for non-empty strings.
 #[derive(Into)]
-pub struct FromNEUtf8Error(FromUtf8Error);
+pub struct FromNEUtf8Error {
+    bytes: NEVec<u8>,
+    error: Utf8Error,
+}
 
 /// Allows a type with [`ToDisplayNE`] to be displayed with [`DisplayNE`].
 #[derive(From)]
@@ -364,7 +366,13 @@ impl NEString {
 
     /// Like [`String::from_utf8`] but requires a [`NEVec<u8>`].
     pub fn from_utf8(bytes: NEVec<u8>) -> Result<Self, FromNEUtf8Error> {
-        let s = String::from_utf8(bytes.into()).map_err(FromNEUtf8Error)?;
+        let s = String::from_utf8(bytes.into()).map_err(|e| {
+            let error = e.utf8_error();
+            FromNEUtf8Error {
+                bytes: NEVec::try_from_vec(e.into_bytes()).unwrap(),
+                error,
+            }
+        })?;
         Ok(Self(s))
     }
 
@@ -426,7 +434,7 @@ impl NEStr {
 impl FromNEUtf8Error {
     #[must_use]
     pub fn into_bytes(self) -> NEVec<u8> {
-        NEVec::try_from_vec(self.0.into_bytes()).unwrap()
+        self.bytes
     }
 }
 

@@ -11,7 +11,7 @@ use crate::config::{
     ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
 };
 use crate::convert::U64Ext as _;
-use crate::core::{MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
+use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{
     CommutativeResultIter as _, ErrorsResult, IOErrorGroup, LogResult, ResultExt as _,
@@ -26,7 +26,7 @@ use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
 use crate::validated::keys::{
-    AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, StringOrBytes, TruncatedNEString,
+    AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
 };
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
@@ -2221,7 +2221,7 @@ impl OtherOffsets20 {
             .map(NonZeroU64::try_from)
             .transpose()
         else {
-            return LogResult::new_ok(OtherOffsetOutput::new(None, buf));
+            return LogResult::new_ok(OtherOffsetOutput::new(None, DarkBytes::try_from_vec(buf)));
         };
 
         // Only consider bytes which are spaces, nulls, minus sign, or digits
@@ -2252,7 +2252,7 @@ impl OtherOffsets20 {
         {
             ne
         } else {
-            return LogResult::new_ok(OtherOffsetOutput::new(None, buf));
+            return LogResult::new_ok(OtherOffsetOutput::new(None, DarkBytes::try_from_vec(buf)));
         };
 
         // Guess offset width if desired.
@@ -2334,13 +2334,16 @@ impl OtherOffsets20 {
                                 .checked_sub(usize::from(HEADER_LEN))
                                 && dark_start <= dark_end
                             {
-                                buf[dark_start..dark_end].to_vec()
+                                &buf[dark_start..dark_end]
                             } else {
-                                vec![]
+                                &[]
                             };
-                            OtherOffsetOutput::new(Some((ne, width)), dark_bytes)
+                            OtherOffsetOutput::new(
+                                Some((ne, width)),
+                                DarkBytes::try_from_slice(dark_bytes),
+                            )
                         } else {
-                            OtherOffsetOutput::new(None, buf.clone())
+                            OtherOffsetOutput::new(None, DarkBytes::try_from_slice(&buf[..]))
                         }
                     })
             })
@@ -2533,18 +2536,18 @@ impl OtherOffsets20 {
 #[derive(new, Default)]
 pub(crate) struct OtherOffsetOutput {
     pub(crate) offsets: Option<(NEVec<(IndexedOtherOffsets, OriginalOffsets)>, OtherWidth)>,
-    pub(crate) dark_bytes: Vec<u8>,
+    pub(crate) dark_bytes: Option<DarkBytes>,
 }
 
 impl OtherOffsetOutput {
-    pub(crate) fn finalize(self) -> (FinalOtherOffsets, Vec<OriginalOffsets>, StringOrBytes) {
+    pub(crate) fn finalize(self) -> (FinalOtherOffsets, Vec<OriginalOffsets>, Option<DarkBytes>) {
         let (final_, original) = if let Some((os, w)) = self.offsets {
             let (final_, orig): (NEVec<_>, NEVec<_>) = os.into_nonempty_iter().unzip();
             (Some((final_, w)), Vec::from(orig))
         } else {
             (None, vec![])
         };
-        (final_, original, StringOrBytes::from(self.dark_bytes))
+        (final_, original, self.dark_bytes)
     }
 }
 

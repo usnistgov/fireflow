@@ -4,7 +4,7 @@ use crate::config::{
     AppendableFlag, ConfigFlag as _, ReadHeaderInnerConfig, ReadOffsetConfig,
     SelectVersionStrategy, VersionOverride,
 };
-use crate::core::{Other, WriteHeaderAndTextConfig};
+use crate::core::{DarkBytes, Other, WriteHeaderAndTextConfig};
 use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
     WarningsAndIOGroupResult, io_to_log,
@@ -31,7 +31,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{Key as _, StdKeywords, StringOrBytes};
+use crate::validated::keys::{Key as _, StdKeywords};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
@@ -143,7 +143,7 @@ pub struct Header {
     ///
     /// The "end of the HEADER" is the first byte after the second ANALYSIS
     /// offset or the last OTHER offset pair if it exists.
-    pub dark_bytes: StringOrBytes,
+    pub dark_bytes: Option<DarkBytes>,
 }
 
 impl Header {

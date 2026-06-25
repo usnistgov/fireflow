@@ -803,8 +803,13 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
 
     let dark = DocArgROIvar::new_ivar_ro(
         "dark_bytes",
-        PyUnion::new_string_or_bytes(),
-        format!("Bytes between the end of the {HEADER} and the first segment."),
+        PyOpt::new1(PyUnion::new_dark_bytes()),
+        format!(
+            "Bytes between the end of the {HEADER} and the first segment. \
+             If a tuple, the first element is a character and the second \
+             element is the number of times it was repeated (ie padding). \
+             This is expected to be common."
+        ),
         |_, _| quote!(self.0.dark_bytes.clone()),
     );
 
@@ -1524,8 +1529,10 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
 
     let post_dataset_dark = DocArg::new_param(
         "post_dataset_dark_bytes",
-        PyUnion::new_string_or_bytes(),
-        "Unparsed bytes between the end of this dataset and the beginning of the next.",
+        PyOpt::new1(PyUnion::new_dark_bytes()),
+        "Unparsed bytes between the end of this dataset and the beginning of the \
+         next. If a tuple, the first element is a byte and the second is the number \
+         of times it was repeated (ie padding). This is expected to be common.",
     )
     .into_ro(|_, _| quote!(self.0.post_dataset_dark_bytes.clone()));
 
@@ -1669,8 +1676,10 @@ pub fn impl_py_intra_segment_dark_bytes(input: TokenStream) -> TokenStream {
 
     let bytes = DocArgROIvar::new_ivar_ro(
         "bytes",
-        PyUnion::new_ne_string_or_bytes(),
-        "The byte contents of this region.",
+        PyUnion::new_dark_bytes(),
+        "The byte contents of this region. If a tuple, the first element is a \
+         byte character and the second is the number of times it was repeated \
+         (ie padding). This is expected to be common.",
         |_, _| quote!(self.0.bytes.clone()),
     );
 
@@ -8116,6 +8125,11 @@ impl<E> PyUnion<E> {
         Self::new(x, y, vec![], None, None)
     }
 
+    fn add(mut self, x: impl Into<PyType<E>>) -> Self {
+        self.tail.push(x.into());
+        self
+    }
+
     fn rstype(mut self, rstype: Path) -> Self {
         self.rstype = Some(rstype);
         self
@@ -8258,6 +8272,14 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_string_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
         Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
+    }
+
+    fn new_dark_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::core::DarkBytes);
+        let padding = PyTuple::new1(RsInt::U8).add(RsInt::Usize);
+        Self::new2(PyStr::default(), PyBytes::default())
+            .add(padding)
+            .rstype(path)
     }
 
     fn new_key_or_bytes() -> Self {

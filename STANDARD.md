@@ -383,3 +383,26 @@ read most of the file twice. In the future, this may be optimized.
 
 When writing, the CRC will be computed on-the-fly as bytes are being written,
 which is much faster than the case for reading.
+
+## White space/dark bytes
+
+Bytes which are not part of a segment or the CRC are referred to here as "dark
+bytes".
+
+As of FCS 3.2, all dark bytes should be filled with space characters,
+effectively restricting their only use to padding if desired. (section
+3.8). Previous versions made no mention of this.
+
+Plenty of files do simply fill dark bytes with spaces. A few others do the same
+but with null characters. Unfortunately, plenty of other files store what
+appears to be specialized, vendor-specific data here (xml blobs, cryptic binary
+strings, etc).
+
+`fireflow` will make no attempt to validate dark bytes. Firstly, they can be
+expensive to read since this often involves random reads across the entire file.
+They can also be large (MBs). Given this, reading dark bytes is disabled by
+default. Second, the standards were never clear on how these should (or should
+not be) used up to 3.2.
+
+However, `fireflow` does provide a mechanism to read dark bytes if desired,
+which will allow one to validate them for their own application.

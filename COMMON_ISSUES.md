@@ -131,7 +131,24 @@ missing, enable `allow_missing_nextdata` to permit this error.
 
 ## Incorrect *$NEXTDATA*
 
-Use `nextdata_correction` to adjust the value of *$NEXTDATA*.
+Use `nextdata_correction` to adjust the value of *$NEXTDATA*. This should only
+be used for simple cases where *$NEXTDATA* is off by a small fixed amount and
+one suspects there is only one dataset.
+
+A more flexible (but expensive) option is to use the `scan_next_dataset`
+argument which is available on many of `fireflow`'s read methods. This will
+totally ignore *$NEXTDATA* as written in the file, and instead search for the
+string pattern `"FCSX.Y    "` in the file itself to determine the offset of the
+next dataset.
+
+For some files, this is the easiest way to completely read them. One (somewhat
+rare) pattern is to include multiple datasets in the whole file and "hide" all
+but the first by setting *$NEXTDATA* for the first dataset to 0.
+
+For example, the file `Millipore - easyCyte 6HT-2L - InCyte.fcs` from Flow
+Repository ID `FR-FCM-ZZZ4` appears to only have one dataset according to the
+first dataset's *$NEXTDATA* value (0); in actuality it has 95 (ninety-five)
+datasets.
 
 ## Duplicated Supplemental *TEXT*
 

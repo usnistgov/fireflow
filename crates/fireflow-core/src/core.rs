@@ -7295,7 +7295,10 @@ impl DatasetDiagnostics {
                 // Compute the final dataset length by adding the CRC length
                 // to the value of the byte offset after the last segment found
                 // above.
-                let crc_len = if file_crc.is_some() {
+                let crc_len = if file_crc
+                    .as_ref()
+                    .is_some_and(|c| matches!(c, CRCOutput::Valid(_)))
+                {
                     u64::from(CRC_LEN)
                 } else {
                     0

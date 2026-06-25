@@ -15,7 +15,7 @@ use crate::core::{
     StdDatasetFromKwsOutput, StdTEXTDiagnostics, StdTEXTFromFlatTEXTError,
     StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };
-use crate::data::{EventOverRangeError, EventsDiagnostics};
+use crate::data::{DataSchemaDiagnostics, EventOverRangeError, EventsDiagnostics};
 use crate::fixed_vec::OneOrTwo;
 use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
@@ -504,6 +504,9 @@ pub struct FlatDatasetFromKwsOutput {
 
     /// Offsets used to parse DATA and ANALYSIS
     pub dataset_offsets: DatasetOffsets,
+
+    /// Diagnostic output from parsing the data schema.
+    pub schema_diagnostics: DataSchemaDiagnostics,
 
     /// Diagnostic output from parsing entire dataset.
     pub dataset_diagnostics: DatasetDiagnostics,
@@ -1581,20 +1584,30 @@ impl FlatDatasetFromKwsOutput {
     {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
-            .and_then_commutative(|(data, analysis, dataset_offsets, event_out)| {
-                let or = hns.header.final_offsets.others_reader();
-                let v = new_version;
-                let d = &dataset_offsets;
-                DatasetDiagnostics::from_parts(h, v, event_out, hns, d, scan_next_dataset, st)
-                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                    .map_pure_errors(LookupAndReadDataAnalysisError::from)
-                    .repack_warnings()
-                    .and_then_commutative(|ds_diag| {
-                        let go =
-                            |others| Self::new(data, analysis, others, dataset_offsets, ds_diag);
-                        or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
-                    })
-            })
+            .and_then_commutative(
+                |(data, analysis, dataset_offsets, event_diag, schema_diag)| {
+                    let or = hns.header.final_offsets.others_reader();
+                    let v = new_version;
+                    let d = &dataset_offsets;
+                    DatasetDiagnostics::from_parts(h, v, event_diag, hns, d, scan_next_dataset, st)
+                        .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+                        .map_pure_errors(LookupAndReadDataAnalysisError::from)
+                        .repack_warnings()
+                        .and_then_commutative(|ds_diag| {
+                            let go = |others| {
+                                Self::new(
+                                    data,
+                                    analysis,
+                                    others,
+                                    dataset_offsets,
+                                    schema_diag,
+                                    ds_diag,
+                                )
+                            };
+                            or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
+                        })
+                },
+            )
     }
 }
 
@@ -2678,6 +2691,7 @@ fn kws_to_df_analysis<C, R>(
         Analysis,
         DatasetOffsets,
         EventsDiagnostics,
+        DataSchemaDiagnostics,
     ),
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,

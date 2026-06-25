@@ -763,14 +763,10 @@ type DataSchemaKeywordValues3_2 = DataSchemaKeywordValues<Option<NumType>>;
 #[derive(new)]
 pub struct NewDataSchema<T> {
     /// The data schema itself.
-    pub data_schema: T,
+    pub(crate) data_schema: T,
 
-    /// Original values of $PnR that were truncated.
-    ///
-    /// Length of vector will be equal to $PAR. If $PnR for a given column was
-    /// truncated, it will be returned in its corresponding index. Otherwise the
-    /// index will be [`Option::None`].
-    pub truncated_columns: Vec<Option<TextRange>>,
+    /// Diagnostics pertaining to building the schema.
+    pub(crate) diagnostics: DataSchemaDiagnostics,
 }
 
 impl_kind1!(pub NewDataSchemaFamily, NewDataSchema);
@@ -779,8 +775,30 @@ impl_functor_once!(
     NewDataSchema,
     self,
     mut f,
-    NewDataSchema::new(f(self.data_schema), self.truncated_columns)
+    NewDataSchema::new(f(self.data_schema), self.diagnostics)
 );
+
+/// Diagnostics pertaining to the data schema.
+#[derive(new, Clone, PartialEq, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct DataSchemaDiagnostics {
+    /// Original values of $PnR that were truncated.
+    ///
+    /// Length of vector will be equal to $PAR. If $PnR for a given column was
+    /// truncated, it will be returned in its corresponding index. Otherwise the
+    /// index will be [`Option::None`].
+    pub truncated_columns: Vec<Option<TextRange>>,
+
+    /// Old $PnB value if it was changed.
+    ///
+    /// Only used for integer 2.0/3.0 schemas.
+    pub original_int_width: Option<NonZeroU8>,
+
+    /// Old $BYTEORD value if it was changed.
+    ///
+    /// Only used for integer 2.0/3.0 schemas.
+    pub original_byteord: Option<ByteOrd2_0>,
+}
 
 /// Diagnostic output from reading DATA segment
 #[derive(new, Default)]
@@ -2079,7 +2097,7 @@ impl VersionedDataSchema for DataSchema3_2 {
             // default layout is
             [] => {
                 let l = NonMixedDataSchema::new_empty1(datatype, byteord.0).into();
-                LogResult::new_ok(NewDataSchema::new(l, vec![]))
+                LogResult::new_ok(NewDataSchema::new(l, DataSchemaDiagnostics::default()))
             }
             // has columns with one datatype, use nonmixed layout
             [dt] => {
@@ -2098,7 +2116,7 @@ impl VersionedDataSchema for DataSchema3_2 {
                         c.width, c.range, c.datatype, datatype, i, notrunc,
                     )
                 };
-                Layout::try_new(columns, byteord.0, go)
+                Layout::try_new1(columns, byteord.0, go)
                     .map_errors(NewDataSchemaError::from)
                     .map_ok_value(FunctorOnce::fmap_into_once)
             }
@@ -7529,9 +7547,26 @@ impl<C, F, I, M, const ORD: bool> Layout<C, F, I, NoByteOrd<ORD>, M, ORD> {
 // }
 
 impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarkers<T, D>, ORD> {
+    fn try_new1<F, P, W, E>(
+        cs: Vec<DataSchemaKeywordValues<D>>,
+        byte_layout: L,
+        new_col_f: F,
+    ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), W, E>
+    where
+        D: IsNumType,
+        F: Fn(
+            MeasIndex,
+            DataSchemaKeywordValues<D>,
+        ) -> WarningsAndErrorsResult<ConvertedRange<C>, P, W, E>,
+    {
+        Self::try_new(cs, byte_layout, None, None, new_col_f)
+    }
+
     fn try_new<F, P, W, E>(
         cs: Vec<DataSchemaKeywordValues<D>>,
         byte_layout: L,
+        old_bytes: Option<NonZeroU8>,
+        old_byteord: Option<ByteOrd2_0>,
         new_col_f: F,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), W, E>
     where
@@ -7551,7 +7586,8 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
                     .map(|cr| (cr.native, cr.non_truncated))
                     .unzip();
                 let new_layout = Self::new(new_columns, byte_layout);
-                NewDataSchema::new(new_layout, truncated)
+                let diag = DataSchemaDiagnostics::new(truncated, old_bytes, old_byteord);
+                NewDataSchema::new(new_layout, diag)
             })
     }
 }
@@ -7832,7 +7868,8 @@ impl<T> AnyOrderedUintDataSchema<T> {
                 o,
                 AnyUint::from(Layout::new_empty(o))
             );
-            return LogResult::new_ok(NewDataSchema::new(empty, vec![]));
+            let schema = NewDataSchema::new(empty, DataSchemaDiagnostics::default());
+            return LogResult::new_ok(schema);
         };
 
         // read all $PnB, return Some(width) if one width found, return None if
@@ -7872,9 +7909,9 @@ impl<T> AnyOrderedUintDataSchema<T> {
             }
         };
 
-        let new_from_byteord = |local_cs: NEVec<_>, local_bo| {
+        let new_from_byteord = |local_cs: NEVec<_>, local_bo, old_bytes, old_byteord| {
             match_many_to_one!(local_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
-                Layout::try_new(local_cs.into(), o, |i, c| {
+                Layout::try_new(local_cs.into(), o, old_bytes, old_byteord, |i, c| {
                     Bitmask::from_range(c.range, notrunc)
                         .map_switchable_errors(|e| IndexedError::new(i, e))
                         .map_switchable_errors(IndexedBitmaskError)
@@ -7890,6 +7927,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
         let bytes_res = match conf.fix_int_widths {
             FixIntWidths::Never => get_widths().and_then_commutative(|width| {
                 PrivBytes::try_from(width)
+                    .map(|x| (x, None))
                     .map_err(SingleFixedWidthError::from)
                     .into_log()
             }),
@@ -7900,28 +7938,41 @@ impl<T> AnyOrderedUintDataSchema<T> {
                         || Err(FixedWidthToBytesError(width.into())),
                         PrivBytes::try_from,
                     )
+                    .map(|x| (x, Some(NonZeroU8::from(width))))
                     .map_err(SingleFixedWidthError::from)
                     .into_log::<_, _, Vec<_>>()
             }),
-            FixIntWidths::Explicit(b) => LogResult::new_ok(b.0),
+            FixIntWidths::Explicit(b) => LogResult::new_ok((b.0, None)),
         };
 
         match conf.byteord_override {
             ByteordOverride::Explicit(b) => bytes_res
-                .and_then_commutative(|bytes| check_width_and_byteord(bytes, b))
-                .map_errors(NewFixedIntLayoutError::from)
-                .and_then_commutative(|_| new_from_byteord(ne_cs, b)),
-            ByteordOverride::Endian => bytes_res
-                .map_ok_value(|bytes| {
-                    // TODO return diagnostic showing that this happened (or didn't)
-                    Endian::try_from(bo).map_or(bo, |e| ByteOrd2_0::from_endian(e, bytes))
+                .and_then_commutative(|(new_bytes, old_bytes)| {
+                    check_width_and_byteord(new_bytes, b).map_ok_value(|x| (x, old_bytes))
                 })
                 .map_errors(NewFixedIntLayoutError::from)
-                .and_then_commutative(|fixed_bo| new_from_byteord(ne_cs, fixed_bo)),
-            ByteordOverride::None => bytes_res
-                .and_then_commutative(|bytes| check_width_and_byteord(bytes, bo))
+                .and_then_commutative(|(_, old_bytes)| {
+                    new_from_byteord(ne_cs, b, old_bytes, Some(bo))
+                }),
+            ByteordOverride::Endian => bytes_res
+                .map_ok_value(|(new_bytes, old_bytes)| {
+                    let (new_byteord, old_byteord) = Endian::try_from(bo).map_or((bo, None), |e| {
+                        (ByteOrd2_0::from_endian(e, new_bytes), Some(bo))
+                    });
+                    (new_byteord, old_byteord, old_bytes)
+                })
                 .map_errors(NewFixedIntLayoutError::from)
-                .and_then_commutative(|_| new_from_byteord(ne_cs, bo)),
+                .and_then_commutative(|(fixed_bo, old_byteord, old_bytes)| {
+                    new_from_byteord(ne_cs, fixed_bo, old_bytes, old_byteord)
+                }),
+            ByteordOverride::None => bytes_res
+                .and_then_commutative(|(new_bytes, old_bytes)| {
+                    check_width_and_byteord(new_bytes, bo).map_ok_value(|x| (x, old_bytes))
+                })
+                .map_errors(NewFixedIntLayoutError::from)
+                .and_then_commutative(|(_, old_bytes)| {
+                    new_from_byteord(ne_cs, bo, old_bytes, None)
+                }),
         }
     }
 }
@@ -7952,11 +8003,12 @@ where
                     let ranges = rs.iter().map(|r| r.native.value().into()).collect();
                     let non_truncated = rs.into_iter().map(|r| r.non_truncated).collect();
                     let l = Layout::new_ascii(ranges);
-                    NewDataSchema::new(Self::Delimited(l), non_truncated)
+                    let diag = DataSchemaDiagnostics::new(non_truncated, None, None);
+                    NewDataSchema::new(Self::Delimited(l), diag)
                 })
                 .map_err_value(|_| ())
         } else {
-            Layout::try_new(cs, NoByteOrd, |i, c| {
+            Layout::try_new1(cs, NoByteOrd, |i, c| {
                 FixedAsciiRange::from_width_and_range(c.width, c.range, i, flag)
             })
             .map_ok_value(FunctorOnce::fmap_into_once)
@@ -8091,7 +8143,7 @@ impl<T> AnyOrderedDataSchema<T> {
                     .map_err(NewDataSchemaError::from)
                     .into_log()
                     .and_then_commutative(|b| {
-                        from! {Layout::try_new(columns, b, |i, c| {
+                        from! {Layout::try_new(columns, b, None, None, |i, c| {
                             $t::from_width_and_range(c.width, c.range, i, $notrunc)
                                 .repack_errors()
                         })}
@@ -8189,8 +8241,8 @@ impl NonMixedDataSchema<Nothing<NumType>> {
                     columns, endian, notrunc
                 ))
             }
-            AlphaNumType::Float => from!(Layout::try_new(columns, endian, go_f32)),
-            AlphaNumType::Double => from!(Layout::try_new(columns, endian, go_f64)),
+            AlphaNumType::Float => from!(Layout::try_new1(columns, endian, go_f32)),
+            AlphaNumType::Double => from!(Layout::try_new1(columns, endian, go_f64)),
         }
     }
 }
@@ -8246,7 +8298,7 @@ impl<D> AnyBigLittleUintDataSchema<D> {
     where
         D: IsNumType,
     {
-        Layout::try_new(cs, e, |i, c| {
+        Layout::try_new1(cs, e, |i, c| {
             AnyUint::from_width_and_range(c.width, c.range, i, flag).repack_errors()
         })
         .map_ok_value(|res| {

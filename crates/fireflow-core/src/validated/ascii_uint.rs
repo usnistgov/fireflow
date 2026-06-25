@@ -176,16 +176,6 @@ impl CheckedSub for UintSpacePad8 {
     }
 }
 
-impl UintSpacePad8 {
-    /// Parse from a buffer that contains 8 bytes.
-    pub(crate) fn from_bytes(bs: [u8; 8], allow_blank: bool) -> Result<i128, ParseFixedUintError> {
-        if bs.iter().all(|&x| x == 32) && allow_blank {
-            return Ok(0);
-        }
-        Ok(ascii_str_from_bytes(&bs[..])?.trim_start().parse()?)
-    }
-}
-
 impl HeaderString for UintSpacePad8 {
     const WIDTH: u8 = 8;
 }
@@ -241,7 +231,7 @@ pub struct BytesNotAsciiError(Vec<u8>);
 #[error("HEADER offset is negative: {0}")]
 pub struct NegativeOffsetError(pub i128);
 
-fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAsciiError> {
+pub(crate) fn ascii_str_from_bytes(xs: &[u8]) -> Result<&str, BytesNotAsciiError> {
     str::from_utf8(xs).map_err(|_| BytesNotAsciiError(xs.to_vec()))
 }
 

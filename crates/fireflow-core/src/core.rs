@@ -11,13 +11,14 @@ use crate::convert::UsizeExt as _;
 use crate::data::{
     ConvertFromLayout, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2,
     DataFrameAsDataSchema, DataFrameCheckRanges, DataSchema2_0, DataSchema3_0, DataSchema3_1,
-    DataSchema3_2, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame, EventOverRangeError,
-    EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype, LayoutHeight as _,
-    LayoutInsert, LayoutInsertScaleCheck, LayoutKeywords, LayoutNormalize, LayoutOptMeasKeywords,
-    LayoutRemove, LayoutSize as _, LayoutWidth, LookupDataSchemaError, LookupDataSchemaWarning,
-    MeasLayoutMismatchError, MeasurementsWithLayoutError, NewDataSchemaError, OverrangeColumn,
-    RangeAndSeries, ReadCheckedDataframeError, ReadCheckedDataframeWarning,
-    VersionedDataFrame as _, VersionedDataSchema, WithPrimitiveDataFrame,
+    DataSchema3_2, DataSchemaDiagnostics, DataSchemaToDataFrameError, DataSchemaToEmptyDataFrame,
+    EventOverRangeError, EventOverRangeSummary, EventsDiagnostics, IsTot, LayoutDatatype,
+    LayoutHeight as _, LayoutInsert, LayoutInsertScaleCheck, LayoutKeywords, LayoutNormalize,
+    LayoutOptMeasKeywords, LayoutRemove, LayoutSize as _, LayoutWidth, LookupDataSchemaError,
+    LookupDataSchemaWarning, MeasLayoutMismatchError, MeasurementsWithLayoutError,
+    NewDataSchemaError, OverrangeColumn, RangeAndSeries, ReadCheckedDataframeError,
+    ReadCheckedDataframeWarning, VersionedDataFrame as _, VersionedDataSchema,
+    WithPrimitiveDataFrame,
 };
 use crate::header::{
     GuessVersionError, HeaderKeywordsToWrite, KeywordVersionScores, WriteTEXTHeaderError,
@@ -1259,28 +1260,42 @@ impl WriteHeaderAndTextConfig<'_> {
 pub struct StdTEXTDiagnostics {
     /// Optional keys which could not be parsed
     pub optional: StdKeywords,
+
     /// Keys which start with `"$"` but are not part of the standard.
     pub pseudostandard: StdKeywords,
+
     /// Standard $Pn* keys where `n` is higher than $PAR
     pub hyper_par: StdKeywords,
+
     /// Standard $Gn* keys where `n` is higher than $GATE
     pub hyper_gate: StdKeywords,
+
     /// Keys which do not belong in this version but are valid in another.
     pub other_version: StdKeywords,
+
     /// $TIMESTEP if it is given but not used.
     pub timestep: Option<NEString>,
+
     /// Original $PnN if they are renamed.
     pub original_names: Vec<Option<Shortname>>,
+
     /// Diagnostic outcomes from fixing $PnE keys.
     pub scale: Vec<AnyMeasScaleFix>,
+
     /// Diagnostic outcomes from fixing $GnE keys.
     pub gate_scale: Vec<ScaleFix>,
+
     /// Original keyword values that were trimmed for whitespace between commas.
     pub trimmed: TrimmedKeywords,
+
     /// Optical keys that were found in the temporal measurement.
     pub temporal_optical_pairs: Vec<(StdKey, NEString)>,
+
     /// $TIMESTEP was missing and was added via config
     pub timestep_added: TimestepAdded,
+
+    /// Diagnostic output from parsing the data schema.
+    pub schema_diagnostics: DataSchemaDiagnostics,
 }
 
 pub(crate) type TrimmedKeywords = Vec<(StdKey, NEString)>;
@@ -1292,6 +1307,7 @@ impl StdTEXTDiagnostics {
         original_names: Vec<Option<Shortname>>,
         gate_scale: Vec<ScaleFix>,
         meas: MeasurementDiagnostics,
+        schema: DataSchemaDiagnostics,
     ) -> Self {
         Self {
             optional,
@@ -1306,6 +1322,7 @@ impl StdTEXTDiagnostics {
             trimmed: meas.trimmed,
             temporal_optical_pairs: meas.tmp_opt_pairs,
             timestep_added: meas.timestep_added,
+            schema_diagnostics: schema,
         }
     }
 }
@@ -2180,6 +2197,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             Analysis,
             DatasetOffsets,
             EventsDiagnostics,
+            DataSchemaDiagnostics,
         ),
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
@@ -2220,7 +2238,15 @@ pub(crate) trait PrivVersionSet: VersionSet {
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .and_then_commutative(|df_out| {
                         ar.h_read(h)
-                            .map(|a| (df_out.inner.into(), a, offsets.offsets, df_out.diagnostics))
+                            .map(|a| {
+                                (
+                                    df_out.inner.into(),
+                                    a,
+                                    offsets.offsets,
+                                    df_out.diagnostics,
+                                    layout_out.diagnostics,
+                                )
+                            })
                             .map_err(IOErrorGroup::from)
                             .into_log()
                     })
@@ -5955,14 +5981,22 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         let fixes = metaroot_out.fixed_gate_scales;
                         let ret =
                             Self::try_new(metaroot_out.this, meas, layout_out.data_schema, conf)
-                                .map_ok_value(|ret| (ret, original_names, fixes, meas_diag));
+                                .map_ok_value(|ret| {
+                                    (
+                                        ret,
+                                        original_names,
+                                        fixes,
+                                        meas_diag,
+                                        layout_out.diagnostics,
+                                    )
+                                });
                         go_err!(ret)
                     },
                 );
 
             let gate = core_res
                 .as_ref()
-                .and_then(|(core, _, _, _)| core.rootmeta.specific.gate())
+                .and_then(|(core, _, _, _, _)| core.rootmeta.specific.gate())
                 .unwrap_or(Gate::from(0));
 
             // Push pseudostandard/unused warnings/errors
@@ -6018,8 +6052,15 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);
 
-            core_res.map_ok_value(|(ret, original_names, fixes, diag)| {
-                let d = StdTEXTDiagnostics::from_extra(extra, dropped, original_names, fixes, diag);
+            core_res.map_ok_value(|(ret, original_names, fixes, meas_diag, schema_diag)| {
+                let d = StdTEXTDiagnostics::from_extra(
+                    extra,
+                    dropped,
+                    original_names,
+                    fixes,
+                    meas_diag,
+                    schema_diag,
+                );
                 (ret, d)
             })
         })

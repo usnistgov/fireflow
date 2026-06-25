@@ -21,7 +21,7 @@ use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
 use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
-use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad8, UintSpacePad20};
+use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
@@ -2118,13 +2118,19 @@ impl<I: Copy> HeaderOffsets<I> {
         let hconf: &ReadHeaderInnerConfig = st.conf().as_ref();
         let seg_conf = NewOffsetsConfig::from_read_config(corr, st);
 
-        let parse_one = |bs, is_begin| {
+        let parse_one = |bs: [u8; 8], is_begin| {
             // TEXT segment should never be blank
             let allow_blank = !is_text;
-            UintSpacePad8::from_bytes(bs, allow_blank).map_err(|error| {
-                let src = NEStringOrBytes::from(bs.into_nonempty_vec());
-                ParseOffsetError::new(error, is_begin, I::REGION, src).into()
-            })
+            if bs.iter().all(|&x| x == 32) && allow_blank {
+                return Ok(0);
+            }
+            ascii_str_from_bytes(&bs[..])
+                .map_err(ParseFixedUintError::from)
+                .and_then(|s| s.trim_start().parse().map_err(ParseFixedUintError::from))
+                .map_err(|error| {
+                    let src = NEStringOrBytes::from(bs.into_nonempty_vec());
+                    ParseOffsetError::new(error, is_begin, I::REGION, src).into()
+                })
         };
 
         let begin_res = parse_one(buf0, true).into_nowarn();

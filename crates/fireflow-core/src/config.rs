@@ -1108,9 +1108,8 @@ pub enum ByteordOverride {
     /// Infer endian-ness from $BYTEORD, ignoring its length.
     ///
     /// Endian-ness is little if $BYTEORD is monotonic ascending, and big if
-    /// monotonic descending. These are rare in practice. Length will be
-    /// inferred from $PnB, which should all be the same. If $PnB is not a
-    /// multiple of 8, this will fail.
+    /// monotonic descending. Length will be inferred from $PnB, which should
+    /// all be the same. If $PnB is not a multiple of 8, this will fail.
     ///
     /// This is option is ignored for mixed $BYTEORD.
     Endian,

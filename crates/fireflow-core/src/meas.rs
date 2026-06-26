@@ -37,8 +37,8 @@ use crate::text::keywords::{
     Timestep, TimestepAdded, Wavelength, Wavelengths, WavelengthsLossError,
 };
 use crate::text::lookup::{
-    DiagnosedKeyword, OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError,
-    ReqIndexedKey as _, ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
+    Diagnosed, OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, ReqIndexedKey as _,
+    ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
 };
 use crate::text::named_vec::{
     Either, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
@@ -1817,7 +1817,7 @@ pub trait LookupOpticalScale: Sized {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> LookupOpticalScaleResult<DiagnosedKeyword<Self, OpticalScaleFix>>
+    ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
 }
@@ -1830,7 +1830,7 @@ impl LookupOpticalScale for OpticalScale2_0 {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> LookupOpticalScaleResult<DiagnosedKeyword<Self, OpticalScaleFix>>
+    ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -1852,7 +1852,7 @@ impl LookupOpticalScale for OpticalScale3_0 {
         i: MeasIndex,
         dt: AlphaNumType,
         conf: &C,
-    ) -> LookupOpticalScaleResult<DiagnosedKeyword<Self, OpticalScaleFix>>
+    ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -1865,8 +1865,8 @@ impl LookupOpticalScale for OpticalScale3_0 {
             .map_err(LookupScaleError::from)
             .into_log();
         gain.zip_commutative(scale).and_then_commutative(|(g, s)| {
-            Self::try_from((s.native, g))
-                .map(|x| DiagnosedKeyword::new(x, s.diagnostic))
+            Self::try_from((s.inner, g))
+                .map(|x| Diagnosed::new(x, s.diagnostic))
                 .map_err(LookupScaleError::from)
                 .into_log()
         })
@@ -2019,7 +2019,7 @@ impl LookupOptical for InnerOptical3_2 {
                 let (w, w_trimmed) = w_out.into_indexed_pair(i);
                 let (c, c_trimmed) = c_out.into_opt_indexed_pair(i.into());
                 let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
-                let ret = Self::new(w, c, d, anal, f.native, m, tag, det_name);
+                let ret = Self::new(w, c, d, anal, f.inner, m, tag, det_name);
                 let trimmed = c_trimmed
                     .into_iter()
                     .chain(w_trimmed)
@@ -2113,7 +2113,7 @@ impl LookupTemporal for InnerTemporal3_0 {
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
             .map_ok_value(|((_, p, tmp_opt_pairs), (s, t))| {
-                let this = Self::new(t.native, p);
+                let this = Self::new(t.inner, p);
                 DiagnosedTemporal::new(this, s.diagnostic, vec![], tmp_opt_pairs, t.diagnostic)
             })
     }
@@ -2156,7 +2156,7 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_ok_value(|((_, d_out, p, tmp_opt_pairs), (s, t))| {
                 let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
                 let trimmed = d_trimmed.into_iter().collect();
-                let ret = Self::new(t.native, d, p);
+                let ret = Self::new(t.inner, d, p);
                 DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
             })
     }
@@ -2201,7 +2201,7 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_ok_value(|((_, d_out, m, tmp_opt_pairs), (s, t))| {
                 let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
                 let trimmed = d_trimmed.into_iter().collect();
-                let ret = Self::new(t.native, d, m);
+                let ret = Self::new(t.inner, d, m);
                 DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
             })
     }
@@ -2737,7 +2737,7 @@ impl<X, O> ScaledOptical<X, O> {
             .map_errors(LookupScaledOpticalError::from)
             .map_commutative_warnings(LookupScaledOpticalWarning::from);
         s_res.zip_commutative(o_res).map_ok_value(|(s, o)| {
-            DiagnosedScaledOptical::new(Self::new(o.this, s.native), s.diagnostic, o.trimmed)
+            DiagnosedScaledOptical::new(Self::new(o.this, s.inner), s.diagnostic, o.trimmed)
         })
     }
 

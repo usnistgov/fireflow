@@ -14,7 +14,7 @@ use derive_more::{Display, From};
 use derive_new::new;
 use fireflow_types::nonempty_string::{NEStr, NEString};
 use thiserror::Error;
-use type_families::{BifunctorOnce, Sibling2, impl_functor_once, impl_kind1, impl_kind2};
+use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
 use std::convert::Infallible;
 use std::str::FromStr;
@@ -127,68 +127,44 @@ type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
 
 pub type Trimmed = Option<NEString>;
 
-// TODO this is just like diagnosed keyword
-/// Return value for string converted to native type that has delimiters.
-#[derive(new)]
-pub struct TrimmedKeyword<T> {
-    /// Native rust type
-    pub native: T,
-
-    /// The original value if it was trimmed
-    pub trimmed: Trimmed,
-}
-
-impl_kind1!(pub StrDelimOutputFamily, TrimmedKeyword);
-
-impl_functor_once!(
-    TrimmedKeyword,
-    self,
-    mut f,
-    TrimmedKeyword::new(f(self.native), self.trimmed)
-);
-
-/// Return value for string that was converted with a configuration and state.
+/// A piece of data which has some additional diagnostic data with it.
 #[derive(Default, new, Debug, PartialEq, Eq)]
-pub struct DiagnosedKeyword<T, D> {
-    /// Native rust type
-    pub native: T,
+pub struct Diagnosed<T, D> {
+    /// The data itself.
+    pub inner: T,
 
-    /// Diagnostic info associated with this type.
+    /// Associated diagnostic data.
     pub diagnostic: D,
 }
 
-impl<T> DiagnosedKeyword<T, ()> {
+impl<T> Diagnosed<T, ()> {
     pub(crate) fn new1(t: T) -> Self {
         Self::new(t, ())
     }
-
-    pub(crate) fn into_native(self) -> T {
-        self.native
-    }
 }
 
-impl<T> DiagnosedKeyword<T, Trimmed> {
+impl<T> Diagnosed<T, Trimmed> {
     pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, NEString)>)
     where
         T: Key,
     {
-        (self.native, self.diagnostic.map(|t| (T::std(), t)))
+        (self.inner, self.diagnostic.map(|t| (T::std(), t)))
     }
 
     pub(crate) fn into_indexed_pair(self, i: MeasIndex) -> (T, Option<(StdKey, NEString)>)
     where
         T: IndexedKey,
     {
-        (self.native, self.diagnostic.map(|t| (T::std(i), t)))
+        (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
     }
 }
 
-impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
+impl<T> Diagnosed<Option<T>, Trimmed> {
     pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, NEString)>)
     where
         T: Key,
     {
-        (self.native, self.diagnostic.map(|t| (T::std(), t)))
+        (self.inner, self.diagnostic.map(|t| (T::std(), t)))
     }
 
     pub(crate) fn into_opt_indexed_pair(
@@ -198,19 +174,19 @@ impl<T> DiagnosedKeyword<Option<T>, Trimmed> {
     where
         T: IndexedKey,
     {
-        (self.native, self.diagnostic.map(|t| (T::std(i), t)))
+        (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
     }
 }
 
-impl_kind2!(pub DiagnosedOutputFamily, DiagnosedKeyword);
+impl_kind2!(pub DiagnosedFamily, Diagnosed);
 
-impl<A, B> BifunctorOnce<A, B> for DiagnosedKeyword<A, B> {
+impl<A, B> BifunctorOnce<A, B> for Diagnosed<A, B> {
     fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
-        DiagnosedKeyword::new(f(self.native), self.diagnostic)
+        Diagnosed::new(f(self.inner), self.diagnostic)
     }
 
     fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
-        DiagnosedKeyword::new(self.native, f(self.diagnostic))
+        Diagnosed::new(self.inner, f(self.diagnostic))
     }
 }
 
@@ -224,9 +200,9 @@ pub trait FromStrDelim: Sized {
     fn from_str_delim_diagnosed(
         s: &NEStr,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<DiagnosedKeyword<Self, Trimmed>, Self::Err> {
+    ) -> Result<Diagnosed<Self, Trimmed>, Self::Err> {
         let (res, trimmed) = Self::from_str_delim(s, trim_whitespace);
-        res.map(|x| DiagnosedKeyword::new(x, trimmed))
+        res.map(|x| Diagnosed::new(x, trimmed))
     }
 
     fn from_str_delim(
@@ -259,7 +235,7 @@ pub trait FromStrWith: Sized {
 }
 
 pub type FromStrWithResult<T> =
-    Result<DiagnosedKeyword<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
+    Result<Diagnosed<T, <T as FromStrWith>::Diagnostic>, <T as FromStrWith>::Err>;
 
 // this won't be necessary once rust gets specialization
 macro_rules! impl_from_str_with_delim {
@@ -275,14 +251,14 @@ macro_rules! impl_from_str_with_delim {
                 (): (),
                 conf: &crate::config::ReadStdKeywordsConfig,
             ) -> Result<
-                crate::text::lookup::DiagnosedKeyword<
+                crate::text::lookup::Diagnosed<
                     Self,
                     Option<fireflow_types::nonempty_string::NEString>,
                 >,
                 Self::Err,
             > {
                 let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
-                res.map(|x| DiagnosedKeyword::new(x, trimmed))
+                res.map(|x| Diagnosed::new(x, trimmed))
             }
         }
     };
@@ -312,7 +288,7 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AsStdKey + Copy,
         Self: FromStrWith,
@@ -343,7 +319,7 @@ pub(crate) trait Required: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AsStdKey + Copy,
         Self: FromStrWith,
@@ -462,7 +438,7 @@ pub(crate) trait Optional: Sized {
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    ) -> Result<Diagnosed<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AsStdKey,
         Self: FromStrWith,
@@ -474,11 +450,7 @@ pub(crate) trait Optional: Sized {
                     .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
             })
             .transpose()
-            .map(|x| {
-                x.map_or(DiagnosedKeyword::default(), |y| {
-                    y.first_once(Self::Outer::from)
-                })
-            })
+            .map(|x| x.map_or(Diagnosed::default(), |y| y.first_once(Self::Outer::from)))
     }
 
     fn remove_opt_nofail<I>(kws: &mut StdKeywords, k: SpecificKey<Self, I>) -> Self::Outer
@@ -514,7 +486,7 @@ pub(crate) trait Optional: Sized {
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
-        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        Diagnosed<Self::Outer, Self::Diagnostic>,
         DummyTriFlag,
         ParseKeyError<Self::Err, Self, I>,
     >
@@ -571,7 +543,7 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
@@ -615,7 +587,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
-        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        Diagnosed<Self::Outer, Self::Diagnostic>,
         DummyTriFlag,
         OptKeyStError<Self>,
     >
@@ -679,7 +651,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
-        DiagnosedKeyword<Self::Outer, Self::Diagnostic>,
+        Diagnosed<Self::Outer, Self::Diagnostic>,
         DummyTriFlag,
         OptIndexedKeyStError<Self>,
     >

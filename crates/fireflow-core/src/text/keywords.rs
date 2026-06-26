@@ -13,9 +13,9 @@ use crate::text::byteord::{
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::lookup::{
-    DiagnosedKeyword, FromStrDelim, FromStrWith, FromStrWithResult, OptIndexedKey,
-    OptIndexedKeyError, OptMetarootKey, Optional, ParseKeyError, ReqIndexedKey, ReqKeyError,
-    ReqKeyErrorInner, ReqMetarootKey, Required, Trimmed, impl_from_str_with_delim,
+    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptIndexedKey, OptIndexedKeyError,
+    OptMetarootKey, Optional, ParseKeyError, ReqIndexedKey, ReqKeyError, ReqKeyErrorInner,
+    ReqMetarootKey, Required, Trimmed, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
@@ -159,7 +159,7 @@ impl Nextdata {
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
         let k = SpecificKey::default();
         if let Some(is_err) = conf.allow_missing_nextdata.is_error() {
-            let res = Self::get_req_with(kws, k, (), conf).map(|x| Some(x.native));
+            let res = Self::get_req_with(kws, k, (), conf).map(|x| Some(x.inner));
             if is_err {
                 res.into_log()
             } else {
@@ -169,7 +169,7 @@ impl Nextdata {
             let ret = kws
                 .get(&k.as_std_key())
                 .and_then(|v| Self::from_str_with(v.as_ne_str(), (), conf).ok())
-                .map(|x| x.native);
+                .map(|x| x.inner);
             LogResult::new_ok(ret)
         }
     }
@@ -189,7 +189,7 @@ impl FromStrWith for Nextdata {
             Err(ParseNextdataError::from(NegativeNextdataError(x)))
         } else {
             let out = u64::try_from(y).unwrap_or(u64::MAX);
-            Ok(DiagnosedKeyword::new1(Self(UintZeroPad20(out))))
+            Ok(Diagnosed::new1(Self(UintZeroPad20(out))))
         }
     }
 }
@@ -321,11 +321,11 @@ impl Scale {
     fn parse_fix_maybe(
         s: &NEStr,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedKeyword<Self, ScaleFix>, ScaleError> {
+    ) -> Result<Diagnosed<Self, ScaleFix>, ScaleError> {
         let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
         let go = |x, t: Trimmed| {
             let d = t.map(ScaleFix::Trimmed).unwrap_or_default();
-            DiagnosedKeyword::new(x, d)
+            Diagnosed::new(x, d)
         };
         if conf.fix_log_scale_offsets.is_set() {
             match res {
@@ -339,7 +339,7 @@ impl Scale {
                                     ScaleFix::LogFixed(s.to_owned()),
                                     ScaleFix::TrimmedLogFixed,
                                 );
-                                DiagnosedKeyword::new(x, d)
+                                Diagnosed::new(x, d)
                             })
                             .map_err(ScaleError::LogRange)
                     } else {
@@ -380,12 +380,12 @@ impl FromStrWith for Scale {
             || matches!(conf.force_linear_scale, ForceLinearScale::All);
         let do_force = || {
             let d = OpticalScaleFix::Forced(s.to_owned());
-            DiagnosedKeyword::new(Self::Linear, d)
+            Diagnosed::new(Self::Linear, d)
         };
 
         match Self::parse_fix_maybe(s, conf).map(BifunctorOnce::second_into_once) {
             Ok(diag) => {
-                let ret = if diag.native != Self::Linear && can_force {
+                let ret = if diag.inner != Self::Linear && can_force {
                     do_force()
                 } else {
                     diag
@@ -536,12 +536,12 @@ impl Timestep {
     pub(crate) fn lookup(
         std: &mut StdKeywords,
         conf: &ReadStdKeywordsConfig,
-    ) -> Result<DiagnosedKeyword<Self, TimestepAdded>, ReqKeyError<Self>> {
+    ) -> Result<Diagnosed<Self, TimestepAdded>, ReqKeyError<Self>> {
         match Self::remove_metaroot_req(std) {
-            Ok(x) => Ok(DiagnosedKeyword::new(x, false)),
+            Ok(x) => Ok(Diagnosed::new(x, false)),
             Err(e) => conf
                 .add_missing_timestep
-                .map_or(Err(e), |x| Ok(DiagnosedKeyword::new(x, true))),
+                .map_or(Err(e), |x| Ok(Diagnosed::new(x, true))),
         }
     }
 }
@@ -1047,12 +1047,12 @@ impl FromStrWith for TemporalScale3_0 {
         match res {
             Ok(x) => {
                 let d = trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
-                Ok(DiagnosedKeyword::new(Self(x), d))
+                Ok(Diagnosed::new(Self(x), d))
             }
             Err(e) => {
                 if conf.force_linear_scale.time_selected() {
                     let d = TemporalScaleFix::Forced(s.to_owned());
-                    Ok(DiagnosedKeyword::new(Self(TemporalScaleInner), d))
+                    Ok(Diagnosed::new(Self(TemporalScaleInner), d))
                 } else {
                     Err(e)
                 }
@@ -1355,14 +1355,14 @@ impl<'a> ToDisplayNE<'a> for LastModified {
 impl FromStrWith for LastModified {
     type Err = LastModifiedError;
     type Payload<'a> = ();
-    type Diagnostic = ();
+    type Diagnostic = Option<String>;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if let Some(pat) = conf.last_modified_pattern.as_ref() {
             return NaiveDateTime::parse_from_str(s.as_ref(), pat.as_str())
                 .map(Self)
-                .map(DiagnosedKeyword::new1)
+                .map(|x| Diagnosed::new(x, Some(pat.clone())))
                 .map_err(|_| LastModifiedError::AltFormat(pat.to_owned()));
         }
         let mut it = s.as_ref().split('.');
@@ -1387,7 +1387,7 @@ impl FromStrWith for LastModified {
                 }
             })
             .map(Self)
-            .map(DiagnosedKeyword::new1)
+            .map(|x| Diagnosed::new(x, None))
     }
 }
 
@@ -1820,7 +1820,7 @@ impl FromStr for Feature {
         // throw away diagnostic flag here since this is only for python
         // conversion
         if let Some(ne) = NEStr::try_new(s) {
-            Ok(Self::from_str_with(ne, (), &conf).map(|x| x.native)?)
+            Ok(Self::from_str_with(ne, (), &conf).map(|x| x.inner)?)
         } else {
             Err(FeatureError::Other)
         }
@@ -1835,11 +1835,11 @@ impl FromStrWith for Feature {
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         match s.parse::<OpticalFeature>() {
-            Ok(f) => Ok(DiagnosedKeyword::new(Self::Optical(f), false)),
+            Ok(f) => Ok(Diagnosed::new(Self::Optical(f), false)),
             Err(e) => {
                 if conf.allow_other_feature.is_set() {
                     let out = Self::Other(s.to_owned());
-                    Ok(DiagnosedKeyword::new(out, true))
+                    Ok(Diagnosed::new(out, true))
                 } else {
                     Err(e)
                 }
@@ -2153,7 +2153,7 @@ impl FromStrWith for RegionWindow {
             )
             .map(|x| {
                 let d = (x.diagnostic.is_some() || was_trimmed).then(|| s.to_owned());
-                DiagnosedKeyword::new(x.native, d)
+                Diagnosed::new(x.inner, d)
             })
         } else {
             Self::from_iter_inner(s, it, false.into())
@@ -2166,14 +2166,14 @@ impl RegionWindow {
         original: &NEStr,
         ss: impl Iterator<Item = &'a str>,
         trim_whitespace: TrimIntraValueWhitespace,
-    ) -> Result<DiagnosedKeyword<Self, Trimmed>, RegionWindowError> {
+    ) -> Result<Diagnosed<Self, Trimmed>, RegionWindowError> {
         let mut it = ss.peekable();
         if let Some(head) = it.next() {
             let ne_head = NEStr::try_new(head).ok_or(RegionWindowError::Format)?;
             if it.by_ref().peek().is_none() {
                 let (res, trimmed) = UniGate::from_str_delim(ne_head, trim_whitespace);
                 res.map(RegionWindow::Univariate)
-                    .map(|x| DiagnosedKeyword::new(x, trimmed))
+                    .map(|x| Diagnosed::new(x, trimmed))
             } else {
                 let mut was_trimmed = false;
                 let ys = once(head)
@@ -2186,7 +2186,7 @@ impl RegionWindow {
                     })
                     .collect::<Result<_, _>>()?;
                 let d = was_trimmed.then(|| original.to_owned());
-                Ok(DiagnosedKeyword::new(Self::Bivariate(ys), d))
+                Ok(Diagnosed::new(Self::Bivariate(ys), d))
             }
         } else {
             // this will happen if the input string is empty
@@ -3511,12 +3511,12 @@ impl FromStrWith for TemporalScale2_0 {
         match res {
             Ok(x) => {
                 let d = trimmed.map(TemporalScaleFix::Trimmed).unwrap_or_default();
-                Ok(DiagnosedKeyword::new(go(x), d))
+                Ok(Diagnosed::new(go(x), d))
             }
             Err(e) => {
                 if conf.force_linear_scale.time_selected() {
                     let d = TemporalScaleFix::Forced(s.to_owned());
-                    Ok(DiagnosedKeyword::new(go(TemporalScaleInner), d))
+                    Ok(Diagnosed::new(go(TemporalScaleInner), d))
                 } else {
                     Err(e)
                 }
@@ -4418,7 +4418,7 @@ mod tests {
     fn pnl_3_1() {
         let conf = ReadStdKeywordsConfig::default();
         let go = |v: &NEStr| {
-            let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
+            let w = Wavelengths::from_str_with(v, (), &conf).unwrap().inner;
             let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
             assert_eq!(w_str.as_ne_str(), v);
         };
@@ -4449,7 +4449,7 @@ mod tests {
             Err(WavelengthsError::Num(RangedFloatError::Parse(_)))
         );
         conf.trim_intra_value_whitespace = true.into();
-        let w = Wavelengths::from_str_with(v, (), &conf).unwrap().native;
+        let w = Wavelengths::from_str_with(v, (), &conf).unwrap().inner;
         let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
         assert_eq!(w_str.as_ne_str(), ne_str!("1,2"));
     }
@@ -4709,7 +4709,7 @@ mod tests {
         let conf = ReadStdKeywordsConfig::default();
         let v = ne_str!("1,X,0");
         let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
-        let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
+        let s = t.inner.try_ne().unwrap().to_ne().to_ne_string();
         assert_eq!(s.as_ne_str(), v);
     }
 
@@ -4723,7 +4723,7 @@ mod tests {
         );
         conf.trim_intra_value_whitespace = true.into();
         let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
-        let s = t.native.try_ne().unwrap().to_ne().to_ne_string();
+        let s = t.inner.try_ne().unwrap().to_ne().to_ne_string();
         assert_eq!(s.as_str(), "1,X,0");
     }
 

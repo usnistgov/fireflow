@@ -119,6 +119,7 @@ fpp::impl_py_header_offsets!(header_offsets::FinalHeaderOffsets);
 fpp::impl_py_original_header_offsets!(header::OriginalHeaderOffsets);
 fpp::impl_py_valid_keywords!(keys::ValidKeywords);
 fpp::impl_py_std_diagnostics!(core::StdTEXTDiagnostics);
+fpp::impl_py_data_schema_diagnostics!(data::DataSchemaDiagnostics);
 fpp::impl_py_dataset_offsets!(core::DatasetOffsets);
 
 fpp::impl_py_flat_text_output!(api::FlatTEXTOutput);

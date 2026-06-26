@@ -30,7 +30,8 @@ use crate::validated::keys::{
 };
 use fireflow_types::nonempty_string::{DisplayNE as _, ToNE};
 use type_families::{
-    ApplyOnce as _, Functor as _, FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1,
+    ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, impl_functor,
+    impl_functor_once, impl_kind1,
 };
 
 use derive_more::{AsRef, Display, From};
@@ -45,6 +46,8 @@ use thiserror::Error;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
+
+use super::lookup::Diagnosed;
 
 #[cfg(feature = "python")]
 use {
@@ -173,6 +176,12 @@ pub struct GatedMeasurement {
     /// Value for $GmV
     #[new(into)]
     pub detector_voltage: Option<GateDetectorVoltage>,
+}
+
+#[derive(new, Default)]
+pub(crate) struct AppliedGatesDiagnostics {
+    pub(crate) trimmed: TrimmedKeywords,
+    pub(crate) fixed_scales: Vec<ScaleFix>,
 }
 
 pub(crate) trait LinkedMeasIndex: Sized {
@@ -325,7 +334,7 @@ impl<I> AppliedGatesPre3_2<I> {
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        (Self, TrimmedKeywords, Vec<ScaleFix>),
+        Diagnosed<Self, AppliedGatesDiagnostics>,
         (),
         LookupAppliedGatesPre3_2Error<I>,
         LookupAppliedGatesPre3_2Error<I>,
@@ -346,22 +355,21 @@ impl<I> AppliedGatesPre3_2<I> {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         ag.zip_f2_once(gm)
-            .and_then_deferred_switchable_result(flag, |(scheme_out, gated_ms_out)| {
-                let (scheme, scheme_diag) = scheme_out;
-                let (gated_ms, gated_ms_diag) = gated_ms_out;
-                Self::try_new(gated_ms.0, scheme)
+            .and_then_deferred_switchable_result(flag, |(scheme, gated_ms)| {
+                let diag = AppliedGatesDiagnostics::new(scheme.diagnostic, gated_ms.diagnostic);
+                Self::try_new(gated_ms.inner.0, scheme.inner)
                     .map_err(LookupAppliedGatesError::Link)
-                    .map(|x| (x, scheme_diag, gated_ms_diag))
+                    .map(|x| Diagnosed::new(x, diag))
             })
             .map_err_value(
-                |(ret, _, _)| match rconf.process_optional_failure.is_demote_or_drop() {
+                |ret| match rconf.process_optional_failure.is_demote_or_drop() {
                     Some(true) => {
-                        ret.scheme.demote_keywords(nonstd);
-                        ret.gated_measurements.demote_keywords(nonstd);
+                        ret.inner.scheme.demote_keywords(nonstd);
+                        ret.inner.gated_measurements.demote_keywords(nonstd);
                     }
                     Some(false) => {
-                        ret.scheme.drop_keywords(dropped);
-                        ret.gated_measurements.drop_keywords(dropped);
+                        ret.inner.scheme.drop_keywords(dropped);
+                        ret.inner.gated_measurements.drop_keywords(dropped);
                     }
                     None => (),
                 },
@@ -501,7 +509,7 @@ impl AppliedGates3_2 {
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        (Self, TrimmedKeywords),
+        Diagnosed<Self, AppliedGatesDiagnostics>,
         (),
         LookupAppliedGates3_2Error,
         LookupAppliedGates3_2Error,
@@ -511,11 +519,11 @@ impl AppliedGates3_2 {
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         GatingScheme::lookup(std, nonstd, dropped, conf)
-            .map_ok_value(|(x, y)| (Self(x), y))
+            .map_ok_value(|out| out.bimap_once(Self, |d| AppliedGatesDiagnostics::new(d, vec![])))
             .map_err_value(
-                |(ret, _)| match rconf.process_optional_failure.is_demote_or_drop() {
-                    Some(true) => ret.demote_keywords(nonstd),
-                    Some(false) => ret.drop_keywords(dropped),
+                |ret| match rconf.process_optional_failure.is_demote_or_drop() {
+                    Some(true) => ret.inner.demote_keywords(nonstd),
+                    Some(false) => ret.inner.drop_keywords(dropped),
                     None => (),
                 },
             )
@@ -533,7 +541,11 @@ impl GatedMeasurement {
         dropped: &mut StdKeywords,
         i: GateIndex,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<(Self, ScaleFix), LookupGatedMeasError, LookupGatedMeasError>
+    ) -> DeferredWarningsAndErrors<
+        Diagnosed<Self, ScaleFix>,
+        LookupGatedMeasError,
+        LookupGatedMeasError,
+    >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -560,10 +572,8 @@ impl GatedMeasurement {
             go!(range),
             go!(dvolt),
             |s, n, p, r, v| {
-                (
-                    Self::new(s.native, filter, n, p, r, lname, dtype, v),
-                    s.diagnostic,
-                )
+                let ret = Self::new(s.inner, filter, n, p, r, lname, dtype, v);
+                Diagnosed::new(ret, s.diagnostic)
             },
         )
     }
@@ -748,7 +758,7 @@ impl<I> GatingScheme<I> {
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        (Self, TrimmedKeywords),
+        Diagnosed<Self, TrimmedKeywords>,
         LookupGatingSchemeError<LookupRegionIndexError<I>>,
         LookupGatingSchemeError<LookupRegionIndexError<I>>,
     >
@@ -772,7 +782,9 @@ impl<I> GatingScheme<I> {
                             .into_iter()
                             .map(|ri| {
                                 Region::lookup(std, nonstd, dropped, ri, conf)
-                                    .map_deferred_value(|(r, r_diag)| (r.map(|x| (ri, x)), r_diag))
+                                    .map_deferred_value(|out| {
+                                        out.first_once(|r| r.map(|x| (ri, x)))
+                                    })
                                     .map_errors(LookupGatingSchemeError::Region)
                                     .map_commutative_warnings(LookupGatingSchemeError::Region)
                             })
@@ -781,13 +793,13 @@ impl<I> GatingScheme<I> {
                     .and_then_deferred_switchable_result(flag, |rs| {
                         let mut regions = HashMap::new();
                         let mut trimmed = vec![];
-                        for (r, t) in rs {
-                            let _ = r.map(|(k, v)| regions.insert(k, v));
-                            trimmed.extend(t);
+                        for r in rs {
+                            let _ = r.inner.map(|(k, v)| regions.insert(k, v));
+                            trimmed.extend(r.diagnostic);
                         }
                         Self::try_new(gating, regions)
                             .map_err(LookupGatingSchemeError::Link)
-                            .map(|x| (x, trimmed))
+                            .map(|x| Diagnosed::new(x, trimmed))
                     })
             })
     }
@@ -893,7 +905,7 @@ impl<I> Region<I> {
         ri: RegionIndex,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        (Option<Self>, TrimmedKeywords),
+        Diagnosed<Option<Self>, TrimmedKeywords>,
         LookupRegionError<LookupRegionIndexError<I>>,
         LookupRegionError<LookupRegionIndexError<I>>,
     >
@@ -988,7 +1000,7 @@ impl<I> Region<I> {
                     (None, None) => Ok(None),
                 };
                 res.map_err(LookupRegionError::Mismatch)
-                    .map(|x| (x, trimmed))
+                    .map(|x| Diagnosed::new(x, trimmed))
             })
     }
 
@@ -1162,7 +1174,7 @@ impl GatedMeasurements {
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
-        (Self, Vec<ScaleFix>),
+        Diagnosed<Self, Vec<ScaleFix>>,
         LookupGatedMeasurementsError,
         LookupGatedMeasurementsError,
     >
@@ -1183,8 +1195,8 @@ impl GatedMeasurements {
                         })
                         .sequence_def()
                         .map_deferred_value(|xs| {
-                            let (gs, ds) = xs.into_iter().unzip();
-                            (Self(gs), ds)
+                            let (gs, ds) = xs.into_iter().map(|x| (x.inner, x.diagnostic)).unzip();
+                            Diagnosed::new(Self(gs), ds)
                         })
                 } else {
                     LogResult::new_ok_default()

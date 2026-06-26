@@ -7846,6 +7846,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
         ArgBytes(b)
     }
 
+    #[allow(clippy::too_many_lines)]
     fn try_new(
         cs: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
         bo: ByteOrd2_0,

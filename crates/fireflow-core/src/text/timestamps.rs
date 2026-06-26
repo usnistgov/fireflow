@@ -4,10 +4,11 @@ use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword0,
 };
 use crate::text::lookup::{
-    DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
+    Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
 };
+use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
-use crate::validated::timepattern::ParseWithTimePatternError;
+use crate::validated::timepattern::{ParseWithTimePatternError, TimePattern};
 
 use fireflow_types::config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0};
 use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
@@ -57,6 +58,13 @@ pub struct Timestamps<X> {
     date: Option<FCSDate>,
 }
 
+#[derive(new, Default)]
+pub(crate) struct TimestampsDiagnostics {
+    pub(crate) btim: Option<TimePattern>,
+    pub(crate) etim: Option<TimePattern>,
+    pub(crate) date: Option<DatePattern>,
+}
+
 impl<X> Default for Timestamps<X> {
     fn default() -> Self {
         Self::new(None, None, None)
@@ -81,20 +89,23 @@ where
 {
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
-    type Diagnostic = ();
+    type Diagnostic = Option<TimePattern>;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with<'a>(
         s: &NEStr,
         (): (),
         conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
-        let ret = if let Some(pat) = conf.time_pattern.as_ref() {
-            pat.parse_str(s.as_str())?.into()
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, Self::Err> {
+        if let Some(pat) = conf.time_pattern.as_ref() {
+            pat.parse_str(s.as_str())
+                .map_err(FCSFixedTimeError::Patterned)
+                .map(|x| Diagnosed::new(Self(x.into()), Some(pat.clone())))
         } else {
-            s.parse::<T>().map_err(FCSFixedTimeError::Native)?
-        };
-        Ok(DiagnosedKeyword::new1(Self(ret)))
+            s.parse::<T>()
+                .map_err(FCSFixedTimeError::Native)
+                .map(|x| Diagnosed::new(Self(x), None))
+        }
     }
 }
 
@@ -196,7 +207,7 @@ impl<X> Timestamps<X> {
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        Self,
+        Diagnosed<Self, TimestampsDiagnostics>,
         (),
         LookupTimestampsError<X, X::Err>,
         LookupTimestampsError<X, X::Err>,
@@ -223,7 +234,10 @@ impl<X> Timestamps<X> {
         go!(b)
             .zip3_commutative(go!(e), go!(d))
             .and_then_commutative(|(btim, etim, date)| {
-                Self::try_new(btim.into_native(), etim.into_native(), date.into_native())
+                let diag =
+                    TimestampsDiagnostics::new(btim.diagnostic, etim.diagnostic, date.diagnostic);
+                Self::try_new(btim.inner, etim.inner, date.inner)
+                    .map_ok_value(|x| Diagnosed::new(x, diag))
                     .map_errors(LookupTimestampsError::Reversed)
                     .map_err_value(|(old_btim, old_etim, old_date)| {
                         // If creating the new timestamp object failed,
@@ -278,20 +292,20 @@ type TimestampsResult<T> = Result<T, ReversedTimestampsError>;
 impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
-    type Diagnostic = ();
+    type Diagnostic = Option<DatePattern>;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &NEStr,
         (): (),
         conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
-        let ret = if let Some(pattern) = &conf.date_pattern {
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, Self::Err> {
+        if let Some(pattern) = &conf.date_pattern {
             Self::parse_with_pattern(s.as_str(), pattern.as_ref())
+                .map(|x| Diagnosed::new(x, Some(pattern.clone())))
         } else {
-            s.parse::<Self>()
-        };
-        ret.map(DiagnosedKeyword::new1)
+            s.parse::<Self>().map(|x| Diagnosed::new(x, None))
+        }
     }
 }
 

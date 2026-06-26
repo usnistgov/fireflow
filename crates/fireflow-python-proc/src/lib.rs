@@ -1071,10 +1071,12 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
     let dataset_offsets = DocArg::new_dataset_offsets_param()
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
+    let schema = DocArg::new_data_schema_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.schema_diagnostics.clone().into()));
     let dataset = DocArg::new_dataset_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.dataset_diagnostics.clone().into()));
 
-    let args = [data, analysis, others, dataset_offsets, dataset];
+    let args = [data, analysis, others, dataset_offsets, schema, dataset];
     let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
@@ -1085,6 +1087,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     analysis,
                     others,
                     dataset_offsets.into(),
+                    schema_diagnostics.into(),
                     dataset_diagnostics.into(),
                 ).into()
             }
@@ -1097,6 +1100,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ret.set_item("analysis", self.analysis())?;
                 ret.set_item("others", self.others())?;
                 ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
+                ret.set_item("schema_diagnostics", self.schema_diagnostics().dict(py)?)?;
                 ret.set_item("dataset_diagnostics", self.dataset_diagnostics().dict(py)?)?;
                 Ok(ret.into())
             }
@@ -1986,11 +1990,11 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.timestep.clone()),
     );
 
-    let original_names = DocArgROIvar::new_ivar_ro(
-        "original_names",
+    let dedup_names = DocArgROIvar::new_ivar_ro(
+        "dedup_names",
         PyList::new1(PyOpt::new1(PyStr::new_shortname())),
         format!("Original {PNN} if they were renamed."),
-        |_, _| quote!(self.0.original_names.clone()),
+        |_, _| quote!(self.0.dedup_names.clone()),
     );
 
     let scale = DocArgROIvar::new_ivar_ro(
@@ -2028,6 +2032,78 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.timestep_added),
     );
 
+    let spillover_was_indexed = DocArgROIvar::new_ivar_ro(
+        "spillover_was_indexed",
+        PyOpt::new1(PyBool::default()),
+        format!(
+            "{TRUE} if {spillover} used indices rather than names.",
+            spillover = Kw::Spillover.kw(),
+        ),
+        |_, _| quote!(self.0.spillover_was_indexed),
+    );
+
+    let btim_pattern = DocArgROIvar::new_ivar_ro(
+        "btim_pattern",
+        PyOpt::new1(PyStr::new_time_pattern()),
+        format!("Alternative pattern used to parse {BTIM}."),
+        |_, _| quote!(self.0.btim_pattern.clone()),
+    );
+
+    let etim_pattern = DocArgROIvar::new_ivar_ro(
+        "etim_pattern",
+        PyOpt::new1(PyStr::new_time_pattern()),
+        format!("Alternative pattern used to parse {ETIM}."),
+        |_, _| quote!(self.0.etim_pattern.clone()),
+    );
+
+    let date_pattern = DocArgROIvar::new_ivar_ro(
+        "date_pattern",
+        PyOpt::new1(PyStr::new_date_pattern()),
+        format!("Alternative pattern used to parse {DATE}."),
+        |_, _| quote!(self.0.date_pattern.clone()),
+    );
+
+    let begindatetime_pattern = DocArgROIvar::new_ivar_ro(
+        "begindatetime_pattern",
+        PyOpt::new1(PyStr::default()),
+        format!("Alternative pattern used to parse {BEGINDATETIME}."),
+        |_, _| quote!(self.0.begindatetime_pattern.clone()),
+    );
+
+    let enddatetime_pattern = DocArgROIvar::new_ivar_ro(
+        "enddatetime_pattern",
+        PyOpt::new1(PyStr::default()),
+        format!("Alternative pattern used to parse {ENDDATETIME}."),
+        |_, _| quote!(self.0.enddatetime_pattern.clone()),
+    );
+
+    let begindatetime_used_localtime = DocArgROIvar::new_ivar_ro(
+        "begindatetime_used_localtime",
+        PyOpt::new1(PyBool::default()),
+        format!("{TRUE} if localtime was used when parsing {BEGINDATETIME}."),
+        |_, _| quote!(self.0.begindatetime_used_localtime),
+    );
+
+    let enddatetime_used_localtime = DocArgROIvar::new_ivar_ro(
+        "enddatetime_used_localtime",
+        PyOpt::new1(PyBool::default()),
+        format!("{TRUE} if localtime was used when parsing {ENDDATETIME}."),
+        |_, _| quote!(self.0.enddatetime_used_localtime),
+    );
+
+    let last_modified_pattern = DocArgROIvar::new_ivar_ro(
+        "last_modified_pattern",
+        PyOpt::new1(PyStr::default()),
+        format!(
+            "Alternative pattern used to parse {}.",
+            Kw::LastModified.kw()
+        ),
+        |_, _| quote!(self.0.last_modified_pattern.clone()),
+    );
+
+    let schema_diagnostics = DocArg::new_data_schema_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.schema_diagnostics.clone().into()));
+
     let doc =
         DocString::new_class(format!("Diagnostic output from {TEXT} standardization.")).args([
             optional,
@@ -2036,12 +2112,22 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
             hyper_gate,
             other_version,
             timestep,
-            original_names,
+            dedup_names,
             scale,
             gate_scale,
             trimmed,
             tmp_opt_pairs,
             timestep_added,
+            spillover_was_indexed,
+            btim_pattern,
+            etim_pattern,
+            date_pattern,
+            begindatetime_pattern,
+            enddatetime_pattern,
+            begindatetime_used_localtime,
+            enddatetime_used_localtime,
+            last_modified_pattern,
+            schema_diagnostics,
         ]);
     let inner_args = doc.idents_into();
 
@@ -2061,12 +2147,85 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
                 ret.set_item("hyper_gate", self.hyper_gate())?;
                 ret.set_item("other_version", self.other_version())?;
                 ret.set_item("timestep", self.timestep())?;
-                ret.set_item("original_names", self.original_names())?;
+                ret.set_item("dedup_names", self.dedup_names())?;
                 ret.set_item("scale", self.scale())?;
                 ret.set_item("gate_scale", self.gate_scale())?;
                 ret.set_item("trimmed", self.trimmed())?;
                 ret.set_item("temporal_optical_pairs", self.temporal_optical_pairs())?;
                 ret.set_item("timestep_added", self.timestep_added())?;
+                ret.set_item("spillover_was_indexed", self.spillover_was_indexed())?;
+                ret.set_item("btim_pattern", self.btim_pattern())?;
+                ret.set_item("etim_pattern", self.etim_pattern())?;
+                ret.set_item("date_pattern", self.date_pattern())?;
+                ret.set_item("begindatetime_pattern", self.begindatetime_pattern())?;
+                ret.set_item("enddatetime_pattern", self.enddatetime_pattern())?;
+                ret.set_item("begindatetime_used_localtime", self.begindatetime_used_localtime())?;
+                ret.set_item("enddatetime_used_localtime", self.enddatetime_used_localtime())?;
+                ret.set_item("last_modified_pattern", self.last_modified_pattern())?;
+                ret.set_item("schema_diagnostics", self.schema_diagnostics().dict(py)?)?;
+                Ok(ret.into())
+            }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+pub fn impl_py_data_schema_diagnostics(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let truncated_columns = DocArgROIvar::new_ivar_ro(
+        "truncated_columns",
+        PyList::new1(PyOpt::new1(PyDecimal::new_text_range())),
+        format!(
+            "Original values of {PNR} if they were truncated. Length of list will \
+             be equal to {PAR}."
+        ),
+        |_, _| quote!(self.0.truncated_columns.clone()),
+    );
+
+    let original_int_width = DocArgROIvar::new_ivar_ro(
+        "original_int_width",
+        PyOpt::new1(RsInt::NonZeroU8),
+        format!(
+            "Original {PNB} value if was changed. Only applies to integer \
+             schemas for 2.0/3.0. Will be {NONE} if {PNB} was explicitly \
+             overridden."
+        ),
+        |_, _| quote!(self.0.original_int_width),
+    );
+
+    let original_byteord = DocArgROIvar::new_ivar_ro(
+        "original_byteord",
+        PyOpt::new1(PyList::new_byteord()),
+        format!(
+            "Original {BYTEORD} value if it was changed. Only applies to \
+             integer schemas for 2.0/3.0."
+        ),
+        |_, _| quote!(self.0.original_byteord),
+    );
+
+    let doc = DocString::new_class("Diagnostic output from creating data schema.").args([
+        truncated_columns,
+        original_int_width,
+        original_byteord,
+    ]);
+    let inner_args = doc.idents_into();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+
+            /// Dump this class as a dictionary.
+            #[getter]
+            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+                let mut ret = pyo3::types::PyDict::new(py);
+                ret.set_item("truncated_columns", self.truncated_columns())?;
+                ret.set_item("original_int_width", self.original_int_width())?;
+                ret.set_item("original_byteord", self.original_byteord())?;
                 Ok(ret.into())
             }
         }
@@ -5476,7 +5635,7 @@ pub fn impl_new_ordered_float_data_schema(input: TokenStream) -> TokenStream {
 
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
-        PyUnion::new_byteord(Some(nbytes)),
+        PyUnion::new_py_byteord(Some(nbytes)),
         "The byte order to use when encoding values.",
         |_, _| quote!(PyByteOrder::from(self.0.byte_order())),
     )
@@ -5551,7 +5710,7 @@ pub fn impl_new_ordered_uint_data_schema(input: TokenStream) -> TokenStream {
     let width_param = DocArg::new_byte_width_ivar();
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
-        PyUnion::new_byteord(None),
+        PyUnion::new_py_byteord(None),
         "The byte order to use when encoding values.",
         |_, _| quote!(self.0.byte_order().into()),
     )
@@ -7633,6 +7792,30 @@ impl<E: From<PyException>> PyStr<E> {
         let e = PyException::new_invalid_keyword().desc(d);
         Self::default().rstype(path).exc(e)
     }
+
+    fn new_time_pattern() -> Self {
+        let exc_desc = format!(
+            "if {ARG_TOKEN} does not have specifiers for hours, minutes, \
+             seconds, and optionally sub-seconds (where {b60} and {b100} \
+             correspond to {TIMEPATTERN_NAME3_0} and {TIMEPATTERN_NAME3_1} \
+             respectively) as outlined in {CHRONO_REF}",
+            b60 = code_str(tc::BASE60_SECOND_SPEC),
+            b100 = code_str(tc::BASE100_SECOND_SPEC),
+        );
+        let exc = PyException::new_config().desc(exc_desc);
+        let path = parse_quote!(fireflow_core::validated::timepattern::TimePattern);
+        Self::default().rstype(path).exc(exc)
+    }
+
+    fn new_date_pattern() -> Self {
+        let path = parse_quote!(fireflow_core::validated::datepattern::DatePattern);
+        let desc = format!(
+            "if {ARG_TOKEN} does not have year, month, and day specifiers \
+             as outlined in {CHRONO_REF}"
+        );
+        let exc = PyException::new_config().desc(desc);
+        Self::default().rstype(path).exc(exc)
+    }
 }
 
 impl<E> PyBool<E> {
@@ -7663,6 +7846,11 @@ impl<E> PyDecimal<E> {
 impl<E: From<PyException>> PyDecimal<E> {
     fn new_gate_range() -> Self {
         let path = keyword_path("GateRange");
+        Self::default().rstype(path)
+    }
+
+    fn new_text_range() -> Self {
+        let path = keyword_path("TextRange");
         Self::default().rstype(path)
     }
 }
@@ -7777,6 +7965,11 @@ impl<E: From<PyException>> PyList<E> {
         Self::new1(PyOpt::new1(
             PyTuple::new1(RsInt::Usize).add(PyBool::default()),
         ))
+    }
+
+    fn new_byteord() -> Self {
+        let path = keyword_path("ByteOrd2_0");
+        Self::new1(RsInt::U32).rstype(path)
     }
 }
 
@@ -8225,7 +8418,7 @@ impl<E: From<PyException>> PyUnion<E> {
         .exc(exc)
     }
 
-    fn new_byteord(nbytes: Option<usize>) -> Self {
+    fn new_py_byteord(nbytes: Option<usize>) -> Self {
         let (path, exc_desc) = if let Some(n) = nbytes {
             let sizedbyteord_path: Path = parse_quote!(PyByteOrder);
             let p = parse_quote!(#sizedbyteord_path<#n>);
@@ -9310,6 +9503,12 @@ impl DocArgParam {
         Self::new_param("flat_diagnostics", p, desc)
     }
 
+    fn new_data_schema_diagnostics_param() -> Self {
+        let d = "Diagnostic output from parsing the data schema";
+        let p = PyClass::new_py(["api"], "DataSchemaDiagnostics");
+        Self::new_param("schema_diagnostics", p, d)
+    }
+
     fn new_dataset_diagnostics_param() -> Self {
         let d = format!("Diagnostic output from parsing {DATA} segment.");
         let p = PyClass::new_py(["api"], "DatasetDiagnostics");
@@ -9877,20 +10076,13 @@ impl DocArgParam {
     }
 
     fn new_date_pattern_param() -> Self {
-        let path = parse_quote!(fireflow_core::validated::datepattern::DatePattern);
-        let desc = format!(
-            "if {ARG_TOKEN} does not have year, month, and day specifiers \
-             as outlined in {CHRONO_REF}"
-        );
-        let exc = PyException::new_config().desc(desc);
-        let pytype = PyStr::default().rstype(path).exc(exc);
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {DATE}. If not supplied, {DATE} will be parsed according to \
              the standard pattern which is {pat}.",
             pat = code_str(tc::DEFAULT_DATE_FORMAT),
         );
-        Self::new_opt_param("date_pattern", pytype, d)
+        Self::new_opt_param("date_pattern", PyStr::new_date_pattern(), d)
     }
 
     fn new_datetime_pattern_param() -> Self {
@@ -9926,20 +10118,6 @@ impl DocArgParam {
     }
 
     fn new_time_pattern_param(version: Option<Version>) -> Self {
-        const NAME3_0: &str = "1/60 seconds";
-        const NAME3_1: &str = "centiseconds";
-
-        // format exception description
-        let exc_desc = format!(
-            "if {ARG_TOKEN} does not have specifiers for hours, minutes, \
-             seconds, and optionally sub-seconds (where {b60} and {b100} \
-             correspond to {NAME3_0} and {NAME3_1} respectively) as outlined \
-             in {CHRONO_REF}",
-            b60 = code_str(tc::BASE60_SECOND_SPEC),
-            b100 = code_str(tc::BASE100_SECOND_SPEC),
-        );
-        let exc = PyException::new_config().desc(exc_desc);
-
         let fmt2_0 = code_str(tc::DEFAULT_TIME_FORMAT_2_0);
         let fmt3_0 = code_str(tc::DEFAULT_TIME_FORMAT_3_0);
         let fmt3_1 = code_str(tc::DEFAULT_TIME_FORMAT_3_1);
@@ -9955,7 +10133,7 @@ impl DocArgParam {
                      parsing {BTIM} and {ETIM}.";
         let line2 = format!(
             "The values {b60} or {b100} may be used to match \
-             {NAME3_0} or {NAME3_1} respectively.",
+             {TIMEPATTERN_NAME3_0} or {TIMEPATTERN_NAME3_1} respectively.",
             b60 = code_str(tc::BASE60_SECOND_SPEC),
             b100 = code_str(tc::BASE100_SECOND_SPEC),
         );
@@ -9965,8 +10143,7 @@ impl DocArgParam {
         );
         let arg_desc = [line1.to_owned(), line2, line3].into_iter().join(" ");
 
-        let path = parse_quote!(fireflow_core::validated::timepattern::TimePattern);
-        let pytype = PyStr::default().rstype(path).exc(exc);
+        let pytype = PyStr::new_time_pattern();
         Self::new_opt_param("time_pattern", pytype, arg_desc)
     }
 
@@ -11945,3 +12122,8 @@ const PNG: &str = fcs_kw!(tk::PNG);
 const PNDATATYPE: &str = fcs_kw!(tk::PNDATATYPE);
 const PNFEATURE: &str = fcs_kw!(tk::PNFEATURE);
 const PNTYPE: &str = fcs_kw!(tk::PNTYPE);
+
+// misc
+
+const TIMEPATTERN_NAME3_0: &str = "1/60 seconds";
+const TIMEPATTERN_NAME3_1: &str = "centiseconds";

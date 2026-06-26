@@ -7,6 +7,9 @@ use thiserror::Error;
 
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
@@ -21,18 +24,21 @@ use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 /// incompatible with any other sub-second identifiers. Since chrono cannot
 /// process these natively, these identifiers will be substituted with
 /// nanosecond fraction (`"%f"`) and converted after parsing.
-#[derive(Clone, Debug, AsRef, Display, new)]
+#[derive(Clone, Debug, AsRef, Display, PartialEq, new)]
 #[display("{original}")]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[new(visibility(""))]
 pub struct TimePattern {
+    #[cfg_attr(feature = "serde", serde(skip))]
     #[as_ref(str)]
     pat: String,
     original: String,
+    #[cfg_attr(feature = "serde", serde(skip))]
     fraction: FractionType,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 enum FractionType {
     Native,
     Sexagesimal,

@@ -64,12 +64,13 @@ use crate::segment::{
     },
 };
 use crate::text::datetimes::{
-    BeginDateTime, Datetimes, EndDateTime, LookupDatetimesError, ReversedDatetimesError,
+    BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
+    ReversedDatetimesError,
 };
 use crate::text::gating::{
     AppliedGates2_0, AppliedGates3_0, AppliedGates3_0To2_0Error, AppliedGates3_0To3_2Error,
-    AppliedGates3_2, GatedMeasurements, LookupAppliedGates2_0Error, LookupAppliedGates3_0Error,
-    LookupAppliedGates3_2Error,
+    AppliedGates3_2, AppliedGatesDiagnostics, GatedMeasurements, LookupAppliedGates2_0Error,
+    LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
@@ -89,8 +90,8 @@ use crate::text::keywords::{
     Wellid,
 };
 use crate::text::lookup::{
-    OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError, OptMetarootKey as _,
-    ReqKeyError, ReqMetarootKey as _,
+    Diagnosed, OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError,
+    OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
     Element, ElementIndexError, IndexedElement, InputLengthError, KeyIsOptical, NameMapping,
@@ -104,16 +105,18 @@ use crate::text::relational::{
     ExistingIndexedLinkError, ExistingLinkError, ExistingLinkErrors, IndicesToRemove,
     KeyToNameLinkError, OpticalNamesToRemove, RemovedLink,
 };
-use crate::text::spillover::Spillover;
+use crate::text::spillover::{Spillover, SpilloverDiagnostics};
 use crate::text::timestamps::{
     Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime60Error, FCSTime100, FCSTime100Error,
-    FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps, Xtim,
+    FCSTimeError, LookupTimestampsError, ReversedTimestampsError, Timestamps,
+    TimestampsDiagnostics, Xtim,
 };
 use crate::validated::ascii_uint::{
     HeaderString, Uint8DigitOverflowError, UintSpacePad8, UintSpacePad20,
 };
 use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
+use crate::validated::datepattern::DatePattern;
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
@@ -126,6 +129,7 @@ use crate::validated::read_state::{
 };
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::TEXTDelim;
+use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
     IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
@@ -1276,8 +1280,8 @@ pub struct StdTEXTDiagnostics {
     /// $TIMESTEP if it is given but not used.
     pub timestep: Option<NEString>,
 
-    /// Original $PnN if they are renamed.
-    pub original_names: Vec<Option<Shortname>>,
+    /// Original $PnN if they are renamed to remove duplicates.
+    pub dedup_names: Vec<Option<Shortname>>,
 
     /// Diagnostic outcomes from fixing $PnE keys.
     pub scale: Vec<AnyMeasScaleFix>,
@@ -1294,21 +1298,53 @@ pub struct StdTEXTDiagnostics {
     /// $TIMESTEP was missing and was added via config
     pub timestep_added: TimestepAdded,
 
+    /// `Some(true)` if $SPILLOVER used indices rather than names.
+    pub spillover_was_indexed: Option<bool>,
+
+    /// Alternative pattern used to parse $BTIM.
+    pub btim_pattern: Option<TimePattern>,
+
+    /// Alternative pattern used to parse $ETIM.
+    pub etim_pattern: Option<TimePattern>,
+
+    /// Alternative pattern used to parse $DATE.
+    pub date_pattern: Option<DatePattern>,
+
+    /// Alternative pattern used to parse $BEGINDATETIME.
+    pub begindatetime_pattern: Option<String>,
+
+    /// Alternative pattern used to parse $BEGINDATETIME.
+    pub enddatetime_pattern: Option<String>,
+
+    /// `Some(true)` if $BEGINDATETIME was parsed with local time zone.
+    pub begindatetime_used_localtime: Option<bool>,
+
+    /// `Some(true)` if $ENDDATETIME was parsed with local time zone.
+    pub enddatetime_used_localtime: Option<bool>,
+
+    /// Alternative pattern used to parse $LAST_MODIFIED.
+    pub last_modified_pattern: Option<String>,
+
     /// Diagnostic output from parsing the data schema.
     pub schema_diagnostics: DataSchemaDiagnostics,
 }
 
-pub(crate) type TrimmedKeywords = Vec<(StdKey, NEString)>;
+pub(crate) type TrimmedKeyword = (StdKey, NEString);
+pub(crate) type TrimmedKeywords = Vec<TrimmedKeyword>;
 
 impl StdTEXTDiagnostics {
     fn from_extra(
         extra: ExtraStdKeywords,
         optional: StdKeywords,
         original_names: Vec<Option<Shortname>>,
-        gate_scale: Vec<ScaleFix>,
+        metaroot: MetarootDiagnostics,
         meas: MeasurementDiagnostics,
         schema: DataSchemaDiagnostics,
     ) -> Self {
+        let mut trimmed = metaroot.trimmed;
+        trimmed.extend(meas.trimmed);
+        trimmed.extend(metaroot.spillover.trimmed);
+        trimmed.extend(metaroot.applied_gates.trimmed);
         Self {
             optional,
             pseudostandard: extra.pseudostandard,
@@ -1316,16 +1352,29 @@ impl StdTEXTDiagnostics {
             hyper_gate: extra.hyper_gate,
             other_version: extra.other_version,
             timestep: extra.timestep,
-            original_names,
+            dedup_names: original_names,
             scale: meas.scale,
-            gate_scale,
-            trimmed: meas.trimmed,
+            gate_scale: metaroot.applied_gates.fixed_scales,
+            trimmed,
             temporal_optical_pairs: meas.tmp_opt_pairs,
             timestep_added: meas.timestep_added,
+            spillover_was_indexed: metaroot.spillover.indexed,
+            btim_pattern: metaroot.timestamps.btim,
+            etim_pattern: metaroot.timestamps.etim,
+            date_pattern: metaroot.timestamps.date,
+            begindatetime_pattern: metaroot.datetime.begin.pattern,
+            enddatetime_pattern: metaroot.datetime.end.pattern,
+            begindatetime_used_localtime: metaroot.datetime.begin.used_localtime,
+            enddatetime_used_localtime: metaroot.datetime.end.used_localtime,
+            last_modified_pattern: metaroot.last_modified_pattern,
             schema_diagnostics: schema,
         }
     }
 }
+
+pub type DiagnosedMetaroot<M> = Diagnosed<M, MetarootDiagnostics>;
+
+type DiagnosedUnstainedData<U> = Diagnosed<U, Option<TrimmedKeyword>>;
 
 #[derive(new)]
 pub struct MeasurementDiagnostics {
@@ -1336,16 +1385,13 @@ pub struct MeasurementDiagnostics {
 }
 
 #[derive(new)]
-pub struct DiagnosedMetaroot<M> {
-    this: M,
+pub struct MetarootDiagnostics {
     trimmed: TrimmedKeywords,
-    fixed_gate_scales: Vec<ScaleFix>,
-}
-
-#[derive(new)]
-struct DiagnosedUnstainedData {
-    this: UnstainedData,
-    trimmed: Option<(StdKey, NEString)>,
+    applied_gates: AppliedGatesDiagnostics,
+    spillover: SpilloverDiagnostics,
+    timestamps: TimestampsDiagnostics,
+    datetime: DatetimesDiagnostics,
+    last_modified_pattern: Option<String>,
 }
 
 /// Error when converting [`Core`] to new FCS version
@@ -2300,7 +2346,15 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
             .map_ok_value(|((c, t, g), m)| {
-                DiagnosedMetaroot::new(Self::new(m, cyt, c, t, g.0), g.1, g.2)
+                let diag = MetarootDiagnostics::new(
+                    vec![],
+                    g.diagnostic,
+                    SpilloverDiagnostics::default(),
+                    t.diagnostic,
+                    DatetimesDiagnostics::default(),
+                    None,
+                );
+                DiagnosedMetaroot::new(Self::new(m, cyt, c, t.inner, g.inner), diag)
             })
     }
 }
@@ -2348,9 +2402,17 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
             .map_ok_value(|((co_out, su, t, u_out, g), m)| {
                 let (co, c_trimmed) = co_out.into_opt_root_pair();
                 let (u, u_trimmed) = u_out.into_opt_root_pair();
-                let ret = Self::new(m, cyt, co, t, cytsn, u, su, g.0);
-                let trimmed = c_trimmed.into_iter().chain(u_trimmed).chain(g.1).collect();
-                DiagnosedMetaroot::new(ret, trimmed, g.2)
+                let ret = Self::new(m, cyt, co, t.inner, cytsn, u, su, g.inner);
+                let trimmed = c_trimmed.into_iter().chain(u_trimmed).collect();
+                let diag = MetarootDiagnostics::new(
+                    trimmed,
+                    g.diagnostic,
+                    SpilloverDiagnostics::default(),
+                    t.diagnostic,
+                    DatetimesDiagnostics::default(),
+                    None,
+                );
+                DiagnosedMetaroot::new(ret, diag)
             })
     }
 }
@@ -2400,11 +2462,19 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
             .zip6_commutative(subset, modif, ts, vol, ag)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(mode)
-            .map_ok_value(|((sp_out, su, md, t, v, g), m)| {
-                let (sp, sp_trimmed) = sp_out.into_opt_root_pair();
-                let ret = Self::new(m, cyt, t, cytsn, sp, md, plate, v, su, g.0);
-                let trimmed = sp_trimmed.into_iter().chain(g.1).collect();
-                DiagnosedMetaroot::new(ret, trimmed, g.2)
+            .map_ok_value(|((sp, su, md, t, v, g), m)| {
+                let ret = Self::new(
+                    m, cyt, t.inner, cytsn, sp.inner, md.inner, plate, v, su, g.inner,
+                );
+                let diag = MetarootDiagnostics::new(
+                    vec![],
+                    g.diagnostic,
+                    sp.diagnostic,
+                    t.diagnostic,
+                    DatetimesDiagnostics::default(),
+                    md.diagnostic,
+                );
+                DiagnosedMetaroot::new(ret, diag)
             })
     }
 }
@@ -2473,17 +2543,32 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
             .zip5_commutative(ts, us, vol, agates)
             .map_errors(LookupMetarootError::from)
             .zip_commutative(cyt)
-            .map_ok_value(|(((d, md, mo, sp_out), t, u_out, v, ag), c)| {
-                let (sp, sp_trimmed) = sp_out.into_opt_root_pair();
+            .map_ok_value(|(((d, md, mo, sp), t, u_out, v, ag), c)| {
                 let ret = Self::new(
-                    mo, t, d, c, sp, cytsn, md, plate, v, carrier, u_out.this, flow, ag.0,
+                    mo,
+                    t.inner,
+                    d.inner,
+                    c,
+                    sp.inner,
+                    cytsn,
+                    md.inner,
+                    plate,
+                    v,
+                    carrier,
+                    u_out.inner,
+                    flow,
+                    ag.inner,
                 );
-                let trimmed = sp_trimmed
-                    .into_iter()
-                    .chain(u_out.trimmed)
-                    .chain(ag.1)
-                    .collect();
-                DiagnosedMetaroot::new(ret, trimmed, vec![])
+                let trimmed = u_out.diagnostic.into_iter().collect();
+                let diag = MetarootDiagnostics::new(
+                    trimmed,
+                    ag.diagnostic,
+                    sp.diagnostic,
+                    t.diagnostic,
+                    d.diagnostic,
+                    md.diagnostic,
+                );
+                DiagnosedMetaroot::new(ret, diag)
             })
     }
 }
@@ -3515,14 +3600,15 @@ impl<M: VersionedRootMeta> RootMeta<M> {
 
         go!(abrt_res)
             .zip4_commutative(go!(lost_res), go!(tr_res), spec_res)
-            .map_ok_value(|(abrt, lost, tr_out, meta)| {
+            .map_ok_value(|(abrt, lost, tr_out, mut meta)| {
                 let (tr, tr_trimmed) = tr_out.into_opt_root_pair();
-                let ret = Self::new(
-                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr,
-                    meta.this, nonstd,
-                );
-                let trimmed2 = meta.trimmed.into_iter().chain(tr_trimmed).collect();
-                DiagnosedMetaroot::new(ret, trimmed2, meta.fixed_gate_scales)
+                meta.diagnostic.trimmed.extend(tr_trimmed);
+                meta.first_once(|native| {
+                    Self::new(
+                        abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr,
+                        native, nonstd,
+                    )
+                })
             })
     }
 
@@ -5976,16 +6062,15 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     },
                 )
                 .and_then_commutative(
-                    |(metaroot_out, layout_out, (meas, mut meas_diag), original_names)| {
-                        meas_diag.trimmed.extend(metaroot_out.trimmed);
-                        let fixes = metaroot_out.fixed_gate_scales;
+                    |(metaroot_out, layout_out, (meas, meas_diag), original_names)| {
+                        let meta_diag = metaroot_out.diagnostic;
                         let ret =
-                            Self::try_new(metaroot_out.this, meas, layout_out.data_schema, conf)
+                            Self::try_new(metaroot_out.inner, meas, layout_out.data_schema, conf)
                                 .map_ok_value(|ret| {
                                     (
                                         ret,
                                         original_names,
-                                        fixes,
+                                        meta_diag,
                                         meas_diag,
                                         layout_out.diagnostics,
                                     )
@@ -6052,12 +6137,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);
 
-            core_res.map_ok_value(|(ret, original_names, fixes, meas_diag, schema_diag)| {
+            core_res.map_ok_value(|(ret, original_names, meta_diag, meas_diag, schema_diag)| {
                 let d = StdTEXTDiagnostics::from_extra(
                     extra,
                     dropped,
                     original_names,
-                    fixes,
+                    meta_diag,
                     meas_diag,
                     schema_diag,
                 );
@@ -6879,7 +6964,7 @@ impl UnstainedData {
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> DeferredSwitchableError<
-        DiagnosedUnstainedData,
+        DiagnosedUnstainedData<Self>,
         DummyTriFlag,
         OptKeyStError<UnstainedCenters>,
     >
@@ -6980,7 +7065,11 @@ impl ModificationData {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         conf: &C,
-    ) -> DeferredWarningsAndErrors<Self, LookupModifiedDataError, LookupModifiedDataError>
+    ) -> DeferredWarningsAndErrors<
+        Diagnosed<Self, Option<String>>,
+        LookupModifiedDataError,
+        LookupModifiedDataError,
+    >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -6994,7 +7083,10 @@ impl ModificationData {
             .map_switchable_errors(LookupModifiedDataError::from)
             .switchable_into_commutative()
             .into_semigroup();
-        last_mod_date.lift_f2_once(ori, |d, o| Self::new(last_mod, d.native, o))
+        last_mod_date.lift_f2_once(ori, |d, o| {
+            let ret = Self::new(last_mod, d.inner, o);
+            Diagnosed::new(ret, d.diagnostic)
+        })
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {

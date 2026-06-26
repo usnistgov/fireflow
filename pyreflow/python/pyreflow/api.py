@@ -35,6 +35,7 @@ from ._pyreflow import DatasetSummary as DatasetSummary
 from ._pyreflow import FlatTEXTDiagnostics as FlatTEXTDiagnostics
 from ._pyreflow import SplitTEXTDiagnostics as SplitTEXTDiagnostics
 from ._pyreflow import StdTEXTDiagnostics as StdTEXTDiagnostics
+from ._pyreflow import DataSchemaDiagnostics as DataSchemaDiagnostics
 from ._pyreflow import DatasetDiagnostics as DatasetDiagnostics
 from ._pyreflow import IntraSegmentDarkBytes as IntraSegmentDarkBytes
 

@@ -1,7 +1,7 @@
 use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
-use crate::text::lookup::{DiagnosedKeyword, FromStrWith, OptKeyStError, OptMetarootKey as _};
+use crate::text::lookup::{Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey as _};
 use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
 
 use fireflow_types::keywords::{
@@ -15,6 +15,7 @@ use chrono::{
     DateTime, FixedOffset, Local, MappedLocalTime, NaiveDateTime, ParseError, TimeZone as _,
 };
 use derive_more::{AsRef, Display, From, Into};
+use derive_new::new;
 use thiserror::Error;
 
 use std::mem;
@@ -36,6 +37,18 @@ pub struct Datetimes {
 
     #[as_ref(Option<EndDateTime>)]
     end: Option<EndDateTime>,
+}
+
+#[derive(new, Default)]
+pub(crate) struct DatetimesDiagnostics {
+    pub(crate) begin: DatetimeDiagnostic,
+    pub(crate) end: DatetimeDiagnostic,
+}
+
+#[derive(new, Default)]
+pub struct DatetimeDiagnostic {
+    pub(crate) pattern: Option<String>,
+    pub(crate) used_localtime: Option<bool>,
 }
 
 /// The $BEGINDATETIME key.
@@ -117,7 +130,12 @@ impl Datetimes {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         conf: &C,
-    ) -> WarningsAndErrorsResult<Self, (), LookupDatetimesError, LookupDatetimesError>
+    ) -> WarningsAndErrorsResult<
+        Diagnosed<Self, DatetimesDiagnostics>,
+        (),
+        LookupDatetimesError,
+        LookupDatetimesError,
+    >
     where
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
     {
@@ -135,7 +153,9 @@ impl Datetimes {
         go!(b)
             .zip_commutative(go!(e))
             .and_then_commutative(|(begin, end)| {
-                Self::try_new(begin.into_native(), end.into_native())
+                let diag = DatetimesDiagnostics::new(begin.diagnostic, end.diagnostic);
+                Self::try_new(begin.inner, end.inner)
+                    .map_ok_value(|x| Diagnosed::new(x, diag))
                     .map_errors(LookupDatetimesError::from)
                     .map_err_value(|(old_begin, old_end)| {
                         // If creating the new datetime object failed,
@@ -182,14 +202,14 @@ macro_rules! impl_from_str_with {
         impl FromStrWith for $t {
             type Err = FCSDateTimeError;
             type Payload<'a> = ();
-            type Diagnostic = ();
+            type Diagnostic = DatetimeDiagnostic;
             type Config = ReadStdKeywordsConfig;
 
             fn from_str_with(
                 s: &fireflow_types::nonempty_string::NEStr,
                 (): (),
                 conf: &Self::Config,
-            ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
+            ) -> Result<Diagnosed<Self, Self::Diagnostic>, Self::Err> {
                 FCSDateTime::from_str_with(s, (), conf).map(|x| x.first_once(Self))
             }
         }
@@ -202,19 +222,22 @@ impl_from_str_with!(EndDateTime);
 impl FromStrWith for FCSDateTime {
     type Err = FCSDateTimeError;
     type Payload<'a> = ();
-    type Diagnostic = ();
+    type Diagnostic = DatetimeDiagnostic;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &NEStr,
         (): (),
         conf: &Self::Config,
-    ) -> Result<DiagnosedKeyword<Self, ()>, Self::Err> {
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, Self::Err> {
         if let Some(pat) = conf.datetime_pattern.as_ref() {
             // first, try the given alternative format if it exists
             DateTime::parse_from_str(s.as_str(), pat.as_str())
                 .map(Self)
-                .map(DiagnosedKeyword::new1)
+                .map(|x| {
+                    let diag = DatetimeDiagnostic::new(Some(pat.clone()), Some(false));
+                    Diagnosed::new(x, diag)
+                })
                 .map_err(|e| FCSDateTimeError::AltFormat(e, pat.to_owned()))
         } else if let Ok(naive) = NaiveDateTime::parse_from_str(s.as_str(), ISO_DATETIME_NO_TZ) {
             // next, try to parse without a timezone, defaulting to localtime and
@@ -224,7 +247,8 @@ impl FromStrWith for FCSDateTime {
             } else {
                 match Local::now().timezone().from_local_datetime(&naive) {
                     MappedLocalTime::Single(t) => {
-                        Ok(DiagnosedKeyword::new1(Self(t.fixed_offset())))
+                        let diag = DatetimeDiagnostic::new(None, Some(true));
+                        Ok(Diagnosed::new(Self(t.fixed_offset()), diag))
                     }
                     MappedLocalTime::Ambiguous(_, _) => Err(FCSDateTimeError::Fold),
                     MappedLocalTime::None => Err(FCSDateTimeError::Gap),
@@ -241,7 +265,8 @@ impl FromStrWith for FCSDateTime {
             ];
             for f in formats {
                 if let Ok(t) = DateTime::parse_from_str(s.as_ref(), f) {
-                    return Ok(DiagnosedKeyword::new1(Self(t)));
+                    let diag = DatetimeDiagnostic::new(None, Some(false));
+                    return Ok(Diagnosed::new(Self(t), diag));
                 }
             }
             Err(FCSDateTimeError::Format)
@@ -297,7 +322,7 @@ mod tests {
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
             let conf = ReadStdKeywordsConfig::default();
-            Self::from_str_with(NEStr::try_new(s).unwrap(), (), &conf).map(|x| x.native)
+            Self::from_str_with(NEStr::try_new(s).unwrap(), (), &conf).map(|x| x.inner)
         }
     }
 

@@ -3,6 +3,9 @@ use thiserror::Error;
 
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 #[cfg(feature = "python")]
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
@@ -10,8 +13,9 @@ use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 ///
 /// This is a configuration value to be used when parsing a date using
 /// [`NaiveDate::parse_from_str`](chrono::NaiveDate::parse_from_str).
-#[derive(Clone, Debug, AsRef, Display)]
+#[derive(Clone, Debug, AsRef, PartialEq, Display)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DatePattern(String);
 
 impl FromStr for DatePattern {

@@ -1,11 +1,12 @@
 use crate::config::{ConfigFlag as _, ReadStdKeywordsConfig, TrimIntraValueWhitespace};
+use crate::core::TrimmedKeyword;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
-use crate::validated::keys::DKey0;
+use crate::validated::keys::{DKey0, Key as _};
 use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 
 use super::index::MeasIndex;
-use super::lookup::{DiagnosedKeyword, FromStrWith, FromStrWithResult, Trimmed};
+use super::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
@@ -31,6 +32,12 @@ use {fireflow_core_proc::DisplayAsPyErr, fireflow_types::python as py};
 
 /// The $SPILLOVER keyword (3.1+)
 pub type Spillover = GenericSpillover<Shortname>;
+
+#[derive(new, Default, Debug, PartialEq)]
+pub struct SpilloverDiagnostics {
+    pub(crate) trimmed: Option<TrimmedKeyword>,
+    pub(crate) indexed: Option<bool>,
+}
 
 /// A generic spillover matrix which can include any type for the measurement vector.
 ///
@@ -228,7 +235,7 @@ impl<'a> ToDisplayNE<'a> for Spillover {
 impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = &'a [&'a Shortname];
-    type Diagnostic = Trimmed;
+    type Diagnostic = SpilloverDiagnostics;
     type Config = ReadStdKeywordsConfig;
 
     fn from_str_with(
@@ -238,7 +245,7 @@ impl FromStrWith for Spillover {
     ) -> FromStrWithResult<Self> {
         let trim_flag = conf.trim_intra_value_whitespace;
         let (m, was_trimmed) = GenericSpillover::from_str(s.as_str(), trim_flag)?;
-        let d = was_trimmed.then(|| s.to_owned());
+        let trimmed = was_trimmed.then(|| (Self::std(), s.to_owned()));
         let use_indices = match conf.spillover_measurement_mode {
             SpilloverMeasurementMode::Guess => m.measurements.iter().all(|x| {
                 if let Ok(i) = x.parse::<MeasIndex>() {
@@ -266,7 +273,8 @@ impl FromStrWith for Spillover {
                 .collect();
             Self::new(new_ms, m.matrix)
         };
-        Ok(DiagnosedKeyword::new(ret, d))
+        let diag = SpilloverDiagnostics::new(trimmed, Some(use_indices));
+        Ok(Diagnosed::new(ret, diag))
     }
 }
 
@@ -350,7 +358,7 @@ mod tests {
         ];
         let v = ne_str!("2,1,2,0,0,0,0");
         let res = Spillover::from_str_with(v, &ns, &conf);
-        let spill = res.unwrap().native.as_string();
+        let spill = res.unwrap().inner.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
@@ -405,7 +413,7 @@ mod tests {
         ];
         let v = ne_str!("2,1,2,0,0,0,0");
         let res = Spillover::from_str_with(v, &ns, &conf);
-        let spill = res.unwrap().native.as_string();
+        let spill = res.unwrap().inner.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 
@@ -435,7 +443,7 @@ mod tests {
         ];
         let v = ne_str!("2, X,  Y , 0, 0,    0, 0");
         let res = Spillover::from_str_with(v, &ns, &conf);
-        let spill = res.unwrap().native.as_string();
+        let spill = res.unwrap().inner.as_string();
         assert_eq!(spill.as_str(), "2,X,Y,0,0,0,0");
     }
 

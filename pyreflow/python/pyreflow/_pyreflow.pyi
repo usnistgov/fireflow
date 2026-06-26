@@ -1,5 +1,6 @@
 from __future__ import annotations
 from pathlib import Path
+from decimal import Decimal
 from datetime import time, date, datetime
 from typing import TypeVar, Self, Generic, Union, final, Any
 
@@ -2077,6 +2078,24 @@ class ValidKeywords:
     def dict(self) -> dict[str, Any]: ...
 
 @final
+class DataSchemaDiagnostics:
+    def __new__(
+        cls,
+        truncated_columns: list[Decimal | None],
+        original_int_width: int | None,
+        original_byteord: list[int] | None,
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def truncated_columns(self) -> list[Decimal | None]: ...
+    @property
+    def original_int_width(self) -> int | None: ...
+    @property
+    def original_byteord(self) -> list[int] | None: ...
+    @property
+    def dict(self) -> dict[str, Any]: ...
+
+@final
 class StdTEXTDiagnostics:
     def __new__(
         cls,
@@ -2086,12 +2105,22 @@ class StdTEXTDiagnostics:
         hyper_gate: pft.StdKeywords,
         other_version: pft.StdKeywords,
         timestep: str | None,
-        original_names: list[pft.Shortname | None],
+        dedup_names: list[pft.Shortname | None],
         scale: list[pft.MeasScaleDiagnostic],
         gate_scale: list[pft.GateScaleDiagnostic],
         trimmed: list[tuple[str, str]],
         temporal_optical_pairs: list[tuple[str, str]],
         timestep_added: bool,
+        spillover_was_indexed: bool | None,
+        btim_pattern: str | None,
+        etim_pattern: str | None,
+        date_pattern: str | None,
+        begindatetime_pattern: str | None,
+        enddatetime_pattern: str | None,
+        begindatetime_used_localtime: bool | None,
+        enddatetime_used_localtime: bool | None,
+        last_modified_pattern: str | None,
+        schema_diagnostics: DataSchemaDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2107,7 +2136,7 @@ class StdTEXTDiagnostics:
     @property
     def timestep(self) -> str | None: ...
     @property
-    def original_names(self) -> list[pft.Shortname | None]: ...
+    def dedup_names(self) -> list[pft.Shortname | None]: ...
     @property
     def scale(self) -> list[pft.MeasScaleDiagnostic]: ...
     @property
@@ -2118,6 +2147,26 @@ class StdTEXTDiagnostics:
     def temporal_optical_pairs(self) -> list[tuple[str, str]]: ...
     @property
     def timestep_added(self) -> bool: ...
+    @property
+    def spillover_was_indexed(self) -> bool | None: ...
+    @property
+    def btim_pattern(self) -> str | None: ...
+    @property
+    def etim_pattern(self) -> str | None: ...
+    @property
+    def date_pattern(self) -> str | None: ...
+    @property
+    def begindatetime_pattern(self) -> str | None: ...
+    @property
+    def enddatetime_pattern(self) -> str | None: ...
+    @property
+    def begindatetime_used_localtime(self) -> bool | None: ...
+    @property
+    def enddatetime_used_localtime(self) -> bool | None: ...
+    @property
+    def last_modified_pattern(self) -> str | None: ...
+    @property
+    def schema_diagnostics(self) -> DataSchemaDiagnostics: ...
     @property
     def dict(self) -> dict[str, Any]: ...
 
@@ -2454,6 +2503,7 @@ class FlatDatasetFromKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_offsets: DatasetOffsets,
+        schema_diagnostics: DataSchemaDiagnostics,
         dataset_diagnostics: DatasetDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
@@ -2465,6 +2515,8 @@ class FlatDatasetFromKwsOutput:
     def others(self) -> list[bytes]: ...
     @property
     def dataset_offsets(self) -> DatasetOffsets: ...
+    @property
+    def schema_diagnostics(self) -> DataSchemaDiagnostics: ...
     @property
     def dataset_diagnostics(self) -> DatasetDiagnostics: ...
     @property
@@ -3507,6 +3559,7 @@ __all__ = [
     "StdDatasetFromKwsOutput",
     "NewStdDatasetFromKwsOutput",
     "StdTEXTDiagnostics",
+    "DataSchemaDiagnostics",
     "ValidKeywords",
     "DatasetOffsets",
     "SplitTEXTDiagnostics",

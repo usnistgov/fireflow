@@ -1,10 +1,19 @@
-use crate::validated::{
-    case_ins_regex::CaseInsRegex,
-    keys::{AnyKey, ValidKeywords},
-};
+use crate::validated::keys::{AnyKey, ValidKeywords};
 
 use fireflow_types::nonempty_string::NEString;
 use nonempty_collections::NEVec;
+
+use derive_more::Display;
+use regex::Regex;
+use thiserror::Error;
+
+use std::str::FromStr;
+
+#[cfg(feature = "python")]
+use {
+    fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    fireflow_types::python as py,
+};
 
 #[derive(Clone)]
 pub enum Selector<T> {
@@ -37,8 +46,13 @@ enum Condition {
 pub enum Statement {
     HasKey(AnyKey),
     KeyIs(AnyKey, NEString),
-    KeyMatches(AnyKey, CaseInsRegex),
+    KeyMatches(AnyKey, ValueRegex),
 }
+
+/// A wrapper around [`regex::Regex`] to make impls cleaner.
+#[derive(Clone, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
+pub struct ValueRegex(Regex);
 
 impl<T: Default> Default for Selector<T> {
     fn default() -> Self {
@@ -106,18 +120,33 @@ impl Statement {
         match self {
             Self::HasKey(k) => kws.get_any(k).is_some(),
             Self::KeyIs(k, p) => kws.get_any(k).is_some_and(|v| v == p),
-            Self::KeyMatches(k, p) => kws
-                .get_any(k)
-                .is_some_and(|v| p.as_ref().is_match(v.as_str())),
+            Self::KeyMatches(k, p) => kws.get_any(k).is_some_and(|v| p.0.is_match(v.as_str())),
         }
+    }
+}
+
+/// Error when parsing [`CaseInsRegex`] from [`String`].
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error("error when making case-insensitive regular expression: {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct ValueRegexError(regex::Error);
+
+impl FromStr for ValueRegex {
+    type Err = ValueRegexError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        regex::RegexBuilder::new(s)
+            .build()
+            .map(Self)
+            .map_err(ValueRegexError)
     }
 }
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Cond, Condition, If, Selector, Statement};
+    use super::{Cond, Condition, If, Selector, Statement, ValueRegex};
 
-    use crate::validated::case_ins_regex::CaseInsRegex;
     use crate::validated::keys::AnyKey;
 
     use fireflow_types::nonempty_string::{NEStr, NEString};
@@ -319,7 +348,7 @@ mod python {
                 && op == fp::STATEMENT_KEY_IS.as_str()
             {
                 return Ok(Self::KeyIs(key, value));
-            } else if let Ok((op, key, pat)) = obj.extract::<(String, AnyKey, CaseInsRegex)>()
+            } else if let Ok((op, key, pat)) = obj.extract::<(String, AnyKey, ValueRegex)>()
                 && op == fp::STATEMENT_KEY_MATCHES.as_str()
             {
                 return Ok(Self::KeyMatches(key, pat));

@@ -43,6 +43,8 @@ use std::sync::OnceLock;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
+use super::case_ins_regex::CaseInsRegexError;
+
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{
@@ -138,7 +140,6 @@ impl<L: FromStr> FromStr for LiteralOrPattern<L> {
         {
             let ret = inner
                 .parse::<CaseInsRegex>()
-                .map_err(KeyRegexError)
                 .map_err(LiteralOrPatternError::Regexp)?;
             Ok(Self::Pattern(ret))
         } else {
@@ -228,6 +229,23 @@ pub struct ValidKeywords {
     pub std: StdKeywords,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub nonstd: NonStdKeywords,
+}
+
+impl ValidKeywords {
+    pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEString> {
+        match k {
+            AnyKey::Std(kk) => self.get_std(kk),
+            AnyKey::NonStd(kk) => self.get_nonstd(kk),
+        }
+    }
+
+    pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEString> {
+        self.std.get(k)
+    }
+
+    pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
+        self.nonstd.get(k)
+    }
 }
 
 /// A string that should be used as the header in the measurement table.
@@ -1374,15 +1392,9 @@ pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
 pub enum LiteralOrPatternError<E> {
-    Regexp(KeyRegexError),
+    Regexp(CaseInsRegexError),
     Literal(E),
 }
-
-/// Error when parsing [`CaseInsRegex`] from string when building [`KeyStringsOrPatterns`]
-#[derive(Debug, Display, From, PartialEq, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct KeyRegexError(regex::Error);
 
 /// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
 #[derive(Debug, Display, From, PartialEq, Error, Clone)]
@@ -1558,7 +1570,7 @@ const fn is_alpha_underscore_str(s: &str) -> bool {
     true
 }
 
-const STD_PREFIX: u8 = 36; // '$'
+pub(crate) const STD_PREFIX: u8 = 36; // '$'
 
 #[cfg(feature = "serde")]
 mod serialize {

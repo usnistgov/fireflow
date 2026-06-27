@@ -16,6 +16,7 @@ use crate::segment::{
     SupplementalTextSegmentId,
     read::{HeaderCorrection, TEXTCorrection},
 };
+use crate::selector::Selector;
 use crate::text::byteord::Bytes;
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{self as kws, Timestep};
@@ -24,7 +25,7 @@ use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
     AllKeyMatchers, KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _,
-    StdKey, StdKeywords,
+    StdKey, StdKeywords, ValidKeywords,
 };
 use crate::validated::keystring_pairs::KeyStringPairs;
 use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
@@ -614,10 +615,56 @@ pub struct ReadHeaderAndTEXTConfig {
     pub substitute_standard_key_values: SubPatterns,
 }
 
+pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
+    TimeMeasNamePattern,
+    Option<DatePattern>,
+    Option<TimePattern>,
+    Option<String>,
+    Option<String>,
+    NonStdMeasPatternOpt,
+>;
+
+pub type ReadStdKeywordsConfig = ReadStdKeywordsConfig_<
+    Selector<TimeMeasNamePattern>,
+    Selector<Option<DatePattern>>,
+    Selector<Option<TimePattern>>,
+    Selector<Option<String>>,
+    Selector<Option<String>>,
+    Selector<NonStdMeasPatternOpt>,
+>;
+
+impl ReadStdKeywordsConfig {
+    pub(crate) fn eval(&self, kws: &ValidKeywords) -> EvaledReadStdKeywordsConfig {
+        ReadStdKeywordsConfig_ {
+            dedup_measurement_names: self.dedup_measurement_names,
+            trim_intra_value_whitespace: self.trim_intra_value_whitespace,
+            time_meas_pattern: self.time_meas_pattern.eval(kws),
+            allow_missing_time: self.allow_missing_time,
+            add_missing_timestep: self.add_missing_timestep,
+            force_linear_scale: self.force_linear_scale,
+            ignore_time_optical_keys: self.ignore_time_optical_keys.clone(),
+            process_time_optical_keys: self.process_time_optical_keys,
+            spillover_measurement_mode: self.spillover_measurement_mode,
+            date_pattern: self.date_pattern.eval(kws),
+            time_pattern: self.time_pattern.eval(kws),
+            datetime_pattern: self.datetime_pattern.eval(kws),
+            last_modified_pattern: self.last_modified_pattern.eval(kws),
+            allow_other_feature: self.allow_other_feature,
+            process_pseudostandard: self.process_pseudostandard,
+            process_hyper_par: self.process_hyper_par,
+            process_other_version: self.process_other_version,
+            process_extra_timestep: self.process_extra_timestep,
+            fix_log_scale_offsets: self.fix_log_scale_offsets,
+            disallow_localtime: self.disallow_localtime,
+            nonstandard_measurement_pattern: self.nonstandard_measurement_pattern.eval(kws),
+        }
+    }
+}
+
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct ReadStdKeywordsConfig {
+pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP, NSMP> {
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
     /// All versions of the standards requires that all $PnN be unique.
@@ -641,7 +688,7 @@ pub struct ReadStdKeywordsConfig {
     /// If matched, the time measurement must conform to the requirements of the
     /// target FCS version, such as having $TIMESTEP present and having a PnE
     /// set to `"0,0"`.
-    pub time_meas_pattern: TimeMeasNamePattern,
+    pub time_meas_pattern: TMP,
 
     /// Allow time to be absent even [`Self::time_meas_pattern`] is set.
     pub allow_missing_time: AllowMissingTime,
@@ -688,10 +735,10 @@ pub struct ReadStdKeywordsConfig {
     /// [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
     /// If not supplied, $DATE will be parsed according to the standard pattern
     /// which is `"%d-%b-%Y"`.
-    pub date_pattern: Option<DatePattern>,
+    pub date_pattern: DP,
 
     /// If `true`, will be used as an alternative pattern toe parse $BTIM/$ETIM.
-    pub time_pattern: Option<TimePattern>,
+    pub time_pattern: TP,
 
     /// If set, will be used to parse $BEGINDATETIME and $ENDDATETIME.
     ///
@@ -699,7 +746,7 @@ pub struct ReadStdKeywordsConfig {
     /// [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
     /// If not supplied, timestamps will be parsed as an ISO-formatted timestamp
     /// possibly with a timezone.
-    pub datetime_pattern: Option<String>,
+    pub datetime_pattern: DTP,
 
     /// If set, will be used to parse $LAST_MODIFIED.
     ///
@@ -707,7 +754,7 @@ pub struct ReadStdKeywordsConfig {
     /// [chrono](https://docs.rs/chrono/latest/chrono/format/strftime/index.html).
     /// If not supplied, timestamps will be parsed according to the standard
     /// format which is `"%d-%b-%Y %H:%M:%S"` possibly with centiseconds after.
-    pub last_modified_pattern: Option<String>,
+    pub last_modified_pattern: LMP,
 
     /// If `true`, capture other values for $PnFEATURE not mentioned in the standard.
     ///
@@ -797,7 +844,7 @@ pub struct ReadStdKeywordsConfig {
     /// This will match something like `"P7FOO"` which would be `"FOO"` for
     /// measurement `7`. These may be used when converting between different
     /// FCS versions.
-    pub nonstandard_measurement_pattern: NonStdMeasPatternOpt,
+    pub nonstandard_measurement_pattern: NSMP,
 }
 
 /// Specific instructions for reading a data layout.

@@ -1,4 +1,4 @@
-use crate::config::{ConfigFlag as _, ReadStdKeywordsConfig, TrimIntraValueWhitespace};
+use crate::config::{ConfigFlag as _, EvaledReadStdKeywordsConfig, TrimIntraValueWhitespace};
 use crate::core::TrimmedKeyword;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::{DKey0, Key as _};
@@ -236,7 +236,7 @@ impl FromStrWith for Spillover {
     type Err = ParseSpilloverError;
     type Payload<'a> = &'a [&'a Shortname];
     type Diagnostic = SpilloverDiagnostics;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &NEStr,

@@ -1,4 +1,4 @@
-use crate::config::{ReadDataKeywordsConfig, ReadStdKeywordsConfig};
+use crate::config::{EvaledReadStdKeywordsConfig, ReadDataKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword0,
@@ -90,7 +90,7 @@ where
     type Err = FCSFixedTimeError<<T as FromStr>::Err>;
     type Payload<'a> = ();
     type Diagnostic = Option<TimePattern>;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with<'a>(
         s: &NEStr,
@@ -216,7 +216,7 @@ impl<X> Timestamps<X> {
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime>,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
     {
         macro_rules! go {
@@ -293,7 +293,7 @@ impl FromStrWith for FCSDate {
     type Err = FCSDateError;
     type Payload<'a> = ();
     type Diagnostic = Option<DatePattern>;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &NEStr,

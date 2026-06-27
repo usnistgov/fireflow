@@ -3,9 +3,10 @@
 use crate::api::{FCSFileReader, HeaderAndSuppOffsets, next_dataset_boundary};
 use crate::config::{
     AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
-    OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-    ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig, WriteDatasetInnerConfig,
-    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    EvaledReadStdKeywordsConfig, OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig,
+    ReadHeaderAndTEXTConfig, ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig,
+    WriteDatasetInnerConfig, WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
+    WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
@@ -27,7 +28,7 @@ use crate::header::{
 use crate::logging::{
     CommutativeResultIter as _, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningsAndErrors, ErrorGroup, ErrorsResult, GroupResult, IOErrorGroup, ImpureError,
-    LogResult, ResultExt as _, Success, WarningAndGroupResult, WarningAndIOGroupResult,
+    LogResult, ResultExt as _, WarningAndGroupResult, WarningAndIOGroupResult,
     WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
     WarningsAndIOGroupResult, io_to_log,
 };
@@ -122,7 +123,6 @@ use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
     StdKey, StdKeywords, StringOrBytes, ValidKeywords,
 };
-use crate::validated::nonstd_meas_pattern::NonStdMeasRegexError;
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
     TEXTReadState, WriteFCSDigest,
@@ -1529,7 +1529,6 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum StdTEXTFromFlatTEXTWarning {
     New(NewCoreWarning),
-    Pattern(NonStdMeasRegexError),
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
     Shortname(OptIndexedKeyError<Shortname>),
@@ -2316,7 +2315,7 @@ pub trait LookupMetaroot<N>: Sized {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>;
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
 }
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
@@ -2328,7 +2327,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let par = Par(ms.len());
         let comp = Compensation2_0::lookup(std, par, conf.as_ref())
@@ -2368,7 +2367,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -2426,7 +2425,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
@@ -2488,7 +2487,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -3571,7 +3570,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
         M: LookupMetaroot<N>,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -5742,11 +5741,11 @@ where
     fn split_nonstandard(
         par: Par,
         nonstd: &mut NonStdKeywords,
-        conf: &ReadStdKeywordsConfig,
-    ) -> Success<Vec<NonStdKeywords>, (), Option<NonStdMeasRegexError>> {
+        conf: &EvaledReadStdKeywordsConfig,
+    ) -> Vec<NonStdKeywords> {
         let mut meas_targets = vec![HashMap::new(); par.0];
         let Some(ns_pat) = conf.nonstandard_measurement_pattern.0.as_ref() else {
-            return Success::new_non_switchable(meas_targets);
+            return meas_targets;
         };
 
         let sorted = nonstd
@@ -5766,7 +5765,7 @@ where
                 nonstd.insert(k, v);
             }
         }
-        Success::new_non_switchable(meas_targets)
+        meas_targets
     }
 
     #[allow(clippy::type_complexity)]
@@ -5817,13 +5816,13 @@ where
         conf: &C,
     ) -> LookupMeasurementResult<(VNamedTemporalsAndScaledOpticals<V>, MeasurementDiagnostics)>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         V::RootMeta: LookupMetaroot<V::Name>,
         V::Temporal: LookupTemporal,
         V::Optical: LookupOptical,
         V::Name: Pointed<Shortname>,
     {
-        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+        let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let mut found_time = false;
 
         let mut match_time_pattern = |i, wrapped| {
@@ -5999,6 +5998,26 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::DataSchema: VersionedDataSchema,
         C: AsRef<ReadStdKeywordsConfig> + AsRef<ReadDataKeywordsConfig>,
     {
+        #[derive(AsRef)]
+        struct LookupConf<'a> {
+            #[as_ref(EvaledReadStdKeywordsConfig)]
+            text: EvaledReadStdKeywordsConfig,
+            data: &'a ReadDataKeywordsConfig,
+        }
+
+        impl AsRef<ReadDataKeywordsConfig> for LookupConf<'_> {
+            fn as_ref(&self) -> &ReadDataKeywordsConfig {
+                self.data
+            }
+        }
+
+        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
+
+        let lconf = LookupConf {
+            text: sconf.eval(&kws),
+            data: conf.as_ref(),
+        };
+
         // Lookup $PAR first since we need this to get the measurements
         let par_res = Par::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
@@ -6006,7 +6025,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .into_log();
 
         let version = V::as_version();
-        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
 
         macro_rules! go_err {
             ($x:expr) => {
@@ -6020,26 +6038,23 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             let nonstd = &mut kws.nonstd;
             // Split nonstandard measurements using pattern (if given); this
             // implicitly will encode $PAR downstream via length
-            let nonstd_succ = Self::split_nonstandard(par, nonstd, conf.as_ref());
-            let mut core_res = WarningsAndErrorsResult::Succ(nonstd_succ.repack())
-                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                // Lookup $PnN and data schema (which are independent of each other)
-                .and_then_commutative(|mut meas_nonstd| {
-                    let ret = Self::lookup_names(std, &mut meas_nonstd[..], &mut dropped, conf)
-                        .map_ok_value(|n| (n, meas_nonstd));
-                    go_err!(ret)
-                })
+            let mut meas_nonstd = Self::split_nonstandard(par, nonstd, lconf.as_ref());
+            // Lookup $PnN first (everything else depends on these)
+            let names_res = Self::lookup_names(std, &mut meas_nonstd[..], &mut dropped, conf);
+            let mut core_res = go_err!(names_res)
+                .map_ok_value(|n| (n, meas_nonstd))
                 // Lookup root (which depends on $PnN) and data schema
                 .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
                     let mnsks = &mut meas_nonstd[..];
-                    let layout_res = V::DataSchema::lookup(std, mnsks, &mut dropped, conf.as_ref());
+                    let layout_res =
+                        V::DataSchema::lookup(std, mnsks, &mut dropped, lconf.as_ref());
 
                     let root_res = RootMeta::lookup_metaroot(
                         std,
                         &dedup_names[..],
                         kws.nonstd,
                         &mut dropped,
-                        conf,
+                        &lconf,
                     );
 
                     go_err!(root_res)
@@ -6056,7 +6071,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                             meas_nonstd,
                             &mut dropped,
                             dts,
-                            conf,
+                            &lconf,
                         );
                         go_err!(ret).map_ok_value(|x| (metaroot_out, layout_out, x, original_names))
                     },
@@ -6065,7 +6080,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     |(metaroot_out, layout_out, (meas, meas_diag), original_names)| {
                         let meta_diag = metaroot_out.diagnostic;
                         let ret =
-                            Self::try_new(metaroot_out.inner, meas, layout_out.data_schema, conf)
+                            Self::try_new(metaroot_out.inner, meas, layout_out.data_schema, &lconf)
                                 .map_ok_value(|ret| {
                                     (
                                         ret,
@@ -6371,7 +6386,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
         V::DataSchema: LayoutWidth,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let rconf: &ReadDataKeywordsConfig = conf.as_ref();
         let opt_flag = rconf.process_optional_failure;
@@ -6969,7 +6984,7 @@ impl UnstainedData {
         OptKeyStError<UnstainedCenters>,
     >
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let i = UnstainedInfo::remove_root_opt_nofail(std);
         UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf)
@@ -7071,7 +7086,7 @@ impl ModificationData {
         LookupModifiedDataError,
     >
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let last_mod = LastModifier::remove_root_opt_nofail(std);
         let last_mod_date =

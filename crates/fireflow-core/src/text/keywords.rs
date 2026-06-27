@@ -1,6 +1,6 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, ReadDataKeywordsConfig,
-    ReadHeaderAndTEXTConfig, ReadStdKeywordsConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, EvaledReadStdKeywordsConfig, ProcessOptionalFailure,
+    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
@@ -320,7 +320,7 @@ impl Scale {
 
     fn parse_fix_maybe(
         s: &NEStr,
-        conf: &ReadStdKeywordsConfig,
+        conf: &EvaledReadStdKeywordsConfig,
     ) -> Result<Diagnosed<Self, ScaleFix>, ScaleError> {
         let (res, trimmed) = Self::from_str_delim(s, conf.trim_intra_value_whitespace);
         let go = |x, t: Trimmed| {
@@ -372,7 +372,7 @@ impl FromStrWith for Scale {
     type Err = ScaleError;
     type Payload<'a> = AlphaNumType;
     type Diagnostic = OpticalScaleFix;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, dt: AlphaNumType, conf: &Self::Config) -> FromStrWithResult<Self> {
         let can_force = (matches!(conf.force_linear_scale, ForceLinearScale::AllNonInt)
@@ -480,9 +480,9 @@ impl Gain {
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, DummyTriFlag, LookupTemporalGainError>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let ignore = &AsRef::<ReadStdKeywordsConfig>::as_ref(conf).ignore_time_optical_keys;
+        let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_time_optical_keys;
         let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf)
             .process_optional_failure
             .as_triflag();
@@ -535,7 +535,7 @@ impl Default for Timestep {
 impl Timestep {
     pub(crate) fn lookup(
         std: &mut StdKeywords,
-        conf: &ReadStdKeywordsConfig,
+        conf: &EvaledReadStdKeywordsConfig,
     ) -> Result<Diagnosed<Self, TimestepAdded>, ReqKeyError<Self>> {
         match Self::remove_metaroot_req(std) {
             Ok(x) => Ok(Diagnosed::new(x, false)),
@@ -1039,7 +1039,7 @@ impl FromStrWith for TemporalScale3_0 {
     type Err = TemporalScaleError;
     type Payload<'a> = ();
     type Diagnostic = TemporalScaleFix;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let flag = conf.trim_intra_value_whitespace;
@@ -1356,7 +1356,7 @@ impl FromStrWith for LastModified {
     type Err = LastModifiedError;
     type Payload<'a> = ();
     type Diagnostic = Option<String>;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         if let Some(pat) = conf.last_modified_pattern.as_ref() {
@@ -1585,7 +1585,7 @@ impl FromStrWith for Compensation3_0 {
     type Err = ParseCompError;
     type Payload<'a> = ();
     type Diagnostic = Trimmed;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim_diagnosed(s, conf.trim_intra_value_whitespace)
@@ -1813,9 +1813,9 @@ impl FromStr for Feature {
     type Err = FeatureError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let conf = ReadStdKeywordsConfig {
+        let conf = EvaledReadStdKeywordsConfig {
             allow_other_feature: true.into(),
-            ..ReadStdKeywordsConfig::default()
+            ..EvaledReadStdKeywordsConfig::default()
         };
         // throw away diagnostic flag here since this is only for python
         // conversion
@@ -1831,7 +1831,7 @@ impl FromStrWith for Feature {
     type Err = OpticalFeatureError;
     type Payload<'a> = ();
     type Diagnostic = bool;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         match s.parse::<OpticalFeature>() {
@@ -1919,7 +1919,7 @@ impl<I: FromStr> FromStrWith for RegionGateIndex<I> {
     type Err = RegionGateIndexError<<I as FromStr>::Err>;
     type Payload<'a> = ();
     type Diagnostic = Trimmed;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         Self::from_str_delim_diagnosed(s, conf.trim_intra_value_whitespace)
@@ -2131,7 +2131,7 @@ impl FromStrWith for RegionWindow {
     type Err = RegionWindowError;
     type Payload<'a> = ();
     type Diagnostic = Trimmed;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &NEStr,
@@ -2674,7 +2674,7 @@ impl FromStrWith for GateScale {
     type Err = ScaleError;
     type Payload<'a> = ();
     type Diagnostic = ScaleFix;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         // use the same fix we use for PnE here
@@ -3502,7 +3502,7 @@ impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
     type Payload<'a> = ();
     type Diagnostic = TemporalScaleFix;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(s: &NEStr, (): (), conf: &Self::Config) -> FromStrWithResult<Self> {
         let go = |x| Self(OptionalZST(Some(x)));
@@ -4243,7 +4243,7 @@ mod tests {
 
     #[test]
     fn tr() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Trigger>(ne_str!("Wooden Leg Pt 3,456"), (), &conf);
         let go = |s| Trigger::from_str_with(s, (), &conf);
         assert_matches!(go(ne_str!("x,x")), Err(TriggerError::IntFormat(_)));
@@ -4255,7 +4255,7 @@ mod tests {
     #[test]
     fn tr_commas() {
         let v = ne_str!("Wookie Leg Pt 3, 666");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             Trigger::from_str_with(v, (), &conf),
             Err(TriggerError::IntFormat(_))
@@ -4281,7 +4281,7 @@ mod tests {
 
     #[test]
     fn pnd() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Display>(ne_str!("Linear,0,1"), (), &conf);
         assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,1"), (), &conf);
         assert_from_to_str_with::<Display>(ne_str!("Logarithmic,1,0.1"), (), &conf);
@@ -4306,7 +4306,7 @@ mod tests {
     #[test]
     fn pnd_commas() {
         let v = ne_str!("Linear, 0 , 1");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             Display::from_str_with(v, (), &conf),
             Err(DisplayError::FloatError(_))
@@ -4334,7 +4334,7 @@ mod tests {
 
     #[test]
     fn pncalibration_3_1() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Calibration3_1>(ne_str!("0.1,imperial lightyears"), (), &conf);
         macro_rules! go {
             ($s:expr) => {
@@ -4361,7 +4361,7 @@ mod tests {
 
     #[test]
     fn pncalibration_3_1_commas() {
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         let v = ne_str!("1000 , yodabytes");
         assert_matches!(
             Calibration3_1::from_str_with(v, (), &conf),
@@ -4373,7 +4373,7 @@ mod tests {
 
     #[test]
     fn pncalibration_3_2() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Calibration3_2>(ne_str!("1.1,3.5813,prog albums"), (), &conf);
         assert_from_to_str_with::<Calibration3_2>(ne_str!("1.61,0,quartic slugs"), (), &conf);
 
@@ -4404,7 +4404,7 @@ mod tests {
 
     #[test]
     fn pncalibration_3_2_commas() {
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         let v = ne_str!("1, 0.2, nanobytes");
         assert_matches!(
             Calibration3_2::from_str_with(v, (), &conf),
@@ -4416,7 +4416,7 @@ mod tests {
 
     #[test]
     fn pnl_3_1() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let go = |v: &NEStr| {
             let w = Wavelengths::from_str_with(v, (), &conf).unwrap().inner;
             let w_str = w.try_ne().unwrap().to_ne().to_ne_string();
@@ -4442,7 +4442,7 @@ mod tests {
 
     #[test]
     fn pnl_3_1_commas() {
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         let v = ne_str!("1, 2");
         assert_matches!(
             Wavelengths::from_str_with(v, (), &conf),
@@ -4456,7 +4456,7 @@ mod tests {
 
     #[test]
     fn last_modified() {
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<LastModified>(ne_str!("01-Jan-2112 00:00:00.01"), (), &conf);
         assert_from_to_str_almost_with::<LastModified>(
             ne_str!("01-Jan-2112 00:00:00"),
@@ -4489,7 +4489,7 @@ mod tests {
 
     #[test]
     fn unicode() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Unicode>(ne_str!("42,$BYTEORD"), (), &conf);
         // we don't actually check that the keyword is valid, likely nobody
         // will notice ;)
@@ -4507,7 +4507,7 @@ mod tests {
     #[test]
     fn unicode_commas() {
         let v = ne_str!("50 ,something tour");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             Unicode::from_str_with(v, (), &conf),
             Err(UnicodeError::BadFormat)
@@ -4545,7 +4545,7 @@ mod tests {
 
     #[test]
     fn pnfeature() {
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Feature>(ne_str!("Area"), (), &conf);
         assert_from_to_str_with::<Feature>(ne_str!("Width"), (), &conf);
         assert_from_to_str_with::<Feature>(ne_str!("Height"), (), &conf);
@@ -4559,7 +4559,7 @@ mod tests {
 
     #[test]
     fn rni_2_0() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex2_0>(ne_str!("1,2"), (), &conf);
         macro_rules! go {
@@ -4574,7 +4574,7 @@ mod tests {
     #[test]
     fn rni_2_0_commas() {
         let v = ne_str!("1, 2");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             RegionGateIndex2_0::from_str_with(v, (), &conf),
             Err(RegionGateIndexError::Int(_))
@@ -4585,7 +4585,7 @@ mod tests {
 
     #[test]
     fn rni_3_0() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("P1"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("P1,P2"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex3_0>(ne_str!("G1"), (), &conf);
@@ -4609,7 +4609,7 @@ mod tests {
     #[test]
     fn rni_3_0_commas() {
         let v = ne_str!("P1, G2");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             RegionGateIndex3_0::from_str_with(v, (), &conf),
             Err(RegionGateIndexError::Int(MeasOrGateIndexError::Format))
@@ -4620,7 +4620,7 @@ mod tests {
 
     #[test]
     fn rni_3_2() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1"), (), &conf);
         assert_from_to_str_with::<RegionGateIndex3_2>(ne_str!("P1,P2"), (), &conf);
 
@@ -4643,7 +4643,7 @@ mod tests {
     #[test]
     fn rni_3_2_commas() {
         let v = ne_str!("P1, P2");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             RegionGateIndex3_2::from_str_with(v, (), &conf),
             Err(RegionGateIndexError::Int(PrefixedMeasIndexError::Format))
@@ -4654,7 +4654,7 @@ mod tests {
 
     #[test]
     fn rnw() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<RegionWindow>(ne_str!("1,1"), (), &conf);
         assert_from_to_str_with::<RegionWindow>(ne_str!("1,1;2,3;5,8;13,21"), (), &conf);
         macro_rules! go {
@@ -4672,7 +4672,7 @@ mod tests {
     #[test]
     fn rnw_commas() {
         let v = ne_str!("1, 1 ; 2, 2");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             RegionWindow::from_str_with(v, (), &conf),
             Err(RegionWindowError::Num(_))
@@ -4706,7 +4706,7 @@ mod tests {
 
     #[test]
     fn unstained_centers() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let v = ne_str!("1,X,0");
         let t = UnstainedCenters::from_str_with(v, (), &conf).unwrap();
         let s = t.inner.try_ne().unwrap().to_ne().to_ne_string();
@@ -4716,7 +4716,7 @@ mod tests {
     #[test]
     fn unstained_centers_commas() {
         let v = ne_str!("1, X , 0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             UnstainedCenters::from_str_with(v, (), &conf),
             Err(ParseUnstainedCenterError::BadFloat)
@@ -4729,7 +4729,7 @@ mod tests {
 
     #[test]
     fn unstained_centers_wrong_len() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             UnstainedCenters::from_str_with(ne_str!("2,X,0"), (), &conf),
             Err(ParseUnstainedCenterError::BadLength {
@@ -4741,7 +4741,7 @@ mod tests {
 
     #[test]
     fn unstained_centers_nonunique() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             UnstainedCenters::from_str_with(ne_str!("3,Y,Y,Z,0,0,0"), (), &conf),
             Err(ParseUnstainedCenterError::NonUnique),
@@ -4750,7 +4750,7 @@ mod tests {
 
     #[test]
     fn unstained_centers_badn() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             UnstainedCenters::from_str_with(ne_str!("impoppy,X,Y,0,0"), (), &conf),
             Err(ParseUnstainedCenterError::BadN),
@@ -4759,7 +4759,7 @@ mod tests {
 
     #[test]
     fn unstained_centers_badfloat() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             UnstainedCenters::from_str_with(ne_str!("1,X,impoppy"), (), &conf),
             Err(ParseUnstainedCenterError::BadFloat),
@@ -4768,7 +4768,7 @@ mod tests {
 
     #[test]
     fn str_compensation() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<Compensation3_0>(ne_str!("2,0,0,0,0"), (), &conf);
         assert_from_to_str_with::<Compensation3_0>(ne_str!("3,0,0,0,0,0,0,0,0,0"), (), &conf);
         assert_from_to_str_with::<Compensation3_0>(ne_str!("2,1.1,1,0,-1.5"), (), &conf);
@@ -4776,7 +4776,7 @@ mod tests {
 
     #[test]
     fn str_compensation_too_small() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             Compensation3_0::from_str_with(ne_str!("1,0"), (), &conf),
             Err(ParseCompError::New(NewCompError::TooSmall))
@@ -4785,7 +4785,7 @@ mod tests {
 
     #[test]
     fn str_compensation_mismatch() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             Compensation3_0::from_str_with(ne_str!("2,0,0,0"), (), &conf),
             Err(ParseCompError::WrongLength {
@@ -4797,7 +4797,7 @@ mod tests {
 
     #[test]
     fn str_compensation_badfloats() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             Compensation3_0::from_str_with(ne_str!("2,straberina,0,coconick"), (), &conf),
             Err(ParseCompError::BadFloat)
@@ -4806,7 +4806,7 @@ mod tests {
 
     #[test]
     fn str_compensation_badn() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             Compensation3_0::from_str_with(ne_str!("inf,0,0,0,0"), (), &conf),
             Err(ParseCompError::BadLength)
@@ -4816,7 +4816,7 @@ mod tests {
     #[test]
     fn str_compensation_commas() {
         let v = ne_str!("2, 0, 0, 0, 0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             Compensation3_0::from_str_with(v, (), &conf),
             Err(ParseCompError::BadFloat)
@@ -4900,7 +4900,7 @@ mod tests {
 
     #[test]
     fn scale() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert_from_to_str_with::<Scale>(ne_str!("0,0"), dt, &conf);
         assert_from_to_str_with::<Scale>(ne_str!("4.5,0.01"), dt, &conf);
@@ -4909,7 +4909,7 @@ mod tests {
     #[test]
     fn scale_zero_log() {
         let v = ne_str!("4.5,0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert_eq!(
             Scale::from_str_with(v, dt, &conf),
@@ -4922,7 +4922,7 @@ mod tests {
     #[test]
     fn scale_force_linear() {
         let v = ne_str!("1,1");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Float;
         assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
         conf.force_linear_scale = ForceLinearScale::AllNonInt;
@@ -4932,7 +4932,7 @@ mod tests {
     #[test]
     fn scale_force_linear_int() {
         let v = ne_str!("1,1");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert_from_to_str_almost_with::<Scale>(v, "1,1", dt, &conf);
         conf.force_linear_scale = ForceLinearScale::AllNonInt;
@@ -4944,7 +4944,7 @@ mod tests {
     #[test]
     fn scale_commas() {
         let v = ne_str!("0, 0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         let dt = AlphaNumType::Integer;
         assert_matches!(
             Scale::from_str_with(v, dt, &conf),
@@ -4956,7 +4956,7 @@ mod tests {
 
     #[test]
     fn tmp_scale2() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         // no display, so just check parse
         assert!(TemporalScale2_0::from_str_with(ne_str!("0,0"), (), &conf).is_ok());
         assert_eq!(
@@ -4968,7 +4968,7 @@ mod tests {
     #[test]
     fn tmp_scale2_commas() {
         let v = ne_str!("0, 0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             TemporalScale2_0::from_str_with(v, (), &conf),
             Err(TemporalScaleError::Format),
@@ -4979,7 +4979,7 @@ mod tests {
 
     #[test]
     fn tmp_scale3() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<TemporalScale3_0>(ne_str!("0,0"), (), &conf);
         assert_eq!(
             TemporalScale3_0::from_str_with(ne_str!("1,1"), (), &conf),
@@ -4990,7 +4990,7 @@ mod tests {
     #[test]
     fn tmp_scale3_commas() {
         let v = ne_str!("0, 0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             TemporalScale3_0::from_str_with(v, (), &conf),
             Err(TemporalScaleError::Format),
@@ -5001,7 +5001,7 @@ mod tests {
 
     #[test]
     fn gate_scale() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         assert_from_to_str_with::<GateScale>(ne_str!("0,0"), (), &conf);
         assert_from_to_str_with::<GateScale>(ne_str!("4.5,0.01"), (), &conf);
     }
@@ -5009,7 +5009,7 @@ mod tests {
     #[test]
     fn gate_scale_zero_log() {
         let v = ne_str!("4.5,0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_eq!(
             GateScale::from_str_with(v, (), &conf),
             Err(ScaleError::LogRange(LogRangeError::new(4.5, 0.0)))
@@ -5021,7 +5021,7 @@ mod tests {
     #[test]
     fn gate_scale_commas() {
         let v = ne_str!("0, 0");
-        let mut conf = ReadStdKeywordsConfig::default();
+        let mut conf = EvaledReadStdKeywordsConfig::default();
         assert_matches!(
             GateScale::from_str_with(v, (), &conf),
             Err(ScaleError::FloatError(_))

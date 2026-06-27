@@ -300,7 +300,20 @@ impl_str_enum!(
 
 // Segment name constants
 
+pub const SELECTOR_IF: &NEStr = ne_str!("if");
+pub const SELECTOR_COND: &NEStr = ne_str!("cond");
+
 pub const SEGMENT_NAME_TEXT: &NEStr = ne_str!("text");
 pub const SEGMENT_NAME_STEXT: &NEStr = ne_str!("supp_text");
 pub const SEGMENT_NAME_DATA: &NEStr = ne_str!("data");
 pub const SEGMENT_NAME_ANALYSIS: &NEStr = ne_str!("analysis");
+
+// Selector operators
+
+pub const CONDITION_AND: &NEStr = ne_str!("and");
+pub const CONDITION_OR: &NEStr = ne_str!("or");
+pub const CONDITION_NOT: &NEStr = ne_str!("not");
+
+pub const STATEMENT_HAS_KEY: &NEStr = ne_str!("has_key");
+pub const STATEMENT_KEY_IS: &NEStr = ne_str!("key_is");
+pub const STATEMENT_KEY_MATCHES: &NEStr = ne_str!("key_matches");

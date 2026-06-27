@@ -10,6 +10,7 @@ mod macros;
 pub mod meas;
 pub mod nonempty;
 pub mod segment;
+pub mod selector;
 #[cfg(test)]
 mod test;
 pub mod text;

@@ -9,6 +9,8 @@ use thiserror::Error;
 
 use std::str::FromStr;
 
+use super::case_ins_regex::CaseInsRegexError;
+
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr, FromPyString, IntoPyString},
@@ -128,7 +130,7 @@ impl FromStr for NonStdMeasPattern {
             .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
         {
             let pat = inner.replace(NON_STD_MEAS_INDEX_PAT, "(0*[1-9][0-9]*)");
-            let ci_pat = pat.parse::<CaseInsRegex>().map_err(NonStdMeasRegexError)?;
+            let ci_pat = pat.parse::<CaseInsRegex>()?;
             CompiledNonStdMeasPattern::Regex(RegexNonStdMeasPattern(ci_pat))
         } else {
             let mut it = s.split("%n");
@@ -155,7 +157,7 @@ impl FromStr for NonStdMeasPattern {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NonStdMeasPatternError {
     Token(NonStdMeasPatternTokenError),
-    Regex(NonStdMeasRegexError),
+    Regex(CaseInsRegexError),
 }
 
 /// Error when parsing [`NonStdMeasPattern`] from string for configuration
@@ -167,13 +169,6 @@ pub enum NonStdMeasPatternError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct NonStdMeasPatternTokenError(String);
-
-/// Error when converting [`NonStdMeasPattern`] to regular expression
-#[derive(Error, Debug, From, PartialEq, Clone)]
-#[error("error when making non-standard measurement pattern: {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct NonStdMeasRegexError(regex::Error);
 
 #[cfg(test)]
 mod tests {

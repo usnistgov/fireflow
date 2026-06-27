@@ -244,12 +244,12 @@ macro_rules! impl_from_str_with_delim {
             type Err = $e;
             type Payload<'a> = ();
             type Diagnostic = Option<fireflow_types::nonempty_string::NEString>;
-            type Config = crate::config::ReadStdKeywordsConfig;
+            type Config = crate::config::EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
                 s: &fireflow_types::nonempty_string::NEStr,
                 (): (),
-                conf: &crate::config::ReadStdKeywordsConfig,
+                conf: &crate::config::EvaledReadStdKeywordsConfig,
             ) -> Result<
                 crate::text::lookup::Diagnosed<
                     Self,

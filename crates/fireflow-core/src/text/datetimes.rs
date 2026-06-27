@@ -1,4 +1,4 @@
-use crate::config::{ConfigFlag as _, ReadDataKeywordsConfig, ReadStdKeywordsConfig};
+use crate::config::{ConfigFlag as _, EvaledReadStdKeywordsConfig, ReadDataKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey as _};
@@ -137,7 +137,7 @@ impl Datetimes {
         LookupDatetimesError,
     >
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadStdKeywordsConfig>,
+        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -203,7 +203,7 @@ macro_rules! impl_from_str_with {
             type Err = FCSDateTimeError;
             type Payload<'a> = ();
             type Diagnostic = DatetimeDiagnostic;
-            type Config = ReadStdKeywordsConfig;
+            type Config = EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
                 s: &fireflow_types::nonempty_string::NEStr,
@@ -223,7 +223,7 @@ impl FromStrWith for FCSDateTime {
     type Err = FCSDateTimeError;
     type Payload<'a> = ();
     type Diagnostic = DatetimeDiagnostic;
-    type Config = ReadStdKeywordsConfig;
+    type Config = EvaledReadStdKeywordsConfig;
 
     fn from_str_with(
         s: &NEStr,

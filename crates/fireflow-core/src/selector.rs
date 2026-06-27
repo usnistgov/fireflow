@@ -1,0 +1,357 @@
+use crate::validated::{
+    case_ins_regex::CaseInsRegex,
+    keys::{AnyKey, ValidKeywords},
+};
+
+use fireflow_types::nonempty_string::NEString;
+use nonempty_collections::NEVec;
+
+#[derive(Clone)]
+pub enum Selector<T> {
+    Root(T),
+    If(Box<If<T>>),
+    Cond(Cond<T>),
+}
+
+#[derive(Clone)]
+pub struct If<T> {
+    condition: Condition,
+    consequent: Selector<T>,
+    alternative: Option<Selector<T>>,
+}
+
+#[derive(Clone)]
+pub struct Cond<T> {
+    forms: NEVec<(Condition, Selector<T>)>,
+}
+
+#[derive(Clone)]
+enum Condition {
+    Root(Statement),
+    And(NEVec<Self>),
+    Or(NEVec<Self>),
+    Not(Box<Self>),
+}
+
+#[derive(Clone)]
+pub enum Statement {
+    HasKey(AnyKey),
+    KeyIs(AnyKey, NEString),
+    KeyMatches(AnyKey, CaseInsRegex),
+}
+
+impl<T: Default> Default for Selector<T> {
+    fn default() -> Self {
+        Self::Root(T::default())
+    }
+}
+
+impl<T> Selector<T> {
+    pub(crate) fn eval(&self, kws: &ValidKeywords) -> T
+    where
+        T: Clone + Default,
+    {
+        self.eval_inner(kws).unwrap_or_default()
+    }
+
+    fn eval_inner(&self, kws: &ValidKeywords) -> Option<T>
+    where
+        T: Clone,
+    {
+        match self {
+            Self::Root(x) => Some(x.clone()),
+            Self::If(i) => i.eval(kws),
+            Self::Cond(c) => c.eval(kws),
+        }
+    }
+}
+
+impl<T> If<T> {
+    fn eval(&self, kws: &ValidKeywords) -> Option<T>
+    where
+        T: Clone,
+    {
+        if self.condition.eval(kws) {
+            self.consequent.eval_inner(kws)
+        } else {
+            self.alternative.as_ref()?.eval_inner(kws)
+        }
+    }
+}
+
+impl<T> Cond<T> {
+    fn eval(&self, kws: &ValidKeywords) -> Option<T>
+    where
+        T: Clone,
+    {
+        self.forms
+            .iter()
+            .find_map(|(c, s)| if c.eval(kws) { s.eval_inner(kws) } else { None })
+    }
+}
+
+impl Condition {
+    fn eval(&self, kws: &ValidKeywords) -> bool {
+        match self {
+            Self::Root(s) => s.eval(kws),
+            Self::And(cs) => cs.iter().all(|c| c.eval(kws)),
+            Self::Or(cs) => cs.iter().any(|c| c.eval(kws)),
+            Self::Not(c) => !c.eval(kws),
+        }
+    }
+}
+
+impl Statement {
+    fn eval(&self, kws: &ValidKeywords) -> bool {
+        match self {
+            Self::HasKey(k) => kws.get_any(k).is_some(),
+            Self::KeyIs(k, p) => kws.get_any(k).is_some_and(|v| v == p),
+            Self::KeyMatches(k, p) => kws
+                .get_any(k)
+                .is_some_and(|v| p.as_ref().is_match(v.as_str())),
+        }
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::{Cond, Condition, If, Selector, Statement};
+
+    use crate::validated::case_ins_regex::CaseInsRegex;
+    use crate::validated::keys::AnyKey;
+
+    use fireflow_types::nonempty_string::{NEStr, NEString};
+    use fireflow_types::python as fp;
+
+    use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
+    use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};
+
+    use std::iter::once;
+
+    // for some reason this can't be derived because of the Box
+    impl<'py, T> FromPyObject<'_, 'py> for Selector<T>
+    where
+        for<'b> T: FromPyObject<'b, 'py>,
+    {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(root) = obj.extract::<T>() {
+                return Ok(Self::Root(root));
+            } else if let Ok(i) = obj.extract::<If<T>>() {
+                return Ok(Self::If(Box::new(i)));
+            } else if let Ok(c) = obj.extract::<Cond<T>>() {
+                return Ok(Self::Cond(c));
+            }
+            Err(fp::ConfigError::new_err(
+                "Must be a bare type, an if expression, or a cond expression.",
+            ))
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for Selector<T>
+    where
+        T: IntoPyObject<'py>,
+    {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::Root(t) => t.into_bound_py_any(py),
+                Self::If(i) => i.into_bound_py_any(py),
+                Self::Cond(c) => c.into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py, T> FromPyObject<'_, 'py> for If<T>
+    where
+        for<'b> T: FromPyObject<'b, 'py>,
+    {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok((op, condition, consequent, alternative)) =
+                obj.extract::<(String, Condition, Selector<T>, Selector<T>)>()
+                && op.as_str() == fp::SELECTOR_IF.as_str()
+            {
+                return Ok(Self {
+                    condition,
+                    consequent,
+                    alternative: Some(alternative),
+                });
+            } else if let Ok((op, condition, consequent)) =
+                obj.extract::<(String, Condition, Selector<T>)>()
+                && op.as_str() == fp::SELECTOR_IF.as_str()
+            {
+                return Ok(Self {
+                    condition,
+                    consequent,
+                    alternative: None,
+                });
+            }
+            Err(fp::ConfigError::new_err(format!(
+                "Must be a tuple like (\"{if_}\", <condition>, <consequent>, [<alternative>]) or \
+                 (\"{if_}\", <condition>, <consequent>).",
+                if_ = fp::SELECTOR_IF,
+            )))
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for If<T>
+    where
+        T: IntoPyObject<'py>,
+    {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            const OP: &str = fp::SELECTOR_IF.as_str();
+            if let Some(alternative) = self.alternative {
+                (OP, self.condition, self.consequent, alternative).into_pyobject(py)
+            } else {
+                (OP, self.condition, self.consequent).into_pyobject(py)
+            }
+        }
+    }
+
+    impl<'py, T> FromPyObject<'_, 'py> for Cond<T>
+    where
+        for<'b> T: FromPyObject<'b, 'py>,
+    {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            let t = obj.cast::<PyTuple>()?;
+            if t.len() > 1 {
+                let op = t.get_item(0)?.extract::<String>()?;
+                let rest = t
+                    .get_slice(1, usize::MAX)
+                    .extract::<Vec<(Condition, Selector<T>)>>()?;
+                let forms = NEVec::try_from_vec(rest).expect("length was checked above");
+                if op == fp::SELECTOR_COND.as_str() {
+                    return Ok(Self { forms });
+                }
+            }
+            Err(fp::ConfigError::new_err(format!(
+                "Must be a nested tuple like (\"{}\", (<condition0>, <predicate0>), ...).",
+                fp::SELECTOR_COND,
+            )))
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for Cond<T>
+    where
+        T: IntoPyObject<'py>,
+    {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let op = fp::SELECTOR_COND.as_str().into_py_any(py);
+            let rest = self.forms.into_iter().map(|f| f.into_py_any(py));
+            let elements = once(op).chain(rest).collect::<Result<Vec<_>, _>>()?;
+            PyTuple::new(py, elements)
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for Condition {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(s) = obj.extract::<Statement>() {
+                return Ok(Self::Root(s));
+            }
+            let t = obj.cast::<PyTuple>()?;
+            if t.len() > 1 {
+                let op = t.get_item(0)?.extract::<String>()?;
+                let rest = t.get_slice(1, usize::MAX).extract::<Vec<Self>>()?;
+                let ne = NEVec::try_from_vec(rest).expect("length was checked above");
+                if op == fp::CONDITION_AND.as_str() {
+                    return Ok(Self::And(ne));
+                }
+                if op == fp::CONDITION_OR.as_str() {
+                    return Ok(Self::Or(ne));
+                }
+                if op == fp::CONDITION_NOT.as_str() && ne.len().get() == 1 {
+                    let first = ne.into_nonempty_iter().next().0;
+                    return Ok(Self::Not(Box::new(first)));
+                }
+            }
+            Err(fp::ConfigError::new_err(format!(
+                "Must be a Statement or a tuple like (\"{}\", <predicate0>, ...), \
+                 (\"{}\", <predicate0>, ...), or (\"{}\", <predicate0>)",
+                fp::CONDITION_AND,
+                fp::CONDITION_OR,
+                fp::CONDITION_NOT,
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Condition {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            let go = |ps: NEVec<Self>, op: &NEStr| {
+                let e0 = op.as_str().into_py_any(py);
+                let es = ps.into_iter().map(|p| p.into_py_any(py));
+                let elements = once(e0).chain(es).collect::<Result<Vec<_>, _>>()?;
+                PyTuple::new(py, elements)
+            };
+            match self {
+                Self::Root(s) => s.into_pyobject(py),
+                Self::And(ps) => go(ps, fp::CONDITION_AND),
+                Self::Or(ps) => go(ps, fp::CONDITION_OR),
+                Self::Not(p) => {
+                    let op = fp::CONDITION_NOT.as_str().into_py_any(py)?;
+                    let pred = p.into_py_any(py)?;
+                    PyTuple::new(py, [op, pred])
+                }
+            }
+        }
+    }
+
+    impl<'py> FromPyObject<'_, 'py> for Statement {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok((op, key)) = obj.extract::<(String, AnyKey)>()
+                && op == fp::STATEMENT_HAS_KEY.as_str()
+            {
+                return Ok(Self::HasKey(key));
+            } else if let Ok((op, key, value)) = obj.extract::<(String, AnyKey, NEString)>()
+                && op == fp::STATEMENT_KEY_IS.as_str()
+            {
+                return Ok(Self::KeyIs(key, value));
+            } else if let Ok((op, key, pat)) = obj.extract::<(String, AnyKey, CaseInsRegex)>()
+                && op == fp::STATEMENT_KEY_MATCHES.as_str()
+            {
+                return Ok(Self::KeyMatches(key, pat));
+            }
+            Err(fp::ConfigError::new_err(format!(
+                "Must be a tuple like (\"{}\", <key>), (\"{}\", <key>, <value>), \
+                 or (\"{}\", <key>, <pattern>)",
+                fp::STATEMENT_HAS_KEY,
+                fp::STATEMENT_KEY_IS,
+                fp::STATEMENT_KEY_MATCHES,
+            )))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for Statement {
+        type Target = PyTuple;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::HasKey(k) => (fp::STATEMENT_HAS_KEY.as_str(), k).into_pyobject(py),
+                Self::KeyIs(k, v) => (fp::STATEMENT_KEY_IS.as_str(), k, v).into_pyobject(py),
+                Self::KeyMatches(k, p) => {
+                    (fp::STATEMENT_KEY_MATCHES.as_str(), k, p).into_pyobject(py)
+                }
+            }
+        }
+    }
+}

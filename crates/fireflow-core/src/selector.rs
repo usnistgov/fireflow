@@ -1,9 +1,20 @@
-use crate::validated::keys::{AnyKey, ValidKeywords};
+use crate::{
+    config::{NonStdMeasPatternOpt, TimeMeasNamePattern},
+    text::keywords::{Cyt, LastModified},
+    validated::{
+        datepattern::DatePattern,
+        keys::{AnyKey, Key as _, ValidKeywords},
+        nonstd_meas_pattern::NonStdMeasPattern,
+        timepattern::TimePattern,
+    },
+};
 
 use fireflow_types::nonempty_string::NEString;
-use nonempty_collections::NEVec;
+use fireflow_types::{ne_str, nonempty_string::NEStr};
+use nonempty_collections::{NEVec, nev};
 
 use derive_more::Display;
+use derive_new::new;
 use regex::Regex;
 use thiserror::Error;
 
@@ -22,28 +33,28 @@ pub enum Selector<T> {
     Cond(Cond<T>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, new)]
 pub struct If<T> {
-    condition: Condition,
-    consequent: Selector<T>,
-    alternative: Option<Selector<T>>,
+    pub condition: Condition,
+    pub consequent: Selector<T>,
+    pub alternative: Option<Selector<T>>,
 }
 
 #[derive(Clone)]
 pub struct Cond<T> {
-    forms: NEVec<(Condition, Selector<T>)>,
+    pub forms: NEVec<(Condition, Selector<T>)>,
 }
 
 #[derive(Clone)]
-enum Condition {
-    Root(Statement),
+pub enum Condition {
+    Root(KeyTest),
     And(Box<Self>, Box<Self>),
     Or(Box<Self>, Box<Self>),
     Not(Box<Self>),
 }
 
 #[derive(Clone)]
-pub enum Statement {
+pub enum KeyTest {
     HasKey(AnyKey),
     KeyIs(AnyKey, NEString),
     KeyMatches(AnyKey, ValueRegex),
@@ -60,7 +71,78 @@ impl<T: Default> Default for Selector<T> {
     }
 }
 
+impl Selector<TimeMeasNamePattern> {
+    #[must_use]
+    pub fn new_time_meas_pattern() -> Self {
+        let hdr_tm_regex = TimeMeasNamePattern(Some(Regex::new("^HDR-T(M)$").unwrap()));
+        let is_macsquant = KeyTest::KeyIs(Cyt::std().into(), ne_str!("MACSQuant").to_owned());
+        let cond = Condition::Root(is_macsquant);
+        Self::if_then(cond, Self::root(hdr_tm_regex))
+    }
+}
+
+impl Selector<Option<TimePattern>> {
+    #[must_use]
+    pub fn new_time_pattern() -> Self {
+        let accuri = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
+        let cond = Condition::Root(KeyTest::cyt_is(ne_str!("Accuri C6")));
+        Self::if_then(cond, Self::root(Some(accuri)))
+    }
+}
+
+impl Selector<Option<DatePattern>> {
+    #[must_use]
+    pub fn new_date_pattern() -> Self {
+        let mqa = "%Y-%b-%d".parse::<DatePattern>().unwrap();
+        let moflo = "%d %b %Y".parse::<DatePattern>().unwrap();
+        let pas = "%d-%m-%Y".parse::<DatePattern>().unwrap();
+        let is_mqa = KeyTest::cyt_is(ne_str!("MACSQuant"));
+        let is_moflo = KeyTest::cyt_matches("MoFlo.*").unwrap();
+        let is_pas = KeyTest::cyt_is(ne_str!("partec PAS"));
+        let forms = nev![
+            (Condition::Root(is_moflo), Self::root(Some(moflo))),
+            (Condition::Root(is_pas), Self::root(Some(pas))),
+            (Condition::Root(is_mqa), Self::root(Some(mqa)))
+        ];
+        Self::Cond(Cond { forms })
+    }
+}
+
+impl Selector<Option<String>> {
+    #[must_use]
+    pub fn new_last_modified_pattern() -> Self {
+        Self::default()
+    }
+
+    #[must_use]
+    pub fn new_datetime_pattern() -> Self {
+        Self::default()
+    }
+}
+
+impl Selector<NonStdMeasPatternOpt> {
+    #[must_use]
+    pub fn new_nonstandard_measurement_pattern() -> Self {
+        Self::default()
+    }
+}
+
 impl<T> Selector<T> {
+    #[must_use]
+    pub fn if_then(cond: Condition, consequent: Self) -> Self {
+        Self::If(Box::new(If::new(cond, consequent, None)))
+    }
+
+    #[must_use]
+    pub fn if_then_else(cond: Condition, consequent: Self, alterantive: Self) -> Self {
+        Self::If(Box::new(If::new(cond, consequent, Some(alterantive))))
+    }
+
+    #[must_use]
+    pub fn root(t: T) -> Self {
+        Self::Root(t)
+    }
+
     pub(crate) fn eval(&self, kws: &ValidKeywords) -> T
     where
         T: Clone + Default,
@@ -115,7 +197,16 @@ impl Condition {
     }
 }
 
-impl Statement {
+impl KeyTest {
+    #[must_use]
+    pub fn cyt_is(cyt: &NEStr) -> Self {
+        Self::KeyIs(Cyt::std().into(), cyt.to_owned())
+    }
+
+    pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
+        Ok(Self::KeyMatches(Cyt::std().into(), pat.parse()?))
+    }
+
     fn eval(&self, kws: &ValidKeywords) -> bool {
         match self {
             Self::HasKey(k) => kws.get_any(k).is_some(),
@@ -145,7 +236,7 @@ impl FromStr for ValueRegex {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Cond, Condition, If, Selector, Statement, ValueRegex};
+    use super::{Cond, Condition, If, KeyTest, Selector, ValueRegex};
 
     use crate::validated::keys::AnyKey;
 
@@ -288,7 +379,7 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for Condition {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Ok(s) = obj.extract::<Statement>() {
+            if let Ok(s) = obj.extract::<KeyTest>() {
                 return Ok(Self::Root(s));
             } else if let Ok((op, a, b)) = obj.extract::<(String, Self, Self)>() {
                 if op == fp::CONDITION_AND.as_str() {
@@ -337,7 +428,7 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'_, 'py> for Statement {
+    impl<'py> FromPyObject<'_, 'py> for KeyTest {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok((op, key)) = obj.extract::<(String, AnyKey)>()
@@ -363,7 +454,7 @@ mod python {
         }
     }
 
-    impl<'py> IntoPyObject<'py> for Statement {
+    impl<'py> IntoPyObject<'py> for KeyTest {
         type Target = PyTuple;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;

@@ -314,13 +314,16 @@ type Cond[T] = tuple[Condition, Selector[T]]
 
 #: An expression which evaluates to true or false depending on FCS keywords.
 #:
-#: This is a List-like set of tuples that represent conditional logic. The first
-#: element in each tuple is a "logical function" which will evaluate to true or
-#: false depending on the boolean outputs of the arguments that follow.
+#: This is either a bare :py:class:`~pyreflow.typing.KeywordFunction` which will
+#: evaluated directly or a List-like set of tuples that represent conditional
+#: logic. The first element in each tuple is a "logical function" which will
+#: evaluate to true or false depending on the boolean outputs of the arguments
+#: that follow.
 type Condition = (
-    tuple[Literal["and"], Statement, Statement]
-    | tuple[Literal["or"], Statement, Statement]
-    | tuple[Literal["not"], Statement]
+    KeyTest
+    | tuple[Literal["and"], KeyTest, KeyTest]
+    | tuple[Literal["or"], KeyTest, KeyTest]
+    | tuple[Literal["not"], KeyTest]
 )
 
 #: Evaluates to true of false depending on the value of an FCS file keyword.
@@ -338,7 +341,7 @@ type Condition = (
 #: follow the syntax of the rust `regexp crate <https://docs.rs/regex-syntax/latest/regex_syntax/>`__.
 #:
 #: Keys can either be standard (start with ``"$"``) or non-standard (no ``"$"``).
-type Statement = (
+type KeyTest = (
     tuple[Literal["has_key"], str]
     | tuple[Literal["key_is"], str, str]
     | tuple[Literal["key_matches"], str, str]

@@ -1036,6 +1036,12 @@ fn run() -> AppResult<()> {
             strict = fmt_val(tc::READ_STRATEGY_STRICT_LEVEL),
         ));
 
+    let vendor_heuristics_arg = Arg::new(VENDOR_HEURISTICS)
+        .short('H')
+        .long(VENDOR_HEURISTICS)
+        .action(ArgAction::SetTrue)
+        .help("Enable vendor-specific heuristics when parsing files.");
+
     let header_cmd = Command::new(SUBCMD_HEADER)
         .about("Show header as JSON.")
         .arg(&input_arg)
@@ -1058,6 +1064,7 @@ fn run() -> AppResult<()> {
         .about("Dump standardized keywords as JSON.")
         .arg(&input_arg)
         .arg(&strategy_arg)
+        .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
@@ -1071,6 +1078,7 @@ fn run() -> AppResult<()> {
         .about("Show a table of standardized measurement values.")
         .arg(&input_arg)
         .arg(&strategy_arg)
+        .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
         .args(&all_read_header_args)
@@ -1085,6 +1093,7 @@ fn run() -> AppResult<()> {
         .about("Dump the spillover matrix if present.")
         .arg(&input_arg)
         .arg(&strategy_arg)
+        .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
         .args(&all_read_header_args)
@@ -1099,6 +1108,7 @@ fn run() -> AppResult<()> {
         .about(format!("Show a table of the {data_seg} segment."))
         .arg(&input_arg)
         .arg(&strategy_arg)
+        .arg(&vendor_heuristics_arg)
         .arg(&dataset_index_arg)
         .arg(&delim_arg)
         .args(&all_read_header_args)
@@ -1115,6 +1125,7 @@ fn run() -> AppResult<()> {
         .arg(&input_arg)
         .arg(&output_arg)
         .arg(&strategy_arg)
+        .arg(&vendor_heuristics_arg)
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
@@ -1489,6 +1500,7 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadHeaderA
 
 fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     let strat = get_strategy(s);
+    let _vendor_heuristics = get_vendor_heuristics(s);
     let mut c = cfg::ReadStdKeywordsConfig::new_with_strategy(strat);
 
     get_flag(s, DEDUP_MEAS_NAMES, |x| c.dedup_measurement_names = x);
@@ -1650,6 +1662,10 @@ fn get_path<'a>(sargs: &'a ArgMatches, name: &'a str) -> &'a PathBuf {
 
 fn get_strategy(sargs: &ArgMatches) -> tc::ReadStrategy {
     sargs.get_one(STRATEGY).copied().unwrap_or_default()
+}
+
+fn get_vendor_heuristics(sargs: &ArgMatches) -> bool {
+    sargs.get_flag(VENDOR_HEURISTICS)
 }
 
 fn get_dataset_index(sargs: &ArgMatches) -> Option<usize> {
@@ -2118,6 +2134,8 @@ const INPUT_PATH: &str = "input-path";
 const OUTPUT_PATH: &str = "output-path";
 
 const STRATEGY: &str = "strategy";
+
+const VENDOR_HEURISTICS: &str = "vendor-heuristics";
 
 const CHRONO_REF: &str = "https://docs.rs/chrono/latest/chrono/format/strftime/index.html";
 

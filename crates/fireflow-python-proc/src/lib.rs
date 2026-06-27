@@ -8626,14 +8626,24 @@ impl<E: From<PyException>> PyClass<E> {
 }
 
 impl<E> PyAlias<E> {
-    fn new1(pyname: impl fmt::Display, generics: impl IntoIterator<Item = PyType<E>>) -> Self {
-        Self::new(
-            pyname.to_string(),
-            generics.into_iter().collect(),
-            None,
-            None,
-            None,
-        )
+    fn new1(pyname: impl fmt::Display) -> Self {
+        Self::new(pyname.to_string(), vec![], None, None, None)
+    }
+
+    fn new_py(
+        modpath: impl IntoIterator<Item = impl fmt::Display>,
+        name: impl fmt::Display,
+    ) -> Self {
+        let n = once("~pyreflow".into())
+            .chain(modpath.into_iter().map(|x| x.to_string()))
+            .chain([format!("{name}")])
+            .join(".");
+        Self::new1(n)
+    }
+
+    fn add_generics(mut self, generics: impl IntoIterator<Item = PyType<E>>) -> Self {
+        self.generics = generics.into_iter().collect();
+        self
     }
 
     fn rstype(self, rstype: Path) -> Self {
@@ -8697,7 +8707,8 @@ impl<E: From<PyException>> PyAlias<E> {
         let outer_path = quote!(fireflow_core::selector::Selector);
         let inner_path = inner_pt.as_rust_type();
         let path = parse_quote!(#outer_path::<#inner_path>);
-        Self::new1("Selector", [inner_pt.clone()])
+        Self::new_py(["typing"], "Selector")
+            .add_generics([inner_pt.clone()])
             .rstype(path)
             .set_default(inner_pt)
     }
@@ -11590,9 +11601,9 @@ impl<R: Clone + Eq + Hash> fmt::Display for PyAlias<R> {
         let generics = if self.generics.is_empty() {
             String::new()
         } else {
-            format!("<{}>", self.generics.iter().join(","))
+            format!("\\ [{}]", self.generics.iter().join(","))
         };
-        write!(f, ":py:type:`{}{}`", self.pyname, generics)
+        write!(f, ":py:class:`{}`{}", self.pyname, generics)
     }
 }
 

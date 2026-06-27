@@ -28,8 +28,8 @@ pub struct Cond<T> {
 #[derive(Clone)]
 enum Condition {
     Root(Statement),
-    And(NEVec<Self>),
-    Or(NEVec<Self>),
+    And(Box<Self>, Box<Self>),
+    Or(Box<Self>, Box<Self>),
     Not(Box<Self>),
 }
 
@@ -94,8 +94,8 @@ impl Condition {
     fn eval(&self, kws: &ValidKeywords) -> bool {
         match self {
             Self::Root(s) => s.eval(kws),
-            Self::And(cs) => cs.iter().all(|c| c.eval(kws)),
-            Self::Or(cs) => cs.iter().any(|c| c.eval(kws)),
+            Self::And(a, b) => a.eval(kws) && b.eval(kws),
+            Self::Or(a, b) => a.eval(kws) || b.eval(kws),
             Self::Not(c) => !c.eval(kws),
         }
     }
@@ -123,7 +123,7 @@ mod python {
     use fireflow_types::nonempty_string::{NEStr, NEString};
     use fireflow_types::python as fp;
 
-    use nonempty_collections::{IntoNonEmptyIterator as _, NEVec, NonEmptyIterator as _};
+    use nonempty_collections::NEVec;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};
 
     use std::iter::once;
@@ -261,22 +261,17 @@ mod python {
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(s) = obj.extract::<Statement>() {
                 return Ok(Self::Root(s));
-            }
-            let t = obj.cast::<PyTuple>()?;
-            if t.len() > 1 {
-                let op = t.get_item(0)?.extract::<String>()?;
-                let rest = t.get_slice(1, usize::MAX).extract::<Vec<Self>>()?;
-                let ne = NEVec::try_from_vec(rest).expect("length was checked above");
+            } else if let Ok((op, a, b)) = obj.extract::<(String, Self, Self)>() {
                 if op == fp::CONDITION_AND.as_str() {
-                    return Ok(Self::And(ne));
+                    return Ok(Self::And(Box::new(a), Box::new(b)));
                 }
                 if op == fp::CONDITION_OR.as_str() {
-                    return Ok(Self::Or(ne));
+                    return Ok(Self::Or(Box::new(a), Box::new(b)));
                 }
-                if op == fp::CONDITION_NOT.as_str() && ne.len().get() == 1 {
-                    let first = ne.into_nonempty_iter().next().0;
-                    return Ok(Self::Not(Box::new(first)));
-                }
+            } else if let Ok((op, a)) = obj.extract::<(String, Self)>()
+                && op == fp::CONDITION_NOT.as_str()
+            {
+                return Ok(Self::Not(Box::new(a)));
             }
             Err(fp::ConfigError::new_err(format!(
                 "Must be a Statement or a tuple like (\"{}\", <predicate0>, ...), \
@@ -294,16 +289,16 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let go = |ps: NEVec<Self>, op: &NEStr| {
-                let e0 = op.as_str().into_py_any(py);
-                let es = ps.into_iter().map(|p| p.into_py_any(py));
-                let elements = once(e0).chain(es).collect::<Result<Vec<_>, _>>()?;
-                PyTuple::new(py, elements)
+            let go = |a: Self, b: Self, op: &NEStr| {
+                let e0 = op.as_str().into_py_any(py)?;
+                let e1 = a.into_py_any(py)?;
+                let e2 = b.into_py_any(py)?;
+                PyTuple::new(py, [e0, e1, e2])
             };
             match self {
                 Self::Root(s) => s.into_pyobject(py),
-                Self::And(ps) => go(ps, fp::CONDITION_AND),
-                Self::Or(ps) => go(ps, fp::CONDITION_OR),
+                Self::And(a, b) => go(*a, *b, fp::CONDITION_AND),
+                Self::Or(a, b) => go(*a, *b, fp::CONDITION_OR),
                 Self::Not(p) => {
                     let op = fp::CONDITION_NOT.as_str().into_py_any(py)?;
                     let pred = p.into_py_any(py)?;

@@ -333,7 +333,7 @@ mod tests {
 
     #[test]
     fn spillover() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
@@ -348,7 +348,7 @@ mod tests {
 
     #[test]
     fn spillover_indexed() {
-        let conf = ReadStdKeywordsConfig {
+        let conf = EvaledReadStdKeywordsConfig {
             spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
             ..Default::default()
         };
@@ -364,7 +364,7 @@ mod tests {
 
     #[test]
     fn spillover_indexed_malformed() {
-        let conf = ReadStdKeywordsConfig {
+        let conf = EvaledReadStdKeywordsConfig {
             spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
             ..Default::default()
         };
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn spillover_indexed_badlink() {
-        let conf = ReadStdKeywordsConfig {
+        let conf = EvaledReadStdKeywordsConfig {
             spillover_measurement_mode: SpilloverMeasurementMode::Indexed,
             ..Default::default()
         };
@@ -403,7 +403,7 @@ mod tests {
 
     #[test]
     fn spillover_guess_indexed() {
-        let conf = ReadStdKeywordsConfig {
+        let conf = EvaledReadStdKeywordsConfig {
             spillover_measurement_mode: SpilloverMeasurementMode::Guess,
             ..Default::default()
         };
@@ -419,7 +419,7 @@ mod tests {
 
     #[test]
     fn spillover_guess_named() {
-        let conf = ReadStdKeywordsConfig {
+        let conf = EvaledReadStdKeywordsConfig {
             spillover_measurement_mode: SpilloverMeasurementMode::Guess,
             ..Default::default()
         };
@@ -433,7 +433,7 @@ mod tests {
 
     #[test]
     fn spillover_trimmed() {
-        let conf = ReadStdKeywordsConfig {
+        let conf = EvaledReadStdKeywordsConfig {
             trim_intra_value_whitespace: true.into(),
             ..Default::default()
         };
@@ -449,7 +449,7 @@ mod tests {
 
     #[test]
     fn spillover_nonunique() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
@@ -465,7 +465,7 @@ mod tests {
 
     #[test]
     fn spillover_toosmall() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [&"potato".parse::<Shortname>().unwrap()];
         let v = ne_str!("1,potato,0");
         assert_eq!(
@@ -478,7 +478,7 @@ mod tests {
 
     #[test]
     fn spillover_name_wrong_length() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [
             &"moody".parse::<Shortname>().unwrap(),
             &"padfoot".parse::<Shortname>().unwrap(),
@@ -498,7 +498,7 @@ mod tests {
 
     #[test]
     fn spillover_name_badn() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),
@@ -514,7 +514,7 @@ mod tests {
 
     #[test]
     fn spillover_name_bad_float() {
-        let conf = ReadStdKeywordsConfig::default();
+        let conf = EvaledReadStdKeywordsConfig::default();
         let ns = [
             &"X".parse::<Shortname>().unwrap(),
             &"Y".parse::<Shortname>().unwrap(),

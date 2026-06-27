@@ -6295,7 +6295,7 @@ struct NamedPyException {
 }
 
 /// A Python type associated with an argument or return value
-#[derive(Clone, From, Display)]
+#[derive(Clone, From, Display, PartialEq, Hash, Eq)]
 enum PyType<E> {
     #[from]
     Str(PyStr<E>),
@@ -6329,6 +6329,8 @@ enum PyType<E> {
     Literal(PyLiteral),
     #[from]
     PyClass(PyClass<E>),
+    #[from(PyAlias<E>)]
+    PyAlias(Box<PyAlias<E>>),
     #[from(PyUnion<E>)]
     Union(Box<PyUnion<E>>),
 }
@@ -6358,11 +6360,12 @@ enum PyAtom<R> {
     List(Box<Self>),
     Literal(PyLiteral),
     PyClass(PyClass<R>),
+    PyAlias(PyAlias<R>),
     Union(Box<Self>, Box<Self>, Vec<Self>),
 }
 
 /// A Python 'int'
-#[derive(Clone, new)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyInt<E> {
     rs: RsInt,
     rstype: Option<Path>,
@@ -6370,7 +6373,7 @@ struct PyInt<E> {
 }
 
 /// A Python 'float'
-#[derive(Clone, From, new)]
+#[derive(Clone, From, new, PartialEq, Hash, Eq)]
 struct PyFloat<E> {
     #[from]
     rs: RsFloat,
@@ -6379,49 +6382,49 @@ struct PyFloat<E> {
 }
 
 /// A Python 'str'
-#[derive(Clone, Default, new)]
+#[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyStr<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
 /// A Python 'bool'
-#[derive(Clone, Default, new)]
+#[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyBool<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
 /// A Python 'bytes'
-#[derive(Clone, Default, new)]
+#[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyBytes<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
 /// A Python 'Decimal' class
-#[derive(Clone, Default, new)]
+#[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyDecimal<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
 /// A Python 'datetime.time' class
-#[derive(Clone, Default, new)]
+#[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyTime<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
 /// A Python 'datetime.date' class
-#[derive(Clone, Default, new)]
+#[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyDate<E> {
     rstype: Option<Path>,
     exc: Option<E>,
 }
 
 /// A Python 'datetime.datetime' class
-#[derive(Clone, Default, new)]
+#[derive(Clone, Default, new, PartialEq, Hash, Eq)]
 struct PyDatetime<E> {
     rstype: Option<Path>,
     exc: Option<E>,
@@ -6439,7 +6442,7 @@ struct PyLiteral {
 }
 
 /// A Python 'Optional[X]' aka 'X | None'
-#[derive(Clone, new)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyOpt<R> {
     #[new(into)]
     inner: PyType<R>,
@@ -6451,7 +6454,7 @@ struct PyOpt<R> {
 }
 
 /// A Python 'dict[X, Y]'
-#[derive(Clone, new)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyDict<E> {
     #[new(into)]
     key: PyType<E>,
@@ -6463,7 +6466,7 @@ struct PyDict<E> {
 }
 
 /// A Python 'list[X]'
-#[derive(Clone, new)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyList<E> {
     #[new(into)]
     inner: PyType<E>,
@@ -6482,8 +6485,21 @@ struct PyClass<E> {
     exc: Option<E>,
 }
 
+/// A type alias, possibly with generics
+#[derive(Clone, new, PartialEq, Hash, Eq)]
+struct PyAlias<E> {
+    #[new(into)]
+    pyname: String,
+    generics: Vec<PyType<E>>,
+    #[new(into)]
+    rstype: Option<Path>,
+    #[new(into)]
+    default_pytype: Option<PyType<E>>,
+    exc: Option<E>,
+}
+
 /// A Python 'Union[...]' aka 'A | B | ...'
-#[derive(Clone, new)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyUnion<E> {
     #[new(into)]
     head0: PyType<E>,
@@ -6495,7 +6511,7 @@ struct PyUnion<E> {
 }
 
 /// A Python 'tuple[...]'
-#[derive(Clone, new)]
+#[derive(Clone, new, PartialEq, Hash, Eq)]
 struct PyTuple<E> {
     inner: Vec<PyType<E>>,
     rstype: Option<Path>,
@@ -6503,7 +6519,7 @@ struct PyTuple<E> {
 }
 
 /// A rust integer type for use in making a python int more specific
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Hash, Eq)]
 enum RsInt {
     U8,
     U16,
@@ -6518,7 +6534,7 @@ enum RsInt {
 }
 
 /// A rust float type for use in making a python float more specific
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Hash, Eq)]
 enum RsFloat {
     F32,
     F64,
@@ -6721,6 +6737,7 @@ impl<E> HasRustPath for PyType<E> {
             Self::Union(x) => x.as_rust_type(),
             Self::Literal(x) => x.as_rust_type(),
             Self::PyClass(x) => x.as_rust_type(),
+            Self::PyAlias(x) => x.as_rust_type(),
         }
     }
 }
@@ -6798,6 +6815,16 @@ impl<E> HasRustPath for PyClass<E> {
             .rstype
             .as_ref()
             .expect("PyClass does not have a rust type");
+        parse_quote!(#x)
+    }
+}
+
+impl<E> HasRustPath for PyAlias<E> {
+    fn as_rust_type(&self) -> Type {
+        let x = self
+            .rstype
+            .as_ref()
+            .expect("PyAlias does not have a rust type");
         parse_quote!(#x)
     }
 }
@@ -7018,6 +7045,7 @@ impl<R: Clone> AsPyAtom<R> for PyType<R> {
             Self::Datetime(_) => PyAtom::Datetime,
             Self::Literal(x) => PyAtom::Literal(x.clone()),
             Self::PyClass(x) => PyAtom::PyClass(x.clone()),
+            Self::PyAlias(x) => PyAtom::PyAlias((**x).clone()),
             Self::List(x) => x.as_atom(),
             Self::Dict(x) => x.as_atom(),
             Self::Option(x) => x.as_atom(),
@@ -8597,6 +8625,84 @@ impl<E: From<PyException>> PyClass<E> {
     }
 }
 
+impl<E> PyAlias<E> {
+    fn new1(pyname: impl fmt::Display, generics: impl IntoIterator<Item = PyType<E>>) -> Self {
+        Self::new(
+            pyname.to_string(),
+            generics.into_iter().collect(),
+            None,
+            None,
+            None,
+        )
+    }
+
+    fn rstype(self, rstype: Path) -> Self {
+        Self::new(
+            self.pyname,
+            self.generics,
+            Some(rstype),
+            self.default_pytype,
+            None,
+        )
+    }
+
+    // fn exc(self, e: impl Into<E>) -> Self {
+    //     Self::new(
+    //         self.pyname,
+    //         self.generics,
+    //         self.rstype,
+    //         self.default_pytype,
+    //         Some(e.into()),
+    //     )
+    // }
+
+    fn set_default(mut self, pt: impl Into<PyType<E>>) -> Self {
+        self.default_pytype = Some(pt.into());
+        self
+    }
+
+    fn rs_default(&self) -> TokenStream2 {
+        let rt = self.as_rust_type();
+        quote!(#rt::default())
+    }
+
+    fn doc_default(&self) -> (String, TokenStream2) {
+        let d = self
+            .default_pytype
+            .as_ref()
+            .expect("PyAlias must have default type to get default");
+        (d.doc_default().0, self.rs_default())
+    }
+
+    fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyAlias<E1> {
+        PyAlias::new(
+            self.pyname,
+            self.generics
+                .into_iter()
+                .map(|p| p.map_exc(f.clone()))
+                .collect(),
+            self.rstype,
+            self.default_pytype.map(|d| d.map_exc(f.clone())),
+            self.exc.map(f),
+        )
+    }
+}
+
+impl<E: From<PyException>> PyAlias<E> {
+    fn new_selector(inner: impl Into<PyType<E>>) -> Self
+    where
+        PyType<E>: Clone,
+    {
+        let inner_pt = inner.into();
+        let outer_path = quote!(fireflow_core::selector::Selector);
+        let inner_path = inner_pt.as_rust_type();
+        let path = parse_quote!(#outer_path::<#inner_path>);
+        Self::new1("Selector", [inner_pt.clone()])
+            .rstype(path)
+            .set_default(inner_pt)
+    }
+}
+
 impl<E> PyType<E> {
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyType<E1> {
         match self {
@@ -8612,6 +8718,7 @@ impl<E> PyType<E> {
             Self::Time(x) => x.map_exc(f).into(),
             Self::Datetime(x) => x.map_exc(f).into(),
             Self::PyClass(x) => x.map_exc(f).into(),
+            Self::PyAlias(x) => x.map_exc(f).into(),
             Self::Option(x) => x.map_exc(f).into(),
             Self::Union(x) => x.map_exc(f).into(),
             Self::Tuple(xs) => xs.map_exc(f).into(),
@@ -8630,6 +8737,7 @@ impl<E> PyType<E> {
             Self::List(x) => x.doc_default(),
             Self::Dict(x) => x.doc_default(),
             Self::Option(x) => x.doc_default(),
+            Self::PyAlias(x) => x.doc_default(),
             Self::Literal(x) => {
                 let rt = &x.rstype;
                 (format!("\"{}\"", x.head), quote!(#rt::default()))
@@ -8696,6 +8804,7 @@ impl ArgPyType {
             Self::Time(x) => go(&x.exc),
             Self::Datetime(x) => go(&x.exc),
             Self::PyClass(x) => go(&x.exc),
+            Self::PyAlias(x) => go(&x.exc),
             Self::Option(x) => walk(vec![], &x.inner),
             Self::Union(x) => {
                 let acc0 = x.exc.iter().cloned().collect();
@@ -9973,7 +10082,7 @@ impl DocArgParam {
 
     fn new_time_meas_pattern_param() -> Self {
         let path: Path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
-        let pytype = PyOpt::new1(PyStr::new_regexp().rstype(path.clone()))
+        let inner_pytype = PyOpt::new1(PyStr::new_regexp().rstype(path.clone()))
             .default_from_inner()
             .rstype(path);
         let d = format!(
@@ -9981,6 +10090,7 @@ impl DocArgParam {
              If {none}, do not try to find a time measurement.",
             none = code_str(tc::TIME_MEAS_NAME_PATTERN_NONE),
         );
+        let pytype = PyAlias::new_selector(inner_pytype);
         Self::new_param("time_meas_pattern", pytype, d)
             .def(DocDefault::Str(tc::TIME_MEAS_NAME_PATTERN_DEFAULT.into()))
     }
@@ -10082,22 +10192,23 @@ impl DocArgParam {
              the standard pattern which is {pat}.",
             pat = code_str(tc::DEFAULT_DATE_FORMAT),
         );
-        Self::new_opt_param("date_pattern", PyStr::new_date_pattern(), d)
+
+        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::new_date_pattern()));
+        Self::new_param("date_pattern", pt, d).def_auto()
     }
 
     fn new_datetime_pattern_param() -> Self {
-        let pytype = PyStr::default();
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {BEGINDATETIME} and {ENDDATETIME}. The pattern must follow the \
              format outlined in {CHRONO_REF}. If not supplied, these will \
              be parsed as ISO timestamps with optional timezone."
         );
-        Self::new_opt_param("datetime_pattern", pytype, d)
+        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::default()));
+        Self::new_param("datetime_pattern", pt, d).def_auto()
     }
 
     fn new_last_modified_pattern_param() -> Self {
-        let pytype = PyStr::default();
         let d = format!(
             "If supplied, will be used as an alternative pattern when parsing \
              {last_mod}. The pattern must follow the format outlined in \
@@ -10106,7 +10217,8 @@ impl DocArgParam {
             pat = code_str(tc::DEFAULT_LAST_MODIFIED_FORMAT),
             last_mod = fcs_kw(tk::LAST_MODIFIED),
         );
-        Self::new_opt_param("last_modified_pattern", pytype, d)
+        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::default()));
+        Self::new_param("last_modified_pattern", pt, d).def_auto()
     }
 
     fn new_allow_other_feature_param() -> Self {
@@ -10143,8 +10255,8 @@ impl DocArgParam {
         );
         let arg_desc = [line1.to_owned(), line2, line3].into_iter().join(" ");
 
-        let pytype = PyStr::new_time_pattern();
-        Self::new_opt_param("time_pattern", pytype, arg_desc)
+        let pt = PyAlias::new_selector(PyOpt::new1(PyStr::new_time_pattern()));
+        Self::new_param("time_pattern", pt, arg_desc).def_auto()
     }
 
     fn new_process_pseudostandard_param() -> Self {
@@ -10206,7 +10318,7 @@ impl DocArgParam {
         let ed = format!("if {ARG_TOKEN} does not have {pat}");
         let exc = PyException::new_config().desc(ed);
         // TODO this is really weird, why is path specified twice?
-        let pytype = PyOpt::new1(PyStr::default().exc(exc).rstype(path.clone()))
+        let inner_pytype = PyOpt::new1(PyStr::default().exc(exc).rstype(path.clone()))
             .default_from_inner()
             .rstype(path);
         let d = format!(
@@ -10219,6 +10331,7 @@ impl DocArgParam {
              {REGEXP_REF}.",
             delim = tc::PATTERN_DELIMITER
         );
+        let pytype = PyAlias::new_selector(inner_pytype);
         Self::new_param("nonstandard_measurement_pattern", pytype, d)
             .def(DocDefault::Str(tc::NON_STD_MEAS_PAT_DEFAULT.into()))
     }
@@ -10902,6 +11015,12 @@ impl DocDefault {
                 (Self::Str(x), PyType::Str(_)) => (py_str(x), rs_def),
                 _ => err(),
             },
+            (dt, PyType::PyAlias(pt)) => match dt {
+                Self::Int(x) => (x.to_string(), pt.rs_default()),
+                Self::Float(x) => (py_float(x), pt.rs_default()),
+                Self::Str(x) => (py_str(x), pt.rs_default()),
+                Self::Auto => err(),
+            },
             _ => err(),
         }
     }
@@ -11395,7 +11514,7 @@ impl<T: fmt::Display> fmt::Display for DocReturn<T> {
     }
 }
 
-impl<R> fmt::Display for PyAtom<R> {
+impl<R: Eq + Hash + Clone> fmt::Display for PyAtom<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
             Self::Str => PyStr::<R>::default().fmt(f),
@@ -11422,6 +11541,7 @@ impl<R> fmt::Display for PyAtom<R> {
             Self::List(x) => write!(f, ":py:class:`list`\\ [{x}]"),
             Self::Literal(x) => x.fmt(f),
             Self::PyClass(x) => x.fmt(f),
+            Self::PyAlias(x) => x.fmt(f),
             Self::Union(x0, x1, xs) => {
                 let s = [&*(*x0), &*(*x1)].into_iter().chain(xs.iter()).join(" | ");
                 write!(f, "{s}")
@@ -11462,6 +11582,17 @@ impl fmt::Display for PyLiteral {
 impl<R> fmt::Display for PyClass<R> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         write!(f, ":py:class:`{}`", self.pyname)
+    }
+}
+
+impl<R: Clone + Eq + Hash> fmt::Display for PyAlias<R> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let generics = if self.generics.is_empty() {
+            String::new()
+        } else {
+            format!("<{}>", self.generics.iter().join(","))
+        };
+        write!(f, ":py:type:`{}{}`", self.pyname, generics)
     }
 }
 

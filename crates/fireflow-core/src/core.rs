@@ -6042,9 +6042,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             // Lookup $PnN first (everything else depends on these)
             let names_res = Self::lookup_names(std, &mut meas_nonstd[..], &mut dropped, conf);
             let mut core_res = go_err!(names_res)
-                .map_ok_value(|n| (n, meas_nonstd))
                 // Lookup root (which depends on $PnN) and data schema
-                .and_then_commutative(|((dedup_names, original_names), mut meas_nonstd)| {
+                .and_then_commutative(|(dedup_names, original_names)| {
                     let mnsks = &mut meas_nonstd[..];
                     let layout_res =
                         V::DataSchema::lookup(std, mnsks, &mut dropped, lconf.as_ref());
@@ -6059,11 +6058,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
                     go_err!(root_res)
                         .zip_commutative(go_err!(layout_res))
-                        .map_ok_value(|x| (x, meas_nonstd, dedup_names, original_names))
+                        .map_ok_value(|x| (x, dedup_names, original_names))
                 })
                 // Lookup measure which depends on global datatype
                 .and_then_commutative(
-                    |((metaroot_out, layout_out), meas_nonstd, dedup_names, original_names)| {
+                    |((metaroot_out, layout_out), dedup_names, original_names)| {
                         let dts = &layout_out.data_schema.datatypes()[..];
                         let ret = Self::lookup_measurements(
                             std,

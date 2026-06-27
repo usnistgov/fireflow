@@ -2,6 +2,7 @@ use fireflow_core::api;
 use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::read::OffsetsCorrection;
+use fireflow_core::selector::Selector;
 use fireflow_core::text::byteord::Bytes;
 use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0, Timestep};
 use fireflow_core::validated::ascii_range::OtherWidth;
@@ -1494,7 +1495,9 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     get_flag(s, TRIM_INTRA_VALUE_WHITESPACE, |x| {
         c.trim_intra_value_whitespace = x;
     });
-    get_opt(s, TIME_MEAS_PATTERN, |x| c.time_meas_pattern = x);
+    get_opt(s, TIME_MEAS_PATTERN, |x| {
+        c.time_meas_pattern = Selector::Root(x);
+    });
 
     get_opt(s, FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
 
@@ -1510,10 +1513,14 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     get_opt(s, SPILLOVER_MEASUREMENT_MODE, |x| {
         c.spillover_measurement_mode = x;
     });
-    get_opt(s, DATE_PATTERN, |x| c.date_pattern = x);
-    get_opt(s, TIME_PATTERN, |x| c.time_pattern = x);
-    get_opt(s, DATETIME_PATTERN, |x| c.datetime_pattern = x);
-    get_opt(s, LAST_MODIFIED_PATTERN, |x| c.last_modified_pattern = x);
+    get_opt(s, DATE_PATTERN, |x| c.date_pattern = Selector::Root(x));
+    get_opt(s, TIME_PATTERN, |x| c.time_pattern = Selector::Root(x));
+    get_opt(s, DATETIME_PATTERN, |x| {
+        c.datetime_pattern = Selector::Root(x);
+    });
+    get_opt(s, LAST_MODIFIED_PATTERN, |x| {
+        c.last_modified_pattern = Selector::Root(x);
+    });
     get_flag(s, ALLOW_OTHER_FEATURE, |x| c.allow_other_feature = x);
     get_opt(s, PROCESS_PSEUDOSTANDARD, |x| c.process_pseudostandard = x);
     get_opt(s, PROCESS_HYPER_PAR, |x| c.process_hyper_par = x);
@@ -1523,7 +1530,7 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     get_flag(s, DISALLOW_LOCALTIME, |x| c.disallow_localtime = x);
 
     get_opt(s, NS_MEAS_PATTERN, |x| {
-        c.nonstandard_measurement_pattern = cfg::NonStdMeasPatternOpt(x);
+        c.nonstandard_measurement_pattern = Selector::Root(cfg::NonStdMeasPatternOpt(x));
     });
     c
 }

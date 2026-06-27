@@ -321,7 +321,7 @@ mod tests {
         type Err = FCSDateTimeError;
 
         fn from_str(s: &str) -> Result<Self, Self::Err> {
-            let conf = ReadStdKeywordsConfig::default();
+            let conf = EvaledReadStdKeywordsConfig::default();
             Self::from_str_with(NEStr::try_new(s).unwrap(), (), &conf).map(|x| x.inner)
         }
     }

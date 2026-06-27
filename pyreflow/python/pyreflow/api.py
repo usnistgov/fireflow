@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from ._pyreflow import fcs_read_header as fcs_read_header
 from ._pyreflow import fcs_read_flat_text as fcs_read_flat_text
 from ._pyreflow import fcs_read_std_text as fcs_read_std_text

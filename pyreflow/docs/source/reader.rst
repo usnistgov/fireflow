@@ -264,3 +264,23 @@ These classes are produced when two offsets overlap each other.
 
 .. autoclass:: pyreflow.api.TextToHeaderOrSuppOffsetsOverlap
    :members:
+
+Dynamic value selectors based on keywords
++++++++++++++++++++++++++++++++++++++++++
+
+Some options can be selectively chosen based on the value of keywords present in
+the FCS dataset. For instance, some files name the time measurement as
+``"HDR-T"`` rather than the compliant ``"TIME"`` or ``"Time"``, so the value of
+``time_meas_pattern`` must be set accordingly depending on the machine in use
+(which often be found with the *$CYT* keyword).
+
+These type aliases look complicated but are actually Lisp-like expressions for
+the functions ``if`` and ``cond`` with specialized identifiers which evaluated
+to true or false depending on if a keyword is present and/or a certain value.
+
+The above case for ``"HDR-T"`` (with a new AI-powered cytometer from Cytodyne
+Sytems named ``"T-1000"``) can be written as
+``("if", ("key_is", "$CYT", "T-1000"), "HDR-T")``.
+
+.. automodule:: pyreflow.typing
+   :members:

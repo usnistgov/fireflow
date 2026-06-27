@@ -20,6 +20,7 @@ extensions = [
     "sphinx.ext.autodoc",
     "sphinx.ext.graphviz",
     "sphinx.ext.githubpages",
+    "sphinx_toolbox.more_autodoc.genericalias",
 ]
 
 templates_path = ["_templates"]
@@ -51,4 +52,12 @@ autodoc_member_order = "bysource"
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+}
+
+# include some type aliases
+
+autodoc_type_aliases = {
+    "Selector": "pyreflow.typing.Selector",
+    "Condition": "pyreflow.typing.Condition",
+    "Statement": "pyreflow.typing.Statement",
 }

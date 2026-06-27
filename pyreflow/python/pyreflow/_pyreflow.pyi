@@ -1124,22 +1124,22 @@ class CoreTEXT2_0(
         nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         fix_int_widths: pft.FixIntWidths = "never",
         byteord_override: pft.ByteordOverride = "none",
@@ -1216,22 +1216,22 @@ class CoreTEXT3_0(
         nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
@@ -1329,22 +1329,22 @@ class CoreTEXT3_1(
         nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -1442,22 +1442,22 @@ class CoreTEXT3_2(
         nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
@@ -1538,22 +1538,22 @@ class CoreDataset2_0(
         nonstd: pft.NonStdKeywords,
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         fix_int_widths: pft.FixIntWidths = "never",
         byteord_override: pft.ByteordOverride = "none",
@@ -1652,22 +1652,22 @@ class CoreDataset3_0(
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         # layout args
         text_data_correction: pft.OffsetCorrection = (0, 0),
@@ -1794,22 +1794,22 @@ class CoreDataset3_1(
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         # layout args
@@ -1936,22 +1936,22 @@ class CoreDataset3_2(
         # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
-        time_meas_pattern: str | None = "^(TIME|Time)$",
+        time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
         allow_missing_time: pft.TriFlag = "false",
         force_linear_scale: pft.ForceLinearScale = "none",
         ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
         process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-        date_pattern: str | None = None,
-        time_pattern: str | None = None,
-        datetime_pattern: str | None = None,
-        last_modified_pattern: str | None = None,
+        date_pattern: pft.Selector[str | None] = None,
+        time_pattern: pft.Selector[str | None] = None,
+        datetime_pattern: pft.Selector[str | None] = None,
+        last_modified_pattern: pft.Selector[str | None] = None,
         allow_other_feature: bool = False,
         process_pseudostandard: pft.ProcessKeywordFailure = "error",
         process_hyper_par: pft.ProcessKeywordFailure = "error",
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: str | None = "P%n",
+        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
@@ -2015,8 +2015,6 @@ class FinalHeaderOffsets:
     def analysis(self) -> pft.Offsets: ...
     @property
     def others(self) -> pft.OtherOffsets: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class OriginalHeaderOffsets:
@@ -2036,8 +2034,6 @@ class OriginalHeaderOffsets:
     def analysis(self) -> pft.Offsets: ...
     @property
     def others(self) -> list[pft.Offsets]: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class Header:
@@ -2063,8 +2059,6 @@ class Header:
     def overlaps(self) -> list[HeaderToHeaderOffsetsOverlap]: ...
     @property
     def dark_bytes(self) -> pft.DarkBytes | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class ValidKeywords:
@@ -2074,8 +2068,6 @@ class ValidKeywords:
     def std(self) -> pft.StdKeywords: ...
     @property
     def nonstd(self) -> pft.NonStdKeywords: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class DataSchemaDiagnostics:
@@ -2092,8 +2084,6 @@ class DataSchemaDiagnostics:
     def original_int_width(self) -> int | None: ...
     @property
     def original_byteord(self) -> list[int] | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class StdTEXTDiagnostics:
@@ -2167,8 +2157,6 @@ class StdTEXTDiagnostics:
     def last_modified_pattern(self) -> str | None: ...
     @property
     def schema_diagnostics(self) -> DataSchemaDiagnostics: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class DatasetOffsets:
@@ -2191,8 +2179,6 @@ class DatasetOffsets:
     def analysis_origin(self) -> TEXTOffsetsOrigin: ...
     @property
     def data_analysis_overlap(self) -> int | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class SplitTEXTDiagnostics:
@@ -2227,8 +2213,6 @@ class SplitTEXTDiagnostics:
     def has_even_delims(self) -> bool: ...
     @property
     def extra_leading_delims(self) -> int: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 class _OffsetsOverlap(Generic[_N0, _N1]):
     def __new__(
@@ -2244,8 +2228,6 @@ class _OffsetsOverlap(Generic[_N0, _N1]):
     def offsets1(self) -> pft.NamedOffsets[_N1]: ...
     @property
     def overlap(self) -> int: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 class _OffsetsOverflow(Generic[_N0]):
     def __new__(
@@ -2264,8 +2246,6 @@ class _OffsetsOverflow(Generic[_N0]):
     def dataset_len(self) -> int: ...
     @property
     def bound_is_nextdata(self) -> bool: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class HeaderToHeaderOffsetsOverlap(
@@ -2327,8 +2307,6 @@ class SuppTEXTOffsetsOutput:
     def overlaps(self) -> list[SuppToHeaderOffsetsOverlap]: ...
     @property
     def overflow(self) -> SuppOffsetsOverflow | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class TEXTOffsetsOrigin:
@@ -2348,8 +2326,6 @@ class TEXTOffsetsOrigin:
     def overlaps(self) -> list[TextToHeaderOrSuppOffsetsOverlap]: ...
     @property
     def overflow(self) -> TextOffsetsOverflow | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class HeaderAndSuppOffsets:
@@ -2366,8 +2342,6 @@ class HeaderAndSuppOffsets:
     def supp_text(self) -> SuppTEXTOffsetsOutput: ...
     @property
     def nextdata(self) -> int | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class FlatTEXTDiagnostics:
@@ -2408,8 +2382,6 @@ class FlatTEXTDiagnostics:
     def primary_split(self) -> SplitTEXTDiagnostics: ...
     @property
     def supp_split(self) -> SplitTEXTDiagnostics | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class FlatTEXTOutput:
@@ -2423,8 +2395,6 @@ class FlatTEXTOutput:
     def kws(self) -> ValidKeywords: ...
     @property
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class DatasetDiagnostics:
@@ -2465,8 +2435,6 @@ class DatasetDiagnostics:
     def next_dataset_offset(self) -> int | None: ...
     @property
     def next_dataset_manually_scanned(self) -> bool: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class KeywordVersionScore:
@@ -2492,8 +2460,6 @@ class KeywordVersionScore:
     def missing_req(self) -> int: ...
     @property
     def missing_absent(self) -> int: ...
-    @property
-    def dict(self) -> dict[str, int]: ...
 
 @final
 class FlatDatasetFromKwsOutput:
@@ -2519,8 +2485,6 @@ class FlatDatasetFromKwsOutput:
     def schema_diagnostics(self) -> DataSchemaDiagnostics: ...
     @property
     def dataset_diagnostics(self) -> DatasetDiagnostics: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class NewFlatDatasetFromKwsOutput:
@@ -2534,8 +2498,6 @@ class NewFlatDatasetFromKwsOutput:
     def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
     def header(self) -> FinalHeaderOffsets: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class FlatDatasetOutput:
@@ -2552,8 +2514,6 @@ class FlatDatasetOutput:
     def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
     def version_scores(self) -> pft.KeywordVersionScores | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class StdTEXTOutput:
@@ -2576,8 +2536,6 @@ class StdTEXTOutput:
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
     def version_scores(self) -> pft.KeywordVersionScores | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class IntraSegmentDarkBytes:
@@ -2600,8 +2558,6 @@ class IntraSegmentDarkBytes:
     def end(self) -> int: ...
     @property
     def bytes(self) -> pft.DarkBytes: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class StdDatasetFromKwsOutput:
@@ -2618,8 +2574,6 @@ class StdDatasetFromKwsOutput:
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
     def dataset_diagnostics(self) -> DatasetDiagnostics: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class NewStdDatasetFromKwsOutput:
@@ -2633,8 +2587,6 @@ class NewStdDatasetFromKwsOutput:
     def dataset(self) -> StdDatasetFromKwsOutput: ...
     @property
     def header(self) -> FinalHeaderOffsets: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class StdDatasetOutput:
@@ -2651,8 +2603,6 @@ class StdDatasetOutput:
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
     def version_scores(self) -> pft.KeywordVersionScores | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 @final
 class DatasetSummary:
@@ -2696,8 +2646,6 @@ class DatasetSummary:
     def file_crc(self) -> pft.CRCOutput: ...
     @property
     def computed_crc(self) -> int | None: ...
-    @property
-    def dict(self) -> dict[str, Any]: ...
 
 class _ConfigCommon:
     @classmethod
@@ -2852,22 +2800,22 @@ def fcs_read_std_text(
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
-    time_meas_pattern: str | None = "^(TIME|Time)$",
+    time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
     allow_missing_time: pft.TriFlag = "false",
     force_linear_scale: pft.ForceLinearScale = "none",
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
     process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-    date_pattern: str | None = None,
-    time_pattern: str | None = None,
-    datetime_pattern: str | None = None,
-    last_modified_pattern: str | None = None,
+    date_pattern: pft.Selector[str | None] = None,
+    time_pattern: pft.Selector[str | None] = None,
+    datetime_pattern: pft.Selector[str | None] = None,
+    last_modified_pattern: pft.Selector[str | None] = None,
     allow_other_feature: bool = False,
     process_pseudostandard: pft.ProcessKeywordFailure = "error",
     process_hyper_par: pft.ProcessKeywordFailure = "error",
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "P%n",
+    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -3007,22 +2955,22 @@ def fcs_read_std_dataset(
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
-    time_meas_pattern: str | None = "^(TIME|Time)$",
+    time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
     allow_missing_time: pft.TriFlag = "false",
     force_linear_scale: pft.ForceLinearScale = "none",
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
     process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-    date_pattern: str | None = None,
-    time_pattern: str | None = None,
-    datetime_pattern: str | None = None,
-    last_modified_pattern: str | None = None,
+    date_pattern: pft.Selector[str | None] = None,
+    time_pattern: pft.Selector[str | None] = None,
+    datetime_pattern: pft.Selector[str | None] = None,
+    last_modified_pattern: pft.Selector[str | None] = None,
     allow_other_feature: bool = False,
     process_pseudostandard: pft.ProcessKeywordFailure = "error",
     process_hyper_par: pft.ProcessKeywordFailure = "error",
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "P%n",
+    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -3156,22 +3104,22 @@ def fcs_read_std_texts(
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
-    time_meas_pattern: str | None = "^(TIME|Time)$",
+    time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
     allow_missing_time: pft.TriFlag = "false",
     force_linear_scale: pft.ForceLinearScale = "none",
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
     process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-    date_pattern: str | None = None,
-    time_pattern: str | None = None,
-    datetime_pattern: str | None = None,
-    last_modified_pattern: str | None = None,
+    date_pattern: pft.Selector[str | None] = None,
+    time_pattern: pft.Selector[str | None] = None,
+    datetime_pattern: pft.Selector[str | None] = None,
+    last_modified_pattern: pft.Selector[str | None] = None,
     allow_other_feature: bool = False,
     process_pseudostandard: pft.ProcessKeywordFailure = "error",
     process_hyper_par: pft.ProcessKeywordFailure = "error",
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "P%n",
+    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -3314,22 +3262,22 @@ def fcs_read_std_datasets(
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
-    time_meas_pattern: str | None = "^(TIME|Time)$",
+    time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
     allow_missing_time: pft.TriFlag = "false",
     force_linear_scale: pft.ForceLinearScale = "none",
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = [],
     process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn",
-    date_pattern: str | None = None,
-    time_pattern: str | None = None,
-    datetime_pattern: str | None = None,
-    last_modified_pattern: str | None = None,
+    date_pattern: pft.Selector[str | None] = None,
+    time_pattern: pft.Selector[str | None] = None,
+    datetime_pattern: pft.Selector[str | None] = None,
+    last_modified_pattern: pft.Selector[str | None] = None,
     allow_other_feature: bool = False,
     process_pseudostandard: pft.ProcessKeywordFailure = "error",
     process_hyper_par: pft.ProcessKeywordFailure = "error",
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: str | None = "P%n",
+    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,

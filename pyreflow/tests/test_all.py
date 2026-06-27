@@ -2248,12 +2248,18 @@ class TestCore:
         """
         assert isinstance(core.data_schema, data_schema)
         if "insert" in method:
-            if isinstance(core, AnyCoreTEXT):
+            if isinstance(
+                core,
+                pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2,
+            ):
                 getattr(core, method)(0, LINK_NAME1, optical, 100)
             else:
                 getattr(core, method)(0, LINK_NAME1, optical, 100, series1)
         else:
-            if isinstance(core, AnyCoreTEXT):
+            if isinstance(
+                core,
+                pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2,
+            ):
                 getattr(core, method)(LINK_NAME1, optical, 100)
             else:
                 getattr(core, method)(LINK_NAME1, optical, 100, series1)

@@ -1,58 +1,59 @@
+from __future__ import annotations
 import pyreflow._pyreflow as pf
-from typing import Literal, TypeAlias, TypeVar
+from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
-MeasIndex: TypeAlias = int
+type MeasIndex = int
 
-Endian: TypeAlias = Literal["big", "little"]
+type Endian = Literal["big", "little"]
 
-ByteOrd: TypeAlias = list[int] | Endian
+type ByteOrd = list[int] | Endian
 
-Range: TypeAlias = float | int
+type Range = float | int
 
-FloatRange: TypeAlias = float
+type FloatRange = float
 
-IntRange: TypeAlias = int
+type IntRange = int
 
-Shortname: TypeAlias = str
+type Shortname = str
 
-Timestep: TypeAlias = float
+type Timestep = float
 
-StdKey: TypeAlias = str
+type StdKey = str
 
-NonStdKey: TypeAlias = str
+type NonStdKey = str
 
-AnalysisBytes: TypeAlias = bytes
+type AnalysisBytes = bytes
 
-OtherBytes: TypeAlias = bytes
+type OtherBytes = bytes
 
-Trigger: TypeAlias = tuple[Shortname, int]
+type Trigger = tuple[Shortname, int]
 
-Unicode: TypeAlias = tuple[int, list[str]]
+type Unicode = tuple[int, list[str]]
 
-CsvFlags: TypeAlias = list[int | None]
+type CsvFlags = list[int | None]
 
-Compensation: TypeAlias = npt.NDArray[np.float32]
+type Compensation = npt.NDArray[np.float32]
 
-Spillover: TypeAlias = tuple[list[str], npt.NDArray[np.float32]]
+type Spillover = tuple[list[str], npt.NDArray[np.float32]]
 
-UnstainedCenters: TypeAlias = dict[StdKey, float]
+type UnstainedCenters = dict[StdKey, float]
 
-Offsets: TypeAlias = tuple[int, int]
+type Offsets = tuple[int, int]
 
-OffsetCorrection: TypeAlias = tuple[int, int]
+type OffsetCorrection = tuple[int, int]
 
-StdKeywords: TypeAlias = dict[StdKey, str]
-NonStdKeywords: TypeAlias = dict[NonStdKey, str]
+type StdKeywords = dict[StdKey, str]
+type NonStdKeywords = dict[NonStdKey, str]
 
-Calibration3_1: TypeAlias = tuple[float, str]
-Calibration3_2: TypeAlias = tuple[float, float, str]
+type Calibration3_1 = tuple[float, str]
+type Calibration3_2 = tuple[float, float, str]
 
-OpticalScale2_0: TypeAlias = tuple[float, float] | tuple[()] | None
-OpticalScale3_0: TypeAlias = tuple[float, float] | float
+type OpticalScale2_0 = tuple[float, float] | tuple[()] | None
+type OpticalScale3_0 = tuple[float, float] | float
 
-Display: TypeAlias = tuple[bool, float, float]
+type Display = tuple[bool, float, float]
 
 Mode = Literal["L", "C", "U"]
 
@@ -79,19 +80,19 @@ FloatType = Literal["F"]
 DoubleType = Literal["D"]
 IntegerType = Literal["I"]
 AsciiType = Literal["A"]
-Datatype: TypeAlias = FloatType | DoubleType | IntegerType | AsciiType
+type Datatype = FloatType | DoubleType | IntegerType | AsciiType
 
 F32Type = Literal["F32"]
 F64Type = Literal["F64"]
 IntegerWidth = Literal["U08", "U16", "U24", "U32", "U40", "U48", "U56", "U64"]
-AnyType: TypeAlias = F32Type | F64Type | AsciiType | IntegerWidth
-VariableBitmask: TypeAlias = tuple[IntegerWidth, IntRange]
-MixedRange: TypeAlias = (
+type AnyType = F32Type | F64Type | AsciiType | IntegerWidth
+type VariableBitmask = tuple[IntegerWidth, IntRange]
+type MixedRange = (
     tuple[F32Type | F64Type, Range] | tuple[AsciiType | IntegerWidth, IntRange]
 )
 
-MaybeTypedVariableBitmask: TypeAlias = IntRange | VariableBitmask
-MaybeTypedMixedRange: TypeAlias = Range | MixedRange
+type MaybeTypedVariableBitmask = IntRange | VariableBitmask
+type MaybeTypedMixedRange = Range | MixedRange
 
 TemporalOpticalKey = Literal[
     "G",
@@ -108,37 +109,33 @@ TemporalOpticalKey = Literal[
     "ANALYTE",
 ]
 
-TemporalType: TypeAlias = Literal["Time"]
+type TemporalType = Literal["Time"]
 
-AnyCoreTEXT: TypeAlias = (
-    pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
-)
+type AnyCoreTEXT = pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
 
-AnyCoreDataset: TypeAlias = (
+type AnyCoreDataset = (
     pf.CoreDataset2_0 | pf.CoreDataset3_0 | pf.CoreDataset3_1 | pf.CoreDataset3_2
 )
 
-AnyCore: TypeAlias = AnyCoreTEXT | AnyCoreDataset
+type AnyCore = AnyCoreTEXT | AnyCoreDataset
 
 
-AnyOptical: TypeAlias = pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
+type AnyOptical = pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
 
-AnyTemporal: TypeAlias = (
-    pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
-)
+type AnyTemporal = pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
 
-AnyAsciiDataSchema: TypeAlias = pf.DelimAsciiDataSchema | pf.FixedAsciiDataSchema
+type AnyAsciiDataSchema = pf.DelimAsciiDataSchema | pf.FixedAsciiDataSchema
 
-AnyDataSchema2_0: TypeAlias = (
+type AnyDataSchema2_0 = (
     AnyAsciiDataSchema
     | pf.OrderedUintDataSchema
     | pf.OrderedF32DataSchema
     | pf.OrderedF64DataSchema
 )
 
-AnyDataSchema3_0: TypeAlias = AnyDataSchema2_0
+type AnyDataSchema3_0 = AnyDataSchema2_0
 
-AnyDataSchema3_1: TypeAlias = (
+type AnyDataSchema3_1 = (
     AnyAsciiDataSchema
     | pf.SingleUintDataSchema
     | pf.VariableUintDataSchema
@@ -146,34 +143,34 @@ AnyDataSchema3_1: TypeAlias = (
     | pf.BigLittleF64DataSchema
 )
 
-AnyDataSchema3_2: TypeAlias = AnyDataSchema3_1 | pf.MixedDataSchema
+type AnyDataSchema3_2 = AnyDataSchema3_1 | pf.MixedDataSchema
 
-AnyMeas: TypeAlias = AnyOptical | AnyTemporal
+type AnyMeas = AnyOptical | AnyTemporal
 
-AppliedGates2_0: TypeAlias = tuple[
+type AppliedGates2_0 = tuple[
     list[pf.GatedMeasurement],
     dict[int, pf.UnivariateRegion2_0 | pf.BivariateRegion2_0],
     str | None,
 ]
 
-AppliedGates3_0: TypeAlias = tuple[
+type AppliedGates3_0 = tuple[
     list[pf.GatedMeasurement],
     dict[int, pf.UnivariateRegion3_0 | pf.BivariateRegion3_0],
     str | None,
 ]
 
-AppliedGates3_2: TypeAlias = tuple[
+type AppliedGates3_2 = tuple[
     dict[int, pf.UnivariateRegion3_2 | pf.BivariateRegion3_2],
     str | None,
 ]
 
-KeyPatterns: TypeAlias = list[str]
+type KeyPatterns = list[str]
 
-SubPattern: TypeAlias = tuple[str, str, bool]
+type SubPattern = tuple[str, str, bool]
 
-SubPatterns: TypeAlias = dict[str, SubPattern]
+type SubPatterns = dict[str, SubPattern]
 
-DelimEscapeMode: TypeAlias = Literal[
+type DelimEscapeMode = Literal[
     "escaped",
     "unescaped",
     "guess_escaped",
@@ -181,78 +178,74 @@ DelimEscapeMode: TypeAlias = Literal[
 ]
 
 
-ReqOrOpt: TypeAlias = Literal["req_only", "opt_only", "both"]
+type ReqOrOpt = Literal["req_only", "opt_only", "both"]
 
-RootOrMeas: TypeAlias = Literal["root_only", "meas_only", "both"]
+type RootOrMeas = Literal["root_only", "meas_only", "both"]
 
-ProcessKeywordFailure: TypeAlias = Literal[
+type ProcessKeywordFailure = Literal[
     "error", "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
 
-ProcessTimeOpticalKeys: TypeAlias = Literal[
+type ProcessTimeOpticalKeys = Literal[
     "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
 
-TriFlag: TypeAlias = Literal["false", "true", "silent"]
+type TriFlag = Literal["false", "true", "silent"]
 
-ForceLinearScale: TypeAlias = Literal["none", "time_only", "all_non_int", "all"]
+type ForceLinearScale = Literal["none", "time_only", "all_non_int", "all"]
 
-MeasScaleDiagnostic: TypeAlias = (
+type MeasScaleDiagnostic = (
     tuple[str, Literal["forced", "log", "trimmed", "trimmed_log"]] | None
 )
 
-GateScaleDiagnostic: TypeAlias = (
-    tuple[str, Literal["log", "trimmed", "trimmed_log"]] | None
-)
+type GateScaleDiagnostic = tuple[str, Literal["log", "trimmed", "trimmed_log"]] | None
 
-TrimValueWhitespace: TypeAlias = Literal[
+type TrimValueWhitespace = Literal[
     "notrim", "trim", "trim_blank_warn", "trim_blank_silent"
 ]
 
-SpilloverMeasurementMode: TypeAlias = Literal["named", "indexed", "guess"]
+type SpilloverMeasurementMode = Literal["named", "indexed", "guess"]
 
-KeywordVersionScores: TypeAlias = tuple[
+type KeywordVersionScores = tuple[
     pf.KeywordVersionScore,
     pf.KeywordVersionScore,
     pf.KeywordVersionScore,
     pf.KeywordVersionScore,
 ]
 
-UseEncoding: TypeAlias = Literal["single", "utf8", "guess"]
+type UseEncoding = Literal["single", "utf8", "guess"]
 
-GuessOtherWidth: TypeAlias = Literal["none", "error", "warn", "silent"]
+type GuessOtherWidth = Literal["none", "error", "warn", "silent"]
 
-OtherOffsets: TypeAlias = tuple[list[tuple[int, Offsets]], int]
+type OtherOffsets = tuple[list[tuple[int, Offsets]], int]
 
-AllowHeaderTextOffsetMismatch: TypeAlias = Literal[
+type AllowHeaderTextOffsetMismatch = Literal[
     "error", "header_warn", "header_silent", "text_warn", "text_silent"
 ]
 
-CheckedRangeDatatypes: TypeAlias = Literal["bitmask_only", "int_only", "all", "none"]
+type CheckedRangeDatatypes = Literal["bitmask_only", "int_only", "all", "none"]
 
-OverLimitAction: TypeAlias = Literal[
+type OverLimitAction = Literal[
     "error", "warn", "silent", "trunc_warn", "trunc_silent", "none"
 ]
 
-FixIntWidths: TypeAlias = int | Literal["next_byte", "never"]
+type FixIntWidths = int | Literal["next_byte", "never"]
 
-ByteordOverride: TypeAlias = list[int] | Literal["endian", "none"]
+type ByteordOverride = list[int] | Literal["endian", "none"]
 
-HeaderOffsetsName: TypeAlias = Literal["text", "data", "header"]
-SuppTextOffsetsName: TypeAlias = Literal["supp_text"]
-TextOffsetsName: TypeAlias = Literal["data", "header"]
-HeaderOrSuppOffsetsName: TypeAlias = HeaderOffsetsName | SuppTextOffsetsName
+type HeaderOffsetsName = Literal["text", "data", "header"]
+type SuppTextOffsetsName = Literal["supp_text"]
+type TextOffsetsName = Literal["data", "header"]
+type HeaderOrSuppOffsetsName = HeaderOffsetsName | SuppTextOffsetsName
 
-N = TypeVar("N")
+type NamedOffsets[N] = tuple[N, int, int]
 
-NamedOffsets: TypeAlias = tuple[N, int, int]
+type HeaderNamedOffsets = NamedOffsets[HeaderOffsetsName]
+type SuppTEXTNamedOffsets = NamedOffsets[SuppTextOffsetsName]
+type TextNamedOffsets = NamedOffsets[TextOffsetsName]
+type HeaderOrSuppNamedOffsets = NamedOffsets[HeaderOrSuppOffsetsName]
 
-HeaderNamedOffsets: TypeAlias = NamedOffsets[HeaderOffsetsName]
-SuppTEXTNamedOffsets: TypeAlias = NamedOffsets[SuppTextOffsetsName]
-TextNamedOffsets: TypeAlias = NamedOffsets[TextOffsetsName]
-HeaderOrSuppNamedOffsets: TypeAlias = NamedOffsets[HeaderOrSuppOffsetsName]
-
-SuppTEXTOffsetsOriginType: TypeAlias = Literal[
+type SuppTEXTOffsetsOriginType = Literal[
     "empty",
     "unparsed",
     "malformed",
@@ -263,7 +256,7 @@ SuppTEXTOffsetsOriginType: TypeAlias = Literal[
     "valid",
 ]
 
-TEXTOffsetsOriginType: TypeAlias = Literal[
+type TEXTOffsetsOriginType = Literal[
     "empty_text",
     "ignored",
     "unparsed",
@@ -274,10 +267,79 @@ TEXTOffsetsOriginType: TypeAlias = Literal[
     "empty_header",
 ]
 
-CRCOutput: TypeAlias = bytes | str | tuple[int, int] | None
+type CRCOutput = bytes | str | tuple[int, int] | None
 
-ComputeReadCRC: TypeAlias = Literal["never", "always", "test"]
+type ComputeReadCRC = Literal["never", "always", "test"]
 
-FlankingSegmentName: TypeAlias = Literal["text", "stext", "data", "analysis"] | int
+type FlankingSegmentName = Literal["text", "stext", "data", "analysis"] | int
 
-DarkBytes: TypeAlias = str | bytes | tuple[int, int]
+type DarkBytes = str | bytes | tuple[int, int]
+
+#: A dynamic selector for a type based on contents of an FCS file.
+#:
+#: This is used to select certain configuration options based on the keywords
+#: of an FCS file.
+#:
+#: The type can be included simply by itself, in which case no selection will
+#: occur.
+#:
+#: Alternatively, the type can be embedded in a series of Lisp-like conditional
+#: statements represented as Python tuples.
+#:
+#: If the tuple's first element is ``"if"``, the second must be a condition, the
+#: third must be a another selector (the same as this type) which will be
+#: evaluated if the condition is true, and the fourth must be another selector
+#: or ``None`` which will be evaluated if the condition is false.
+#:
+#: If the tuple's first element is ``"cond"``, each subsequent element must be a
+#: tuple pair with a condition and and a statement to be evaluated if the
+#: condition is true. These conditions will be evaluated in series until the
+#: the first true case.
+#:
+#: If this evaluates to ``None``, the default for the underlying type ``T`` will
+#: be chosen.
+type Selector[T] = (
+    T
+    | tuple[Literal["if"], Condition, Selector[T], Selector[T] | None]
+    | tuple[Literal["cond"], Cond[T]]
+    | tuple[Literal["cond"], Cond[T], Cond[T]]
+    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T]]
+    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T], Cond[T]]
+    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T], Cond[T], Cond[T]]
+    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T], Cond[T], Cond[T], Cond[T]]
+)
+
+#: A conditional rule to be used in :py:class:`~pyreflow.typing.Selector`.
+type Cond[T] = tuple[Condition, Selector[T]]
+
+#: An expression which evaluates to true or false depending on FCS keywords.
+#:
+#: This is a List-like set of tuples that represent conditional logic. The first
+#: element in each tuple is a "logical function" which will evaluate to true or
+#: false depending on the boolean outputs of the arguments that follow.
+type Condition = (
+    tuple[Literal["and"], Statement, Statement]
+    | tuple[Literal["or"], Statement, Statement]
+    | tuple[Literal["not"], Statement]
+)
+
+#: Evaluates to true of false depending on the value of an FCS file keyword.
+#:
+#: These are Lisp-like expressions represented as Python tuples where the first
+#: element is a "function" which is run with the arguments that follow.
+#:
+#: If ``"has_key"``, return true if the indicated key is present.
+#:
+#: If ``"key_is"``, return true if the indicated key (first argument) has a
+#: value exactly equal to the second argument.
+#:
+#: If ``"key_matches"``, return true if the indicated key (first argument) has a
+#: value which matches the regular expression (second argument). The regexp must
+#: follow the syntax of the rust `regexp crate <https://docs.rs/regex-syntax/latest/regex_syntax/>`__.
+#:
+#: Keys can either be standard (start with ``"$"``) or non-standard (no ``"$"``).
+type Statement = (
+    tuple[Literal["has_key"], str]
+    | tuple[Literal["key_is"], str, str]
+    | tuple[Literal["key_matches"], str, str]
+)

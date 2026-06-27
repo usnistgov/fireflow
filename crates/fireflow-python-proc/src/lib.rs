@@ -837,18 +837,18 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("dataset_offset", self.dataset_offset())?;
-                ret.set_item("version", self.version())?;
-                ret.set_item("final_offsets", self.final_offsets().dict(py)?)?;
-                ret.set_item("original_offsets", self.original_offsets().dict(py)?)?;
-                ret.set_item("overlaps", self.overlaps())?;
-                ret.set_item("dark_bytes", self.dark_bytes())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("dataset_offset", self.dataset_offset())?;
+            //     ret.set_item("version", self.version())?;
+            //     ret.set_item("final_offsets", self.final_offsets().dict(py)?)?;
+            //     ret.set_item("original_offsets", self.original_offsets().dict(py)?)?;
+            //     ret.set_item("overlaps", self.overlaps())?;
+            //     ret.set_item("dark_bytes", self.dark_bytes())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -873,14 +873,14 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
                 #path::new(std, nonstd).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("std", self.std())?;
-                ret.set_item("nonstd", self.nonstd())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("std", self.std())?;
+            //     ret.set_item("nonstd", self.nonstd())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -916,16 +916,16 @@ pub fn impl_py_header_offsets(input: TokenStream) -> TokenStream {
                 Ok(x.0.into())
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("text", self.text())?;
-                ret.set_item("data", self.data())?;
-                ret.set_item("analysis", self.analysis())?;
-                ret.set_item("others", self.others())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("text", self.text())?;
+            //     ret.set_item("data", self.data())?;
+            //     ret.set_item("analysis", self.analysis())?;
+            //     ret.set_item("others", self.others())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -962,16 +962,16 @@ pub fn impl_py_original_header_offsets(input: TokenStream) -> TokenStream {
                 #bare_path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("text", self.text())?;
-                ret.set_item("data", self.data())?;
-                ret.set_item("analysis", self.analysis())?;
-                ret.set_item("others", self.others())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("text", self.text())?;
+            //     ret.set_item("data", self.data())?;
+            //     ret.set_item("analysis", self.analysis())?;
+            //     ret.set_item("others", self.others())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -998,14 +998,14 @@ pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
                 #path::new(kws.into(), flat_diagnostics.into()).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("kws", self.kws().dict(py)?)?;
-                ret.set_item("flat_diagnostics", self.flat_diagnostics().dict(py)?)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("kws", self.kws().dict(py)?)?;
+            //     ret.set_item("flat_diagnostics", self.flat_diagnostics().dict(py)?)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1041,20 +1041,20 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                let vs = self
-                    .version_scores()
-                    .map(|(v20, v30, v31, v32)| {
-                         (v20.dict(), v30.dict(), v31.dict(), v32.dict())
-                    });
-                ret.set_item("text", self.text().dict(py)?)?;
-                ret.set_item("dataset", self.dataset().dict(py)?)?;
-                ret.set_item("version_scores", vs)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     let vs = self
+            //         .version_scores()
+            //         .map(|(v20, v30, v31, v32)| {
+            //              (v20.dict(), v30.dict(), v31.dict(), v32.dict())
+            //         });
+            //     ret.set_item("text", self.text().dict(py)?)?;
+            //     ret.set_item("dataset", self.dataset().dict(py)?)?;
+            //     ret.set_item("version_scores", vs)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1092,18 +1092,18 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("data", self.data())?;
-                ret.set_item("analysis", self.analysis())?;
-                ret.set_item("others", self.others())?;
-                ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
-                ret.set_item("schema_diagnostics", self.schema_diagnostics().dict(py)?)?;
-                ret.set_item("dataset_diagnostics", self.dataset_diagnostics().dict(py)?)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("data", self.data())?;
+            //     ret.set_item("analysis", self.analysis())?;
+            //     ret.set_item("others", self.others())?;
+            //     ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
+            //     ret.set_item("schema_diagnostics", self.schema_diagnostics().dict(py)?)?;
+            //     ret.set_item("dataset_diagnostics", self.dataset_diagnostics().dict(py)?)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1135,14 +1135,14 @@ pub fn impl_py_new_flat_dataset_with_kws_output(input: TokenStream) -> TokenStre
                 #path::new(dataset.into(), header.into()).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("dataset", self.dataset().dict(py)?)?;
-                ret.set_item("header", self.header().dict(py)?)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("dataset", self.dataset().dict(py)?)?;
+            //     ret.set_item("header", self.header().dict(py)?)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1317,18 +1317,18 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
                 Ok(ret.into())
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("origin_type", self.origin_type())?;
-                ret.set_item("final_offsets", self.final_offsets())?;
-                ret.set_item("original_offsets", self.original_offsets())?;
-                ret.set_item("other_index", self.other_index())?;
-                ret.set_item("overlaps", self.overlaps())?;
-                ret.set_item("overflow", self.overflow())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("origin_type", self.origin_type())?;
+            //     ret.set_item("final_offsets", self.final_offsets())?;
+            //     ret.set_item("original_offsets", self.original_offsets())?;
+            //     ret.set_item("other_index", self.other_index())?;
+            //     ret.set_item("overlaps", self.overlaps())?;
+            //     ret.set_item("overflow", self.overflow())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1464,16 +1464,16 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
                 Ok(ret.into())
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("origin_type", self.origin_type())?;
-                ret.set_item("original_offsets", self.original_offsets())?;
-                ret.set_item("overlaps", self.overlaps())?;
-                ret.set_item("overflow", self.overflow())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("origin_type", self.origin_type())?;
+            //     ret.set_item("original_offsets", self.original_offsets())?;
+            //     ret.set_item("overlaps", self.overlaps())?;
+            //     ret.set_item("overflow", self.overflow())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1607,23 +1607,23 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("event_width", self.event_width())?;
-                ret.set_item("event_data_remainder", self.event_data_remainder())?;
-                ret.set_item("tot_event_mismatch", self.tot_event_mismatch())?;
-                ret.set_item("overrange_columns", self.overrange_columns())?;
-                ret.set_item("intra_segment_dark_bytes", self.intra_segment_dark_bytes())?;
-                ret.set_item("post_dataset_dark_bytes", self.post_dataset_dark_bytes())?;
-                ret.set_item("file_crc", self.file_crc())?;
-                ret.set_item("computed_crc", self.computed_crc())?;
-                ret.set_item("dataset_len", self.dataset_len())?;
-                ret.set_item("next_dataset_offset", self.next_dataset_offset())?;
-                ret.set_item("next_dataset_manually_scanned", self.next_dataset_manually_scanned())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("event_width", self.event_width())?;
+            //     ret.set_item("event_data_remainder", self.event_data_remainder())?;
+            //     ret.set_item("tot_event_mismatch", self.tot_event_mismatch())?;
+            //     ret.set_item("overrange_columns", self.overrange_columns())?;
+            //     ret.set_item("intra_segment_dark_bytes", self.intra_segment_dark_bytes())?;
+            //     ret.set_item("post_dataset_dark_bytes", self.post_dataset_dark_bytes())?;
+            //     ret.set_item("file_crc", self.file_crc())?;
+            //     ret.set_item("computed_crc", self.computed_crc())?;
+            //     ret.set_item("dataset_len", self.dataset_len())?;
+            //     ret.set_item("next_dataset_offset", self.next_dataset_offset())?;
+            //     ret.set_item("next_dataset_manually_scanned", self.next_dataset_manually_scanned())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1698,17 +1698,17 @@ pub fn impl_py_intra_segment_dark_bytes(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("prev", self.prev())?;
-                ret.set_item("next", self.next())?;
-                ret.set_item("start", self.start())?;
-                ret.set_item("end", self.end())?;
-                ret.set_item("bytes", self.bytes())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("prev", self.prev())?;
+            //     ret.set_item("next", self.next())?;
+            //     ret.set_item("start", self.start())?;
+            //     ret.set_item("end", self.end())?;
+            //     ret.set_item("bytes", self.bytes())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1771,18 +1771,18 @@ pub fn impl_py_keyword_version_score(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self) -> hashbrown::HashMap<String, usize> {
-                let mut ret = hashbrown::HashMap::new();
-                ret.insert("good_req".into(), self.0.good_req);
-                ret.insert("good_opt".into(), self.0.good_opt);
-                ret.insert("drop".into(), self.0.drop);
-                ret.insert("missing_opt".into(), self.0.missing_opt);
-                ret.insert("missing_req".into(), self.0.missing_req);
-                ret.insert("missing_absent".into(), self.0.missing_absent);
-                ret
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self) -> hashbrown::HashMap<String, usize> {
+            //     let mut ret = hashbrown::HashMap::new();
+            //     ret.insert("good_req".into(), self.0.good_req);
+            //     ret.insert("good_opt".into(), self.0.good_opt);
+            //     ret.insert("drop".into(), self.0.drop);
+            //     ret.insert("missing_opt".into(), self.0.missing_opt);
+            //     ret.insert("missing_req".into(), self.0.missing_req);
+            //     ret.insert("missing_absent".into(), self.0.missing_absent);
+            //     ret
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1841,16 +1841,16 @@ pub fn impl_py_offsets_overflow(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("offsets", self.offsets())?;
-                ret.set_item("overflow", self.overflow())?;
-                ret.set_item("datset_len", self.dataset_len())?;
-                ret.set_item("bound_is_nextdata", self.bound_is_nextdata())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("offsets", self.offsets())?;
+            //     ret.set_item("overflow", self.overflow())?;
+            //     ret.set_item("datset_len", self.dataset_len())?;
+            //     ret.set_item("bound_is_nextdata", self.bound_is_nextdata())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -1926,15 +1926,15 @@ pub fn impl_py_offsets_overlap(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("offsets0", self.offsets0())?;
-                ret.set_item("offsets1", self.offsets1())?;
-                ret.set_item("overlap", self.overlap())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("offsets0", self.offsets0())?;
+            //     ret.set_item("offsets1", self.offsets1())?;
+            //     ret.set_item("overlap", self.overlap())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2137,34 +2137,34 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("optional", self.optional())?;
-                ret.set_item("pseudostandard", self.pseudostandard())?;
-                ret.set_item("hyper_par", self.hyper_par())?;
-                ret.set_item("hyper_gate", self.hyper_gate())?;
-                ret.set_item("other_version", self.other_version())?;
-                ret.set_item("timestep", self.timestep())?;
-                ret.set_item("dedup_names", self.dedup_names())?;
-                ret.set_item("scale", self.scale())?;
-                ret.set_item("gate_scale", self.gate_scale())?;
-                ret.set_item("trimmed", self.trimmed())?;
-                ret.set_item("temporal_optical_pairs", self.temporal_optical_pairs())?;
-                ret.set_item("timestep_added", self.timestep_added())?;
-                ret.set_item("spillover_was_indexed", self.spillover_was_indexed())?;
-                ret.set_item("btim_pattern", self.btim_pattern())?;
-                ret.set_item("etim_pattern", self.etim_pattern())?;
-                ret.set_item("date_pattern", self.date_pattern())?;
-                ret.set_item("begindatetime_pattern", self.begindatetime_pattern())?;
-                ret.set_item("enddatetime_pattern", self.enddatetime_pattern())?;
-                ret.set_item("begindatetime_used_localtime", self.begindatetime_used_localtime())?;
-                ret.set_item("enddatetime_used_localtime", self.enddatetime_used_localtime())?;
-                ret.set_item("last_modified_pattern", self.last_modified_pattern())?;
-                ret.set_item("schema_diagnostics", self.schema_diagnostics().dict(py)?)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("optional", self.optional())?;
+            //     ret.set_item("pseudostandard", self.pseudostandard())?;
+            //     ret.set_item("hyper_par", self.hyper_par())?;
+            //     ret.set_item("hyper_gate", self.hyper_gate())?;
+            //     ret.set_item("other_version", self.other_version())?;
+            //     ret.set_item("timestep", self.timestep())?;
+            //     ret.set_item("dedup_names", self.dedup_names())?;
+            //     ret.set_item("scale", self.scale())?;
+            //     ret.set_item("gate_scale", self.gate_scale())?;
+            //     ret.set_item("trimmed", self.trimmed())?;
+            //     ret.set_item("temporal_optical_pairs", self.temporal_optical_pairs())?;
+            //     ret.set_item("timestep_added", self.timestep_added())?;
+            //     ret.set_item("spillover_was_indexed", self.spillover_was_indexed())?;
+            //     ret.set_item("btim_pattern", self.btim_pattern())?;
+            //     ret.set_item("etim_pattern", self.etim_pattern())?;
+            //     ret.set_item("date_pattern", self.date_pattern())?;
+            //     ret.set_item("begindatetime_pattern", self.begindatetime_pattern())?;
+            //     ret.set_item("enddatetime_pattern", self.enddatetime_pattern())?;
+            //     ret.set_item("begindatetime_used_localtime", self.begindatetime_used_localtime())?;
+            //     ret.set_item("enddatetime_used_localtime", self.enddatetime_used_localtime())?;
+            //     ret.set_item("last_modified_pattern", self.last_modified_pattern())?;
+            //     ret.set_item("schema_diagnostics", self.schema_diagnostics().dict(py)?)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2219,15 +2219,15 @@ pub fn impl_py_data_schema_diagnostics(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("truncated_columns", self.truncated_columns())?;
-                ret.set_item("original_int_width", self.original_int_width())?;
-                ret.set_item("original_byteord", self.original_byteord())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("truncated_columns", self.truncated_columns())?;
+            //     ret.set_item("original_int_width", self.original_int_width())?;
+            //     ret.set_item("original_byteord", self.original_byteord())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2277,17 +2277,17 @@ pub fn impl_py_dataset_offsets(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("final_data_offsets", self.final_data_offsets())?;
-                ret.set_item("final_analysis_offsets", self.final_analysis_offsets())?;
-                ret.set_item("data_origin", self.data_origin())?;
-                ret.set_item("analysis_origin", self.analysis_origin())?;
-                ret.set_item("data_analysis_overlap", self.data_analysis_overlap())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("final_data_offsets", self.final_data_offsets())?;
+            //     ret.set_item("final_analysis_offsets", self.final_analysis_offsets())?;
+            //     ret.set_item("data_origin", self.data_origin())?;
+            //     ret.set_item("analysis_origin", self.analysis_origin())?;
+            //     ret.set_item("data_analysis_overlap", self.data_analysis_overlap())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2332,22 +2332,22 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                let vs = self
-                    .version_scores()
-                    .map(|(v20, v30, v31, v32)| {
-                         (v20.dict(), v30.dict(), v31.dict(), v32.dict())
-                    });
-                ret.set_item("tot", self.tot())?;
-                ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
-                ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
-                ret.set_item("flat_diagnostics", self.flat_diagnostics().dict(py)?)?;
-                ret.set_item("version_scores", vs)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     let vs = self
+            //         .version_scores()
+            //         .map(|(v20, v30, v31, v32)| {
+            //              (v20.dict(), v30.dict(), v31.dict(), v32.dict())
+            //         });
+            //     ret.set_item("tot", self.tot())?;
+            //     ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
+            //     ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
+            //     ret.set_item("flat_diagnostics", self.flat_diagnostics().dict(py)?)?;
+            //     ret.set_item("version_scores", vs)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2380,20 +2380,20 @@ pub fn impl_py_std_dataset_output(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                let vs = self
-                    .version_scores()
-                    .map(|(v20, v30, v31, v32)| {
-                         (v20.dict(), v30.dict(), v31.dict(), v32.dict())
-                    });
-                ret.set_item("dataset", self.dataset().dict(py)?)?;
-                ret.set_item("flat_diagnostics", self.flat_diagnostics().dict(py)?)?;
-                ret.set_item("version_scores", vs)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     let vs = self
+            //         .version_scores()
+            //         .map(|(v20, v30, v31, v32)| {
+            //              (v20.dict(), v30.dict(), v31.dict(), v32.dict())
+            //         });
+            //     ret.set_item("dataset", self.dataset().dict(py)?)?;
+            //     ret.set_item("flat_diagnostics", self.flat_diagnostics().dict(py)?)?;
+            //     ret.set_item("version_scores", vs)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2426,15 +2426,15 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
-                ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
-                ret.set_item("dataset_diagnostics", self.dataset_diagnostics().dict(py)?)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("dataset_offsets", self.dataset_offsets().dict(py)?)?;
+            //     ret.set_item("std_diagnostics", self.std_diagnostics().dict(py)?)?;
+            //     ret.set_item("dataset_diagnostics", self.dataset_diagnostics().dict(py)?)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2466,14 +2466,14 @@ pub fn impl_py_new_std_dataset_with_kws_output(input: TokenStream) -> TokenStrea
                 #path::new(dataset.into(), header.into()).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("dataset", self.dataset().dict(py)?)?;
-                ret.set_item("header", self.header().dict(py)?)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("dataset", self.dataset().dict(py)?)?;
+            //     ret.set_item("header", self.header().dict(py)?)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2514,15 +2514,15 @@ pub fn impl_py_header_supp(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("header", self.header().dict(py)?)?;
-                ret.set_item("supp_text", self.supp_text())?;
-                ret.set_item("nextdata", self.nextdata())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("header", self.header().dict(py)?)?;
+            //     ret.set_item("supp_text", self.supp_text())?;
+            //     ret.set_item("nextdata", self.nextdata())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2677,23 +2677,23 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
                 ).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("header_supp", self.header_supp().dict(py)?)?;
-                ret.set_item("primary_text_overflow", self.primary_text_overflow())?;
-                ret.set_item("header_overflows", self.header_overflows())?;
-                ret.set_item("byte_pairs", self.byte_pairs())?;
-                ret.set_item("non_unique_std_keywords", self.non_unique_std_keywords())?;
-                ret.set_item("non_unique_nonstd_keywords", self.non_unique_nonstd_keywords())?;
-                ret.set_item("ignored_standard_keywords", self.ignored_standard_keywords())?;
-                ret.set_item("keys_with_empty_trimmed_values", self.keys_with_empty_trimmed_values())?;
-                ret.set_item("keys_with_trimmed_values", self.keys_with_trimmed_values())?;
-                ret.set_item("primary_split", self.primary_split().dict(py)?)?;
-                ret.set_item("supp_split", self.supp_split().map(|s| s.dict(py)).transpose()?)?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("header_supp", self.header_supp().dict(py)?)?;
+            //     ret.set_item("primary_text_overflow", self.primary_text_overflow())?;
+            //     ret.set_item("header_overflows", self.header_overflows())?;
+            //     ret.set_item("byte_pairs", self.byte_pairs())?;
+            //     ret.set_item("non_unique_std_keywords", self.non_unique_std_keywords())?;
+            //     ret.set_item("non_unique_nonstd_keywords", self.non_unique_nonstd_keywords())?;
+            //     ret.set_item("ignored_standard_keywords", self.ignored_standard_keywords())?;
+            //     ret.set_item("keys_with_empty_trimmed_values", self.keys_with_empty_trimmed_values())?;
+            //     ret.set_item("keys_with_trimmed_values", self.keys_with_trimmed_values())?;
+            //     ret.set_item("primary_split", self.primary_split().dict(py)?)?;
+            //     ret.set_item("supp_split", self.supp_split().map(|s| s.dict(py)).transpose()?)?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2791,21 +2791,21 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("delimiter", self.delimiter())?;
-                ret.set_item("escaped", self.escaped())?;
-                ret.set_item("keys_with_blank_values", self.keys_with_blank_values())?;
-                ret.set_item("values_with_blank_keys", self.values_with_blank_keys())?;
-                ret.set_item("skipped_pairs", self.skipped_pairs())?;
-                ret.set_item("tokens_with_boundary_delims", self.tokens_with_boundary_delims())?;
-                ret.set_item("last_odd_token", self.last_odd_token())?;
-                ret.set_item("has_even_delims", self.has_even_delims())?;
-                ret.set_item("extra_leading_delims", self.extra_leading_delims())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("delimiter", self.delimiter())?;
+            //     ret.set_item("escaped", self.escaped())?;
+            //     ret.set_item("keys_with_blank_values", self.keys_with_blank_values())?;
+            //     ret.set_item("values_with_blank_keys", self.values_with_blank_keys())?;
+            //     ret.set_item("skipped_pairs", self.skipped_pairs())?;
+            //     ret.set_item("tokens_with_boundary_delims", self.tokens_with_boundary_delims())?;
+            //     ret.set_item("last_odd_token", self.last_odd_token())?;
+            //     ret.set_item("has_even_delims", self.has_even_delims())?;
+            //     ret.set_item("extra_leading_delims", self.extra_leading_delims())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()
@@ -2897,24 +2897,24 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
                 #path::new(#inner_args).into()
             }
 
-            /// Dump this class as a dictionary.
-            #[getter]
-            fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
-                let mut ret = pyo3::types::PyDict::new(py);
-                ret.set_item("version", self.version())?;
-                ret.set_item("text_len", self.text_len())?;
-                ret.set_item("data_len", self.data_len())?;
-                ret.set_item("analysis_len", self.analysis_len())?;
-                ret.set_item("n_events", self.n_events())?;
-                ret.set_item("n_measurements", self.n_measurements())?;
-                ret.set_item("n_other", self.n_other())?;
-                ret.set_item("others_len", self.others_len())?;
-                ret.set_item("datatype", self.datatype())?;
-                ret.set_item("dataset_offset", self.dataset_offset())?;
-                ret.set_item("file_crc", self.file_crc())?;
-                ret.set_item("computed_crc", self.computed_crc())?;
-                Ok(ret.into())
-            }
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("version", self.version())?;
+            //     ret.set_item("text_len", self.text_len())?;
+            //     ret.set_item("data_len", self.data_len())?;
+            //     ret.set_item("analysis_len", self.analysis_len())?;
+            //     ret.set_item("n_events", self.n_events())?;
+            //     ret.set_item("n_measurements", self.n_measurements())?;
+            //     ret.set_item("n_other", self.n_other())?;
+            //     ret.set_item("others_len", self.others_len())?;
+            //     ret.set_item("datatype", self.datatype())?;
+            //     ret.set_item("dataset_offset", self.dataset_offset())?;
+            //     ret.set_item("file_crc", self.file_crc())?;
+            //     ret.set_item("computed_crc", self.computed_crc())?;
+            //     Ok(ret.into())
+            // }
         }
     };
     doc.into_impl_class(name, &path, new).1.into()

@@ -83,23 +83,23 @@ class _ReadFlatTEXTConfig(BaseModel):
 class _ReadStdKeywordsConfig(BaseModel):
     dedup_measurement_names: bool = False
     trim_intra_value_whitespace: bool = False
-    time_meas_pattern: str | None = "^(TIME|Time)$"
+    time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$"
     allow_missing_time: pft.TriFlag = _DEFAULT_TRIFLAG
     add_missing_timestep: float | None = None
     force_linear_scale: pft.ForceLinearScale = "none"
     ignore_time_optical_keys: list[pft.TemporalOpticalKey] = []
     process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn"
-    date_pattern: str | None = None
-    time_pattern: str | None = None
-    datetime_pattern: str | None = None
-    last_modified_pattern: str | None = None
+    date_pattern: pft.Selector[str | None] = None
+    time_pattern: pft.Selector[str | None] = None
+    datetime_pattern: pft.Selector[str | None] = None
+    last_modified_pattern: pft.Selector[str | None] = None
     allow_other_feature: bool = False
     process_pseudostandard: pft.ProcessKeywordFailure = "error"
     process_hyper_par: pft.ProcessKeywordFailure = "error"
     process_other_version: pft.ProcessKeywordFailure = "error"
     process_extra_timestep: pft.ProcessKeywordFailure = "error"
     fix_log_scale_offsets: bool = False
-    nonstandard_measurement_pattern: str | None = "P%n"
+    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n"
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named"
     disallow_localtime: bool = False
 

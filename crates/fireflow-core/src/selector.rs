@@ -125,7 +125,7 @@ impl Statement {
     }
 }
 
-/// Error when parsing [`CaseInsRegex`] from [`String`].
+/// Error when parsing [`ValueRegex`] from [`String`].
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error("error when making case-insensitive regular expression: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

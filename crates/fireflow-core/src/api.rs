@@ -50,7 +50,7 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
-    ParsedKeywords, ParsedKeywordsDiagnostic, StdKey, StdKeywords, StdPresent, StringOrBytes,
+    ParsedKeywords, ParsedKeywordsDiagnostic, StdKey, StdKeywords, StringOrBytes,
     TruncatedNEString, ValidKeywords,
 };
 use crate::validated::read_state::{
@@ -178,7 +178,7 @@ pub fn fcs_read_std_dataset(
 pub fn fcs_read_flat_dataset_with_keywords(
     path: &PathBuf,
     mut hns: HeaderAndSuppOffsets,
-    std: &StdKeywords,
+    kws: &mut ValidKeywords,
     dataset_offset: DatasetOffset,
     dataset_len: Option<DatasetLen>,
     conf: &ReadFlatDatasetFromKeywordsConfig,
@@ -203,7 +203,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
             FlatDatasetFromKwsOutput::h_read_with_header_and_text(
                 &mut fr.buf_read,
                 v,
-                std,
+                kws,
                 &mut hns,
                 false,
                 &txt_st,
@@ -455,8 +455,11 @@ pub struct StdTEXTOutput {
 /// Output of parsing one flat dataset (TEXT+DATA) from an FCS file.
 #[derive(Clone, new, PartialEq)]
 pub struct FlatDatasetOutput {
+    /// Standard and nonstandard keywords.
+    pub keywords: ValidKeywords,
+
     /// Output from parsing HEADER+TEXT
-    pub text: FlatTEXTOutput,
+    pub flat_diagnostics: FlatTEXTDiagnostics,
 
     /// Output from parsing DATA+ANALYSIS
     pub dataset: FlatDatasetFromKwsOutput,
@@ -538,9 +541,6 @@ pub struct FlatTEXTDiagnostics {
 
     /// Nonstandard keys which appear more than once with their values.
     pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
-
-    /// Ignored standard keys with their values
-    pub ignored_standard_keywords: Vec<(StdKey, NEStringOrBytes)>,
 
     /// Keys with empty values as a result of trimming whitespace.
     pub keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
@@ -875,7 +875,6 @@ pub enum ParseFlatTEXTWarning {
     SuppOffsets(STextOffsetsWarning),
     Nextdata(ReadNextdataError),
     InvalidChars(InvalidKeywordCharsError),
-    AppendSupp(StdPresent),
 }
 
 /// Error when parsing TEXT segment in flat mode
@@ -890,7 +889,6 @@ pub enum ParseFlatTEXTError {
     SuppOffsets(STextOffsetsError),
     Nextdata(LookupNextdataError),
     InvalidKeyword(InvalidKeywordCharsError),
-    InvalidChars(StdPresent),
     NextdataOffset(DatasetOverflowError<HeaderOffsetsName>),
 }
 
@@ -1165,16 +1163,18 @@ impl FCSFileReader {
             })
             .and_then_commutative(|(new_ver, mut flat, st, scores)| {
                 let hns = &mut flat.flat_diagnostics.header_supp;
-                let std = &flat.keywords.std;
+                let mut kws = flat.keywords;
                 FlatDatasetFromKwsOutput::h_read_with_header_and_text(
                     &mut self.buf_read,
                     new_ver,
-                    std,
+                    &mut kws,
                     hns,
                     scan_next_dataset,
                     &st,
                 )
-                .map_ok_value(|dataset| FlatDatasetOutput::new(flat, dataset, scores))
+                .map_ok_value(|dataset| {
+                    FlatDatasetOutput::new(kws, flat.flat_diagnostics, dataset, scores)
+                })
                 .map_commutative_warnings(FlatDatasetWarning::from)
                 .map_pure_errors(FlatDatasetError::from)
             })
@@ -1542,7 +1542,7 @@ impl HeaderAndSuppOffsets {
 
 impl FlatDatasetOutput {
     fn summarize(self) -> DatasetSummary {
-        let fd = self.text.flat_diagnostics;
+        let fd = self.flat_diagnostics;
         let hdr = fd.header_supp.header;
         let ds = self.dataset;
         let txt = AsRef::<PrimaryTextOffsets>::as_ref(&hdr.final_offsets);
@@ -1555,7 +1555,7 @@ impl FlatDatasetOutput {
             n_measurements: ds.data.ncols(),
             n_other: ds.others.0.len(),
             others_len: ds.others.0.iter().map(|x| x.0.len()).sum(),
-            datatype: AlphaNumType::get_metaroot_req(&self.text.keywords.std).ok(),
+            datatype: AlphaNumType::get_metaroot_req(&self.keywords.std).ok(),
             dataset_offset: hdr.dataset_offset,
             file_crc: ds.dataset_diagnostics.file_crc,
             computed_crc: ds.dataset_diagnostics.computed_crc,
@@ -1568,7 +1568,7 @@ impl FlatDatasetFromKwsOutput {
     fn h_read_with_header_and_text<C, R>(
         h: &mut BufReader<R>,
         new_version: Version,
-        kws: &StdKeywords,
+        kws: &mut ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
         st: &TEXTReadState<C>,
@@ -1720,7 +1720,7 @@ impl FlatTEXTOutput {
                     })
             })
             .and_then_commutative(
-                |(mut kws, nextdata, supp_text_offsets, prim_out, supp_out, txt_st)| {
+                |(kws, nextdata, supp_text_offsets, prim_out, supp_out, txt_st)| {
                     // Check if any HEADER offsets exceed $NEXTDATA
                     let hdr_trunc_res = header
                         .final_offsets
@@ -1728,20 +1728,12 @@ impl FlatTEXTOutput {
                         .nowarn_into_warn()
                         .map_errors(ParseFlatTEXTError::from);
 
-                    let hconf: &ReadHeaderAndTEXTConfig = txt_st.conf().as_ref();
-
-                    // Combine primary and supp TEXT keywords; check for uniqueness
-                    let append_res = kws
-                        .append_std(&hconf.append_standard_keywords, hconf.allow_nonunique)
-                        .switchable_into_commutative()
-                        .map_commutative_warnings(ParseFlatTEXTWarning::from)
-                        .map_errors(ParseFlatTEXTError::from);
+                    // let hconf: &ReadHeaderAndTEXTConfig = txt_st.conf().as_ref();
 
                     let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
                     hdr_trunc_res
-                        .zip_commutative(append_res)
-                        .and_then_commutative(|(nd_overlaps, ())| {
+                        .and_then_commutative(|nd_overlaps| {
                             // Build diagnostics output, throw errors for any badly
                             // formatted tokens collected during parsing
                             let header_supp =
@@ -2019,14 +2011,12 @@ impl SplitTEXTDiagnostics {
 
         out.has_even_delims = !has_even_tokens;
 
-        let matchers = conf.as_matchers();
-
         for (key, value) in pairs.iter().tuples() {
             let k = NESlice::try_from_slice(key);
             let v = NESlice::try_from_slice(value);
             match (k, v) {
                 (Some(kk), Some(vv)) => {
-                    if let Some((e, is_err)) = kws.insert(&kk, &vv, &matchers, enc, conf) {
+                    if let Some((e, is_err)) = kws.insert(&kk, &vv, enc, conf) {
                         any_insert_err = any_insert_err || is_err;
                         insert_errs.push(ParseKeywordsIssue::from(e));
                     }
@@ -2101,10 +2091,8 @@ impl SplitTEXTDiagnostics {
         let mut insert_results = vec![];
         let mut any_insert_err = false;
 
-        let matchers = conf.as_matchers();
-
         let mut push_pair = |ks: &mut ParsedKeywords, kb: &NESlice<u8>, vb: &NESlice<u8>| {
-            let _ = ks.insert(kb, vb, &matchers, enc, conf).map(|(e, is_err)| {
+            let _ = ks.insert(kb, vb, enc, conf).map(|(e, is_err)| {
                 any_insert_err = any_insert_err || is_err;
                 insert_results.push(ParseKeywordsIssue::from(e));
             });
@@ -2682,7 +2670,7 @@ impl SuppTEXTOffsetsOutput {
 fn kws_to_df_analysis<C, R>(
     new_version: Version,
     h: &mut BufReader<R>,
-    kws: &StdKeywords,
+    kws: &mut ValidKeywords,
     hns: &mut HeaderAndSuppOffsets,
     st: &TEXTReadState<C>,
 ) -> WarningsAndIOGroupResult<

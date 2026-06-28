@@ -108,7 +108,7 @@
 
 use crate::config::{
     AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
-    DummyTriFlag, FixIntWidths, ReadDataKeywordsConfig, ReadDatasetConfig, TriErrorFlag as _,
+    DummyTriFlag, EvaledReadDataKeywordsConfig, FixIntWidths, ReadDatasetConfig, TriErrorFlag as _,
     WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
@@ -1862,13 +1862,13 @@ where
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>>;
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>>;
 
     fn new_empty(datatype: AlphaNumType) -> Self;
@@ -1877,7 +1877,7 @@ where
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Self::NumType>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>;
 
     fn h_read_df<R>(
@@ -1939,7 +1939,7 @@ impl VersionedDataSchema for DataSchema2_0 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         AnyOrderedDataSchema::lookup(std, meas_nonstd, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
@@ -1948,7 +1948,7 @@ impl VersionedDataSchema for DataSchema2_0 {
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         AnyOrderedDataSchema::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
@@ -1961,7 +1961,7 @@ impl VersionedDataSchema for DataSchema2_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Self::NumType>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
         AnyOrderedDataSchema::try_new(datatype, byteord, columns, conf)
@@ -1978,7 +1978,7 @@ impl VersionedDataSchema for DataSchema3_0 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         AnyOrderedDataSchema::lookup(std, meas_nonstd, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
@@ -1987,7 +1987,7 @@ impl VersionedDataSchema for DataSchema3_0 {
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         AnyOrderedDataSchema::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
@@ -2000,7 +2000,7 @@ impl VersionedDataSchema for DataSchema3_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
         AnyOrderedDataSchema::try_new(datatype, byteord, columns, conf)
@@ -2017,7 +2017,7 @@ impl VersionedDataSchema for DataSchema3_1 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         NonMixedDataSchema::lookup(std, meas_nonstd, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
@@ -2026,7 +2026,7 @@ impl VersionedDataSchema for DataSchema3_1 {
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         NonMixedDataSchema::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
     }
@@ -2039,7 +2039,7 @@ impl VersionedDataSchema for DataSchema3_1 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
         NonMixedDataSchema::try_new(datatype, byteord, columns, conf)
@@ -2056,7 +2056,7 @@ impl VersionedDataSchema for DataSchema3_2 {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
@@ -2067,7 +2067,7 @@ impl VersionedDataSchema for DataSchema3_2 {
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
@@ -2083,7 +2083,7 @@ impl VersionedDataSchema for DataSchema3_2 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Option<NumType>>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
         let notrunc = conf.disallow_range_truncation;
@@ -6668,20 +6668,20 @@ pub trait IsNumType: Sized {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>;
 
     fn lookup_all(
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
         meas_nonstd
             .iter_mut()
@@ -6694,7 +6694,7 @@ pub trait IsNumType: Sized {
     fn lookup_ro_all(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
         (0..par.0)
             .map(|i| Self::lookup_one_ro(kws, i.into(), conf))
@@ -6706,7 +6706,7 @@ pub trait IsNumType: Sized {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
         let width = Width::remove_meas_req(std, i);
         let range = TextRange::remove_meas_req(std, i);
@@ -6718,7 +6718,7 @@ pub trait IsNumType: Sized {
     fn lookup_one_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
         let width = Width::get_meas_req(kws, i);
         let range = TextRange::get_meas_req(kws, i);
@@ -6751,7 +6751,7 @@ impl IsNumType for Nothing<NumType> {
         _: &mut NonStdKeywords,
         _: &mut StdKeywords,
         _: MeasIndex,
-        _: &ReadDataKeywordsConfig,
+        _: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
     {
         LogResult::new_ok(Self::default())
@@ -6760,7 +6760,7 @@ impl IsNumType for Nothing<NumType> {
     fn lookup_datatype_ro(
         _: &StdKeywords,
         _: MeasIndex,
-        _: &ReadDataKeywordsConfig,
+        _: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
     {
         LogResult::new_ok(Self::default())
@@ -6773,7 +6773,7 @@ impl IsNumType for Option<NumType> {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
     {
         NumType::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
@@ -6783,7 +6783,7 @@ impl IsNumType for Option<NumType> {
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
     {
         NumType::get_or_ignore_meas_opt(kws, i, conf).switchable_into_commutative()
@@ -7850,7 +7850,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
     fn try_new(
         cs: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
         bo: ByteOrd2_0,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), IndexedBitmaskError, NewFixedIntLayoutError>
     {
         let notrunc = conf.disallow_range_truncation;
@@ -8040,7 +8040,7 @@ impl DataSchema3_2 {
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Option<NumType>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let endian_ = endian.map_err(LookupDataSchemaError::from).into_log();
         let columns_ = columns
@@ -8063,7 +8063,7 @@ impl<T> AnyOrderedDataSchema<T> {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let byteord = ByteOrd2_0::remove_metaroot_req(std);
@@ -8074,7 +8074,7 @@ impl<T> AnyOrderedDataSchema<T> {
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let byteord = ByteOrd2_0::get_metaroot_req(kws);
@@ -8086,7 +8086,7 @@ impl<T> AnyOrderedDataSchema<T> {
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         byteord: Result<ByteOrd2_0, ReqKeyError<ByteOrd2_0>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let byteord_ = byteord.map_err(LookupDataSchemaError::from).into_log();
         let columns_ = columns
@@ -8126,7 +8126,7 @@ impl<T> AnyOrderedDataSchema<T> {
         datatype: AlphaNumType,
         byteord: ByteOrd2_0,
         columns: Vec<DataSchemaKeywordValues2_0>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
         macro_rules! from {
@@ -8170,7 +8170,7 @@ impl NonMixedDataSchema<Nothing<NumType>> {
         std: &mut StdKeywords,
         meas_nonstd: &mut [NonStdKeywords],
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(std);
         let endian = ByteOrd3_1::remove_metaroot_req(std);
@@ -8181,7 +8181,7 @@ impl NonMixedDataSchema<Nothing<NumType>> {
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
@@ -8193,7 +8193,7 @@ impl NonMixedDataSchema<Nothing<NumType>> {
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let endian_ = endian.map_err(LookupDataSchemaError::from).into_log();
         let columns_ = columns
@@ -8214,7 +8214,7 @@ impl NonMixedDataSchema<Nothing<NumType>> {
         datatype: AlphaNumType,
         endian: Endian,
         columns: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
         let notrunc = conf.disallow_range_truncation;

@@ -1,4 +1,4 @@
-use crate::config::{ConfigFlag as _, EvaledReadStdKeywordsConfig, ReadDataKeywordsConfig};
+use crate::config::{ConfigFlag as _, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey as _};
@@ -137,7 +137,7 @@ impl Datetimes {
         LookupDatetimesError,
     >
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -149,7 +149,7 @@ impl Datetimes {
         }
         let b = BeginDateTime::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
         let e = EndDateTime::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip_commutative(go!(e))
             .and_then_commutative(|(begin, end)| {

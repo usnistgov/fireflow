@@ -1,7 +1,7 @@
 //! The DATA segment and metadata for measurements.
 
 use crate::config::{
-    AllowLoss, EvaledReadStdKeywordsConfig, ReadDataKeywordsConfig, ReadDatasetConfig,
+    AllowLoss, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig, ReadDatasetConfig,
     TemporalHasOpticalKeyError,
 };
 use crate::core::{TrimmedKeywords, Versioned};
@@ -1770,7 +1770,7 @@ pub trait LookupShortname: Sized {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self>;
 }
 
@@ -1780,7 +1780,7 @@ impl LookupShortname for Option<Shortname> {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self> {
         Shortname::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
             .set_err_value(())
@@ -1795,7 +1795,7 @@ impl LookupShortname for Identity<Shortname> {
         _: &mut NonStdKeywords,
         _: &mut StdKeywords,
         i: MeasIndex,
-        _: &ReadDataKeywordsConfig,
+        _: &EvaledReadDataKeywordsConfig,
     ) -> LookupShortnameResult<Self> {
         Shortname::remove_meas_req(std, i)
             .map(Identity)
@@ -1819,7 +1819,7 @@ pub trait LookupOpticalScale: Sized {
         conf: &C,
     ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
 }
 
 impl LookupOpticalScale for OpticalScale2_0 {
@@ -1832,7 +1832,7 @@ impl LookupOpticalScale for OpticalScale2_0 {
         conf: &C,
     ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         Scale::remove_or_drop_meas_opt_with(std, nonstd, dropped, i, dt, conf)
             .map_switchable_errors(LookupScaleWarning::from)
@@ -1854,7 +1854,7 @@ impl LookupOpticalScale for OpticalScale3_0 {
         conf: &C,
     ) -> LookupOpticalScaleResult<Diagnosed<Self, OpticalScaleFix>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let gain = Gain::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
             .map_switchable_errors(LookupScaleWarning::from)
@@ -1887,7 +1887,7 @@ pub trait LookupOptical: Sized + OpticalKeywords {
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
 }
 
 impl LookupOptical for InnerOptical2_0 {
@@ -1899,7 +1899,7 @@ impl LookupOptical for InnerOptical2_0 {
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -1925,7 +1925,7 @@ impl LookupOptical for InnerOptical3_0 {
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let wave = Wavelength::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
             .map_switchable_errors(LookupOpticalWarning::from)
@@ -1951,7 +1951,7 @@ impl LookupOptical for InnerOptical3_1 {
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -1992,7 +1992,7 @@ impl LookupOptical for InnerOptical3_2 {
         conf: &C,
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -2044,7 +2044,7 @@ pub trait LookupTemporal: TemporalKeywords {
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>;
 }
 
 impl LookupTemporal for InnerTemporal2_0 {
@@ -2056,7 +2056,7 @@ impl LookupTemporal for InnerTemporal2_0 {
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
@@ -2091,7 +2091,7 @@ impl LookupTemporal for InnerTemporal3_0 {
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
@@ -2128,7 +2128,7 @@ impl LookupTemporal for InnerTemporal3_1 {
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
@@ -2171,7 +2171,7 @@ impl LookupTemporal for InnerTemporal3_2 {
         conf: &C,
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
@@ -2728,7 +2728,7 @@ impl<X, O> ScaledOptical<X, O> {
     where
         X: LookupOpticalScale,
         O: LookupOptical,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let s_res = X::lookup_optical_scale(std, &mut nonstd, dropped, i, dt, conf)
             .map_errors(LookupScaledOpticalError::from)
@@ -3017,7 +3017,7 @@ impl<O> Optical<O> {
     ) -> LookupOpticalResult<DiagnosedOptical<Self>>
     where
         O: LookupOptical,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -3162,7 +3162,7 @@ impl<T> Temporal<T> {
     ) -> LookupTemporalResult<DiagnosedTemporal<Self>>
     where
         T: LookupTemporal,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         T::lookup_specific(std, &mut nonstd, dropped, i, conf).map_ok_value(|specific| {
             let common = CommonMeasurement::lookup(std, nonstd, i);
@@ -4224,7 +4224,7 @@ impl PeakData {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupPeakError, LookupPeakError> {
         let b = PeakBin::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
             .map_switchable_errors(LookupPeakError::from)

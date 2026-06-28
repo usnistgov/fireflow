@@ -1,4 +1,4 @@
-use crate::config::{EvaledReadStdKeywordsConfig, ReadDataKeywordsConfig};
+use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword0,
@@ -216,7 +216,7 @@ impl<X> Timestamps<X> {
         Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
         Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
         X: PartialOrd + FromStr + From<NaiveTime>,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
     {
         macro_rules! go {
@@ -230,7 +230,7 @@ impl<X> Timestamps<X> {
         let b = Btim::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
         let e = Etim::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
         let d = FCSDate::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip3_commutative(go!(e), go!(d))
             .and_then_commutative(|(btim, etim, date)| {

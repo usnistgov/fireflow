@@ -1,6 +1,6 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, EvaledReadStdKeywordsConfig, ProcessOptionalFailure,
-    ReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
+    ConfigFlag as _, DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
+    ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
 };
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
@@ -480,10 +480,10 @@ impl Gain {
         conf: &C,
     ) -> DeferredSwitchableErrors<Option<Self>, DummyTriFlag, LookupTemporalGainError>
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_time_optical_keys;
-        let drop_flag = AsRef::<ReadDataKeywordsConfig>::as_ref(conf)
+        let drop_flag = AsRef::<EvaledReadDataKeywordsConfig>::as_ref(conf)
             .process_optional_failure
             .as_triflag();
         if ignore.0.contains(&TemporalOpticalKey::Gain) {
@@ -1443,7 +1443,7 @@ impl Compensation2_0 {
     pub(crate) fn lookup(
         kws: &mut StdKeywords,
         par: Par,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
         // column = src measurement
         // row = target measurement

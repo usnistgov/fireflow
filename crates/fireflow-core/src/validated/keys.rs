@@ -1,5 +1,8 @@
 use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
-use crate::config::{AllowNonunique, DummyTriFlag, ReadHeaderAndTEXTConfig, TriErrorFlag as _};
+use crate::config::{
+    AllowNonunique, DummyTriFlag, EvaledReadDataKeywordsConfig, ReadHeaderAndTEXTConfig,
+    TriErrorFlag as _,
+};
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
 use crate::nonempty::FcsNEVec;
@@ -36,6 +39,7 @@ use std::borrow::Cow;
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
+use std::mem;
 use std::str::FromStr;
 use std::string::ToString;
 use std::sync::OnceLock;
@@ -180,9 +184,6 @@ pub struct ParsedKeywordsDiagnostic {
     /// Non-standard keys which appear more than once with their values.
     pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
 
-    /// Standard keys which were ignored
-    pub ignored_std_keywords: Vec<(StdKey, NEStringOrBytes)>,
-
     /// Keys with empty values.
     ///
     /// The only way this can happen at this stage is if the value is entirely
@@ -193,6 +194,21 @@ pub struct ParsedKeywordsDiagnostic {
     ///
     /// The value included here is the original value.
     pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
+}
+
+#[derive(new)]
+pub(crate) struct RepairDiagnostics {
+    /// Standard keys which appear more than once with their values.
+    pub non_unique_std: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Non-standard keys which appear more than once with their values.
+    pub non_unique_nonstd: Vec<(NonStdKey, TruncatedNEString)>,
+
+    /// Standard keys which were ignored.
+    pub ignored: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Standard keys which were removed.
+    pub removed: Vec<(StdKey, TruncatedNEString)>,
 }
 
 /// Either a standard or non-standard key.
@@ -245,6 +261,88 @@ impl ValidKeywords {
 
     pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
         self.nonstd.get(k)
+    }
+
+    pub(crate) fn repair(&mut self, conf: &EvaledReadDataKeywordsConfig) -> RepairDiagnostics {
+        let matchers = conf.as_matchers();
+        let mut ignored = vec![];
+        let mut std_non_unique = vec![];
+        let mut nonstd_non_unique = vec![];
+        let mut removed = vec![];
+
+        // Update standard keys
+        self.std = mem::take(&mut self.std)
+            .into_iter()
+            .filter_map(|(k, v)| {
+                if matchers.ignore.is_match(k.as_ref()) {
+                    // First remove keys that should be flat-out ignored
+                    ignored.push((k, TruncatedNEString(v)));
+                    None
+                } else if matchers.demote.is_match(k.as_ref()) {
+                    // Next remove keys that should be demoted and put them
+                    // in non-std.
+                    let nsk = NonStdKey(k.0);
+                    if self.nonstd.contains_key(&nsk) {
+                        nonstd_non_unique.push((nsk, TruncatedNEString(v)));
+                    } else {
+                        let _ = self.nonstd.insert(nsk, v);
+                    }
+                    None
+                } else if let Some(s) = matchers.subs.get(k.as_ref()) {
+                    // Next try to sub the value of keys with matches; this
+                    // might produce a blank key which will effectively remove
+                    // it.
+                    if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
+                        Some((k, vf))
+                    } else {
+                        removed.push((k, TruncatedNEString(v)));
+                        None
+                    }
+                } else {
+                    Some((k, v))
+                }
+            })
+            .map(|(k, v)| {
+                // After removing everything we can, update values as needed.
+                let replace = &conf.replace_standard_key_values;
+                let kr: &KeyString = k.as_ref();
+                let vf = replace.get(kr).cloned().unwrap_or(v);
+                (k, vf)
+            })
+            .map(|(k, v)| {
+                // Finally, rename keys. Assume that this name mapping is
+                // validated such that we will never get a name collision.
+                let renames = conf.rename_standard_keys.as_ref();
+                let kf = renames.get(k.as_ref()).cloned().map(StdKey).unwrap_or(k);
+                (kf, v)
+            })
+            .collect();
+
+        // Update non-standard keys
+        let nonstd_removed = self
+            .nonstd
+            .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
+
+        for (k, v) in nonstd_removed {
+            let sk = StdKey(k.0);
+            if self.std.contains_key(&sk) {
+                std_non_unique.push((sk, TruncatedNEString(v)));
+            } else {
+                let _ = self.std.insert(sk, v);
+            }
+        }
+
+        let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
+            match self.std.entry(StdKey(k.clone())) {
+                Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
+                Entry::Vacant(e) => {
+                    e.insert(v.clone());
+                    None
+                }
+            }
+        });
+        std_non_unique.extend(non_unique_appended);
+        RepairDiagnostics::new(std_non_unique, nonstd_non_unique, ignored, removed)
     }
 }
 
@@ -983,7 +1081,6 @@ impl ParsedKeywords {
         &mut self,
         key: &NESlice<u8>,
         val: &NESlice<u8>,
-        matchers: &AllKeyMatchers<'_>,
         encoding: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Option<(KeywordInsertError, bool)> {
@@ -993,15 +1090,12 @@ impl ParsedKeywords {
         }
 
         enum KeyValueResult<'a> {
-            Ignore(StdKey, NEStringOrBytes),
             Empty(KeyOrBytes, DummyTriFlag),
             NonEmpty(AnyKey, Cow<'a, NEStr>, bool),
             NonUtf8Value(AnyKey, TruncatedNEBytes),
             NonAsciiKey(TruncatedNEBytes, TruncatedNEString, bool),
             BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
         }
-
-        let renames = &conf.rename_standard_keys.as_ref();
 
         let parse_key = |s: &NESlice<u8>| {
             let single_byte = matches!(encoding, Encoding::Single);
@@ -1057,21 +1151,16 @@ impl ParsedKeywords {
 
         let kv_res = if let Some((is_std, kstr)) = parse_key(key) {
             if is_std {
-                // Standard key: starts with '$' and is ASCII
-                if matchers.ignore.is_match(&kstr) {
-                    KeyValueResult::Ignore(StdKey(kstr), NEStringOrBytes::from(val))
-                } else {
-                    let ak = AnyKey::Std(StdKey(kstr));
-                    if let Some(trim_res) = parse_value() {
-                        match trim_res {
-                            TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
-                            TrimResult::Trimmed(value, was_trimmed) => {
-                                KeyValueResult::NonEmpty(ak, value, was_trimmed)
-                            }
+                let ak = AnyKey::Std(StdKey(kstr));
+                if let Some(trim_res) = parse_value() {
+                    match trim_res {
+                        TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
+                        TrimResult::Trimmed(value, was_trimmed) => {
+                            KeyValueResult::NonEmpty(ak, value, was_trimmed)
                         }
-                    } else {
-                        KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                     }
+                } else {
+                    KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                 }
             } else {
                 // Non-standard key: does not start with '$' and is ASCII
@@ -1112,36 +1201,10 @@ impl ParsedKeywords {
                     let pair = (k.clone().into(), vo);
                     self.diag.keys_with_trimmed_values.push(pair);
                 }
+                let vo = v.into_owned();
                 match k {
-                    AnyKey::Std(StdKey(kstr)) => {
-                        if matchers.demote.is_match(&kstr) {
-                            let vo = v.into_owned();
-                            self.insert_nonunique_nonstd(kstr, vo, conf)
-                        } else {
-                            let rk = renames.get(&kstr).cloned().unwrap_or(kstr);
-                            if let Some(s) = matchers.subs.get(&rk) {
-                                let sub_res = s.sub(v.as_ref().as_ref());
-                                if let Ok(ne) = NEString::try_from(sub_res) {
-                                    self.insert_nonunique_std(rk, ne, conf)
-                                } else {
-                                    let sk = StdKey(rk);
-                                    let e =
-                                        SubPatternEmptyError::new(sk, v.into_owned(), s.clone());
-                                    Some((e.into(), true))
-                                }
-                            } else {
-                                self.insert_nonunique_std(rk, v.into_owned(), conf)
-                            }
-                        }
-                    }
-                    AnyKey::NonStd(NonStdKey(kstr)) => {
-                        let vo = v.into_owned();
-                        if matchers.promote.is_match(&kstr) {
-                            self.insert_nonunique_std(kstr, vo, conf)
-                        } else {
-                            self.insert_nonunique_nonstd(kstr, vo, conf)
-                        }
-                    }
+                    AnyKey::Std(StdKey(kstr)) => self.insert_nonunique_std(kstr, vo, conf),
+                    AnyKey::NonStd(NonStdKey(kstr)) => self.insert_nonunique_nonstd(kstr, vo, conf),
                 }
             }
             KeyValueResult::Empty(k, flag) => {
@@ -1163,10 +1226,6 @@ impl ParsedKeywords {
             }
             KeyValueResult::BothInvalid(k, v) => {
                 self.diag.byte_pairs.push((k, v));
-                None
-            }
-            KeyValueResult::Ignore(k, v) => {
-                self.diag.ignored_std_keywords.push((k, v));
                 None
             }
         }
@@ -1225,37 +1284,10 @@ impl ParsedKeywords {
                 flag.is_error().map(|is_err| (err.into(), is_err))
             }
             Entry::Vacant(ent) => {
-                let v = conf
-                    .replace_standard_key_values
-                    .get(ent.key().as_ref())
-                    .cloned()
-                    .unwrap_or(value);
-                ent.insert(v);
+                ent.insert(value);
                 None
             }
         }
-    }
-
-    pub(crate) fn append_std(
-        &mut self,
-        new: &HashMap<KeyString, NEString>,
-        flag: AllowNonunique,
-    ) -> SwitchableErrorsResult<(), (), AllowNonunique, StdPresent> {
-        let es = new
-            .iter()
-            .filter_map(|(k, v)| match self.std.entry(StdKey(k.clone())) {
-                Entry::Occupied(e) => {
-                    self.diag
-                        .non_unique_std_keywords
-                        .push((StdKey(k.clone()), TruncatedNEString(v.clone())));
-                    Some(KeyPresent::new(e.key().clone(), v.clone()))
-                }
-                Entry::Vacant(e) => {
-                    e.insert(v.clone());
-                    None
-                }
-            });
-        LogResult::new_switchable_iter3((), (), es, flag)
     }
 }
 
@@ -1337,7 +1369,6 @@ impl ParsedKeywordsDiagnostic {
             byte_pairs,
             non_unique_std_keywords: self.non_unique_std_keywords,
             non_unique_nonstd_keywords: self.non_unique_nonstd_keywords,
-            ignored_standard_keywords: self.ignored_std_keywords,
             keys_with_empty_trimmed_values: self.keys_with_empty_trimmed_values,
             keys_with_trimmed_values: self.keys_with_trimmed_values,
             primary_split,
@@ -1403,22 +1434,21 @@ pub enum KeywordInsertError {
     StdPresent(StdPresent),
     NonStdPresent(NonStdPresent),
     Blank(BlankValueError),
-    Sub(SubPatternEmptyError),
 }
 
-/// Error when applying a [`SubPattern`] resulted in an empty string.
-#[derive(Debug, PartialEq, Error, new, Clone)]
-#[error(
-    "applying substitution pattern '{pat}' to value '{value}' for key \
-     '{key}' resulted in empty string"
-)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct SubPatternEmptyError {
-    key: StdKey,
-    value: NEString,
-    pat: SubPattern,
-}
+// /// Error when applying a [`SubPattern`] resulted in an empty string.
+// #[derive(Debug, PartialEq, Error, new, Clone)]
+// #[error(
+//     "applying substitution pattern '{pat}' to value '{value}' for key \
+//      '{key}' resulted in empty string"
+// )]
+// #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+// #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+// pub struct SubPatternEmptyError {
+//     key: StdKey,
+//     value: NEString,
+//     pat: SubPattern,
+// }
 
 /// Error when key has blank value
 #[derive(Debug, PartialEq, Error, Clone)]

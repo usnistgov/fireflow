@@ -548,71 +548,6 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped.
     pub trim_value_whitespace: TrimValueWhitespace,
-
-    /// Remove standard keys from TEXT.
-    ///
-    /// Comparisons will be case-insensitive. Members of this list should not
-    /// try to match the leading "$" as this is implied.
-    ///
-    /// This will be applied before [`Self::rename_standard_keys`],
-    /// [`Self::promote_to_standard`], and [`Self::demote_from_standard`].
-    pub ignore_standard_keys: KeyPatterns,
-
-    /// Rename standard keys in TEXT.
-    ///
-    /// Keys matching the first part of the pair will be replaced by the second.
-    /// The leading "$" is implied so keys in this table should not include it.
-    /// Comparisons are case-insensitive.
-    ///
-    /// Keys are renamed before [`Self::promote_to_standard`] and
-    /// [`Self::demote_from_standard`] are applied.
-    pub rename_standard_keys: KeyStringPairs,
-
-    /// A list of nonstandard keywords to be "promoted" to standard.
-    ///
-    /// All matching keywords will be prefixed with a "$" and added to the pool
-    /// of standard keywords to be processed downstream when deriving data
-    /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: KeyPatterns,
-
-    /// A list of standard keywords to be "demoted" to non-standard.
-    ///
-    /// Only keywords starting with "$" will be considered. The "$" is implied
-    /// when matching, so members of this list should not include it. Matching
-    /// will be case-insensitive.
-    ///
-    /// Matching keywords will be taken out of the pool of standard keywords
-    /// ("$" prefix will be removed) and not be considered as such when
-    /// processed downstream.
-    ///
-    /// Useful for surgically correcting "pseudostandard" keywords without using
-    /// [`ReadStdKeywordsConfig::process_pseudostandard`], which is a crude
-    /// sledgehammer.
-    pub demote_from_standard: KeyPatterns,
-
-    /// Replace values of standard keys.
-    ///
-    /// Keys will be matched in case-insensitive manner. The leading "$" is
-    /// implied, so keys in this table should not include it.
-    pub replace_standard_key_values: KeyStringValues,
-
-    /// Append standard key/value pairs to those read from TEXT.
-    ///
-    /// This will be applied at the very end of TEXT processing, so no other
-    /// key/value transformations will apply to it; they will be appended
-    /// literally as-is. The "$" prefix is implied and should not be included.
-    ///
-    /// This will raise a warning or error if any keys are already present,
-    /// and existing value will not be overwritten in such cases. This will also
-    /// trigger a deviant keyword warning/error if they do not belong in the
-    /// indicated version.
-    pub append_standard_keywords: KeyStringValues,
-
-    /// Apply substitution patterns to standard key values.
-    ///
-    /// This is like a substitution operation in sed or perl. Patterns matched
-    /// with a regexp will be replaced, possibly with captures.
-    pub substitute_standard_key_values: SubPatterns,
 }
 
 pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
@@ -847,6 +782,50 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP, NSMP> {
     pub nonstandard_measurement_pattern: NSMP,
 }
 
+pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
+    KeyPatterns,
+    KeyStringPairs,
+    KeyPatterns,
+    KeyPatterns,
+    KeyStringValues,
+    KeyStringValues,
+    SubPatterns,
+>;
+
+pub type ReadDataKeywordsConfig = ReadDataKeywordsConfig_<
+    Selector<KeyPatterns>,
+    Selector<KeyStringPairs>,
+    Selector<KeyPatterns>,
+    Selector<KeyPatterns>,
+    Selector<KeyStringValues>,
+    Selector<KeyStringValues>,
+    Selector<SubPatterns>,
+>;
+
+impl ReadDataKeywordsConfig {
+    pub(crate) fn eval(&self, kws: &ValidKeywords) -> EvaledReadDataKeywordsConfig {
+        ReadDataKeywordsConfig_ {
+            ignore_standard_keys: self.ignore_standard_keys.eval(kws),
+            rename_standard_keys: self.rename_standard_keys.eval(kws),
+            promote_to_standard: self.promote_to_standard.eval(kws),
+            demote_from_standard: self.demote_from_standard.eval(kws),
+            replace_standard_key_values: self.replace_standard_key_values.eval(kws),
+            append_standard_keywords: self.append_standard_keywords.eval(kws),
+            substitute_standard_key_values: self.substitute_standard_key_values.eval(kws),
+            text_data_correction: self.text_data_correction,
+            text_analysis_correction: self.text_analysis_correction,
+            ignore_text_data_offsets: self.ignore_text_data_offsets,
+            ignore_text_analysis_offsets: self.ignore_text_analysis_offsets,
+            allow_header_text_offset_mismatch: self.allow_header_text_offset_mismatch,
+            allow_missing_required_offsets: self.allow_missing_required_offsets,
+            process_optional_failure: self.process_optional_failure,
+            fix_int_widths: self.fix_int_widths,
+            byteord_override: self.byteord_override,
+            disallow_range_truncation: self.disallow_range_truncation,
+        }
+    }
+}
+
 /// Specific instructions for reading a data layout.
 ///
 /// Note that some of these are also when reading any keyword in standard mode.
@@ -854,9 +833,74 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP, NSMP> {
 /// be read specifically when building [`crate::core::CoreTEXT`] or
 /// [`crate::core::CoreDataset`], these options are here since the layout is the
 /// thing they have in common.
-#[derive(Default, Clone, Copy, AsRef)]
+#[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct ReadDataKeywordsConfig {
+pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
+    /// Remove standard keys from TEXT.
+    ///
+    /// Comparisons will be case-insensitive. Members of this list should not
+    /// try to match the leading "$" as this is implied.
+    ///
+    /// This will be applied before [`Self::rename_standard_keys`],
+    /// [`Self::promote_to_standard`], and [`Self::demote_from_standard`].
+    pub ignore_standard_keys: ISK,
+
+    /// Rename standard keys in TEXT.
+    ///
+    /// Keys matching the first part of the pair will be replaced by the second.
+    /// The leading "$" is implied so keys in this table should not include it.
+    /// Comparisons are case-insensitive.
+    ///
+    /// Keys are renamed before [`Self::promote_to_standard`] and
+    /// [`Self::demote_from_standard`] are applied.
+    pub rename_standard_keys: RSK,
+
+    /// A list of nonstandard keywords to be "promoted" to standard.
+    ///
+    /// All matching keywords will be prefixed with a "$" and added to the pool
+    /// of standard keywords to be processed downstream when deriving data
+    /// layouts, measurement metadata, etc. Matching will be case-insensitive.
+    pub promote_to_standard: PTS,
+
+    /// A list of standard keywords to be "demoted" to non-standard.
+    ///
+    /// Only keywords starting with "$" will be considered. The "$" is implied
+    /// when matching, so members of this list should not include it. Matching
+    /// will be case-insensitive.
+    ///
+    /// Matching keywords will be taken out of the pool of standard keywords
+    /// ("$" prefix will be removed) and not be considered as such when
+    /// processed downstream.
+    ///
+    /// Useful for surgically correcting "pseudostandard" keywords without using
+    /// [`ReadStdKeywordsConfig::process_pseudostandard`], which is a crude
+    /// sledgehammer.
+    pub demote_from_standard: DFS,
+
+    /// Replace values of standard keys.
+    ///
+    /// Keys will be matched in case-insensitive manner. The leading "$" is
+    /// implied, so keys in this table should not include it.
+    pub replace_standard_key_values: RSKV,
+
+    /// Append standard key/value pairs to those read from TEXT.
+    ///
+    /// This will be applied at the very end of TEXT processing, so no other
+    /// key/value transformations will apply to it; they will be appended
+    /// literally as-is. The "$" prefix is implied and should not be included.
+    ///
+    /// This will raise a warning or error if any keys are already present,
+    /// and existing value will not be overwritten in such cases. This will also
+    /// trigger a deviant keyword warning/error if they do not belong in the
+    /// indicated version.
+    pub append_standard_keywords: ASK,
+
+    /// Apply substitution patterns to standard key values.
+    ///
+    /// This is like a substitution operation in sed or perl. Patterns matched
+    /// with a regexp will be replaced, possibly with captures.
+    pub substitute_standard_key_values: SSKV,
+
     /// Corrections for DATA offsets in TEXT segment
     #[as_ref(TEXTCorrection<DataSegmentId>)]
     pub text_data_correction: TEXTCorrection<DataSegmentId>,
@@ -1801,7 +1845,7 @@ impl HasStrategy for ReadDatasetConfig {
     }
 }
 
-impl ReadHeaderAndTEXTConfig {
+impl EvaledReadDataKeywordsConfig {
     pub(crate) fn as_matchers(&self) -> AllKeyMatchers<'_> {
         AllKeyMatchers {
             promote: self.promote_to_standard.as_matcher(),

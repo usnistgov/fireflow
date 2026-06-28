@@ -1,5 +1,5 @@
 use crate::config::{
-    ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, ReadDataKeywordsConfig,
+    ConfigFlag as _, DummyTriFlag, EvaledReadDataKeywordsConfig, ProcessOptionalFailure,
     TrimIntraValueWhitespace,
 };
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
@@ -402,7 +402,7 @@ pub(crate) trait Optional: Sized {
     fn get_or_ignore_opt<I>(
         kws: &StdKeywords,
         k: SpecificKey<Self, I>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<
         Self::Outer,
         ProcessOptionalFailure,
@@ -467,7 +467,7 @@ pub(crate) trait Optional: Sized {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         k: SpecificKey<Self, I>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self, I>>
     where
         SpecificKey<Self, I>: AsStdKey + Copy,
@@ -494,9 +494,9 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AsStdKey + Copy,
         Self: FromStrWith,
         Self::Diagnostic: Default,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let res = Self::remove_opt_with(std, k, data, conf.as_ref());
         process_opt_key(res, k, nonstd, dropped, rconf.process_optional_failure)
     }
@@ -572,7 +572,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         std: &mut StdKeywords,
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
         Self: FromStr,
@@ -594,7 +594,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(std, nonstd, dropped, SpecificKey::default(), data, conf)
     }
@@ -615,7 +615,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     fn get_or_ignore_meas_opt(
         kws: &StdKeywords,
         i: impl Into<IndexFromOne>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
@@ -635,7 +635,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         nonstd: &mut NonStdKeywords,
         dropped: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
-        conf: &ReadDataKeywordsConfig,
+        conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
@@ -658,7 +658,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self: FromStrWith,
         Self::Diagnostic: Default,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<Self::Config>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         Self::remove_or_transfer_opt_with(
             std,

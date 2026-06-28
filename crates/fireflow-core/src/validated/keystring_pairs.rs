@@ -19,6 +19,8 @@ use {fireflow_core_proc::DisplayAsPyErr, pyo3::prelude::*};
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
 
+// TODO also ensure that destination keys are all unique so we never get
+// collisions
 impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
     type Error = KeyStringPairsError;
 

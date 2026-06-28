@@ -1,4 +1,4 @@
-use crate::config::{AllowLoss, EvaledReadStdKeywordsConfig, ReadDataKeywordsConfig};
+use crate::config::{AllowLoss, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::core::TrimmedKeywords;
 use crate::data::IndexedError;
 use crate::fixed_vec::OneOrTwo;
@@ -342,7 +342,7 @@ impl<I> AppliedGatesPre3_2<I> {
     where
         GateIndex: TryFrom<I>,
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
         RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
@@ -352,7 +352,7 @@ impl<I> AppliedGatesPre3_2<I> {
         let gm = GatedMeasurements::lookup(std, nonstd, dropped, conf)
             .map_errors(LookupAppliedGatesError::GatedMeas)
             .map_commutative_warnings(LookupAppliedGatesError::GatedMeas);
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         ag.zip_f2_once(gm)
             .and_then_deferred_switchable_result(flag, |(scheme, gated_ms)| {
@@ -515,9 +515,9 @@ impl AppliedGates3_2 {
         LookupAppliedGates3_2Error,
     >
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         GatingScheme::lookup(std, nonstd, dropped, conf)
             .map_ok_value(|out| out.bimap_once(Self, |d| AppliedGatesDiagnostics::new(d, vec![])))
             .map_err_value(
@@ -547,7 +547,7 @@ impl GatedMeasurement {
         LookupGatedMeasError,
     >
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -764,11 +764,11 @@ impl<I> GatingScheme<I> {
     >
     where
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
         RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         Gating::remove_or_drop_root_opt(std, nonstd, dropped, conf.as_ref())
             .map_switchable_errors(LookupGatingSchemeError::Gating)
@@ -911,7 +911,7 @@ impl<I> Region<I> {
     >
     where
         I: FromStr + LinkedMeasIndex + PartialEq,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
         RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
@@ -925,7 +925,7 @@ impl<I> Region<I> {
                 .map_switchable_errors(LookupRegionError::Window)
                 .switchable_into_commutative()
                 .into_semigroup();
-        let rconf: &ReadDataKeywordsConfig = conf.as_ref();
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
         let demote_index = |gi, ns: &mut NonStdKeywords| {
             let k = OptRootKeyword::from(RegionKeyword::from_value(gi, ri)).into();
@@ -1179,7 +1179,7 @@ impl GatedMeasurements {
         LookupGatedMeasurementsError,
     >
     where
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         Gate::remove_or_drop_root_opt(std, nonstd, dropped, conf.as_ref())
             .map_switchable_errors(LookupGatedMeasurementsError::Gate)

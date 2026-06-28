@@ -7,8 +7,9 @@ use super::{
 
 use crate::api::HeaderAndSuppOffsets;
 use crate::config::{
-    AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets,
-    ProcessOptionalFailure, ReadDataKeywordsConfig, ReadHeaderInnerConfig, ReadOffsetConfig,
+    AllowPseudoempty, ConfigFlag, DummyTriFlag, EvaledReadDataKeywordsConfig,
+    IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
+    ReadHeaderInnerConfig, ReadOffsetConfig,
 };
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
@@ -1135,7 +1136,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -1153,7 +1154,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -1172,12 +1173,12 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
+        let dconf: &EvaledReadDataKeywordsConfig = st.conf().as_ref();
         let oconf: &ReadOffsetConfig = st.conf().as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(segs);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);
@@ -1417,7 +1418,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -1436,7 +1437,7 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
@@ -1455,12 +1456,12 @@ where
     where
         Self: HasOffsetPair + IsDataOrAnalysis,
         Self::OtherDataId: HasOffsetPair,
-        C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
         i128: From<Self::B> + From<Self::E>,
         Self::B: Copy,
         Self::E: Copy,
     {
-        let dconf: &ReadDataKeywordsConfig = st.conf().as_ref();
+        let dconf: &EvaledReadDataKeywordsConfig = st.conf().as_ref();
         let oconf: &ReadOffsetConfig = st.conf().as_ref();
         let (header_seg, uncorr_hdr) = Self::offset_pair(hdr_supp_offsets);
         let header_pair = |reason| HeaderOrTextOffsets::Header(header_seg, reason);

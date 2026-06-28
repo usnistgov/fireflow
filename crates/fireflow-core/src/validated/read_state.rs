@@ -6,10 +6,12 @@ use crate::{
     validated::keys::StringOrBytes,
 };
 
+use fireflow_types::{config::ComputeCRC, keywords::Version};
+use type_families::{BifunctorOnce, Sibling2, impl_kind2};
+
 use crc_fast::{CrcAlgorithm, Digest};
 use derive_more::{Display, From, Into};
 use derive_new::new;
-use fireflow_types::{config::ComputeCRC, keywords::Version};
 use thiserror::Error;
 
 use std::io::{self, BufReader, Read, Seek, Write as _};
@@ -303,6 +305,40 @@ impl<C, D> ReadDatasetState<C, D> {
         let pos = h.stream_position()?;
         let remaining = u64::from(self.file_len) - pos;
         Ok(remaining)
+    }
+
+    pub(crate) fn as_ref(&self) -> ReadDatasetState<&C, D>
+    where
+        D: Clone,
+    {
+        ReadDatasetState::new(
+            self.file_len,
+            self.dataset_offset,
+            self.dataset_bounds.clone(),
+            &self.conf,
+        )
+    }
+}
+
+impl_kind2!(pub ReadDatasetStateFamily, ReadDatasetState);
+
+impl<A, B> BifunctorOnce<A, B> for ReadDatasetState<A, B> {
+    fn first_once<F: FnOnce(A) -> C, C>(self, f: F) -> Sibling2<Self, C, B> {
+        ReadDatasetState::new(
+            self.file_len,
+            self.dataset_offset,
+            self.dataset_bounds,
+            f(self.conf),
+        )
+    }
+
+    fn second_once<F: FnOnce(B) -> C, C>(self, f: F) -> Sibling2<Self, A, C> {
+        ReadDatasetState::new(
+            self.file_len,
+            self.dataset_offset,
+            f(self.dataset_bounds),
+            self.conf,
+        )
     }
 }
 

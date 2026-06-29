@@ -129,8 +129,17 @@ impl FromStr for NonStdMeasPattern {
             .strip_prefix(PATTERN_DELIMITER)
             .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
         {
-            let pat = inner.replace(NON_STD_MEAS_INDEX_PAT, "(0*[1-9][0-9]*)");
+            // replace token with regexp fragment that matches numbers
+            let mut pat = inner.replace(NON_STD_MEAS_INDEX_PAT, "(0*[1-9][0-9]*)");
+            // prepend '^' if not already present
+            if !pat.starts_with('^') {
+                pat = format!("^{pat}");
+            }
             let ci_pat = pat.parse::<CaseInsRegex>()?;
+            let n_caps = ci_pat.as_ref().capture_locations().len();
+            if n_caps != 2 {
+                return Err(NonStdMeasPatternCaptureError.into());
+            }
             CompiledNonStdMeasPattern::Regex(RegexNonStdMeasPattern(ci_pat))
         } else {
             let mut it = s.split("%n");
@@ -157,7 +166,8 @@ impl FromStr for NonStdMeasPattern {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum NonStdMeasPatternError {
     Token(NonStdMeasPatternTokenError),
-    Regex(CaseInsRegexError),
+    NewRegex(CaseInsRegexError),
+    Capture(NonStdMeasPatternCaptureError),
 }
 
 /// Error when parsing [`NonStdMeasPattern`] from string for configuration
@@ -169,6 +179,13 @@ pub enum NonStdMeasPatternError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct NonStdMeasPatternTokenError(String);
+
+/// Error when parsing [`NonStdMeasPattern`] from string for configuration
+#[derive(Error, Debug, PartialEq, Clone)]
+#[error("non standard measurement pattern should not have any capture groups")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct NonStdMeasPatternCaptureError;
 
 #[cfg(test)]
 mod tests {

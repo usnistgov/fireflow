@@ -548,7 +548,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
 
     let path_arg = DocArg::new_path_param(true);
     let header_arg = DocArg::new_header_and_supp_param();
-    let std_arg = DocArg::new_std_keywords_param();
+    let kws_arg = DocArg::new_valid_keywords_param("kws");
     let dataset_offset_arg = DocArg::new_dataset_offset_param(true);
     let dataset_len_arg = DocArg::new_dataset_len_param();
 
@@ -573,7 +573,7 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
     let doc = DocString::new_fun("Read dataset from FCS file from keywords in flat mode.")
         .arg(path_arg)
         .arg(header_arg)
-        .arg(std_arg)
+        .arg(kws_arg)
         .args(offset_args)
         .args(layout_args)
         .args(data_args)
@@ -595,10 +595,11 @@ pub fn def_fcs_read_flat_dataset_with_keywords(input: TokenStream) -> TokenStrea
             let data = #data_conf { #(#data_recs),* };
             let shared = #shared_conf { #(#shared_recs),* };
             let conf = #conf_path { offset, layout, data, shared };
+            let mut rkws = kws.0;
             let ret = #fun_path(
                 &path,
                 header.into(),
-                &std,
+                &mut rkws,
                 dataset_offset,
                 dataset_len,
                 &conf
@@ -982,8 +983,8 @@ pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let kws =
-        DocArg::new_valid_keywords_param().into_ro(|_, _| quote!(self.0.keywords.clone().into()));
+    let kws = DocArg::new_valid_keywords_param("keywords")
+        .into_ro(|_, _| quote!(self.0.keywords.clone().into()));
 
     let flat = DocArg::new_flat_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.flat_diagnostics.clone().into()));
@@ -995,7 +996,7 @@ pub fn impl_py_flat_text_output(input: TokenStream) -> TokenStream {
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(kws.into(), flat_diagnostics.into()).into()
+                #path::new(keywords.into(), flat_diagnostics.into()).into()
             }
 
             // /// Dump this class as a dictionary.
@@ -1016,10 +1017,13 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
     let name = path.segments.last().unwrap().ident.clone();
 
-    let text = DocArg::new_ivar_ro(
-        "text",
-        PyClass::new_py(["api"], "FlatTEXTOutput"),
-        format!("Parsed {TEXT} segment."),
+    let kws = DocArg::new_valid_keywords_param("keywords")
+        .into_ro(|_, _| quote!(self.0.keywords.clone().into()));
+
+    let flat_diagnostics = DocArg::new_ivar_ro(
+        "flat_diagnostics",
+        PyClass::new_py(["api"], "FlatTEXTDiagnostics"),
+        format!("Diagnostics from parsing {TEXT} segment."),
         |n, _| quote!(self.0.#n.clone().into()),
     );
 
@@ -1027,7 +1031,7 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
 
     let scores = DocArg::new_version_scores_param();
 
-    let args = [text, dataset, scores];
+    let args = [kws, flat_diagnostics, dataset, scores];
 
     let doc = DocString::new_class("Dataset from FCS file parsed with flat mode.").args(args);
 
@@ -1035,7 +1039,8 @@ pub fn impl_py_flat_dataset_output(input: TokenStream) -> TokenStream {
         quote! {
             fn new(#fun_args) -> Self {
                 #path::new(
-                    text.into(),
+                    keywords.into(),
+                    flat_diagnostics.into(),
                     dataset.into(),
                     version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
                 ).into()
@@ -1071,12 +1076,22 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let others = DocArg::new_others_param(false).into_ro(|_, _| quote!(self.0.others.clone()));
     let dataset_offsets = DocArg::new_dataset_offsets_param()
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
+    let repair = DocArg::new_repair_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
     let schema = DocArg::new_data_schema_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.schema_diagnostics.clone().into()));
     let dataset = DocArg::new_dataset_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.dataset_diagnostics.clone().into()));
 
-    let args = [data, analysis, others, dataset_offsets, schema, dataset];
+    let args = [
+        data,
+        analysis,
+        others,
+        dataset_offsets,
+        repair,
+        schema,
+        dataset,
+    ];
     let doc = DocString::new_class(format!("Dataset from parsing flat {TEXT}.")).args(args);
 
     let new = |fun_args| {
@@ -1087,6 +1102,7 @@ pub fn impl_py_flat_dataset_with_kws_output(input: TokenStream) -> TokenStream {
                     analysis,
                     others,
                     dataset_offsets.into(),
+                    repair_diagnostics.into(),
                     schema_diagnostics.into(),
                     dataset_diagnostics.into(),
                 ).into()
@@ -1472,6 +1488,117 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
             //     ret.set_item("original_offsets", self.original_offsets())?;
             //     ret.set_item("overlaps", self.overlaps())?;
             //     ret.set_item("overflow", self.overflow())?;
+            //     Ok(ret.into())
+            // }
+        }
+    };
+    doc.into_impl_class(name, &path, new).1.into()
+}
+
+#[proc_macro]
+#[allow(clippy::too_many_lines)]
+pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let non_unique_std = DocArgROIvar::new_ivar_ro(
+        "non_unique_std",
+        PyList::new_std_truncated(),
+        "Standard keys which where promoted and collided with existing keys.",
+        |_, _| quote!(self.0.non_unique_std.clone()),
+    );
+
+    let non_unique_nonstd = DocArgROIvar::new_ivar_ro(
+        "non_unique_nonstd",
+        PyList::new_nonstd_truncated(),
+        "Non-standard keys which where demoted and collided with existing keys.",
+        |_, _| quote!(self.0.non_unique_nonstd.clone()),
+    );
+
+    let demoted = DocArgROIvar::new_ivar_ro(
+        "demoted",
+        PyList::new1(PyStr::new_std_keyword()),
+        "Standard keys which were demoted.",
+        |_, _| quote!(self.0.demoted.clone()),
+    );
+
+    let promoted = DocArgROIvar::new_ivar_ro(
+        "promoted",
+        PyList::new1(PyStr::new_nonstd_keyword()),
+        "Non-standard keys which were promoted.",
+        |_, _| quote!(self.0.promoted.clone()),
+    );
+
+    let subbed = DocArgROIvar::new_ivar_ro(
+        "subbed",
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        "Standard keys which had values that were edited by substitution.",
+        |_, _| quote!(self.0.subbed.clone()),
+    );
+
+    let replaced = DocArgROIvar::new_ivar_ro(
+        "replaced",
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        "Standard keys which had values that were replaced.",
+        |_, _| quote!(self.0.replaced.clone()),
+    );
+
+    let renamed = DocArgROIvar::new_ivar_ro(
+        "renamed",
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_std_keyword())),
+        "Standard keys which were renamed. The first element of the pair is the original name.",
+        |_, _| quote!(self.0.renamed.clone()),
+    );
+
+    let ignored = DocArgROIvar::new_ivar_ro(
+        "ignored",
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        "Standard keys which were ignored.",
+        |_, _| quote!(self.0.ignored.clone()),
+    );
+
+    let removed = DocArgROIvar::new_ivar_ro(
+        "removed",
+        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        "Standard keys which were removed.",
+        |_, _| quote!(self.0.removed.clone()),
+    );
+
+    let args = [
+        non_unique_std,
+        non_unique_nonstd,
+        demoted,
+        promoted,
+        subbed,
+        replaced,
+        renamed,
+        ignored,
+        removed,
+    ];
+    let doc = DocString::new_class("Diagnostic output from repairing the keyword list.").args(args);
+    let inner_args = doc.idents();
+
+    let new = |fun_args| {
+        quote! {
+            fn new(#fun_args) -> Self {
+                #path::new(#inner_args).into()
+            }
+
+            // /// Dump this class as a dictionary.
+            // #[getter]
+            // fn dict(&self, py: Python<'_>) -> PyResult<Py<pyo3::types::PyDict>> {
+            //     let mut ret = pyo3::types::PyDict::new(py);
+            //     ret.set_item("event_width", self.event_width())?;
+            //     ret.set_item("event_data_remainder", self.event_data_remainder())?;
+            //     ret.set_item("tot_event_mismatch", self.tot_event_mismatch())?;
+            //     ret.set_item("overrange_columns", self.overrange_columns())?;
+            //     ret.set_item("intra_segment_dark_bytes", self.intra_segment_dark_bytes())?;
+            //     ret.set_item("post_dataset_dark_bytes", self.post_dataset_dark_bytes())?;
+            //     ret.set_item("file_crc", self.file_crc())?;
+            //     ret.set_item("computed_crc", self.computed_crc())?;
+            //     ret.set_item("dataset_len", self.dataset_len())?;
+            //     ret.set_item("next_dataset_offset", self.next_dataset_offset())?;
+            //     ret.set_item("next_dataset_manually_scanned", self.next_dataset_manually_scanned())?;
             //     Ok(ret.into())
             // }
         }
@@ -2308,6 +2435,9 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
     let dataset_offsets = DocArg::new_dataset_offsets_param()
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
 
+    let repair = DocArg::new_repair_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
+
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
 
@@ -2316,7 +2446,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
 
     let scores = DocArg::new_version_scores_param();
 
-    let args = [tot, dataset_offsets, std, flat, scores];
+    let args = [tot, dataset_offsets, repair, std, flat, scores];
     let doc =
         DocString::new_class(format!("Miscellaneous data when standardizing {TEXT}.")).args(args);
 
@@ -2326,6 +2456,7 @@ pub fn impl_py_std_text_output(input: TokenStream) -> TokenStream {
                 #path::new(
                     tot,
                     dataset_offsets.into(),
+                    repair_diagnostics.into(),
                     std_diagnostics.into(),
                     flat_diagnostics.into(),
                     version_scores.map(|(a, b, c, d)| (a.into(), b.into(), c.into(), d.into()))
@@ -2406,6 +2537,8 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
 
     let dataset_offsets = DocArg::new_dataset_offsets_param()
         .into_ro(|_, _| quote!(self.0.dataset_offsets.clone().into()));
+    let repair = DocArg::new_repair_diagnostics_param()
+        .into_ro(|_, _| quote!(self.0.repair_diagnostics.clone().into()));
     let std = DocArg::new_std_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.std_diagnostics.clone().into()));
     let dataset = DocArg::new_dataset_diagnostics_param()
@@ -2414,13 +2547,14 @@ pub fn impl_py_std_dataset_with_kws_output(input: TokenStream) -> TokenStream {
     let doc = DocString::new_class(format!(
         "Miscellaneous data when standardizing {TEXT} from keywords."
     ))
-    .args([dataset_offsets, std, dataset]);
+    .args([dataset_offsets, repair, std, dataset]);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
                 #path::new(
                     dataset_offsets.into(),
+                    repair_diagnostics.into(),
                     std_diagnostics.into(),
                     dataset_diagnostics.into(),
                 ).into()
@@ -2575,44 +2709,16 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let non_unique_std = DocArgROIvar::new_ivar_ro(
         "non_unique_std_keywords",
-        PyList::new1(
-            [
-                PyType::from(PyStr::new_std_keyword()),
-                PyStr::new_ne_truncated_str().into(),
-            ]
-            .into_iter()
-            .collect::<PyTuple<_>>(),
-        ),
+        PyList::new_std_truncated(),
         format!("Standard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_std_keywords.clone()),
     );
 
     let non_unique_nonstd = DocArgROIvar::new_ivar_ro(
         "non_unique_nonstd_keywords",
-        PyList::new1(
-            [
-                PyType::from(PyStr::new_nonstd_keyword()),
-                PyStr::new_ne_truncated_str().into(),
-            ]
-            .into_iter()
-            .collect::<PyTuple<_>>(),
-        ),
+        PyList::new_nonstd_truncated(),
         format!("Nonstandard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_nonstd_keywords.clone()),
-    );
-
-    let ignored = DocArgROIvar::new_ivar_ro(
-        "ignored_standard_keywords",
-        PyList::new1(
-            [
-                PyType::from(PyStr::new_std_keyword()),
-                PyUnion::new_ne_string_or_bytes().into(),
-            ]
-            .into_iter()
-            .collect::<PyTuple<_>>(),
-        ),
-        "Standard keys which were ignored by the user.",
-        |_, _| quote!(self.0.ignored_standard_keywords.clone()),
     );
 
     let trimmed_empty = DocArgROIvar::new_ivar_ro(
@@ -2650,7 +2756,6 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         byte_pairs,
         non_unique_std,
         non_unique_nonstd,
-        ignored,
         trimmed_empty,
         trimmed,
         primary_split,
@@ -2669,7 +2774,6 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
                     byte_pairs,
                     non_unique_std_keywords,
                     non_unique_nonstd_keywords,
-                    ignored_standard_keywords,
                     keys_with_empty_trimmed_values,
                     keys_with_trimmed_values,
                     primary_split.into(),
@@ -4408,6 +4512,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
                 [
                     PyClass::new_coretext(version),
                     PyClass::new_py(["api"], "StdTEXTDiagnostics"),
+                    PyClass::new_py(["api"], "RepairDiagnostics"),
                 ]
                 .into_iter()
                 .collect::<PyTuple<_>>(),
@@ -4438,8 +4543,9 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
                 };
                 let shared = #shared_conf { #(#shared_recs),* };
                 let conf = #core_conf { standard, layout, shared };
-                let (core, uncore) = #path::new_from_keywords(kws, &conf).py_resolve_commutative()?;
-                Ok((core.into(), uncore.into()))
+                let (core, uncore, repair) =
+                    #path::new_from_keywords(kws, &conf).py_resolve_commutative()?;
+                Ok((core.into(), uncore.into(), repair.into()))
             }
         }
     }
@@ -7999,6 +8105,14 @@ impl<E: From<PyException>> PyList<E> {
         let path = keyword_path("ByteOrd2_0");
         Self::new1(RsInt::U32).rstype(path)
     }
+
+    fn new_std_truncated() -> Self {
+        Self::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str()))
+    }
+
+    fn new_nonstd_truncated() -> Self {
+        Self::new1(PyTuple::new1(PyStr::new_nonstd_keyword()).add(PyStr::new_ne_truncated_str()))
+    }
 }
 
 impl FromIterator<&'static str> for PyLiteral {
@@ -8708,6 +8822,20 @@ impl<E: From<PyException>> PyAlias<E> {
         let inner_path = inner_pt.as_rust_type();
         let path = parse_quote!(#outer_path::<#inner_path>);
         Self::new_py(["typing"], "Selector")
+            .add_generics([inner_pt.clone()])
+            .rstype(path)
+            .set_default(inner_pt)
+    }
+
+    fn new_appendable_selector(inner: impl Into<PyType<E>>) -> Self
+    where
+        PyType<E>: Clone,
+    {
+        let inner_pt = inner.into();
+        let outer_path = quote!(fireflow_core::selector::AppendableSelector);
+        let inner_path = inner_pt.as_rust_type();
+        let path = parse_quote!(#outer_path::<#inner_path>);
+        Self::new_py(["typing"], "AppendableSelector")
             .add_generics([inner_pt.clone()])
             .rstype(path)
             .set_default(inner_pt)
@@ -9600,9 +9728,9 @@ impl DocArgParam {
         Self::new_param("nonstd", PyDict::new_nonstd_keywords(), desc)
     }
 
-    fn new_valid_keywords_param() -> Self {
+    fn new_valid_keywords_param(name: &str) -> Self {
         let desc = "Standard and non-standard keywords.";
-        Self::new_param("kws", PyClass::new_py(["api"], "ValidKeywords"), desc)
+        Self::new_param(name, PyClass::new_py(["api"], "ValidKeywords"), desc)
     }
 
     fn new_std_diagnostics_param() -> Self {
@@ -9621,6 +9749,12 @@ impl DocArgParam {
         let desc = format!("Diagnostic data obtained when parsing {TEXT}.");
         let p = PyClass::new_py(["api"], "FlatTEXTDiagnostics");
         Self::new_param("flat_diagnostics", p, desc)
+    }
+
+    fn new_repair_diagnostics_param() -> Self {
+        let d = "Diagnostic output from repairing keyword list";
+        let p = PyClass::new_py(["api"], "RepairDiagnostics");
+        Self::new_param("repair_diagnostics", p, d)
     }
 
     fn new_data_schema_diagnostics_param() -> Self {
@@ -9918,13 +10052,6 @@ impl DocArgParam {
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
-            Self::new_ignore_standard_keys(),
-            Self::new_promote_to_standard(),
-            Self::new_demote_from_standard(),
-            Self::new_rename_standard_keys(),
-            Self::new_replace_standard_key_values(),
-            Self::new_append_standard_keywords(),
-            Self::new_substitute_standard_key_values(),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
@@ -9982,6 +10109,16 @@ impl DocArgParam {
     fn new_read_data_schema_config_params(
         version: Option<Version>,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
+        let common_ps = vec![
+            Self::new_ignore_standard_keys(),
+            Self::new_promote_to_standard(),
+            Self::new_demote_from_standard(),
+            Self::new_rename_standard_keys(),
+            Self::new_replace_standard_key_values(),
+            Self::new_append_standard_keywords(),
+            Self::new_substitute_standard_key_values(),
+            Self::new_allow_repair_non_unique_param(),
+        ];
         let offset_ps: Vec<_> = match version {
             // none of these apply to 2.0 since there are no offsets in TEXT
             Some(Version::FCS2_0) => vec![],
@@ -10017,7 +10154,11 @@ impl DocArgParam {
         };
 
         let conf = config_path("ReadDataKeywordsConfig");
-        let ps: Vec<_> = offset_ps.into_iter().chain(data_schema_ps).collect();
+        let ps: Vec<_> = common_ps
+            .into_iter()
+            .chain(offset_ps)
+            .chain(data_schema_ps)
+            .collect();
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
@@ -10727,28 +10868,33 @@ impl DocArgParam {
     }
 
     fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
+        let inner = PyList::new_key_patterns();
+        let pt = PyAlias::new_appendable_selector(inner);
         let common = format!(
             "Values that start and end with {delim} will be \
              interpreted as regular expressions.",
             delim = tc::PATTERN_DELIMITER
         );
         let d = format!("{desc} {common}");
-        Self::new_param(argname, PyList::new_key_patterns(), d).def_auto()
+        Self::new_param(argname, pt, d).def_auto()
     }
 
     fn new_rename_standard_keys() -> Self {
+        let inner = PyDict::new_keystring_pairs();
+        let pt = PyAlias::new_appendable_selector(inner);
         let d = format!(
             "Rename standard keys in {TEXT}. Keys matching the first part of \
              the pair will be replaced by the second. Comparisons are case \
              insensitive. The leading {DOLLAR_STR} is implied so do not include it."
         );
-        Self::new_param("rename_standard_keys", PyDict::new_keystring_pairs(), d).def_auto()
+        Self::new_param("rename_standard_keys", pt, d).def_auto()
     }
 
     fn new_replace_standard_key_values() -> Self {
+        let inner = PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str());
         Self::new_param(
             "replace_standard_key_values",
-            PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str()),
+            PyAlias::new_appendable_selector(inner),
             format!(
                 "Replace values for standard keys in {TEXT} Comparisons are case \
                  insensitive. The leading {DOLLAR_STR} is implied so do not include it."
@@ -10774,14 +10920,15 @@ impl DocArgParam {
             bracket0 = code_str("${1}"),
             bracket1 = code_str("${cygnus}"),
         );
-        let p = PyDict::new_sub_patterns();
+        let p = PyAlias::new_appendable_selector(PyDict::new_sub_patterns());
         Self::new_param("substitute_standard_key_values", p, d).def_auto()
     }
 
     fn new_append_standard_keywords() -> Self {
+        let inner = PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str());
         Self::new_param(
             "append_standard_keywords",
-            PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str()),
+            PyAlias::new_appendable_selector(inner),
             format!(
                 "Append standard key/value pairs to {TEXT}. All keys and values \
                  will be included as they appear here. The leading {DOLLAR_STR} \
@@ -10789,6 +10936,15 @@ impl DocArgParam {
             ),
         )
         .def_auto()
+    }
+
+    fn new_allow_repair_non_unique_param() -> Self {
+        let n = "allow_repair_non_unique";
+        let d = "Choose how to handle key collisions when repairing keywords. \
+                 Non-unique keywords will not be kept in the final FCS file since \
+                 each list of standard and non-standard keywords must be unique.";
+        let e = PyreflowError::Config;
+        Self::new_tri_flag_param(n, true, "AllowRepairNonUnique", d, e)
     }
 
     fn new_text_data_correction_param() -> Self {

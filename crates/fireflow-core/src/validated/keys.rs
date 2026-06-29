@@ -1,12 +1,9 @@
 use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
 use crate::config::{
-    AllowNonunique, DummyTriFlag, EvaledReadDataKeywordsConfig, ReadHeaderAndTEXTConfig,
-    TriErrorFlag as _,
+    DummyTriFlag, EvaledReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
 };
 use crate::fixed_vec::OneOrTwo;
-use crate::logging::{
-    DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult, WarningAndErrorResult,
-};
+use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningAndErrorResult};
 use crate::nonempty::FcsNEVec;
 use crate::segment::read::HeaderOffsetsOverflow;
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -28,8 +25,8 @@ use fireflow_types::nonempty_string::{
 use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
-use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
+use hashbrown::{HashMap, HashSet};
 use itertools::Itertools as _;
 use nonempty_collections::{
     IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
@@ -128,7 +125,7 @@ pub type KeyStringOrPattern = LiteralOrPattern<KeyString>;
 /// This exists for performance and ergononic reasons; if the goal is simply to
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
-#[derive(Clone, PartialEq, Eq, Hash, Display)]
+#[derive(Clone, PartialEq, Eq, Hash, Display, Debug)]
 pub enum LiteralOrPattern<L> {
     #[display("{_0}")]
     Literal(L),
@@ -169,7 +166,7 @@ pub struct ParsedKeywords {
 }
 
 /// Diagnostic output from repairing the keyword list.
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, new)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[allow(clippy::too_many_arguments)]
 pub struct RepairDiagnostics {
@@ -719,6 +716,18 @@ pub struct NonUtf8ValueError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct RepairCollisionError(NEVec<AnyKey>);
 
+/// Error when creating a new hashtable with non-unique keys.
+#[derive(Debug, Error, Display, PartialEq, Clone)]
+#[display(
+    "the following keys were non-unique when creating new hash table: {}",
+    self.0.iter().join(","),
+)]
+#[display(bound(T: fmt::Display))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+#[cfg_attr(feature = "python", bound(T: fmt::Display))]
+pub struct NonUniqueKeyError<T>(NEVec<T>);
+
 /// A "compiled" object to match keys efficiently.
 pub(crate) struct KeyMatcher<'a, T> {
     literal: HashMap<&'a KeyString, &'a T>,
@@ -1123,6 +1132,12 @@ impl<T> KeyStringsOrPatterns<T> {
     pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, T> {
         self.0.iter().collect()
     }
+
+    pub(crate) fn from_many(
+        xs: impl IntoIterator<Item = Self>,
+    ) -> Result<Self, NonUniqueKeyError<LiteralOrPattern<KeyString>>> {
+        checked_iter_to_hashmap(xs.into_iter().flat_map(|x| x.0.into_iter())).map(Self)
+    }
 }
 
 // Implement methods for key matcher
@@ -1490,6 +1505,7 @@ impl ValidKeywords {
         self.nonstd.get(k)
     }
 
+    #[allow(clippy::too_many_lines)]
     pub(crate) fn repair(
         &mut self,
         conf: &EvaledReadDataKeywordsConfig,
@@ -1555,7 +1571,8 @@ impl ValidKeywords {
                 // Finally, rename keys. Assume that this name mapping is
                 // validated such that we will never get a name collision.
                 let to_rename = conf.rename_standard_keys.as_ref();
-                if let Some(kf) = to_rename.get(k.as_ref()).cloned().map(StdKey) {
+                let ks: &KeyString = k.as_ref();
+                if let Some(kf) = to_rename.get(ks).cloned().map(StdKey) {
                     renamed.push((k, kf.clone()));
                     (kf, v)
                 } else {
@@ -1715,6 +1732,28 @@ const fn is_alpha_underscore_str(s: &str) -> bool {
     true
 }
 
+pub(crate) fn checked_iter_to_hashmap<K, V>(
+    xs: impl IntoIterator<Item = (K, V)>,
+) -> Result<HashMap<K, V>, NonUniqueKeyError<K>>
+where
+    K: Hash + Clone + Eq,
+{
+    let mut duplicated = HashSet::new();
+    let mut new = HashMap::new();
+    for (k, v) in xs {
+        if new.contains_key(&k) {
+            duplicated.insert(k);
+        } else {
+            new.insert(k, v);
+        }
+    }
+    let multi: Vec<_> = duplicated.into_iter().collect();
+    if let Some(ne) = NEVec::try_from_vec(multi) {
+        return Err(NonUniqueKeyError(ne));
+    }
+    Ok(new)
+}
+
 pub(crate) const STD_PREFIX: u8 = 36; // '$'
 const TRUNCATED_BYTES_LIMIT: usize = 20;
 const TRUNCATED_STR_LIMIT: usize = 20;
@@ -1774,12 +1813,10 @@ mod tests {
         fn insert_std_key(s in STD_KEY_STRAT, v in any::<NEString>()) {
             let k = s.parse::<StdKey>().unwrap();
             let conf = ReadHeaderAndTEXTConfig::default();
-            let m = conf.as_matchers();
             let mut p = ParsedKeywords::default();
             let res = p.insert(
                 &NESlice::try_from_slice(s.as_bytes()).unwrap(),
                 &v.as_ne_bytes(),
-                &m,
                 Encoding::Utf8,
                 &conf,
             );
@@ -1793,12 +1830,10 @@ mod tests {
         fn insert_nonstd_key(s in NONSTD_KEY_STRAT, v in any::<NEString>()) {
             let k = s.parse::<NonStdKey>().unwrap();
             let conf = ReadHeaderAndTEXTConfig::default();
-            let m = conf.as_matchers();
             let mut p = ParsedKeywords::default();
             let res = p.insert(
                 &NESlice::try_from_slice(s.as_bytes()).unwrap(),
                 &v.as_ne_bytes(),
-                &m,
                 Encoding::Utf8,
                 &conf,
             );

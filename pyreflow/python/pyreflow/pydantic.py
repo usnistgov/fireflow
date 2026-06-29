@@ -71,13 +71,6 @@ class _ReadFlatTEXTConfig(BaseModel):
     allow_supp_text_own_delim: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_missing_nextdata: pft.TriFlag = _DEFAULT_TRIFLAG
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim"
-    ignore_standard_keys: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    promote_to_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    demote_from_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    rename_standard_keys: dict[str, str] = {}
-    replace_standard_key_values: dict[str, str] = {}
-    append_standard_keywords: dict[str, str] = {}
-    substitute_standard_key_values: pft.SubPatterns = {}
 
 
 class _ReadStdKeywordsConfig(BaseModel):
@@ -105,6 +98,14 @@ class _ReadStdKeywordsConfig(BaseModel):
 
 
 class _ReadDataKeywordsConfig(BaseModel):
+    ignore_standard_keys: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
+    promote_to_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
+    demote_from_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
+    rename_standard_keys: dict[str, str] = {}
+    replace_standard_key_values: dict[str, str] = {}
+    append_standard_keywords: dict[str, str] = {}
+    substitute_standard_key_values: pft.SubPatterns = {}
+    allow_repair_non_unique: pft.TriFlag = "false"
     text_data_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
     text_analysis_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
     ignore_text_data_offsets: bool = False

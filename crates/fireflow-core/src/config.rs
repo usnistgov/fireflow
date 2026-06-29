@@ -10,13 +10,13 @@
 //! is an error. This will work in most cases with a few exceptions where the
 //! standard is unclear.
 
-use crate::logging::{LogResult, WarningsAndErrorsResult};
+use crate::logging::{ErrorsResult, LogResult, ResultExt as _, WarningsAndErrorsResult};
 use crate::segment::{
     AnalysisSegmentId, DataSegmentId, OtherSegmentId, PrimaryTextSegmentId,
     SupplementalTextSegmentId,
     read::{HeaderCorrection, TEXTCorrection},
 };
-use crate::selector::Selector;
+use crate::selector::{AppendableSelector, Selector};
 use crate::text::byteord::Bytes;
 use crate::text::index::MeasIndex;
 use crate::text::keywords::{self as kws, Timestep};
@@ -24,10 +24,11 @@ use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    AllKeyMatchers, KeyString, KeyStringsOrPatterns, NonStdKeywords, NonStdKeywordsExt as _,
-    StdKey, StdKeywords, ValidKeywords,
+    AllKeyMatchers, KeyString, KeyStringsOrPatterns, LiteralOrPattern, NonStdKeywords,
+    NonStdKeywordsExt as _, NonUniqueKeyError, StdKey, StdKeywords, ValidKeywords,
+    checked_iter_to_hashmap,
 };
-use crate::validated::keystring_pairs::KeyStringPairs;
+use crate::validated::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
 use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
@@ -45,6 +46,7 @@ use fireflow_types::nonempty_string::NEString;
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
 use hashbrown::HashMap;
+use nonempty_collections::NEVec;
 use num_traits::identities::One as _;
 use regex::{self, Regex};
 use thiserror::Error;
@@ -56,7 +58,9 @@ use std::str::FromStr;
 
 #[cfg(feature = "python")]
 use {
-    fireflow_core_proc::{DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString},
+    fireflow_core_proc::{
+        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
+    },
     fireflow_types::python as py,
     pyo3::prelude::*,
 };
@@ -793,38 +797,93 @@ pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
 >;
 
 pub type ReadDataKeywordsConfig = ReadDataKeywordsConfig_<
-    Selector<KeyPatterns>,
-    Selector<KeyStringPairs>,
-    Selector<KeyPatterns>,
-    Selector<KeyPatterns>,
-    Selector<KeyStringValues>,
-    Selector<KeyStringValues>,
-    Selector<SubPatterns>,
+    AppendableSelector<KeyPatterns>,
+    AppendableSelector<KeyStringPairs>,
+    AppendableSelector<KeyPatterns>,
+    AppendableSelector<KeyPatterns>,
+    AppendableSelector<KeyStringValues>,
+    AppendableSelector<KeyStringValues>,
+    AppendableSelector<SubPatterns>,
 >;
 
 impl ReadDataKeywordsConfig {
-    pub(crate) fn eval(&self, kws: &ValidKeywords) -> EvaledReadDataKeywordsConfig {
-        ReadDataKeywordsConfig_ {
-            ignore_standard_keys: self.ignore_standard_keys.eval(kws),
-            rename_standard_keys: self.rename_standard_keys.eval(kws),
-            promote_to_standard: self.promote_to_standard.eval(kws),
-            demote_from_standard: self.demote_from_standard.eval(kws),
-            replace_standard_key_values: self.replace_standard_key_values.eval(kws),
-            append_standard_keywords: self.append_standard_keywords.eval(kws),
-            substitute_standard_key_values: self.substitute_standard_key_values.eval(kws),
-            allow_repair_non_unique: self.allow_repair_non_unique,
-            text_data_correction: self.text_data_correction,
-            text_analysis_correction: self.text_analysis_correction,
-            ignore_text_data_offsets: self.ignore_text_data_offsets,
-            ignore_text_analysis_offsets: self.ignore_text_analysis_offsets,
-            allow_header_text_offset_mismatch: self.allow_header_text_offset_mismatch,
-            allow_missing_required_offsets: self.allow_missing_required_offsets,
-            process_optional_failure: self.process_optional_failure,
-            fix_int_widths: self.fix_int_widths,
-            byteord_override: self.byteord_override,
-            disallow_range_truncation: self.disallow_range_truncation,
+    pub(crate) fn eval(
+        &self,
+        kws: &ValidKeywords,
+    ) -> ErrorsResult<EvaledReadDataKeywordsConfig, (), AppendRepairFlagError> {
+        let go_str_pairs = |xs: NEVec<KeyStringPairs>| {
+            let checked =
+                checked_iter_to_hashmap(xs.into_iter().flat_map(KeyStringPairs::into_iter))?;
+            KeyStringPairs::try_from(checked).map_err(AppendRepairFlagError::KeyStringPairsValid)
+        };
+        let go_val = |xs: NEVec<KeyStringValues>| {
+            let res = checked_iter_to_hashmap(xs.into_iter().flat_map(HashMap::into_iter))?;
+            Ok(res)
+        };
+
+        macro_rules! go_keystr {
+            ($field:ident) => {
+                self.$field
+                    .try_eval(kws, |xs| Ok(KeyStringsOrPatterns::from_many(xs)?))
+                    .into_nowarn()
+            };
         }
+
+        let rename_res = self
+            .rename_standard_keys
+            .try_eval(kws, go_str_pairs)
+            .into_nowarn();
+
+        let sub_res = go_keystr!(substitute_standard_key_values);
+        let ignore_res = go_keystr!(ignore_standard_keys);
+        let promote_res = go_keystr!(promote_to_standard);
+        let demote_res = go_keystr!(demote_from_standard);
+
+        let replace_res = self
+            .replace_standard_key_values
+            .try_eval(kws, go_val)
+            .into_nowarn();
+        let append_res = self
+            .append_standard_keywords
+            .try_eval(kws, go_val)
+            .into_nowarn();
+
+        rename_res
+            .zip4_commutative(sub_res, ignore_res, promote_res)
+            .zip4_commutative(demote_res, replace_res, append_res)
+            .map_ok_value(
+                |((rename, sub, ignore, promote), demote, replace, append)| {
+                    ReadDataKeywordsConfig_ {
+                        ignore_standard_keys: ignore,
+                        rename_standard_keys: rename,
+                        promote_to_standard: promote,
+                        demote_from_standard: demote,
+                        replace_standard_key_values: replace,
+                        append_standard_keywords: append,
+                        substitute_standard_key_values: sub,
+                        allow_repair_non_unique: self.allow_repair_non_unique,
+                        text_data_correction: self.text_data_correction,
+                        text_analysis_correction: self.text_analysis_correction,
+                        ignore_text_data_offsets: self.ignore_text_data_offsets,
+                        ignore_text_analysis_offsets: self.ignore_text_analysis_offsets,
+                        allow_header_text_offset_mismatch: self.allow_header_text_offset_mismatch,
+                        allow_missing_required_offsets: self.allow_missing_required_offsets,
+                        process_optional_failure: self.process_optional_failure,
+                        fix_int_widths: self.fix_int_widths,
+                        byteord_override: self.byteord_override,
+                        disallow_range_truncation: self.disallow_range_truncation,
+                    }
+                },
+            )
     }
+}
+
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum AppendRepairFlagError {
+    KeyPattern(NonUniqueKeyError<LiteralOrPattern<KeyString>>),
+    KeyStringPairsHash(NonUniqueKeyError<KeyString>),
+    KeyStringPairsValid(KeyStringPairsError),
 }
 
 /// Specific instructions for reading a data layout.

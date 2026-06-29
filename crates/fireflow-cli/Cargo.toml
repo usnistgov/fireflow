@@ -23,6 +23,7 @@ itertools = { workspace = true }
 itoa = { workspace = true }
 zmij = { workspace = true }
 const_format = { workspace = true }
+hashbrown = { workspace = true }
 
 
 [lints]

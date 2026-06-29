@@ -3921,13 +3921,13 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["wood"])
-        _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["/wooden+leg/"])
+        _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["wood"])
+        _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["/wooden+leg/"])
         # TODO blank should be an error since it will match anything
         with pytest.raises(pf.ParseKeyError):
-            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=[""])
+            _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=[""])
         with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["/((((/"])
+            _ = pf.api.fcs_read_flat_dataset(p, ignore_standard_keys=["/((((/"])
 
     def test_rename_standard_keys(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -3943,12 +3943,14 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"dollar": "bitcoin"})
-        _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"$dollar": "litecoin"})
+        _ = pf.api.fcs_read_flat_dataset(p, rename_standard_keys={"dollar": "bitcoin"})
+        _ = pf.api.fcs_read_flat_dataset(
+            p, rename_standard_keys={"$dollar": "litecoin"}
+        )
         with pytest.raises(pf.ParseKeyError):
-            _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"": "notblank"})
+            _ = pf.api.fcs_read_flat_dataset(p, rename_standard_keys={"": "notblank"})
         with pytest.raises(pf.ParseKeyError):
-            _ = pf.api.fcs_read_flat_text(p, rename_standard_keys={"notblank": ""})
+            _ = pf.api.fcs_read_flat_dataset(p, rename_standard_keys={"notblank": ""})
 
     def test_replace_standard_key_values(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -3965,15 +3967,15 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_flat_text(
+        _ = pf.api.fcs_read_flat_dataset(
             p, replace_standard_key_values={"meaning_of_life": "explosions"}
         )
         with pytest.raises(pf.ParseKeywordValueError):
-            _ = pf.api.fcs_read_flat_text(
+            _ = pf.api.fcs_read_flat_dataset(
                 p, replace_standard_key_values={"meaning_of_life": ""}
             )
         with pytest.raises(pf.ParseKeyError):
-            _ = pf.api.fcs_read_flat_text(
+            _ = pf.api.fcs_read_flat_dataset(
                 p, replace_standard_key_values={"": "notblank"}
             )
 
@@ -3992,15 +3994,17 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_flat_text(
+        _ = pf.api.fcs_read_flat_dataset(
             p, append_standard_keywords={"meaning_of_life": "plutonium"}
         )
         with pytest.raises(pf.ParseKeywordValueError):
-            _ = pf.api.fcs_read_flat_text(
+            _ = pf.api.fcs_read_flat_dataset(
                 p, append_standard_keywords={"meaning_of_life": ""}
             )
         with pytest.raises(pf.ParseKeyError):
-            _ = pf.api.fcs_read_flat_text(p, append_standard_keywords={"": "notblank"})
+            _ = pf.api.fcs_read_flat_dataset(
+                p, append_standard_keywords={"": "notblank"}
+            )
 
     def test_sub_patterns(
         self, tmp_path: Path, dataset2_3_2: pf.CoreDataset3_2
@@ -4022,30 +4026,30 @@ class TestApiFunctions:
         d.mkdir(exist_ok=True)
         p = d / "nonempty_dataset.fcs"
         dataset2_3_2.write_text(p)
-        _ = pf.api.fcs_read_flat_text(
+        _ = pf.api.fcs_read_flat_dataset(
             p, substitute_standard_key_values={"history": ("viking", "pirate", True)}
         )
-        _ = pf.api.fcs_read_flat_text(
+        _ = pf.api.fcs_read_flat_dataset(
             p,
             substitute_standard_key_values={
                 "/religion?/": ("odin+thor", "cannons+other stuff", False)
             },
         )
-        _ = pf.api.fcs_read_flat_text(
+        _ = pf.api.fcs_read_flat_dataset(
             p,
             substitute_standard_key_values={
                 "time": ("(10[0-9]+)AD", "16${1}AD", False)
             },
         )
         with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_flat_text(
+            _ = pf.api.fcs_read_flat_dataset(
                 p,
                 substitute_standard_key_values={
                     "drone": ("Sunn O)))))", "refrigerator motor", False)
                 },
             )
         with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_flat_text(
+            _ = pf.api.fcs_read_flat_dataset(
                 p,
                 substitute_standard_key_values={
                     "spiral": ("1.61", "the meaning of life is ${1}", False)
@@ -4743,7 +4747,7 @@ class TestConfig:
 
         def go(f: pt.DelimEscapeMode, n_nonstd: int, n_blank: int) -> None:
             out = pf.api.fcs_read_flat_text(p, delim_escape_mode=f)
-            assert len(out.kws.nonstd) == n_nonstd
+            assert len(out.keywords.nonstd) == n_nonstd
             blank = out.flat_diagnostics.primary_split.keys_with_blank_values
             assert len(blank) == n_blank
 
@@ -4919,10 +4923,10 @@ class TestConfig:
             pf.api.fcs_read_flat_text(p, use_encoding="utf8")
 
         out0 = pf.api.fcs_read_flat_text(p, use_encoding="single")
-        assert out0.kws.nonstd["tool"] == "Ænima"
+        assert out0.keywords.nonstd["tool"] == "Ænima"
 
         out1 = pf.api.fcs_read_flat_text(p, use_encoding="guess")
-        assert out1.kws.nonstd["tool"] == "Ænima"
+        assert out1.keywords.nonstd["tool"] == "Ænima"
 
     @all_versions
     def test_allow_non_ascii_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
@@ -4989,7 +4993,7 @@ class TestConfig:
             prim_delim = out.flat_diagnostics.primary_split.delimiter
             supp = out.flat_diagnostics.supp_split
             supp_delim = None if supp is None else supp.delimiter
-            return (out.kws.nonstd, prim_delim, supp_delim)
+            return (out.keywords.nonstd, prim_delim, supp_delim)
 
         if version == "FCS2.0":
             comp0: tuple[dict[str, str], int, int | None] = ({}, 47, None)
@@ -5045,69 +5049,93 @@ class TestConfig:
     def test_ignore_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         """Test the ignore_standard_keys arg."""
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws={"$CYT": "T1000"})
+        self.mock_header_std_text(p, version, kws={"$CYTSN": "T1000"})
 
-        out = pf.api.fcs_read_flat_text(p, ignore_standard_keys=["CYT"])
-        assert out.flat_diagnostics.ignored_standard_keywords == [("$CYT", "T1000")]
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            ignore_standard_keys=["CYTSN"],
+            allow_missing_crc="silent",
+        )
+        assert out.dataset.repair_diagnostics.ignored == [("$CYTSN", "T1000")]
 
     @all_versions
     def test_rename_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         """Test the rename_standard_keys arg."""
         pub = "eprint.iacr.org/2025/1237.pdf"
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws={"$CYT": pub}, delim=10)
+        self.mock_header_std_text(p, version, kws={"$CYTSN": pub}, delim=10)
 
-        out = pf.api.fcs_read_flat_text(p, rename_standard_keys={"CYT": "CITE"})
-        assert out.kws.std["$CITE"] == pub
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            rename_standard_keys={"CYTSN": "SYS"},
+            allow_missing_crc="silent",
+        )
+        assert out.keywords.std["$SYS"] == pub
 
     @all_versions
     def test_promote_to_standard(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         """Test the promote_to_standard arg."""
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws={"PLUTO": "planet"})
+        self.mock_header_std_text(p, version, kws={"PLUTO": "planet"})
 
-        out = pf.api.fcs_read_flat_text(p, promote_to_standard=["PLUTO"])
-        assert out.kws.std["$PLUTO"] == "planet"
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            promote_to_standard=["PLUTO"],
+            allow_missing_crc="silent",
+        )
+        assert out.keywords.std["$PLUTO"] == "planet"
 
     @all_versions
     def test_demote_from_standard(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         """Test the demote_from_standard arg."""
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws={"$BLUETOOTH": "reliable"})
+        self.mock_header_std_text(p, version, kws={"$BLUETOOTH": "reliable"})
 
-        out = pf.api.fcs_read_flat_text(p, demote_from_standard=["BLUETOOTH"])
-        assert out.kws.nonstd["BLUETOOTH"] == "reliable"
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            demote_from_standard=["BLUETOOTH"],
+            allow_missing_crc="silent",
+        )
+        assert out.keywords.nonstd["BLUETOOTH"] == "reliable"
 
     @all_versions
     def test_replace_std_key_vals(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         """Test the replace_standard_key_values arg."""
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws={"$DARTH_VADER": "evil"})
+        self.mock_header_std_text(p, version, kws={"$DARTH_VADER": "evil"})
 
-        out = pf.api.fcs_read_flat_text(
-            p, replace_standard_key_values={"DARTH_VADER": "misunderstood"}
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            replace_standard_key_values={"DARTH_VADER": "misunderstood"},
+            allow_missing_crc="silent",
         )
-        assert out.kws.std["$DARTH_VADER"] == "misunderstood"
+        assert out.keywords.std["$DARTH_VADER"] == "misunderstood"
 
     @all_versions
     def test_append_std_kws(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         """Test the append_standard_keywords arg."""
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version)
+        self.mock_header_std_text(p, version)
 
-        out = pf.api.fcs_read_flat_text(p, append_standard_keywords={"CRAZY": "genius"})
-        assert out.kws.std["$CRAZY"] == "genius"
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            append_standard_keywords={"CRAZY": "genius"},
+            allow_missing_crc="silent",
+        )
+        assert out.keywords.std["$CRAZY"] == "genius"
 
     @all_versions
     def test_sub_standard_keys(self, version: pt.FCSVersion, tmp_path: Path) -> None:
         """Test the substitute_standard_key_values arg."""
         p = tmp_path / "thing.fcs"
-        self.mock_header_text(p, version, kws={"$OP": "Megadeath"})
+        self.mock_header_std_text(p, version, kws={"$OP": "Megadeath"})
 
-        out = pf.api.fcs_read_flat_text(
-            p, substitute_standard_key_values={"OP": ("death", "deth", False)}
+        out = pf.api.fcs_read_flat_dataset(
+            p,
+            substitute_standard_key_values={"OP": ("death", "deth", False)},
+            allow_missing_crc="silent",
         )
-        assert out.kws.std["$OP"] == "Megadeth"  # this is the way
+        assert out.keywords.std["$OP"] == "Megadeth"  # this is the way
 
     @all_versions
     def test_dedup_meas_names(self, version: pt.FCSVersion, tmp_path: Path) -> None:

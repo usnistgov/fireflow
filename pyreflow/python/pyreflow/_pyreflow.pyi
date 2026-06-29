@@ -1122,6 +1122,7 @@ class CoreTEXT2_0(
         cls,
         std: pft.StdKeywords,
         nonstd: pft.NonStdKeywords,
+        # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
@@ -1140,10 +1141,20 @@ class CoreTEXT2_0(
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
+        # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         fix_int_widths: pft.FixIntWidths = "never",
         byteord_override: pft.ByteordOverride = "none",
         disallow_range_truncation: pft.TriFlag = "false",
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1214,6 +1225,7 @@ class CoreTEXT3_0(
         cls,
         std: pft.StdKeywords,
         nonstd: pft.NonStdKeywords,
+        # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
@@ -1233,6 +1245,15 @@ class CoreTEXT3_0(
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
+        # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1243,6 +1264,7 @@ class CoreTEXT3_0(
         fix_int_widths: pft.FixIntWidths = "never",
         byteord_override: pft.ByteordOverride = "none",
         disallow_range_truncation: pft.TriFlag = "false",
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1327,6 +1349,7 @@ class CoreTEXT3_1(
         cls,
         std: pft.StdKeywords,
         nonstd: pft.NonStdKeywords,
+        # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
@@ -1347,6 +1370,15 @@ class CoreTEXT3_1(
         nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
+        # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1355,6 +1387,7 @@ class CoreTEXT3_1(
         allow_missing_required_offsets: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         disallow_range_truncation: pft.TriFlag = "false",
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1440,6 +1473,7 @@ class CoreTEXT3_2(
         cls,
         std: pft.StdKeywords,
         nonstd: pft.NonStdKeywords,
+        # std args
         dedup_measurement_names: bool = False,
         trim_intra_value_whitespace: bool = False,
         time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$",
@@ -1461,6 +1495,15 @@ class CoreTEXT3_2(
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
+        # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1469,6 +1512,7 @@ class CoreTEXT3_2(
         allow_missing_required_offsets: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         disallow_range_truncation: pft.TriFlag = "false",
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
     ) -> Self: ...
@@ -1554,6 +1598,15 @@ class CoreDataset2_0(
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
         nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
+        # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
         fix_int_widths: pft.FixIntWidths = "never",
         byteord_override: pft.ByteordOverride = "none",
@@ -1567,6 +1620,7 @@ class CoreDataset2_0(
         read_intra_segment_dark_bytes: bool = False,
         read_post_dataset_dark_bytes: bool = False,
         row_buffer_size: int = 28000,
+        # shared args
         warnings_are_errors: bool = False,
         hide_warnings: bool = False,
         dataset_offset: int = 0,
@@ -1670,6 +1724,14 @@ class CoreDataset3_0(
         nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1813,6 +1875,14 @@ class CoreDataset3_1(
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -1956,6 +2026,14 @@ class CoreDataset3_2(
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
         # layout args
+        ignore_standard_keys: pft.KeyPatterns = [],
+        promote_to_standard: pft.KeyPatterns = [],
+        demote_from_standard: pft.KeyPatterns = [],
+        rename_standard_keys: dict[str, str] = {},
+        replace_standard_key_values: dict[str, str] = {},
+        append_standard_keywords: dict[str, str] = {},
+        substitute_standard_key_values: pft.SubPatterns = {},
+        allow_repair_non_unique: pft.TriFlag = "false",
         text_data_correction: pft.OffsetCorrection = (0, 0),
         text_analysis_correction: pft.OffsetCorrection = (0, 0),
         ignore_text_data_offsets: bool = False,
@@ -2068,6 +2146,40 @@ class ValidKeywords:
     def std(self) -> pft.StdKeywords: ...
     @property
     def nonstd(self) -> pft.NonStdKeywords: ...
+
+@final
+class RepairDiagnostics:
+    def __new__(
+        cls,
+        non_unique_std: list[tuple[str, str]],
+        non_unique_nonstd: list[tuple[str, str]],
+        demoted: list[str],
+        promoted: list[str],
+        subbed: list[tuple[str, str]],
+        replaced: list[tuple[str, str]],
+        renamed: list[tuple[str, str]],
+        ignored: list[tuple[str, str]],
+        removed: list[tuple[str, str]],
+    ) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def non_unique_std(self) -> list[tuple[str, str]]: ...
+    @property
+    def non_unique_nonstd(self) -> list[tuple[str, str]]: ...
+    @property
+    def demoted(self) -> list[str]: ...
+    @property
+    def promoted(self) -> list[str]: ...
+    @property
+    def subbed(self) -> list[tuple[str, str]]: ...
+    @property
+    def replaced(self) -> list[tuple[str, str]]: ...
+    @property
+    def renamed(self) -> list[tuple[str, str]]: ...
+    @property
+    def ignored(self) -> list[tuple[str, str]]: ...
+    @property
+    def removed(self) -> list[tuple[str, str]]: ...
 
 @final
 class DataSchemaDiagnostics:
@@ -2353,7 +2465,6 @@ class FlatTEXTDiagnostics:
         byte_pairs: list[tuple[bytes | str, bytes | str]],
         non_unique_std_keywords: list[tuple[str, str]],
         non_unique_nonstd_keywords: list[tuple[str, str]],
-        ignored_standard_keywords: list[tuple[str, bytes | str]],
         keys_with_empty_trimmed_values: list[bytes | str],
         keys_with_trimmed_values: list[tuple[bytes | str, str]],
         primary_split: SplitTEXTDiagnostics,
@@ -2373,8 +2484,6 @@ class FlatTEXTDiagnostics:
     @property
     def non_unique_nonstd_keywords(self) -> list[tuple[str, str]]: ...
     @property
-    def ignored_standard_keywords(self) -> list[tuple[str, bytes | str]]: ...
-    @property
     def keys_with_empty_trimmed_values(self) -> list[bytes | str]: ...
     @property
     def keys_with_trimmed_values(self) -> list[tuple[bytes | str, str]]: ...
@@ -2387,12 +2496,12 @@ class FlatTEXTDiagnostics:
 class FlatTEXTOutput:
     def __new__(
         cls,
-        kws: ValidKeywords,
+        keywords: ValidKeywords,
         flat_diagnostics: FlatTEXTDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def kws(self) -> ValidKeywords: ...
+    def keywords(self) -> ValidKeywords: ...
     @property
     def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
 
@@ -2469,6 +2578,7 @@ class FlatDatasetFromKwsOutput:
         analysis: bytes,
         others: list[bytes],
         dataset_offsets: DatasetOffsets,
+        repair_diagnostics: RepairDiagnostics,
         schema_diagnostics: DataSchemaDiagnostics,
         dataset_diagnostics: DatasetDiagnostics,
     ) -> Self: ...
@@ -2481,6 +2591,8 @@ class FlatDatasetFromKwsOutput:
     def others(self) -> list[bytes]: ...
     @property
     def dataset_offsets(self) -> DatasetOffsets: ...
+    @property
+    def repair_diagnostics(self) -> RepairDiagnostics: ...
     @property
     def schema_diagnostics(self) -> DataSchemaDiagnostics: ...
     @property
@@ -2503,13 +2615,16 @@ class NewFlatDatasetFromKwsOutput:
 class FlatDatasetOutput:
     def __new__(
         cls,
-        text: FlatTEXTOutput,
+        keywords: ValidKeywords,
+        flat_diagnostics: FlatTEXTDiagnostics,
         dataset: FlatDatasetFromKwsOutput,
         version_scores: pft.KeywordVersionScores | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text(self) -> FlatTEXTOutput: ...
+    def keywords(self) -> ValidKeywords: ...
+    @property
+    def flat_diagnostics(self) -> FlatTEXTDiagnostics: ...
     @property
     def dataset(self) -> FlatDatasetFromKwsOutput: ...
     @property
@@ -2521,6 +2636,7 @@ class StdTEXTOutput:
         cls,
         tot: int | None,
         dataset_offsets: DatasetOffsets,
+        repair_diagnostics: RepairDiagnostics,
         std_diagnostics: StdTEXTDiagnostics,
         flat_diagnostics: FlatTEXTDiagnostics,
         version_scores: pft.KeywordVersionScores | None,
@@ -2530,6 +2646,8 @@ class StdTEXTOutput:
     def tot(self) -> int | None: ...
     @property
     def dataset_offsets(self) -> DatasetOffsets: ...
+    @property
+    def repair_diagnostics(self) -> RepairDiagnostics: ...
     @property
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
@@ -2564,12 +2682,15 @@ class StdDatasetFromKwsOutput:
     def __new__(
         cls,
         dataset_offsets: DatasetOffsets,
+        repair_diagnostics: RepairDiagnostics,
         std_diagnostics: StdTEXTDiagnostics,
         dataset_diagnostics: DatasetDiagnostics,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
     def dataset_offsets(self) -> DatasetOffsets: ...
+    @property
+    def repair_diagnostics(self) -> RepairDiagnostics: ...
     @property
     def std_diagnostics(self) -> StdTEXTDiagnostics: ...
     @property
@@ -2741,13 +2862,6 @@ def fcs_read_flat_text(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
-    ignore_standard_keys: pft.KeyPatterns = [],
-    promote_to_standard: pft.KeyPatterns = [],
-    demote_from_standard: pft.KeyPatterns = [],
-    rename_standard_keys: dict[str, str] = {},
-    replace_standard_key_values: dict[str, str] = {},
-    append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: pft.SubPatterns = {},
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -2790,13 +2904,6 @@ def fcs_read_std_text(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
-    ignore_standard_keys: pft.KeyPatterns = [],
-    promote_to_standard: pft.KeyPatterns = [],
-    demote_from_standard: pft.KeyPatterns = [],
-    rename_standard_keys: dict[str, str] = {},
-    replace_standard_key_values: dict[str, str] = {},
-    append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
@@ -2820,6 +2927,14 @@ def fcs_read_std_text(
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -2872,6 +2987,7 @@ def fcs_read_flat_dataset(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    # layout args
     ignore_standard_keys: pft.KeyPatterns = [],
     promote_to_standard: pft.KeyPatterns = [],
     demote_from_standard: pft.KeyPatterns = [],
@@ -2879,7 +2995,7 @@ def fcs_read_flat_dataset(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     substitute_standard_key_values: pft.SubPatterns = {},
-    # layout args
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -2945,13 +3061,6 @@ def fcs_read_std_dataset(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
-    ignore_standard_keys: pft.KeyPatterns = [],
-    promote_to_standard: pft.KeyPatterns = [],
-    demote_from_standard: pft.KeyPatterns = [],
-    rename_standard_keys: dict[str, str] = {},
-    replace_standard_key_values: dict[str, str] = {},
-    append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
@@ -2975,6 +3084,14 @@ def fcs_read_std_dataset(
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -3043,13 +3160,6 @@ def fcs_read_flat_texts(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
-    ignore_standard_keys: pft.KeyPatterns = [],
-    promote_to_standard: pft.KeyPatterns = [],
-    demote_from_standard: pft.KeyPatterns = [],
-    rename_standard_keys: dict[str, str] = {},
-    replace_standard_key_values: dict[str, str] = {},
-    append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: pft.SubPatterns = {},
     # shared args
     warnings_are_errors: bool = False,
     hide_warnings: bool = False,
@@ -3094,13 +3204,6 @@ def fcs_read_std_texts(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
-    ignore_standard_keys: pft.KeyPatterns = [],
-    promote_to_standard: pft.KeyPatterns = [],
-    demote_from_standard: pft.KeyPatterns = [],
-    rename_standard_keys: dict[str, str] = {},
-    replace_standard_key_values: dict[str, str] = {},
-    append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
@@ -3124,6 +3227,14 @@ def fcs_read_std_texts(
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -3178,6 +3289,7 @@ def fcs_read_flat_datasets(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    # layout args
     ignore_standard_keys: pft.KeyPatterns = [],
     promote_to_standard: pft.KeyPatterns = [],
     demote_from_standard: pft.KeyPatterns = [],
@@ -3185,7 +3297,7 @@ def fcs_read_flat_datasets(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     substitute_standard_key_values: pft.SubPatterns = {},
-    # layout args
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -3252,13 +3364,6 @@ def fcs_read_std_datasets(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
-    ignore_standard_keys: pft.KeyPatterns = [],
-    promote_to_standard: pft.KeyPatterns = [],
-    demote_from_standard: pft.KeyPatterns = [],
-    rename_standard_keys: dict[str, str] = {},
-    replace_standard_key_values: dict[str, str] = {},
-    append_standard_keywords: dict[str, str] = {},
-    substitute_standard_key_values: pft.SubPatterns = {},
     # standard args
     dedup_measurement_names: bool = False,
     trim_intra_value_whitespace: bool = False,
@@ -3282,6 +3387,14 @@ def fcs_read_std_datasets(
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
     # layout args
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -3313,12 +3426,20 @@ def fcs_read_std_datasets(
 def fcs_read_flat_dataset_with_keywords(
     path: Path,
     header: Header,
-    std: dict[str, str],
+    kws: ValidKeywords,
     # offset args
     allow_pseudoempty: bool = False,
     dataset_overflow_limit: int = 0,
     overlap_correction_limit: int = 0,
     # layout args
+    ignore_standard_keys: pft.KeyPatterns = [],
+    promote_to_standard: pft.KeyPatterns = [],
+    demote_from_standard: pft.KeyPatterns = [],
+    rename_standard_keys: dict[str, str] = {},
+    replace_standard_key_values: dict[str, str] = {},
+    append_standard_keywords: dict[str, str] = {},
+    substitute_standard_key_values: pft.SubPatterns = {},
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -3387,6 +3508,7 @@ def fcs_summarize(
     allow_supp_text_own_delim: pft.TriFlag = "false",
     allow_missing_nextdata: pft.TriFlag = "false",
     trim_value_whitespace: pft.TrimValueWhitespace = "notrim",
+    # layout args
     ignore_standard_keys: pft.KeyPatterns = [],
     promote_to_standard: pft.KeyPatterns = [],
     demote_from_standard: pft.KeyPatterns = [],
@@ -3394,7 +3516,7 @@ def fcs_summarize(
     replace_standard_key_values: dict[str, str] = {},
     append_standard_keywords: dict[str, str] = {},
     substitute_standard_key_values: pft.SubPatterns = {},
-    # layout args
+    allow_repair_non_unique: pft.TriFlag = "false",
     text_data_correction: pft.OffsetCorrection = (0, 0),
     text_analysis_correction: pft.OffsetCorrection = (0, 0),
     ignore_text_data_offsets: bool = False,
@@ -3507,6 +3629,7 @@ __all__ = [
     "StdDatasetFromKwsOutput",
     "NewStdDatasetFromKwsOutput",
     "StdTEXTDiagnostics",
+    "RepairDiagnostics",
     "DataSchemaDiagnostics",
     "ValidKeywords",
     "DatasetOffsets",

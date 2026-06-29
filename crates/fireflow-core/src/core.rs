@@ -2,11 +2,11 @@
 
 use crate::api::{FCSFileReader, HeaderAndSuppOffsets, next_dataset_boundary};
 use crate::config::{
-    AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
-    EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig, OverlapCorrectionLimit,
-    ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
-    ReadSharedConfig, ReadStdKeywordsConfig, WriteDatasetInnerConfig, WriteMultiConfig,
-    WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    AllowLoss, AppendFlag, AppendRepairFlagError, AppendableFlag, ComputeWriteCRC, ConfigFlag as _,
+    DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
+    OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+    ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig, WriteDatasetInnerConfig,
+    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
 };
 use crate::convert::UsizeExt as _;
 use crate::data::{
@@ -366,6 +366,7 @@ pub struct RootMeta<X> {
     /// Version-specific data
     specific: X,
 
+    // TODO this is not validated to be unique relative to the meas counterparts
     /// Non-standard keywords.
     ///
     /// This will include all the keywords that do not start with '$'.
@@ -1315,6 +1316,7 @@ pub enum StdTEXTFromKeywordsError {
     Error(StdTEXTFromFlatTEXTErrorInner),
     Warn(StdTEXTFromFlatTEXTWarning),
     Repair(RepairCollisionError),
+    RepairAppend(AppendRepairFlagError),
 }
 
 /// Error when reading standardized TEXT from keyword pairs
@@ -1349,6 +1351,7 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     HyperGate(HyperGateError),
     OtherVersion(KeywordOtherVersionError),
     Repair(RepairCollisionError),
+    AppendRepair(AppendRepairFlagError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
@@ -1443,6 +1446,7 @@ pub enum LookupAndReadDataAnalysisError {
     Warn(LookupAndReadDataAnalysisWarning),
     CRC(CRCError),
     Repair(RepairCollisionError),
+    RepairAppend(AppendRepairFlagError),
 }
 
 /// Warning when reading DATA offsets from already-parsed keywords
@@ -2091,67 +2095,78 @@ pub(crate) trait PrivVersionSet: VersionSet {
         #[derive(AsRef)]
         struct LookupConfig {
             #[as_ref(EvaledReadDataKeywordsConfig)]
-            kws: EvaledReadDataKeywordsConfig,
+            data_kws: EvaledReadDataKeywordsConfig,
             #[as_ref(ReadDatasetConfig)]
             dataset: ReadDatasetConfig,
             #[as_ref(ReadOffsetConfig)]
             offsets: ReadOffsetConfig,
         }
 
-        let lst = st.as_ref().first_once(|conf| LookupConfig {
-            kws: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).eval(kws),
-            dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
-            offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
-        });
-
-        // Repair the keyword list before doing anything.
-        let repair_res = kws
-            .repair(&lst.conf().kws)
-            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+        AsRef::<ReadDataKeywordsConfig>::as_ref(st.conf())
+            .eval(kws)
+            .map_ok_value(|data_kws| {
+                st.as_ref().first_once(|conf| LookupConfig {
+                    data_kws,
+                    dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),
+                    offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
+                })
+            })
             .map_errors(LookupAndReadDataAnalysisError::from)
-            .into_semigroup();
-
-        let layout_res = Par::get_metaroot_req(&kws.std)
-            .map_err(LookupAndReadDataAnalysisError::from)
-            .into_log()
-            .and_then_commutative(|par| {
-                Self::DataSchema::lookup_ro(&kws.std, par, lst.conf().as_ref())
-                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                    .map_errors(LookupAndReadDataAnalysisError::from)
-            });
-        let offset_res = Self::Offsets::lookup_ro(&kws.std, hns, &lst)
-            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-            .map_errors(LookupAndReadDataAnalysisError::from);
-        layout_res
-            .zip3_commutative(offset_res, repair_res)
+            .nowarn_into_warn()
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(mut layout_out, mut offsets, repair_diag)| {
-                let ar = AnalysisReader::new(offsets.offsets.final_analysis);
-                layout_out
-                    .data_schema
-                    .h_read_df(
-                        h,
-                        offsets.tot,
-                        &mut offsets.offsets.final_data,
-                        lst.conf().as_ref(),
-                    )
+            .and_then_commutative(|lst| {
+                // Repair the keyword list before doing anything.
+                let repair_res = kws
+                    .repair(&lst.conf().data_kws)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                    .map_pure_errors(LookupAndReadDataAnalysisError::from)
-                    .and_then_commutative(|df_out| {
-                        ar.h_read(h)
-                            .map(|a| {
-                                LookupFlatDatasetOutput::new(
-                                    df_out.inner.into(),
-                                    a,
-                                    offsets.offsets,
-                                    df_out.diagnostics,
-                                    layout_out.diagnostics,
-                                    repair_diag,
-                                )
+                    .map_errors(LookupAndReadDataAnalysisError::from)
+                    .into_semigroup();
+
+                let layout_res = Par::get_metaroot_req(&kws.std)
+                    .map_err(LookupAndReadDataAnalysisError::from)
+                    .into_log()
+                    .and_then_commutative(|par| {
+                        Self::DataSchema::lookup_ro(&kws.std, par, lst.conf().as_ref())
+                            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+                            .map_errors(LookupAndReadDataAnalysisError::from)
+                    });
+
+                let offset_res = Self::Offsets::lookup_ro(&kws.std, hns, &lst)
+                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+                    .map_errors(LookupAndReadDataAnalysisError::from);
+
+                layout_res
+                    .zip3_commutative(offset_res, repair_res)
+                    .group()
+                    .map_error(IOErrorGroup::Pure)
+                    .and_then_commutative(|(mut layout_out, mut offsets, repair_diag)| {
+                        let ar = AnalysisReader::new(offsets.offsets.final_analysis);
+                        layout_out
+                            .data_schema
+                            .h_read_df(
+                                h,
+                                offsets.tot,
+                                &mut offsets.offsets.final_data,
+                                lst.conf().as_ref(),
+                            )
+                            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+                            .map_pure_errors(LookupAndReadDataAnalysisError::from)
+                            .and_then_commutative(|df_out| {
+                                ar.h_read(h)
+                                    .map(|a| {
+                                        LookupFlatDatasetOutput::new(
+                                            df_out.inner.into(),
+                                            a,
+                                            offsets.offsets,
+                                            df_out.diagnostics,
+                                            layout_out.diagnostics,
+                                            repair_diag,
+                                        )
+                                    })
+                                    .map_err(IOErrorGroup::from)
+                                    .into_log()
                             })
-                            .map_err(IOErrorGroup::from)
-                            .into_log()
                     })
             })
     }
@@ -5808,33 +5823,40 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             offsets: ReadOffsetConfig,
         }
 
-        let lst = st.as_ref().first_once(|conf| LookupConfig {
-            std: AsRef::<ReadStdKeywordsConfig>::as_ref(&conf).eval(&kws),
-            data: AsRef::<ReadDataKeywordsConfig>::as_ref(&conf).eval(&kws),
-            offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
-        });
-
-        let mut dropped = HashMap::new();
-
-        // Repair the keyword list before doing anything.
-        let repair_res = kws
-            .repair(&lst.conf().data)
-            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+        AsRef::<ReadDataKeywordsConfig>::as_ref(st.conf())
+            .eval(&kws)
+            .map_ok_value(|data| {
+                st.as_ref().first_once(|conf| LookupConfig {
+                    std: AsRef::<ReadStdKeywordsConfig>::as_ref(&conf).eval(&kws),
+                    data,
+                    offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
+                })
+            })
             .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
-            .into_semigroup();
+            .nowarn_into_warn()
+            .and_then_commutative(|lst| {
+                let mut dropped = HashMap::new();
 
-        // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
-        // Core struct but they will be needed later for parsing DATA and
-        // ANALYSIS, and processing these keywords now will make it easier to
-        // determine if TEXT is totally standardized or not.
-        let offsets_res =
-            V::Offsets::lookup(&mut kws.std, &mut kws.nonstd, &mut dropped, offsets, &lst)
-                .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+                // Repair the keyword list before doing anything.
+                let repair_res = kws
+                    .repair(&lst.conf().data)
+                    .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                    .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
+                    .into_semigroup();
 
-        Self::lookup_inner(kws, dropped, lst.conf())
-            .zip3_commutative(offsets_res, repair_res)
-            .map_ok_value(|((a, b), c, d)| (a, b, c, d))
+                // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
+                // Core struct but they will be needed later for parsing DATA and
+                // ANALYSIS, and processing these keywords now will make it easier to
+                // determine if TEXT is totally standardized or not.
+                let offsets_res =
+                    V::Offsets::lookup(&mut kws.std, &mut kws.nonstd, &mut dropped, offsets, &lst)
+                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+
+                Self::lookup_inner(kws, dropped, lst.conf())
+                    .zip3_commutative(offsets_res, repair_res)
+                    .map_ok_value(|((a, b), c, d)| (a, b, c, d))
+            })
     }
 
     /// Make a new CoreTEXT from flat keywords.
@@ -5872,23 +5894,29 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         let sconf: &ReadStdKeywordsConfig = conf.as_ref();
         let dconf: &ReadDataKeywordsConfig = conf.as_ref();
 
-        let lconf = LookupConf {
-            text: sconf.eval(&kws),
-            data: dconf.eval(&kws),
-        };
-
-        let repair_res = kws
-            .repair(&lconf.data)
+        dconf
+            .eval(&kws)
+            .map_ok_value(|data| LookupConf {
+                text: sconf.eval(&kws),
+                data,
+            })
             .map_errors(StdTEXTFromKeywordsError::from)
-            .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
-            .into_semigroup();
-
-        Self::lookup_inner(kws, HashMap::new(), &lconf)
-            .map_errors(StdTEXTFromKeywordsError::from)
-            .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
-            .zip_commutative(repair_res)
-            .map_ok_value(|((a, b), c)| (a, b, c))
+            .nowarn_into_warn()
             .group()
+            .and_then_commutative(|lconf| {
+                let repair_res = kws
+                    .repair(&lconf.data)
+                    .map_errors(StdTEXTFromKeywordsError::from)
+                    .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
+                    .into_semigroup();
+
+                Self::lookup_inner(kws, HashMap::new(), &lconf)
+                    .map_errors(StdTEXTFromKeywordsError::from)
+                    .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
+                    .zip_commutative(repair_res)
+                    .map_ok_value(|((a, b), c)| (a, b, c))
+                    .group()
+            })
     }
 
     #[allow(clippy::too_many_lines)]

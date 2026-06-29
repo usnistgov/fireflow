@@ -819,6 +819,7 @@ dependencies = [
  "const_format",
  "fireflow-core",
  "fireflow-types",
+ "hashbrown 0.16.1",
  "itertools 0.14.0",
  "itoa",
  "regex",

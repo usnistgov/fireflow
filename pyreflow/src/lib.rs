@@ -90,6 +90,7 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyFlatTEXTDiagnostics>()?;
     m.add_class::<ff::PySplitTEXTDiagnostics>()?;
     m.add_class::<ff::PyStdTEXTDiagnostics>()?;
+    m.add_class::<ff::PyRepairDiagnostics>()?;
     m.add_class::<ff::PyDataSchemaDiagnostics>()?;
     m.add_class::<ff::PyValidKeywords>()?;
     m.add_class::<ff::PyDatasetOffsets>()?;

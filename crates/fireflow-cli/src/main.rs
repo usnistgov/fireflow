@@ -2,7 +2,7 @@ use fireflow_core::api;
 use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::read::OffsetsCorrection;
-use fireflow_core::selector::Selector;
+use fireflow_core::selector::{AppendableSelector, Selector};
 use fireflow_core::text::byteord::Bytes;
 use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0, Timestep};
 use fireflow_core::validated::ascii_range::OtherWidth;
@@ -25,6 +25,7 @@ use clap::{
     value_parser,
 };
 use const_format::str_replace;
+use hashbrown::HashMap;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
 use regex::Regex;
@@ -32,7 +33,7 @@ use serde::Serialize;
 use serde_json::{json, to_writer};
 use zmij::Buffer as FBuf;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fmt::Display;
 use std::io::{self, Write};
@@ -459,58 +460,6 @@ fn run() -> AppResult<()> {
             .value_parser(value_parser!(KeyStringOrPattern))
     };
 
-    let ignore_std_key = make_key_str_args(
-        IGNORE_STD_KEYS,
-        "Ignore standard keys exactly matching KEY_OR_PAT. The leading '$' is implied.",
-    );
-
-    let promote_to_std = make_key_str_args(
-        PROMOTE_TO_STD,
-        "Promote non-standard keys matching KEY_OR_PAT to standard.",
-    );
-
-    let demote_from_std = make_key_str_args(
-        DEMOTE_FROM_STD,
-        "Demote standard keys matching KEY_OR_PAT to non-standard. The leading '$' is implied.",
-    );
-
-    let rename_standard_keys = Arg::new(RENAME_STD_KEYS)
-        .long(RENAME_STD_KEYS)
-        .action(ArgAction::Append)
-        .value_name("OLD,NEW")
-        .value_parser(ValueParser::new(parse_two_keystring_pair))
-        .help("Rename standard keys from OLD to NEW. The leading '$' is implied.");
-
-    let replace_std_key_vals = Arg::new(REPLACE_STD_KEY_VALS)
-        .long(REPLACE_STD_KEY_VALS)
-        .action(ArgAction::Append)
-        .value_name("KEY,VAL")
-        .help(
-            "Replace values of standard keys matching KEY with VAl. \
-             The leading '$' is implied for the key.",
-        )
-        .value_parser(ValueParser::new(parse_keystring_string_pair));
-
-    let append_std_key_vals = Arg::new(APPEND_STD_KEY_VALS)
-        .long(APPEND_STD_KEY_VALS)
-        .action(ArgAction::Append)
-        .value_name("KEY,VAL")
-        .help(
-            "Append standard keys with KEY and VAL to list of existing standard \
-             keys. The leading '$' is implied for KEY.",
-        )
-        .value_parser(ValueParser::new(parse_keystring_string_pair));
-
-    let sub_key_vals = Arg::new(SUB_STD_KEY_VALS)
-        .long(SUB_STD_KEY_VALS)
-        .action(ArgAction::Append)
-        .value_name("KEY,SUB")
-        .help(format!(
-            "Edit standard key values using KEY and SUB. The leading '$' \
-             is implied for KEY. See {sub_header} for details."
-        ))
-        .value_parser(ValueParser::new(parse_sub_pattern_pair));
-
     let all_read_flat_args = vec![
         version_override,
         supp_text_correction,
@@ -531,13 +480,6 @@ fn run() -> AppResult<()> {
         allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
-        ignore_std_key,
-        promote_to_std,
-        demote_from_std,
-        rename_standard_keys,
-        replace_std_key_vals,
-        append_std_key_vals,
-        sub_key_vals,
     ];
 
     // std args
@@ -758,7 +700,66 @@ fn run() -> AppResult<()> {
         ns_meas_pattern,
     ];
 
-    // layout args
+    // read dataset args
+
+    let ignore_std_key = make_key_str_args(
+        IGNORE_STD_KEYS,
+        "Ignore standard keys exactly matching KEY_OR_PAT. The leading '$' is implied.",
+    );
+
+    let promote_to_std = make_key_str_args(
+        PROMOTE_TO_STD,
+        "Promote non-standard keys matching KEY_OR_PAT to standard.",
+    );
+
+    let demote_from_std = make_key_str_args(
+        DEMOTE_FROM_STD,
+        "Demote standard keys matching KEY_OR_PAT to non-standard. The leading '$' is implied.",
+    );
+
+    let rename_standard_keys = Arg::new(RENAME_STD_KEYS)
+        .long(RENAME_STD_KEYS)
+        .action(ArgAction::Append)
+        .value_name("OLD,NEW")
+        .value_parser(ValueParser::new(parse_two_keystring_pair))
+        .help("Rename standard keys from OLD to NEW. The leading '$' is implied.");
+
+    let replace_std_key_vals = Arg::new(REPLACE_STD_KEY_VALS)
+        .long(REPLACE_STD_KEY_VALS)
+        .action(ArgAction::Append)
+        .value_name("KEY,VAL")
+        .help(
+            "Replace values of standard keys matching KEY with VAl. \
+             The leading '$' is implied for the key.",
+        )
+        .value_parser(ValueParser::new(parse_keystring_string_pair));
+
+    let append_std_key_vals = Arg::new(APPEND_STD_KEY_VALS)
+        .long(APPEND_STD_KEY_VALS)
+        .action(ArgAction::Append)
+        .value_name("KEY,VAL")
+        .help(
+            "Append standard keys with KEY and VAL to list of existing standard \
+             keys. The leading '$' is implied for KEY.",
+        )
+        .value_parser(ValueParser::new(parse_keystring_string_pair));
+
+    let sub_key_vals = Arg::new(SUB_STD_KEY_VALS)
+        .long(SUB_STD_KEY_VALS)
+        .action(ArgAction::Append)
+        .value_name("KEY,SUB")
+        .help(format!(
+            "Edit standard key values using KEY and SUB. The leading '$' \
+             is implied for KEY. See {sub_header} for details."
+        ))
+        .value_parser(ValueParser::new(parse_sub_pattern_pair));
+
+    let allow_repair_non_unique = tri_flag_arg::<cfg::AllowRepairNonUnique>(
+        ALLOW_REPAIR_NON_UNIQUE,
+        "Choose how to handle key collisions when repairing keywords. \
+         Non-unique keywords will not be kept in the final FCS file since each \
+         list of standard and non-standard keywords must be unique.",
+    );
 
     let text_data_correction = correction_arg(TEXT_DATA_COR, false, &data_seg);
     let text_analysis_correction = correction_arg(TEXT_ANALYSIS_COR, false, &analysis_seg);
@@ -837,7 +838,15 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let all_read_layout_args = [
+    let all_read_dataset_kws_args = [
+        ignore_std_key,
+        promote_to_std,
+        demote_from_std,
+        rename_standard_keys,
+        replace_std_key_vals,
+        append_std_key_vals,
+        sub_key_vals,
+        allow_repair_non_unique,
         text_data_correction,
         text_analysis_correction,
         ignore_text_data_offsets,
@@ -1070,7 +1079,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
-        .args(&all_read_layout_args)
+        .args(&all_read_dataset_kws_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
@@ -1085,7 +1094,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
-        .args(&all_read_layout_args)
+        .args(&all_read_dataset_kws_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
@@ -1100,7 +1109,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
-        .args(&all_read_layout_args)
+        .args(&all_read_dataset_kws_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
 
@@ -1115,7 +1124,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
-        .args(&all_read_layout_args)
+        .args(&all_read_dataset_kws_args)
         .args(&all_read_dataset_args)
         .args(&all_read_shared_args)
         .after_long_help(&std_long_help);
@@ -1130,7 +1139,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
         .args(&all_read_std_args)
-        .args(&all_read_layout_args)
+        .args(&all_read_dataset_kws_args)
         .args(&all_read_dataset_args)
         .args(&all_read_shared_args)
         .args(&all_write_args)
@@ -1146,7 +1155,7 @@ fn run() -> AppResult<()> {
         .args(&all_read_header_args)
         .args(&all_read_offset_args)
         .args(&all_read_flat_args)
-        .args(&all_read_layout_args)
+        .args(&all_read_dataset_kws_args)
         .args(&all_read_dataset_args)
         .args(&all_read_shared_args)
         .arg(&skip_arg)
@@ -1186,8 +1195,7 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_FLAT, sargs)) => {
-            let subcmd = cmd.find_subcommand_mut(SUBCMD_FLAT).unwrap();
-            let conf = get_read_flat_text_config(subcmd, sargs);
+            let conf = get_read_flat_text_config(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
             let (ws, res) = api::fcs_read_flat_texts(filepath, skip, Some(1), false, &conf)
@@ -1198,7 +1206,8 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SPILL, sargs)) => {
-            let conf = get_read_std_text_config(&cmd, sargs);
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_SPILL).unwrap();
+            let conf = get_read_std_text_config(subcmd, sargs);
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
@@ -1211,7 +1220,8 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_MEAS, sargs)) => {
-            let conf = get_read_std_text_config(&cmd, sargs);
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_MEAS).unwrap();
+            let conf = get_read_std_text_config(subcmd, sargs);
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
@@ -1224,7 +1234,8 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_STD, sargs)) => {
-            let conf = get_read_std_text_config(&cmd, sargs);
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_STD).unwrap();
+            let conf = get_read_std_text_config(subcmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
             let (ws, res) = api::fcs_read_std_texts(filepath, skip, Some(1), false, &conf)
@@ -1237,7 +1248,8 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_DATA, sargs)) => {
-            let conf = get_read_std_dataset_config(&cmd, sargs);
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_DATA).unwrap();
+            let conf = get_read_std_dataset_config(subcmd, sargs);
             let delim = get_delim(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_dataset_index(sargs);
@@ -1250,7 +1262,8 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_REPAIR, sargs)) => {
-            let read_conf = get_read_std_dataset_config(&cmd, sargs);
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_REPAIR).unwrap();
+            let read_conf = get_read_std_dataset_config(subcmd, sargs);
             let write_conf = get_write_std_dataset_config(sargs);
             let ipath = get_path(sargs, INPUT_PATH);
             let opath = get_path(sargs, OUTPUT_PATH);
@@ -1271,7 +1284,8 @@ fn run() -> AppResult<()> {
         }
 
         Some((SUBCMD_SUMMARIZE, sargs)) => {
-            let conf = get_read_flat_dataset_config(&cmd, sargs);
+            let subcmd = cmd.find_subcommand_mut(SUBCMD_REPAIR).unwrap();
+            let conf = get_read_flat_dataset_config(subcmd, sargs);
             let filepath = get_path(sargs, INPUT_PATH);
             let skip = get_skip(sargs);
             let limit = get_limit(sargs);
@@ -1429,7 +1443,7 @@ fn get_offsets_config(s: &ArgMatches) -> cfg::ReadOffsetConfig {
     c
 }
 
-fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadHeaderAndTEXTConfig {
+fn get_header_and_text_config(s: &ArgMatches) -> cfg::ReadHeaderAndTEXTConfig {
     let strat = get_strategy(s);
     let mut c = cfg::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
 
@@ -1468,31 +1482,6 @@ fn get_header_and_text_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadHeaderA
     });
     get_opt(s, TRIM_VALUE_WHITESPACE, |x| {
         c.trim_value_whitespace = x;
-    });
-
-    get_many::<KeyStringOrPattern, _, _>(s, IGNORE_STD_KEYS, |xs| c.ignore_standard_keys = xs);
-    get_many::<KeyStringOrPattern, _, _>(s, PROMOTE_TO_STD, |xs| c.promote_to_standard = xs);
-    get_many::<KeyStringOrPattern, _, _>(s, DEMOTE_FROM_STD, |xs| c.demote_from_standard = xs);
-
-    if let Some(xs) = s.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
-        let Ok(ys) = xs
-            .cloned()
-            .collect::<HashMap<_, _>>()
-            .try_into()
-            .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit());
-        c.rename_standard_keys = ys;
-    }
-
-    let parse_keystring_pair = |name: &str| {
-        s.get_many::<KeystringStringPair>(name)
-            .map(|xs| xs.cloned().collect())
-    };
-
-    let _ = parse_keystring_pair(REPLACE_STD_KEY_VALS).map(|x| c.replace_standard_key_values = x);
-    let _ = parse_keystring_pair(APPEND_STD_KEY_VALS).map(|x| c.append_standard_keywords = x);
-
-    get_many(s, SUB_STD_KEY_VALS, |xs| {
-        c.substitute_standard_key_values = xs;
     });
 
     c
@@ -1547,9 +1536,46 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     c
 }
 
-fn get_data_kws_config(s: &ArgMatches) -> cfg::ReadDataKeywordsConfig {
+fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsConfig {
     let strat = get_strategy(s);
     let mut c = cfg::ReadDataKeywordsConfig::new_with_strategy(strat);
+
+    get_many::<KeyStringOrPattern, _, _>(s, IGNORE_STD_KEYS, |xs| {
+        c.ignore_standard_keys = AppendableSelector::root(xs);
+    });
+    get_many::<KeyStringOrPattern, _, _>(s, PROMOTE_TO_STD, |xs| {
+        c.promote_to_standard = AppendableSelector::root(xs);
+    });
+    get_many::<KeyStringOrPattern, _, _>(s, DEMOTE_FROM_STD, |xs| {
+        c.demote_from_standard = AppendableSelector::root(xs);
+    });
+
+    if let Some(xs) = s.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
+        let Ok(ys) = xs
+            .cloned()
+            .collect::<HashMap<_, _>>()
+            .try_into()
+            .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit());
+        c.rename_standard_keys = AppendableSelector::root(ys);
+    }
+
+    let parse_keystring_pair = |name: &str| {
+        s.get_many::<KeystringStringPair>(name)
+            .map(|xs| xs.cloned().collect())
+    };
+
+    let _ = parse_keystring_pair(REPLACE_STD_KEY_VALS)
+        .map(|x| c.replace_standard_key_values = AppendableSelector::root(x));
+    let _ = parse_keystring_pair(APPEND_STD_KEY_VALS)
+        .map(|x| c.append_standard_keywords = AppendableSelector::root(x));
+
+    get_many(s, SUB_STD_KEY_VALS, |xs| {
+        c.substitute_standard_key_values = AppendableSelector::root(xs);
+    });
+
+    get_opt(s, ALLOW_REPAIR_NON_UNIQUE, |x| {
+        c.allow_repair_non_unique = x;
+    });
 
     get_correction(s, TEXT_DATA_COR, |x| c.text_data_correction = x);
     get_correction(s, TEXT_ANALYSIS_COR, |x| c.text_analysis_correction = x);
@@ -1605,10 +1631,10 @@ fn get_read_shared_config(sargs: &ArgMatches) -> cfg::ReadSharedConfig {
     }
 }
 
-fn get_read_flat_text_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadFlatTEXTConfig {
+fn get_read_flat_text_config(sargs: &ArgMatches) -> cfg::ReadFlatTEXTConfig {
     cfg::ReadFlatTEXTConfig {
         header: get_header_inner_config(sargs),
-        flat: get_header_and_text_config(cmd, sargs),
+        flat: get_header_and_text_config(sargs),
         offset: get_offsets_config(sargs),
         shared: get_read_shared_config(sargs),
     }
@@ -1617,10 +1643,10 @@ fn get_read_flat_text_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadFlat
 fn get_read_std_text_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadStdTEXTConfig {
     cfg::ReadStdTEXTConfig {
         header: get_header_inner_config(sargs),
-        flat: get_header_and_text_config(cmd, sargs),
+        flat: get_header_and_text_config(sargs),
         offset: get_offsets_config(sargs),
         standard: get_std_kws_config(sargs),
-        layout: get_data_kws_config(sargs),
+        layout: get_data_kws_config(cmd, sargs),
         shared: get_read_shared_config(sargs),
     }
 }
@@ -1628,9 +1654,9 @@ fn get_read_std_text_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadStdTE
 fn get_read_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadFlatDatasetConfig {
     cfg::ReadFlatDatasetConfig {
         header: get_header_inner_config(sargs),
-        flat: get_header_and_text_config(cmd, sargs),
+        flat: get_header_and_text_config(sargs),
         offset: get_offsets_config(sargs),
-        layout: get_data_kws_config(sargs),
+        layout: get_data_kws_config(cmd, sargs),
         data: get_dataset_config(sargs),
         shared: get_read_shared_config(sargs),
     }
@@ -1639,10 +1665,10 @@ fn get_read_flat_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadF
 fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadStdDatasetConfig {
     cfg::ReadStdDatasetConfig {
         header: get_header_inner_config(sargs),
-        flat: get_header_and_text_config(cmd, sargs),
+        flat: get_header_and_text_config(sargs),
         offset: get_offsets_config(sargs),
         standard: get_std_kws_config(sargs),
-        layout: get_data_kws_config(sargs),
+        layout: get_data_kws_config(cmd, sargs),
         data: get_dataset_config(sargs),
         shared: get_read_shared_config(sargs),
     }
@@ -2011,20 +2037,6 @@ const ALLOW_MISSING_NEXTDATA: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_mis
 
 const TRIM_VALUE_WHITESPACE: &str = cli_arg!(ReadHeaderAndTEXTConfig::trim_value_whitespace);
 
-const IGNORE_STD_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::ignore_standard_keys);
-
-const PROMOTE_TO_STD: &str = cli_arg!(ReadHeaderAndTEXTConfig::promote_to_standard);
-
-const DEMOTE_FROM_STD: &str = cli_arg!(ReadHeaderAndTEXTConfig::demote_from_standard);
-
-const RENAME_STD_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::rename_standard_keys);
-
-const REPLACE_STD_KEY_VALS: &str = cli_arg!(ReadHeaderAndTEXTConfig::replace_standard_key_values);
-
-const APPEND_STD_KEY_VALS: &str = cli_arg!(ReadHeaderAndTEXTConfig::append_standard_keywords);
-
-const SUB_STD_KEY_VALS: &str = cli_arg!(ReadHeaderAndTEXTConfig::substitute_standard_key_values);
-
 // std keyword config flags
 
 const DEDUP_MEAS_NAMES: &str = cli_arg!(ReadStdKeywordsConfig::dedup_measurement_names);
@@ -2072,6 +2084,22 @@ const DISALLOW_LOCALTIME: &str = cli_arg!(ReadStdKeywordsConfig::disallow_localt
 const NS_MEAS_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::nonstandard_measurement_pattern);
 
 // data keyword config flags
+
+const IGNORE_STD_KEYS: &str = cli_arg!(ReadDataKeywordsConfig::ignore_standard_keys);
+
+const PROMOTE_TO_STD: &str = cli_arg!(ReadDataKeywordsConfig::promote_to_standard);
+
+const DEMOTE_FROM_STD: &str = cli_arg!(ReadDataKeywordsConfig::demote_from_standard);
+
+const RENAME_STD_KEYS: &str = cli_arg!(ReadDataKeywordsConfig::rename_standard_keys);
+
+const REPLACE_STD_KEY_VALS: &str = cli_arg!(ReadDataKeywordsConfig::replace_standard_key_values);
+
+const APPEND_STD_KEY_VALS: &str = cli_arg!(ReadDataKeywordsConfig::append_standard_keywords);
+
+const SUB_STD_KEY_VALS: &str = cli_arg!(ReadDataKeywordsConfig::substitute_standard_key_values);
+
+const ALLOW_REPAIR_NON_UNIQUE: &str = cli_arg!(ReadDataKeywordsConfig::allow_repair_non_unique);
 
 const TEXT_DATA_COR: &str = cli_arg!(ReadDataKeywordsConfig::text_data_correction);
 

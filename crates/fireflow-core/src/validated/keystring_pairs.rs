@@ -1,9 +1,9 @@
 use crate::validated::keys::KeyString;
 
 use derive_more::AsRef;
+use hashbrown::{HashMap, hash_map::IntoIter};
 use itertools::Itertools as _;
 use nonempty_collections::NEVec;
-use std::collections::HashMap;
 use thiserror::Error;
 
 #[cfg(feature = "python")]
@@ -18,6 +18,15 @@ use {fireflow_core_proc::DisplayAsPyErr, pyo3::prelude::*};
 #[derive(Clone, Debug, Default, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
+
+impl IntoIterator for KeyStringPairs {
+    type Item = (KeyString, KeyString);
+    type IntoIter = IntoIter<KeyString, KeyString>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.0.into_iter()
+    }
+}
 
 // TODO also ensure that destination keys are all unique so we never get
 // collisions
@@ -40,7 +49,7 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
 }
 
 /// Error when building [`KeyStringPairs`] from configuration
-#[derive(Error, Debug)]
+#[derive(Error, Debug, PartialEq, Clone)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
@@ -51,8 +60,8 @@ mod python {
     use super::KeyStringPairs;
     use crate::validated::keys::KeyString;
 
+    use hashbrown::HashMap;
     use pyo3::prelude::*;
-    use std::collections::HashMap;
 
     impl<'py> FromPyObject<'_, 'py> for KeyStringPairs {
         type Error = PyErr;

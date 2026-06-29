@@ -1,17 +1,16 @@
 use crate::{
     config::{NonStdMeasPatternOpt, TimeMeasNamePattern},
-    text::keywords::{Cyt, LastModified},
+    text::keywords::Cyt,
     validated::{
         datepattern::DatePattern,
         keys::{AnyKey, Key as _, ValidKeywords},
-        nonstd_meas_pattern::NonStdMeasPattern,
         timepattern::TimePattern,
     },
 };
 
 use fireflow_types::nonempty_string::NEString;
 use fireflow_types::{ne_str, nonempty_string::NEStr};
-use nonempty_collections::{NEVec, nev};
+use nonempty_collections::{NEVec, NonEmptyIterator as _, nev};
 
 use derive_more::Display;
 use derive_new::new;
@@ -29,6 +28,17 @@ use {
 #[derive(Clone)]
 pub enum Selector<T> {
     Root(T),
+    Branch(Branch<T>),
+}
+
+#[derive(Clone)]
+pub enum AppendableSelector<T> {
+    One(Selector<T>),
+    Many(NEVec<Selector<T>>),
+}
+
+#[derive(Clone)]
+pub enum Branch<T> {
     If(Box<If<T>>),
     Cond(Cond<T>),
 }
@@ -104,7 +114,7 @@ impl Selector<Option<DatePattern>> {
             (Condition::Root(is_pas), Self::root(Some(pas))),
             (Condition::Root(is_mqa), Self::root(Some(mqa)))
         ];
-        Self::Cond(Cond { forms })
+        Self::Branch(Branch::Cond(Cond { forms }))
     }
 }
 
@@ -130,12 +140,16 @@ impl Selector<NonStdMeasPatternOpt> {
 impl<T> Selector<T> {
     #[must_use]
     pub fn if_then(cond: Condition, consequent: Self) -> Self {
-        Self::If(Box::new(If::new(cond, consequent, None)))
+        Self::Branch(Branch::If(Box::new(If::new(cond, consequent, None))))
     }
 
     #[must_use]
     pub fn if_then_else(cond: Condition, consequent: Self, alterantive: Self) -> Self {
-        Self::If(Box::new(If::new(cond, consequent, Some(alterantive))))
+        Self::Branch(Branch::If(Box::new(If::new(
+            cond,
+            consequent,
+            Some(alterantive),
+        ))))
     }
 
     #[must_use]
@@ -156,6 +170,43 @@ impl<T> Selector<T> {
     {
         match self {
             Self::Root(x) => Some(x.clone()),
+            Self::Branch(b) => b.eval(kws),
+        }
+    }
+}
+
+impl<T: Default> Default for AppendableSelector<T> {
+    fn default() -> Self {
+        Self::One(Selector::default())
+    }
+}
+
+impl<T> AppendableSelector<T> {
+    pub fn root(t: T) -> Self {
+        Self::One(Selector::root(t))
+    }
+
+    pub fn try_eval<E, F>(&self, kws: &ValidKeywords, f: F) -> Result<T, E>
+    where
+        T: Clone + Default,
+        F: Fn(NEVec<T>) -> Result<T, E>,
+    {
+        match self {
+            Self::One(s) => Ok(s.eval(kws)),
+            Self::Many(ss) => {
+                let xs: NEVec<_> = ss.nonempty_iter().map(|s| s.eval(kws)).collect();
+                f(xs)
+            }
+        }
+    }
+}
+
+impl<T> Branch<T> {
+    fn eval(&self, kws: &ValidKeywords) -> Option<T>
+    where
+        T: Clone,
+    {
+        match self {
             Self::If(i) => i.eval(kws),
             Self::Cond(c) => c.eval(kws),
         }
@@ -236,7 +287,7 @@ impl FromStr for ValueRegex {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{Cond, Condition, If, KeyTest, Selector, ValueRegex};
+    use super::{AppendableSelector, Branch, Cond, Condition, If, KeyTest, Selector, ValueRegex};
 
     use crate::validated::keys::AnyKey;
 
@@ -246,25 +297,23 @@ mod python {
     use nonempty_collections::NEVec;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyTuple};
 
-    use std::iter::once;
-
-    // for some reason this can't be derived because of the Box
     impl<'py, T> FromPyObject<'_, 'py> for Selector<T>
     where
-        for<'b> T: FromPyObject<'b, 'py>,
+        for<'b> T: FromPyObject<'b, 'py, Error = PyErr>,
     {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Ok(root) = obj.extract::<T>() {
-                return Ok(Self::Root(root));
-            } else if let Ok(i) = obj.extract::<If<T>>() {
-                return Ok(Self::If(Box::new(i)));
-            } else if let Ok(c) = obj.extract::<Cond<T>>() {
-                return Ok(Self::Cond(c));
+            // Use two-stage parse to keep the errors sane. Try to parse as a
+            // branch if this is a tuple that starts with one of the operators.
+            // If not, parse as a root, which could be anything.
+            if let Ok((op, _)) = obj.extract::<(String, Bound<PyAny>)>()
+                && (op.as_str() == fp::SELECTOR_COND.as_str()
+                    || op.as_str() == fp::SELECTOR_IF.as_str())
+            {
+                Ok(Self::Branch(obj.extract::<Branch<T>>()?))
+            } else {
+                Ok(Self::Root(obj.extract::<T>()?))
             }
-            Err(fp::ConfigError::new_err(
-                "Must be a bare type, an if expression, or a cond expression.",
-            ))
         }
     }
 
@@ -278,7 +327,75 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Root(t) => t.into_bound_py_any(py),
+                Self::Root(r) => r.into_bound_py_any(py),
+                Self::Branch(b) => b.into_bound_py_any(py),
+            }
+        }
+    }
+
+    impl<'py, T> FromPyObject<'_, 'py> for AppendableSelector<T>
+    where
+        for<'b> T: FromPyObject<'b, 'py, Error = PyErr>,
+    {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            // Order is important to keep error messages sane
+            //
+            // TODO the error won't say anything if something went wrong in the
+            // list-of-selector case
+            if let Ok(ss) = obj.extract::<Vec<Selector<T>>>()
+                && let Some(ne) = NEVec::try_from_vec(ss)
+            {
+                return Ok(Self::Many(ne));
+            }
+            Ok(Self::One(obj.extract::<Selector<T>>()?))
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for AppendableSelector<T>
+    where
+        T: IntoPyObject<'py>,
+    {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
+                Self::One(s) => s.into_bound_py_any(py),
+                Self::Many(ss) => Vec::from(ss).into_bound_py_any(py),
+            }
+        }
+    }
+
+    // for some reason this can't be derived because of the Box
+    impl<'py, T> FromPyObject<'_, 'py> for Branch<T>
+    where
+        for<'b> T: FromPyObject<'b, 'py, Error = PyErr>,
+    {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
+            if let Ok(i) = obj.extract::<If<T>>() {
+                return Ok(Self::If(Box::new(i)));
+            } else if let Ok(c) = obj.extract::<Cond<T>>() {
+                return Ok(Self::Cond(c));
+            }
+            Err(fp::ConfigError::new_err(
+                "Must be an if or a cond expression",
+            ))
+        }
+    }
+
+    impl<'py, T> IntoPyObject<'py> for Branch<T>
+    where
+        T: IntoPyObject<'py>,
+    {
+        type Target = PyAny;
+        type Output = Bound<'py, Self::Target>;
+        type Error = PyErr;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            match self {
                 Self::If(i) => i.into_bound_py_any(py),
                 Self::Cond(c) => c.into_bound_py_any(py),
             }
@@ -287,7 +404,7 @@ mod python {
 
     impl<'py, T> FromPyObject<'_, 'py> for If<T>
     where
-        for<'b> T: FromPyObject<'b, 'py>,
+        for<'b> T: FromPyObject<'b, 'py, Error = PyErr>,
     {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
@@ -338,20 +455,15 @@ mod python {
 
     impl<'py, T> FromPyObject<'_, 'py> for Cond<T>
     where
-        for<'b> T: FromPyObject<'b, 'py>,
+        for<'b> T: FromPyObject<'b, 'py, Error = PyErr>,
     {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let t = obj.cast::<PyTuple>()?;
-            if t.len() > 1 {
-                let op = t.get_item(0)?.extract::<String>()?;
-                let rest = t
-                    .get_slice(1, usize::MAX)
-                    .extract::<Vec<(Condition, Selector<T>)>>()?;
-                let forms = NEVec::try_from_vec(rest).expect("length was checked above");
-                if op == fp::SELECTOR_COND.as_str() {
-                    return Ok(Self { forms });
-                }
+            let (op, forms) = obj.extract::<(String, Vec<(Condition, Selector<T>)>)>()?;
+            if let Some(ne) = NEVec::try_from_vec(forms)
+                && op == fp::SELECTOR_COND.as_str()
+            {
+                return Ok(Self { forms: ne });
             }
             Err(fp::ConfigError::new_err(format!(
                 "Must be a nested tuple like (\"{}\", (<condition0>, <predicate0>), ...).",
@@ -369,10 +481,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            let op = fp::SELECTOR_COND.as_str().into_py_any(py);
-            let rest = self.forms.into_iter().map(|f| f.into_py_any(py));
-            let elements = once(op).chain(rest).collect::<Result<Vec<_>, _>>()?;
-            PyTuple::new(py, elements)
+            (fp::SELECTOR_COND.as_str(), Vec::from(self.forms)).into_pyobject(py)
         }
     }
 

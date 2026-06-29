@@ -11,11 +11,11 @@ use crate::convert::UsizeExt as _;
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, CRCOutput,
     DatasetDiagnostics, DatasetOffsets, LookupAndReadDataAnalysisError,
-    LookupAndReadDataAnalysisWarning, Others, PrivVersionSet as _, StdDatasetFromFlatTEXTWarning,
-    StdDatasetFromKwsOutput, StdTEXTDiagnostics, StdTEXTFromFlatTEXTError,
-    StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
+    LookupAndReadDataAnalysisWarning, LookupFlatDatasetOutput, Others, PrivVersionSet as _,
+    StdDatasetFromFlatTEXTWarning, StdDatasetFromKwsOutput, StdTEXTDiagnostics,
+    StdTEXTFromFlatTEXTError, StdTEXTFromFlatTEXTWarning, StdWriterError, WriteDatasetSummary,
 };
-use crate::data::{DataSchemaDiagnostics, EventOverRangeError, EventsDiagnostics};
+use crate::data::{DataSchemaDiagnostics, EventOverRangeError};
 use crate::fixed_vec::OneOrTwo;
 use crate::header::{
     GuessVersionError, Header, HeaderError, KeywordVersionScores, autodetect_version,
@@ -50,8 +50,8 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{
     InvalidKeywordCharsError, Key as _, KeyOrBytes, KeywordInsertError, NEStringOrBytes, NonStdKey,
-    ParsedKeywords, ParsedKeywordsDiagnostic, StdKey, StdKeywords, StringOrBytes,
-    TruncatedNEString, ValidKeywords,
+    ParsedKeywords, ParsedKeywordsDiagnostic, RepairDiagnostics, StdKey, StdKeywords,
+    StringOrBytes, TruncatedNEString, ValidKeywords,
 };
 use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
@@ -442,6 +442,9 @@ pub struct StdTEXTOutput {
     /// Offsets for DATA and ANALYSIS
     pub dataset_offsets: DatasetOffsets,
 
+    /// Diagnostic output from repairing the keyword list
+    pub repair_diagnostics: RepairDiagnostics,
+
     /// Diagnostic output from TEXT standardization
     pub std_diagnostics: StdTEXTDiagnostics,
 
@@ -507,6 +510,9 @@ pub struct FlatDatasetFromKwsOutput {
 
     /// Offsets used to parse DATA and ANALYSIS
     pub dataset_offsets: DatasetOffsets,
+
+    /// Diagnostic output from repairing the keyword list
+    pub repair_diagnostics: RepairDiagnostics,
 
     /// Diagnostic output from parsing the data schema.
     pub schema_diagnostics: DataSchemaDiagnostics,
@@ -1584,30 +1590,29 @@ impl FlatDatasetFromKwsOutput {
     {
         kws_to_df_analysis(new_version, h, kws, hns, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
-            .and_then_commutative(
-                |(data, analysis, dataset_offsets, event_diag, schema_diag)| {
-                    let or = hns.header.final_offsets.others_reader();
-                    let v = new_version;
-                    let d = &dataset_offsets;
-                    DatasetDiagnostics::from_parts(h, v, event_diag, hns, d, scan_next_dataset, st)
-                        .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
-                        .map_pure_errors(LookupAndReadDataAnalysisError::from)
-                        .repack_warnings()
-                        .and_then_commutative(|ds_diag| {
-                            let go = |others| {
-                                Self::new(
-                                    data,
-                                    analysis,
-                                    others,
-                                    dataset_offsets,
-                                    schema_diag,
-                                    ds_diag,
-                                )
-                            };
-                            or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
-                        })
-                },
-            )
+            .and_then_commutative(|out| {
+                let or = hns.header.final_offsets.others_reader();
+                let v = new_version;
+                let d = &out.ds_offsets;
+                DatasetDiagnostics::from_parts(h, v, out.event_diag, hns, d, scan_next_dataset, st)
+                    .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+                    .map_pure_errors(LookupAndReadDataAnalysisError::from)
+                    .repack_warnings()
+                    .and_then_commutative(|ds_diag| {
+                        let go = |others| {
+                            Self::new(
+                                out.df,
+                                out.analysis,
+                                others,
+                                out.ds_offsets,
+                                out.repair_diag,
+                                out.schema_diag,
+                                ds_diag,
+                            )
+                        };
+                        or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
+                    })
+            })
     }
 }
 
@@ -1779,18 +1784,17 @@ impl FlatTEXTOutput {
     {
         let hns = &mut self.flat_diagnostics.header_supp;
         let version = hns.header.version;
-        AnyCoreTEXT::parse_flat(version, self.keywords, hns, st).map_ok_value(
-            |(standardized, extra, offsets, scores)| {
-                let out = StdTEXTOutput::new(
-                    offsets.tot,
-                    offsets.offsets,
-                    extra,
-                    self.flat_diagnostics,
-                    scores,
-                );
-                (standardized, out)
-            },
-        )
+        AnyCoreTEXT::parse_flat(version, self.keywords, hns, st).map_ok_value(|out| {
+            let std_out = StdTEXTOutput::new(
+                out.offsets.tot,
+                out.offsets.offsets,
+                out.repair_diag,
+                out.std_diag,
+                self.flat_diagnostics,
+                out.scores,
+            );
+            (out.inner, std_out)
+        })
     }
 
     /// Convert into standardized dataset, reading data as necessary.
@@ -2674,13 +2678,7 @@ fn kws_to_df_analysis<C, R>(
     hns: &mut HeaderAndSuppOffsets,
     st: &TEXTReadState<C>,
 ) -> WarningsAndIOGroupResult<
-    (
-        PrimitiveDataFrame,
-        Analysis,
-        DatasetOffsets,
-        EventsDiagnostics,
-        DataSchemaDiagnostics,
-    ),
+    LookupFlatDatasetOutput,
     LookupAndReadDataAnalysisWarning,
     LookupAndReadDataAnalysisError,
     (),

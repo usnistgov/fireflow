@@ -812,6 +812,7 @@ impl ReadDataKeywordsConfig {
             replace_standard_key_values: self.replace_standard_key_values.eval(kws),
             append_standard_keywords: self.append_standard_keywords.eval(kws),
             substitute_standard_key_values: self.substitute_standard_key_values.eval(kws),
+            allow_repair_non_unique: self.allow_repair_non_unique,
             text_data_correction: self.text_data_correction,
             text_analysis_correction: self.text_analysis_correction,
             ignore_text_data_offsets: self.ignore_text_data_offsets,
@@ -900,6 +901,12 @@ pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// This is like a substitution operation in sed or perl. Patterns matched
     /// with a regexp will be replaced, possibly with captures.
     pub substitute_standard_key_values: SSKV,
+
+    /// Choose how to handle key collisions when repairing keywords.
+    ///
+    /// Non-unique keywords will not be kept in the final FCS file since each
+    /// list of standard and non-standard keywords must be unique.
+    pub allow_repair_non_unique: AllowRepairNonUnique,
 
     /// Corrections for DATA offsets in TEXT segment
     #[as_ref(TEXTCorrection<DataSegmentId>)]
@@ -1391,6 +1398,7 @@ impl_tri_error_flag!(false_is_error AllowUnevenEventWidth);
 impl_tri_error_flag!(false_is_error AllowTotMismatch);
 impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
 impl_tri_error_flag!(false_is_error AllowMissingTime);
+impl_tri_error_flag!(false_is_error AllowRepairNonUnique);
 
 impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
 

@@ -121,7 +121,7 @@ use crate::validated::datepattern::DatePattern;
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
-    StdKey, StdKeywords, StringOrBytes, ValidKeywords,
+    RepairCollisionError, RepairDiagnostics, StdKey, StdKeywords, StringOrBytes, ValidKeywords,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -395,192 +395,6 @@ pub enum AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
 pub type AnyCoreTEXT = AnyCore<(), DataSchema2_0, DataSchema3_0, DataSchema3_1, DataSchema3_2, ()>;
 pub type AnyCoreDataset =
     AnyCore<Analysis, DataFrame2_0, DataFrame3_0, DataFrame3_1, DataFrame3_2, Others>;
-
-macro_rules! match_anycore {
-    ($self:expr, $bind:ident, $stuff:block) => {
-        match_many_to_one!($self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], $bind, $stuff)
-    };
-}
-
-impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
-    #[must_use]
-    pub fn version(&self) -> Version {
-        match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            (*x).fcs_version()
-        })
-    }
-
-    #[must_use]
-    pub fn shortnames(&self) -> Vec<Shortname> {
-        match_anycore!(self, x, { x.all_shortnames() })
-    }
-
-    #[cfg(feature = "serde")]
-    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: u8) -> io::Result<()>
-    where
-        L2_0: LayoutKeywords + LayoutOptMeasKeywords,
-        L3_0: LayoutKeywords + LayoutOptMeasKeywords,
-        L3_1: LayoutKeywords + LayoutOptMeasKeywords,
-        L3_2: LayoutKeywords + LayoutOptMeasKeywords,
-    {
-        match_anycore!(self, x, { x.print_meas_table(w, delim) })
-    }
-
-    #[cfg(feature = "serde")]
-    pub fn print_comp_or_spillover_table<W: io::Write>(
-        &self,
-        w: &mut W,
-        delim: u8,
-    ) -> io::Result<()> {
-        if let Some((names, matrix)) = self.spillover_or_comp_table() {
-            let mut first = true;
-            for s in once("[-]").chain(names.iter().map(AsRef::as_ref)) {
-                if !first {
-                    w.write_all(&[delim])?;
-                }
-                first = false;
-                write!(w, "{s}")?;
-            }
-            writeln!(w)?;
-
-            // NDArrays are row-major so this should print row-by-row
-            for (row, n) in matrix.outer_iter().zip(&names[..]) {
-                write!(w, "{n}")?;
-                for x in row {
-                    w.write_all(&[delim])?;
-                    write!(w, "{x}")?;
-                }
-                writeln!(w)?;
-            }
-        } else {
-            writeln!(w, "[]")?;
-        }
-        Ok(())
-    }
-
-    #[cfg(feature = "serde")]
-    fn spillover_or_comp_table(&self) -> Option<(Vec<Shortname>, Array2<f32>)> {
-        match self {
-            Self::FCS2_0(x) => x.named_compensation(),
-            Self::FCS3_0(x) => x.named_compensation(),
-            Self::FCS3_1(x) => x.named_spillover(),
-            Self::FCS3_2(x) => x.named_spillover(),
-        }
-    }
-}
-
-impl AnyCoreTEXT {
-    #[allow(clippy::type_complexity)]
-    pub(crate) fn parse_flat<C>(
-        version: Version,
-        kws: ValidKeywords,
-        offsets: &mut HeaderAndSuppOffsets,
-        st: &TEXTReadState<C>,
-    ) -> WarningsAndErrorsResult<
-        (
-            Self,
-            StdTEXTDiagnostics,
-            TEXTOffsets<Option<Tot>>,
-            Option<KeywordVersionScores>,
-        ),
-        (),
-        StdTEXTFromFlatTEXTWarning,
-        StdTEXTFromFlatTEXTError,
-    >
-    where
-        C: AsRef<ReadHeaderAndTEXTConfig>
-            + AsRef<ReadOffsetConfig>
-            + AsRef<ReadStdKeywordsConfig>
-            + AsRef<ReadDataKeywordsConfig>,
-    {
-        macro_rules! go {
-            ($t:ident, $s:expr) => {
-                $t::new_from_keywords_with_offsets(kws, offsets, st)
-                    .map_ok_value(|(x, y, z)| (x.into(), y, z.into_common(), $s))
-                    .map_errors(StdTEXTFromFlatTEXTError::from)
-            };
-        }
-
-        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
-
-        match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
-            Ok((ver, scores)) => match ver {
-                Version::FCS2_0 => go!(CoreTEXT2_0, scores),
-                Version::FCS3_0 => go!(CoreTEXT3_0, scores),
-                Version::FCS3_1 => go!(CoreTEXT3_1, scores),
-                Version::FCS3_2 => go!(CoreTEXT3_2, scores),
-            },
-            Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
-        }
-    }
-}
-
-impl AnyCoreDataset {
-    #[must_use]
-    pub fn as_data(&self) -> PrimitiveDataFrame {
-        match_anycore!(self, x, { x.meas.data().clone().into() })
-    }
-
-    #[must_use]
-    pub fn datatypes(&self) -> Vec<AlphaNumType> {
-        match_anycore!(self, x, { x.meas.data().datatypes() })
-    }
-
-    #[must_use]
-    pub fn write_dataset(
-        &self,
-        path: &PathBuf,
-        conf: &WriteMultiDatasetConfig,
-    ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
-    {
-        match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
-            x.write_dataset(path, conf)
-        })
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    pub(crate) fn new_from_keywords<C, R>(
-        h: &mut BufReader<R>,
-        hns: &mut HeaderAndSuppOffsets,
-        kws: ValidKeywords,
-        scan_next_dataset: bool,
-        st: &TEXTReadState<C>,
-    ) -> WarningsAndIOGroupResult<
-        (Self, StdDatasetFromKwsOutput, Option<KeywordVersionScores>),
-        StdDatasetFromFlatTEXTWarning,
-        AnyStdDatasetFromFlatTextError,
-        (),
-    >
-    where
-        R: Read + Seek,
-        C: AsRef<ReadHeaderAndTEXTConfig>
-            + AsRef<ReadOffsetConfig>
-            + AsRef<ReadStdKeywordsConfig>
-            + AsRef<ReadDataKeywordsConfig>
-            + AsRef<ReadDatasetConfig>,
-    {
-        let version = hns.header.version;
-        macro_rules! go {
-            ($t:ident, $s:expr) => {
-                $t::new_from_keywords_inner(h, kws, hns, scan_next_dataset, st)
-                    .map_ok_value(|(x, y)| (x.into(), y, $s))
-                    .map_pure_errors(AnyStdDatasetFromFlatTextError::from)
-            };
-        }
-
-        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
-
-        match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
-            Ok((ver, scores)) => match ver {
-                Version::FCS2_0 => go!(CoreDataset2_0, scores),
-                Version::FCS3_0 => go!(CoreDataset3_0, scores),
-                Version::FCS3_1 => go!(CoreDataset3_1, scores),
-                Version::FCS3_2 => go!(CoreDataset3_2, scores),
-            },
-            Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
-        }
-    }
-}
 
 /// Metaroot fields specific to version 2.0
 #[derive(Clone, AsRef, AsMut, PartialEq, new)]
@@ -1048,6 +862,9 @@ pub struct StdDatasetFromKwsOutput {
     /// DATA+ANALYSIS
     pub dataset_offsets: DatasetOffsets,
 
+    /// Diagnostic output from repairing the keyword list
+    pub repair_diagnostics: RepairDiagnostics,
+
     /// Keywords that start with '$' that are not part of the standard
     pub std_diagnostics: StdTEXTDiagnostics,
 
@@ -1497,6 +1314,15 @@ pub enum RemoveMeasByIndexError {
 pub enum StdTEXTFromKeywordsError {
     Error(StdTEXTFromFlatTEXTErrorInner),
     Warn(StdTEXTFromFlatTEXTWarning),
+    Repair(RepairCollisionError),
+}
+
+/// Error when reading standardized TEXT from keyword pairs
+#[derive(From, Display, Debug, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum StdTEXTFromKeywordsWarning {
+    Error(StdTEXTFromFlatTEXTWarning),
+    Repair(RepairCollisionError),
 }
 
 /// Error when reading standardized TEXT from keyword pairs
@@ -1522,6 +1348,7 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     HyperPar(HyperParError),
     HyperGate(HyperGateError),
     OtherVersion(KeywordOtherVersionError),
+    Repair(RepairCollisionError),
 }
 
 /// Warning when reading standardized TEXT from keyword pairs
@@ -1539,6 +1366,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
     HyperPar(HyperParError),
     HyperGate(HyperGateError),
     OtherVersion(KeywordOtherVersionError),
+    Repair(RepairCollisionError),
 }
 
 /// Error when reading any version of standardized DATA from keyword pairs.
@@ -1614,6 +1442,7 @@ pub enum LookupAndReadDataAnalysisError {
     Dataframe(ReadCheckedDataframeError),
     Warn(LookupAndReadDataAnalysisWarning),
     CRC(CRCError),
+    Repair(RepairCollisionError),
 }
 
 /// Warning when reading DATA offsets from already-parsed keywords
@@ -1624,6 +1453,7 @@ pub enum LookupAndReadDataAnalysisWarning {
     DataSchema(LookupDataSchemaWarning),
     Data(ReadCheckedDataframeWarning),
     CRC(CRCError),
+    Repair(RepairCollisionError),
 }
 
 /// Error when looking up offsets for parsing DATA
@@ -2230,6 +2060,16 @@ impl_version_set!(Version3_2, InnerRootMeta3_2, TEXTOffsets3_2);
 //
 // Used to keep messy functions out of public API
 
+#[derive(new)]
+pub(crate) struct LookupFlatDatasetOutput {
+    pub(crate) df: PrimitiveDataFrame,
+    pub(crate) analysis: Analysis,
+    pub(crate) ds_offsets: DatasetOffsets,
+    pub(crate) event_diag: EventsDiagnostics,
+    pub(crate) schema_diag: DataSchemaDiagnostics,
+    pub(crate) repair_diag: RepairDiagnostics,
+}
+
 pub(crate) trait PrivVersionSet: VersionSet {
     fn h_lookup_and_read<C, R>(
         h: &mut BufReader<R>,
@@ -2237,13 +2077,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
         hns: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (
-            PrimitiveDataFrame,
-            Analysis,
-            DatasetOffsets,
-            EventsDiagnostics,
-            DataSchemaDiagnostics,
-        ),
+        LookupFlatDatasetOutput,
         LookupAndReadDataAnalysisWarning,
         LookupAndReadDataAnalysisError,
         (),
@@ -2271,7 +2105,11 @@ pub(crate) trait PrivVersionSet: VersionSet {
         });
 
         // Repair the keyword list before doing anything.
-        let repair_diag = kws.repair(&lst.conf().kws);
+        let repair_res = kws
+            .repair(&lst.conf().kws)
+            .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
+            .map_errors(LookupAndReadDataAnalysisError::from)
+            .into_semigroup();
 
         let layout_res = Par::get_metaroot_req(&kws.std)
             .map_err(LookupAndReadDataAnalysisError::from)
@@ -2285,10 +2123,10 @@ pub(crate) trait PrivVersionSet: VersionSet {
             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
             .map_errors(LookupAndReadDataAnalysisError::from);
         layout_res
-            .zip_commutative(offset_res)
+            .zip3_commutative(offset_res, repair_res)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(mut layout_out, mut offsets)| {
+            .and_then_commutative(|(mut layout_out, mut offsets, repair_diag)| {
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                 layout_out
                     .data_schema
@@ -2303,12 +2141,13 @@ pub(crate) trait PrivVersionSet: VersionSet {
                     .and_then_commutative(|df_out| {
                         ar.h_read(h)
                             .map(|a| {
-                                (
+                                LookupFlatDatasetOutput::new(
                                     df_out.inner.into(),
                                     a,
                                     offsets.offsets,
                                     df_out.diagnostics,
                                     layout_out.diagnostics,
+                                    repair_diag,
                                 )
                             })
                             .map_err(IOErrorGroup::from)
@@ -5941,7 +5780,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
     ) -> WarningsAndErrorsResult<
-        (Self, StdTEXTDiagnostics, MetarootTEXTOffsets<V>),
+        (
+            Self,
+            StdTEXTDiagnostics,
+            MetarootTEXTOffsets<V>,
+            RepairDiagnostics,
+        ),
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTErrorInner,
@@ -5973,7 +5817,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         let mut dropped = HashMap::new();
 
         // Repair the keyword list before doing anything.
-        let repair_diag = kws.repair(&lst.conf().data);
+        let repair_res = kws
+            .repair(&lst.conf().data)
+            .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+            .map_errors(StdTEXTFromFlatTEXTErrorInner::from)
+            .into_semigroup();
 
         // Lookup DATA/ANALYSIS offsets and $TOT; these are not stored in the
         // Core struct but they will be needed later for parsing DATA and
@@ -5985,8 +5833,8 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
         Self::lookup_inner(kws, dropped, lst.conf())
-            .zip_commutative(offsets_res)
-            .map_ok_value(|((x, y), z)| (x, y, z))
+            .zip3_commutative(offsets_res, repair_res)
+            .map_ok_value(|((a, b), c, d)| (a, b, c, d))
     }
 
     /// Make a new CoreTEXT from flat keywords.
@@ -5997,11 +5845,11 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     /// This will not process $TOT or $(BEGIN|END)(TEXT|DATA). If present these
     /// will trigger pseudostandard warnings.
     pub fn new_from_keywords<C>(
-        kws: ValidKeywords,
+        mut kws: ValidKeywords,
         conf: &C,
     ) -> WarningsAndGroupResult<
-        (Self, StdTEXTDiagnostics),
-        StdTEXTFromFlatTEXTWarning,
+        (Self, StdTEXTDiagnostics, RepairDiagnostics),
+        StdTEXTFromKeywordsWarning,
         StdTEXTFromKeywordsError,
         CoreTEXTFromKeywordsSummary,
     >
@@ -6029,8 +5877,17 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             data: dconf.eval(&kws),
         };
 
+        let repair_res = kws
+            .repair(&lconf.data)
+            .map_errors(StdTEXTFromKeywordsError::from)
+            .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
+            .into_semigroup();
+
         Self::lookup_inner(kws, HashMap::new(), &lconf)
             .map_errors(StdTEXTFromKeywordsError::from)
+            .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
+            .zip_commutative(repair_res)
+            .map_ok_value(|((a, b), c)| (a, b, c))
             .group()
     }
 
@@ -6552,7 +6409,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_errors(StdDatasetFromFlatTextErrorInner::from)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(text, extra, mut offsets)| {
+            .and_then_commutative(|(text, std_diag, mut offsets, repair_diag)| {
                 let or = hns.header.final_offsets.others_reader();
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                 let other = io_to_log!(or.h_read(h));
@@ -6574,8 +6431,12 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                             .repack_warnings()
                             .map_ok_value(|ds_diag| {
                                 let new = Self::new(text.rootmeta, df_out.inner, analysis, other);
-                                let diag =
-                                    StdDatasetFromKwsOutput::new(offsets.offsets, extra, ds_diag);
+                                let diag = StdDatasetFromKwsOutput::new(
+                                    offsets.offsets,
+                                    repair_diag,
+                                    std_diag,
+                                    ds_diag,
+                                );
                                 (new, diag)
                             })
                     })
@@ -7001,6 +6862,200 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         let new_df = data_schema.with_data(df)?;
         self.set_measurements_and_layout_inner(measurements, new_df)?;
         Ok(())
+    }
+}
+
+// Implement methods for anycore*
+
+#[derive(new)]
+pub(crate) struct AnyCoreOutput<T> {
+    pub(crate) inner: T,
+    pub(crate) std_diag: StdTEXTDiagnostics,
+    pub(crate) offsets: TEXTOffsets<Option<Tot>>,
+    pub(crate) repair_diag: RepairDiagnostics,
+    pub(crate) scores: Option<KeywordVersionScores>,
+}
+
+macro_rules! match_anycore {
+    ($self:expr, $bind:ident, $stuff:block) => {
+        match_many_to_one!($self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], $bind, $stuff)
+    };
+}
+
+impl<A, L2_0, L3_0, L3_1, L3_2, O> AnyCore<A, L2_0, L3_0, L3_1, L3_2, O> {
+    #[must_use]
+    pub fn version(&self) -> Version {
+        match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            (*x).fcs_version()
+        })
+    }
+
+    #[must_use]
+    pub fn shortnames(&self) -> Vec<Shortname> {
+        match_anycore!(self, x, { x.all_shortnames() })
+    }
+
+    #[cfg(feature = "serde")]
+    pub fn print_meas_table<W: io::Write>(&self, w: &mut W, delim: u8) -> io::Result<()>
+    where
+        L2_0: LayoutKeywords + LayoutOptMeasKeywords,
+        L3_0: LayoutKeywords + LayoutOptMeasKeywords,
+        L3_1: LayoutKeywords + LayoutOptMeasKeywords,
+        L3_2: LayoutKeywords + LayoutOptMeasKeywords,
+    {
+        match_anycore!(self, x, { x.print_meas_table(w, delim) })
+    }
+
+    #[cfg(feature = "serde")]
+    pub fn print_comp_or_spillover_table<W: io::Write>(
+        &self,
+        w: &mut W,
+        delim: u8,
+    ) -> io::Result<()> {
+        if let Some((names, matrix)) = self.spillover_or_comp_table() {
+            let mut first = true;
+            for s in once("[-]").chain(names.iter().map(AsRef::as_ref)) {
+                if !first {
+                    w.write_all(&[delim])?;
+                }
+                first = false;
+                write!(w, "{s}")?;
+            }
+            writeln!(w)?;
+
+            // NDArrays are row-major so this should print row-by-row
+            for (row, n) in matrix.outer_iter().zip(&names[..]) {
+                write!(w, "{n}")?;
+                for x in row {
+                    w.write_all(&[delim])?;
+                    write!(w, "{x}")?;
+                }
+                writeln!(w)?;
+            }
+        } else {
+            writeln!(w, "[]")?;
+        }
+        Ok(())
+    }
+
+    #[cfg(feature = "serde")]
+    fn spillover_or_comp_table(&self) -> Option<(Vec<Shortname>, Array2<f32>)> {
+        match self {
+            Self::FCS2_0(x) => x.named_compensation(),
+            Self::FCS3_0(x) => x.named_compensation(),
+            Self::FCS3_1(x) => x.named_spillover(),
+            Self::FCS3_2(x) => x.named_spillover(),
+        }
+    }
+}
+
+impl AnyCoreTEXT {
+    #[allow(clippy::type_complexity)]
+    pub(crate) fn parse_flat<C>(
+        version: Version,
+        kws: ValidKeywords,
+        offsets: &mut HeaderAndSuppOffsets,
+        st: &TEXTReadState<C>,
+    ) -> WarningsAndErrorsResult<
+        AnyCoreOutput<Self>,
+        (),
+        StdTEXTFromFlatTEXTWarning,
+        StdTEXTFromFlatTEXTError,
+    >
+    where
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadOffsetConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>,
+    {
+        macro_rules! go {
+            ($t:ident, $s:expr) => {
+                $t::new_from_keywords_with_offsets(kws, offsets, st)
+                    .map_ok_value(|(a, b, c, d)| {
+                        AnyCoreOutput::new(a.into(), b, c.into_common(), d, $s)
+                    })
+                    .map_errors(StdTEXTFromFlatTEXTError::from)
+            };
+        }
+
+        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
+
+        match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
+            Ok((ver, scores)) => match ver {
+                Version::FCS2_0 => go!(CoreTEXT2_0, scores),
+                Version::FCS3_0 => go!(CoreTEXT3_0, scores),
+                Version::FCS3_1 => go!(CoreTEXT3_1, scores),
+                Version::FCS3_2 => go!(CoreTEXT3_2, scores),
+            },
+            Err(e) => LogResult::new_err(StdTEXTFromFlatTEXTError::from(e)),
+        }
+    }
+}
+
+impl AnyCoreDataset {
+    #[must_use]
+    pub fn as_data(&self) -> PrimitiveDataFrame {
+        match_anycore!(self, x, { x.meas.data().clone().into() })
+    }
+
+    #[must_use]
+    pub fn datatypes(&self) -> Vec<AlphaNumType> {
+        match_anycore!(self, x, { x.meas.data().datatypes() })
+    }
+
+    #[must_use]
+    pub fn write_dataset(
+        &self,
+        path: &PathBuf,
+        conf: &WriteMultiDatasetConfig,
+    ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
+    {
+        match_many_to_one!(self, Self, [FCS2_0, FCS3_0, FCS3_1, FCS3_2], x, {
+            x.write_dataset(path, conf)
+        })
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn new_from_keywords<C, R>(
+        h: &mut BufReader<R>,
+        hns: &mut HeaderAndSuppOffsets,
+        kws: ValidKeywords,
+        scan_next_dataset: bool,
+        st: &TEXTReadState<C>,
+    ) -> WarningsAndIOGroupResult<
+        (Self, StdDatasetFromKwsOutput, Option<KeywordVersionScores>),
+        StdDatasetFromFlatTEXTWarning,
+        AnyStdDatasetFromFlatTextError,
+        (),
+    >
+    where
+        R: Read + Seek,
+        C: AsRef<ReadHeaderAndTEXTConfig>
+            + AsRef<ReadOffsetConfig>
+            + AsRef<ReadStdKeywordsConfig>
+            + AsRef<ReadDataKeywordsConfig>
+            + AsRef<ReadDatasetConfig>,
+    {
+        let version = hns.header.version;
+        macro_rules! go {
+            ($t:ident, $s:expr) => {
+                $t::new_from_keywords_inner(h, kws, hns, scan_next_dataset, st)
+                    .map_ok_value(|(x, y)| (x.into(), y, $s))
+                    .map_pure_errors(AnyStdDatasetFromFlatTextError::from)
+            };
+        }
+
+        let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
+
+        match autodetect_version(version, &kws.std, sconf.version_override.as_ref()) {
+            Ok((ver, scores)) => match ver {
+                Version::FCS2_0 => go!(CoreDataset2_0, scores),
+                Version::FCS3_0 => go!(CoreDataset3_0, scores),
+                Version::FCS3_1 => go!(CoreDataset3_1, scores),
+                Version::FCS3_2 => go!(CoreDataset3_2, scores),
+            },
+            Err(e) => LogResult::new_err(IOErrorGroup::new_pure_one(e.into())),
+        }
     }
 }
 

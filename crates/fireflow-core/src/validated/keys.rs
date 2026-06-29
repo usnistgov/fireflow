@@ -4,7 +4,9 @@ use crate::config::{
     TriErrorFlag as _,
 };
 use crate::fixed_vec::OneOrTwo;
-use crate::logging::{DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult};
+use crate::logging::{
+    DeferredWarningsAndErrors, LogResult, SwitchableErrorsResult, WarningAndErrorResult,
+};
 use crate::nonempty::FcsNEVec;
 use crate::segment::read::HeaderOffsetsOverflow;
 use crate::text::index::{IndexFromOne, MeasIndex};
@@ -166,43 +168,37 @@ pub struct ParsedKeywords {
     pub(crate) diag: ParsedKeywordsDiagnostic,
 }
 
-// TODO why pub?
-#[derive(Default)]
-pub struct ParsedKeywordsDiagnostic {
-    /// Valid keys with non-UTF8 values.
-    pub keys_with_non_utf8_values: Vec<(AnyKey, TruncatedNEBytes)>,
-
-    /// Valid values with non-ASCII keys.
-    pub values_with_non_ascii_keys: Vec<(TruncatedNEBytes, TruncatedNEString)>,
-
-    /// Keywords that have invalid bytes in either key or value
-    pub byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
-
-    /// Standard keys which appear more than once with their values.
-    pub non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
-
-    /// Non-standard keys which appear more than once with their values.
-    pub non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
-
-    /// Keys with empty values.
-    ///
-    /// The only way this can happen at this stage is if the value is entirely
-    /// whitespace and is trimmed.
-    pub keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
-
-    /// Keys with values that were trimmed
-    ///
-    /// The value included here is the original value.
-    pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
-}
-
-#[derive(new)]
-pub(crate) struct RepairDiagnostics {
+/// Diagnostic output from repairing the keyword list.
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[allow(clippy::too_many_arguments)]
+pub struct RepairDiagnostics {
     /// Standard keys which appear more than once with their values.
     pub non_unique_std: Vec<(StdKey, TruncatedNEString)>,
 
     /// Non-standard keys which appear more than once with their values.
     pub non_unique_nonstd: Vec<(NonStdKey, TruncatedNEString)>,
+
+    /// Standard keys which were demoted.
+    pub demoted: Vec<StdKey>,
+
+    /// Non-standard keys which were promoted.
+    pub promoted: Vec<NonStdKey>,
+
+    /// Standard keys which had values that were substituted.
+    ///
+    /// Values here are the original.
+    pub subbed: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Standard keys which had values that were replaced.
+    ///
+    /// Values here are the original.
+    pub replaced: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Standard keys which were renamed.
+    ///
+    /// First key in pair is the original.
+    pub renamed: Vec<(StdKey, StdKey)>,
 
     /// Standard keys which were ignored.
     pub ignored: Vec<(StdKey, TruncatedNEString)>,
@@ -247,122 +243,9 @@ pub struct ValidKeywords {
     pub nonstd: NonStdKeywords,
 }
 
-impl ValidKeywords {
-    pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEString> {
-        match k {
-            AnyKey::Std(kk) => self.get_std(kk),
-            AnyKey::NonStd(kk) => self.get_nonstd(kk),
-        }
-    }
-
-    pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEString> {
-        self.std.get(k)
-    }
-
-    pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
-        self.nonstd.get(k)
-    }
-
-    pub(crate) fn repair(&mut self, conf: &EvaledReadDataKeywordsConfig) -> RepairDiagnostics {
-        let matchers = conf.as_matchers();
-        let mut ignored = vec![];
-        let mut std_non_unique = vec![];
-        let mut nonstd_non_unique = vec![];
-        let mut removed = vec![];
-
-        // Update standard keys
-        self.std = mem::take(&mut self.std)
-            .into_iter()
-            .filter_map(|(k, v)| {
-                if matchers.ignore.is_match(k.as_ref()) {
-                    // First remove keys that should be flat-out ignored
-                    ignored.push((k, TruncatedNEString(v)));
-                    None
-                } else if matchers.demote.is_match(k.as_ref()) {
-                    // Next remove keys that should be demoted and put them
-                    // in non-std.
-                    let nsk = NonStdKey(k.0);
-                    if self.nonstd.contains_key(&nsk) {
-                        nonstd_non_unique.push((nsk, TruncatedNEString(v)));
-                    } else {
-                        let _ = self.nonstd.insert(nsk, v);
-                    }
-                    None
-                } else if let Some(s) = matchers.subs.get(k.as_ref()) {
-                    // Next try to sub the value of keys with matches; this
-                    // might produce a blank key which will effectively remove
-                    // it.
-                    if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
-                        Some((k, vf))
-                    } else {
-                        removed.push((k, TruncatedNEString(v)));
-                        None
-                    }
-                } else {
-                    Some((k, v))
-                }
-            })
-            .map(|(k, v)| {
-                // After removing everything we can, update values as needed.
-                let replace = &conf.replace_standard_key_values;
-                let kr: &KeyString = k.as_ref();
-                let vf = replace.get(kr).cloned().unwrap_or(v);
-                (k, vf)
-            })
-            .map(|(k, v)| {
-                // Finally, rename keys. Assume that this name mapping is
-                // validated such that we will never get a name collision.
-                let renames = conf.rename_standard_keys.as_ref();
-                let kf = renames.get(k.as_ref()).cloned().map(StdKey).unwrap_or(k);
-                (kf, v)
-            })
-            .collect();
-
-        // Update non-standard keys
-        let nonstd_removed = self
-            .nonstd
-            .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
-
-        for (k, v) in nonstd_removed {
-            let sk = StdKey(k.0);
-            if self.std.contains_key(&sk) {
-                std_non_unique.push((sk, TruncatedNEString(v)));
-            } else {
-                let _ = self.std.insert(sk, v);
-            }
-        }
-
-        let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
-            match self.std.entry(StdKey(k.clone())) {
-                Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
-                Entry::Vacant(e) => {
-                    e.insert(v.clone());
-                    None
-                }
-            }
-        });
-        std_non_unique.extend(non_unique_appended);
-        RepairDiagnostics::new(std_non_unique, nonstd_non_unique, ignored, removed)
-    }
-}
-
 /// A string that should be used as the header in the measurement table.
 #[derive(Display)]
 pub struct MeasHeader(pub String);
-
-/// A "compiled" object to match keys efficiently.
-pub(crate) struct KeyMatcher<'a, T> {
-    literal: HashMap<&'a KeyString, &'a T>,
-    pattern: Vec<(&'a CaseInsRegex, &'a T)>,
-}
-
-/// All compiled key matchers to prevent repeated allocations in loops
-pub(crate) struct AllKeyMatchers<'a> {
-    pub(crate) promote: KeyMatcher<'a, ()>,
-    pub(crate) demote: KeyMatcher<'a, ()>,
-    pub(crate) ignore: KeyMatcher<'a, ()>,
-    pub(crate) subs: KeyMatcher<'a, SubPattern>,
-}
 
 /// A either an ASCII key value or a non-ASCII byte sequence.
 #[derive(Clone, Display, PartialEq, Debug, From)]
@@ -491,6 +374,396 @@ impl From<TruncatedNEString> for TruncatedString {
     }
 }
 
+/// Either a single prefix or both a prefix and suffix.
+///
+/// Used to implement the const term for [`IndexedKey`].
+pub enum PrefixSuffix {
+    Prefix(&'static NEStr),
+    Both(&'static NEStr, &'static NEStr),
+}
+
+impl PrefixSuffix {
+    const fn as_str(&self) -> (&'static str, &'static str) {
+        match self {
+            Self::Prefix(x) => (x.as_str(), ""),
+            Self::Both(x, y) => (x.as_str(), y.as_str()),
+        }
+    }
+}
+
+/// A key with no indices.
+pub type Key0<T> = SpecificKey<T, ()>;
+
+impl<T> Default for Key0<T> {
+    fn default() -> Self {
+        Self::new(())
+    }
+}
+
+impl<T: Key> ToDisplayNE<'_> for Key0<T> {
+    type NE = &'static NEStr;
+    fn to_ne(&self) -> &'static NEStr {
+        T::C
+    }
+}
+
+impl<T: Key> fmt::Display for Key0<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", T::C)
+    }
+}
+
+/// A key with one index.
+pub type Key1<T> = SpecificKey<T, IndexFromOne>;
+
+impl<T> Key1<T> {
+    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
+        Self::new(i.into())
+    }
+}
+
+impl<T: IndexedKey> ToDisplayNE<'_> for Key1<T> {
+    type NE = NEConcatR<NEConcat<&'static NEStr, ToNE<IndexFromOne>>, &'static NEStr>;
+    fn to_ne(&self) -> Self::NE {
+        let (pre, suf) = match T::C {
+            PrefixSuffix::Both(pre, suf) => (pre, Some(suf)),
+            PrefixSuffix::Prefix(pre) => (pre, None),
+        };
+        NEConcat::new(pre, ToNE(self.index)).append(suf)
+    }
+}
+
+impl<T: IndexedKey> fmt::Display for Key1<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let (s0, s1) = T::C.as_str();
+        write!(f, "{s0}{}{s1}", self.index)
+    }
+}
+
+/// A key with two indices.
+pub type Key2<T> = SpecificKey<T, BiIndex>;
+
+impl<T> Key2<T> {
+    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
+        Self::new(BiIndex::new(i.into(), j.into()))
+    }
+}
+
+impl<T: BiIndexedKey> ToDisplayNE<'_> for Key2<T> {
+    type NE = NEConcat4<&'static NEStr, ToNE<IndexFromOne>, &'static NEStr, ToNE<IndexFromOne>>;
+    fn to_ne(&self) -> Self::NE {
+        let i = &self.index;
+        NEConcat::new(T::PREFIX, ToNE(i.i0))
+            .append(T::MIDDLE)
+            .append(ToNE(i.i1))
+    }
+}
+
+impl<T: BiIndexedKey> fmt::Display for Key2<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let i = &self.index;
+        write!(f, "{}{}{}{}", T::PREFIX, i.i0, T::MIDDLE, i.i1)
+    }
+}
+
+/// A dollarised key with no indices.
+pub type DKey0<T> = DollarKey<T, ()>;
+
+impl<T> Default for DKey0<T> {
+    fn default() -> Self {
+        Self(Key0::default())
+    }
+}
+
+/// A dollarised key with one index.
+pub type DKey1<T> = DollarKey<T, IndexFromOne>;
+
+impl<T> DKey1<T> {
+    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
+        Self(Key1::new_i1(i))
+    }
+
+    pub(crate) fn index(self) -> IndexFromOne {
+        self.0.index
+    }
+}
+
+/// A dollarised key with two indices.
+pub type DKey2<T> = DollarKey<T, BiIndex>;
+
+impl<T> DKey2<T> {
+    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
+        Self(Key2::new_i2(i, j))
+    }
+
+    pub(crate) fn index(&self) -> BiIndex {
+        self.0.index
+    }
+}
+
+/// A type representing a [`StdKey`].
+///
+/// This is useful because the value of the key is not actually stored, so this
+/// is very fast and memory-efficient. If we stored the value itself, it would
+/// be a [`String`] internally and allocated on the heap. We can get away with
+/// this because the value of each [`StdKey`] is entirely encoded by the
+/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with an index in the
+/// latter two cases).
+#[derive(Debug, new)]
+pub struct SpecificKey<T, I> {
+    index: I,
+    _key: PhantomData<T>,
+}
+
+impl<T, I: PartialEq> PartialEq for SpecificKey<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.index == other.index
+    }
+}
+
+impl<T, I: Clone> Clone for SpecificKey<T, I> {
+    fn clone(&self) -> Self {
+        Self::new(self.index.clone())
+    }
+}
+
+impl<T, I: Eq> Eq for SpecificKey<T, I> {}
+
+impl<T, I: Copy> Copy for SpecificKey<T, I> {}
+
+/// A [`SpecificKey`] which is prefixed with '$' when displayed.
+#[derive(Display, From, Delegate, Debug)]
+#[display("${_0}")]
+#[delegate(AsStdKey)]
+pub struct DollarKey<T, I>(pub SpecificKey<T, I>);
+
+impl<T, I: PartialEq> PartialEq for DollarKey<T, I> {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0
+    }
+}
+
+impl<T, I: Eq> Eq for DollarKey<T, I> {}
+
+impl<T, I: Clone> Clone for DollarKey<T, I> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone())
+    }
+}
+
+impl<T, I: Copy> Copy for DollarKey<T, I> {}
+
+impl<K, I> ToDisplayNE<'_> for DollarKey<K, I>
+where
+    SpecificKey<K, I>: for<'b> ToDisplayNE<'b> + Copy,
+{
+    type NE = NEConcat<&'static NEStr, ToNE<SpecificKey<K, I>>>;
+    fn to_ne(&self) -> Self::NE {
+        NEConcat::new(ne_str!("$"), ToNE(self.0))
+    }
+}
+
+/// Composite index for [`StdKey`] with two index values
+#[derive(Debug, Clone, Copy, new, PartialEq)]
+pub struct BiIndex {
+    pub i0: IndexFromOne,
+    pub i1: IndexFromOne,
+}
+
+pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
+
+#[derive(From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+pub(crate) enum StdOptKeyword<'a> {
+    Root(OptRootKeyword<'a>),
+    Meas(OptMeasKeyword<'a>),
+}
+
+/// Error when parsing [`StdKey`] from string
+#[derive(From, PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub enum StdKeyError {
+    #[error("{0}")]
+    Ascii(AsciiStringError),
+    #[error("standard key must start with '$', found '{0}'")]
+    Prefix(KeyString),
+    #[error("standard key must not be empty, got '$'")]
+    Empty,
+}
+
+/// Error when parsing [`NonStdKey`] from string
+#[derive(From, PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub enum NonStdKeyError {
+    #[error("{0}")]
+    Ascii(AsciiStringError),
+    #[error("non-standard key must not start with '$', found '{0}'")]
+    Prefix(KeyString),
+}
+
+/// Error when parsing [`KeyString`] from string
+#[derive(PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub enum AsciiStringError {
+    #[error("string should only have ASCII characters, found '{0}'")]
+    Ascii(String),
+    #[error("key string must not be empty")]
+    Empty,
+}
+
+/// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
+pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
+
+/// Error when parsing literal or pattern string.
+#[derive(Debug, Display, PartialEq, Error, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+#[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
+pub enum LiteralOrPatternError<E> {
+    Regexp(CaseInsRegexError),
+    Literal(E),
+}
+
+/// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
+#[derive(Debug, Display, From, PartialEq, Error, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum KeywordInsertError {
+    StdPresent(StdPresent),
+    NonStdPresent(NonStdPresent),
+    Blank(BlankValueError),
+}
+
+pub type StdPresent = KeyPresent<StdKey>;
+pub type NonStdPresent = KeyPresent<NonStdKey>;
+
+// /// Error when applying a [`SubPattern`] resulted in an empty string.
+// #[derive(Debug, PartialEq, Error, new, Clone)]
+// #[error(
+//     "applying substitution pattern '{pat}' to value '{value}' for key \
+//      '{key}' resulted in empty string"
+// )]
+// #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+// #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+// pub struct SubPatternEmptyError {
+//     key: StdKey,
+//     value: NEString,
+//     pat: SubPattern,
+// }
+
+/// Error when key has blank value
+#[derive(Debug, PartialEq, Error, Clone)]
+#[error("skipping key {0} with blank value")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct BlankValueError(pub KeyOrBytes);
+
+/// Error when key is already present in hash table.
+#[derive(Debug, PartialEq, Error, new, Clone)]
+#[error("key '{key}' already present, has value '{value}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+#[cfg_attr(feature = "python", bound(T: fmt::Display))]
+pub struct KeyPresent<T> {
+    pub key: T,
+    pub value: NEString,
+}
+
+/// Error when keyword has any invalid chars.
+#[derive(Debug, Display, From, Error, PartialEq, Clone)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum InvalidKeywordCharsError {
+    Key(NonAsciiKeyError),
+    Value(NonUtf8ValueError),
+    Both(NonAsciiOrUtf8KeywordError),
+}
+
+/// Error when key or value with invalid UTF-8 characters is encountered
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error("non ASCII key {key} and non UTF-8 value {value} encountered")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct NonAsciiOrUtf8KeywordError {
+    key: TruncatedNEBytes,
+    value: TruncatedNEBytes,
+}
+
+/// Error when key is not ASCII
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error("non ASCII key encountered with bytes {key} and value '{value}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct NonAsciiKeyError {
+    key: TruncatedNEBytes,
+    value: TruncatedNEString,
+}
+
+/// Error when value is not Utf8
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error("non UTF-8 key encountered with bytes {value} and key '{key}'")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub struct NonUtf8ValueError {
+    key: AnyKey,
+    value: TruncatedNEBytes,
+}
+
+/// Error when keyword repair process resulted in colliding non-unique keys.
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error(
+    "the following keys were non-unique when demoting or promoting: {}",
+    self.0.iter().join(","),
+)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct RepairCollisionError(NEVec<AnyKey>);
+
+/// A "compiled" object to match keys efficiently.
+pub(crate) struct KeyMatcher<'a, T> {
+    literal: HashMap<&'a KeyString, &'a T>,
+    pattern: Vec<(&'a CaseInsRegex, &'a T)>,
+}
+
+/// All compiled key matchers to prevent repeated allocations in loops
+pub(crate) struct AllKeyMatchers<'a> {
+    pub(crate) promote: KeyMatcher<'a, ()>,
+    pub(crate) demote: KeyMatcher<'a, ()>,
+    pub(crate) ignore: KeyMatcher<'a, ()>,
+    pub(crate) subs: KeyMatcher<'a, SubPattern>,
+}
+
+#[derive(Default)]
+pub(crate) struct ParsedKeywordsDiagnostic {
+    /// Valid keys with non-UTF8 values.
+    pub(crate) keys_with_non_utf8_values: Vec<(AnyKey, TruncatedNEBytes)>,
+
+    /// Valid values with non-ASCII keys.
+    pub(crate) values_with_non_ascii_keys: Vec<(TruncatedNEBytes, TruncatedNEString)>,
+
+    /// Keywords that have invalid bytes in either key or value
+    pub(crate) byte_pairs: Vec<(TruncatedNEBytes, TruncatedNEBytes)>,
+
+    /// Standard keys which appear more than once with their values.
+    pub(crate) non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
+
+    /// Non-standard keys which appear more than once with their values.
+    pub(crate) non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
+
+    /// Keys with empty values.
+    ///
+    /// The only way this can happen at this stage is if the value is entirely
+    /// whitespace and is trimmed.
+    pub(crate) keys_with_empty_trimmed_values: Vec<KeyOrBytes>,
+
+    /// Keys with values that were trimmed
+    ///
+    /// The value included here is the original value.
+    pub(crate) keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
+}
+
+// Declare traits which map rust values to standardized keywords.
+
 /// An FCS key with a specific version;
 // TODO const_trait_impl will be able to clean this up once stable
 pub trait VersionedKey: Sized {
@@ -524,20 +797,6 @@ pub trait Key: VersionedKey {
 
     fn self_std(&self) -> StdKey {
         Self::std()
-    }
-}
-
-pub enum PrefixSuffix {
-    Prefix(&'static NEStr),
-    Both(&'static NEStr, &'static NEStr),
-}
-
-impl PrefixSuffix {
-    const fn as_str(&self) -> (&'static str, &'static str) {
-        match self {
-            Self::Prefix(x) => (x.as_str(), ""),
-            Self::Both(x, y) => (x.as_str(), y.as_str()),
-        }
     }
 }
 
@@ -664,115 +923,7 @@ pub trait BiIndexedKey: VersionedKey {
     // }
 }
 
-/// A type representing a [`StdKey`].
-///
-/// This is useful because the value of the key is not actually stored, so this
-/// is very fast and memory-efficient. If we stored the value itself, it would
-/// be a [`String`] internally and allocated on the heap. We can get away with
-/// this because the value of each [`StdKey`] is entirely encoded by the
-/// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with an index in the
-/// latter two cases).
-#[derive(Debug, new)]
-pub struct SpecificKey<T, I> {
-    index: I,
-    _key: PhantomData<T>,
-}
-
-/// A [`SpecificKey`] which is prefixed with '$' when displayed.
-#[derive(Display, From, Delegate, Debug)]
-#[display("${_0}")]
-#[delegate(AsStdKey)]
-pub struct DollarKey<T, I>(pub SpecificKey<T, I>);
-
-impl<T, I: PartialEq> PartialEq for DollarKey<T, I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-impl<T, I: Eq> Eq for DollarKey<T, I> {}
-
-impl<T, I: PartialEq> PartialEq for SpecificKey<T, I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.index == other.index
-    }
-}
-
-impl<T, I: Eq> Eq for SpecificKey<T, I> {}
-
-impl<T, I: Clone> Clone for SpecificKey<T, I> {
-    fn clone(&self) -> Self {
-        Self::new(self.index.clone())
-    }
-}
-
-impl<T, I: Clone> Clone for DollarKey<T, I> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T, I: Copy> Copy for SpecificKey<T, I> {}
-impl<T, I: Copy> Copy for DollarKey<T, I> {}
-
-pub type Key0<T> = SpecificKey<T, ()>;
-pub type Key1<T> = SpecificKey<T, IndexFromOne>;
-pub type Key2<T> = SpecificKey<T, BiIndex>;
-
-pub type DKey0<T> = DollarKey<T, ()>;
-pub type DKey1<T> = DollarKey<T, IndexFromOne>;
-pub type DKey2<T> = DollarKey<T, BiIndex>;
-
-impl<T> Default for Key0<T> {
-    fn default() -> Self {
-        Self::new(())
-    }
-}
-
-impl<T> Key1<T> {
-    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
-        Self::new(i.into())
-    }
-}
-
-impl<T> Key2<T> {
-    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
-        Self::new(BiIndex::new(i.into(), j.into()))
-    }
-}
-
-impl<T> Default for DKey0<T> {
-    fn default() -> Self {
-        Self(Key0::default())
-    }
-}
-
-impl<T> DKey1<T> {
-    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
-        Self(Key1::new_i1(i))
-    }
-
-    pub(crate) fn index(self) -> IndexFromOne {
-        self.0.index
-    }
-}
-
-impl<T> DKey2<T> {
-    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
-        Self(Key2::new_i2(i, j))
-    }
-
-    pub(crate) fn index(&self) -> BiIndex {
-        self.0.index
-    }
-}
-
-/// Composite index for [`StdKey`] with two index values
-#[derive(Debug, Clone, Copy, new, PartialEq)]
-pub struct BiIndex {
-    pub i0: IndexFromOne,
-    pub i1: IndexFromOne,
-}
+// Implement trait to convert ZSTs representing keywords to actual keyword values.
 
 #[delegatable_trait]
 pub(crate) trait AsStdKey {
@@ -798,72 +949,7 @@ impl<T: BiIndexedKey> AsStdKey for SpecificKey<T, BiIndex> {
     }
 }
 
-impl<T: Key> ToDisplayNE<'_> for Key0<T> {
-    type NE = &'static NEStr;
-    fn to_ne(&self) -> &'static NEStr {
-        T::C
-    }
-}
-
-impl<T: IndexedKey> ToDisplayNE<'_> for Key1<T> {
-    type NE = NEConcatR<NEConcat<&'static NEStr, ToNE<IndexFromOne>>, &'static NEStr>;
-    fn to_ne(&self) -> Self::NE {
-        let (pre, suf) = match T::C {
-            PrefixSuffix::Both(pre, suf) => (pre, Some(suf)),
-            PrefixSuffix::Prefix(pre) => (pre, None),
-        };
-        NEConcat::new(pre, ToNE(self.index)).append(suf)
-    }
-}
-
-impl<T: BiIndexedKey> ToDisplayNE<'_> for Key2<T> {
-    type NE = NEConcat4<&'static NEStr, ToNE<IndexFromOne>, &'static NEStr, ToNE<IndexFromOne>>;
-    fn to_ne(&self) -> Self::NE {
-        let i = &self.index;
-        NEConcat::new(T::PREFIX, ToNE(i.i0))
-            .append(T::MIDDLE)
-            .append(ToNE(i.i1))
-    }
-}
-
-impl<K, I> ToDisplayNE<'_> for DollarKey<K, I>
-where
-    SpecificKey<K, I>: for<'b> ToDisplayNE<'b> + Copy,
-{
-    type NE = NEConcat<&'static NEStr, ToNE<SpecificKey<K, I>>>;
-    fn to_ne(&self) -> Self::NE {
-        NEConcat::new(ne_str!("$"), ToNE(self.0))
-    }
-}
-
-impl<T: Key> fmt::Display for Key0<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", T::C)
-    }
-}
-
-impl<T: IndexedKey> fmt::Display for Key1<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let (s0, s1) = T::C.as_str();
-        write!(f, "{s0}{}{s1}", self.index)
-    }
-}
-
-impl<T: BiIndexedKey> fmt::Display for Key2<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let i = &self.index;
-        write!(f, "{}{}{}{}", T::PREFIX, i.i0, T::MIDDLE, i.i1)
-    }
-}
-
-pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
-
-#[derive(From, Delegate)]
-#[delegate(AsStdKeywordPair)]
-pub(crate) enum StdOptKeyword<'a> {
-    Root(OptRootKeyword<'a>),
-    Meas(OptMeasKeyword<'a>),
-}
+// Implement extension trait for processing nonstandard keywords in hash table.
 
 pub(crate) trait NonStdKeywordsExt {
     fn insert_demoted(&mut self, key: StdKey, value: NEString);
@@ -895,6 +981,8 @@ impl NonStdKeywordsExt for NonStdKeywords {
         assert!(self.insert(k, value).is_none(), "key not disambiguated");
     }
 }
+
+// Implement methods for std/nonstd key wrappers
 
 impl KeyString {
     fn new(s: NEString) -> Self {
@@ -1011,6 +1099,8 @@ impl FromStr for NonStdKey {
     }
 }
 
+// Implement methods for literal strings or patterns types
+
 impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
     fn from_iter<I>(iter: I) -> Self
     where
@@ -1034,6 +1124,8 @@ impl<T> KeyStringsOrPatterns<T> {
         self.0.iter().collect()
     }
 }
+
+// Implement methods for key matcher
 
 impl KeyMatcher<'_, ()> {
     fn is_match(&self, other: &KeyString) -> bool {
@@ -1070,6 +1162,8 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> 
         Self { literal, pattern }
     }
 }
+
+// Implement methods for misc types
 
 /// Insert a key and value from buffer into appropriate hash table.
 ///
@@ -1380,132 +1474,159 @@ impl ParsedKeywordsDiagnostic {
     }
 }
 
-/// Error when parsing [`StdKey`] from string
-#[derive(From, PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum StdKeyError {
-    #[error("{0}")]
-    Ascii(AsciiStringError),
-    #[error("standard key must start with '$', found '{0}'")]
-    Prefix(KeyString),
-    #[error("standard key must not be empty, got '$'")]
-    Empty,
+impl ValidKeywords {
+    pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEString> {
+        match k {
+            AnyKey::Std(kk) => self.get_std(kk),
+            AnyKey::NonStd(kk) => self.get_nonstd(kk),
+        }
+    }
+
+    pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEString> {
+        self.std.get(k)
+    }
+
+    pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
+        self.nonstd.get(k)
+    }
+
+    pub(crate) fn repair(
+        &mut self,
+        conf: &EvaledReadDataKeywordsConfig,
+    ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
+    {
+        let matchers = conf.as_matchers();
+        let mut ignored = vec![];
+        let mut non_unique_std = vec![];
+        let mut non_unique_nonstd = vec![];
+        let mut removed = vec![];
+        let mut replaced = vec![];
+        let mut renamed = vec![];
+        let mut subbed = vec![];
+        let mut demoted = vec![];
+        let mut promoted = vec![];
+
+        // Update standard keys
+        self.std = mem::take(&mut self.std)
+            .into_iter()
+            .filter_map(|(k, v)| {
+                if matchers.ignore.is_match(k.as_ref()) {
+                    // First remove keys that should be flat-out ignored
+                    ignored.push((k, TruncatedNEString(v)));
+                    None
+                } else if matchers.demote.is_match(k.as_ref()) {
+                    // Next remove keys that should be demoted and put them
+                    // in non-std.
+                    let nsk = NonStdKey(k.0);
+                    if self.nonstd.contains_key(&nsk) {
+                        non_unique_nonstd.push((nsk, TruncatedNEString(v)));
+                    } else {
+                        demoted.push(StdKey(nsk.0.clone()));
+                        let _ = self.nonstd.insert(nsk, v);
+                    }
+                    None
+                } else if let Some(s) = matchers.subs.get(k.as_ref()) {
+                    // Next try to sub the value of keys with matches; this
+                    // might produce a blank key which will effectively remove
+                    // it.
+                    if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
+                        subbed.push((k.clone(), TruncatedNEString(v)));
+                        Some((k, vf))
+                    } else {
+                        removed.push((k, TruncatedNEString(v)));
+                        None
+                    }
+                } else {
+                    Some((k, v))
+                }
+            })
+            .map(|(k, v)| {
+                // After removing everything we can, update values as needed.
+                let replace = &conf.replace_standard_key_values;
+                let kr: &KeyString = k.as_ref();
+                if let Some(vf) = replace.get(kr).cloned() {
+                    replaced.push((k.clone(), TruncatedNEString(v)));
+                    (k, vf)
+                } else {
+                    (k, v)
+                }
+            })
+            .map(|(k, v)| {
+                // Finally, rename keys. Assume that this name mapping is
+                // validated such that we will never get a name collision.
+                let to_rename = conf.rename_standard_keys.as_ref();
+                if let Some(kf) = to_rename.get(k.as_ref()).cloned().map(StdKey) {
+                    renamed.push((k, kf.clone()));
+                    (kf, v)
+                } else {
+                    (k, v)
+                }
+            })
+            .collect();
+
+        // Update non-standard keys
+        let nonstd_removed = self
+            .nonstd
+            .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
+
+        for (k, v) in nonstd_removed {
+            let sk = StdKey(k.0);
+            if self.std.contains_key(&sk) {
+                non_unique_std.push((sk, TruncatedNEString(v)));
+            } else {
+                promoted.push(NonStdKey(sk.0.clone()));
+                let _ = self.std.insert(sk, v);
+            }
+        }
+
+        let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
+            match self.std.entry(StdKey(k.clone())) {
+                Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
+                Entry::Vacant(e) => {
+                    e.insert(v.clone());
+                    None
+                }
+            }
+        });
+        non_unique_std.extend(non_unique_appended);
+        let res = match conf.allow_repair_non_unique.is_error() {
+            Some(is_err) => {
+                let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
+                let ns = non_unique_nonstd
+                    .iter()
+                    .cloned()
+                    .map(|(k, _)| AnyKey::NonStd(k));
+                let xs = ss.chain(ns).collect();
+                if let Some(ne) = NEVec::try_from_vec(xs) {
+                    let e = RepairCollisionError(ne);
+                    if is_err {
+                        LogResult::new_err(e)
+                    } else {
+                        LogResult::new_ok(()).set_commutative_warnings(Some(e))
+                    }
+                } else {
+                    LogResult::new_ok(())
+                }
+            }
+            None => LogResult::new_ok(()),
+        };
+
+        let ret = RepairDiagnostics {
+            non_unique_std,
+            non_unique_nonstd,
+            demoted,
+            promoted,
+            subbed,
+            replaced,
+            renamed,
+            ignored,
+            removed,
+        };
+        res.set_ok_value(ret)
+    }
 }
 
-/// Error when parsing [`NonStdKey`] from string
-#[derive(From, PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum NonStdKeyError {
-    #[error("{0}")]
-    Ascii(AsciiStringError),
-    #[error("non-standard key must not start with '$', found '{0}'")]
-    Prefix(KeyString),
-}
-
-/// Error when parsing [`KeyString`] from string
-#[derive(PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum AsciiStringError {
-    #[error("string should only have ASCII characters, found '{0}'")]
-    Ascii(String),
-    #[error("key string must not be empty")]
-    Empty,
-}
-
-/// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
-pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
-
-/// Error when parsing literal or pattern string.
-#[derive(Debug, Display, PartialEq, Error, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
-pub enum LiteralOrPatternError<E> {
-    Regexp(CaseInsRegexError),
-    Literal(E),
-}
-
-/// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
-#[derive(Debug, Display, From, PartialEq, Error, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum KeywordInsertError {
-    StdPresent(StdPresent),
-    NonStdPresent(NonStdPresent),
-    Blank(BlankValueError),
-}
-
-// /// Error when applying a [`SubPattern`] resulted in an empty string.
-// #[derive(Debug, PartialEq, Error, new, Clone)]
-// #[error(
-//     "applying substitution pattern '{pat}' to value '{value}' for key \
-//      '{key}' resulted in empty string"
-// )]
-// #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-// #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-// pub struct SubPatternEmptyError {
-//     key: StdKey,
-//     value: NEString,
-//     pat: SubPattern,
-// }
-
-/// Error when key has blank value
-#[derive(Debug, PartialEq, Error, Clone)]
-#[error("skipping key {0} with blank value")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct BlankValueError(pub KeyOrBytes);
-
-/// Error when key is already present in hash table.
-#[derive(Debug, PartialEq, Error, new, Clone)]
-#[error("key '{key}' already present, has value '{value}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-#[cfg_attr(feature = "python", bound(T: fmt::Display))]
-pub struct KeyPresent<T> {
-    pub key: T,
-    pub value: NEString,
-}
-
-/// Error when keyword has any invalid chars.
-#[derive(Debug, Display, From, Error, PartialEq, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-pub enum InvalidKeywordCharsError {
-    Key(NonAsciiKeyError),
-    Value(NonUtf8ValueError),
-    Both(NonAsciiOrUtf8KeywordError),
-}
-
-/// Error when key or value with invalid UTF-8 characters is encountered
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("non ASCII key {key} and non UTF-8 value {value} encountered")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NonAsciiOrUtf8KeywordError {
-    key: TruncatedNEBytes,
-    value: TruncatedNEBytes,
-}
-
-/// Error when key is not ASCII
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("non ASCII key encountered with bytes {key} and value '{value}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NonAsciiKeyError {
-    key: TruncatedNEBytes,
-    value: TruncatedNEString,
-}
-
-/// Error when value is not Utf8
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("non UTF-8 key encountered with bytes {value} and key '{key}'")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub struct NonUtf8ValueError {
-    key: AnyKey,
-    value: TruncatedNEBytes,
-}
+// Declare misc free functions and constants
 
 fn trunc_bytes(xs: &[u8]) -> String {
     let mut s = String::new();
@@ -1570,12 +1691,6 @@ fn trunc_str(s: &str) -> String {
     }
 }
 
-const TRUNCATED_BYTES_LIMIT: usize = 20;
-const TRUNCATED_STR_LIMIT: usize = 20;
-
-pub type StdPresent = KeyPresent<StdKey>;
-pub type NonStdPresent = KeyPresent<NonStdKey>;
-
 fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
@@ -1601,6 +1716,8 @@ const fn is_alpha_underscore_str(s: &str) -> bool {
 }
 
 pub(crate) const STD_PREFIX: u8 = 36; // '$'
+const TRUNCATED_BYTES_LIMIT: usize = 20;
+const TRUNCATED_STR_LIMIT: usize = 20;
 
 #[cfg(feature = "serde")]
 mod serialize {

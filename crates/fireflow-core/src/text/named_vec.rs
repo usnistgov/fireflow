@@ -407,15 +407,15 @@ impl<K, U, V> NamedVec<K, U, V> {
         self.left.iter().map(Element::NonCenter).chain(right)
     }
 
-    pub(crate) fn iter_common_values<'a, T>(&'a self) -> impl Iterator<Item = &'a T> + 'a
-    where
-        U: AsRef<T>,
-        V: AsRef<T>,
-        T: 'a + ?Sized,
-    {
-        self.iter()
-            .map(|x| x.both(|l| l.value.as_ref(), |r| r.value.as_ref()))
-    }
+    // pub(crate) fn iter_common_values<'a, T>(&'a self) -> impl Iterator<Item = &'a T> + 'a
+    // where
+    //     U: AsRef<T>,
+    //     V: AsRef<T>,
+    //     T: 'a + ?Sized,
+    // {
+    //     self.iter()
+    //         .map(|x| x.both(|l| l.value.as_ref(), |r| r.value.as_ref()))
+    // }
 
     pub(crate) fn iter_with<'a, T, F, G>(
         &'a self,
@@ -500,26 +500,26 @@ impl<K, U, V> NamedVec<K, U, V> {
         })
     }
 
-    /// Alter values with a function and payload.
-    ///
-    /// Center and non-center values will be projected to a common type.
-    pub(crate) fn alter_common_values_zip<F, X, R, T>(
-        &mut self,
-        xs: impl IntoIterator<Item = X>,
-        f: F,
-    ) -> Result<Vec<R>, InputLengthError>
-    where
-        F: Fn(MeasIndex, &mut T, X) -> R,
-        U: AsMut<T>,
-        V: AsMut<T>,
-        T: ?Sized,
-    {
-        self.alter_values_zip(
-            xs.into_iter().collect(),
-            |v, x| f(v.index, v.value.as_mut(), x),
-            |v, x| f(v.index, v.value.as_mut(), x),
-        )
-    }
+    // /// Alter values with a function and payload.
+    // ///
+    // /// Center and non-center values will be projected to a common type.
+    // pub(crate) fn alter_common_values_zip<F, X, R, T>(
+    //     &mut self,
+    //     xs: impl IntoIterator<Item = X>,
+    //     f: F,
+    // ) -> Result<Vec<R>, InputLengthError>
+    // where
+    //     F: Fn(MeasIndex, &mut T, X) -> R,
+    //     U: AsMut<T>,
+    //     V: AsMut<T>,
+    //     T: ?Sized,
+    // {
+    //     self.alter_values_zip(
+    //         xs.into_iter().collect(),
+    //         |v, x| f(v.index, v.value.as_mut(), x),
+    //         |v, x| f(v.index, v.value.as_mut(), x),
+    //     )
+    // }
 
     /// Set current values to new values.
     ///
@@ -2117,8 +2117,8 @@ fn all_unique<'a, T: Hash + Eq>(xs: impl IntoIterator<Item = T> + 'a) -> bool {
 mod test {
     use super::*;
     use crate::meas::{
-        CommonMeasurement, OpticalFromTemporal, ScaledOptical, Temporal, VScaledOptical, VTemporal,
-        VersionMeasSet, VersionedMeasurements,
+        OpticalFromTemporal, ScaledOptical, Temporal, VScaledOptical, VTemporal, VersionMeasSet,
+        VersionedMeasurements,
     };
     use crate::text::keywords::Longname;
     use crate::text::optional::Identity;
@@ -2142,18 +2142,18 @@ mod test {
         all_unique_names(it)
     }
 
-    fn longnames<K, V: VersionMeasSet>(
-        xs: &NamedVec<K, VTemporal<V>, VScaledOptical<V>>,
-    ) -> Vec<Longname> {
-        xs.iter()
-            .map(|e| {
-                e.both(
-                    |p| p.value.common.longname.clone(),
-                    |p| p.value.inner().common.longname.clone(),
-                )
-            })
-            .collect()
-    }
+    // fn longnames<K, V: VersionMeasSet>(
+    //     xs: &NamedVec<K, VTemporal<V>, VScaledOptical<V>>,
+    // ) -> Vec<Longname> {
+    //     xs.iter()
+    //         .map(|e| {
+    //             e.both(
+    //                 |p| p.value.common.longname.clone(),
+    //                 |p| p.value.inner().common.longname.clone(),
+    //             )
+    //         })
+    //         .collect()
+    // }
 
     fn labelled_longnames<K, V: VersionMeasSet>(
         xs: &NamedVec<K, VTemporal<V>, VScaledOptical<V>>,
@@ -2294,45 +2294,45 @@ mod test {
         }
     }
 
-    proptest! {
-        #[test]
-        fn alter_common_values_ok(
-            mut xs in new_named_vec3_1(10),
-            ys in prop::collection::vec("\\PC*", 10)
-        ) {
-            let old_values = longnames::<_, Version3_1>(&xs);
-            // set the longname to some arbitrary string
-            let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
-                mem::replace(&mut x.longname, y.into())
-            });
-            // result should pass (original longnames should be the default)
-            assert_eq!(res, Ok(old_values));
-            // new longnames should be the same as the inputs we gave
-            assert!(
-                xs.iter()
-                    .zip(ys)
-                    .all(|(e, new)| {
-                        e.both(
-                            |x| x.value.common.longname.0 == new,
-                            |x| x.value.inner().common.longname.0 == new)
-                    }));
-        }
-    }
+    // proptest! {
+    //     #[test]
+    //     fn alter_common_values_ok(
+    //         mut xs in new_named_vec3_1(10),
+    //         ys in prop::collection::vec("\\PC*", 10)
+    //     ) {
+    //         let old_values = longnames::<_, Version3_1>(&xs);
+    //         // set the longname to some arbitrary string
+    //         let res = xs.alter_common_values_zip(ys.clone(), |_, x: &mut CommonMeasurement, y| {
+    //             mem::replace(&mut x.longname, y.into())
+    //         });
+    //         // result should pass (original longnames should be the default)
+    //         assert_eq!(res, Ok(old_values));
+    //         // new longnames should be the same as the inputs we gave
+    //         assert!(
+    //             xs.iter()
+    //                 .zip(ys)
+    //                 .all(|(e, new)| {
+    //                     e.both(
+    //                         |x| x.value.common.longname.0 == new,
+    //                         |x| x.value.inner().common.longname.0 == new)
+    //                 }));
+    //     }
+    // }
 
-    proptest! {
-        #[test]
-        fn alter_common_values_wronglen(
-            mut xs in new_named_vec3_1(10),
-            ys in prop::collection::vec("\\PC*", 11)
-        ) {
-            // set the longname to some arbitrary string
-            let res = xs.alter_common_values_zip(ys, |_, x: &mut CommonMeasurement, y| {
-                mem::replace(&mut x.longname, y.into())
-            });
-            // result should not pass because length is not the same
-            assert_eq!(res, Err(InputLengthError { this_len: 10, other_len: 11 }));
-        }
-    }
+    // proptest! {
+    //     #[test]
+    //     fn alter_common_values_wronglen(
+    //         mut xs in new_named_vec3_1(10),
+    //         ys in prop::collection::vec("\\PC*", 11)
+    //     ) {
+    //         // set the longname to some arbitrary string
+    //         let res = xs.alter_common_values_zip(ys, |_, x: &mut CommonMeasurement, y| {
+    //             mem::replace(&mut x.longname, y.into())
+    //         });
+    //         // result should not pass because length is not the same
+    //         assert_eq!(res, Err(InputLengthError { this_len: 10, other_len: 11 }));
+    //     }
+    // }
 
     proptest! {
         #[test]

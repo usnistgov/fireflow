@@ -275,9 +275,6 @@ macro_rules! impl_common {
         // 3.0 and later will return gain and scale combined
         fpp::impl_core_all_transforms_attr!($pytype);
 
-        // attribute to get/set nonstandard keywords for all measurements
-        fpp::impl_core_all_meas_nonstandard_keywords!($pytype);
-
         // method to return all standard keywords as read-only dict
         fpp::impl_core_standard_keywords!($pytype);
     };

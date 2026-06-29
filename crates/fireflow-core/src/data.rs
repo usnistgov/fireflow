@@ -161,7 +161,7 @@ use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
     U64ToFiniteFloatError,
 };
-use crate::validated::keys::{IndexedKey as _, NonStdKeywords, StdKeywords};
+use crate::validated::keys::{IndexedKey as _, StdKeywords, ValidKeywords};
 use crate::validated::read_state::WriteFCSDigest;
 use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -1859,8 +1859,8 @@ where
     type Tot: IsTot;
 
     fn lookup(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>>;
@@ -1936,12 +1936,12 @@ impl VersionedDataSchema for DataSchema2_0 {
     type Tot = Option<Tot>;
 
     fn lookup(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup(std, meas_nonstd, dropped, conf)
+        AnyOrderedDataSchema::lookup(kws, par, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -1975,12 +1975,12 @@ impl VersionedDataSchema for DataSchema3_0 {
     type Tot = Identity<Tot>;
 
     fn lookup(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup(std, meas_nonstd, dropped, conf)
+        AnyOrderedDataSchema::lookup(kws, par, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -2014,12 +2014,12 @@ impl VersionedDataSchema for DataSchema3_1 {
     type Tot = Identity<Tot>;
 
     fn lookup(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        NonMixedDataSchema::lookup(std, meas_nonstd, dropped, conf)
+        NonMixedDataSchema::lookup(kws, par, dropped, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
@@ -2053,14 +2053,14 @@ impl VersionedDataSchema for DataSchema3_2 {
     type Tot = Identity<Tot>;
 
     fn lookup(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        let datatype = AlphaNumType::remove_metaroot_req(std);
-        let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Option::lookup_all(std, meas_nonstd, dropped, conf);
+        let datatype = AlphaNumType::remove_metaroot_req(&mut kws.std);
+        let endian = ByteOrd3_1::remove_metaroot_req(&mut kws.std);
+        let columns = Option::lookup_all(kws, par, dropped, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 
@@ -6664,8 +6664,7 @@ impl IsTot for Identity<Tot> {}
 /// A type which represents a column-specific datatype (or lack thereof)
 pub trait IsNumType: Sized {
     fn lookup_datatype(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
@@ -6678,15 +6677,13 @@ pub trait IsNumType: Sized {
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>;
 
     fn lookup_all(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupMeasLayoutResult<Self> {
-        meas_nonstd
-            .iter_mut()
-            .enumerate()
-            .map(|(i, nkws)| Self::lookup_one(std, nkws, dropped, i.into(), conf))
+        (0..par.0)
+            .map(|i| Self::lookup_one(kws, dropped, i.into(), conf))
             .sequence_commutative()
     }
 
@@ -6702,15 +6699,14 @@ pub trait IsNumType: Sized {
     }
 
     fn lookup_one(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupOneMeasLayoutResult<Self> {
-        let width = Width::remove_meas_req(std, i);
-        let range = TextRange::remove_meas_req(std, i);
-        let datatype = Self::lookup_datatype(std, nonstd, dropped, i, conf);
+        let width = Width::remove_meas_req(&mut kws.std, i);
+        let range = TextRange::remove_meas_req(&mut kws.std, i);
+        let datatype = Self::lookup_datatype(kws, dropped, i, conf);
         Self::make_meas(width, range, datatype)
     }
 
@@ -6747,8 +6743,7 @@ pub trait IsNumType: Sized {
 
 impl IsNumType for Nothing<NumType> {
     fn lookup_datatype(
-        _: &mut StdKeywords,
-        _: &mut NonStdKeywords,
+        _: &mut ValidKeywords,
         _: &mut StdKeywords,
         _: MeasIndex,
         _: &EvaledReadDataKeywordsConfig,
@@ -6769,15 +6764,13 @@ impl IsNumType for Nothing<NumType> {
 
 impl IsNumType for Option<NumType> {
     fn lookup_datatype(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
     {
-        NumType::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
-            .switchable_into_commutative()
+        NumType::remove_or_drop_meas_opt(kws, dropped, i, conf).switchable_into_commutative()
     }
 
     fn lookup_datatype_ro(
@@ -8060,14 +8053,14 @@ impl DataSchema3_2 {
 
 impl<T> AnyOrderedDataSchema<T> {
     fn lookup(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        let datatype = AlphaNumType::remove_metaroot_req(std);
-        let byteord = ByteOrd2_0::remove_metaroot_req(std);
-        let columns = Nothing::lookup_all(std, meas_nonstd, dropped, conf);
+        let datatype = AlphaNumType::remove_metaroot_req(&mut kws.std);
+        let byteord = ByteOrd2_0::remove_metaroot_req(&mut kws.std);
+        let columns = Nothing::lookup_all(kws, par, dropped, conf);
         Self::lookup_inner(datatype, byteord, columns, conf)
     }
 
@@ -8167,14 +8160,14 @@ impl<T> AnyOrderedDataSchema<T> {
 
 impl NonMixedDataSchema<Nothing<NumType>> {
     fn lookup(
-        std: &mut StdKeywords,
-        meas_nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        let datatype = AlphaNumType::remove_metaroot_req(std);
-        let endian = ByteOrd3_1::remove_metaroot_req(std);
-        let columns = Nothing::<NumType>::lookup_all(std, meas_nonstd, dropped, conf);
+        let datatype = AlphaNumType::remove_metaroot_req(&mut kws.std);
+        let endian = ByteOrd3_1::remove_metaroot_req(&mut kws.std);
+        let columns = Nothing::<NumType>::lookup_all(kws, par, dropped, conf);
         Self::lookup_inner(datatype, endian, columns, conf)
     }
 

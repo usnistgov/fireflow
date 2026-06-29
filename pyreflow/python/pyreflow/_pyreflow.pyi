@@ -170,7 +170,6 @@ _AnyMixedDataSchema = Union[
 ]
 
 class _MeasCommon:
-    nonstandard_keywords: pft.NonStdKeywords
     longname: str
 
     def __deepcopy__(self, memo: Any) -> Self: ...
@@ -211,7 +210,6 @@ class Optical2_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -227,7 +225,6 @@ class Optical3_0(_MeasCommon, _OpticalCommon, _OpticalWavelength, _PeakCommon):
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -253,7 +250,6 @@ class Optical3_1(
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -287,7 +283,6 @@ class Optical3_2(
         percent_emitted: float | None = None,
         detector_voltage: float | None = None,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -297,7 +292,6 @@ class Temporal2_0(_MeasCommon, _PeakCommon):
         bin: int | None = None,
         size: int | None = None,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -308,7 +302,6 @@ class Temporal3_0(_MeasCommon, _TemporalTimestep, _PeakCommon):
         bin: int | None = None,
         size: int | None = None,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -320,7 +313,6 @@ class Temporal3_1(_MeasCommon, _MeasDisplay, _TemporalTimestep, _PeakCommon):
         bin: int | None = None,
         size: int | None = None,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 @final
@@ -333,7 +325,6 @@ class Temporal3_2(_MeasCommon, _MeasDisplay, _TemporalTimestep):
         display: pft.Display | None = None,
         has_type: bool = False,
         longname: str = "",
-        nonstandard_keywords: pft.NonStdKeywords = {},
     ) -> Self: ...
 
 _T = TypeVar("_T", bound=Temporal2_0 | Temporal3_0 | Temporal3_1 | Temporal3_2)
@@ -438,7 +429,6 @@ class _CoreCommon:
     all_percents_emitted: _OpticalKeyVals[int]
     all_detector_types: _OpticalKeyVals[str]
     all_detector_voltages: _OpticalKeyVals[float]
-    all_meas_nonstandard_keywords: list[pft.NonStdKeywords]
 
     nonstandard_keywords: pft.NonStdKeywords
     def standard_keywords(
@@ -1140,7 +1130,6 @@ class CoreTEXT2_0(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         # layout args
         ignore_standard_keys: pft.KeyPatterns = [],
         promote_to_standard: pft.KeyPatterns = [],
@@ -1243,7 +1232,6 @@ class CoreTEXT3_0(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         # layout args
         ignore_standard_keys: pft.KeyPatterns = [],
@@ -1367,7 +1355,6 @@ class CoreTEXT3_1(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         # layout args
@@ -1491,7 +1478,6 @@ class CoreTEXT3_2(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
@@ -1597,7 +1583,6 @@ class CoreDataset2_0(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         # layout args
         ignore_standard_keys: pft.KeyPatterns = [],
         promote_to_standard: pft.KeyPatterns = [],
@@ -1721,7 +1706,6 @@ class CoreDataset3_0(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         # layout args
         ignore_standard_keys: pft.KeyPatterns = [],
@@ -1871,7 +1855,6 @@ class CoreDataset3_1(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         # layout args
@@ -2021,7 +2004,6 @@ class CoreDataset3_2(
         process_other_version: pft.ProcessKeywordFailure = "error",
         process_extra_timestep: pft.ProcessKeywordFailure = "error",
         fix_log_scale_offsets: bool = False,
-        nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
         add_missing_timestep: float | None = None,
         spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
         disallow_localtime: bool = False,
@@ -2922,7 +2904,6 @@ def fcs_read_std_text(
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -3079,7 +3060,6 @@ def fcs_read_std_dataset(
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -3222,7 +3202,6 @@ def fcs_read_std_texts(
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,
@@ -3382,7 +3361,6 @@ def fcs_read_std_datasets(
     process_other_version: pft.ProcessKeywordFailure = "error",
     process_extra_timestep: pft.ProcessKeywordFailure = "error",
     fix_log_scale_offsets: bool = False,
-    nonstandard_measurement_pattern: pft.Selector[str | None] = "P%n",
     add_missing_timestep: float | None = None,
     spillover_measurement_mode: pft.SpilloverMeasurementMode = "named",
     disallow_localtime: bool = False,

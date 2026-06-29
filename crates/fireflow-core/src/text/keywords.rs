@@ -34,8 +34,8 @@ use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::keys::{
     AsStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey2, DollarKey, IndexedKey, Key1, Key2,
-    NonStdKeywords, NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords,
-    TruncatedNEString, VersionedKey,
+    NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords, TruncatedNEString,
+    ValidKeywords, VersionedKey,
 };
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
@@ -473,8 +473,7 @@ pub struct Gain(pub PositiveFloat);
 
 impl Gain {
     pub(crate) fn lookup_temporal_3_0<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &C,
@@ -487,10 +486,11 @@ impl Gain {
             .process_optional_failure
             .as_triflag();
         if ignore.0.contains(&TemporalOpticalKey::Gain) {
-            nonstd.transfer_demoted(std, Self::std(i));
+            // TODO method on ValidKeywords
+            kws.nonstd.transfer_demoted(&mut kws.std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {
-            Self::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf.as_ref())
+            Self::remove_or_drop_meas_opt(kws, dropped, i, conf.as_ref())
                 .map_switchable_errors(LookupTemporalGainError::from)
                 .into_semigroup()
                 .eval_deferred_switchable_error3(|gain| {

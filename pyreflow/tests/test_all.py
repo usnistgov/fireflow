@@ -3644,19 +3644,6 @@ class TestMeas:
         meas.has_type = True
         assert meas.has_type
 
-    @all_blank_meas
-    def test_nonstandard(self, meas: AnyOptical) -> None:
-        """Test measurement-specific non-standard keywords.
-
-        Keys should not start with $.
-        """
-        assert meas.nonstandard_keywords == {}
-        with pytest.raises(pf.ParseKeyError):
-            meas.nonstandard_keywords = {"$GOD": "MONEY"}
-        k = "my bitwarden password"
-        v0 = "SSBzb2xlbW5seSBzd2VhciBJIGFtIHVwIHRvIG5vIGdvb2QK"
-        meas.nonstandard_keywords = {k: v0}
-
 
 class TestDataSchema:
     def test_ascii_fixed(self) -> None:
@@ -4071,29 +4058,6 @@ class TestApiFunctions:
         _ = pf.api.fcs_read_std_text(p, time_meas_pattern="")
         with pytest.raises(pf.ConfigError):
             _ = pf.api.fcs_read_std_text(p, time_meas_pattern=")))))")
-
-    def test_ns_meas_pattern(
-        self, tmp_path: Path, blank_dataset_3_2: pf.CoreDataset3_2
-    ) -> None:
-        """Test that nonstandard_measurement_pattern is validated appropriately.
-
-        Must be a literal string or regular expression flanked by '/'. In either
-        case must contain the string '%n' which will match the measurement
-        index.
-        """
-        d = tmp_path
-        d.mkdir(exist_ok=True)
-        p = d / "nonempty_dataset.fcs"
-        blank_dataset_3_2.write_text(p)
-        _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="%n")
-        _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="%n)))")
-        with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="")
-        with pytest.raises(pf.ConfigError):
-            _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="n")
-        # TODO fixme, this raises a warning
-        # with pytest.raises(pf.ConfigError):
-        #     _ = pf.api.fcs_read_std_text(p, nonstandard_measurement_pattern="/%n)))/")
 
     def test_int_byteord_override(
         self, tmp_path: Path, blank_dataset_2_0: pf.CoreDataset2_0
@@ -5380,7 +5344,7 @@ class TestConfig:
                 process_time_optical_keys=g,
             )
             ps = uncore.std_diagnostics.pseudostandard
-            ns = core.measurements[0].nonstandard_keywords
+            ns = core.nonstandard_keywords
             return (ps, ns)
 
         with pytest.RaisesGroup(pf.RelationalError):
@@ -5820,29 +5784,6 @@ class TestConfig:
                 assert not go(False)
             with pytest.RaisesGroup(pf.ExtraKeywordError):
                 assert not go(True)
-
-    @all_versions
-    def test_non_std_meas_pat(self, version: pt.FCSVersion, tmp_path: Path) -> None:
-        """Test the nonstandard_measurement_pattern arg."""
-        extra = {"#P1LASER": "42pm"}
-        kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "32", "$P1R": "32", **extra}
-        p = tmp_path / "thing.fcs"
-        self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
-
-        def go(f: str) -> tuple[dict[str, str], dict[str, str]]:
-            core, uncore = pf.api.fcs_read_std_text(
-                p,
-                nonstandard_measurement_pattern=f,
-                time_meas_pattern=None,
-            )
-            return (
-                core.nonstandard_keywords,
-                core.measurements[0].nonstandard_keywords,
-            )
-
-        assert go("P%n") == (extra, {})
-        assert go("#P%n") == ({}, extra)
-        assert go("/^#P%n/") == ({}, extra)
 
     @all_versions
     def test_text_data_correction(self, version: pt.FCSVersion, tmp_path: Path) -> None:

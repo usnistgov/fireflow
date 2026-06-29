@@ -80,7 +80,7 @@ pub(crate) enum ReqKeyword<'a> {
 #[delegate(DisplayEscaped)]
 pub(crate) enum OptKeyword<'a> {
     Root(StdOrNonStdOptRootKeyword<'a>),
-    Meas(StdOrNonStdOptMeasKeyword<'a>),
+    Meas(OptMeasKeyword<'a>),
 }
 
 /// Any non-measurement keyword type
@@ -90,16 +90,6 @@ pub(crate) enum OptKeyword<'a> {
 #[delegate(DisplayEscaped)]
 pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
     Std(OptRootKeyword<'a>),
-    NonStd(NonStdKeyword<'a>),
-}
-
-/// Any measurement keyword type
-#[derive(Clone, From, Delegate)]
-#[delegate(HasDelim)]
-#[delegate(AsKeywordPair)]
-#[delegate(DisplayEscaped)]
-pub(crate) enum StdOrNonStdOptMeasKeyword<'a> {
-    Std(OptMeasKeyword<'a>),
     NonStd(NonStdKeyword<'a>),
 }
 

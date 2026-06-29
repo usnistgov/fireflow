@@ -78,7 +78,7 @@ use crate::text::keyword_enum::{
     AnyKeyword, AnyMetarootKeyLossError, AnyTemporalToOpticalKeyLossError, AsKeywordPair as _,
     HasMembership as _, Keyword0FromValue as _, Keyword1FromValue as _, NonStdKeyword, OptKeyword,
     OptMeasKeyword, OptRootKeyword, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, SplitKeyword,
-    SplitKeyword1, StdOrNonStdOptMeasKeyword, StdOrNonStdOptRootKeyword,
+    SplitKeyword1, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
@@ -120,7 +120,7 @@ use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::datepattern::DatePattern;
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DKey0, DKey2, IndexedKey as _, Key as _, NonStdKey, NonStdKeywords, NonStdKeywordsExt as _,
+    DKey0, DKey2, IndexedKey as _, Key as _, NonStdKeywords, NonStdKeywordsExt as _,
     RepairCollisionError, RepairDiagnostics, StdKey, StdKeywords, StringOrBytes, ValidKeywords,
 };
 use crate::validated::read_state::{
@@ -254,6 +254,16 @@ pub struct Core<Analysis, Layout, Other, Root, Temporal, Optical, Scale, Name, V
     /// Measurement TEXT keywords and DATA if applicable.
     meas: CoreMeasurements<Layout, Temporal, Optical, Scale, Name, Version>,
 
+    /// Non-standard keywords.
+    ///
+    /// This will include all the keywords that do not start with '$'.
+    ///
+    /// Keywords which do start with '$' but are not part of the standard are
+    /// considered 'pseudostandard' and stored elsewhere since this structure
+    /// will also be used to write FCS-compliant files (which do not allow
+    /// nonstandard keywords starting with '$')
+    nonstandard_keywords: NonStdKeywords,
+
     /// ANALYSIS segment (if applicable)
     analysis: Analysis,
 
@@ -365,19 +375,6 @@ pub struct RootMeta<X> {
 
     /// Version-specific data
     specific: X,
-
-    // TODO this is not validated to be unique relative to the meas counterparts
-    /// Non-standard keywords.
-    ///
-    /// This will include all the keywords that do not start with '$'.
-    ///
-    /// Keywords which do start with '$' but are not part of the standard are
-    /// considered 'pseudostandard' and stored elsewhere since this structure
-    /// will also be used to write FCS-compliant files (which do not allow
-    /// nonstandard keywords starting with '$')
-    #[as_ref(NonStdKeywords)]
-    #[as_mut(NonStdKeywords)]
-    nonstandard_keywords: NonStdKeywords,
 }
 
 /// Standardized FCS dataset for any version
@@ -2181,8 +2178,7 @@ impl PrivVersionSet for Version3_2 {}
 
 pub trait LookupMetaroot<N>: Sized {
     fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         ms: &[N],
         conf: &C,
@@ -2193,8 +2189,7 @@ pub trait LookupMetaroot<N>: Sized {
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
     fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         ms: &[Option<Shortname>],
         conf: &C,
@@ -2203,15 +2198,16 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let par = Par(ms.len());
-        let comp = Compensation2_0::lookup(std, par, conf.as_ref())
+        // TODO deal with optional failure here
+        let comp = Compensation2_0::lookup(&mut kws.std, par, conf.as_ref())
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative();
-        let cyt = Cyt::remove_root_opt_nofail(std);
-        let ts = Timestamps::lookup(std, nonstd, dropped, conf)
+        let cyt = Cyt::remove_root_opt_nofail(&mut kws.std);
+        let ts = Timestamps::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let ag = AppliedGates2_0::lookup(std, nonstd, dropped, conf)
+        let ag = AppliedGates2_0::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let mode = Mode::remove_metaroot_req(std)
+        let mode = Mode::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
             .into_log();
         comp.zip3_commutative(ts, ag)
@@ -2233,8 +2229,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
 
 impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
     fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         _: &[Option<Shortname>],
         conf: &C,
@@ -2250,20 +2245,20 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
             };
         }
 
-        let cyt = Cyt::remove_root_opt_nofail(std);
-        let cytsn = Cytsn::remove_root_opt_nofail(std);
+        let cyt = Cyt::remove_root_opt_nofail(&mut kws.std);
+        let cytsn = Cytsn::remove_root_opt_nofail(&mut kws.std);
 
-        let comp = Compensation3_0::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
-        let uni = Unicode::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
+        let comp = Compensation3_0::remove_or_drop_root_opt_with(kws, dropped, (), conf);
+        let uni = Unicode::remove_or_drop_root_opt_with(kws, dropped, (), conf);
 
-        let ts = Timestamps::lookup(std, nonstd, dropped, conf)
+        let ts = Timestamps::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let subset = SubsetData::lookup(std, nonstd, dropped, conf.as_ref())
+        let subset = SubsetData::lookup(kws, dropped, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let ag = AppliedGates3_0::lookup(std, nonstd, dropped, conf)
+        let ag = AppliedGates3_0::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
 
-        let mode = Mode::remove_metaroot_req(std)
+        let mode = Mode::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
             .into_log();
 
@@ -2291,8 +2286,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta3_0 {
 
 impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
     fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         ms: &[Identity<Shortname>],
         conf: &C,
@@ -2302,31 +2296,30 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
     {
         let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
-        let cyt = Cyt::remove_root_opt_nofail(std);
-        let cytsn = Cytsn::remove_root_opt_nofail(std);
-        let plate = PlateData::lookup(std);
+        let cyt = Cyt::remove_root_opt_nofail(&mut kws.std);
+        let cytsn = Cytsn::remove_root_opt_nofail(&mut kws.std);
+        let plate = PlateData::lookup(&mut kws.std);
 
-        let vol = Vol::remove_or_drop_root_opt(std, nonstd, dropped, conf.as_ref())
+        let vol = Vol::remove_or_drop_root_opt(kws, dropped, conf.as_ref())
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
 
-        let spill =
-            Spillover::remove_or_drop_root_opt_with(std, nonstd, dropped, &ordered_names[..], conf)
-                .map_switchable_errors(LookupMetarootWarning::from)
-                .switchable_into_commutative()
-                .into_semigroup();
+        let spill = Spillover::remove_or_drop_root_opt_with(kws, dropped, &ordered_names[..], conf)
+            .map_switchable_errors(LookupMetarootWarning::from)
+            .switchable_into_commutative()
+            .into_semigroup();
 
-        let subset = SubsetData::lookup(std, nonstd, dropped, conf.as_ref())
+        let subset = SubsetData::lookup(kws, dropped, conf.as_ref())
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let ag = AppliedGates3_0::lookup(std, nonstd, dropped, conf)
+        let ag = AppliedGates3_0::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let modif = ModificationData::lookup(std, nonstd, dropped, conf)
+        let modif = ModificationData::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let ts = Timestamps::lookup(std, nonstd, dropped, conf)
+        let ts = Timestamps::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
 
-        let mode = Mode::remove_metaroot_req(std)
+        let mode = Mode::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
             .into_log();
 
@@ -2353,8 +2346,7 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_1 {
 
 impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
     fn lookup_specific<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         ms: &[Identity<Shortname>],
         conf: &C,
@@ -2372,42 +2364,35 @@ impl LookupMetaroot<Identity<Shortname>> for InnerRootMeta3_2 {
 
         let ordered_names: Vec<_> = ms.iter().map(|n| &n.0).collect();
 
-        let flow = Flowrate::remove_root_opt_nofail(std);
-        let cytsn = Cytsn::remove_root_opt_nofail(std);
-        let plate = PlateData::lookup(std);
-        let carrier = CarrierData::lookup(std);
+        let flow = Flowrate::remove_root_opt_nofail(&mut kws.std);
+        let cytsn = Cytsn::remove_root_opt_nofail(&mut kws.std);
+        let plate = PlateData::lookup(&mut kws.std);
+        let carrier = CarrierData::lookup(&mut kws.std);
 
         let mode = go!(Mode3_2::remove_or_drop_root_opt(
-            std,
-            nonstd,
+            kws,
             dropped,
             conf.as_ref()
         ));
-        let us = go!(UnstainedData::lookup(std, nonstd, dropped, conf));
-        let vol = go!(Vol::remove_or_drop_root_opt(
-            std,
-            nonstd,
-            dropped,
-            conf.as_ref()
-        ));
+        let us = go!(UnstainedData::lookup(kws, dropped, conf));
+        let vol = go!(Vol::remove_or_drop_root_opt(kws, dropped, conf.as_ref()));
         let spill = go!(Spillover::remove_or_drop_root_opt_with(
-            std,
-            nonstd,
+            kws,
             dropped,
             &ordered_names[..],
             conf
         ));
 
-        let modif = ModificationData::lookup(std, nonstd, dropped, conf)
+        let modif = ModificationData::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let ts = Timestamps::lookup(std, nonstd, dropped, conf)
+        let ts = Timestamps::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let dt = Datetimes::lookup(std, nonstd, dropped, conf)
+        let dt = Datetimes::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
-        let agates = AppliedGates3_2::lookup(std, nonstd, dropped, conf)
+        let agates = AppliedGates3_2::lookup(kws, dropped, conf)
             .map_warnings_and_errors(LookupMetarootWarning::from);
 
-        let cyt = Cyt3_2::remove_metaroot_req(std)
+        let cyt = Cyt3_2::remove_metaroot_req(&mut kws.std)
             .map_err(LookupMetarootError::from)
             .into_log();
 
@@ -2451,8 +2436,7 @@ pub trait LookupTEXTOffsets: Sized {
     type TotDef: IsTot;
 
     fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
@@ -2473,8 +2457,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     type TotDef = Option<Tot>;
 
     fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
@@ -2482,7 +2465,7 @@ impl LookupTEXTOffsets for TEXTOffsets2_0 {
     where
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        Tot::remove_or_drop_root_opt(std, nonstd, dropped, st.conf().as_ref())
+        Tot::remove_or_drop_root_opt(kws, dropped, st.conf().as_ref())
             .map_ok_value(|tot| {
                 let s = offsets.header.final_offsets.as_dataset_offsets_2_0();
                 TEXTOffsets::new(s, tot)
@@ -2546,8 +2529,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        std: &mut StdKeywords,
-        _: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         _: &mut StdKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
@@ -2555,7 +2537,13 @@ impl LookupTEXTOffsets for TEXTOffsets3_0 {
     where
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
-        lookup_offsets_3_0!(std, offsets, st, remove_metaroot_req, remove_req_or)
+        lookup_offsets_3_0!(
+            &mut kws.std,
+            offsets,
+            st,
+            remove_metaroot_req,
+            remove_req_or
+        )
     }
 
     fn lookup_ro<C>(
@@ -2603,8 +2591,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
     type TotDef = Identity<Tot>;
 
     fn lookup<C>(
-        std: &mut StdKeywords,
-        _: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         _: &mut StdKeywords,
         offsets: &mut HeaderAndSuppOffsets,
         st: &TEXTReadState<C>,
@@ -2613,7 +2600,7 @@ impl LookupTEXTOffsets for TEXTOffsets3_2 {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<ReadOffsetConfig>,
     {
         lookup_offsets_3_2!(
-            std,
+            &mut kws.std,
             offsets,
             st,
             remove_metaroot_req,
@@ -3415,30 +3402,16 @@ impl<M: VersionedRootMeta> RootMeta<M> {
     ) -> MetarootConvertResult<RootMeta<ToM>> {
         ToM::convert_from_metaroot(self.specific, flag).map_ok_value(|specific| {
             RootMeta::new(
-                self.abrt,
-                self.com,
-                self.cells,
-                self.exp,
-                self.fil,
-                self.inst,
-                self.lost,
-                self.op,
-                self.proj,
-                self.smno,
-                self.src,
-                self.sys,
-                self.tr,
-                specific,
-                self.nonstandard_keywords,
+                self.abrt, self.com, self.cells, self.exp, self.fil, self.inst, self.lost, self.op,
+                self.proj, self.smno, self.src, self.sys, self.tr, specific,
             )
         })
     }
 
     fn lookup_metaroot<C, N>(
-        std: &mut StdKeywords,
-        ms: &[N],
-        mut nonstd: NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
+        ms: &[N],
         conf: &C,
     ) -> LookupMetarootResult<DiagnosedMetaroot<Self>>
     where
@@ -3453,22 +3426,22 @@ impl<M: VersionedRootMeta> RootMeta<M> {
                     .into_semigroup()
             };
         }
-        let com = Com::remove_root_opt_nofail(std);
-        let cells = Cells::remove_root_opt_nofail(std);
-        let exp = Exp::remove_root_opt_nofail(std);
-        let fil = Fil::remove_root_opt_nofail(std);
-        let inst = Inst::remove_root_opt_nofail(std);
-        let op = Op::remove_root_opt_nofail(std);
-        let proj = Proj::remove_root_opt_nofail(std);
-        let smno = Smno::remove_root_opt_nofail(std);
-        let src = Src::remove_root_opt_nofail(std);
-        let sys = Sys::remove_root_opt_nofail(std);
+        let com = Com::remove_root_opt_nofail(&mut kws.std);
+        let cells = Cells::remove_root_opt_nofail(&mut kws.std);
+        let exp = Exp::remove_root_opt_nofail(&mut kws.std);
+        let fil = Fil::remove_root_opt_nofail(&mut kws.std);
+        let inst = Inst::remove_root_opt_nofail(&mut kws.std);
+        let op = Op::remove_root_opt_nofail(&mut kws.std);
+        let proj = Proj::remove_root_opt_nofail(&mut kws.std);
+        let smno = Smno::remove_root_opt_nofail(&mut kws.std);
+        let src = Src::remove_root_opt_nofail(&mut kws.std);
+        let sys = Sys::remove_root_opt_nofail(&mut kws.std);
 
-        let abrt_res = Abrt::remove_or_drop_root_opt(std, &mut nonstd, dropped, conf.as_ref());
-        let lost_res = Lost::remove_or_drop_root_opt(std, &mut nonstd, dropped, conf.as_ref());
-        let tr_res = Trigger::remove_or_drop_root_opt_with(std, &mut nonstd, dropped, (), conf);
+        let abrt_res = Abrt::remove_or_drop_root_opt(kws, dropped, conf.as_ref());
+        let lost_res = Lost::remove_or_drop_root_opt(kws, dropped, conf.as_ref());
+        let tr_res = Trigger::remove_or_drop_root_opt_with(kws, dropped, (), conf);
 
-        let spec_res = M::lookup_specific(std, &mut nonstd, dropped, ms, conf);
+        let spec_res = M::lookup_specific(kws, dropped, ms, conf);
 
         go!(abrt_res)
             .zip4_commutative(go!(lost_res), go!(tr_res), spec_res)
@@ -3478,7 +3451,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
                 meta.first_once(|native| {
                     Self::new(
                         abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr,
-                        native, nonstd,
+                        native,
                     )
                 })
             })
@@ -3488,7 +3461,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
         once(ReqRootKeyword::from_value(par)).chain(self.specific.keywords_req_inner())
     }
 
-    fn opt_and_nonstd_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptRootKeyword<'_>> {
+    fn opt_root_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
         let x0 = OptRootKeyword::from_str(&self.com);
         let x1 = OptRootKeyword::from_str(&self.cells);
         let x2 = OptRootKeyword::from_str(&self.exp);
@@ -3502,17 +3475,10 @@ impl<M: VersionedRootMeta> RootMeta<M> {
         let x10 = self.abrt.map(OptRootKeyword::from_value);
         let x11 = self.lost.map(OptRootKeyword::from_value);
         let x12 = self.tr.as_ref().map(OptRootKeyword::from_ref);
-        let ns = self
-            .nonstandard_keywords
-            .iter()
-            .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
-            .map(StdOrNonStdOptRootKeyword::from);
         [x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12]
             .into_iter()
             .flatten()
             .chain(self.specific.keywords_opt_inner())
-            .map(StdOrNonStdOptRootKeyword::from)
-            .chain(ns)
     }
 
     fn rename_trigger_meas_link(&mut self, mapping: &NameMapping) {
@@ -3576,6 +3542,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
         &mut self,
         par: Par,
         names: &NamedSet<'_>,
+        nonstandard_keywords: &mut NonStdKeywords,
         demote: bool,
     ) -> Vec<BrokenOrDependentLinkError> {
         let tr = Trigger::remove_invalid_links(&mut self.tr, names);
@@ -3586,7 +3553,7 @@ impl<M: VersionedRootMeta> RootMeta<M> {
             .chain(tr.map(RemovedLink::from))
         {
             if demote {
-                x.insert_keyvals(&mut self.nonstandard_keywords);
+                x.insert_keyvals(nonstandard_keywords);
             }
             x.push_errors(&mut es);
         }
@@ -3698,23 +3665,9 @@ impl CoreTEXT2_0 {
                 let specific =
                     InnerRootMeta2_0::new(mode, cyt, comp.map(Into::into), ts, applied_gates);
                 let metaroot = RootMeta::new(
-                    abrt,
-                    com,
-                    cells,
-                    exp,
-                    fil,
-                    inst,
-                    lost,
-                    op,
-                    proj,
-                    smno,
-                    src,
-                    sys,
-                    tr,
-                    specific,
-                    nonstandard_keywords,
+                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema)
+                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -3770,23 +3723,9 @@ impl CoreTEXT3_0 {
                     applied_gates,
                 );
                 let metaroot = RootMeta::new(
-                    abrt,
-                    com,
-                    cells,
-                    exp,
-                    fil,
-                    inst,
-                    lost,
-                    op,
-                    proj,
-                    smno,
-                    src,
-                    sys,
-                    tr,
-                    specific,
-                    nonstandard_keywords,
+                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema)
+                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -3850,23 +3789,9 @@ impl CoreTEXT3_1 {
                     applied_gates,
                 );
                 let metaroot = RootMeta::new(
-                    abrt,
-                    com,
-                    cells,
-                    exp,
-                    fil,
-                    inst,
-                    lost,
-                    op,
-                    proj,
-                    smno,
-                    src,
-                    sys,
-                    tr,
-                    specific,
-                    nonstandard_keywords,
+                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema)
+                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -3941,23 +3866,9 @@ impl CoreTEXT3_2 {
                     applied_gates,
                 );
                 let metaroot = RootMeta::new(
-                    abrt,
-                    com,
-                    cells,
-                    exp,
-                    fil,
-                    inst,
-                    lost,
-                    op,
-                    proj,
-                    smno,
-                    src,
-                    sys,
-                    tr,
-                    specific,
-                    nonstandard_keywords,
+                    abrt, com, cells, exp, fil, inst, lost, op, proj, smno, src, sys, tr, specific,
                 );
-                Self::try_new_nodrop(metaroot, measurements, data_schema)
+                Self::try_new_nodrop(metaroot, measurements, data_schema, nonstandard_keywords)
                     .map_errors(NewCoreTEXTError::from)
             })
     }
@@ -4113,7 +4024,7 @@ where
             };
 
         let req_root = self.req_root_keywords().map(|x| x.as_str_pair());
-        let opt_root = self.opt_root_keywords().map(|x| x.as_str_pair());
+        let opt_root = self.opt_std_and_nonstd_keywords().map(|x| x.as_str_pair());
         let req_meas = self.req_meas_keywords().map(|x| x.as_str_pair());
         let opt_meas = self.opt_meas_keywords().map(|x| x.as_str_pair());
         go(req_root, include_req_root)
@@ -4360,25 +4271,6 @@ where
         self.insert_optical_inner(i, name, opt, scale, data_column)
             .group()
             .resolve_nowarn()
-    }
-
-    /// Read nonstandard key/value pairs for each measurement.
-    ///
-    /// This includes the time measurement if present.
-    pub fn get_meas_nonstandard(&self) -> Vec<&HashMap<NonStdKey, NEString>> {
-        self.meas.meta().iter_common_values().collect()
-    }
-
-    /// Set nonstandard key/value pairs for each measurement.
-    ///
-    /// This includes the time measurement if present.
-    pub fn set_meas_nonstandard(
-        &mut self,
-        xs: impl IntoIterator<Item = HashMap<NonStdKey, NEString>>,
-    ) -> Result<(), InputLengthError> {
-        self.meas
-            .alter_common_values_zip(xs, |_, y: &mut HashMap<_, _>, x| *y = x)
-            .map(|_| ())
     }
 
     /// Replace optical measurement at index.
@@ -5049,12 +4941,12 @@ where
 
     /// Get reference to non-standard keywords.
     pub fn nonstandard_keywords(&self) -> &NonStdKeywords {
-        &self.rootmeta.nonstandard_keywords
+        &self.nonstandard_keywords
     }
 
     /// Set non-standard keywords to new hash map.
     pub fn set_nonstandard_keywords(&mut self, kws: NonStdKeywords) {
-        self.rootmeta.nonstandard_keywords = kws;
+        self.nonstandard_keywords = kws;
     }
 
     /// Convert to another FCS version.
@@ -5097,7 +4989,13 @@ where
         root_res
             .zip_commutative(meas_res)
             .map_ok_value(|(metaroot, meas_layout)| {
-                Core::new(metaroot, meas_layout, self.analysis, self.others)
+                Core::new(
+                    metaroot,
+                    meas_layout,
+                    self.nonstandard_keywords,
+                    self.analysis,
+                    self.others,
+                )
             })
             .group_with(summary)
     }
@@ -5345,7 +5243,7 @@ where
             .map(ReqKeyword::from)
             .chain(self.req_meas_keywords().map(ReqKeyword::from));
         let opt = self
-            .opt_root_keywords()
+            .opt_std_and_nonstd_keywords()
             .map(OptKeyword::from)
             .chain(self.opt_meas_keywords().map(OptKeyword::from));
         if V::as_version() == Version::FCS2_0 {
@@ -5356,7 +5254,7 @@ where
         }
     }
 
-    fn opt_meas_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptMeasKeyword<'_>>
+    fn opt_meas_keywords(&self) -> impl Iterator<Item = OptMeasKeyword<'_>>
     where
         L: LayoutOptMeasKeywords,
     {
@@ -5368,7 +5266,6 @@ where
                     .flatten()
                     .enumerate()
                     .map(|(i, v)| OptMeasKeyword::from_ref(v, i))
-                    .map(StdOrNonStdOptMeasKeyword::from)
             })
             .into_iter()
             .flatten();
@@ -5378,13 +5275,20 @@ where
             .opt_meas_keywords()
             .into_iter()
             .flatten()
-            .map(OptMeasKeyword::from)
-            .map(StdOrNonStdOptMeasKeyword::from);
+            .map(OptMeasKeyword::from);
         self.meas
             .meta()
             .iter_with(
-                &|i, x| Temporal::opt_and_nonstd_keywords(&x.value, i).collect::<Vec<_>>(),
-                &|i, x| ScaledOptical::opt_and_nonstd_keywords(&x.value, i).collect(),
+                &|i, x| {
+                    Temporal::opt_meas_keywords(&x.value, i)
+                        .map(OptMeasKeyword::from)
+                        .collect::<Vec<_>>()
+                },
+                &|i, x| {
+                    ScaledOptical::opt_keywords(&x.value, i)
+                        .map(OptMeasKeyword::from)
+                        .collect()
+                },
             )
             .flatten()
             .chain(ns)
@@ -5426,8 +5330,16 @@ where
         RootMeta::req_keywords(&self.rootmeta, self.par()).chain(lv)
     }
 
-    fn opt_root_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptRootKeyword<'_>> {
-        self.rootmeta.opt_and_nonstd_keywords()
+    fn opt_std_and_nonstd_keywords(&self) -> impl Iterator<Item = StdOrNonStdOptRootKeyword<'_>> {
+        let ns = self
+            .nonstandard_keywords
+            .iter()
+            .map(|(k, v)| NonStdKeyword::new(k, v.as_ne_str()))
+            .map(StdOrNonStdOptRootKeyword::from);
+        self.rootmeta
+            .opt_root_keywords()
+            .map(StdOrNonStdOptRootKeyword::from)
+            .chain(ns)
     }
 
     #[cfg(feature = "serde")]
@@ -5611,40 +5523,10 @@ where
         Ok(())
     }
 
-    fn split_nonstandard(
-        par: Par,
-        nonstd: &mut NonStdKeywords,
-        conf: &EvaledReadStdKeywordsConfig,
-    ) -> Vec<NonStdKeywords> {
-        let mut meas_targets = vec![HashMap::new(); par.0];
-        let Some(ns_pat) = conf.nonstandard_measurement_pattern.0.as_ref() else {
-            return meas_targets;
-        };
-
-        let sorted = nonstd
-            .drain()
-            .map(|(k, v)| {
-                let i = ns_pat
-                    .get_index(&k)
-                    .map(usize::from)
-                    .and_then(|i| (i < par.0).then_some(i));
-                (k, v, i)
-            })
-            .sorted_by_key(|x| x.2);
-        for (k, v, i) in sorted {
-            if let Some(j) = i {
-                meas_targets[j].insert(k, v);
-            } else {
-                nonstd.insert(k, v);
-            }
-        }
-        meas_targets
-    }
-
     #[allow(clippy::type_complexity)]
     fn lookup_names<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut [NonStdKeywords],
+        kws: &mut ValidKeywords,
+        par: Par,
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -5658,13 +5540,10 @@ where
         V::RootMeta: LookupMetaroot<V::Name>,
         V::Name: LookupShortname,
     {
-        nonstd
-            .iter_mut()
-            .enumerate()
-            .map(|(n, meas_nonstd)| {
+        (0..par.0)
+            .map(|n| {
                 let i = n.into();
-                V::Name::lookup_shortname(std, meas_nonstd, dropped, i, conf.as_ref())
-                    .into_semigroup()
+                V::Name::lookup_shortname(kws, dropped, i, conf.as_ref()).into_semigroup()
             })
             .sequence_commutative()
             .map_ok_value(|mut names| {
@@ -5681,10 +5560,9 @@ where
     }
 
     fn lookup_measurements<C>(
-        std: &mut StdKeywords,
-        names: Vec<V::Name>,
-        nonstd: Vec<NonStdKeywords>,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
+        names: Vec<V::Name>,
         dts: &[AlphaNumType],
         conf: &C,
     ) -> LookupMeasurementResult<(VNamedTemporalsAndScaledOpticals<V>, MeasurementDiagnostics)>
@@ -5724,10 +5602,9 @@ where
 
         names
             .into_iter()
-            .zip(nonstd)
             .zip(dts)
             .enumerate()
-            .map(|(i, ((wrapped, meas_nonstd), dt))| {
+            .map(|(i, (wrapped, dt))| {
                 let j = i.into();
                 // If $PnN is found, check that it matches the time pattern (if
                 // given). Also check that only zero or one $PnN match the time
@@ -5740,23 +5617,16 @@ where
                     // trigger a warning. Either can generate an error/warning
                     // if they fail to be parsed to their type
                     .and_then_commutative(|key| match key {
-                        Element::Center(name) => {
-                            Temporal::lookup_temporal(std, meas_nonstd, dropped, j, conf)
+                        Element::Center(name) => Temporal::lookup_temporal(kws, dropped, j, conf)
+                            .map_errors(LookupMeasurementError::from)
+                            .map_commutative_warnings(LookupMeasurementWarning::from)
+                            .map_ok_value(|x| Element::Center((name, x))),
+                        Element::NonCenter(k) => {
+                            ScaledOptical::lookup_scaled_optical(kws, dropped, j, *dt, conf)
                                 .map_errors(LookupMeasurementError::from)
                                 .map_commutative_warnings(LookupMeasurementWarning::from)
-                                .map_ok_value(|x| Element::Center((name, x)))
+                                .map_ok_value(|x| Element::NonCenter((k, x)))
                         }
-                        Element::NonCenter(k) => ScaledOptical::lookup_scaled_optical(
-                            std,
-                            meas_nonstd,
-                            dropped,
-                            j,
-                            *dt,
-                            conf,
-                        )
-                        .map_errors(LookupMeasurementError::from)
-                        .map_commutative_warnings(LookupMeasurementWarning::from)
-                        .map_ok_value(|x| Element::NonCenter((k, x))),
                     })
             })
             .sequence_commutative()
@@ -5848,10 +5718,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 // Core struct but they will be needed later for parsing DATA and
                 // ANALYSIS, and processing these keywords now will make it easier to
                 // determine if TEXT is totally standardized or not.
-                let offsets_res =
-                    V::Offsets::lookup(&mut kws.std, &mut kws.nonstd, &mut dropped, offsets, &lst)
-                        .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
-                        .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
+                let offsets_res = V::Offsets::lookup(&mut kws, &mut dropped, offsets, &lst)
+                    .map_commutative_warnings(StdTEXTFromFlatTEXTWarning::from)
+                    .map_errors(StdTEXTFromFlatTEXTErrorInner::from);
 
                 Self::lookup_inner(kws, dropped, lst.conf())
                     .zip3_commutative(offsets_res, repair_res)
@@ -5955,26 +5824,16 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         }
 
         par_res.and_then_commutative(|par| {
-            let std = &mut kws.std;
-            let nonstd = &mut kws.nonstd;
-            // Split nonstandard measurements using pattern (if given); this
-            // implicitly will encode $PAR downstream via length
-            let mut meas_nonstd = Self::split_nonstandard(par, nonstd, conf.as_ref());
             // Lookup $PnN first (everything else depends on these)
-            let names_res = Self::lookup_names(std, &mut meas_nonstd[..], &mut dropped, conf);
+            let names_res = Self::lookup_names(&mut kws, par, &mut dropped, conf);
             let mut core_res = go_err!(names_res)
                 // Lookup root (which depends on $PnN) and data schema
                 .and_then_commutative(|(dedup_names, original_names)| {
-                    let mnsks = &mut meas_nonstd[..];
-                    let layout_res = V::DataSchema::lookup(std, mnsks, &mut dropped, conf.as_ref());
+                    let layout_res =
+                        V::DataSchema::lookup(&mut kws, par, &mut dropped, conf.as_ref());
 
-                    let root_res = RootMeta::lookup_metaroot(
-                        std,
-                        &dedup_names[..],
-                        kws.nonstd,
-                        &mut dropped,
-                        conf,
-                    );
+                    let root_res =
+                        RootMeta::lookup_metaroot(&mut kws, &mut dropped, &dedup_names[..], conf);
 
                     go_err!(root_res)
                         .zip_commutative(go_err!(layout_res))
@@ -5985,10 +5844,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     |((metaroot_out, layout_out), dedup_names, original_names)| {
                         let dts = &layout_out.data_schema.datatypes()[..];
                         let ret = Self::lookup_measurements(
-                            std,
-                            dedup_names,
-                            meas_nonstd,
+                            &mut kws,
                             &mut dropped,
+                            dedup_names,
                             dts,
                             conf,
                         );
@@ -5998,17 +5856,22 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 .and_then_commutative(
                     |(metaroot_out, layout_out, (meas, meas_diag), original_names)| {
                         let meta_diag = metaroot_out.diagnostic;
-                        let ret =
-                            Self::try_new(metaroot_out.inner, meas, layout_out.data_schema, conf)
-                                .map_ok_value(|ret| {
-                                    (
-                                        ret,
-                                        original_names,
-                                        meta_diag,
-                                        meas_diag,
-                                        layout_out.diagnostics,
-                                    )
-                                });
+                        let ret = Self::try_new(
+                            metaroot_out.inner,
+                            meas,
+                            layout_out.data_schema,
+                            kws.nonstd,
+                            conf,
+                        )
+                        .map_ok_value(|ret| {
+                            (
+                                ret,
+                                original_names,
+                                meta_diag,
+                                meas_diag,
+                                layout_out.diagnostics,
+                            )
+                        });
                         go_err!(ret)
                     },
                 );
@@ -6037,7 +5900,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         && let Some(t) = mem::take(&mut extra.timestep)
                     {
                         core.0
-                            .rootmeta
                             .nonstandard_keywords
                             .insert_demoted(Timestep::std(), t);
                     }
@@ -6051,7 +5913,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         .map_ok_value(|mut core| {
                             if flag.is_demote() {
                                 for (k, v) in mem::take(&mut extra.$keyvals) {
-                                    core.0.rootmeta.nonstandard_keywords.insert_demoted(k, v);
+                                    core.0.nonstandard_keywords.insert_demoted(k, v);
                                 }
                             }
                             core
@@ -6292,7 +6154,13 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         V::DataSchema: WithPrimitiveDataFrame<DfTarget = V::DataFrame>,
     {
         let layout = self.meas.with_data(df)?;
-        Ok(Core::new(self.rootmeta, layout, analysis, others))
+        Ok(Core::new(
+            self.rootmeta,
+            layout,
+            self.nonstandard_keywords,
+            analysis,
+            others,
+        ))
     }
 
     // only meant to be called during lookup when keywords are being read from
@@ -6301,6 +6169,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndScaledOpticals<V>,
         data_schema: V::DataSchema,
+        mut nonstd: NonStdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<Self, (), NewCoreWarning, LookupCoreError>
     where
@@ -6313,13 +6182,18 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
             .map_errors(LookupCoreError::from)
             .map_commutative_warnings(NewCoreWarning::from)
             .and_then_commutative(|ml| {
-                Self::check_relationships(&mut metaroot, ml.meta(), opt_flag.is_demote())
-                    .map_errors(NewCoreWarning::from)
-                    .nowarn_into_switchable(opt_flag)
-                    .switchable_into_commutative()
-                    .map_errors(LookupCoreError::from)
-                    .map_commutative_warnings(NewCoreWarning::from)
-                    .map_ok_value(|()| Self::new(metaroot, ml, (), ()))
+                Self::check_relationships(
+                    &mut metaroot,
+                    ml.meta(),
+                    &mut nonstd,
+                    opt_flag.is_demote(),
+                )
+                .map_errors(NewCoreWarning::from)
+                .nowarn_into_switchable(opt_flag)
+                .switchable_into_commutative()
+                .map_errors(LookupCoreError::from)
+                .map_commutative_warnings(NewCoreWarning::from)
+                .map_ok_value(|()| Self::new(metaroot, ml, nonstd, (), ()))
             })
     }
 
@@ -6327,13 +6201,14 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         mut metaroot: RootMeta<V::RootMeta>,
         measurements: VNamedTemporalsAndOpticalsWithScale<V>,
         data_schema: V::DataSchema,
+        mut nonstd: NonStdKeywords,
     ) -> ErrorsResult<Self, (), NewCoreError> {
         CoreMeasurements::try_new_nodrop(measurements, data_schema)
             .map_errors(NewCoreError::from)
             .and_then_commutative(|ml| {
-                Self::check_relationships(&mut metaroot, ml.meta(), false)
+                Self::check_relationships(&mut metaroot, ml.meta(), &mut nonstd, false)
                     .map_errors(NewCoreError::from)
-                    .map_ok_value(|()| Self::new(metaroot, ml, (), ()))
+                    .map_ok_value(|()| Self::new(metaroot, ml, nonstd, (), ()))
             })
     }
 
@@ -6346,11 +6221,12 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
     fn check_relationships(
         metaroot: &mut RootMeta<V::RootMeta>,
         measurements: &MeasMeta<V::Name, V::Temporal, V::Optical, V::OpticalScale>,
+        nonstd: &mut NonStdKeywords,
         demote: bool,
     ) -> ErrorsResult<(), (), BrokenOrDependentLinkError> {
         let ns = measurements.named_set();
         let par = Par(measurements.len());
-        let link_errs = metaroot.remove_invalid_links(par, &ns, demote);
+        let link_errs = metaroot.remove_invalid_links(par, &ns, nonstd, demote);
         LogResult::new_from_err_iter(link_errs, (), ())
     }
 }
@@ -6437,14 +6313,14 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_errors(StdDatasetFromFlatTextErrorInner::from)
             .group()
             .map_error(IOErrorGroup::Pure)
-            .and_then_commutative(|(text, std_diag, mut offsets, repair_diag)| {
+            .and_then_commutative(|(core, std_diag, mut offsets, repair_diag)| {
                 let or = hns.header.final_offsets.others_reader();
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                 let other = io_to_log!(or.h_read(h));
                 let analysis = io_to_log!(ar.h_read(h));
-                let version = text.fcs_version();
+                let version = core.fcs_version();
                 let final_data = &mut offsets.offsets.final_data;
-                text.meas
+                core.meas
                     .h_read_df(h, offsets.tot, final_data, st.conf().as_ref())
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                     .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
@@ -6458,7 +6334,9 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                             .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                             .repack_warnings()
                             .map_ok_value(|ds_diag| {
-                                let new = Self::new(text.rootmeta, df_out.inner, analysis, other);
+                                let ns = core.nonstandard_keywords;
+                                let new =
+                                    Self::new(core.rootmeta, df_out.inner, ns, analysis, other);
                                 let diag = StdDatasetFromKwsOutput::new(
                                     offsets.offsets,
                                     repair_diag,
@@ -6831,7 +6709,13 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
     where
         V::DataFrame: DataFrameAsDataSchema<DataSchema = V::DataSchema>,
     {
-        CoreTEXT::new(self.rootmeta, self.meas.without_data(), (), ())
+        CoreTEXT::new(
+            self.rootmeta,
+            self.meas.without_data(),
+            self.nonstandard_keywords,
+            (),
+            (),
+        )
     }
 
     /// Set measurements and dataframe together
@@ -7091,8 +6975,7 @@ impl AnyCoreDataset {
 
 impl UnstainedData {
     fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> DeferredSwitchableError<
@@ -7103,12 +6986,13 @@ impl UnstainedData {
     where
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let i = UnstainedInfo::remove_root_opt_nofail(std);
-        UnstainedCenters::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf)
-            .map_deferred_value(|out| {
+        let i = UnstainedInfo::remove_root_opt_nofail(&mut kws.std);
+        UnstainedCenters::remove_or_drop_root_opt_with(kws, dropped, (), conf).map_deferred_value(
+            |out| {
                 let (c, t) = out.into_root_pair();
                 DiagnosedUnstainedData::new(Self::new(c, i), t)
-            })
+            },
+        )
     }
 
     fn opt_keywords(&self) -> impl Iterator<Item = OptRootKeyword<'_>> {
@@ -7120,18 +7004,17 @@ impl UnstainedData {
 
 impl SubsetData {
     fn lookup(
-        kws: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupSubsetError, LookupSubsetError> {
-        let f = CSVFlags::lookup(kws, nonstd, dropped, conf)
-            .map_warnings_and_errors(LookupSubsetError::from);
-        let b = CSVBits::remove_or_drop_root_opt(kws, nonstd, dropped, conf)
+        let f =
+            CSVFlags::lookup(kws, dropped, conf).map_warnings_and_errors(LookupSubsetError::from);
+        let b = CSVBits::remove_or_drop_root_opt(kws, dropped, conf)
             .map_switchable_errors(LookupSubsetError::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let t = CSTot::remove_or_drop_root_opt(kws, nonstd, dropped, conf)
+        let t = CSTot::remove_or_drop_root_opt(kws, dropped, conf)
             .map_switchable_errors(LookupSubsetError::from)
             .switchable_into_commutative()
             .into_semigroup();
@@ -7150,12 +7033,11 @@ impl SubsetData {
 
 impl CSVFlags {
     fn lookup(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredWarningsAndErrors<Self, LookupCSVFlagsError, LookupCSVFlagsError> {
-        CSMode::remove_or_drop_root_opt(std, nonstd, dropped, conf)
+        CSMode::remove_or_drop_root_opt(kws, dropped, conf)
             .map_switchable_errors(LookupCSVFlagsError::from)
             .switchable_into_commutative()
             .into_semigroup()
@@ -7169,7 +7051,7 @@ impl CSVFlags {
                 let n = m.map(|x| x.0).unwrap_or_default();
                 (0..n)
                     .map(|i| {
-                        CSVFlag::remove_or_drop_meas_opt(std, nonstd, dropped, i, conf)
+                        CSVFlag::remove_or_drop_meas_opt(kws, dropped, i, conf)
                             .map_switchable_errors(LookupCSVFlagsError::from)
                             .switchable_into_commutative()
                             .into_semigroup()
@@ -7193,8 +7075,7 @@ impl CSVFlags {
 
 impl ModificationData {
     fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> DeferredWarningsAndErrors<
@@ -7205,13 +7086,12 @@ impl ModificationData {
     where
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let last_mod = LastModifier::remove_root_opt_nofail(std);
-        let last_mod_date =
-            LastModified::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf)
-                .map_switchable_errors(LookupModifiedDataError::from)
-                .switchable_into_commutative()
-                .into_semigroup();
-        let ori = Originality::remove_or_drop_root_opt(std, nonstd, dropped, conf.as_ref())
+        let last_mod = LastModifier::remove_root_opt_nofail(&mut kws.std);
+        let last_mod_date = LastModified::remove_or_drop_root_opt_with(kws, dropped, (), conf)
+            .map_switchable_errors(LookupModifiedDataError::from)
+            .switchable_into_commutative()
+            .into_semigroup();
+        let ori = Originality::remove_or_drop_root_opt(kws, dropped, conf.as_ref())
             .map_switchable_errors(LookupModifiedDataError::from)
             .switchable_into_commutative()
             .into_semigroup();

@@ -3254,31 +3254,6 @@ pub fn impl_core_par(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_core_all_meas_nonstandard_keywords(input: TokenStream) -> TokenStream {
-    let t = parse_macro_input!(input as Ident);
-    let _ = split_ident_version_pycore(&t);
-
-    let doc = DocString::new_ivar(
-        "The non-standard keywords for each measurement.",
-        PyList::new1(PyDict::new_nonstd_keywords()),
-    );
-
-    doc.into_impl_get_set(
-        &t,
-        "all_meas_nonstandard_keywords",
-        true,
-        |_, _| {
-            quote! {
-                let ns = self.0.get_meas_nonstandard().clone();
-                type_families::Functor::fmap(ns, Clone::clone)
-            }
-        },
-        |n, _| quote!(Ok(self.0.set_meas_nonstandard(#n)?)),
-    )
-    .into()
-}
-
-#[proc_macro]
 pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
     let ident = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&ident);
@@ -5099,9 +5074,8 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
     );
 
     let longname = DocArg::new_meas_kw_ivar1(MeasKw::PnS);
-    let nonstd = DocArg::new_meas_nonstandard_keywords_ivar();
 
-    let all_common = [longname, nonstd];
+    let all_common = [longname];
 
     let all_args: Vec<_> = match (version, is_temporal) {
         (Version::FCS2_0, true) => all_peak.into_iter().chain(all_common).collect(),
@@ -9461,22 +9435,6 @@ impl DocArgRWIvar {
         )
     }
 
-    fn new_meas_nonstandard_keywords_ivar() -> Self {
-        let d = format!(
-            "Any non-standard keywords corresponding to this measurement. No keys \
-             should start with {DOLLAR_STR}. Realistically each key should follow \
-             a pattern corresponding to the measurement index, something like \
-             prefixing with {p} followed by the index. This is not enforced.",
-            p = code_str("P"),
-        );
-        let path = quote!(fireflow_core::validated::keys::NonStdKeywords);
-        Self::new_nonstandard_keywords_ivar(
-            d.as_str(),
-            |_, _| quote!(AsRef::<#path>::as_ref(&self.0).clone()),
-            |n, _| quote!(*self.0.as_mut() = #n),
-        )
-    }
-
     fn new_nonstandard_keywords_ivar(
         desc: &str,
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
@@ -10082,7 +10040,6 @@ impl DocArgParam {
             Self::new_process_other_version_param(),
             Self::new_process_extra_timestep_param(),
             Self::new_fix_log_scale_offsets_param(),
-            Self::new_nonstandard_measurement_pattern_param(),
         ]
         .into_iter();
 
@@ -10462,30 +10419,6 @@ impl DocArgParam {
              therefore is location-dependent. Only affects FCS 3.2."
         );
         Self::new_bool_param("disallow_localtime", d)
-    }
-
-    fn new_nonstandard_measurement_pattern_param() -> Self {
-        let path = config_path("NonStdMeasPatternOpt");
-        let pat = code_str(tc::NON_STD_MEAS_INDEX_PAT);
-        let ed = format!("if {ARG_TOKEN} does not have {pat}");
-        let exc = PyException::new_config().desc(ed);
-        // TODO this is really weird, why is path specified twice?
-        let inner_pytype = PyOpt::new1(PyStr::default().exc(exc).rstype(path.clone()))
-            .default_from_inner()
-            .rstype(path);
-        let d = format!(
-            "Pattern to use when matching nonstandard measurement keys. \
-             Values that start and end with {delim} will be \
-             interpreted as regular expressions, otherwise as literal strings \
-             to be used as an exact prefix match. If a regular expression, it \
-             must include {pat} which will represent the measurement index. \
-             Otherwise should be a normal regular expression as defined in \
-             {REGEXP_REF}.",
-            delim = tc::PATTERN_DELIMITER
-        );
-        let pytype = PyAlias::new_selector(inner_pytype);
-        Self::new_param("nonstandard_measurement_pattern", pytype, d)
-            .def(DocDefault::Str(tc::NON_STD_MEAS_PAT_DEFAULT.into()))
     }
 
     fn new_fix_int_widths_param() -> Self {

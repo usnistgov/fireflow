@@ -5,7 +5,7 @@ use crate::config::{
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
     AsStdKey, DollarKey, IndexedKey, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
-    StdKey, StdKeywords, TruncatedNEString,
+    StdKey, StdKeywords, TruncatedNEString, ValidKeywords,
 };
 
 use super::index::{IndexFromOne, MeasIndex};
@@ -463,8 +463,7 @@ pub(crate) trait Optional: Sized {
     }
 
     fn remove_or_transfer_opt<I>(
-        kws: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         conf: &EvaledReadDataKeywordsConfig,
@@ -473,14 +472,19 @@ pub(crate) trait Optional: Sized {
         SpecificKey<Self, I>: AsStdKey + Copy,
         Self: FromStr,
     {
-        let res = Self::remove_opt(kws, k);
-        process_opt_key(res, k, nonstd, dropped, conf.process_optional_failure)
+        let res = Self::remove_opt(&mut kws.std, k);
+        process_opt_key(
+            res,
+            k,
+            &mut kws.nonstd,
+            dropped,
+            conf.process_optional_failure,
+        )
     }
 
     #[allow(clippy::type_complexity)]
     fn remove_or_transfer_opt_with<C, I>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         k: SpecificKey<Self, I>,
         data: Self::Payload<'_>,
@@ -497,8 +501,14 @@ pub(crate) trait Optional: Sized {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
-        let res = Self::remove_opt_with(std, k, data, conf.as_ref());
-        process_opt_key(res, k, nonstd, dropped, rconf.process_optional_failure)
+        let res = Self::remove_opt_with(&mut kws.std, k, data, conf.as_ref());
+        process_opt_key(
+            res,
+            k,
+            &mut kws.nonstd,
+            dropped,
+            rconf.process_optional_failure,
+        )
     }
 }
 
@@ -569,20 +579,18 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     }
 
     fn remove_or_drop_root_opt(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
         Self: FromStr,
     {
-        Self::remove_or_transfer_opt(std, nonstd, dropped, SpecificKey::default(), conf)
+        Self::remove_or_transfer_opt(kws, dropped, SpecificKey::default(), conf)
     }
 
     fn remove_or_drop_root_opt_with<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         data: Self::Payload<'_>,
         conf: &C,
@@ -596,7 +604,7 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        Self::remove_or_transfer_opt_with(std, nonstd, dropped, SpecificKey::default(), data, conf)
+        Self::remove_or_transfer_opt_with(kws, dropped, SpecificKey::default(), data, conf)
     }
 }
 
@@ -613,14 +621,14 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     // }
 
     fn get_or_ignore_meas_opt(
-        kws: &StdKeywords,
+        std: &StdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyError<Self>>
     where
         Self: FromStr,
     {
-        Self::get_or_ignore_opt(kws, SpecificKey::new_i1(i.into()), conf)
+        Self::get_or_ignore_opt(std, SpecificKey::new_i1(i.into()), conf)
     }
 
     fn remove_meas_opt_nofail(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> Self::Outer
@@ -631,8 +639,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     }
 
     fn remove_or_drop_meas_opt(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         conf: &EvaledReadDataKeywordsConfig,
@@ -640,12 +647,11 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
     where
         Self: FromStr,
     {
-        Self::remove_or_transfer_opt(std, nonstd, dropped, SpecificKey::new_i1(i.into()), conf)
+        Self::remove_or_transfer_opt(kws, dropped, SpecificKey::new_i1(i.into()), conf)
     }
 
     fn remove_or_drop_meas_opt_with<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         i: impl Into<IndexFromOne>,
         data: Self::Payload<'_>,
@@ -660,14 +666,7 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        Self::remove_or_transfer_opt_with(
-            std,
-            nonstd,
-            dropped,
-            SpecificKey::new_i1(i.into()),
-            data,
-            conf,
-        )
+        Self::remove_or_transfer_opt_with(kws, dropped, SpecificKey::new_i1(i.into()), data, conf)
     }
 }
 

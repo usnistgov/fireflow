@@ -8,7 +8,6 @@ use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0, Timestep};
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::{KeyString, KeyStringOrPattern};
-use fireflow_core::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use fireflow_core::validated::read_state::DatasetOffset;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::textdelim::TEXTDelim;
@@ -661,21 +660,6 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let ns_meas_pattern = opt_arg::<NonStdMeasPattern>(
-        NS_MEAS_PATTERN,
-        "LIT_OR_PAT",
-        format!(
-            "Pattern to use when matching non-standard measurement keywords. \
-             Values that start and end with {delim} will be interpreted as \
-             regular expressions, otherwise as a literal string to be used as a \
-             prefix matcher. It must include {index} which will be replaced with \
-             measurement index. Defaults to {default}.",
-            delim = fmt_val(tc::PATTERN_DELIMITER),
-            index = fmt_val(tc::NON_STD_MEAS_INDEX_PAT),
-            default = fmt_val(tc::NON_STD_MEAS_PAT_DEFAULT)
-        ),
-    );
-
     let all_read_std_args = [
         dedup_meas_names,
         trim_intra_value_whitespace,
@@ -697,7 +681,6 @@ fn run() -> AppResult<()> {
         process_extra_timestep,
         fix_log_scale_offset,
         disallow_localtime,
-        ns_meas_pattern,
     ];
 
     // read dataset args
@@ -1530,9 +1513,6 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     get_flag(s, FIX_LOG_SCALE_OFFSETS, |x| c.fix_log_scale_offsets = x);
     get_flag(s, DISALLOW_LOCALTIME, |x| c.disallow_localtime = x);
 
-    get_opt(s, NS_MEAS_PATTERN, |x| {
-        c.nonstandard_measurement_pattern = Selector::Root(cfg::NonStdMeasPatternOpt(x));
-    });
     c
 }
 
@@ -2080,8 +2060,6 @@ const PROCESS_EXTRA_TIMESTEP: &str = cli_arg!(ReadStdKeywordsConfig::process_ext
 const FIX_LOG_SCALE_OFFSETS: &str = cli_arg!(ReadStdKeywordsConfig::fix_log_scale_offsets);
 
 const DISALLOW_LOCALTIME: &str = cli_arg!(ReadStdKeywordsConfig::disallow_localtime);
-
-const NS_MEAS_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::nonstandard_measurement_pattern);
 
 // data keyword config flags
 

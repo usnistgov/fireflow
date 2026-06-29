@@ -2,7 +2,7 @@ use crate::config::{ConfigFlag as _, EvaledReadDataKeywordsConfig, EvaledReadStd
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey as _};
-use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
+use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
 
 use fireflow_types::keywords::{
     ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
@@ -126,8 +126,7 @@ impl Datetimes {
     }
 
     pub(crate) fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -147,8 +146,8 @@ impl Datetimes {
                     .into_semigroup::<Vec<_>, _>()
             };
         }
-        let b = BeginDateTime::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
-        let e = EndDateTime::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
+        let b = BeginDateTime::remove_or_drop_root_opt_with(kws, dropped, (), conf);
+        let e = EndDateTime::remove_or_drop_root_opt_with(kws, dropped, (), conf);
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip_commutative(go!(e))
@@ -162,15 +161,15 @@ impl Datetimes {
                         // optionally transfer component keys to nonstandard
                         let bk = old_begin.map(OptRootKeyword::from_value);
                         let ek = old_end.map(OptRootKeyword::from_value);
-                        let kws = [bk, ek].into_iter().flatten();
+                        let failed_kws = [bk, ek].into_iter().flatten();
                         match rconf.process_optional_failure.is_demote_or_drop() {
                             Some(true) => {
-                                for k in kws {
-                                    nonstd.insert_demoted_keyword(k.into());
+                                for k in failed_kws {
+                                    kws.nonstd.insert_demoted_keyword(k.into());
                                 }
                             }
                             Some(false) => {
-                                for k in kws {
+                                for k in failed_kws {
                                     k.insert_unique(dropped);
                                 }
                             }

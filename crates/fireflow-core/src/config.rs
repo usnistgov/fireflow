@@ -24,12 +24,10 @@ use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    AllKeyMatchers, KeyString, KeyStringsOrPatterns, LiteralOrPattern, NonStdKeywords,
-    NonStdKeywordsExt as _, NonUniqueKeyError, StdKey, StdKeywords, ValidKeywords,
-    checked_iter_to_hashmap,
+    AllKeyMatchers, KeyString, KeyStringsOrPatterns, LiteralOrPattern, NonStdKeywordsExt as _,
+    NonUniqueKeyError, StdKey, ValidKeywords, checked_iter_to_hashmap,
 };
 use crate::validated::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
-use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
 use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
@@ -560,7 +558,6 @@ pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
     Option<TimePattern>,
     Option<String>,
     Option<String>,
-    NonStdMeasPatternOpt,
 >;
 
 pub type ReadStdKeywordsConfig = ReadStdKeywordsConfig_<
@@ -569,7 +566,6 @@ pub type ReadStdKeywordsConfig = ReadStdKeywordsConfig_<
     Selector<Option<TimePattern>>,
     Selector<Option<String>>,
     Selector<Option<String>>,
-    Selector<NonStdMeasPatternOpt>,
 >;
 
 impl ReadStdKeywordsConfig {
@@ -595,7 +591,6 @@ impl ReadStdKeywordsConfig {
             process_extra_timestep: self.process_extra_timestep,
             fix_log_scale_offsets: self.fix_log_scale_offsets,
             disallow_localtime: self.disallow_localtime,
-            nonstandard_measurement_pattern: self.nonstandard_measurement_pattern.eval(kws),
         }
     }
 }
@@ -603,7 +598,7 @@ impl ReadStdKeywordsConfig {
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP, NSMP> {
+pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
     /// All versions of the standards requires that all $PnN be unique.
@@ -771,19 +766,6 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP, NSMP> {
     ///
     /// This only affects FCS 3.2
     pub disallow_localtime: DisallowLocaltime,
-
-    /// If `true`, this pattern will be used to group "nonstandard" keywords
-    /// with matching measurements.
-    ///
-    /// Usually this will be something like `^"P%n.+"` where `%n` will be
-    /// substituted with the measurement index before using it as a regular
-    /// expression to match keywords. It should not start with a `"$"` and must
-    /// contain a literal `"%n"`.
-    ///
-    /// This will match something like `"P7FOO"` which would be `"FOO"` for
-    /// measurement `7`. These may be used when converting between different
-    /// FCS versions.
-    pub nonstandard_measurement_pattern: NSMP,
 }
 
 pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
@@ -1573,16 +1555,6 @@ impl Default for TimeMeasNamePattern {
     }
 }
 
-/// [`NonStdMeasPattern`] wrapper to implement non-None default.
-#[derive(Clone)]
-pub struct NonStdMeasPatternOpt(pub Option<NonStdMeasPattern>);
-
-impl Default for NonStdMeasPatternOpt {
-    fn default() -> Self {
-        Self(Some(NonStdMeasPattern::default()))
-    }
-}
-
 /// Error when optical keyword is present in temporal measurement.
 #[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("optical key $P{index}{key} found in temporal measurement")]
@@ -1652,8 +1624,7 @@ impl TemporalOpticalKeys {
     pub(crate) fn remove(
         &self,
         targets: &[TemporalOpticalKey],
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         i: MeasIndex,
         flag: ProcessTemporalOpticalKeys,
     ) -> TemporalOpticalResult {
@@ -1668,11 +1639,11 @@ impl TemporalOpticalKeys {
                 ProcessTemporalOpticalKeys::DropWarn => (false, true),
                 ProcessTemporalOpticalKeys::DropSilent => (false, false),
             };
-            if let Some(v) = std.remove(&k) {
+            if let Some(v) = kws.std.remove(&k) {
                 let err = || TemporalHasOpticalKeyError::new(i, *t);
                 if self.0.contains(t) {
                     if demote {
-                        nonstd.insert_demoted(k.clone(), v.clone());
+                        kws.nonstd.insert_demoted(k.clone(), v.clone());
                     }
                     if warn {
                         ws.push(err());
@@ -1927,14 +1898,13 @@ impl EvaledReadDataKeywordsConfig {
 mod python {
     use super::{
         ByteordOverride, FixIntWidths, KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig,
-        NonStdMeasPatternOpt, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
-        ReadFlatTEXTConfig, ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
+        ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
+        ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
         TemporalOpticalKeys, TimeMeasNamePattern,
     };
 
     use crate::text::keywords::ByteOrd2_0;
     use crate::validated::keys::KeyStringOrPattern;
-    use crate::validated::nonstd_meas_pattern::NonStdMeasPattern;
     use crate::validated::sub_pattern::SubPattern;
 
     use fireflow_types::config as tc;
@@ -2047,28 +2017,6 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             self.0.map(|r| r.as_str().to_owned()).into_pyobject(py)
-        }
-    }
-
-    impl<'py> FromPyObject<'_, 'py> for NonStdMeasPatternOpt {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if obj.is_none() {
-                Ok(Self(None))
-            } else {
-                let s: String = obj.extract()?;
-                Ok(Self(Some(s.parse::<NonStdMeasPattern>()?)))
-            }
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for NonStdMeasPatternOpt {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = Infallible;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.0.into_pyobject(py)
         }
     }
 

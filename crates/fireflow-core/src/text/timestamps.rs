@@ -7,7 +7,7 @@ use crate::text::lookup::{
     Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
 };
 use crate::validated::datepattern::DatePattern;
-use crate::validated::keys::{NonStdKeywords, NonStdKeywordsExt as _, StdKeywords};
+use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
 use crate::validated::timepattern::{ParseWithTimePatternError, TimePattern};
 
 use fireflow_types::config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0};
@@ -202,8 +202,7 @@ impl<X> Timestamps<X> {
 
     #[allow(clippy::type_complexity)]
     pub(crate) fn lookup<C>(
-        std: &mut StdKeywords,
-        nonstd: &mut NonStdKeywords,
+        kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
         conf: &C,
     ) -> WarningsAndErrorsResult<
@@ -227,9 +226,9 @@ impl<X> Timestamps<X> {
                     .into_semigroup::<Vec<_>, _>()
             };
         }
-        let b = Btim::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
-        let e = Etim::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
-        let d = FCSDate::remove_or_drop_root_opt_with(std, nonstd, dropped, (), conf);
+        let b = Btim::remove_or_drop_root_opt_with(kws, dropped, (), conf);
+        let e = Etim::remove_or_drop_root_opt_with(kws, dropped, (), conf);
+        let d = FCSDate::remove_or_drop_root_opt_with(kws, dropped, (), conf);
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         go!(b)
             .zip3_commutative(go!(e), go!(d))
@@ -245,15 +244,15 @@ impl<X> Timestamps<X> {
                         let bk = old_btim.map(OptRootKeyword::from_value);
                         let ek = old_etim.map(OptRootKeyword::from_value);
                         let dk = old_date.map(OptRootKeyword::from_value);
-                        let kws = [bk, ek, dk].into_iter().flatten();
+                        let failed_kws = [bk, ek, dk].into_iter().flatten();
                         match rconf.process_optional_failure.is_demote_or_drop() {
                             Some(true) => {
-                                for kk in kws {
-                                    nonstd.insert_demoted_keyword(kk.into());
+                                for kk in failed_kws {
+                                    kws.nonstd.insert_demoted_keyword(kk.into());
                                 }
                             }
                             Some(false) => {
-                                for k in kws {
+                                for k in failed_kws {
                                     k.insert_unique(dropped);
                                 }
                             }

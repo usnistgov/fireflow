@@ -1,5 +1,5 @@
 use crate::{
-    config::{NonStdMeasPatternOpt, TimeMeasNamePattern},
+    config::TimeMeasNamePattern,
     text::keywords::Cyt,
     validated::{
         datepattern::DatePattern,
@@ -126,13 +126,6 @@ impl Selector<Option<String>> {
 
     #[must_use]
     pub fn new_datetime_pattern() -> Self {
-        Self::default()
-    }
-}
-
-impl Selector<NonStdMeasPatternOpt> {
-    #[must_use]
-    pub fn new_nonstandard_measurement_pattern() -> Self {
         Self::default()
     }
 }

@@ -220,7 +220,7 @@ mod tests {
 
     #[test]
     fn fromstr_nonstd_meas_pattern_pattern_super_deluxe() {
-        let s = "/(#|BD\\$|#NC)?P0*%n/";
+        let s = "/(?:#|BD\\$|#NC)?P0*%n/";
         assert!(matches!(
             s.parse::<NonStdMeasPattern>().map(|x| x.inner),
             Ok(CompiledNonStdMeasPattern::Regex(_))
@@ -239,7 +239,7 @@ mod tests {
         );
         assert_matches!(
             "/(%n/".parse::<NonStdMeasPattern>(),
-            Err(NonStdMeasPatternError::Regex(_))
+            Err(NonStdMeasPatternError::NewRegex(_))
         );
     }
 

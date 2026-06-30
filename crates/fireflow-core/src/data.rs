@@ -7951,12 +7951,13 @@ impl<T> AnyOrderedUintDataSchema<T> {
                 })
                 .map_errors(NewFixedIntLayoutError::from)
                 .and_then_commutative(|(_, old_bytes)| {
-                    new_from_byteord(ne_cs, b, old_bytes, Some(bo))
+                    new_from_byteord(ne_cs, b, old_bytes, (b != bo).then_some(bo))
                 }),
             ByteordOverride::Endian => bytes_res
                 .map_ok_value(|(new_bytes, old_bytes)| {
                     let (new_byteord, old_byteord) = Endian::try_from(bo).map_or((bo, None), |e| {
-                        (ByteOrd2_0::from_endian(e, new_bytes), Some(bo))
+                        let new_byteord = ByteOrd2_0::from_endian(e, new_bytes);
+                        (new_byteord, (new_byteord != bo).then_some(bo))
                     });
                     (new_byteord, old_byteord, old_bytes)
                 })

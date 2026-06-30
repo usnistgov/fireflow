@@ -31,37 +31,37 @@ use {
     fireflow_types::python as py,
 };
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Selector<T> {
     Root(T),
     Branch(Branch<T>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum AppendableSelector<T> {
     One(Selector<T>),
     Many(NEVec<Selector<T>>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Branch<T> {
     If(Box<If<T>>),
     Cond(Cond<T>),
 }
 
-#[derive(Clone, new)]
+#[derive(Clone, PartialEq, new)]
 pub struct If<T> {
     pub condition: Condition,
     pub consequent: Selector<T>,
     pub alternative: Option<Selector<T>>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Cond<T> {
     pub forms: NEVec<(Condition, Selector<T>)>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum Condition {
     Root(KeyTest),
     And(Box<Self>, Box<Self>),
@@ -69,7 +69,7 @@ pub enum Condition {
     Not(Box<Self>),
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum KeyTest {
     HasKey(AnyKey),
     KeyIs(AnyKey, NEString),
@@ -80,6 +80,12 @@ pub enum KeyTest {
 #[derive(Clone, Display)]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
 pub struct ValueRegex(Regex);
+
+impl PartialEq for ValueRegex {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.as_str() == other.0.as_str()
+    }
+}
 
 impl<T: Default> Default for Selector<T> {
     fn default() -> Self {
@@ -248,13 +254,17 @@ impl<T> AppendableSelector<T> {
 
     pub fn push(&mut self, t: Selector<T>)
     where
-        T: Default,
+        T: Default + PartialEq,
     {
         *self = match mem::take(self) {
             Self::One(x) => {
-                let mut many = nev![x];
-                many.push(t);
-                Self::Many(many)
+                if x == Selector::<T>::default() {
+                    Self::Many(nev![t])
+                } else {
+                    let mut many = nev![x];
+                    many.push(t);
+                    Self::Many(many)
+                }
             }
             Self::Many(mut xs) => {
                 xs.push(t);
@@ -383,10 +393,7 @@ mod python {
             // Use two-stage parse to keep the errors sane. Try to parse as a
             // branch if this is a tuple that starts with one of the operators.
             // If not, parse as a root, which could be anything.
-            if let Ok((op, _)) = obj.extract::<(String, Bound<PyAny>)>()
-                && (op.as_str() == fp::SELECTOR_COND.as_str()
-                    || op.as_str() == fp::SELECTOR_IF.as_str())
-            {
+            if is_selector(obj) {
                 Ok(Self::Branch(obj.extract::<Branch<T>>()?))
             } else {
                 Ok(Self::Root(obj.extract::<T>()?))
@@ -417,10 +424,7 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             // Order is important to keep error messages sane
-            if let Ok((op, _)) = obj.extract::<(String, Bound<PyAny>)>()
-                && (op.as_str() == fp::SELECTOR_COND.as_str()
-                    || op.as_str() == fp::SELECTOR_IF.as_str())
-            {
+            if is_selector(obj) {
                 Ok(Self::One(Selector::Branch(obj.extract::<Branch<T>>()?)))
             } else if let Ok(ss) = obj.extract::<Vec<Selector<T>>>()
                 && let Some(ne) = NEVec::try_from_vec(ss)
@@ -656,6 +660,20 @@ mod python {
                     (fp::STATEMENT_KEY_MATCHES.as_str(), k, p).into_pyobject(py)
                 }
             }
+        }
+    }
+
+    fn is_selector(obj: Borrowed<'_, '_, PyAny>) -> bool {
+        if let Ok(tup) = obj.cast::<PyTuple>()
+            && (2..=4).contains(&tup.len())
+            && let Ok(x0) = tup.get_item(0)
+            && let Ok(op) = x0.extract::<String>()
+            && (op.as_str() == fp::SELECTOR_COND.as_str()
+                || op.as_str() == fp::SELECTOR_IF.as_str())
+        {
+            true
+        } else {
+            false
         }
     }
 }

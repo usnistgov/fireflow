@@ -182,26 +182,14 @@ above.
 
 .. autoclass:: pyreflow.api.DatasetSummary
    :members:
-  
-Common outputs
---------------
 
-These are which are reused when returning data from the above functions.
+Diagnostic outputs
+------------------
 
-.. autoclass:: pyreflow.api.OriginalHeaderOffsets
-   :members:
-
-.. autoclass:: pyreflow.api.FinalHeaderOffsets
-   :members:
-
-.. autoclass:: pyreflow.api.HeaderAndSuppOffsets
-   :members:
-
-.. autoclass:: pyreflow.api.ValidKeywords
-   :members:
-
-.. autoclass:: pyreflow.api.DatasetOffsets
-   :members:
+These are clusters of output data specifically meant to "diagnose" problems that
+were identified with FCS files (example, keywords that were dropped because
+they could not be parsed). Use these to reverse-engineer what problems an
+FCS file may have.
 
 .. autoclass:: pyreflow.api.FlatTEXTDiagnostics
    :members:
@@ -212,19 +200,27 @@ These are which are reused when returning data from the above functions.
 .. autoclass:: pyreflow.api.StdTEXTDiagnostics
    :members:
 
+.. autoclass:: pyreflow.api.RepairDiagnostics
+   :members:
+
 .. autoclass:: pyreflow.api.DatasetDiagnostics
    :members:
+  
+Offset Outputs
+--------------
 
-.. autoclass:: pyreflow.api.IntraSegmentDarkBytes
+Data corresponding to the offsets that were used to parse an FCS file.
+
+.. autoclass:: pyreflow.api.OriginalHeaderOffsets
    :members:
 
-.. autoclass:: pyreflow.api.FlatDatasetFromKwsOutput
+.. autoclass:: pyreflow.api.FinalHeaderOffsets
    :members:
 
-.. autoclass:: pyreflow.api.StdDatasetFromKwsOutput
+.. autoclass:: pyreflow.api.HeaderAndSuppOffsets
    :members:
 
-.. autoclass:: pyreflow.api.KeywordVersionScore
+.. autoclass:: pyreflow.api.DatasetOffsets
    :members:
 
 .. autoclass:: pyreflow.api.SuppTEXTOffsetsOutput
@@ -264,6 +260,25 @@ These classes are produced when two offsets overlap each other.
 
 .. autoclass:: pyreflow.api.TextToHeaderOrSuppOffsetsOverlap
    :members:
+
+Misc outputs
+--------------
+
+.. autoclass:: pyreflow.api.ValidKeywords
+   :members:
+
+.. autoclass:: pyreflow.api.IntraSegmentDarkBytes
+   :members:
+
+.. autoclass:: pyreflow.api.FlatDatasetFromKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.StdDatasetFromKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.KeywordVersionScore
+   :members:
+
 
 Dynamic value selectors based on keywords
 +++++++++++++++++++++++++++++++++++++++++

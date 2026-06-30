@@ -203,6 +203,9 @@ FCS file may have.
 .. autoclass:: pyreflow.api.RepairDiagnostics
    :members:
 
+.. autoclass:: pyreflow.api.DataSchemaDiagnostics
+   :members:
+
 .. autoclass:: pyreflow.api.DatasetDiagnostics
    :members:
   

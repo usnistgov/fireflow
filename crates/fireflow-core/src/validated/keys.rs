@@ -1499,7 +1499,7 @@ impl ValidKeywords {
         self.nonstd.get(k)
     }
 
-    fn transfer_demoted(&mut self, key: StdKey) {
+    pub(crate) fn transfer_demoted(&mut self, key: StdKey) {
         if let Some(v) = self.std.remove(&key) {
             self.nonstd.insert_demoted(key, v);
         }

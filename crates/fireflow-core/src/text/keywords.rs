@@ -487,7 +487,7 @@ impl Gain {
             .process_optional_failure
             .as_triflag();
         if ignore.0.contains(&TemporalOpticalKey::Gain) {
-            kws.transfer_demoted(&mut kws.std, Self::std(i));
+            kws.transfer_demoted(Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {
             Self::remove_or_drop_meas_opt(kws, dropped, i, conf.as_ref())

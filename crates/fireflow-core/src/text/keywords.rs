@@ -12,6 +12,7 @@ use crate::text::byteord::{
 };
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
+use crate::text::keyword_enum::AsStdKeywordPair as _;
 use crate::text::lookup::{
     Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptIndexedKey, OptIndexedKeyError,
     OptMetarootKey, Optional, ParseKeyError, ReqIndexedKey, ReqKeyError, ReqKeyErrorInner,
@@ -34,8 +35,8 @@ use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::keys::{
     AsStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey2, DollarKey, IndexedKey, Key1, Key2,
-    NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords, TruncatedNEString,
-    ValidKeywords, VersionedKey,
+    NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords, StdOptKeyword,
+    TruncatedNEString, ValidKeywords, VersionedKey,
 };
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
@@ -78,7 +79,7 @@ use std::str::FromStr;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::keyword_enum::SplitKeyword;
+use super::keyword_enum::{OptRootKeyword, SplitKeyword, SplitKeyword2};
 use super::relational::{
     Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
 };
@@ -486,8 +487,7 @@ impl Gain {
             .process_optional_failure
             .as_triflag();
         if ignore.0.contains(&TemporalOpticalKey::Gain) {
-            // TODO method on ValidKeywords
-            kws.nonstd.transfer_demoted(&mut kws.std, Self::std(i));
+            kws.transfer_demoted(&mut kws.std, Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {
             Self::remove_or_drop_meas_opt(kws, dropped, i, conf.as_ref())
@@ -1441,7 +1441,8 @@ pub struct DfcKeyword {
 
 impl Compensation2_0 {
     pub(crate) fn lookup(
-        kws: &mut StdKeywords,
+        kws: &mut ValidKeywords,
+        dropped: &mut StdKeywords,
         par: Par,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableErrors<Option<Self>, ProcessOptionalFailure, LookupComp2_0Error> {
@@ -1454,7 +1455,7 @@ impl Compensation2_0 {
             .cartesian_product(0..n)
             .map(|(r, c)| {
                 let k = SpecificKey::new_i2(c, r);
-                match Dfc::lookup(kws, k) {
+                match Dfc::lookup(kws, k, dropped, flag) {
                     Ok(x) => (x, None),
                     Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
                 }
@@ -1471,7 +1472,36 @@ impl Compensation2_0 {
             let matrix = Array2::from_shape_vec((n, n), ys).expect("shape is checked above");
             Compensation::try_from(matrix)
                 .map(|x| Some(Self(x)))
-                .map_err(LookupComp2_0Error::Matrix)
+                .map_err(|(e, m)| {
+                    // Return non-zero keywords to non-standard list on failure
+                    // if desired
+                    let failed_kws = m
+                        .iter()
+                        .enumerate()
+                        .filter(|(_, value)| !value.is_zero())
+                        .map(|(i, &value)| {
+                            let ncols = m.ncols();
+                            let row = i / ncols;
+                            let col = i % ncols;
+                            let k = DKey2::new_i2(col, row);
+                            SplitKeyword2::new(k, Dfc(value))
+                        });
+                    match flag.is_demote_or_drop() {
+                        Some(true) => {
+                            for k in failed_kws {
+                                let sk = StdOptKeyword::from(OptRootKeyword::Dfc(k));
+                                kws.nonstd.insert_demoted_keyword(sk);
+                            }
+                        }
+                        Some(false) => {
+                            for k in failed_kws {
+                                k.insert_unique(dropped);
+                            }
+                        }
+                        None => (),
+                    }
+                    LookupComp2_0Error::Matrix(e)
+                })
                 .into_deferred_switchable(flag)
         };
         res.extend_deferred_switchable_errors(warnings.into_iter().flatten())
@@ -1611,7 +1641,9 @@ impl FromStrDelim for Compensation3_0 {
             if total == nn {
                 let matrix =
                     Array2::from_shape_vec((n, n), values).expect("shape is checked above");
-                Ok(Compensation::try_from(matrix).map(Self)?)
+                Ok(Compensation::try_from(matrix)
+                    .map(Self)
+                    .map_err(|(e, _)| e)?)
             } else {
                 Err(ParseCompError::WrongLength {
                     expected: nn,
@@ -3569,14 +3601,26 @@ impl BiIndexedKey for Dfc {
 
 impl Dfc {
     pub(crate) fn lookup(
-        kws: &mut StdKeywords,
+        kws: &mut ValidKeywords,
         k: Key2<Self>,
+        dropped: &mut StdKeywords,
+        flag: ProcessOptionalFailure,
     ) -> Result<Option<Self>, LookupDfcError> {
-        kws.remove(&k.as_std_key()).map_or(Ok(None), |v| {
-            v.parse::<Self>()
-                .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.clone())))
-                .map(Some)
-        })
+        kws.std
+            .remove(&k.as_std_key())
+            .map_or(Ok(None), |v| {
+                v.parse::<Self>()
+                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.clone())))
+                    .map(Some)
+            })
+            .inspect_err(|e| match flag.is_demote_or_drop() {
+                Some(true) => kws.nonstd.insert_demoted(k.as_std_key(), e.value.0.clone()),
+                Some(false) => {
+                    let out = dropped.insert(k.as_std_key(), e.value.0.clone());
+                    assert!(out.is_none(), "key was already dropped, {}", k.as_std_key());
+                }
+                None => (),
+            })
     }
 }
 
@@ -4219,7 +4263,7 @@ mod tests {
     use crate::test::*;
     use crate::text::{
         byteord::NewEndianError,
-        keyword_enum::{self as kr, AsStdKeywordPair as _, Keyword1FromValue as _},
+        keyword_enum::{self as kr, Keyword1FromValue as _},
     };
 
     use fireflow_types::nonempty_string::DisplayNE as _;

@@ -2198,8 +2198,7 @@ impl LookupMetaroot<Option<Shortname>> for InnerRootMeta2_0 {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let par = Par(ms.len());
-        // TODO deal with optional failure here
-        let comp = Compensation2_0::lookup(&mut kws.std, par, conf.as_ref())
+        let comp = Compensation2_0::lookup(kws, dropped, par, conf.as_ref())
             .map_switchable_errors(LookupMetarootWarning::from)
             .switchable_into_commutative();
         let cyt = Cyt::remove_root_opt_nofail(&mut kws.std);

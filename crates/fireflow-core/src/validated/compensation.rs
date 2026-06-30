@@ -27,19 +27,19 @@ pub struct Compensation {
 }
 
 impl TryFrom<Array2<f32>> for Compensation {
-    type Error = NewCompError;
+    type Error = (NewCompError, Array2<f32>);
 
     fn try_from(matrix: Array2<f32>) -> Result<Self, Self::Error> {
         if !matrix.is_square() {
-            Err(NewCompError::NotSquare)
+            Err((NewCompError::NotSquare, matrix))
         } else if !matrix.iter().all(|x| x.is_finite()) {
-            Err(NewCompError::NotFinite)
+            Err((NewCompError::NotFinite, matrix))
         } else if let Some(dim) = NonZeroUsize::new(matrix.ncols())
             && dim.get() > 1
         {
             Ok(Self { matrix, dim })
         } else {
-            Err(NewCompError::TooSmall)
+            Err((NewCompError::TooSmall, matrix))
         }
     }
 }
@@ -135,31 +135,46 @@ mod tests {
     #[test]
     fn compensation_not_nan() {
         let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::NAN]).unwrap();
-        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotFinite));
+        assert_eq!(
+            Compensation::try_from(m).map_err(|e| e.0),
+            Err(NewCompError::NotFinite)
+        );
     }
 
     #[test]
     fn compensation_not_inf() {
         let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::INFINITY]).unwrap();
-        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotFinite));
+        assert_eq!(
+            Compensation::try_from(m).map_err(|e| e.0),
+            Err(NewCompError::NotFinite)
+        );
     }
 
     #[test]
     fn compensation_not_neg_inf() {
         let m = Array2::from_shape_vec((2, 2), vec![0.0, 0.0, 0.0, f32::NEG_INFINITY]).unwrap();
-        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotFinite));
+        assert_eq!(
+            Compensation::try_from(m).map_err(|e| e.0),
+            Err(NewCompError::NotFinite)
+        );
     }
 
     #[test]
     fn compensation_not_square() {
         let m = Array2::from_shape_vec((2, 3), vec![0.0; 6]).unwrap();
-        assert_eq!(Compensation::try_from(m), Err(NewCompError::NotSquare));
+        assert_eq!(
+            Compensation::try_from(m).map_err(|e| e.0),
+            Err(NewCompError::NotSquare)
+        );
     }
 
     #[test]
     fn compensation_not_toosmall() {
         let m = Array2::from_shape_vec((1, 1), vec![0.0]).unwrap();
-        assert_eq!(Compensation::try_from(m), Err(NewCompError::TooSmall));
+        assert_eq!(
+            Compensation::try_from(m).map_err(|e| e.0),
+            Err(NewCompError::TooSmall)
+        );
     }
 }
 
@@ -175,7 +190,7 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             let x: PyReadonlyArray2<f32> = obj.extract()?;
-            Ok(Self::try_from(x.as_array().into_owned())?)
+            Ok(Self::try_from(x.as_array().into_owned()).map_err(|(e, _)| e)?)
         }
     }
 

@@ -973,12 +973,6 @@ pub(crate) trait NonStdKeywordsExt {
             self.insert_demoted_keyword(k);
         }
     }
-
-    fn transfer_demoted(&mut self, kws: &mut StdKeywords, key: StdKey) {
-        if let Some(v) = kws.remove(&key) {
-            self.insert_demoted(key, v);
-        }
-    }
 }
 
 impl NonStdKeywordsExt for NonStdKeywords {
@@ -1503,6 +1497,12 @@ impl ValidKeywords {
 
     pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
         self.nonstd.get(k)
+    }
+
+    fn transfer_demoted(&mut self, key: StdKey) {
+        if let Some(v) = self.std.remove(&key) {
+            self.nonstd.insert_demoted(key, v);
+        }
     }
 
     #[allow(clippy::too_many_lines)]

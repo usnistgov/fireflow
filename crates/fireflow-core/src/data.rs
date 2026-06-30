@@ -7932,7 +7932,12 @@ impl<T> AnyOrderedUintDataSchema<T> {
                         || Err(FixedWidthToBytesError(width.into())),
                         PrivBytes::try_from,
                     )
-                    .map(|x| (x, Some(NonZeroU8::from(width))))
+                    .map(|x| {
+                        let new_bits = u8::from(x).checked_mul(8).expect("lhs should be 1-8");
+                        let old_bytes =
+                            (new_bits != u8::from(width)).then_some(NonZeroU8::from(width));
+                        (x, old_bytes)
+                    })
                     .map_err(SingleFixedWidthError::from)
                     .into_log::<_, _, Vec<_>>()
             }),

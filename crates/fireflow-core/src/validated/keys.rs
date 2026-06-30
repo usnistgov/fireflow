@@ -108,7 +108,7 @@ impl AsRef<NEStr> for KeyString {
 }
 
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct KeyStringsOrPatterns<T>(pub HashMap<KeyStringOrPattern, T>);
 
 impl<T> Default for KeyStringsOrPatterns<T> {

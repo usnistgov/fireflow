@@ -1,15 +1,19 @@
 use crate::{
-    config::TimeMeasNamePattern,
-    text::keywords::Cyt,
+    config::{KeyPatterns, TimeMeasNamePattern},
+    text::{keywords::Cyt, spillover::Spillover},
     validated::{
         datepattern::DatePattern,
-        keys::{AnyKey, Key as _, ValidKeywords},
+        keys::{
+            AnyKey, Key as _, KeyString, KeyStringOrPattern, KeyStringsOrPatterns, ValidKeywords,
+        },
+        keystring_pairs::KeyStringPairs,
         timepattern::TimePattern,
     },
 };
 
 use fireflow_types::nonempty_string::NEString;
 use fireflow_types::{ne_str, nonempty_string::NEStr};
+use hashbrown::HashMap;
 use nonempty_collections::{NEVec, NonEmptyIterator as _, nev};
 
 use derive_more::Display;
@@ -17,6 +21,8 @@ use derive_new::new;
 use regex::Regex;
 use thiserror::Error;
 
+use std::iter::once;
+use std::mem;
 use std::str::FromStr;
 
 #[cfg(feature = "python")]
@@ -81,7 +87,50 @@ impl<T: Default> Default for Selector<T> {
     }
 }
 
+impl AppendableSelector<KeyPatterns> {
+    /// Promote SPILL or SPILLOVER but only if $SPILLOVER is not already present.
+    ///
+    /// Meant to be used with
+    /// [`AppendableSelector::push_rename_spill_to_spillover`] which in sum will
+    /// map SPILL, SPILLOVER, and $SPILL to $SPILLOVER but only if the latter is
+    /// not already present.
+    pub fn push_promote_spillover(&mut self) {
+        let pats: KeyStringsOrPatterns<()> =
+            once("/SPILL(?:OVER)?/".parse::<KeyStringOrPattern>().unwrap())
+                .map(|x| (x, ()))
+                .collect();
+        let kw_test = KeyTest::HasKey(Spillover::std().into());
+        let cond = Condition::Root(kw_test);
+        let new = Selector::if_then(cond, Selector::root(pats));
+        self.push(new);
+    }
+}
+
+impl AppendableSelector<KeyStringPairs> {
+    /// Rename $SPILL to $SPILLOVER.
+    ///
+    /// Meant to be used with [`AppendableSelector::push_promote_spillover`]
+    /// which in sum will map SPILL, SPILLOVER, and $SPILL to $SPILLOVER but
+    /// only if the latter is not already present.
+    pub fn push_rename_spill_to_spillover(&mut self) {
+        let mut hm = HashMap::new();
+        let from = "SPILL".parse::<KeyString>().unwrap();
+        let to = "SPILLOVER".parse::<KeyString>().unwrap();
+        hm.insert(from, to);
+        let pairs = KeyStringPairs::try_from(hm).unwrap();
+        let kw_test = KeyTest::HasKey(Spillover::std().into());
+        let cond = Condition::Root(kw_test);
+        let new = Selector::if_then(cond, Selector::root(pairs));
+        self.push(new);
+    }
+}
+
 impl Selector<TimeMeasNamePattern> {
+    /// Create new selector for vendor-specific time measurement names.
+    ///
+    /// Included patterns:
+    ///
+    /// * `/HDR-T(M)/` - common on Miltenyi MACSQuant Analyzers (all models?)
     #[must_use]
     pub fn new_time_meas_pattern() -> Self {
         let hdr_tm_regex = TimeMeasNamePattern(Some(Regex::new("^HDR-T(M)$").unwrap()));
@@ -92,6 +141,11 @@ impl Selector<TimeMeasNamePattern> {
 }
 
 impl Selector<Option<TimePattern>> {
+    /// Create new selector for vendor-specific $BTIM/$ETIM patterns.
+    ///
+    /// Included patterns:
+    ///
+    /// * `%H:%M:%S:%@` - common on BD Accuri C6
     #[must_use]
     pub fn new_time_pattern() -> Self {
         let accuri = "%H:%M:%S:%@".parse::<TimePattern>().unwrap();
@@ -101,6 +155,13 @@ impl Selector<Option<TimePattern>> {
 }
 
 impl Selector<Option<DatePattern>> {
+    /// Create new selector for vendor-specific $DATE patterns.
+    ///
+    /// Included patterns:
+    ///
+    /// * `%Y-%b-%d` - common on Miltenyi MACSQuant Analyzers (all models?)
+    /// * `%d %b %Y` - common on Beckman Coulter MoFlo (all models?)
+    /// * `%d-%m-%Y` - common on Partec PAS.
     #[must_use]
     pub fn new_date_pattern() -> Self {
         let mqa = "%Y-%b-%d".parse::<DatePattern>().unwrap();
@@ -119,11 +180,17 @@ impl Selector<Option<DatePattern>> {
 }
 
 impl Selector<Option<String>> {
+    /// Create new selector for vendor-specific $LAST_MODIFIED patterns.
+    ///
+    /// For now this does nothing.
     #[must_use]
     pub fn new_last_modified_pattern() -> Self {
         Self::default()
     }
 
+    /// Create new selector for vendor-specific $BEGIN/ENDDATETIME patterns.
+    ///
+    /// For now this does nothing.
     #[must_use]
     pub fn new_datetime_pattern() -> Self {
         Self::default()
@@ -177,6 +244,23 @@ impl<T: Default> Default for AppendableSelector<T> {
 impl<T> AppendableSelector<T> {
     pub fn root(t: T) -> Self {
         Self::One(Selector::root(t))
+    }
+
+    pub fn push(&mut self, t: Selector<T>)
+    where
+        T: Default,
+    {
+        *self = match mem::take(self) {
+            Self::One(x) => {
+                let mut many = nev![x];
+                many.push(t);
+                Self::Many(many)
+            }
+            Self::Many(mut xs) => {
+                xs.push(t);
+                Self::Many(xs)
+            }
+        };
     }
 
     pub fn try_eval<E, F>(&self, kws: &ValidKeywords, f: F) -> Result<T, E>
@@ -333,15 +417,18 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             // Order is important to keep error messages sane
-            //
-            // TODO the error won't say anything if something went wrong in the
-            // list-of-selector case
-            if let Ok(ss) = obj.extract::<Vec<Selector<T>>>()
+            if let Ok((op, _)) = obj.extract::<(String, Bound<PyAny>)>()
+                && (op.as_str() == fp::SELECTOR_COND.as_str()
+                    || op.as_str() == fp::SELECTOR_IF.as_str())
+            {
+                Ok(Self::One(Selector::Branch(obj.extract::<Branch<T>>()?)))
+            } else if let Ok(ss) = obj.extract::<Vec<Selector<T>>>()
                 && let Some(ne) = NEVec::try_from_vec(ss)
             {
-                return Ok(Self::Many(ne));
+                Ok(Self::Many(ne))
+            } else {
+                Ok(Self::One(Selector::Root(obj.extract::<T>()?)))
             }
-            Ok(Self::One(obj.extract::<Selector<T>>()?))
         }
     }
 

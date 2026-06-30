@@ -15,7 +15,7 @@ use {fireflow_core_proc::DisplayAsPyErr, pyo3::prelude::*};
 ///
 /// This will be validated such that no pair has matching source and
 /// destination.
-#[derive(Clone, Debug, Default, AsRef)]
+#[derive(Clone, Debug, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
 

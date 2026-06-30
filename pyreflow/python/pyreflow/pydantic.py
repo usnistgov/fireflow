@@ -97,13 +97,17 @@ class _ReadStdKeywordsConfig(BaseModel):
 
 
 class _ReadDataKeywordsConfig(BaseModel):
-    ignore_standard_keys: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    promote_to_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    demote_from_standard: pft.KeyPatterns = _DEFAULT_KEY_PATTERNS
-    rename_standard_keys: dict[str, str] = {}
-    replace_standard_key_values: dict[str, str] = {}
-    append_standard_keywords: dict[str, str] = {}
-    substitute_standard_key_values: pft.SubPatterns = {}
+    ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
+        _DEFAULT_KEY_PATTERNS
+    )
+    promote_to_standard: pft.AppendableSelector[pft.KeyPatterns] = _DEFAULT_KEY_PATTERNS
+    demote_from_standard: pft.AppendableSelector[pft.KeyPatterns] = (
+        _DEFAULT_KEY_PATTERNS
+    )
+    rename_standard_keys: pft.AppendableSelector[dict[str, str]] = {}
+    replace_standard_key_values: pft.AppendableSelector[dict[str, str]] = {}
+    append_standard_keywords: pft.AppendableSelector[dict[str, str]] = {}
+    substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {}
     allow_repair_non_unique: pft.TriFlag = "false"
     text_data_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
     text_analysis_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION
@@ -384,4 +388,5 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
     @classmethod
     def new_sledgehammer(cls) -> Self:
         """Init to read non-compliant files maybe with possible metadata loss."""
+        print(pfa.ReadFlatDatasetFromKeywordsConfig.scalpal()["promote_to_standard"])
         return cls(**pfa.ReadFlatDatasetFromKeywordsConfig.sledgehammer())

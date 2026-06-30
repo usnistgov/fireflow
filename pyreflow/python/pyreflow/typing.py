@@ -300,17 +300,15 @@ type DarkBytes = str | bytes | tuple[int, int]
 #: be chosen.
 type Selector[T] = (
     T
-    | tuple[Literal["if"], Condition, Selector[T], Selector[T] | None]
-    | tuple[Literal["cond"], Cond[T]]
-    | tuple[Literal["cond"], Cond[T], Cond[T]]
-    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T]]
-    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T], Cond[T]]
-    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T], Cond[T], Cond[T]]
-    | tuple[Literal["cond"], Cond[T], Cond[T], Cond[T], Cond[T], Cond[T], Cond[T]]
+    | tuple[Literal["if"], Condition, Selector[T]]
+    | tuple[Literal["if"], Condition, Selector[T], Selector[T]]
+    | tuple[Literal["cond"], list[tuple[Condition, Selector[T]]]]
 )
 
-#: A conditional rule to be used in :py:class:`~pyreflow.typing.Selector`.
-type Cond[T] = tuple[Condition, Selector[T]]
+#: Like a :py:class:`~pyreflow.typing.Selector` but can also include a list.
+#:
+#: The values of the results of each individual selector will be concatenated.
+type AppendableSelector[T] = Selector[T] | list[Selector[T]]
 
 #: An expression which evaluates to true or false depending on FCS keywords.
 #:

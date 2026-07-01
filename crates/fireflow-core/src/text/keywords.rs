@@ -3841,48 +3841,70 @@ impl KeywordVersionScore {
 pub(crate) struct KeywordOptimizer {
     /// Number of keywords not counted elsewhere here
     n_any: usize,
+
     /// Number of optional keywords found that will be dropped if less then 3.0
     n_opt_min3_0: usize,
+
     /// Number of optional keywords found that will be dropped if less then 3.1
     n_opt_min3_1: usize,
+
     /// Number of optional keywords found that will be dropped if less then 3.2
     n_opt_min3_2: usize,
+
     /// Number of optional keywords found that will be dropped if greater than 3.1
     n_opt_max3_1: usize,
+
     /// Number of optional keywords found that will be dropped if not 2.0
     n_opt_eq2_0: usize,
+
     /// Number of optional keywords found that will be dropped if not 3.0
     n_opt_eq3_0: usize,
+
     /// Number of optional keywords found that will be dropped if not 3.2
     n_opt_eq3_2: usize,
+
     /// Number of optional keywords found that will be dropped if not 3.0/3.1
     n_opt_eq3_0or3_1: usize,
+
     /// Number of $PnN found
     n_pnn: usize,
+
     /// Number of $PnE found
     n_pne: usize,
+
     /// Number of $DFCnTOm keywords found
     n_dfc: usize,
+
     /// If $CYT was found
     found_cyt: bool,
+
     /// If $TOT was found
     found_tot: bool,
+
     /// If $BEGINDATA found
     found_begindata: bool,
+
     /// If $BEGINANALYSIS found
     found_beginanalysis: bool,
+
     /// If $BEGINSTEXT found
     found_beginstext: bool,
+
     /// If $ENDDATA found
     found_enddata: bool,
+
     /// If $ENDANALYSIS found
     found_endanalysis: bool,
+
     /// If $ENDSTEXT found
     found_endstext: bool,
+
     /// If $BYTEORD is not either '1,2,3,4' or '4,3,2,1'
     non_endian_byteord: bool,
+
     /// Value (or not) of $MODE
     mode_value: ModeValue,
+
     /// Number of unique $PnB values seen.
     ///
     /// `None` means "not a valid width". which could mean it was "*", "0", a
@@ -3890,7 +3912,16 @@ pub(crate) struct KeywordOptimizer {
     ///
     /// Can be used to eliminate entire versions since 2.0 and 3.0 only allow
     /// one width.
-    widths: HashSet<Option<Width>>,
+    // TODO there may be one nasty edge case with this where the user decides to
+    // override the widths in the config and the file is 2.0/3.0 and has
+    // multiple widths (which presumably are wrong because why else would the
+    // user override them?). In that case the file will be forced to 3.1 or 3.2
+    // and then the width override will be applied. In other words, the override
+    // and the version guessing logic don't talk. This case should be extremely
+    // rare if not non-existent, since it isn't clear who would be making
+    // 2.0/3.0 files with multiple widths (which in turn are incorrect) in the
+    // first place.
+    widths: HashSet<Width>,
 }
 
 impl KeywordOptimizer {
@@ -4105,8 +4136,9 @@ impl KeywordOptimizer {
                             self.n_opt_min3_2 += 1;
                         }
                         MeasKeywordClass::Width => {
-                            let width = Width::from_str(value.as_str()).ok();
-                            self.widths.insert(width);
+                            if let Ok(width) = Width::from_str(value.as_str()) {
+                                self.widths.insert(width);
+                            }
                             self.n_any += 1;
                         }
                         MeasKeywordClass::Scale => self.n_pne += 1,

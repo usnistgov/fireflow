@@ -2375,7 +2375,7 @@ impl SuppTEXTOffsetsOutput {
         let ver = match hconf.version_override {
             None => header.version,
             Some(VersionOverride::Force(v)) => v,
-            Some(VersionOverride::AutoDetect(_)) => {
+            Some(VersionOverride::AutoDetect { .. }) => {
                 if kws.contains_key(&Begindata::std()) || kws.contains_key(&Enddata::std()) {
                     if kws.contains_key(&Cyt::std()) {
                         Version::FCS3_2

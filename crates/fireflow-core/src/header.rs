@@ -42,6 +42,7 @@ use fireflow_types::nonempty_string::{NEStr, NEString};
 use derive_more::{Display, From};
 use derive_new::new;
 use itertools::Itertools as _;
+use nonempty_collections::NEVec;
 use nonempty_collections::{IntoIteratorExt as _, iter::NonEmptyIterator as _};
 use num_traits::identities::Zero;
 use thiserror::Error;
@@ -305,14 +306,17 @@ pub(crate) fn autodetect_version(
     match ver_override {
         None => Ok((version, None)),
         Some(VersionOverride::Force(v)) => Ok((*v, None)),
-        Some(VersionOverride::AutoDetect(strat)) => {
+        Some(VersionOverride::AutoDetect {
+            strategy,
+            prioritize_current,
+        }) => {
             let rank =
                 |(v0, s0): &(Version, KeywordVersionScore),
-                 (v1, s1): &(Version, KeywordVersionScore)| match strat {
+                 (v1, s1): &(Version, KeywordVersionScore)| match strategy {
                     SelectVersionStrategy::Earliest => v1.cmp(v0),
                     SelectVersionStrategy::Latest => v0.cmp(v1),
-                    SelectVersionStrategy::Loose => s1.good_opt.cmp(&s0.good_opt),
-                    SelectVersionStrategy::Strict => s0.good_opt.cmp(&s1.good_opt),
+                    SelectVersionStrategy::Loose => s0.good_opt.cmp(&s1.good_opt),
+                    SelectVersionStrategy::Strict => s1.good_opt.cmp(&s0.good_opt),
                 };
             if let Ok(par) = Par::get_metaroot_req(kws) {
                 let mut opt = KeywordOptimizer::default();
@@ -328,7 +332,15 @@ pub(crate) fn autodetect_version(
                 {
                     // Found at least one version that doesn't require dropping,
                     // rank by strategy to select
-                    Ok((xs.max_by(|&x, &y| rank(x, y)).0, ret_scores()))
+                    let ys: NEVec<_> = xs.collect();
+                    let chosen_version = if ys.iter().find(|(v, _)| *v == version).is_some()
+                        && *prioritize_current
+                    {
+                        version
+                    } else {
+                        ys.nonempty_iter().max_by(|&x, &y| rank(x, y)).0
+                    };
+                    Ok((chosen_version, ret_scores()))
                 } else if let Some(xs) = scores
                     .iter()
                     .filter(|(_, s)| s.is_passing(true))

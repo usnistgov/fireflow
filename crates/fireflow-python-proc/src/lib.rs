@@ -10598,12 +10598,14 @@ impl DocArgParam {
              keywords respectively in the event that more than one version can \
              accommodate the keywords from {TEXT}. Autodetection will fail \
              if no versions can be found which accommodate all required \
-             keywords in {TEXT}.",
+             keywords in {TEXT}. Append {current} to prioritize the current \
+             version before ranking others.",
             verstr = code_str("FCS3.2"),
             latest = code_str(tc::VERSION_LATEST_LEVEL),
             earliest = code_str(tc::VERSION_EARLIEST_LEVEL),
             strict = code_str(tc::VERSION_STRICT_LEVEL),
             loose = code_str(tc::VERSION_LOOSE_LEVEL),
+            current = code_str("current_or"),
         );
         Self::new_opt_param("version_override", PyLiteral::new_version_override(), d)
     }

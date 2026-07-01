@@ -55,36 +55,39 @@ type OpticalScale3_0 = tuple[float, float] | float
 
 type Display = tuple[bool, float, float]
 
-Mode = Literal["L", "C", "U"]
+type Mode = Literal["L", "C", "U"]
 
-Mode3_2 = Literal["L"]
+type Mode3_2 = Literal["L"]
 
-Originality = Literal["Original", "NonDataModified", "Appended", "DataModified"]
+type Originality = Literal["Original", "NonDataModified", "Appended", "DataModified"]
 
-Feature = Literal["Area", "Width", "Height"]
+type Feature = Literal["Area", "Width", "Height"]
 
-FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
+type FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
 
-VersionOverride = Literal[
-    "FCS2.0",
-    "FCS3.0",
-    "FCS3.1",
-    "FCS3.2",
-    "latest",
-    "earliest",
-    "loose",
-    "strict",
-]
+type VersionOverride = (
+    FCSVersion
+    | Literal[
+        "latest",
+        "earliest",
+        "loose",
+        "strict",
+        "current_or_latest",
+        "current_or_earliest",
+        "current_or_loose",
+        "current_or_strict",
+    ]
+)
 
-FloatType = Literal["F"]
-DoubleType = Literal["D"]
-IntegerType = Literal["I"]
-AsciiType = Literal["A"]
+type FloatType = Literal["F"]
+type DoubleType = Literal["D"]
+type IntegerType = Literal["I"]
+type AsciiType = Literal["A"]
 type Datatype = FloatType | DoubleType | IntegerType | AsciiType
 
-F32Type = Literal["F32"]
-F64Type = Literal["F64"]
-IntegerWidth = Literal["U08", "U16", "U24", "U32", "U40", "U48", "U56", "U64"]
+type F32Type = Literal["F32"]
+type F64Type = Literal["F64"]
+type IntegerWidth = Literal["U08", "U16", "U24", "U32", "U40", "U48", "U56", "U64"]
 type AnyType = F32Type | F64Type | AsciiType | IntegerWidth
 type VariableBitmask = tuple[IntegerWidth, IntRange]
 type MixedRange = (
@@ -94,7 +97,7 @@ type MixedRange = (
 type MaybeTypedVariableBitmask = IntRange | VariableBitmask
 type MaybeTypedMixedRange = Range | MixedRange
 
-TemporalOpticalKey = Literal[
+type TemporalOpticalKey = Literal[
     "G",
     "F",
     "L",

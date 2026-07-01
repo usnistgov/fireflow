@@ -608,12 +608,20 @@ pub const VERSION_LATEST_LEVEL: &str = "latest";
 pub const VERSION_EARLIEST_LEVEL: &str = "earliest";
 pub const VERSION_LOOSE_LEVEL: &str = "loose";
 pub const VERSION_STRICT_LEVEL: &str = "strict";
+pub const VERSION_CURRENT_OR_LATEST_LEVEL: &str = "current_or_latest";
+pub const VERSION_CURRENT_OR_EARLIEST_LEVEL: &str = "current_or_earliest";
+pub const VERSION_CURRENT_OR_LOOSE_LEVEL: &str = "current_or_loose";
+pub const VERSION_CURRENT_OR_STRICT_LEVEL: &str = "current_or_strict";
 
-pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 4] = [
+pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 8] = [
     VERSION_LATEST_LEVEL,
     VERSION_EARLIEST_LEVEL,
     VERSION_STRICT_LEVEL,
     VERSION_LOOSE_LEVEL,
+    VERSION_CURRENT_OR_LATEST_LEVEL,
+    VERSION_CURRENT_OR_EARLIEST_LEVEL,
+    VERSION_CURRENT_OR_LOOSE_LEVEL,
+    VERSION_CURRENT_OR_STRICT_LEVEL,
 ];
 
 // More enum strings that are used in the config with enums defined elsewhere

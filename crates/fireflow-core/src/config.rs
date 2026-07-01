@@ -383,21 +383,7 @@ pub struct ReadHeaderAndTEXTConfig {
     // because this is needed to read the supplemental TEXT offsets
     /// Use a different version than what is given in the HEADER.
     ///
-    /// If [`VersionOverride::Force`], force the version to be the supplied
-    /// version.
-    ///
-    /// If [`VersionOverride::AutoDetect`], try to detect the version given the
-    /// keywords in TEXT. This variant further takes a strategy as specified by
-    /// [`SelectVersionStrategy`] to select the "best" version of multiple
-    /// choices can accommodate the given keywords. If
-    /// [`SelectVersionStrategy::Latest`] or
-    /// [`SelectVersionStrategy::Earliest`], use the latest of earliest
-    /// available version respectively. If [`SelectVersionStrategy::Loose`] or
-    /// [`SelectVersionStrategy::Strict`], choose the version which has the most
-    /// or least optional keywords. This will fail if no version can accommodate
-    /// all required keywords from *TEXT*.
-    ///
-    /// If [`None`], do not change the version from HEADER.
+    /// If [`None`], make no attempt to change the version from HEADER.
     pub version_override: Option<VersionOverride>,
 
     /// Corrections for supplemental TEXT offsets
@@ -1135,13 +1121,35 @@ pub struct ReadSharedConfig {
     pub hide_warnings: bool,
 }
 
-/// Configuration to override/detect FCS version
+/// Configuration to override/detect FCS version.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "python", derive(IntoPyString))]
 pub enum VersionOverride {
+    /// Force the version to one chosen by the user.
     Force(Version),
-    AutoDetect(SelectVersionStrategy),
+
+    /// Attempt to autodetect the version based on keyword presence/absence.
+    ///
+    /// Versions will be ranked and chosen in multiple stages.
+    ///
+    /// 1. Eliminate all versions that would result in missing required
+    ///    keywords. If this results in zero versions, the selection fails.
+    ///
+    /// 2. Eliminate all versions that require dropping optional keywords. If
+    ///    this results in zero versions, choose the version with the least
+    ///    number of dropped optional keywords. If there are multiple versions,
+    ///    compare using the criteria in (3) below. Also use (3) to break ties
+    ///    for versions that have the same number of dropped keywords.
+    ///
+    /// 3. Rank versions based on the strategy encoded in this enum.
+    ///    [`SelectVersionStrategy`] will provide the overall ranking function,
+    ///    and `prioritize_current` will force the current version to the top
+    ///    of the ranking if available.
+    AutoDetect {
+        strategy: SelectVersionStrategy,
+        prioritize_current: bool,
+    },
 }
 
 impl FromStr for VersionOverride {
@@ -1150,17 +1158,90 @@ impl FromStr for VersionOverride {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(ret) = s.parse::<Version>() {
             Ok(Self::Force(ret))
-        } else if let Ok(ret) = s.parse::<SelectVersionStrategy>() {
-            Ok(Self::AutoDetect(ret))
         } else {
-            Err(VersionOverrideError)
+            let (t, p) = match s {
+                tc::VERSION_LATEST_LEVEL => (SelectVersionStrategy::Latest, false),
+                tc::VERSION_EARLIEST_LEVEL => (SelectVersionStrategy::Earliest, false),
+                tc::VERSION_LOOSE_LEVEL => (SelectVersionStrategy::Loose, false),
+                tc::VERSION_STRICT_LEVEL => (SelectVersionStrategy::Strict, false),
+                tc::VERSION_CURRENT_OR_LATEST_LEVEL => (SelectVersionStrategy::Latest, true),
+                tc::VERSION_CURRENT_OR_EARLIEST_LEVEL => (SelectVersionStrategy::Earliest, true),
+                tc::VERSION_CURRENT_OR_LOOSE_LEVEL => (SelectVersionStrategy::Loose, true),
+                tc::VERSION_CURRENT_OR_STRICT_LEVEL => (SelectVersionStrategy::Strict, true),
+                _ => return Err(VersionOverrideError),
+            };
+            Ok(Self::AutoDetect {
+                strategy: t,
+                prioritize_current: p,
+            })
         }
     }
 }
 
+impl fmt::Display for VersionOverride {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        match self {
+            Self::Force(x) => x.fmt(f),
+            Self::AutoDetect {
+                strategy,
+                prioritize_current,
+            } => {
+                let s = match (strategy, prioritize_current) {
+                    (SelectVersionStrategy::Earliest, false) => tc::VERSION_EARLIEST_LEVEL,
+                    (SelectVersionStrategy::Latest, false) => tc::VERSION_LATEST_LEVEL,
+                    (SelectVersionStrategy::Loose, false) => tc::VERSION_LOOSE_LEVEL,
+                    (SelectVersionStrategy::Strict, false) => tc::VERSION_STRICT_LEVEL,
+                    (SelectVersionStrategy::Earliest, true) => {
+                        tc::VERSION_CURRENT_OR_EARLIEST_LEVEL
+                    }
+                    (SelectVersionStrategy::Latest, true) => tc::VERSION_CURRENT_OR_LATEST_LEVEL,
+                    (SelectVersionStrategy::Loose, true) => tc::VERSION_CURRENT_OR_LOOSE_LEVEL,
+                    (SelectVersionStrategy::Strict, true) => tc::VERSION_CURRENT_OR_STRICT_LEVEL,
+                };
+                write!(f, "{s}")
+            }
+        }
+    }
+}
+
+/// Strategy to use when autodetecting FCS version.
+///
+/// This will only be used to break ties between two versions that have the same
+/// number of keywords that must be dropped.
+#[derive(Clone, Copy)]
+pub enum SelectVersionStrategy {
+    /// Choose the latest version.
+    Latest,
+    /// Choose the earliest version.
+    Earliest,
+    /// Choose the version with the most optional keywords.
+    Loose,
+    /// Choose the version with the least optional keywords.
+    Strict,
+}
+
+/// Error when parsing [`SelectVersionStrategy`] from [`String`].
+///
+/// This is never used directly and exists to satisfy the [`FromStr`] impl for
+/// [`SelectVersionStrategy`].
+#[derive(From)]
+#[from(FromStrError)]
+pub struct SelectVersionStrategyError;
+
 /// Error when parsing [`VersionOverride`] from [`String`]
 #[derive(Error, Debug)]
-#[error("must be an FCS version string or one of 'latest', 'earliest', 'loose', or 'strict'")]
+#[error(
+    "must be an FCS version string or one of '{}', '{}', '{}', '{}', '{}', \
+     '{}', '{}', or '{}'.",
+    tc::VERSION_LATEST_LEVEL,
+    tc::VERSION_EARLIEST_LEVEL,
+    tc::VERSION_LOOSE_LEVEL,
+    tc::VERSION_STRICT_LEVEL,
+    tc::VERSION_CURRENT_OR_LATEST_LEVEL,
+    tc::VERSION_CURRENT_OR_EARLIEST_LEVEL,
+    tc::VERSION_CURRENT_OR_LOOSE_LEVEL,
+    tc::VERSION_CURRENT_OR_STRICT_LEVEL
+)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct VersionOverrideError;
@@ -1253,54 +1334,6 @@ pub enum ByteordOverride {
     /// This is option is ignored for mixed $BYTEORD.
     Endian,
 }
-
-/// Strategy to use when autodetecting FCS version
-#[derive(Clone, Copy)]
-#[cfg_attr(feature = "python", derive(IntoPyString))]
-pub enum SelectVersionStrategy {
-    /// Choose the latest version
-    Latest,
-    /// Choose the earliest version
-    Earliest,
-    /// Choose the version with the most optional keywords
-    Loose,
-    /// Choose the version with the least optional keywords
-    Strict,
-}
-
-impl fmt::Display for SelectVersionStrategy {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let s = match self {
-            Self::Earliest => tc::VERSION_EARLIEST_LEVEL,
-            Self::Latest => tc::VERSION_LATEST_LEVEL,
-            Self::Loose => tc::VERSION_LOOSE_LEVEL,
-            Self::Strict => tc::VERSION_STRICT_LEVEL,
-        };
-        f.write_str(s)
-    }
-}
-
-impl FromStr for SelectVersionStrategy {
-    type Err = SelectVersionStrategyError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            tc::VERSION_LATEST_LEVEL => Ok(Self::Latest),
-            tc::VERSION_EARLIEST_LEVEL => Ok(Self::Earliest),
-            tc::VERSION_LOOSE_LEVEL => Ok(Self::Loose),
-            tc::VERSION_STRICT_LEVEL => Ok(Self::Strict),
-            _ => Err(SelectVersionStrategyError),
-        }
-    }
-}
-
-/// Error when parsing [`SelectVersionStrategy`] from [`String`].
-///
-/// This is never used directly and exists to satisfy the [`FromStr`] impl for
-/// [`SelectVersionStrategy`].
-#[derive(From)]
-#[from(FromStrError)]
-pub struct SelectVersionStrategyError;
 
 pub trait HasStrategy {
     #[must_use]
@@ -1807,7 +1840,12 @@ impl HasStrategy for ReadOffsetConfig {
 
 impl HasStrategy for ReadHeaderAndTEXTConfig {
     fn with_scalpal(&mut self) {
-        self.version_override = Some(VersionOverride::AutoDetect(SelectVersionStrategy::Loose));
+        let strat = VersionOverride::AutoDetect {
+            strategy: SelectVersionStrategy::Loose,
+            prioritize_current: true,
+        };
+
+        self.version_override = Some(strat);
         self.delim_escape_mode = DelimEscapeMode::GuessEscaped;
         self.allow_duplicated_supp_text = TriFlag::True.into();
         self.allow_non_ascii_delim = TriFlag::True.into();

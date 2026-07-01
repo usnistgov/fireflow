@@ -323,7 +323,8 @@ fn run() -> AppResult<()> {
              also autodetect version with one of {latest} or {earliest} (the \
              latest or earliest available version respectively) or {loose} or \
              {strict} (the available version with the most or least optional \
-             keywords respectively).",
+             keywords respectively). Append \"current_or\" to any of these \
+             to prioritize the current version before ranking others.",
             latest = fmt_val(tc::VERSION_LATEST_LEVEL),
             earliest = fmt_val(tc::VERSION_EARLIEST_LEVEL),
             loose = fmt_val(tc::VERSION_LOOSE_LEVEL),

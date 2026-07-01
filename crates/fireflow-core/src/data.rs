@@ -7941,6 +7941,10 @@ impl<T> AnyOrderedUintDataSchema<T> {
                     .map_err(SingleFixedWidthError::from)
                     .into_log::<_, _, Vec<_>>()
             }),
+            // TODO this is a gotcha which will catch users off guard; the
+            // "reason" why we return none for the original width is that we
+            // are saving time and possible parse errors by not computing the
+            // width.
             FixIntWidths::Explicit(b) => LogResult::new_ok((b.0, None)),
         };
 

@@ -1243,7 +1243,7 @@ where
             if header_seg.is_empty() {
                 // HEADER is empty, ignore the mismatch and get TEXT offsets
                 // without mismatch warning
-                pair_to_text(uncorr_txt, None, false)
+                pair_to_text(uncorr_txt, None, true)
             } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
                 // Not an error, choose offset and optionally throw warning
                 let e = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
@@ -1259,7 +1259,7 @@ where
                 } else {
                     // We choose TEXT, convert offsets to segment, validate, and
                     // possibly attach warning for mismatch
-                    pair_to_text(uncorr_txt, w, true)
+                    pair_to_text(uncorr_txt, w, false)
                 }
             } else {
                 // Error for mismatch, don't bother processing offsets
@@ -1519,7 +1519,7 @@ where
             if header_seg.is_empty() {
                 // HEADER is empty, ignore the mismatch and get TEXT offsets
                 // without mismatch warning
-                pair_to_text(uncorr_txt, None, false)
+                pair_to_text(uncorr_txt, None, true)
             } else if let Some((choose_header, do_warn)) = mismatch_flag.is_warning() {
                 // Not an error, figure out which segment we want
                 let me = OffsetsMismatchError::new(uncorr_hdr, uncorr_txt, Some(choose_header));
@@ -1534,7 +1534,7 @@ where
                 } else {
                     // We choose TEXT, create new TEXT segment from pairs,
                     // validate it, and possibly attach a warning
-                    pair_to_text(uncorr_txt, w, true)
+                    pair_to_text(uncorr_txt, w, false)
                 }
             } else {
                 // Error, don't bother with any segment processing

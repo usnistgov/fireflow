@@ -2041,15 +2041,17 @@ impl LookupTemporal for InnerTemporal2_0 {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
+        // Order matters here, remove optical keys first if desired to trigger
+        // the correct error messages and diagnostics
+        let tgts = TemporalOpticalKey::TARGETS_2_0;
+        let tmp_opt_res = ignore
+            .remove(&tgts, kws, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale2_0::remove_or_drop_meas_opt_with(kws, dropped, i, (), conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(kws, dropped, i, conf.as_ref())
-            .map_warnings_and_errors(LookupTemporalWarning::from);
-        let tgts = TemporalOpticalKey::TARGETS_2_0;
-        let tmp_opt_res = ignore
-            .remove(&tgts, kws, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         scale
             .zip3_commutative(peak, tmp_opt_res)
@@ -2074,14 +2076,16 @@ impl LookupTemporal for InnerTemporal3_0 {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
+        // Order matters here, remove optical keys first if desired to trigger
+        // the correct error messages and diagnostics
+        let tgts = TemporalOpticalKey::TARGETS_3_0;
+        let tmp_opt = ignore
+            .remove(&tgts, kws, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         let gain = Gain::lookup_temporal_3_0(kws, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
         let peak = PeakData::lookup(kws, dropped, i, conf.as_ref())
-            .map_warnings_and_errors(LookupTemporalWarning::from);
-        let tgts = TemporalOpticalKey::TARGETS_3_0;
-        let tmp_opt = ignore
-            .remove(&tgts, kws, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(&mut kws.std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
@@ -2111,6 +2115,12 @@ impl LookupTemporal for InnerTemporal3_1 {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
+        // Order matters here, remove optical keys first if desired to trigger
+        // the correct error messages and diagnostics
+        let tgts = TemporalOpticalKey::TARGETS_3_1;
+        let tmp_opt = ignore
+            .remove(&tgts, kws, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         let gain = Gain::lookup_temporal_3_0(kws, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
@@ -2119,10 +2129,6 @@ impl LookupTemporal for InnerTemporal3_1 {
             .switchable_into_commutative()
             .into_semigroup();
         let peak = PeakData::lookup(kws, dropped, i, conf.as_ref())
-            .map_warnings_and_errors(LookupTemporalWarning::from);
-        let tgts = TemporalOpticalKey::TARGETS_3_1;
-        let tmp_opt = ignore
-            .remove(&tgts, kws, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(&mut kws.std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
@@ -2154,6 +2160,12 @@ impl LookupTemporal for InnerTemporal3_2 {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
         let flag = sconf.process_time_optical_keys;
         let ignore = &sconf.ignore_time_optical_keys;
+        // Order matters here, remove optical keys first if desired to trigger
+        // the correct error messages and diagnostics
+        let tgts = TemporalOpticalKey::TARGETS_3_2;
+        let tmp_opt = ignore
+            .remove(&tgts, kws, i, flag)
+            .map_warnings_and_errors(LookupTemporalWarning::from);
         let gain = Gain::lookup_temporal_3_0(kws, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative();
@@ -2165,10 +2177,6 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_switchable_errors(LookupTemporalWarning::from)
             .switchable_into_commutative()
             .into_semigroup();
-        let tgts = TemporalOpticalKey::TARGETS_3_2;
-        let tmp_opt = ignore
-            .remove(&tgts, kws, i, flag)
-            .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale3_0::remove_meas_req_with(&mut kws.std, i, (), conf.as_ref())
             .map_err(LookupTemporalError::from);
         let timestep =

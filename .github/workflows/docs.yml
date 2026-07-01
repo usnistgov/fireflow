@@ -15,7 +15,7 @@ jobs:
 
       - uses: astral-sh/setup-uv@v8.1.0
         with:
-          python-version: 3.11
+          python-version: 3.13
 
       - name: Install graphviz
         run: sudo apt install -y graphviz

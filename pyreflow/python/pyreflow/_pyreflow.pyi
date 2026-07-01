@@ -2537,6 +2537,7 @@ class KeywordVersionScore:
         missing_opt: int,
         missing_req: int,
         missing_absent: int,
+        incompatible_widths: bool,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2551,6 +2552,8 @@ class KeywordVersionScore:
     def missing_req(self) -> int: ...
     @property
     def missing_absent(self) -> int: ...
+    @property
+    def incompatible_widths(self) -> bool: ...
 
 @final
 class FlatDatasetFromKwsOutput:

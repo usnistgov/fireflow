@@ -318,52 +318,48 @@ pub(crate) fn autodetect_version(
                     SelectVersionStrategy::Loose => s0.good_opt.cmp(&s1.good_opt),
                     SelectVersionStrategy::Strict => s1.good_opt.cmp(&s0.good_opt),
                 };
-            if let Ok(par) = Par::get_metaroot_req(kws) {
-                let mut opt = KeywordOptimizer::default();
-                for (k, v) in kws {
-                    opt.classify_keyword(k, v.as_ne_str());
-                }
-                let scores = Version::ITEMS.map(|v| (v, opt.get_score(v, par)));
-                let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
-                if let Some(xs) = scores
-                    .iter()
-                    .filter(|(_, s)| s.is_passing(false))
-                    .try_into_nonempty_iter()
-                {
-                    // Found at least one version that doesn't require dropping,
-                    // rank by strategy to select
-                    let ys: NEVec<_> = xs.collect();
-                    let chosen_version = if ys.iter().find(|(v, _)| *v == version).is_some()
-                        && *prioritize_current
-                    {
+            let par = Par::get_metaroot_req(kws).map_err(|_| GuessVersionError::NoPar)?;
+            let mut opt = KeywordOptimizer::default();
+            for (k, v) in kws {
+                opt.classify_keyword(k, v.as_ne_str(), par);
+            }
+            let scores = Version::ITEMS.map(|v| (v, opt.get_score(v, par)));
+            let ret_scores = || Some(scores.clone().map(|(_, s)| s).into());
+            if let Some(xs) = scores
+                .iter()
+                .filter(|(_, s)| s.is_passing(false))
+                .try_into_nonempty_iter()
+            {
+                // Found at least one version that doesn't require dropping,
+                // rank by strategy to select
+                let ys: NEVec<_> = xs.collect();
+                let chosen_version =
+                    if ys.iter().find(|(v, _)| *v == version).is_some() && *prioritize_current {
                         version
                     } else {
                         ys.nonempty_iter().max_by(|&x, &y| rank(x, y)).0
                     };
-                    Ok((chosen_version, ret_scores()))
-                } else if let Some(xs) = scores
-                    .iter()
-                    .filter(|(_, s)| s.is_passing(true))
-                    .try_into_nonempty_iter()
-                {
-                    // No versions found that can be satisfied without dropping
-                    // keywords, find versions with dropping and rank using
-                    // strategy.
-                    let ret = xs.max_by(|&x, &y| {
-                        if x.1.drop == y.1.drop {
-                            rank(x, y)
-                        } else {
-                            y.1.drop.cmp(&x.1.drop)
-                        }
-                    });
-                    Ok((ret.0, ret_scores()))
-                } else {
-                    // No versions found that have valid keywords available,
-                    // return error
-                    Err(GuessVersionError::AllInvalid)
-                }
+                Ok((chosen_version, ret_scores()))
+            } else if let Some(xs) = scores
+                .iter()
+                .filter(|(_, s)| s.is_passing(true))
+                .try_into_nonempty_iter()
+            {
+                // No versions found that can be satisfied without dropping
+                // keywords, find versions with dropping and rank using
+                // strategy.
+                let ret = xs.max_by(|&x, &y| {
+                    if x.1.drop == y.1.drop {
+                        rank(x, y)
+                    } else {
+                        y.1.drop.cmp(&x.1.drop)
+                    }
+                });
+                Ok((ret.0, ret_scores()))
             } else {
-                Err(GuessVersionError::NoPar)
+                // No versions found that have valid keywords available,
+                // return error
+                Err(GuessVersionError::AllInvalid)
             }
         }
     }

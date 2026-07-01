@@ -107,10 +107,10 @@ fn write_meas_kw_map(file: &mut BufWriter<File>) -> io::Result<()> {
         ("SCALE", "E", true, "MeasKeywordClass::Scale"),
         ("WAVELENGTH", "L", false, "MeasKeywordClass::Wavelength"),
         ("SHORTNAME", "N", true, "MeasKeywordClass::Shortname"),
+        ("WIDTH", "B", false, "MeasKeywordClass::Width"),
     ];
 
     let any_version = [
-        ("WIDTH", "B", false),
         ("FILTER", "F", true),
         ("POWER", "O", false),
         ("PERCENT_EMITTED", "P", true),

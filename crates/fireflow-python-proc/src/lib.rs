@@ -1880,6 +1880,17 @@ pub fn impl_py_keyword_version_score(input: TokenStream) -> TokenStream {
         "Number of keywords that are expected to be missing for this version.",
     );
 
+    let incompatible_width = DocArgROIvar::new_ivar_ro(
+        "incompatible_widths",
+        PyBool::default(),
+        format!(
+            "The {PNB} values are incompatible with this version. \
+             This will only be {TRUE} if version is 2.0 and 3.0 and the \
+             {PNB} values contain multiple widths across them."
+        ),
+        |n, _| quote!(self.0.#n),
+    );
+
     let args = [
         good_req,
         good_opt,
@@ -1887,6 +1898,7 @@ pub fn impl_py_keyword_version_score(input: TokenStream) -> TokenStream {
         missing_opt,
         missing_req,
         missing_absent,
+        incompatible_width,
     ];
     let doc =
         DocString::new_class("Score generated when guessing version from keywords.").args(args);

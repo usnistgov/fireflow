@@ -72,6 +72,7 @@ use num_traits::{Bounded, One as _, ToPrimitive as _, Zero as _};
 use thiserror::Error;
 use unicase::Ascii;
 
+use std::collections::HashSet;
 use std::mem::take;
 use std::num::{NonZeroU8, NonZeroUsize, ParseFloatError, ParseIntError};
 use std::str::FromStr;
@@ -3793,32 +3794,45 @@ pub struct KeywordVersionScore {
     ///
     /// This is for documentation only.
     pub good_req: usize,
+
     /// Number of optional keywords expected to be in this version and found.
     ///
     /// This is for documentation only.
     pub good_opt: usize,
+
     /// Number of keywords (opt or req) that must be dropped for this version.
     ///
     /// Smaller is better when comparing versions.
     pub drop: usize,
+
     /// Number of optional keywords that are missing in this version.
     ///
     /// This is for documentation only.
     pub missing_opt: usize,
+
     /// Number of required keywords that are missing in this version.
     ///
     /// If this number is non-zero, the version will be considered impossible
     /// for the given set of keywords.
     pub missing_req: usize,
+
     /// Number of keywords that are expected to be missing for this version.
     ///
     /// This is for documentation only.
     pub missing_absent: usize,
+
+    /// The $PnB values are incompatible with this version.
+    ///
+    /// This will only be `true` if version is 2.0 and 3.0 and the $PnB values
+    /// contain multiple widths across them.
+    pub incompatible_widths: bool,
 }
 
 impl KeywordVersionScore {
     pub(crate) fn is_passing(&self, allow_drop: bool) -> bool {
-        (self.missing_req == 0) && (self.drop == 0 || (self.drop > 0 && allow_drop))
+        (self.missing_req == 0)
+            && (self.drop == 0 || (self.drop > 0 && allow_drop))
+            && !self.incompatible_widths
     }
 }
 
@@ -3869,6 +3883,14 @@ pub(crate) struct KeywordOptimizer {
     non_endian_byteord: bool,
     /// Value (or not) of $MODE
     mode_value: ModeValue,
+    /// Number of unique $PnB values seen.
+    ///
+    /// `None` means "not a valid width". which could mean it was "*", "0", a
+    /// number larger than 64, or something else. All should be rare.
+    ///
+    /// Can be used to eliminate entire versions since 2.0 and 3.0 only allow
+    /// one width.
+    widths: HashSet<Option<Width>>,
 }
 
 impl KeywordOptimizer {
@@ -4018,10 +4040,16 @@ impl KeywordOptimizer {
             (false, ModeValue::Other | ModeValue::List) => score.good_req += 1,
         }
 
+        // $PnB are incompatible if there are 2 or more widths and version is
+        // 2.0 or 3.0.
+        score.incompatible_widths = version < Version::FCS3_1 && self.widths.len() > 1;
+
         score
     }
 
-    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &NEStr) {
+    #[allow(clippy::too_many_lines)]
+    pub(crate) fn classify_keyword(&mut self, key: &StdKey, value: &NEStr, par: Par) {
+        let p = par.0;
         match AnyKeywordClass::classify_keyword(key) {
             AnyKeywordClass::Root(r) => match r {
                 RootKeywordClass::Beginanalysis => self.found_beginanalysis = true,
@@ -4064,39 +4092,71 @@ impl KeywordOptimizer {
                 RootKeywordClass::OptEQ3_0 => self.n_opt_eq3_0 += 1,
                 RootKeywordClass::OptAny => self.n_any += 1,
             },
-            AnyKeywordClass::Meas(_, r) => match r {
-                MeasKeywordClass::OptGE3_0 => {
-                    self.n_opt_min3_0 += 1;
-                }
-                MeasKeywordClass::OptGE3_1 => {
-                    self.n_opt_min3_1 += 1;
-                }
-                MeasKeywordClass::OptGE3_2 => {
-                    self.n_opt_min3_2 += 1;
-                }
-                MeasKeywordClass::Scale => self.n_pne += 1,
-                MeasKeywordClass::Shortname => self.n_pnn += 1,
-                MeasKeywordClass::Wavelength => {
-                    // if this fails, do nothing since we would end up dropping
-                    // this keyword for any version
-                    if let Ok(w) = Wavelengths::from_str_delim(value, true.into()).0 {
-                        if w.0.len() > 1 {
+            AnyKeywordClass::Meas(i, r) => {
+                if usize::from(i) < p {
+                    match r {
+                        MeasKeywordClass::OptGE3_0 => {
+                            self.n_opt_min3_0 += 1;
+                        }
+                        MeasKeywordClass::OptGE3_1 => {
                             self.n_opt_min3_1 += 1;
-                        } else {
+                        }
+                        MeasKeywordClass::OptGE3_2 => {
+                            self.n_opt_min3_2 += 1;
+                        }
+                        MeasKeywordClass::Width => {
+                            let width = Width::from_str(value.as_str()).ok();
+                            self.widths.insert(width);
                             self.n_any += 1;
                         }
+                        MeasKeywordClass::Scale => self.n_pne += 1,
+                        MeasKeywordClass::Shortname => self.n_pnn += 1,
+                        MeasKeywordClass::Wavelength => {
+                            // if this fails, do nothing since we would end up
+                            // dropping this keyword for any version
+                            if let Ok(w) = Wavelengths::from_str_delim(value, true.into()).0 {
+                                if w.0.len() > 1 {
+                                    self.n_opt_min3_1 += 1;
+                                } else {
+                                    self.n_any += 1;
+                                }
+                            }
+                        }
+                        MeasKeywordClass::OptAny => self.n_any += 1,
                     }
+                } else {
+                    self.n_any += 1;
                 }
-                MeasKeywordClass::OptAny => self.n_any += 1,
-            },
-            AnyKeywordClass::Peak(_) => {
-                self.n_opt_max3_1 += 1;
             }
-            AnyKeywordClass::CSVFlag(_) => {
-                self.n_opt_eq3_0or3_1 += 1;
+            AnyKeywordClass::Peak(i) => {
+                if usize::from(i) < p {
+                    self.n_opt_max3_1 += 1;
+                } else {
+                    self.n_any += 1;
+                }
             }
-            AnyKeywordClass::Dfc(_, _) => self.n_dfc += 1,
-            AnyKeywordClass::GateOptLE3_1(_) => self.n_opt_max3_1 += 1,
+
+            AnyKeywordClass::CSVFlag(i) => {
+                if usize::from(i) < p {
+                    self.n_opt_eq3_0or3_1 += 1;
+                } else {
+                    self.n_any += 1;
+                }
+            }
+            AnyKeywordClass::Dfc(i, j) => {
+                if usize::from(i) < p && usize::from(j) < p {
+                    self.n_dfc += 1;
+                } else {
+                    self.n_any += 1;
+                }
+            }
+            AnyKeywordClass::GateOptLE3_1(i) => {
+                if usize::from(i) < p {
+                    self.n_opt_max3_1 += 1;
+                } else {
+                    self.n_any += 1;
+                }
+            }
             AnyKeywordClass::RegionWindow => self.n_any += 1,
             AnyKeywordClass::RegionIndex => {
                 if RegionGateIndex2_0::from_str_delim(value, true.into())

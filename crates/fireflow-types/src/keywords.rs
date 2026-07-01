@@ -154,6 +154,7 @@ pub enum MeasKeywordClass {
     OptGE3_0,
     OptGE3_1,
     OptGE3_2,
+    Width,
     Scale,
     Shortname,
     Wavelength,
@@ -163,7 +164,7 @@ impl MeasKeywordClass {
     #[must_use]
     pub const fn membership(&self) -> VersionMembership {
         match self {
-            Self::OptAny | Self::Scale | Self::Shortname | Self::Wavelength => {
+            Self::OptAny | Self::Scale | Self::Shortname | Self::Wavelength | Self::Width => {
                 VersionMembership::All
             }
             Self::OptGE3_0 => {

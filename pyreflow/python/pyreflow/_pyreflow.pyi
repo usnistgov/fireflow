@@ -2287,6 +2287,7 @@ class SplitTEXTDiagnostics:
         last_odd_token: bytes | str,
         has_even_delims: bool,
         extra_leading_delims: int,
+        multibyte_encoded: bool,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
@@ -2307,6 +2308,8 @@ class SplitTEXTDiagnostics:
     def has_even_delims(self) -> bool: ...
     @property
     def extra_leading_delims(self) -> int: ...
+    @property
+    def multibyte_encoded(self) -> bool: ...
 
 class _OffsetsOverlap(Generic[_N0, _N1]):
     def __new__(

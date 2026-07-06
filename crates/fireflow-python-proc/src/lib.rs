@@ -2883,6 +2883,13 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.extra_leading_delims),
     );
 
+    let multibyte_encoded = DocArgROIvar::new_ivar_ro(
+        "multibyte_encoded",
+        PyBool::default(),
+        format!("{TRUE} if {TEXT} was encoded with UTF-8, {FALSE} if encoded with Latin-1."),
+        |_, _| quote!(self.0.multibyte_encoded),
+    );
+
     let args = [
         delim,
         escaped,
@@ -2893,6 +2900,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
         last_odd_token,
         has_even_delims,
         extra_leading_delims,
+        multibyte_encoded,
     ];
 
     let doc = DocString::new_class(format!(

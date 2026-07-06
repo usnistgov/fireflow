@@ -665,6 +665,9 @@ pub struct SplitTEXTDiagnostics {
     ///
     /// This will only be non-zero for escaped mode.
     pub extra_leading_delims: usize,
+
+    /// `true` if TEXT was encoded with UTF-8, `false` for Latin-1.
+    pub multibyte_encoded: bool,
 }
 
 /// Summary of an FCS dataset
@@ -1674,7 +1677,7 @@ impl FlatTEXTOutput {
         };
 
         let ptext_bytes = io_to_log!(ne_ptext_offsets.h_read_contents(h));
-        let enc = conf.use_encoding.choose(ptext_bytes.as_ref());
+        let penc = conf.use_encoding.choose(ptext_bytes.as_ref());
 
         let ptext_ne_slice = ptext_bytes.as_nonempty_slice();
         let delim_res = split_first_delim(&ptext_ne_slice, conf)
@@ -1687,7 +1690,7 @@ impl FlatTEXTOutput {
             .map_error(IOErrorGroup::Pure)
             // Parse primary TEXT and get $NEXTDATA if it exists
             .and_then_commutative(|(delim, bytes)| {
-                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, enc, st.conf().as_ref())
+                SplitTEXTDiagnostics::primary_from_bytes(delim, bytes, penc, st.conf().as_ref())
                     .map_commutative_warnings(ParseFlatTEXTWarning::from)
                     .map_errors(ParseFlatTEXTError::from)
                     .and_then_commutative(|(kws, prim_diag)| {
@@ -1712,7 +1715,7 @@ impl FlatTEXTOutput {
                     .and_then_commutative(|supp_out| {
                         if let Some(ne) = supp_out.as_offset_pair().and_then(|p| p.as_nonempty()) {
                             let s = txt_st.conf().as_ref();
-                            SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut kws, delim, enc, s)
+                            SplitTEXTDiagnostics::h_read_supp(h, &ne, &mut kws, delim, s)
                                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                                 .map_pure_errors(ParseFlatTEXTError::from)
                                 .map_ok_value(|supp_diag| (supp_out, supp_diag))
@@ -1833,7 +1836,6 @@ impl SplitTEXTDiagnostics {
         offsets: &NonEmptyOffsets<SupplementalTextSegmentId, OffsetsFromTEXT>,
         kws: &mut ParsedKeywords,
         delim: u8,
-        enc: Encoding,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         Option<Self>,
@@ -1842,6 +1844,7 @@ impl SplitTEXTDiagnostics {
         (),
     > {
         let bytes = io_to_log!(offsets.h_read_contents(h));
+        let enc = conf.use_encoding.choose(bytes.as_ref());
         let ne = bytes.as_nonempty_slice();
         Self::supp_from_bytes(kws, delim, &ne, enc, conf)
             .group()
@@ -2007,6 +2010,7 @@ impl SplitTEXTDiagnostics {
             last_odd_token: StringOrBytes::default(),
             has_even_delims: false,
             extra_leading_delims: 0,
+            multibyte_encoded: enc.is_multi(),
         };
         let mut insert_errs = vec![];
         let mut any_insert_err = false;
@@ -2091,6 +2095,7 @@ impl SplitTEXTDiagnostics {
             last_odd_token: StringOrBytes::default(),
             has_even_delims: false,
             extra_leading_delims: 0,
+            multibyte_encoded: enc.is_multi(),
         };
         let mut insert_results = vec![];
         let mut any_insert_err = false;

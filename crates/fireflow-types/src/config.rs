@@ -228,6 +228,13 @@ impl UseEncoding {
     }
 }
 
+impl Encoding {
+    #[must_use]
+    pub fn is_multi(&self) -> bool {
+        matches!(self, Self::Utf8)
+    }
+}
+
 pub const OTHER_WIDTH_NONE_LEVEL: &NEStr = NONE_LEVEL;
 pub const OTHER_WIDTH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
 pub const OTHER_WIDTH_WARN_LEVEL: &NEStr = WARN_LEVEL;

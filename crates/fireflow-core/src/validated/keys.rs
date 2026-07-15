@@ -1216,11 +1216,13 @@ impl ParsedKeywords {
             let triflag = DummyTriFlag::from_trim_value_whitespace(flag);
             match encoding {
                 Encoding::Single => {
-                    let it = val.into_nonempty_iter().copied().map(char::from);
                     if let Some(tf) = triflag {
-                        if let Some(ne) = it
-                            .skip_while(char::is_ascii_whitespace)
-                            .take_while(|x| !x.is_ascii_whitespace())
+                        if let Some(ne) = val
+                            .as_ref()
+                            .trim_ascii()
+                            .iter()
+                            .copied()
+                            .map(char::from)
                             .try_into_nonempty_iter()
                         {
                             let s: NEString = ne.collect();
@@ -1230,6 +1232,7 @@ impl ParsedKeywords {
                             Some(TrimResult::Empty(tf))
                         }
                     } else {
+                        let it = val.into_nonempty_iter().copied().map(char::from);
                         Some(TrimResult::Trimmed(Cow::Owned(it.collect()), false))
                     }
                 }

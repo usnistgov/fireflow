@@ -395,9 +395,9 @@ fn run() -> AppResult<()> {
         .value_name("ENC")
         .value_parser(value_parser!(tc::UseEncoding))
         .help(format!(
-            "Choose how to interpret characters in {text_seg}. Choose {single},
-             {utf8}, or {guess} to interpret bytes as IANA ISO/IEC-8859-1 UTF-8,
-             or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 if a
+            "Choose how to interpret characters in {text_seg}. Choose {single}, \
+             {utf8}, or {guess} to interpret bytes as IANA ISO/IEC-8859-1 UTF-8, \
+             or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 if a \
              non-UTF-8 byte is found.",
             single = fmt_val(tc::ENCODING_SINGLE_LEVEL),
             utf8 = fmt_val(tc::ENCODING_UTF8_LEVEL),
@@ -525,9 +525,9 @@ fn run() -> AppResult<()> {
         .value_name("WHICH")
         .value_parser(value_parser!(tc::ForceLinearScale))
         .help(format!(
-            "Force {pn_e} keywords to be linear. Pass {time} to only set the
-             temporal measurement, {non_int} to set temporal measurements and
-             non-integer measurements, {all} to set all measurements, and {none}
+            "Force {pn_e} keywords to be linear. Pass {time} to only set the \
+             temporal measurement, {non_int} to set temporal measurements and \
+             non-integer measurements, {all} to set all measurements, and {none} \
              for no measurements. Affected columns will never fail.",
             time = fmt_val(tc::FORCE_LINEAR_TIME_LEVEL),
             non_int = fmt_val(tc::FORCE_LINEAR_NON_INT_LEVEL),

@@ -1658,7 +1658,7 @@ fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadSt
 fn get_write_std_dataset_config(sargs: &ArgMatches) -> cfg::WriteDatasetInnerConfig {
     let mut conf = cfg::WriteDatasetInnerConfig::default();
 
-    get_opt(sargs, PRINT_DELIM, |x| conf.text.delim = x);
+    get_opt(sargs, WRITE_DELIM, |x| conf.text.delim = x);
     get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
     conf
 }

@@ -5342,6 +5342,7 @@ where
             .chain(ns)
     }
 
+    // TODO PnTYPE for time will always say NA
     #[cfg(feature = "serde")]
     #[allow(clippy::too_many_lines)]
     fn print_meas_table<'a, W: Write>(&'a self, w: &mut W, delim: u8) -> io::Result<()>

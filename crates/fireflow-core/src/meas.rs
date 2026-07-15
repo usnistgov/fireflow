@@ -1392,9 +1392,10 @@ impl TemporalKeywords for InnerTemporal3_2 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OptTemporalKeyword<'_>> {
-        let d = self.display.map(|v| OptTemporalKeyword::from_value(v, i));
         let t = OptTemporalKeyword::from_timestep(self.timestep);
-        d.into_iter().chain(once(t))
+        let d = self.display.map(|v| OptTemporalKeyword::from_value(v, i));
+        let y = OptTemporalKeyword::from_opt_zst(self.measurement_type, i);
+        once(t).chain(d).chain(y)
     }
 }
 

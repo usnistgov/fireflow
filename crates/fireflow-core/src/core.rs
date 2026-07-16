@@ -161,7 +161,10 @@ use std::path::PathBuf;
 
 #[cfg(feature = "serde")]
 use {
-    crate::text::keyword_enum::{AsHeader as _, OptScaledOpticalKeyword, RefKeyword1},
+    crate::text::keyword_enum::{
+        AsHeader as _, OptMeasTemporalKeyword, OptScaledOpticalKeyword, OptTemporalKeyword,
+        RefKeyword1,
+    },
     crate::text::keywords as kws,
     ndarray::Array2,
     serde::Serialize,
@@ -5342,7 +5345,6 @@ where
             .chain(ns)
     }
 
-    // TODO PnTYPE for time will always say NA
     #[cfg(feature = "serde")]
     #[allow(clippy::too_many_lines)]
     fn print_meas_table<'a, W: Write>(&'a self, w: &mut W, delim: u8) -> io::Result<()>
@@ -5358,6 +5360,7 @@ where
             Index(MeasIndex),
             Req(ReqMeasKeyword<'a>),
             Optical(OptScaledOpticalKeyword<'a>),
+            Temporal(OptMeasTemporalKeyword<'a>),
             NumType(SplitKeyword1<kws::NumType>),
         }
 
@@ -5367,6 +5370,7 @@ where
                     MeasKeyword::Index(_) => INDEX.into(),
                     MeasKeyword::Req(x) => x.std_blank(),
                     MeasKeyword::Optical(x) => x.std_blank(),
+                    MeasKeyword::Temporal(x) => x.std_blank(),
                     MeasKeyword::NumType(x) => x.std_blank(),
                 }
             }
@@ -5376,6 +5380,7 @@ where
                     MeasKeyword::Index(x) => x.to_string(),
                     MeasKeyword::Req(x) => x.as_str_pair().1.into(),
                     MeasKeyword::Optical(x) => x.as_str_pair().1.into(),
+                    MeasKeyword::Temporal(x) => x.as_str_pair().1.into(),
                     MeasKeyword::NumType(x) => x.as_str_pair().1.into(),
                 }
             }
@@ -5453,11 +5458,8 @@ where
             .iter()
             .map(|m| {
                 m.both(
-                    |t| {
-                        let (o, _) = V::Optical::from_temporal_unchecked(t.value.clone());
-                        (Some(&t.key), ScaledOptical::new_identity(o))
-                    },
-                    |o| (V::Name::as_opt(&o.key), o.value.clone()),
+                    |t| (Some(&t.key), Element::Center(t.value.clone())),
+                    |o| (V::Name::as_opt(&o.key), Element::NonCenter(o.value.clone())),
                 )
             })
             .collect();
@@ -5494,15 +5496,41 @@ where
             }
             writeln!(w)?;
 
+            // For temporal measurements, keep all keywords except $TIMESTEP
+            // since this won't fit anywhere in the table
+            let remove_timestep = |k| {
+                if let OptTemporalKeyword::Meas(x) = k {
+                    Some(x)
+                } else {
+                    None
+                }
+            };
+
             for (i, ((n, m), (req_l, opt_l))) in ne {
                 let mut row = vec![None; header.len()];
                 let j = MeasIndex::from(i);
+                let req: Vec<_> = match m {
+                    Element::Center(t) => t
+                        .req_meas_keywords(j)
+                        .into_iter()
+                        .map(MeasKeyword::from)
+                        .collect(),
+                    Element::NonCenter(o) => o.req_keywords(j).map(MeasKeyword::from).collect(),
+                };
+                let opt: Vec<_> = match m {
+                    Element::Center(t) => t
+                        .opt_meas_keywords(j)
+                        .filter_map(remove_timestep)
+                        .map(MeasKeyword::from)
+                        .collect(),
+                    Element::NonCenter(o) => o.opt_keywords(j).map(MeasKeyword::from).collect(),
+                };
                 let xs = once(MeasKeyword::from(j))
                     .chain(shortname(*n, j))
                     .chain(req_l.map(MeasKeyword::from))
                     .chain(opt_l.fmap(MeasKeyword::from))
-                    .chain(m.req_keywords(j).map(MeasKeyword::from))
-                    .chain(m.opt_keywords(j).map(MeasKeyword::from));
+                    .chain(req)
+                    .chain(opt);
                 for x in xs {
                     x.assign(&header[..], &mut row);
                 }

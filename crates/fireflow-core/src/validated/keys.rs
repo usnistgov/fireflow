@@ -988,7 +988,7 @@ impl NonStdKeywordsExt for NonStdKeywords {
 // Implement methods for std/nonstd key wrappers
 
 impl KeyString {
-    fn new(s: NEString) -> Self {
+    fn new_unchecked(s: NEString) -> Self {
         Self(Ascii::new(s))
     }
 
@@ -999,7 +999,7 @@ impl KeyString {
     fn from_bytes_maybe(xs: &NESlice<u8>, single_byte: bool) -> Option<Self> {
         if single_byte {
             let ne = xs.into_nonempty_iter().copied().map(char::from).collect();
-            Some(Self::new(ne))
+            Some(Self::new_unchecked(ne))
         } else if is_printable_ascii(xs.as_ref()) {
             // SAFETY: we just checked that the bytes are only ASCII chars
             Some(unsafe { Self::from_bytes(xs) })
@@ -1011,7 +1011,7 @@ impl KeyString {
     unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
         let ne = xs.nonempty_iter().copied().collect();
         // SAFETY: this function is marked unsafe since the caller must check
-        Self::new(unsafe { NEString::from_utf8_unchecked(ne) })
+        Self::new_unchecked(unsafe { NEString::from_utf8_unchecked(ne) })
     }
 }
 
@@ -1031,7 +1031,7 @@ impl StdKey {
     }
 
     fn new(s: NEString) -> Self {
-        Self(KeyString::new(s))
+        Self(KeyString::new_unchecked(s))
     }
 
     pub(crate) fn from_temporal_optical_key(x: TemporalOpticalKey, i: MeasIndex) -> Self {

@@ -244,11 +244,21 @@ pub enum OptOpticalKeyword<'a> {
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
 pub enum OptTemporalKeyword<'a> {
+    Timestep(SplitKeyword0<kws::Timestep>),
+    Meas(OptMeasTemporalKeyword<'a>),
+}
+
+/// Any optional temporal keyword type (sans TIMESTEP)
+#[derive(Clone, From, Delegate)]
+#[delegate(AsStdKeywordPair)]
+#[delegate(DisplayEscaped)]
+#[delegate(HasMembership)]
+#[cfg_attr(feature = "serde", delegate(AsHeader))]
+pub enum OptMeasTemporalKeyword<'a> {
     Longname(NEStringKeyword1<'a, kws::Longname>),
     TemporalType(OptZSTKeyword1<kws::TemporalType, kws::TemporalTypeInner>),
     TemporalScale2_0(OptZSTKeyword1<kws::TemporalScale2_0, kws::TemporalScaleInner>),
     Display(SplitKeyword1<kws::Display>),
-    Timestep(SplitKeyword0<kws::Timestep>),
     Peak(OptPeakKeyword),
 }
 
@@ -682,7 +692,7 @@ impl<'a> Keyword1FromValue<'a> for ReqMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptMeasKeyword<'a> {}
 impl<'a> Keyword1FromValue<'a> for OptOpticalKeyword<'a> {}
 impl Keyword1FromValue<'_> for OptScaleKeyword {}
-impl<'a> Keyword1FromValue<'a> for OptTemporalKeyword<'a> {}
+impl<'a> Keyword1FromValue<'a> for OptMeasTemporalKeyword<'a> {}
 impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
 impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
@@ -833,6 +843,16 @@ impl HasDelim for OptOpticalKeyword<'_> {
 }
 
 impl HasDelim for OptTemporalKeyword<'_> {
+    fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
+        if let Self::Meas(x) = self {
+            x.has_delim(d)
+        } else {
+            None
+        }
+    }
+}
+
+impl HasDelim for OptMeasTemporalKeyword<'_> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         if let Self::Longname(x) = self {
             x.value.has_delim(d)
@@ -1059,6 +1079,26 @@ impl OptTemporalKeyword<'_> {
     }
 
     pub(crate) fn as_loss_error(&self) -> Option<AnyTemporalKeyLossError> {
+        match self {
+            Self::Meas(kw) => kw.as_loss_error(),
+            // $TIMESTEP is only lossy if not one since it is implied to be
+            // one if not in target version
+            Self::Timestep(kw) => (!kw.value.0.is_one()).then_some(TimestepLossError.into()),
+        }
+    }
+
+    pub(crate) fn as_optical_loss_error(&self) -> Option<AnyTemporalToOpticalKeyLossError> {
+        match self {
+            Self::Meas(kw) => kw.as_optical_loss_error(),
+            // $TIMESTEP is dealt with separately since it is usually either
+            // moved to a new measurement or returned and thus is not lossy.
+            Self::Timestep(_) => None,
+        }
+    }
+}
+
+impl OptMeasTemporalKeyword<'_> {
+    pub(crate) fn as_loss_error(&self) -> Option<AnyTemporalKeyLossError> {
         let ret = match self {
             Self::TemporalType(kw) => KeyLossError(kw.key).into(),
             Self::Display(kw) => KeyLossError(kw.key).into(),
@@ -1068,11 +1108,6 @@ impl OptTemporalKeyword<'_> {
                     OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError(k.key)),
                 };
                 ret.into()
-            }
-            // $TIMESTEP is only lossy if not one since it is implied to be
-            // one if not in target version
-            Self::Timestep(kw) => {
-                return (!kw.value.0.is_one()).then_some(TimestepLossError.into());
             }
             // These are shared b/t all versions so cannot result in loss when
             // converting.
@@ -1087,11 +1122,9 @@ impl OptTemporalKeyword<'_> {
             // These are shared with optical so cannot result in loss. $TIMESTEP
             // is dealt with separately since it is usually either moved to a
             // new measurement or returned and thus is not lossy.
-            Self::Display(_)
-            | Self::Peak(_)
-            | Self::Timestep(_)
-            | Self::TemporalScale2_0(_)
-            | Self::Longname(_) => return None,
+            Self::Display(_) | Self::Peak(_) | Self::TemporalScale2_0(_) | Self::Longname(_) => {
+                return None;
+            }
         };
         Some(ret)
     }

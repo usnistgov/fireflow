@@ -4674,7 +4674,7 @@ mod tests {
     #[test]
     fn pntype_time() {
         let t = TemporalType::from_str("Time").unwrap();
-        let k = kr::OptTemporalKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
+        let k = kr::OptMeasTemporalKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
         assert!(k.as_std_key_pair().1.as_str() == "Time");
         assert_eq!(TemporalType::from_str("Space"), Err(TemporalTypeError));
     }

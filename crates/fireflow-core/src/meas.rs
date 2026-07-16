@@ -26,8 +26,8 @@ use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
     AnyTemporalToOpticalKeyLossError, HasMembership as _, Keyword1FromValue as _,
-    OptOpticalKeyword, OptPeakKeyword, OptScaleKeyword, OptScaledOpticalKeyword,
-    OptTemporalKeyword, ReqMeasKeyword,
+    OptMeasTemporalKeyword, OptOpticalKeyword, OptPeakKeyword, OptScaleKeyword,
+    OptScaledOpticalKeyword, OptTemporalKeyword, ReqMeasKeyword,
 };
 use crate::text::keywords::{
     AlphaNumType, Analyte, Calibration3_1, Calibration3_2, CalibrationLossError, DetectorName,
@@ -1347,9 +1347,9 @@ impl TemporalKeywords for InnerTemporal2_0 {
         i: MeasIndex,
     ) -> impl Iterator<Item = OptTemporalKeyword<'_>> {
         // write $PnE for temporal channel always
-        let s = OptTemporalKeyword::from_opt_zst(TemporalScale2_0::from(true), i);
-        let ps = self.peak.opt_keywords(i).map(OptTemporalKeyword::from);
-        ps.chain(s)
+        let s = OptMeasTemporalKeyword::from_opt_zst(TemporalScale2_0::from(true), i);
+        let ps = self.peak.opt_keywords(i).map(OptMeasTemporalKeyword::from);
+        ps.chain(s).map(OptTemporalKeyword::from)
     }
 }
 
@@ -1362,8 +1362,9 @@ impl TemporalKeywords for InnerTemporal3_0 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OptTemporalKeyword<'_>> {
-        let ps = self.peak.opt_keywords(i).map(OptTemporalKeyword::from);
-        ps.chain(once(OptTemporalKeyword::from_timestep(self.timestep)))
+        let ps = self.peak.opt_keywords(i).map(OptMeasTemporalKeyword::from);
+        ps.map(OptTemporalKeyword::from)
+            .chain(once(OptTemporalKeyword::from_timestep(self.timestep)))
     }
 }
 
@@ -1376,10 +1377,12 @@ impl TemporalKeywords for InnerTemporal3_1 {
         &self,
         i: MeasIndex,
     ) -> impl Iterator<Item = OptTemporalKeyword<'_>> {
-        let ps = self.peak.opt_keywords(i).map(OptTemporalKeyword::from);
-        let d = self.display.map(|v| OptTemporalKeyword::from_value(v, i));
+        let ps = self.peak.opt_keywords(i).map(OptMeasTemporalKeyword::from);
+        let d = self
+            .display
+            .map(|v| OptMeasTemporalKeyword::from_value(v, i));
         let t = OptTemporalKeyword::from_timestep(self.timestep);
-        ps.chain(d).chain(once(t))
+        ps.chain(d).map(OptTemporalKeyword::from).chain(once(t))
     }
 }
 
@@ -1393,8 +1396,12 @@ impl TemporalKeywords for InnerTemporal3_2 {
         i: MeasIndex,
     ) -> impl Iterator<Item = OptTemporalKeyword<'_>> {
         let t = OptTemporalKeyword::from_timestep(self.timestep);
-        let d = self.display.map(|v| OptTemporalKeyword::from_value(v, i));
-        let y = OptTemporalKeyword::from_opt_zst(self.measurement_type, i);
+        let d = self
+            .display
+            .map(|v| OptMeasTemporalKeyword::from_value(v, i))
+            .map(OptTemporalKeyword::from);
+        let y = OptMeasTemporalKeyword::from_opt_zst(self.measurement_type, i)
+            .map(OptTemporalKeyword::from);
         once(t).chain(d).chain(y)
     }
 }
@@ -1440,7 +1447,7 @@ impl TemporalMaybeToOptical for InnerTemporal3_2 {
     type Error = AnyTemporalToOpticalKeyLossError;
 
     fn can_convert_to_optical(&self, i: MeasIndex) -> Result<(), Self::Error> {
-        OptTemporalKeyword::from_opt_zst(self.measurement_type, i)
+        OptMeasTemporalKeyword::from_opt_zst(self.measurement_type, i)
             .and_then(|x| x.as_optical_loss_error())
             .map_or(Ok(()), Err)
     }
@@ -3140,8 +3147,9 @@ impl<T> Temporal<T> {
     where
         T: TemporalKeywords,
     {
-        OptTemporalKeyword::from_str(&self.common.longname, i)
+        OptMeasTemporalKeyword::from_str(&self.common.longname, i)
             .into_iter()
+            .map(OptTemporalKeyword::from)
             .chain(self.specific.opt_meas_keywords_inner(i))
     }
 

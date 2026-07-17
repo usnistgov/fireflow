@@ -7953,17 +7953,12 @@ impl<E> PyBool<E> {
 }
 
 impl<E> PyBytes<E> {
-    impl_py_prim_rstype!();
+    // impl_py_prim_rstype!();
     impl_py_prim_doc_default!("b\"\"".into(), Vec);
     impl_py_prim_map_exc!(PyBytes);
 }
 
-impl<E: From<PyException>> PyBytes<E> {
-    fn new_analysis() -> Self {
-        let r = parse_quote!(fireflow_core::core::Analysis);
-        Self::default().rstype(r)
-    }
-}
+impl<E: From<PyException>> PyBytes<E> {}
 
 impl<E> PyDecimal<E> {
     impl_py_prim_rstype!();
@@ -8075,7 +8070,7 @@ impl<E: From<PyException>> PyList<E> {
 
     fn new_others() -> Self {
         let path: Path = parse_quote!(fireflow_core::core::Others);
-        Self::new(PyBytes::default(), path, None)
+        Self::new(PyUnion::new_string_or_bytes(), path, None)
     }
 
     fn new_vertices() -> Self {
@@ -8601,6 +8596,11 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_string_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
         Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
+    }
+
+    fn new_analysis() -> Self {
+        let r = parse_quote!(fireflow_core::core::Analysis);
+        Self::new_string_or_bytes().rstype(r)
     }
 
     fn new_dark_bytes() -> Self {
@@ -9964,11 +9964,11 @@ impl DocArgParam {
 
     fn new_analysis_param(default: bool) -> Self {
         let desc = format!("Contents of the {ANALYSIS} segment.");
-        Self::new_param("analysis", PyBytes::new_analysis(), desc).def_auto_if(default)
+        Self::new_param("analysis", PyUnion::new_analysis(), desc).def_auto_if(default)
     }
 
     fn new_others_param(default: bool) -> Self {
-        let desc = format!("A list of byte strings encoding the {OTHER} segments.");
+        let desc = format!("A list of (byte) strings encoding the {OTHER} segments.");
         Self::new_param("others", PyList::new_others(), desc).def_auto_if(default)
     }
 

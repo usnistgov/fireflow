@@ -1039,7 +1039,7 @@ class _CoreToDataset(Generic[_X]):
     def to_dataset(
         self,
         data: DataFrame,
-        analysis: pft.AnalysisBytes = b"",
+        analysis: pft.AnalysisBytes = "",
         others: list[pft.OtherBytes] = [],
     ) -> _X: ...
 
@@ -1556,7 +1556,7 @@ class CoreDataset2_0(
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates2_0 = ([], {}, None),
         nonstandard_keywords: pft.NonStdKeywords = {},
-        analysis: bytes = b"",
+        analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
     ) -> Self: ...
     @classmethod
@@ -1674,7 +1674,7 @@ class CoreDataset3_0(
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: pft.NonStdKeywords = {},
-        analysis: bytes = b"",
+        analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
     ) -> Self: ...
     @classmethod
@@ -1823,7 +1823,7 @@ class CoreDataset3_1(
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_0 = ([], {}, None),
         nonstandard_keywords: pft.NonStdKeywords = {},
-        analysis: bytes = b"",
+        analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
     ) -> Self: ...
     @classmethod
@@ -1972,7 +1972,7 @@ class CoreDataset3_2(
         tr: pft.Trigger | None = None,
         applied_gates: pft.AppliedGates3_2 = ({}, None),
         nonstandard_keywords: pft.NonStdKeywords = {},
-        analysis: bytes = b"",
+        analysis: pft.AnalysisBytes = "",
         others: list[bytes] = [],
     ) -> Self: ...
     @classmethod

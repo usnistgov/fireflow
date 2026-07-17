@@ -669,7 +669,7 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // write OTHER
         for o in other_segs {
-            h.write_all(&o.0)?;
+            h.write_all(o.0.as_bytes())?;
         }
 
         // write supplemental TEXT

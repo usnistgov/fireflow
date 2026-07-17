@@ -24,9 +24,9 @@ type StdKey = str
 
 type NonStdKey = str
 
-type AnalysisBytes = bytes
+type AnalysisBytes = str | bytes
 
-type OtherBytes = bytes
+type OtherBytes = str | bytes
 
 type Trigger = tuple[Shortname, int]
 

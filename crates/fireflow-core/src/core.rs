@@ -275,14 +275,14 @@ pub struct Core<Analysis, Layout, Other, Root, Temporal, Optical, Scale, Name, V
 }
 
 /// The ANALYSIS segment, which is just a string of bytes
-#[derive(Clone, From, PartialEq, Default)]
+#[derive(Clone, PartialEq, Default)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-pub struct Analysis(pub Vec<u8>);
+pub struct Analysis(pub StringOrBytes);
 
 /// An OTHER segment, which is just a string of bytes
-#[derive(Clone, From, PartialEq)]
+#[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-pub struct Other(pub Vec<u8>);
+pub struct Other(pub StringOrBytes);
 
 /// All OTHER segments
 #[derive(Clone, Default, From, PartialEq)]
@@ -823,7 +823,7 @@ impl AnalysisReader {
     pub(crate) fn h_read<R: Read + Seek>(&self, h: &mut BufReader<R>) -> io::Result<Analysis> {
         let mut buf = vec![];
         self.seg.h_read_contents(h, &mut buf)?;
-        Ok(buf.into())
+        Ok(Analysis(StringOrBytes::from(buf)))
     }
 }
 
@@ -839,7 +839,7 @@ impl OthersReader {
         let mut others = vec![];
         for s in &self.offsets {
             s.offsets.h_read_contents(h, &mut buf)?;
-            others.push(Other(buf.clone()));
+            others.push(Other(StringOrBytes::from(buf.clone())));
             buf.clear();
         }
         Ok(Others(others))
@@ -6441,7 +6441,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             // write DATA+ANALYSIS+CRC
             .and_commutative(|| {
                 io_to_log!(df.h_write_df(h, &mut digest, conf));
-                io_to_log!(digest.update_and_write(h, &self.analysis.0[..]));
+                io_to_log!(digest.update_and_write(h, self.analysis.0.as_bytes()));
                 io_to_log!(digest.write_final(h));
                 LogResult::new_ok(())
             })

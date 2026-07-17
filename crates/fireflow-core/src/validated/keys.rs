@@ -277,6 +277,19 @@ impl From<Vec<u8>> for StringOrBytes {
     }
 }
 
+impl StringOrBytes {
+    pub(crate) fn as_bytes(&self) -> &[u8] {
+        match self {
+            Self::Bytes(x) => &x.0[..],
+            Self::Utf8(x) => x.0.as_bytes(),
+        }
+    }
+
+    pub(crate) fn len(&self) -> usize {
+        self.as_bytes().len()
+    }
+}
+
 /// A either a UTF-8 string or a non-UTF-8 byte sequence (both non-empty).
 #[derive(Clone, Display, PartialEq, Debug, From)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]

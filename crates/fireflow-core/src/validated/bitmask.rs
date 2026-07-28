@@ -6,6 +6,7 @@ use crate::text::keywords::TextRange;
 use crate::validated::unaligned::FCSRepr;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
+use bigdecimal::BigDecimal;
 use derive_new::new;
 use num_traits::Bounded;
 use thiserror::Error;
@@ -62,8 +63,9 @@ where
 {
     fn from(value: Bitmask<T>) -> Self {
         // NOTE add 1 since the spec treats int ranges as one less than they
-        // appear in TEXT
-        Self::from(Into::<u64>::into(value.value.0) + 1)
+        // appear in TEXT; this must be added after converting to BigDecimal
+        // since a valid PnR value is 2^64 exactly (one more than u64::MAX)
+        Self(BigDecimal::from(Into::<u64>::into(value.value.0)) + 1)
     }
 }
 

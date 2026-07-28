@@ -266,18 +266,11 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
 
     std_keywords = core.standard_keywords("both", "both")
 
-    n_keywords = (
-        len(std_keywords)
-        + len(core.nonstandard_keywords)
-        + sum(len(m.nonstandard_keywords) for m in core.measurements)
-    )
+    n_keywords = len(std_keywords) + len(core.nonstandard_keywords)
 
     n_delimiters = n_keywords * 2 + 1
     text_nbytes = (
-        n_delimiters
-        + sum_dict(std_keywords)
-        + sum_dict(core.nonstandard_keywords)
-        + +sum(sum_dict(m.nonstandard_keywords) for m in core.measurements)
+        n_delimiters + sum_dict(std_keywords) + sum_dict(core.nonstandard_keywords)
     )
 
     return BenchFile(
@@ -308,40 +301,37 @@ def nonstd_keywords(i: int) -> dict[str, str]:
     }
 
 
-def meas_3_0(i: int) -> tuple[str, pf.Optical3_0 | pf.Temporal3_0]:
+def meas_3_0(i: int) -> pft.Measurement3_0:
     return (
         f"C{i + 1}",
         pf.Optical3_0(
-            1.0,
             longname=f"Column{i + 1}",
             wavelength=randrange(500, 700),
             power=randrange(1, 1000),
             detector_voltage=randrange(1, 1000),
-            nonstandard_keywords=nonstd_keywords(i),
         ),
+        1.0,
     )
 
 
-def meas_3_1(i: int) -> tuple[str, pf.Optical3_1 | pf.Temporal3_1]:
+def meas_3_1(i: int) -> pft.Measurement3_1:
     return (
         f"C{i + 1}",
         pf.Optical3_1(
-            1.0,
             longname=f"Column{i + 1}",
             wavelengths=[randrange(500, 700)],
             display=(False, randrange(0, 10), randrange(11, 20)),
             power=randrange(1, 1000),
             detector_voltage=randrange(1, 1000),
-            nonstandard_keywords=nonstd_keywords(i),
         ),
+        1.0,
     )
 
 
-def meas_3_2(i: int) -> tuple[str, pf.Optical3_2 | pf.Temporal3_2]:
+def meas_3_2(i: int) -> pft.Measurement3_2:
     return (
         f"C{i + 1}",
         pf.Optical3_2(
-            1.0,
             longname=f"Column{i + 1}",
             wavelengths=[randrange(500, 700)],
             display=(False, randrange(0, 10), randrange(11, 20)),
@@ -349,8 +339,8 @@ def meas_3_2(i: int) -> tuple[str, pf.Optical3_2 | pf.Temporal3_2]:
             detector_voltage=randrange(1, 1000),
             measurement_type="phy",
             tag=f"Tag{i + 1}",
-            nonstandard_keywords=nonstd_keywords(i),
         ),
+        1.0,
     )
 
 
@@ -358,9 +348,7 @@ def core_3_0_pdp11(
     height: int,
     width: int,
 ) -> pf.CoreDataset3_0:
-    ms: list[tuple[str | None, pf.Optical3_0 | pf.Temporal3_0]] = [
-        meas_3_0(i) for i in range(0, width)
-    ]
+    ms: pft.Measurements3_0 = [meas_3_0(i) for i in range(0, width)]
     rs = [2**32 - 1 for _ in range(0, width)]
     # wonky byteord...
     layout = pf.OrderedUintDataSchema(rs, byteord=[3, 4, 1, 2])
@@ -387,9 +375,7 @@ def core_3_1(
     | pf.BigLittleF64DataSchema,
     data: pl.DataFrame,
 ) -> pf.CoreDataset3_1:
-    ms: list[tuple[str, pf.Optical3_1 | pf.Temporal3_1]] = [
-        meas_3_1(i) for i in range(0, width)
-    ]
+    ms: pft.Measurements3_1 = [meas_3_1(i) for i in range(0, width)]
     core = pf.CoreDataset3_1(ms, layout, data)
     return core
 
@@ -427,7 +413,7 @@ def core_3_1_int(
 
 def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
     upper = 1e10
-    rs = [Decimal(upper) for _ in range(0, width)]
+    rs = [upper for _ in range(0, width)]
     layout = pf.BigLittleF64DataSchema(rs) if is64 else pf.BigLittleF32DataSchema(rs)
     data = pl.DataFrame(
         [
@@ -444,12 +430,12 @@ def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
 def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
     # per https://github.com/RGLab/flowCore/issues/46, 4x16+32+8
     rs: list[pft.VariableBitmask] = [
-        ("I16", 2**16 - 1),
-        ("I16", 2**16 - 1),
-        ("I16", 2**16 - 1),
-        ("I16", 2**16 - 1),
-        ("I32", 2**32 - 1),
-        ("I08", 2**8 - 1),
+        ("U16", 2**16 - 1),
+        ("U16", 2**16 - 1),
+        ("U16", 2**16 - 1),
+        ("U16", 2**16 - 1),
+        ("U32", 2**32 - 1),
+        ("U08", 2**8 - 1),
     ]
     layout = pf.VariableUintDataSchema(
         rs,
@@ -475,25 +461,25 @@ def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
 
 
 def to_data_parts(r: pft.MixedRange) -> tuple[float | int, DType]:
-    if r[0] == "F":
+    if r[0] == "F32":
         return (float(r[1]), pl.Float32)
-    elif r[0] == "D":
+    elif r[0] == "F64":
         return (float(r[1]), pl.Float64)
-    elif r[0] == "I08":
+    elif r[0] == "U08":
         return (r[1], pl.UInt8)
-    elif r[0] == "I16":
+    elif r[0] == "U16":
         return (r[1], pl.UInt16)
-    elif r[0] == "I32":
+    elif r[0] == "U32":
         return (r[1], pl.UInt32)
-    elif r[0] == "I64":
+    elif r[0] == "U64":
         return (r[1], pl.UInt64)
     else:
         assert False, f"invalid datatype {r[1]}"
 
 
 def core_3_2_a8(height: int, big_endian: bool) -> pf.CoreDataset3_2:
-    floats: list[pft.MixedRange] = [("F", Decimal(1e10))] * 380
-    ints: list[pft.MixedRange] = [("I32", 2**32 - 1)] * 20
+    floats: list[pft.MixedRange] = [("F32", 1e10)] * 380
+    ints: list[pft.MixedRange] = [("U32", 2**32 - 1)] * 20
     rs = floats + ints
     layout = pf.MixedDataSchema(rs)
     data_parts = [to_data_parts(r) for r in rs]
@@ -509,12 +495,12 @@ def core_3_2_a8(height: int, big_endian: bool) -> pf.CoreDataset3_2:
 def core_3_2_random_mixed(height: int, big_endian: bool) -> pf.CoreDataset3_2:
     n_cols = 15
 
-    f32: list[pft.MixedRange] = [("F", Decimal(1e10))] * n_cols
-    f64: list[pft.MixedRange] = [("D", Decimal(1e10))] * n_cols
-    int8: list[pft.MixedRange] = [("I08", 2**8 - 1)] * n_cols
-    int16: list[pft.MixedRange] = [("I16", 2**16 - 1)] * n_cols
-    int32: list[pft.MixedRange] = [("I32", 2**32 - 1)] * n_cols
-    int64: list[pft.MixedRange] = [("I64", 2**64 - 1)] * n_cols
+    f32: list[pft.MixedRange] = [("F32", 1e10)] * n_cols
+    f64: list[pft.MixedRange] = [("F64", 1e10)] * n_cols
+    int8: list[pft.MixedRange] = [("U08", 2**8 - 1)] * n_cols
+    int16: list[pft.MixedRange] = [("U16", 2**16 - 1)] * n_cols
+    int32: list[pft.MixedRange] = [("U32", 2**32 - 1)] * n_cols
+    int64: list[pft.MixedRange] = [("U64", 2**64 - 1)] * n_cols
 
     rs = f32 + f64 + int8 + int16 + int32 + int64
 

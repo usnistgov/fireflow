@@ -122,10 +122,57 @@ type AnyCoreDataset = (
 
 type AnyCore = AnyCoreTEXT | AnyCoreDataset
 
-
 type AnyOptical = pf.Optical2_0 | pf.Optical3_0 | pf.Optical3_1 | pf.Optical3_2
 
 type AnyTemporal = pf.Temporal2_0 | pf.Temporal3_0 | pf.Temporal3_1 | pf.Temporal3_2
+
+type Measurement[
+    N,
+    T: AnyTemporal,
+    O: AnyOptical,
+    S: OpticalScale2_0 | OpticalScale3_0,
+] = tuple[N, O, S] | tuple[Shortname, T]
+
+type Measurements[
+    N,
+    T: AnyTemporal,
+    O: AnyOptical,
+    S: OpticalScale2_0 | OpticalScale3_0,
+] = list[Measurement[N, T, O, S]]
+
+type Measurement2_0 = Measurement[
+    Shortname | None, pf.Temporal2_0, pf.Optical2_0, OpticalScale2_0
+]
+
+type Measurement3_0 = Measurement[
+    Shortname | None, pf.Temporal3_0, pf.Optical3_0, OpticalScale3_0
+]
+
+type Measurement3_1 = Measurement[
+    Shortname, pf.Temporal3_1, pf.Optical3_1, OpticalScale3_0
+]
+
+type Measurement3_2 = Measurement[
+    Shortname, pf.Temporal3_2, pf.Optical3_2, OpticalScale3_0
+]
+
+type Measurements2_0 = Measurements[
+    Shortname | None, pf.Temporal2_0, pf.Optical2_0, OpticalScale2_0
+]
+
+type Measurements3_0 = Measurements[
+    Shortname | None, pf.Temporal3_0, pf.Optical3_0, OpticalScale3_0
+]
+
+type Measurements3_1 = Measurements[
+    Shortname, pf.Temporal3_1, pf.Optical3_1, OpticalScale3_0
+]
+
+type Measurements3_2 = Measurements[
+    Shortname, pf.Temporal3_2, pf.Optical3_2, OpticalScale3_0
+]
+
+type OpticalKeyVals[X] = list[X | tuple[()] | None]
 
 type AnyAsciiDataSchema = pf.DelimAsciiDataSchema | pf.FixedAsciiDataSchema
 

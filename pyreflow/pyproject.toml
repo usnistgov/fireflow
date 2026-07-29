@@ -48,6 +48,7 @@ all = [
     { include-group = "dev" },
     { include-group = "lint" },
     { include-group = "testing" },
+    { include-group = "bench" },
     { include-group = "docs" },
 ]
 dev = ["maturin>=1,<2"]
@@ -59,6 +60,11 @@ lint = [
 testing = [
     { include-group = "dev" },
     "pytest>=8.4,<9",
+]
+bench = [
+    { include-group = "dev" },
+    "flowio>=1.4.0",
+    "fcsparser>=0.2.8",
 ]
 docs = [
     "sphinx==9.1.0",

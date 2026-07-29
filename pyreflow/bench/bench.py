@@ -1,5 +1,6 @@
 import csv
 import sys
+import flowio as fi  # type: ignore
 from typing import NamedTuple, assert_never, Literal
 from pathlib import Path
 from decimal import Decimal
@@ -13,8 +14,75 @@ import numpy as np
 import pyreflow as pf
 import pyreflow.typing as pft
 
+# column names
 
-class BenchKey(Enum):
+BENCH_NAME = "name"
+BYTEORD = "byteord"
+VERSION = "version"
+BIT_WIDTHS = "bit_widths"
+DATATYPES = "datatypes"
+WIDTH = "width"
+HEIGHT = "height"
+N_KEYWORDS = "n_keywords"
+TEXT_NBYTES = "text_nbytes"
+DATA_NBYTES = "data_nbytes"
+
+MEAN_READ_TEXT_NS = "mean_r_text_ns"
+MEAN_READ_TEXT_NS_PER_KW = "mean_r_text_ns_per_kw"
+MEAN_READ_TEXT_NS_PER_KB = "mean_r_text_ns_per_kB"
+SERR_READ_TEXT_NS = "serr_r_text_ns"
+SERR_READ_TEXT_NS_PER_KW = "serr_r_text_ns_per_kw"
+SERR_READ_TEXT_NS_PER_KB = "serr_r_text_ns_per_kB"
+
+MEAN_READ_DATA_NS = "mean_r_data_ns"
+MEAN_READ_DATA_DIFF_NS = "mean_r_data_diff_ns"
+MEAN_READ_DATA_DIFF_NS_PER_KB = "mean_r_data_diff_ns_per_kb"
+MEAN_READ_DATA_DIFF_NS_PER_VAL = "mean_r_data_diff_ns_per_value"
+
+SERR_READ_DATA_NS = "serr_r_data_ns"
+SERR_READ_DATA_DIFF_NS = "serr_r_data_diff_ns"
+SERR_READ_DATA_DIFF_NS_PER_KB = "serr_r_data_diff_ns_per_kb"
+SERR_READ_DATA_DIFF_NS_PER_VAL = "serr_r_data_diff_ns_per_value"
+
+MEAN_WRITE_TEXT_NS = "mean_w_text_ns"
+MEAN_WRITE_TEXT_NS_PER_KW = "mean_w_text_ns_per_kw"
+MEAN_WRITE_TEXT_NS_PER_KB = "mean_w_text_ns_per_kB"
+SERR_WRITE_TEXT_NS = "serr_w_text_ns"
+SERR_WRITE_TEXT_NS_PER_KW = "serr_w_text_ns_per_kw"
+SERR_WRITE_TEXT_NS_PER_KB = "serr_w_text_ns_per_kB"
+
+MEAN_WRITE_DATA_NS = "mean_w_data_ns"
+MEAN_WRITE_DATA_DIFF_NS = "mean_w_data_diff_ns"
+MEAN_WRITE_DATA_DIFF_NS_PER_KB = "mean_w_data_diff_ns_per_kB"
+MEAN_WRITE_DATA_DIFF_NS_PER_VAL = "mean_w_data_diff_ns_per_value"
+
+SERR_WRITE_DATA_NS = "serr_w_data_ns"
+SERR_WRITE_DATA_DIFF_NS = "serr_w_data_diff_ns"
+SERR_WRITE_DATA_DIFF_NS_PER_KB = "serr_w_data_diff_ns_per_kb"
+SERR_WRITE_DATA_DIFF_NS_PER_VAL = "serr_w_data_diff_ns_per_value"
+
+MEAN_READ_STD_NS = "mean_r_std_ns"
+SERR_READ_STD_NS = "serr_r_std_ns"
+
+MEAN_READ_STD_DIFF_NS_PER_KW = "mean_r_std_diff_ns_per_kw"
+SERR_READ_STD_DIFF_NS_PER_KW = "serr_r_std_diff_ns_per_kw"
+
+MEAN_READ_DATA_RNG_NS = "mean_r_data_rng_ns"
+MEAN_READ_DATA_RNG_DIFF_NS = "mean_r_data_rng_diff_ns"
+MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL = "mean_r_data_rng_diff_ns_per_val"
+SERR_READ_DATA_RNG_NS = "serr_r_data_rng_ns"
+SERR_READ_DATA_RNG_DIFF_NS = "serr_r_data_rng_diff_ns"
+SERR_READ_DATA_RNG_DIFF_NS_PER_VAL = "serr_r_data_rng_diff_ns_per_val"
+
+MEAN_READ_DATA_CRC_NS = "mean_r_data_crc_ns"
+MEAN_READ_DATA_CRC_DIFF_NS = "mean_r_data_crc_diff_ns"
+MEAN_READ_DATA_CRC_DIFF_NS_PER_KB = "mean_r_data_crc_diff_ns_per_kB"
+SERR_READ_DATA_CRC_NS = "serr_r_data_crc_ns"
+SERR_READ_DATA_CRC_DIFF_NS = "serr_r_data_crc_diff_ns"
+SERR_READ_DATA_CRC_DIFF_NS_PER_KB = "serr_r_data_crc_diff_ns_per_kB"
+
+
+class FFBenchKey(Enum):
     READ_FLAT = "read_flat"
     READ_STD = "read_std"
     READ_DATA = "read_data"
@@ -24,17 +92,31 @@ class BenchKey(Enum):
     WRITE_DATA = "write_data"
 
 
+class FlowIOBenchKey(Enum):
+    READ_TEXT = "read_text"
+    READ_DATA = "read_data"
+    WRITE_TEXT = "write_text"
+    WRITE_DATA = "write_data"
+
+
 BENCH_FILES_NAME = "bench_files.tsv"
 
 
-TRIAL_NUMBER = {
-    BenchKey.READ_FLAT: 100,
-    BenchKey.READ_STD: 100,
-    BenchKey.READ_DATA: 30,
-    BenchKey.READ_DATA_RNG: 30,
-    BenchKey.READ_DATA_CRC: 30,
-    BenchKey.WRITE_TEXT: 100,
-    BenchKey.WRITE_DATA: 10,
+FF_TRIAL_NUMBER = {
+    FFBenchKey.READ_FLAT: 100,
+    FFBenchKey.READ_STD: 100,
+    FFBenchKey.READ_DATA: 30,
+    FFBenchKey.READ_DATA_RNG: 30,
+    FFBenchKey.READ_DATA_CRC: 30,
+    FFBenchKey.WRITE_TEXT: 100,
+    FFBenchKey.WRITE_DATA: 10,
+}
+
+FLOWIO_TRIAL_NUMBER = {
+    FlowIOBenchKey.READ_TEXT: 10,
+    FlowIOBenchKey.READ_DATA: 10,
+    FlowIOBenchKey.WRITE_TEXT: 10,
+    FlowIOBenchKey.WRITE_DATA: 10,
 }
 
 
@@ -50,9 +132,15 @@ DType = (
 Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 
 
-class BenchResult(NamedTuple):
+class FlowIOBenchResult(NamedTuple):
     name: str
-    key: BenchKey
+    key: FlowIOBenchKey
+    value: float
+
+
+class FFBenchResult(NamedTuple):
+    name: str
+    key: FFBenchKey
     value: float
 
 
@@ -69,9 +157,71 @@ class BenchFile(NamedTuple):
     data_nbytes: int
 
 
-class BenchRun(NamedTuple):
+class FlowIOBenchRun(NamedTuple):
+    """A benchmark run for flowio."""
+
     name: str
-    key: BenchKey
+    key: FlowIOBenchKey
+
+    @property
+    def fcs_name(self) -> Path:
+        return Path(f"{self.name}.fcs")
+
+    def read_text(self, root: Path) -> float:
+        start = perf_counter_ns()
+        fi.FlowData(root / self.fcs_name, only_text=True)
+        return perf_counter_ns() - start
+
+    def read_data(self, root: Path) -> float:
+        start = perf_counter_ns()
+        fd = fi.FlowData(root / self.fcs_name)
+        assert fd.events is not None, f"DATA could not be read for {self.fcs_name}"
+        # This is the fairest comparison with fireflow, since flowio by default
+        # will parse DATA as a 1D list, and fireflow will do an on-the-fly
+        # transposition to put each column in a separate vector. If we want to
+        # be even more pedantic this should actually be put into a pandas
+        # dataframe since that will involve moving each column to its own memory
+        # location, which will probably be slower than simply coercing a vector
+        # into a 2D array.
+        _ = fd.as_array(preprocess=False)
+        end = perf_counter_ns()
+        return end - start
+
+    def write_text(self, input_root: Path, scratch_root: Path) -> float:
+        # fd = fi.FlowData(input_root / self.fcs_name, only_text=True)
+        start = perf_counter_ns()
+        # TODO this might not be possible, flowio complains when writing a file
+        # without events
+        # fd.write_fcs(scratch_root / self.fcs_name)
+        end = perf_counter_ns()
+        return end - start
+
+    def write_data(self, input_root: Path, scratch_root: Path) -> float:
+        fd = fi.FlowData(input_root / self.fcs_name)
+        start = perf_counter_ns()
+        fd.write_fcs(scratch_root / self.fcs_name)
+        end = perf_counter_ns()
+        return end - start
+
+    def run(self, input_root: Path, scratch_root: Path) -> FlowIOBenchResult:
+        if self.key == FlowIOBenchKey.READ_TEXT:
+            value = self.read_text(input_root)
+        elif self.key == FlowIOBenchKey.READ_DATA:
+            value = self.read_data(input_root)
+        elif self.key == FlowIOBenchKey.WRITE_TEXT:
+            value = self.write_text(input_root, scratch_root)
+        elif self.key == FlowIOBenchKey.WRITE_DATA:
+            value = self.write_data(input_root, scratch_root)
+        else:
+            assert_never(self.key)
+        return FlowIOBenchResult(name=self.name, key=self.key, value=value)
+
+
+class FFBenchRun(NamedTuple):
+    """A benchmark run for fireflow."""
+
+    name: str
+    key: FFBenchKey
 
     @property
     def fcs_name(self) -> Path:
@@ -125,24 +275,24 @@ class BenchRun(NamedTuple):
         end = perf_counter_ns()
         return end - start
 
-    def run(self, input_root: Path, scratch_root: Path) -> BenchResult:
-        if self.key == BenchKey.READ_FLAT:
+    def run(self, input_root: Path, scratch_root: Path) -> FFBenchResult:
+        if self.key == FFBenchKey.READ_FLAT:
             value = self.read_flat(input_root)
-        elif self.key == BenchKey.READ_STD:
+        elif self.key == FFBenchKey.READ_STD:
             value = self.read_std(input_root)
-        elif self.key == BenchKey.READ_DATA:
+        elif self.key == FFBenchKey.READ_DATA:
             value = self.read_flat_data(input_root, False, False)
-        elif self.key == BenchKey.READ_DATA_RNG:
+        elif self.key == FFBenchKey.READ_DATA_RNG:
             value = self.read_flat_data(input_root, True, False)
-        elif self.key == BenchKey.READ_DATA_CRC:
+        elif self.key == FFBenchKey.READ_DATA_CRC:
             value = self.read_flat_data(input_root, False, True)
-        elif self.key == BenchKey.WRITE_TEXT:
+        elif self.key == FFBenchKey.WRITE_TEXT:
             value = self.write_text(input_root, scratch_root)
-        elif self.key == BenchKey.WRITE_DATA:
+        elif self.key == FFBenchKey.WRITE_DATA:
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return BenchResult(name=self.name, key=self.key, value=value)
+        return FFBenchResult(name=self.name, key=self.key, value=value)
 
     def check_data(self, input_root: Path, scratch_root: Path) -> None:
         """Ensure DATA didn't get screwed up during optimization.
@@ -591,55 +741,206 @@ def make_bench_files(root: Path) -> None:
             w.writerow(row)
 
 
-def run_bench(
+def fmt_value(mean: str, ci: str, out: str, digits: int = 1) -> pl.Expr:
+    return pl.format(
+        "{} (±{}%)",
+        pl.col(mean).round(digits),
+        # 95% confidence interval as percentage of mean
+        (pl.col(ci) / pl.col(mean) * 100 * 1.96).round(1),
+    ).alias(out)
+
+
+def run_flowio_bench(
     input_root: Path,
-    output_root: Path | None,
     scratch_root: Path,
     names_filter: list[str],
-) -> None:
+) -> pl.DataFrame:
     scratch_root.mkdir(parents=True, exist_ok=True)
 
     bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
     if len(names_filter) > 0:
-        bench_files = bench_files.filter(pl.col("name").is_in(names_filter))
+        bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
 
     runs = [
-        BenchRun(name=n, key=k)
-        for n in bench_files["name"]
-        for k in BenchKey
-        for _ in range(0, TRIAL_NUMBER[k])
+        FlowIOBenchRun(name=n, key=k)
+        for n in bench_files.filter(
+            ~pl.col("version").eq("FCS3.2")
+            & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
+            & ~pl.col("bit_widths").is_in(["24", "64"])
+        )[BENCH_NAME]
+        for k in FlowIOBenchKey
+        for _ in range(0, FLOWIO_TRIAL_NUMBER[k])
     ]
 
-    # loop through each name only once
-    for r in set(r for r in runs if r.key == BenchKey.READ_DATA):
-        r.check_data(input_root, scratch_root)
+    # Don't check DATA vs TSV truth data like we do for fireflow
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
     results = [r.run(input_root, scratch_root) for r in runs]
 
-    read_flat_results = [r for r in results if r.key == BenchKey.READ_FLAT]
-    read_std_results = [r for r in results if r.key == BenchKey.READ_STD]
-    read_data_results = [r for r in results if r.key == BenchKey.READ_DATA]
-    read_data_rng_results = [r for r in results if r.key == BenchKey.READ_DATA_RNG]
-    read_data_crc_results = [r for r in results if r.key == BenchKey.READ_DATA_CRC]
-    write_text_results = [r for r in results if r.key == BenchKey.WRITE_TEXT]
-    write_data_results = [r for r in results if r.key == BenchKey.WRITE_DATA]
+    read_flat_results = [r for r in results if r.key == FlowIOBenchKey.READ_TEXT]
+    read_data_results = [r for r in results if r.key == FlowIOBenchKey.READ_DATA]
+    write_text_results = [r for r in results if r.key == FlowIOBenchKey.WRITE_TEXT]
+    write_data_results = [r for r in results if r.key == FlowIOBenchKey.WRITE_DATA]
 
-    def to_df(rs: list[BenchResult], name: str) -> pl.DataFrame:
+    def to_df(rs: list[FlowIOBenchResult], name: str) -> pl.DataFrame:
         full_name = f"{name}_ns"
         result_df = pl.DataFrame(
             [[r.name for r in rs], [r.value for r in rs]],
-            {"name": pl.String, full_name: pl.Float32},
+            {BENCH_NAME: pl.String, full_name: pl.Float32},
         )
-        return result_df.group_by("name").agg(
+        return result_df.group_by(BENCH_NAME).agg(
             pl.col(full_name).mean().name.prefix("mean_"),
             (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
                 "serr_"
             ),
         )
 
-    read_flat_df = to_df(read_flat_results, "r_flat")
+    read_text_df = to_df(read_flat_results, "r_text")
+    read_data_df = to_df(read_data_results, "r_data")
+    write_text_df = to_df(write_text_results, "w_text")
+    write_data_df = to_df(write_data_results, "w_data")
+
+    df_analyzed = (
+        read_text_df.join(bench_files, on=BENCH_NAME)
+        .with_columns(
+            # normalize TEXT parse time to keyword number and TEXT length in kB
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                MEAN_READ_TEXT_NS_PER_KW
+            ),
+            (pl.col(SERR_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                SERR_READ_TEXT_NS_PER_KW
+            ),
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                MEAN_READ_TEXT_NS_PER_KB
+            ),
+            (pl.col(SERR_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                SERR_READ_TEXT_NS_PER_KB
+            ),
+        )
+        .join(read_data_df, on=BENCH_NAME)
+        .with_columns(
+            # compute time taken to read DATA by taking difference of data run
+            # and flat run (note DATA was read in flat mode to reduce noise)
+            (pl.col(MEAN_READ_DATA_NS) - pl.col(MEAN_READ_TEXT_NS)).alias(
+                MEAN_READ_DATA_DIFF_NS
+            ),
+            (pl.col(SERR_READ_DATA_NS).pow(2) + pl.col(SERR_READ_TEXT_NS).pow(2))
+            .sqrt()
+            .alias(SERR_READ_DATA_DIFF_NS),
+        )
+        .with_columns(
+            # normalize DATA read time to number of kB read and number of
+            # values read
+            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                MEAN_READ_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                SERR_READ_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                MEAN_READ_DATA_DIFF_NS_PER_VAL
+            ),
+            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                SERR_READ_DATA_DIFF_NS_PER_VAL
+            ),
+        )
+        .join(write_text_df, on=BENCH_NAME)
+        .with_columns(
+            # normalize TEXT write time to keyword number and TEXT length in kB
+            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                MEAN_WRITE_TEXT_NS_PER_KW
+            ),
+            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                SERR_WRITE_TEXT_NS_PER_KW
+            ),
+            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                MEAN_WRITE_TEXT_NS_PER_KB
+            ),
+            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                SERR_WRITE_TEXT_NS_PER_KB
+            ),
+        )
+        .join(write_data_df, on=BENCH_NAME)
+        .with_columns(
+            # compute time taken to write DATA by taking difference of DATA run
+            # and TEXT run
+            (pl.col(MEAN_WRITE_DATA_NS) - pl.col(MEAN_WRITE_TEXT_NS)).alias(
+                MEAN_WRITE_DATA_DIFF_NS
+            ),
+            (pl.col(SERR_WRITE_DATA_NS).pow(2) + pl.col(SERR_WRITE_TEXT_NS).pow(2))
+            .sqrt()
+            .alias(SERR_WRITE_DATA_DIFF_NS),
+        )
+        .with_columns(
+            # normalize DATA read time to number of kB written and number of
+            # values written
+            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                MEAN_WRITE_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                SERR_WRITE_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                MEAN_WRITE_DATA_DIFF_NS_PER_VAL
+            ),
+            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                SERR_WRITE_DATA_DIFF_NS_PER_VAL
+            ),
+        )
+    )
+
+    return df_analyzed
+
+
+def run_ff_bench(
+    input_root: Path,
+    scratch_root: Path,
+    names_filter: list[str],
+) -> pl.DataFrame:
+    scratch_root.mkdir(parents=True, exist_ok=True)
+
+    bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
+    if len(names_filter) > 0:
+        bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
+
+    runs = [
+        FFBenchRun(name=n, key=k)
+        for n in bench_files[BENCH_NAME]
+        for k in FFBenchKey
+        for _ in range(0, FF_TRIAL_NUMBER[k])
+    ]
+
+    # loop through each name only once to check DATA integrity
+    for r in set(r for r in runs if r.key == FFBenchKey.READ_DATA):
+        r.check_data(input_root, scratch_root)
+
+    # randomly shuffle runs to eliminate temporal bias
+    shuffle(runs)
+    results = [r.run(input_root, scratch_root) for r in runs]
+
+    read_flat_results = [r for r in results if r.key == FFBenchKey.READ_FLAT]
+    read_std_results = [r for r in results if r.key == FFBenchKey.READ_STD]
+    read_data_results = [r for r in results if r.key == FFBenchKey.READ_DATA]
+    read_data_rng_results = [r for r in results if r.key == FFBenchKey.READ_DATA_RNG]
+    read_data_crc_results = [r for r in results if r.key == FFBenchKey.READ_DATA_CRC]
+    write_text_results = [r for r in results if r.key == FFBenchKey.WRITE_TEXT]
+    write_data_results = [r for r in results if r.key == FFBenchKey.WRITE_DATA]
+
+    def to_df(rs: list[FFBenchResult], name: str) -> pl.DataFrame:
+        full_name = f"{name}_ns"
+        result_df = pl.DataFrame(
+            [[r.name for r in rs], [r.value for r in rs]],
+            {BENCH_NAME: pl.String, full_name: pl.Float32},
+        )
+        return result_df.group_by(BENCH_NAME).agg(
+            pl.col(full_name).mean().name.prefix("mean_"),
+            (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
+                "serr_"
+            ),
+        )
+
+    read_flat_df = to_df(read_flat_results, "r_text")
     read_std_df = to_df(read_std_results, "r_std")
     read_data_df = to_df(read_data_results, "r_data")
     read_data_rng_df = to_df(read_data_rng_results, "r_data_rng")
@@ -648,189 +949,187 @@ def run_bench(
     write_data_df = to_df(write_data_results, "w_data")
 
     df_analyzed = (
-        read_flat_df.join(bench_files, on="name")
+        read_flat_df.join(bench_files, on=BENCH_NAME)
         .with_columns(
             # normalize flat TEXT parse time to keyword number and TEXT length in kB
-            (pl.col("mean_r_flat_ns") / pl.col("n_keywords")).alias(
-                "mean_r_flat_ns_per_kw"
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                MEAN_READ_TEXT_NS_PER_KW,
             ),
-            (pl.col("serr_r_flat_ns") / pl.col("n_keywords")).alias(
-                "serr_r_flat_ns_per_kw"
+            (pl.col(SERR_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                SERR_READ_TEXT_NS_PER_KW
             ),
-            (pl.col("mean_r_flat_ns") / pl.col("text_nbytes") * 1000).alias(
-                "mean_r_flat_ns_per_kB"
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                MEAN_READ_TEXT_NS_PER_KB
             ),
-            (pl.col("serr_r_flat_ns") / pl.col("text_nbytes") * 1000).alias(
-                "serr_r_flat_ns_per_kB"
+            (pl.col(SERR_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                SERR_READ_TEXT_NS_PER_KB
             ),
         )
-        .join(read_std_df, on="name")
+        .join(read_std_df, on=BENCH_NAME)
         .with_columns(
             # compute the overhead of standardizing TEXT by taking difference of
             # total std run and flat run
             (
-                (pl.col("mean_r_std_ns") - pl.col("mean_r_flat_ns"))
-                / pl.col("n_keywords")
-            ).alias("mean_r_std_diff_ns_per_kw"),
+                (pl.col(MEAN_READ_STD_NS) - pl.col(MEAN_READ_TEXT_NS))
+                / pl.col(N_KEYWORDS)
+            ).alias(MEAN_READ_STD_DIFF_NS_PER_KW),
             (
                 (
-                    pl.col("serr_r_std_ns").pow(2) + pl.col("serr_r_flat_ns").pow(2)
+                    pl.col(SERR_READ_STD_NS).pow(2) + pl.col(SERR_READ_TEXT_NS).pow(2)
                 ).sqrt()
-                / pl.col("n_keywords")
-            ).alias("serr_r_std_diff_ns_per_kw"),
+                / pl.col(N_KEYWORDS)
+            ).alias(SERR_READ_STD_DIFF_NS_PER_KW),
             # also compute the ratio of standard to flat (no variance since this
             # is really complex
-            (pl.col("mean_r_std_ns") / pl.col("mean_r_flat_ns") * 100 - 100).alias(
+            (pl.col(MEAN_READ_STD_NS) / pl.col(MEAN_READ_TEXT_NS) * 100 - 100).alias(
                 "r_std_ratio"
             ),
         )
-        .join(read_data_df, on="name")
+        .join(read_data_df, on=BENCH_NAME)
         .with_columns(
             # compute time taken to read DATA by taking difference of data run
             # and flat run (note DATA was read in flat mode to reduce noise)
-            (pl.col("mean_r_data_ns") - pl.col("mean_r_flat_ns")).alias(
-                "mean_r_data_diff_ns"
+            (pl.col(MEAN_READ_DATA_NS) - pl.col(MEAN_READ_TEXT_NS)).alias(
+                MEAN_READ_DATA_DIFF_NS
             ),
-            (pl.col("serr_r_data_ns").pow(2) + pl.col("serr_r_flat_ns").pow(2))
+            (pl.col(SERR_READ_DATA_NS).pow(2) + pl.col(SERR_READ_TEXT_NS).pow(2))
             .sqrt()
-            .alias("serr_r_data_diff_ns"),
+            .alias(SERR_READ_DATA_DIFF_NS),
         )
-        .join(read_data_rng_df, on="name")
+        .join(read_data_rng_df, on=BENCH_NAME)
         .with_columns(
             # compute time taken to check ranges by taking difference of reading
             # DATA with and without range change applied. Note that there should
             # be no actual range errors given how to dataframes were built.
-            (pl.col("mean_r_data_rng_ns") - pl.col("mean_r_data_ns")).alias(
-                "mean_r_data_rng_diff_ns"
+            (pl.col(MEAN_READ_DATA_RNG_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
+                MEAN_READ_DATA_RNG_DIFF_NS
             ),
-            (pl.col("serr_r_data_rng_ns").pow(2) + pl.col("serr_r_data_ns").pow(2))
+            (pl.col(SERR_READ_DATA_RNG_NS).pow(2) + pl.col(SERR_READ_DATA_NS).pow(2))
             .sqrt()
-            .alias("serr_r_data_rng_diff_ns"),
+            .alias(SERR_READ_DATA_RNG_DIFF_NS),
             # also compute the ratio of DATA+range check to reading DATA alone
             # (no variance since this is really complex
             (
-                pl.col("mean_r_data_rng_ns") / pl.col("mean_r_data_diff_ns") * 100 - 100
+                pl.col(MEAN_READ_DATA_RNG_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
+                - 100
             ).alias("r_data_rng_ratio"),
         )
-        .join(read_data_crc_df, on="name")
+        .join(read_data_crc_df, on=BENCH_NAME)
         .with_columns(
             # do analogous calculation to range check for CRC computation
-            (pl.col("mean_r_data_crc_ns") - pl.col("mean_r_data_ns")).alias(
-                "mean_r_data_crc_diff_ns"
+            (pl.col(MEAN_READ_DATA_CRC_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
+                MEAN_READ_DATA_CRC_DIFF_NS
             ),
-            (pl.col("serr_r_data_crc_ns").pow(2) + pl.col("serr_r_data_ns").pow(2))
+            (pl.col(SERR_READ_DATA_CRC_NS).pow(2) + pl.col(SERR_READ_DATA_NS).pow(2))
             .sqrt()
-            .alias("serr_r_data_crc_diff_ns"),
+            .alias(SERR_READ_DATA_CRC_DIFF_NS),
             # also compute the ratio of DATA+CRC check to reading DATA alone
             # (no variance since this is really complex
             (
-                pl.col("mean_r_data_crc_ns") / pl.col("mean_r_data_diff_ns") * 100 - 100
+                pl.col(MEAN_READ_DATA_CRC_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
+                - 100
             ).alias("r_data_crc_ratio"),
         )
         .with_columns(
             # normalize DATA read time to number of kB read and number of
             # values read
-            (pl.col("mean_r_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
-                "mean_r_data_diff_ns_per_kB"
+            (pl.col("mean_r_data_diff_ns") / pl.col(DATA_NBYTES) * 1000).alias(
+                MEAN_READ_DATA_DIFF_NS_PER_KB
             ),
-            (pl.col("serr_r_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
-                "serr_r_data_diff_ns_per_kB"
+            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                SERR_READ_DATA_DIFF_NS_PER_KB
             ),
-            (pl.col("mean_r_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
-                "mean_r_data_diff_ns_per_value"
+            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                MEAN_READ_DATA_DIFF_NS_PER_VAL
             ),
-            (pl.col("serr_r_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
-                "serr_r_data_diff_ns_per_value"
+            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                SERR_READ_DATA_DIFF_NS_PER_VAL
+            ),
+            (pl.col(MEAN_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL
+            ),
+            (pl.col(SERR_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                SERR_READ_DATA_RNG_DIFF_NS_PER_VAL
             ),
             (
-                pl.col("mean_r_data_rng_diff_ns") / pl.col("width") / pl.col("height")
-            ).alias("mean_r_data_rng_diff_ns_per_val"),
-            (
-                pl.col("serr_r_data_rng_diff_ns") / pl.col("width") / pl.col("height")
-            ).alias("serr_r_data_rng_diff_ns_per_val"),
-            (
-                pl.col("mean_r_data_crc_diff_ns")
-                / (pl.col("text_nbytes") + pl.col("data_nbytes"))
+                pl.col(MEAN_READ_DATA_CRC_DIFF_NS)
+                / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
                 * 1000
-            ).alias("mean_r_data_crc_diff_ns_per_kB"),
+            ).alias(MEAN_READ_DATA_CRC_DIFF_NS_PER_KB),
             (
-                pl.col("serr_r_data_crc_diff_ns")
-                / (pl.col("text_nbytes") + pl.col("data_nbytes"))
+                pl.col(SERR_READ_DATA_CRC_DIFF_NS)
+                / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
                 * 1000
-            ).alias("serr_r_data_crc_diff_ns_per_kB"),
+            ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KB),
         )
-        .join(write_text_df, on="name")
+        .join(write_text_df, on=BENCH_NAME)
         .with_columns(
             # normalize TEXT write time to keyword number and TEXT length in kB
-            (pl.col("mean_w_text_ns") / pl.col("n_keywords")).alias(
-                "mean_w_text_ns_per_kw"
+            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                MEAN_WRITE_TEXT_NS_PER_KW
             ),
-            (pl.col("serr_w_text_ns") / pl.col("n_keywords")).alias(
-                "serr_w_text_ns_per_kw"
+            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                SERR_WRITE_TEXT_NS_PER_KW
             ),
-            (pl.col("mean_w_text_ns") / pl.col("text_nbytes") * 1000).alias(
-                "mean_w_text_ns_per_kB"
+            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                MEAN_WRITE_TEXT_NS_PER_KB
             ),
-            (pl.col("serr_w_text_ns") / pl.col("text_nbytes") * 1000).alias(
-                "serr_w_text_ns_per_kB"
+            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                SERR_WRITE_TEXT_NS_PER_KB
             ),
         )
-        .join(write_data_df, on="name")
+        .join(write_data_df, on=BENCH_NAME)
         .with_columns(
             # compute time taken to write DATA by taking difference of DATA run
             # and TEXT run
-            (pl.col("mean_w_data_ns") - pl.col("mean_w_text_ns")).alias(
-                "mean_w_data_diff_ns"
+            (pl.col(MEAN_WRITE_DATA_NS) - pl.col(MEAN_WRITE_TEXT_NS)).alias(
+                MEAN_WRITE_DATA_DIFF_NS
             ),
-            (pl.col("serr_w_data_ns").pow(2) + pl.col("serr_w_text_ns").pow(2))
+            (pl.col(SERR_WRITE_DATA_NS).pow(2) + pl.col(SERR_WRITE_TEXT_NS).pow(2))
             .sqrt()
-            .alias("serr_w_data_diff_ns"),
+            .alias(SERR_WRITE_DATA_DIFF_NS),
         )
         .with_columns(
             # normalize DATA read time to number of kB written and number of
             # values written
-            (pl.col("mean_w_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
-                "mean_w_data_diff_ns_per_kB"
+            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                MEAN_WRITE_DATA_DIFF_NS_PER_KB
             ),
-            (pl.col("serr_w_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
-                "serr_w_data_diff_ns_per_kB"
+            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                SERR_WRITE_DATA_DIFF_NS_PER_KB
             ),
-            (pl.col("mean_w_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
-                "mean_w_data_diff_ns_per_value"
+            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                MEAN_WRITE_DATA_DIFF_NS_PER_VAL
             ),
-            (pl.col("serr_w_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
-                "serr_w_data_diff_ns_per_value"
+            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                SERR_WRITE_DATA_DIFF_NS_PER_VAL
             ),
         )
         .with_columns(
             # ratio of write to read (no variance because this more complicated than its worth)
-            (pl.col("mean_r_flat_ns") / pl.col("mean_w_text_ns") * 100).alias(
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(MEAN_WRITE_TEXT_NS) * 100).alias(
                 "text_rw_ratio"
             ),
-            (pl.col("mean_r_data_ns") / pl.col("mean_w_data_ns") * 100).alias(
+            (pl.col("mean_r_data_ns") / pl.col(MEAN_WRITE_DATA_NS) * 100).alias(
                 "data_rw_ratio"
             ),
         )
     )
 
-    def fmt_value(mean: str, ci: str, out: str, digits: int = 1) -> pl.Expr:
-        return pl.format(
-            "{} (±{}%)",
-            pl.col(mean).round(digits),
-            # 95% confidence interval as percentage of mean
-            (pl.col(ci) / pl.col(mean) * 100 * 1.96).round(1),
-        ).alias(out)
+    return df_analyzed
 
+
+def print_ff_df(df: pl.DataFrame, output_root: Path | None) -> None:
     metadata_cols = [
         "version",
-        pl.col("width").alias("$PAR"),
-        pl.col("height").alias("$TOT"),
-        pl.col("byteord").alias("$BYTEORD"),
-        pl.col("datatypes").alias("$DATATYPE"),
-        pl.col("bit_widths").alias("$PnB"),
+        pl.col(WIDTH).alias("$PAR"),
+        pl.col(HEIGHT).alias("$TOT"),
+        pl.col(BYTEORD).alias("$BYTEORD"),
+        pl.col(DATATYPES).alias("$DATATYPE"),
+        pl.col(BIT_WIDTHS).alias("$PnB"),
     ]
 
-    sort_cols = ["byteord", "version", "bit_widths", "datatypes", "height"]
+    sort_cols = [BYTEORD, VERSION, BIT_WIDTHS, DATATYPES, HEIGHT]
 
     READ_TEXT_PER_KW = "TEXT read (ns/kw)"
     READ_TEXT_PER_KB = "TEXT read (ns/kB)"
@@ -848,68 +1147,76 @@ def run_bench(
     WRITE_DATA_PER_VAL = "DATA write (ns/val)"
     WRITE_DATA_PER_KB = "DATA write (ns/kB)"
 
-    df_analyzed_full = df_analyzed.sort(by=sort_cols).select(
+    df_final = df.sort(by=sort_cols).select(
         [
-            "name",
+            BENCH_NAME,
             *metadata_cols,
             # read flat
             fmt_value(
-                "mean_r_flat_ns_per_kw", "serr_r_flat_ns_per_kw", READ_TEXT_PER_KW
+                MEAN_READ_TEXT_NS_PER_KW,
+                SERR_READ_TEXT_NS_PER_KW,
+                READ_TEXT_PER_KW,
             ),
             fmt_value(
-                "mean_r_flat_ns_per_kB", "serr_r_flat_ns_per_kB", READ_TEXT_PER_KB
+                MEAN_READ_TEXT_NS_PER_KB,
+                SERR_READ_TEXT_NS_PER_KB,
+                READ_TEXT_PER_KB,
             ),
             # read std
             fmt_value(
-                "mean_r_std_diff_ns_per_kw",
-                "serr_r_std_diff_ns_per_kw",
+                MEAN_READ_STD_DIFF_NS_PER_KW,
+                SERR_READ_STD_DIFF_NS_PER_KW,
                 READ_STD_PER_KW,
             ),
             pl.col("r_std_ratio").round(1).alias(READ_STD_RATIO),
             # read data
             fmt_value(
-                "mean_r_data_diff_ns_per_value",
-                "serr_r_data_diff_ns_per_value",
+                MEAN_READ_DATA_DIFF_NS_PER_VAL,
+                SERR_READ_DATA_DIFF_NS_PER_VAL,
                 READ_DATA_PER_VAL,
                 3,
             ),
             fmt_value(
-                "mean_r_data_diff_ns_per_kB",
-                "serr_r_data_diff_ns_per_kB",
+                MEAN_READ_DATA_DIFF_NS_PER_KB,
+                SERR_READ_DATA_DIFF_NS_PER_KB,
                 READ_DATA_PER_KB,
             ),
             # read range
             fmt_value(
-                "mean_r_data_rng_diff_ns_per_val",
-                "serr_r_data_rng_diff_ns_per_val",
+                MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL,
+                SERR_READ_DATA_RNG_DIFF_NS_PER_VAL,
                 READ_RNG_PER_VAL,
                 3,
             ),
             pl.col("r_data_rng_ratio").round(1).alias(READ_RNG_RATIO),
             # read crc
             fmt_value(
-                "mean_r_data_crc_diff_ns_per_kB",
-                "serr_r_data_crc_diff_ns_per_kB",
+                MEAN_READ_DATA_CRC_DIFF_NS_PER_KB,
+                SERR_READ_DATA_CRC_DIFF_NS_PER_KB,
                 READ_CRC_PER_KB,
             ),
             pl.col("r_data_crc_ratio").round(1).alias(READ_CRC_RATIO),
             # write text
             fmt_value(
-                "mean_w_text_ns_per_kw", "serr_w_text_ns_per_kw", WRITE_TEXT_PER_KW
+                MEAN_WRITE_TEXT_NS_PER_KW,
+                SERR_WRITE_TEXT_NS_PER_KW,
+                WRITE_TEXT_PER_KW,
             ),
             fmt_value(
-                "mean_w_text_ns_per_kB", "serr_w_text_ns_per_kB", WRITE_TEXT_PER_KB
+                MEAN_WRITE_TEXT_NS_PER_KB,
+                SERR_WRITE_TEXT_NS_PER_KB,
+                WRITE_TEXT_PER_KB,
             ),
             # write data
             fmt_value(
-                "mean_w_data_diff_ns_per_value",
-                "serr_w_data_diff_ns_per_value",
+                MEAN_WRITE_DATA_DIFF_NS_PER_VAL,
+                SERR_WRITE_DATA_DIFF_NS_PER_VAL,
                 WRITE_DATA_PER_VAL,
                 3,
             ),
             fmt_value(
-                "mean_w_data_diff_ns_per_kB",
-                "serr_w_data_diff_ns_per_kB",
+                MEAN_WRITE_DATA_DIFF_NS_PER_KB,
+                SERR_WRITE_DATA_DIFF_NS_PER_KB,
                 WRITE_DATA_PER_KB,
             ),
             # read vs write
@@ -919,11 +1226,11 @@ def run_bench(
     )
 
     if output_root is None:
-        df_analyzed_full.write_csv(sys.stdout, separator="\t")
+        df_final.write_csv(sys.stdout, separator="\t")
     else:
         output_root.mkdir(parents=True, exist_ok=True)
         with open(output_root / "analysis.tsv", "w") as f:
-            df_analyzed_full.write_csv(f, separator="\t")
+            df_final.write_csv(f, separator="\t")
 
 
 def main(args: list[str]) -> None:
@@ -932,10 +1239,72 @@ def main(args: list[str]) -> None:
 
     if cmd == "make":
         make_bench_files(bench_path)
-    elif cmd == "run":
+    elif cmd == "run_all":
+        output_root = None if args[3] == "-" else Path(args[3])
+        scratch_ff_root = Path(args[4])
+        scratch_flowio_root = Path(args[5])
+        names_filter = args[6:]
+        df_ff = run_ff_bench(bench_path, scratch_ff_root, names_filter)
+        df_flowio = run_flowio_bench(bench_path, scratch_flowio_root, names_filter)
+        columns = [
+            BENCH_NAME,
+            BYTEORD,
+            VERSION,
+            BIT_WIDTHS,
+            DATATYPES,
+            WIDTH,
+            HEIGHT,
+            N_KEYWORDS,
+            TEXT_NBYTES,
+            DATA_NBYTES,
+            MEAN_READ_TEXT_NS,
+            MEAN_READ_TEXT_NS_PER_KW,
+            MEAN_READ_TEXT_NS_PER_KB,
+            SERR_READ_TEXT_NS,
+            SERR_READ_TEXT_NS_PER_KW,
+            SERR_READ_TEXT_NS_PER_KB,
+            MEAN_READ_DATA_NS,
+            MEAN_READ_DATA_DIFF_NS,
+            MEAN_READ_DATA_DIFF_NS_PER_KB,
+            MEAN_READ_DATA_DIFF_NS_PER_VAL,
+            SERR_READ_DATA_NS,
+            SERR_READ_DATA_DIFF_NS,
+            SERR_READ_DATA_DIFF_NS_PER_KB,
+            SERR_READ_DATA_DIFF_NS_PER_VAL,
+            MEAN_WRITE_TEXT_NS,
+            MEAN_WRITE_TEXT_NS_PER_KW,
+            MEAN_WRITE_TEXT_NS_PER_KB,
+            SERR_WRITE_TEXT_NS,
+            SERR_WRITE_TEXT_NS_PER_KW,
+            SERR_WRITE_TEXT_NS_PER_KB,
+            MEAN_WRITE_DATA_NS,
+            MEAN_WRITE_DATA_DIFF_NS,
+            MEAN_WRITE_DATA_DIFF_NS_PER_KB,
+            MEAN_WRITE_DATA_DIFF_NS_PER_VAL,
+            SERR_WRITE_DATA_NS,
+            SERR_WRITE_DATA_DIFF_NS,
+            SERR_WRITE_DATA_DIFF_NS_PER_KB,
+            SERR_WRITE_DATA_DIFF_NS_PER_VAL,
+        ]
+        df_all = pl.concat(
+            [
+                df_ff.select(columns).with_columns(tool=pl.lit("fireflow")),
+                df_flowio.select(columns).with_columns(tool=pl.lit("flowio")),
+            ],
+            how="vertical",
+        )
+        if output_root is None:
+            df_all.write_csv(sys.stdout, separator="\t")
+        else:
+            output_root.mkdir(parents=True, exist_ok=True)
+            with open(output_root / "bench_all.tsv", "w") as f:
+                df_all.write_csv(f, separator="\t")
+
+    elif cmd == "run_ff":
         output_root = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
-        run_bench(bench_path, output_root, scratch_root, args[5:])
+        df = run_ff_bench(bench_path, scratch_root, args[5:])
+        print_ff_df(df, output_root)
     else:
         print(f"invalid command: {cmd}")
         exit(1)

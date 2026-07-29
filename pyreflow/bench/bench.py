@@ -18,6 +18,8 @@ class BenchKey(Enum):
     READ_FLAT = "read_flat"
     READ_STD = "read_std"
     READ_DATA = "read_data"
+    READ_DATA_RNG = "read_data_rng"
+    READ_DATA_CRC = "read_data_crc"
     WRITE_TEXT = "write_text"
     WRITE_DATA = "write_data"
 
@@ -28,7 +30,9 @@ BENCH_FILES_NAME = "bench_files.tsv"
 TRIAL_NUMBER = {
     BenchKey.READ_FLAT: 100,
     BenchKey.READ_STD: 100,
-    BenchKey.READ_DATA: 10,
+    BenchKey.READ_DATA: 30,
+    BenchKey.READ_DATA_RNG: 30,
+    BenchKey.READ_DATA_CRC: 30,
     BenchKey.WRITE_TEXT: 100,
     BenchKey.WRITE_DATA: 10,
 }
@@ -87,9 +91,19 @@ class BenchRun(NamedTuple):
         pf.api.fcs_read_std_text(root / self.fcs_name, time_meas_pattern=None)
         return perf_counter_ns() - start
 
-    def read_flat_data(self, root: Path) -> float:
+    def read_flat_data(
+        self,
+        root: Path,
+        check_range: bool,
+        compute_crc: bool,
+    ) -> float:
         start = perf_counter_ns()
-        pf.api.fcs_read_flat_dataset(root / self.fcs_name)
+        pf.api.fcs_read_flat_dataset(
+            root / self.fcs_name,
+            over_bitmask_action="none",
+            over_range_action="warn" if check_range else "none",
+            compute_crc="always" if compute_crc else "never",
+        )
         end = perf_counter_ns()
         return end - start
 
@@ -117,7 +131,11 @@ class BenchRun(NamedTuple):
         elif self.key == BenchKey.READ_STD:
             value = self.read_std(input_root)
         elif self.key == BenchKey.READ_DATA:
-            value = self.read_flat_data(input_root)
+            value = self.read_flat_data(input_root, False, False)
+        elif self.key == BenchKey.READ_DATA_RNG:
+            value = self.read_flat_data(input_root, True, False)
+        elif self.key == BenchKey.READ_DATA_CRC:
+            value = self.read_flat_data(input_root, False, True)
         elif self.key == BenchKey.WRITE_TEXT:
             value = self.write_text(input_root, scratch_root)
         elif self.key == BenchKey.WRITE_DATA:
@@ -186,19 +204,7 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
     def sum_dict(xs: dict[str, str]) -> int:
         return sum(len(k) + len(v) for k, v in xs.items())
 
-    version: pft.FCSVersion
-    # TODO this should be a method on the core class
-    if isinstance(core, pf.CoreDataset2_0):
-        version = "FCS2.0"
-    elif isinstance(core, pf.CoreDataset3_0):
-        version = "FCS3.0"
-    elif isinstance(core, pf.CoreDataset3_1):
-        version = "FCS3.1"
-    elif isinstance(core, pf.CoreDataset3_2):
-        version = "FCS3.2"
-    else:
-        assert_never(core)
-
+    version = core.version
     height = core.data.height
     width = core.data.width
 
@@ -615,6 +621,8 @@ def run_bench(
     read_flat_results = [r for r in results if r.key == BenchKey.READ_FLAT]
     read_std_results = [r for r in results if r.key == BenchKey.READ_STD]
     read_data_results = [r for r in results if r.key == BenchKey.READ_DATA]
+    read_data_rng_results = [r for r in results if r.key == BenchKey.READ_DATA_RNG]
+    read_data_crc_results = [r for r in results if r.key == BenchKey.READ_DATA_CRC]
     write_text_results = [r for r in results if r.key == BenchKey.WRITE_TEXT]
     write_data_results = [r for r in results if r.key == BenchKey.WRITE_DATA]
 
@@ -634,6 +642,8 @@ def run_bench(
     read_flat_df = to_df(read_flat_results, "r_flat")
     read_std_df = to_df(read_std_results, "r_std")
     read_data_df = to_df(read_data_results, "r_data")
+    read_data_rng_df = to_df(read_data_rng_results, "r_data_rng")
+    read_data_crc_df = to_df(read_data_crc_results, "r_data_crc")
     write_text_df = to_df(write_text_results, "w_text")
     write_data_df = to_df(write_data_results, "w_data")
 
@@ -685,6 +695,38 @@ def run_bench(
             .sqrt()
             .alias("serr_r_data_diff_ns"),
         )
+        .join(read_data_rng_df, on="name")
+        .with_columns(
+            # compute time taken to check ranges by taking difference of reading
+            # DATA with and without range change applied. Note that there should
+            # be no actual range errors given how to dataframes were built.
+            (pl.col("mean_r_data_rng_ns") - pl.col("mean_r_data_ns")).alias(
+                "mean_r_data_rng_diff_ns"
+            ),
+            (pl.col("serr_r_data_rng_ns").pow(2) + pl.col("serr_r_data_ns").pow(2))
+            .sqrt()
+            .alias("serr_r_data_rng_diff_ns"),
+            # also compute the ratio of DATA+range check to reading DATA alone
+            # (no variance since this is really complex
+            (
+                pl.col("mean_r_data_rng_ns") / pl.col("mean_r_data_diff_ns") * 100 - 100
+            ).alias("r_data_rng_ratio"),
+        )
+        .join(read_data_crc_df, on="name")
+        .with_columns(
+            # do analogous calculation to range check for CRC computation
+            (pl.col("mean_r_data_crc_ns") - pl.col("mean_r_data_ns")).alias(
+                "mean_r_data_crc_diff_ns"
+            ),
+            (pl.col("serr_r_data_crc_ns").pow(2) + pl.col("serr_r_data_ns").pow(2))
+            .sqrt()
+            .alias("serr_r_data_crc_diff_ns"),
+            # also compute the ratio of DATA+CRC check to reading DATA alone
+            # (no variance since this is really complex
+            (
+                pl.col("mean_r_data_crc_ns") / pl.col("mean_r_data_diff_ns") * 100 - 100
+            ).alias("r_data_crc_ratio"),
+        )
         .with_columns(
             # normalize DATA read time to number of kB read and number of
             # values read
@@ -694,18 +736,28 @@ def run_bench(
             (pl.col("serr_r_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
                 "serr_r_data_diff_ns_per_kB"
             ),
+            (pl.col("mean_r_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
+                "mean_r_data_diff_ns_per_value"
+            ),
+            (pl.col("serr_r_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
+                "serr_r_data_diff_ns_per_value"
+            ),
             (
-                pl.col("mean_r_data_diff_ns")
-                / pl.col("width")
-                / pl.col("height")
-                * 1000
-            ).alias("mean_r_data_diff_ns_per_value"),
+                pl.col("mean_r_data_rng_diff_ns") / pl.col("width") / pl.col("height")
+            ).alias("mean_r_data_rng_diff_ns_per_val"),
             (
-                pl.col("serr_r_data_diff_ns")
-                / pl.col("width")
-                / pl.col("height")
+                pl.col("serr_r_data_rng_diff_ns") / pl.col("width") / pl.col("height")
+            ).alias("serr_r_data_rng_diff_ns_per_val"),
+            (
+                pl.col("mean_r_data_crc_diff_ns")
+                / (pl.col("text_nbytes") + pl.col("data_nbytes"))
                 * 1000
-            ).alias("serr_r_data_diff_ns_per_value"),
+            ).alias("mean_r_data_crc_diff_ns_per_kB"),
+            (
+                pl.col("serr_r_data_crc_diff_ns")
+                / (pl.col("text_nbytes") + pl.col("data_nbytes"))
+                * 1000
+            ).alias("serr_r_data_crc_diff_ns_per_kB"),
         )
         .join(write_text_df, on="name")
         .with_columns(
@@ -743,18 +795,12 @@ def run_bench(
             (pl.col("serr_w_data_diff_ns") / pl.col("data_nbytes") * 1000).alias(
                 "serr_w_data_diff_ns_per_kB"
             ),
-            (
-                pl.col("mean_w_data_diff_ns")
-                / pl.col("width")
-                / pl.col("height")
-                * 1000
-            ).alias("mean_w_data_diff_ns_per_value"),
-            (
-                pl.col("serr_w_data_diff_ns")
-                / pl.col("width")
-                / pl.col("height")
-                * 1000
-            ).alias("serr_w_data_diff_ns_per_value"),
+            (pl.col("mean_w_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
+                "mean_w_data_diff_ns_per_value"
+            ),
+            (pl.col("serr_w_data_diff_ns") / pl.col("width") / pl.col("height")).alias(
+                "serr_w_data_diff_ns_per_value"
+            ),
         )
         .with_columns(
             # ratio of write to read (no variance because this more complicated than its worth)
@@ -767,10 +813,10 @@ def run_bench(
         )
     )
 
-    def fmt_value(mean: str, ci: str, out: str) -> pl.Expr:
+    def fmt_value(mean: str, ci: str, out: str, digits: int = 1) -> pl.Expr:
         return pl.format(
             "{} (±{}%)",
-            pl.col(mean).round(1),
+            pl.col(mean).round(digits),
             # 95% confidence interval as percentage of mean
             (pl.col(ci) / pl.col(mean) * 100 * 1.96).round(1),
         ).alias(out)
@@ -790,6 +836,10 @@ def run_bench(
     READ_TEXT_PER_KB = "TEXT read (ns/kB)"
     READ_STD_PER_KW = "Std Overhead (ns/kw)"
     READ_STD_RATIO = "Std Overhead (%)"
+    READ_RNG_PER_VAL = "$PnR Overhead (ns/val)"
+    READ_RNG_RATIO = "$PnR Overhead (%)"
+    READ_CRC_PER_KB = "CRC Overhead (ns/kB)"
+    READ_CRC_RATIO = "CRC Overhead (%)"
     READ_DATA_PER_KB = "DATA read (ns/kB)"
     READ_DATA_PER_VAL = "DATA read (ns/val)"
 
@@ -821,12 +871,28 @@ def run_bench(
                 "mean_r_data_diff_ns_per_value",
                 "serr_r_data_diff_ns_per_value",
                 READ_DATA_PER_VAL,
+                3,
             ),
             fmt_value(
                 "mean_r_data_diff_ns_per_kB",
                 "serr_r_data_diff_ns_per_kB",
                 READ_DATA_PER_KB,
             ),
+            # read range
+            fmt_value(
+                "mean_r_data_rng_diff_ns_per_val",
+                "serr_r_data_rng_diff_ns_per_val",
+                READ_RNG_PER_VAL,
+                3,
+            ),
+            pl.col("r_data_rng_ratio").round(1).alias(READ_RNG_RATIO),
+            # read crc
+            fmt_value(
+                "mean_r_data_crc_diff_ns_per_kB",
+                "serr_r_data_crc_diff_ns_per_kB",
+                READ_CRC_PER_KB,
+            ),
+            pl.col("r_data_crc_ratio").round(1).alias(READ_CRC_RATIO),
             # write text
             fmt_value(
                 "mean_w_text_ns_per_kw", "serr_w_text_ns_per_kw", WRITE_TEXT_PER_KW
@@ -839,6 +905,7 @@ def run_bench(
                 "mean_w_data_diff_ns_per_value",
                 "serr_w_data_diff_ns_per_value",
                 WRITE_DATA_PER_VAL,
+                3,
             ),
             fmt_value(
                 "mean_w_data_diff_ns_per_kB",

@@ -1,6 +1,7 @@
 import csv
 import sys
 import flowio as fi  # type: ignore
+import fcsparser as fp  # type: ignore
 from typing import NamedTuple, assert_never, Literal
 from pathlib import Path
 from decimal import Decimal
@@ -83,6 +84,15 @@ SERR_READ_DATA_CRC_DIFF_NS_PER_KB = "serr_r_data_crc_diff_ns_per_kB"
 
 
 class FFBenchKey(Enum):
+    """Testing modes for fireflow.
+
+    Unlike other libraries which only support reading/writing TEXT/DATA,
+    fireflow additionally supports keyword standardization, CRC checks, and $PnR
+    checks/truncation. Each of these are extra steps which may be optionally
+    applied that don't exist elsewhere. Therefore they are measured separately.
+
+    """
+
     READ_FLAT = "read_flat"
     READ_STD = "read_std"
     READ_DATA = "read_data"
@@ -93,10 +103,25 @@ class FFBenchKey(Enum):
 
 
 class FlowIOBenchKey(Enum):
+    """Testing modes for flowio.
+
+    This library supports both reading and writing TEXT and DATA.
+    """
+
     READ_TEXT = "read_text"
     READ_DATA = "read_data"
     WRITE_TEXT = "write_text"
     WRITE_DATA = "write_data"
+
+
+class FCSParserBenchKey(Enum):
+    """Testing modes for fcsparser.
+
+    This library only supports reading TEXT and DATA (hence name).
+    """
+
+    READ_TEXT = "read_text"
+    READ_DATA = "read_data"
 
 
 BENCH_FILES_NAME = "bench_files.tsv"
@@ -119,6 +144,11 @@ FLOWIO_TRIAL_NUMBER = {
     FlowIOBenchKey.WRITE_DATA: 10,
 }
 
+FCSPARSER_TRIAL_NUMBER = {
+    FCSParserBenchKey.READ_TEXT: 10,
+    FCSParserBenchKey.READ_DATA: 10,
+}
+
 
 DType = (
     type[pl.UInt8]
@@ -132,16 +162,15 @@ DType = (
 Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 
 
-class FlowIOBenchResult(NamedTuple):
+class BenchResult[X](NamedTuple):
     name: str
-    key: FlowIOBenchKey
+    key: X
     value: float
 
 
-class FFBenchResult(NamedTuple):
-    name: str
-    key: FFBenchKey
-    value: float
+type FCSParserBenchResult = BenchResult[FCSParserBenchKey]
+type FlowIOBenchResult = BenchResult[FlowIOBenchKey]
+type FFBenchResult = BenchResult[FFBenchKey]
 
 
 class BenchFile(NamedTuple):
@@ -157,24 +186,27 @@ class BenchFile(NamedTuple):
     data_nbytes: int
 
 
-class FlowIOBenchRun(NamedTuple):
-    """A benchmark run for flowio."""
-
+class BenchRun[X](NamedTuple):
     name: str
-    key: FlowIOBenchKey
+    key: X
 
-    @property
-    def fcs_name(self) -> Path:
+    def fcs_name(self, suffix: str | None = None) -> Path:
+        if suffix is not None:
+            return Path(f"{self.name}_{suffix}.fcs")
         return Path(f"{self.name}.fcs")
+
+
+class FlowIOBenchRun(BenchRun[FlowIOBenchKey]):
+    """A benchmark run for flowio."""
 
     def read_text(self, root: Path) -> float:
         start = perf_counter_ns()
-        fi.FlowData(root / self.fcs_name, only_text=True)
+        fi.FlowData(root / self.fcs_name(), only_text=True)
         return perf_counter_ns() - start
 
     def read_data(self, root: Path) -> float:
         start = perf_counter_ns()
-        fd = fi.FlowData(root / self.fcs_name)
+        fd = fi.FlowData(root / self.fcs_name())
         assert fd.events is not None, f"DATA could not be read for {self.fcs_name}"
         # This is the fairest comparison with fireflow, since flowio by default
         # will parse DATA as a 1D list, and fireflow will do an on-the-fly
@@ -188,18 +220,20 @@ class FlowIOBenchRun(NamedTuple):
         return end - start
 
     def write_text(self, input_root: Path, scratch_root: Path) -> float:
-        # fd = fi.FlowData(input_root / self.fcs_name, only_text=True)
+        fd = fi.FlowData(input_root / self.fcs_name(), only_text=True)
+        # flowio will complain if events is None, which will happen if the file
+        # is read without reading DATA. Fool it by setting to an empty list; it
+        # apparently can't tell the difference ;)
+        fd.events = []
         start = perf_counter_ns()
-        # TODO this might not be possible, flowio complains when writing a file
-        # without events
-        # fd.write_fcs(scratch_root / self.fcs_name)
+        fd.write_fcs(scratch_root / self.fcs_name("flowio_write_text"))
         end = perf_counter_ns()
         return end - start
 
     def write_data(self, input_root: Path, scratch_root: Path) -> float:
-        fd = fi.FlowData(input_root / self.fcs_name)
+        fd = fi.FlowData(input_root / self.fcs_name())
         start = perf_counter_ns()
-        fd.write_fcs(scratch_root / self.fcs_name)
+        fd.write_fcs(scratch_root / self.fcs_name("flowio_write_data"))
         end = perf_counter_ns()
         return end - start
 
@@ -214,18 +248,37 @@ class FlowIOBenchRun(NamedTuple):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return FlowIOBenchResult(name=self.name, key=self.key, value=value)
+        return BenchResult(name=self.name, key=self.key, value=value)
 
 
-class FFBenchRun(NamedTuple):
+class FCSParserBenchRun(BenchRun[FCSParserBenchKey]):
+    """A benchmark run for fcsparser."""
+
+    def read_text(self, root: Path) -> float:
+        start = perf_counter_ns()
+        fp.parse(root / self.fcs_name(), meta_data_only=True)
+        return perf_counter_ns() - start
+
+    def read_data(self, root: Path) -> float:
+        start = perf_counter_ns()
+        # set reformat to false to do less work and get a cleaner measurement of
+        # how fast the DATA parser really is
+        meta, data = fp.parse(root / self.fcs_name(), reformat_meta=False)
+        end = perf_counter_ns()
+        return end - start
+
+    def run(self, input_root: Path, scratch_root: Path) -> FCSParserBenchResult:
+        if self.key == FCSParserBenchKey.READ_TEXT:
+            value = self.read_text(input_root)
+        elif self.key == FCSParserBenchKey.READ_DATA:
+            value = self.read_data(input_root)
+        else:
+            assert_never(self.key)
+        return BenchResult(name=self.name, key=self.key, value=value)
+
+
+class FFBenchRun(BenchRun[FFBenchKey]):
     """A benchmark run for fireflow."""
-
-    name: str
-    key: FFBenchKey
-
-    @property
-    def fcs_name(self) -> Path:
-        return Path(f"{self.name}.fcs")
 
     @property
     def tsv_name(self) -> Path:
@@ -233,12 +286,12 @@ class FFBenchRun(NamedTuple):
 
     def read_flat(self, root: Path) -> float:
         start = perf_counter_ns()
-        pf.api.fcs_read_flat_text(root / self.fcs_name)
+        pf.api.fcs_read_flat_text(root / self.fcs_name())
         return perf_counter_ns() - start
 
     def read_std(self, root: Path) -> float:
         start = perf_counter_ns()
-        pf.api.fcs_read_std_text(root / self.fcs_name, time_meas_pattern=None)
+        pf.api.fcs_read_std_text(root / self.fcs_name(), time_meas_pattern=None)
         return perf_counter_ns() - start
 
     def read_flat_data(
@@ -249,7 +302,7 @@ class FFBenchRun(NamedTuple):
     ) -> float:
         start = perf_counter_ns()
         pf.api.fcs_read_flat_dataset(
-            root / self.fcs_name,
+            root / self.fcs_name(),
             over_bitmask_action="none",
             over_range_action="warn" if check_range else "none",
             compute_crc="always" if compute_crc else "never",
@@ -259,19 +312,19 @@ class FFBenchRun(NamedTuple):
 
     def write_text(self, input_root: Path, scratch_root: Path) -> float:
         core, _ = pf.api.fcs_read_std_text(
-            input_root / self.fcs_name, time_meas_pattern=None
+            input_root / self.fcs_name(), time_meas_pattern=None
         )
         start = perf_counter_ns()
-        core.write_text(scratch_root / self.fcs_name)
+        core.write_text(scratch_root / self.fcs_name("ff_write_text"))
         end = perf_counter_ns()
         return end - start
 
     def write_data(self, input_root: Path, scratch_root: Path) -> float:
         core, _ = pf.api.fcs_read_std_dataset(
-            input_root / self.fcs_name, time_meas_pattern=None
+            input_root / self.fcs_name(), time_meas_pattern=None
         )
         start = perf_counter_ns()
-        core.write_dataset(scratch_root / self.fcs_name)
+        core.write_dataset(scratch_root / self.fcs_name("ff_write_data"))
         end = perf_counter_ns()
         return end - start
 
@@ -292,7 +345,7 @@ class FFBenchRun(NamedTuple):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return FFBenchResult(name=self.name, key=self.key, value=value)
+        return BenchResult(name=self.name, key=self.key, value=value)
 
     def check_data(self, input_root: Path, scratch_root: Path) -> None:
         """Ensure DATA didn't get screwed up during optimization.
@@ -332,7 +385,7 @@ class FFBenchRun(NamedTuple):
 
         # test that reading FCS file is the same as TSV file
         core, _ = pf.api.fcs_read_std_dataset(
-            input_root / self.fcs_name, time_meas_pattern=None
+            input_root / self.fcs_name(), time_meas_pattern=None
         )
         tsv = pl.read_csv(
             input_root / self.tsv_name,
@@ -342,9 +395,9 @@ class FFBenchRun(NamedTuple):
         assert core.data.equals(tsv)
 
         # test that writing FCS file produces same data as the input FCS file
-        core.write_dataset(scratch_root / self.fcs_name)
+        core.write_dataset(scratch_root / self.fcs_name("ff_write_check"))
         nu_core, _ = pf.api.fcs_read_std_dataset(
-            input_root / self.fcs_name, time_meas_pattern=None
+            input_root / self.fcs_name(), time_meas_pattern=None
         )
 
         assert core.data.equals(nu_core.data)
@@ -750,6 +803,114 @@ def fmt_value(mean: str, ci: str, out: str, digits: int = 1) -> pl.Expr:
     ).alias(out)
 
 
+def compute_read_df(
+    bench_files: pl.DataFrame,
+    read_text_df: pl.DataFrame,
+    read_data_df: pl.DataFrame,
+) -> pl.DataFrame:
+    df = (
+        read_text_df.join(bench_files, on=BENCH_NAME)
+        .with_columns(
+            # normalize TEXT parse time to keyword number and TEXT length in kB
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                MEAN_READ_TEXT_NS_PER_KW
+            ),
+            (pl.col(SERR_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                SERR_READ_TEXT_NS_PER_KW
+            ),
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                MEAN_READ_TEXT_NS_PER_KB
+            ),
+            (pl.col(SERR_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                SERR_READ_TEXT_NS_PER_KB
+            ),
+        )
+        .join(read_data_df, on=BENCH_NAME)
+        .with_columns(
+            # compute time taken to read DATA by taking difference of data run
+            # and flat run (note DATA was read in flat mode to reduce noise)
+            (pl.col(MEAN_READ_DATA_NS) - pl.col(MEAN_READ_TEXT_NS)).alias(
+                MEAN_READ_DATA_DIFF_NS
+            ),
+            (pl.col(SERR_READ_DATA_NS).pow(2) + pl.col(SERR_READ_TEXT_NS).pow(2))
+            .sqrt()
+            .alias(SERR_READ_DATA_DIFF_NS),
+        )
+        .with_columns(
+            # normalize DATA read time to number of kB read and number of
+            # values read
+            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                MEAN_READ_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                SERR_READ_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                MEAN_READ_DATA_DIFF_NS_PER_VAL
+            ),
+            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                SERR_READ_DATA_DIFF_NS_PER_VAL
+            ),
+        )
+    )
+
+    return df
+
+
+def compute_write_df(
+    read_df: pl.DataFrame,
+    write_text_df: pl.DataFrame,
+    write_data_df: pl.DataFrame,
+) -> pl.DataFrame:
+    df = (
+        read_df.join(write_text_df, on=BENCH_NAME)
+        .with_columns(
+            # normalize TEXT write time to keyword number and TEXT length in kB
+            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                MEAN_WRITE_TEXT_NS_PER_KW
+            ),
+            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
+                SERR_WRITE_TEXT_NS_PER_KW
+            ),
+            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                MEAN_WRITE_TEXT_NS_PER_KB
+            ),
+            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
+                SERR_WRITE_TEXT_NS_PER_KB
+            ),
+        )
+        .join(write_data_df, on=BENCH_NAME)
+        .with_columns(
+            # compute time taken to write DATA by taking difference of DATA run
+            # and TEXT run
+            (pl.col(MEAN_WRITE_DATA_NS) - pl.col(MEAN_WRITE_TEXT_NS)).alias(
+                MEAN_WRITE_DATA_DIFF_NS
+            ),
+            (pl.col(SERR_WRITE_DATA_NS).pow(2) + pl.col(SERR_WRITE_TEXT_NS).pow(2))
+            .sqrt()
+            .alias(SERR_WRITE_DATA_DIFF_NS),
+        )
+        .with_columns(
+            # normalize DATA read time to number of kB written and number of
+            # values written
+            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                MEAN_WRITE_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
+                SERR_WRITE_DATA_DIFF_NS_PER_KB
+            ),
+            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                MEAN_WRITE_DATA_DIFF_NS_PER_VAL
+            ),
+            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
+                SERR_WRITE_DATA_DIFF_NS_PER_VAL
+            ),
+        )
+    )
+
+    return df
+
+
 def run_flowio_bench(
     input_root: Path,
     scratch_root: Path,
@@ -801,96 +962,71 @@ def run_flowio_bench(
     write_text_df = to_df(write_text_results, "w_text")
     write_data_df = to_df(write_data_results, "w_data")
 
-    df_analyzed = (
-        read_text_df.join(bench_files, on=BENCH_NAME)
-        .with_columns(
-            # normalize TEXT parse time to keyword number and TEXT length in kB
-            (pl.col(MEAN_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                MEAN_READ_TEXT_NS_PER_KW
-            ),
-            (pl.col(SERR_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                SERR_READ_TEXT_NS_PER_KW
-            ),
-            (pl.col(MEAN_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                MEAN_READ_TEXT_NS_PER_KB
-            ),
-            (pl.col(SERR_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                SERR_READ_TEXT_NS_PER_KB
-            ),
-        )
-        .join(read_data_df, on=BENCH_NAME)
-        .with_columns(
-            # compute time taken to read DATA by taking difference of data run
-            # and flat run (note DATA was read in flat mode to reduce noise)
-            (pl.col(MEAN_READ_DATA_NS) - pl.col(MEAN_READ_TEXT_NS)).alias(
-                MEAN_READ_DATA_DIFF_NS
-            ),
-            (pl.col(SERR_READ_DATA_NS).pow(2) + pl.col(SERR_READ_TEXT_NS).pow(2))
-            .sqrt()
-            .alias(SERR_READ_DATA_DIFF_NS),
-        )
-        .with_columns(
-            # normalize DATA read time to number of kB read and number of
-            # values read
-            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                MEAN_READ_DATA_DIFF_NS_PER_KB
-            ),
-            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                SERR_READ_DATA_DIFF_NS_PER_KB
-            ),
-            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                MEAN_READ_DATA_DIFF_NS_PER_VAL
-            ),
-            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                SERR_READ_DATA_DIFF_NS_PER_VAL
-            ),
-        )
-        .join(write_text_df, on=BENCH_NAME)
-        .with_columns(
-            # normalize TEXT write time to keyword number and TEXT length in kB
-            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                MEAN_WRITE_TEXT_NS_PER_KW
-            ),
-            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                SERR_WRITE_TEXT_NS_PER_KW
-            ),
-            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                MEAN_WRITE_TEXT_NS_PER_KB
-            ),
-            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                SERR_WRITE_TEXT_NS_PER_KB
-            ),
-        )
-        .join(write_data_df, on=BENCH_NAME)
-        .with_columns(
-            # compute time taken to write DATA by taking difference of DATA run
-            # and TEXT run
-            (pl.col(MEAN_WRITE_DATA_NS) - pl.col(MEAN_WRITE_TEXT_NS)).alias(
-                MEAN_WRITE_DATA_DIFF_NS
-            ),
-            (pl.col(SERR_WRITE_DATA_NS).pow(2) + pl.col(SERR_WRITE_TEXT_NS).pow(2))
-            .sqrt()
-            .alias(SERR_WRITE_DATA_DIFF_NS),
-        )
-        .with_columns(
-            # normalize DATA read time to number of kB written and number of
-            # values written
-            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                MEAN_WRITE_DATA_DIFF_NS_PER_KB
-            ),
-            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                SERR_WRITE_DATA_DIFF_NS_PER_KB
-            ),
-            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                MEAN_WRITE_DATA_DIFF_NS_PER_VAL
-            ),
-            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                SERR_WRITE_DATA_DIFF_NS_PER_VAL
-            ),
-        )
+    df_read = compute_read_df(
+        bench_files,
+        read_text_df,
+        read_data_df,
     )
 
-    return df_analyzed
+    return compute_write_df(
+        df_read,
+        write_text_df,
+        write_data_df,
+    )
+
+
+def run_fcsparser_bench(
+    input_root: Path,
+    scratch_root: Path,
+    names_filter: list[str],
+) -> pl.DataFrame:
+    scratch_root.mkdir(parents=True, exist_ok=True)
+
+    bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
+    if len(names_filter) > 0:
+        bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
+
+    runs = [
+        FCSParserBenchRun(name=n, key=k)
+        for n in bench_files.filter(
+            ~pl.col("version").eq("FCS3.2")
+            & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
+            & ~pl.col("bit_widths").is_in(["64"])
+        )[BENCH_NAME]
+        for k in FCSParserBenchKey
+        for _ in range(0, FCSPARSER_TRIAL_NUMBER[k])
+    ]
+
+    # Don't check DATA vs TSV truth data like we do for fireflow
+
+    # randomly shuffle runs to eliminate temporal bias
+    shuffle(runs)
+    results = [r.run(input_root, scratch_root) for r in runs]
+
+    read_flat_results = [r for r in results if r.key == FCSParserBenchKey.READ_TEXT]
+    read_data_results = [r for r in results if r.key == FCSParserBenchKey.READ_DATA]
+
+    def to_df(rs: list[FCSParserBenchResult], name: str) -> pl.DataFrame:
+        full_name = f"{name}_ns"
+        result_df = pl.DataFrame(
+            [[r.name for r in rs], [r.value for r in rs]],
+            {BENCH_NAME: pl.String, full_name: pl.Float32},
+        )
+        return result_df.group_by(BENCH_NAME).agg(
+            pl.col(full_name).mean().name.prefix("mean_"),
+            (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
+                "serr_"
+            ),
+        )
+
+    read_text_df = to_df(read_flat_results, "r_text")
+    read_data_df = to_df(read_data_results, "r_data")
+
+    return compute_read_df(
+        bench_files,
+        read_text_df,
+        read_data_df,
+    )
 
 
 def run_ff_bench(
@@ -940,7 +1076,7 @@ def run_ff_bench(
             ),
         )
 
-    read_flat_df = to_df(read_flat_results, "r_text")
+    read_text_df = to_df(read_flat_results, "r_text")
     read_std_df = to_df(read_std_results, "r_std")
     read_data_df = to_df(read_data_results, "r_data")
     read_data_rng_df = to_df(read_data_rng_results, "r_data_rng")
@@ -948,24 +1084,20 @@ def run_ff_bench(
     write_text_df = to_df(write_text_results, "w_text")
     write_data_df = to_df(write_data_results, "w_data")
 
+    df_read = compute_read_df(
+        bench_files,
+        read_text_df,
+        read_data_df,
+    )
+
+    df_read_write = compute_write_df(
+        df_read,
+        write_text_df,
+        write_data_df,
+    )
+
     df_analyzed = (
-        read_flat_df.join(bench_files, on=BENCH_NAME)
-        .with_columns(
-            # normalize flat TEXT parse time to keyword number and TEXT length in kB
-            (pl.col(MEAN_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                MEAN_READ_TEXT_NS_PER_KW,
-            ),
-            (pl.col(SERR_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                SERR_READ_TEXT_NS_PER_KW
-            ),
-            (pl.col(MEAN_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                MEAN_READ_TEXT_NS_PER_KB
-            ),
-            (pl.col(SERR_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                SERR_READ_TEXT_NS_PER_KB
-            ),
-        )
-        .join(read_std_df, on=BENCH_NAME)
+        df_read_write.join(read_std_df, on=BENCH_NAME)
         .with_columns(
             # compute the overhead of standardizing TEXT by taking difference of
             # total std run and flat run
@@ -984,17 +1116,6 @@ def run_ff_bench(
             (pl.col(MEAN_READ_STD_NS) / pl.col(MEAN_READ_TEXT_NS) * 100 - 100).alias(
                 "r_std_ratio"
             ),
-        )
-        .join(read_data_df, on=BENCH_NAME)
-        .with_columns(
-            # compute time taken to read DATA by taking difference of data run
-            # and flat run (note DATA was read in flat mode to reduce noise)
-            (pl.col(MEAN_READ_DATA_NS) - pl.col(MEAN_READ_TEXT_NS)).alias(
-                MEAN_READ_DATA_DIFF_NS
-            ),
-            (pl.col(SERR_READ_DATA_NS).pow(2) + pl.col(SERR_READ_TEXT_NS).pow(2))
-            .sqrt()
-            .alias(SERR_READ_DATA_DIFF_NS),
         )
         .join(read_data_rng_df, on=BENCH_NAME)
         .with_columns(
@@ -1031,20 +1152,15 @@ def run_ff_bench(
             ).alias("r_data_crc_ratio"),
         )
         .with_columns(
-            # normalize DATA read time to number of kB read and number of
-            # values read
-            (pl.col("mean_r_data_diff_ns") / pl.col(DATA_NBYTES) * 1000).alias(
-                MEAN_READ_DATA_DIFF_NS_PER_KB
+            # ratio of write to read (no variance because this more complicated than its worth)
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(MEAN_WRITE_TEXT_NS) * 100).alias(
+                "text_rw_ratio"
             ),
-            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                SERR_READ_DATA_DIFF_NS_PER_KB
+            (pl.col("mean_r_data_ns") / pl.col(MEAN_WRITE_DATA_NS) * 100).alias(
+                "data_rw_ratio"
             ),
-            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                MEAN_READ_DATA_DIFF_NS_PER_VAL
-            ),
-            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                SERR_READ_DATA_DIFF_NS_PER_VAL
-            ),
+            # normalize the CRC and range check differences similar to
+            # standardization overhead
             (pl.col(MEAN_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
                 MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL
             ),
@@ -1061,58 +1177,6 @@ def run_ff_bench(
                 / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
                 * 1000
             ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KB),
-        )
-        .join(write_text_df, on=BENCH_NAME)
-        .with_columns(
-            # normalize TEXT write time to keyword number and TEXT length in kB
-            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                MEAN_WRITE_TEXT_NS_PER_KW
-            ),
-            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
-                SERR_WRITE_TEXT_NS_PER_KW
-            ),
-            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                MEAN_WRITE_TEXT_NS_PER_KB
-            ),
-            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                SERR_WRITE_TEXT_NS_PER_KB
-            ),
-        )
-        .join(write_data_df, on=BENCH_NAME)
-        .with_columns(
-            # compute time taken to write DATA by taking difference of DATA run
-            # and TEXT run
-            (pl.col(MEAN_WRITE_DATA_NS) - pl.col(MEAN_WRITE_TEXT_NS)).alias(
-                MEAN_WRITE_DATA_DIFF_NS
-            ),
-            (pl.col(SERR_WRITE_DATA_NS).pow(2) + pl.col(SERR_WRITE_TEXT_NS).pow(2))
-            .sqrt()
-            .alias(SERR_WRITE_DATA_DIFF_NS),
-        )
-        .with_columns(
-            # normalize DATA read time to number of kB written and number of
-            # values written
-            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                MEAN_WRITE_DATA_DIFF_NS_PER_KB
-            ),
-            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                SERR_WRITE_DATA_DIFF_NS_PER_KB
-            ),
-            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                MEAN_WRITE_DATA_DIFF_NS_PER_VAL
-            ),
-            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                SERR_WRITE_DATA_DIFF_NS_PER_VAL
-            ),
-        )
-        .with_columns(
-            # ratio of write to read (no variance because this more complicated than its worth)
-            (pl.col(MEAN_READ_TEXT_NS) / pl.col(MEAN_WRITE_TEXT_NS) * 100).alias(
-                "text_rw_ratio"
-            ),
-            (pl.col("mean_r_data_ns") / pl.col(MEAN_WRITE_DATA_NS) * 100).alias(
-                "data_rw_ratio"
-            ),
         )
     )
 
@@ -1241,12 +1305,12 @@ def main(args: list[str]) -> None:
         make_bench_files(bench_path)
     elif cmd == "run_all":
         output_root = None if args[3] == "-" else Path(args[3])
-        scratch_ff_root = Path(args[4])
-        scratch_flowio_root = Path(args[5])
-        names_filter = args[6:]
-        df_ff = run_ff_bench(bench_path, scratch_ff_root, names_filter)
-        df_flowio = run_flowio_bench(bench_path, scratch_flowio_root, names_filter)
-        columns = [
+        scratch_root = Path(args[4])
+        names_filter = args[5:]
+        df_ff = run_ff_bench(bench_path, scratch_root, names_filter)
+        df_flowio = run_flowio_bench(bench_path, scratch_root, names_filter)
+        df_fcsparser = run_fcsparser_bench(bench_path, scratch_root, names_filter)
+        read_columns = [
             BENCH_NAME,
             BYTEORD,
             VERSION,
@@ -1271,6 +1335,8 @@ def main(args: list[str]) -> None:
             SERR_READ_DATA_DIFF_NS,
             SERR_READ_DATA_DIFF_NS_PER_KB,
             SERR_READ_DATA_DIFF_NS_PER_VAL,
+        ]
+        write_columns = [
             MEAN_WRITE_TEXT_NS,
             MEAN_WRITE_TEXT_NS_PER_KW,
             MEAN_WRITE_TEXT_NS_PER_KB,
@@ -1286,10 +1352,14 @@ def main(args: list[str]) -> None:
             SERR_WRITE_DATA_DIFF_NS_PER_KB,
             SERR_WRITE_DATA_DIFF_NS_PER_VAL,
         ]
+        all_columns = read_columns + write_columns
         df_all = pl.concat(
             [
-                df_ff.select(columns).with_columns(tool=pl.lit("fireflow")),
-                df_flowio.select(columns).with_columns(tool=pl.lit("flowio")),
+                df_ff.select(all_columns).with_columns(tool=pl.lit("fireflow")),
+                df_flowio.select(all_columns).with_columns(tool=pl.lit("flowio")),
+                df_fcsparser.select(read_columns)
+                .with_columns(pl.lit(None).alias(n) for n in write_columns)
+                .with_columns(tool=pl.lit("fcsparser")),
             ],
             how="vertical",
         )

@@ -2,6 +2,7 @@ import csv
 import sys
 import flowio as fi  # type: ignore
 import fcsparser as fp  # type: ignore
+import subprocess as sp
 from typing import NamedTuple, assert_never, Literal
 from pathlib import Path
 from decimal import Decimal
@@ -114,6 +115,15 @@ class FlowIOBenchKey(Enum):
     WRITE_DATA = "write_data"
 
 
+class FlowCoreBenchKey(Enum):
+    """Testing modes for flowCore."""
+
+    READ_TEXT = "read_text"
+    READ_DATA = "read_data"
+    WRITE_TEXT = "write_text"
+    WRITE_DATA = "write_data"
+
+
 class FCSParserBenchKey(Enum):
     """Testing modes for fcsparser.
 
@@ -150,6 +160,14 @@ FCSPARSER_TRIAL_NUMBER = {
 }
 
 
+FLOWCORE_TRIAL_NUMBER = {
+    FlowCoreBenchKey.READ_TEXT: 3,
+    FlowCoreBenchKey.READ_DATA: 3,
+    FlowCoreBenchKey.WRITE_TEXT: 3,
+    FlowCoreBenchKey.WRITE_DATA: 3,
+}
+
+
 DType = (
     type[pl.UInt8]
     | type[pl.UInt16]
@@ -170,6 +188,7 @@ class BenchResult[X](NamedTuple):
 
 type FCSParserBenchResult = BenchResult[FCSParserBenchKey]
 type FlowIOBenchResult = BenchResult[FlowIOBenchKey]
+type FlowCoreBenchResult = BenchResult[FlowCoreBenchKey]
 type FFBenchResult = BenchResult[FFBenchKey]
 
 
@@ -272,6 +291,70 @@ class FCSParserBenchRun(BenchRun[FCSParserBenchKey]):
             value = self.read_text(input_root)
         elif self.key == FCSParserBenchKey.READ_DATA:
             value = self.read_data(input_root)
+        else:
+            assert_never(self.key)
+        return BenchResult(name=self.name, key=self.key, value=value)
+
+
+class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey]):
+    """A benchmark run for flowCore."""
+
+    @staticmethod
+    def run_rscript(exec_dir: Path, script_path: Path, rest: list[str]) -> float:
+        ret = sp.run(
+            ["Rscript", "--no-save", "--no-restore", str(script_path), *rest],
+            capture_output=True,
+            text=True,
+            cwd=exec_dir,
+        )
+        if ret.returncode == 0:
+            return float(ret.stdout.strip()) * 1e9
+        else:
+            assert False, f"error for [{', '.join(rest)}]: {ret.stderr}"
+
+    def read_text(self, root: Path) -> float:
+        here = Path(sys.argv[0]).parent
+        fcs_path = (root / self.fcs_name()).relative_to(here)
+        return self.run_rscript(
+            here, Path("R/test_flowcore_read.R"), ["text", str(fcs_path)]
+        )
+
+    def read_data(self, root: Path) -> float:
+        here = Path(sys.argv[0]).parent
+        fcs_path = (root / self.fcs_name()).relative_to(here)
+        return self.run_rscript(
+            here, Path("R/test_flowcore_read.R"), ["data", str(fcs_path)]
+        )
+
+    def write_text(self, input_root: Path, scratch_root: Path) -> float:
+        here = Path(sys.argv[0]).parent
+        in_path = (input_root / self.fcs_name()).relative_to(here)
+        out_path = (scratch_root / self.fcs_name("flowcore_write_text")).relative_to(
+            here
+        )
+        return self.run_rscript(
+            here, Path("R/test_flowcore_write.R"), ["text", str(in_path), str(out_path)]
+        )
+
+    def write_data(self, input_root: Path, scratch_root: Path) -> float:
+        here = Path(sys.argv[0]).parent
+        in_path = (input_root / self.fcs_name()).relative_to(here)
+        out_path = (scratch_root / self.fcs_name("flowcore_write_data")).relative_to(
+            here
+        )
+        return self.run_rscript(
+            here, Path("R/test_flowcore_write.R"), ["data", str(in_path), str(out_path)]
+        )
+
+    def run(self, input_root: Path, scratch_root: Path) -> FlowCoreBenchResult:
+        if self.key == FlowCoreBenchKey.READ_TEXT:
+            value = self.read_text(input_root)
+        elif self.key == FlowCoreBenchKey.READ_DATA:
+            value = self.read_data(input_root)
+        elif self.key == FlowCoreBenchKey.WRITE_TEXT:
+            value = self.write_text(input_root, scratch_root)
+        elif self.key == FlowCoreBenchKey.WRITE_DATA:
+            value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
         return BenchResult(name=self.name, key=self.key, value=value)
@@ -1029,6 +1112,70 @@ def run_fcsparser_bench(
     )
 
 
+def run_flowcore_bench(
+    input_root: Path,
+    scratch_root: Path,
+    names_filter: list[str],
+) -> pl.DataFrame:
+    scratch_root.mkdir(parents=True, exist_ok=True)
+
+    bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
+    if len(names_filter) > 0:
+        bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
+
+    runs = [
+        FlowCoreBenchRun(name=n, key=k)
+        for n in bench_files.filter(
+            ~pl.col("version").eq("FCS3.2")
+            & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
+            & ~pl.col("bit_widths").is_in(["64", "8,16,32"])
+        )[BENCH_NAME]
+        for k in FlowCoreBenchKey
+        for _ in range(0, FLOWCORE_TRIAL_NUMBER[k])
+    ]
+
+    # Don't check DATA vs TSV truth data like we do for fireflow
+
+    # randomly shuffle runs to eliminate temporal bias
+    shuffle(runs)
+    results = [r.run(input_root, scratch_root) for r in runs]
+
+    read_text_results = [r for r in results if r.key == FlowCoreBenchKey.READ_TEXT]
+    read_data_results = [r for r in results if r.key == FlowCoreBenchKey.READ_DATA]
+    write_text_results = [r for r in results if r.key == FlowCoreBenchKey.WRITE_TEXT]
+    write_data_results = [r for r in results if r.key == FlowCoreBenchKey.WRITE_DATA]
+
+    def to_df(rs: list[FlowCoreBenchResult], name: str) -> pl.DataFrame:
+        full_name = f"{name}_ns"
+        result_df = pl.DataFrame(
+            [[r.name for r in rs], [r.value for r in rs]],
+            {BENCH_NAME: pl.String, full_name: pl.Float32},
+        )
+        return result_df.group_by(BENCH_NAME).agg(
+            pl.col(full_name).mean().name.prefix("mean_"),
+            (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
+                "serr_"
+            ),
+        )
+
+    read_text_df = to_df(read_text_results, "r_text")
+    read_data_df = to_df(read_data_results, "r_data")
+    write_text_df = to_df(write_text_results, "w_text")
+    write_data_df = to_df(write_data_results, "w_data")
+
+    df_read = compute_read_df(
+        bench_files,
+        read_text_df,
+        read_data_df,
+    )
+
+    return compute_write_df(
+        df_read,
+        write_text_df,
+        write_data_df,
+    )
+
+
 def run_ff_bench(
     input_root: Path,
     scratch_root: Path,
@@ -1307,6 +1454,7 @@ def main(args: list[str]) -> None:
         output_root = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
         names_filter = args[5:]
+        df_flowcore = run_flowcore_bench(bench_path, scratch_root, names_filter)
         df_ff = run_ff_bench(bench_path, scratch_root, names_filter)
         df_flowio = run_flowio_bench(bench_path, scratch_root, names_filter)
         df_fcsparser = run_fcsparser_bench(bench_path, scratch_root, names_filter)
@@ -1360,6 +1508,7 @@ def main(args: list[str]) -> None:
                 df_fcsparser.select(read_columns)
                 .with_columns(pl.lit(None).alias(n) for n in write_columns)
                 .with_columns(tool=pl.lit("fcsparser")),
+                df_flowcore.select(all_columns).with_columns(tool=pl.lit("flowcore")),
             ],
             how="vertical",
         )

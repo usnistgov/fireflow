@@ -394,7 +394,6 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
         start = perf_counter_ns()
         pf.api.fcs_read_flat_dataset(
             root / self.fcs_name(),
-            over_bitmask_action="none",
             over_range_action="warn" if check_range else "none",
             compute_crc="always" if compute_crc else "never",
         )
@@ -1018,7 +1017,8 @@ def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
-            & ~pl.col("bit_widths").is_in(["24", "64"])
+            & ~pl.col("bit_widths").eq("24")
+            & ~(pl.col("bit_widths").eq("64") & pl.col("datatypes").eq("I"))
         )[BENCH_NAME]
         for k in FlowIOBenchKey
         for _ in range(0, FLOWIO_TRIAL_NUMBER[k])
@@ -1031,7 +1031,7 @@ def fcsparser_runs(bench_files: pl.DataFrame) -> list[FCSParserBenchRun]:
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
-            & ~pl.col("bit_widths").is_in(["64"])
+            & ~(pl.col("bit_widths").eq("64") & pl.col("datatypes").eq("I"))
         )[BENCH_NAME]
         for k in FCSParserBenchKey
         for _ in range(0, FCSPARSER_TRIAL_NUMBER[k])
@@ -1044,7 +1044,8 @@ def flowcore_runs(bench_files: pl.DataFrame) -> list[FlowCoreBenchRun]:
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
-            & ~pl.col("bit_widths").is_in(["64", "8,16,32"])
+            & ~pl.col("bit_widths").eq("8,16,32")
+            & ~(pl.col("bit_widths").eq("64") & pl.col("datatypes").eq("I"))
         )[BENCH_NAME]
         for k in FlowCoreBenchKey
         for _ in range(0, FLOWCORE_TRIAL_NUMBER[k])

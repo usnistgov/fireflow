@@ -1,4 +1,5 @@
 import sys
+from jinja2 import Environment, FileSystemLoader
 import polars as pl
 from pathlib import Path
 from plotnine import (
@@ -161,14 +162,22 @@ def plot_write_data(df: pl.DataFrame, out_dir: Path) -> None:
 
 def main(args: list[str]) -> None:
     bench_path = Path(args[1])
-    out_dir = Path(args[2])
-    out_dir.mkdir(parents=True, exist_ok=True)
+    template_path = Path(args[2])
+    static_dir = Path(args[3])
+    readme_path = Path(args[4])
+    static_dir.mkdir(parents=True, exist_ok=True)
     df_results = pl.read_csv(bench_path, separator="\t")
 
-    plot_read_text(df_results, out_dir)
-    plot_read_data(df_results, out_dir)
-    plot_write_text(df_results, out_dir)
-    plot_write_data(df_results, out_dir)
+    plot_read_text(df_results, static_dir)
+    plot_read_data(df_results, static_dir)
+    plot_write_text(df_results, static_dir)
+    plot_write_data(df_results, static_dir)
+
+    env = Environment(loader=FileSystemLoader(template_path.parent))
+    template = env.get_template(template_path.name)
+    readme_path.parent.mkdir(exist_ok=True, parents=True)
+    with open(readme_path, "w") as f:
+        f.write(template.render())
 
 
 main(sys.argv)

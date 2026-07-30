@@ -16,6 +16,8 @@ import numpy as np
 import pyreflow as pf
 import pyreflow.typing as pft
 
+BENCH_FILES_NAME = "bench_files.tsv"
+
 # column names
 
 BENCH_NAME = "name"
@@ -134,7 +136,7 @@ class FCSParserBenchKey(Enum):
     READ_DATA = "read_data"
 
 
-BENCH_FILES_NAME = "bench_files.tsv"
+type AnyBenchKey = FlowCoreBenchKey | FFBenchKey | FCSParserBenchKey | FlowIOBenchKey
 
 
 FF_TRIAL_NUMBER = {
@@ -190,6 +192,9 @@ type FCSParserBenchResult = BenchResult[FCSParserBenchKey]
 type FlowIOBenchResult = BenchResult[FlowIOBenchKey]
 type FlowCoreBenchResult = BenchResult[FlowCoreBenchKey]
 type FFBenchResult = BenchResult[FFBenchKey]
+type AnyBenchResult = (
+    FCSParserBenchResult | FlowIOBenchResult | FlowCoreBenchResult | FFBenchResult
+)
 
 
 class BenchFile(NamedTuple):
@@ -205,7 +210,7 @@ class BenchFile(NamedTuple):
     data_nbytes: int
 
 
-class BenchRun[X](NamedTuple):
+class BenchRun[X, Y](NamedTuple):
     name: str
     key: X
 
@@ -214,8 +219,11 @@ class BenchRun[X](NamedTuple):
             return Path(f"{self.name}_{suffix}.fcs")
         return Path(f"{self.name}.fcs")
 
+    def run(self, input_root: Path, scratch_root: Path) -> Y:
+        raise NotImplementedError
 
-class FlowIOBenchRun(BenchRun[FlowIOBenchKey]):
+
+class FlowIOBenchRun(BenchRun[FlowIOBenchKey, FlowIOBenchResult]):
     """A benchmark run for flowio."""
 
     def read_text(self, root: Path) -> float:
@@ -270,7 +278,7 @@ class FlowIOBenchRun(BenchRun[FlowIOBenchKey]):
         return BenchResult(name=self.name, key=self.key, value=value)
 
 
-class FCSParserBenchRun(BenchRun[FCSParserBenchKey]):
+class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
     """A benchmark run for fcsparser."""
 
     def read_text(self, root: Path) -> float:
@@ -296,7 +304,7 @@ class FCSParserBenchRun(BenchRun[FCSParserBenchKey]):
         return BenchResult(name=self.name, key=self.key, value=value)
 
 
-class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey]):
+class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
     """A benchmark run for flowCore."""
 
     @staticmethod
@@ -360,7 +368,7 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey]):
         return BenchResult(name=self.name, key=self.key, value=value)
 
 
-class FFBenchRun(BenchRun[FFBenchKey]):
+class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
     """A benchmark run for fireflow."""
 
     @property
@@ -484,6 +492,9 @@ class FFBenchRun(BenchRun[FFBenchKey]):
         )
 
         assert core.data.equals(nu_core.data)
+
+
+type AnyBenchRun = FCSParserBenchRun | FlowIOBenchRun | FlowCoreBenchRun | FFBenchRun
 
 
 def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
@@ -994,18 +1005,15 @@ def compute_write_df(
     return df
 
 
-def run_flowio_bench(
-    input_root: Path,
-    scratch_root: Path,
-    names_filter: list[str],
-) -> pl.DataFrame:
-    scratch_root.mkdir(parents=True, exist_ok=True)
-
+def read_bench_files(input_root: Path, names_filter: list[str]) -> pl.DataFrame:
     bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
     if len(names_filter) > 0:
         bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
+    return bench_files
 
-    runs = [
+
+def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
+    return [
         FlowIOBenchRun(name=n, key=k)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
@@ -1016,60 +1024,9 @@ def run_flowio_bench(
         for _ in range(0, FLOWIO_TRIAL_NUMBER[k])
     ]
 
-    # Don't check DATA vs TSV truth data like we do for fireflow
 
-    # randomly shuffle runs to eliminate temporal bias
-    shuffle(runs)
-    results = [r.run(input_root, scratch_root) for r in runs]
-
-    read_flat_results = [r for r in results if r.key == FlowIOBenchKey.READ_TEXT]
-    read_data_results = [r for r in results if r.key == FlowIOBenchKey.READ_DATA]
-    write_text_results = [r for r in results if r.key == FlowIOBenchKey.WRITE_TEXT]
-    write_data_results = [r for r in results if r.key == FlowIOBenchKey.WRITE_DATA]
-
-    def to_df(rs: list[FlowIOBenchResult], name: str) -> pl.DataFrame:
-        full_name = f"{name}_ns"
-        result_df = pl.DataFrame(
-            [[r.name for r in rs], [r.value for r in rs]],
-            {BENCH_NAME: pl.String, full_name: pl.Float32},
-        )
-        return result_df.group_by(BENCH_NAME).agg(
-            pl.col(full_name).mean().name.prefix("mean_"),
-            (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
-                "serr_"
-            ),
-        )
-
-    read_text_df = to_df(read_flat_results, "r_text")
-    read_data_df = to_df(read_data_results, "r_data")
-    write_text_df = to_df(write_text_results, "w_text")
-    write_data_df = to_df(write_data_results, "w_data")
-
-    df_read = compute_read_df(
-        bench_files,
-        read_text_df,
-        read_data_df,
-    )
-
-    return compute_write_df(
-        df_read,
-        write_text_df,
-        write_data_df,
-    )
-
-
-def run_fcsparser_bench(
-    input_root: Path,
-    scratch_root: Path,
-    names_filter: list[str],
-) -> pl.DataFrame:
-    scratch_root.mkdir(parents=True, exist_ok=True)
-
-    bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
-    if len(names_filter) > 0:
-        bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
-
-    runs = [
+def fcsparser_runs(bench_files: pl.DataFrame) -> list[FCSParserBenchRun]:
+    return [
         FCSParserBenchRun(name=n, key=k)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
@@ -1080,50 +1037,9 @@ def run_fcsparser_bench(
         for _ in range(0, FCSPARSER_TRIAL_NUMBER[k])
     ]
 
-    # Don't check DATA vs TSV truth data like we do for fireflow
 
-    # randomly shuffle runs to eliminate temporal bias
-    shuffle(runs)
-    results = [r.run(input_root, scratch_root) for r in runs]
-
-    read_flat_results = [r for r in results if r.key == FCSParserBenchKey.READ_TEXT]
-    read_data_results = [r for r in results if r.key == FCSParserBenchKey.READ_DATA]
-
-    def to_df(rs: list[FCSParserBenchResult], name: str) -> pl.DataFrame:
-        full_name = f"{name}_ns"
-        result_df = pl.DataFrame(
-            [[r.name for r in rs], [r.value for r in rs]],
-            {BENCH_NAME: pl.String, full_name: pl.Float32},
-        )
-        return result_df.group_by(BENCH_NAME).agg(
-            pl.col(full_name).mean().name.prefix("mean_"),
-            (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
-                "serr_"
-            ),
-        )
-
-    read_text_df = to_df(read_flat_results, "r_text")
-    read_data_df = to_df(read_data_results, "r_data")
-
-    return compute_read_df(
-        bench_files,
-        read_text_df,
-        read_data_df,
-    )
-
-
-def run_flowcore_bench(
-    input_root: Path,
-    scratch_root: Path,
-    names_filter: list[str],
-) -> pl.DataFrame:
-    scratch_root.mkdir(parents=True, exist_ok=True)
-
-    bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
-    if len(names_filter) > 0:
-        bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
-
-    runs = [
+def flowcore_runs(bench_files: pl.DataFrame) -> list[FlowCoreBenchRun]:
+    return [
         FlowCoreBenchRun(name=n, key=k)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
@@ -1134,18 +1050,90 @@ def run_flowcore_bench(
         for _ in range(0, FLOWCORE_TRIAL_NUMBER[k])
     ]
 
-    # Don't check DATA vs TSV truth data like we do for fireflow
+
+def ff_runs(
+    bench_files: pl.DataFrame, input_root: Path, scratch_root: Path
+) -> list[FFBenchRun]:
+    runs = [
+        FFBenchRun(name=n, key=k)
+        for n in bench_files[BENCH_NAME]
+        for k in FFBenchKey
+        for _ in range(0, FF_TRIAL_NUMBER[k])
+    ]
+
+    # loop through each name only once to check DATA integrity
+    for r in set(r for r in runs if r.key == FFBenchKey.READ_DATA):
+        r.check_data(input_root, scratch_root)
+
+    return runs
+
+
+def run_all_bench(
+    input_root: Path,
+    scratch_root: Path,
+    names_filter: list[str],
+) -> pl.DataFrame:
+    read_columns = [
+        BENCH_NAME,
+        BYTEORD,
+        VERSION,
+        BIT_WIDTHS,
+        DATATYPES,
+        WIDTH,
+        HEIGHT,
+        N_KEYWORDS,
+        TEXT_NBYTES,
+        DATA_NBYTES,
+        MEAN_READ_TEXT_NS,
+        MEAN_READ_TEXT_NS_PER_KW,
+        MEAN_READ_TEXT_NS_PER_KB,
+        SERR_READ_TEXT_NS,
+        SERR_READ_TEXT_NS_PER_KW,
+        SERR_READ_TEXT_NS_PER_KB,
+        MEAN_READ_DATA_NS,
+        MEAN_READ_DATA_DIFF_NS,
+        MEAN_READ_DATA_DIFF_NS_PER_KB,
+        MEAN_READ_DATA_DIFF_NS_PER_VAL,
+        SERR_READ_DATA_NS,
+        SERR_READ_DATA_DIFF_NS,
+        SERR_READ_DATA_DIFF_NS_PER_KB,
+        SERR_READ_DATA_DIFF_NS_PER_VAL,
+    ]
+    write_columns = [
+        MEAN_WRITE_TEXT_NS,
+        MEAN_WRITE_TEXT_NS_PER_KW,
+        MEAN_WRITE_TEXT_NS_PER_KB,
+        SERR_WRITE_TEXT_NS,
+        SERR_WRITE_TEXT_NS_PER_KW,
+        SERR_WRITE_TEXT_NS_PER_KB,
+        MEAN_WRITE_DATA_NS,
+        MEAN_WRITE_DATA_DIFF_NS,
+        MEAN_WRITE_DATA_DIFF_NS_PER_KB,
+        MEAN_WRITE_DATA_DIFF_NS_PER_VAL,
+        SERR_WRITE_DATA_NS,
+        SERR_WRITE_DATA_DIFF_NS,
+        SERR_WRITE_DATA_DIFF_NS_PER_KB,
+        SERR_WRITE_DATA_DIFF_NS_PER_VAL,
+    ]
+    all_columns = read_columns + write_columns
+
+    scratch_root.mkdir(parents=True, exist_ok=True)
+
+    bench_files = read_bench_files(input_root, names_filter)
+
+    runs: list[AnyBenchRun] = [
+        *fcsparser_runs(bench_files),
+        *flowio_runs(bench_files),
+        *flowcore_runs(bench_files),
+        *ff_runs(bench_files, input_root, scratch_root),
+    ]
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
     results = [r.run(input_root, scratch_root) for r in runs]
 
-    read_text_results = [r for r in results if r.key == FlowCoreBenchKey.READ_TEXT]
-    read_data_results = [r for r in results if r.key == FlowCoreBenchKey.READ_DATA]
-    write_text_results = [r for r in results if r.key == FlowCoreBenchKey.WRITE_TEXT]
-    write_data_results = [r for r in results if r.key == FlowCoreBenchKey.WRITE_DATA]
-
-    def to_df(rs: list[FlowCoreBenchResult], name: str) -> pl.DataFrame:
+    def to_df(key: AnyBenchKey, name: str) -> pl.DataFrame:
+        rs = [r for r in results if r.key == key]
         full_name = f"{name}_ns"
         result_df = pl.DataFrame(
             [[r.name for r in rs], [r.value for r in rs]],
@@ -1158,22 +1146,64 @@ def run_flowcore_bench(
             ),
         )
 
-    read_text_df = to_df(read_text_results, "r_text")
-    read_data_df = to_df(read_data_results, "r_data")
-    write_text_df = to_df(write_text_results, "w_text")
-    write_data_df = to_df(write_data_results, "w_data")
+    def compute_read_write_df(
+        df_read_text: pl.DataFrame,
+        df_read_data: pl.DataFrame,
+        df_write_text: pl.DataFrame,
+        df_write_data: pl.DataFrame,
+    ) -> pl.DataFrame:
+        df_read = compute_read_df(
+            bench_files,
+            df_read_text,
+            df_read_data,
+        )
 
-    df_read = compute_read_df(
+        return compute_write_df(
+            df_read,
+            df_write_text,
+            df_write_data,
+        )
+
+    df_fcsparser = compute_read_df(
         bench_files,
-        read_text_df,
-        read_data_df,
+        to_df(FCSParserBenchKey.READ_TEXT, "r_text"),
+        to_df(FCSParserBenchKey.READ_DATA, "r_data"),
     )
 
-    return compute_write_df(
-        df_read,
-        write_text_df,
-        write_data_df,
+    df_flowio = compute_read_write_df(
+        to_df(FlowIOBenchKey.READ_TEXT, "r_text"),
+        to_df(FlowIOBenchKey.READ_DATA, "r_data"),
+        to_df(FlowIOBenchKey.WRITE_TEXT, "w_text"),
+        to_df(FlowIOBenchKey.WRITE_DATA, "w_data"),
     )
+
+    df_flowcore = compute_read_write_df(
+        to_df(FlowCoreBenchKey.READ_TEXT, "r_text"),
+        to_df(FlowCoreBenchKey.READ_DATA, "r_data"),
+        to_df(FlowCoreBenchKey.WRITE_TEXT, "w_text"),
+        to_df(FlowCoreBenchKey.WRITE_DATA, "w_data"),
+    )
+
+    df_ff = compute_read_write_df(
+        to_df(FFBenchKey.READ_FLAT, "r_text"),
+        to_df(FFBenchKey.READ_DATA, "r_data"),
+        to_df(FFBenchKey.WRITE_TEXT, "w_text"),
+        to_df(FFBenchKey.WRITE_DATA, "w_data"),
+    )
+
+    df_all = pl.concat(
+        [
+            df_ff.select(all_columns).with_columns(tool=pl.lit("fireflow")),
+            df_flowio.select(all_columns).with_columns(tool=pl.lit("flowio")),
+            df_fcsparser.select(read_columns)
+            .with_columns(pl.lit(None).alias(n) for n in write_columns)
+            .with_columns(tool=pl.lit("fcsparser")),
+            df_flowcore.select(all_columns).with_columns(tool=pl.lit("flowcore")),
+        ],
+        how="vertical",
+    )
+
+    return df_all
 
 
 def run_ff_bench(
@@ -1183,20 +1213,8 @@ def run_ff_bench(
 ) -> pl.DataFrame:
     scratch_root.mkdir(parents=True, exist_ok=True)
 
-    bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
-    if len(names_filter) > 0:
-        bench_files = bench_files.filter(pl.col(BENCH_NAME).is_in(names_filter))
-
-    runs = [
-        FFBenchRun(name=n, key=k)
-        for n in bench_files[BENCH_NAME]
-        for k in FFBenchKey
-        for _ in range(0, FF_TRIAL_NUMBER[k])
-    ]
-
-    # loop through each name only once to check DATA integrity
-    for r in set(r for r in runs if r.key == FFBenchKey.READ_DATA):
-        r.check_data(input_root, scratch_root)
+    bench_files = read_bench_files(input_root, names_filter)
+    runs = ff_runs(bench_files, input_root, scratch_root)
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
@@ -1454,64 +1472,7 @@ def main(args: list[str]) -> None:
         output_root = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
         names_filter = args[5:]
-        df_flowcore = run_flowcore_bench(bench_path, scratch_root, names_filter)
-        df_ff = run_ff_bench(bench_path, scratch_root, names_filter)
-        df_flowio = run_flowio_bench(bench_path, scratch_root, names_filter)
-        df_fcsparser = run_fcsparser_bench(bench_path, scratch_root, names_filter)
-        read_columns = [
-            BENCH_NAME,
-            BYTEORD,
-            VERSION,
-            BIT_WIDTHS,
-            DATATYPES,
-            WIDTH,
-            HEIGHT,
-            N_KEYWORDS,
-            TEXT_NBYTES,
-            DATA_NBYTES,
-            MEAN_READ_TEXT_NS,
-            MEAN_READ_TEXT_NS_PER_KW,
-            MEAN_READ_TEXT_NS_PER_KB,
-            SERR_READ_TEXT_NS,
-            SERR_READ_TEXT_NS_PER_KW,
-            SERR_READ_TEXT_NS_PER_KB,
-            MEAN_READ_DATA_NS,
-            MEAN_READ_DATA_DIFF_NS,
-            MEAN_READ_DATA_DIFF_NS_PER_KB,
-            MEAN_READ_DATA_DIFF_NS_PER_VAL,
-            SERR_READ_DATA_NS,
-            SERR_READ_DATA_DIFF_NS,
-            SERR_READ_DATA_DIFF_NS_PER_KB,
-            SERR_READ_DATA_DIFF_NS_PER_VAL,
-        ]
-        write_columns = [
-            MEAN_WRITE_TEXT_NS,
-            MEAN_WRITE_TEXT_NS_PER_KW,
-            MEAN_WRITE_TEXT_NS_PER_KB,
-            SERR_WRITE_TEXT_NS,
-            SERR_WRITE_TEXT_NS_PER_KW,
-            SERR_WRITE_TEXT_NS_PER_KB,
-            MEAN_WRITE_DATA_NS,
-            MEAN_WRITE_DATA_DIFF_NS,
-            MEAN_WRITE_DATA_DIFF_NS_PER_KB,
-            MEAN_WRITE_DATA_DIFF_NS_PER_VAL,
-            SERR_WRITE_DATA_NS,
-            SERR_WRITE_DATA_DIFF_NS,
-            SERR_WRITE_DATA_DIFF_NS_PER_KB,
-            SERR_WRITE_DATA_DIFF_NS_PER_VAL,
-        ]
-        all_columns = read_columns + write_columns
-        df_all = pl.concat(
-            [
-                df_ff.select(all_columns).with_columns(tool=pl.lit("fireflow")),
-                df_flowio.select(all_columns).with_columns(tool=pl.lit("flowio")),
-                df_fcsparser.select(read_columns)
-                .with_columns(pl.lit(None).alias(n) for n in write_columns)
-                .with_columns(tool=pl.lit("fcsparser")),
-                df_flowcore.select(all_columns).with_columns(tool=pl.lit("flowcore")),
-            ],
-            how="vertical",
-        )
+        df_all = run_all_bench(bench_path, scratch_root, names_filter)
         if output_root is None:
             df_all.write_csv(sys.stdout, separator="\t")
         else:

@@ -1,5 +1,6 @@
 import csv
 import sys
+import textwrap as tw
 import platform as plm
 import flowio as fi  # type: ignore
 import fcsparser as fp  # type: ignore
@@ -870,9 +871,11 @@ def make_bench_files(root: Path) -> None:
     print_files(
         i32_name,
         core_3_1_int(10000, 25, 4, False),
-        "32-bit unsigned integer data in little-endian in FCS3.1. \
-        This matches a typical file for instruments that don't use floating \
-        point data.",
+        (
+            "32-bit unsigned integer data in little-endian in FCS3.1. "
+            "This matches a typical file for instruments that don't use floating "
+            "point data."
+        ),
     )
     print_files(
         "i32_10000x75",
@@ -882,7 +885,7 @@ def make_bench_files(root: Path) -> None:
     print_files(
         "i32_100000x25",
         core_3_1_int(100000, 25, 4, False),
-        f"Same as '{i32_name} but with more events.'",
+        f"Same as '{i32_name}' but with more events.",
     )
 
     # Make a mixed byteord file just for fun, it should be way slower. This
@@ -890,8 +893,10 @@ def make_bench_files(root: Path) -> None:
     print_files(
         "mx_i32_10000x25",
         core_3_0_pdp11(10000, 25),
-        f"Same as '{i32_name}' but with PDP-11 byte order and in FCS3.0, which \
-        is the latest standard that allows this schema to exist.",
+        (
+            f"Same as '{i32_name}' but with PDP-11 byte order and in FCS3.0, which "
+            "is the latest standard that allows this schema to exist."
+        ),
     )
 
     # make a big endian file just for fun (it should be the same as le)
@@ -910,17 +915,21 @@ def make_bench_files(root: Path) -> None:
     print_files(
         "i24_10000x25",
         core_3_1_int(10000, 25, 3, False),
-        f"Like '{i32_name}' but 24-bit. This is much rarer than 16-bit files, but \
-        some older instruments still use this bit width. \
-        This is also a good width to test since it isn't a power of 2.",
+        (
+            f"Like '{i32_name}' but 24-bit. This is much rarer than 16-bit files, "
+            "but some older instruments still use this bit width. "
+            "This is also a good width to test since it isn't a power of 2."
+        ),
     )
     print_files(
         "i64_10000x25",
         core_3_1_int(10000, 25, 8, False),
-        f"Like '{i32_name}' but 64-bit. Practically no machine uses this width, \
-        at least not explicitly. However, some machines have Time measurements \
-        which are actually 64-bit numbers split across 2 columns. There is also \
-        nothing stopping anyone from writing such a file manually.",
+        (
+            f"Like '{i32_name}' but 64-bit. Practically no machine uses this width, "
+            "at least not explicitly. However, some machines have Time measurements "
+            "which are actually 64-bit numbers split across 2 columns. There is also "
+            "nothing stopping anyone from writing such a file manually."
+        ),
     )
 
     # make float layouts
@@ -932,33 +941,39 @@ def make_bench_files(root: Path) -> None:
     print_files(
         "f64_10000x25",
         core_3_1_float(10000, 25, True),
-        f"Like '{i32_name}' but with 64-bit floats. Practically no machine uses \
-        this datatype, but nothing is stopping someone from writing a file manually.",
+        (
+            f"Like '{i32_name}' but with 64-bit floats. Practically no machine uses "
+            "this datatype, but nothing is stopping someone from writing a file manually."
+        ),
     )
 
     # add cyflow cube's infamous mixed width layout
     print_files(
         "cube_10000x6",
         core_3_1_cube(10000, False),
-        "The Partec CyFlow Cube 6 layout. This is one of a few machines that \
-        uses mixed integer widths (Stratedigm broadly being the other vendor who \
-        does this). In this specific case, the layout has 12 optical channels at \
-        16-bit, one time channel at 32-bit, and a doublet mask at 8-bit. The exact \
-        machine does not matter much; this is simply a representative case to test \
-        variable bit width parsing.",
+        (
+            "The Partec CyFlow Cube 6 layout. This is one of a few machines that "
+            "uses mixed integer widths (Stratedigm broadly being the other vendor who "
+            "does this). In this specific case, the layout has 12 optical channels at "
+            "16-bit, one time channel at 32-bit, and a doublet mask at 8-bit. The exact "
+            "machine does not matter much; this is simply a representative case to test "
+            "variable bit width parsing."
+        ),
     )
 
     # add BD S8/A8's mixed 32bit layout
     print_files(
         "s8_1000x400",
         core_3_2_a8(1000, False),
-        "The BD FACSDiscover S8 (or A8) layout. At time of writing, this is the only \
-        known machine that explicitly produces FCS 3.2 files. This standard is required \
-        because it includes a mix of float and integer data (all at 32-bit). `fireflow` \
-        also has optimizations for mixed data like this that is all the same width (it \
-        'cheats' by reading it all as one data type and then casting). The exact \
-        machine does not matter; this is a representative case meant to test this \
-        layout.",
+        (
+            "The BD FACSDiscover S8 (or A8) layout. At time of writing, this is the only "
+            "known machine that explicitly produces FCS 3.2 files. This standard is required "
+            "because it includes a mix of float and integer data (all at 32-bit). `fireflow` "
+            "also has optimizations for mixed data like this that is all the same width (it "
+            "'cheats' by reading it all as one data type and then casting). The exact "
+            "machine does not matter; this is a representative case meant to test this "
+            "layout."
+        ),
     )
 
     # layout with random mixed-width/type data, nobody uses this but it is a
@@ -966,9 +981,11 @@ def make_bench_files(root: Path) -> None:
     print_files(
         "mixrand_1000x90",
         core_3_2_random_mixed(1000, False),
-        "An FCS 3.2 file with totally mixed numeric data types (not including ASCII). \
-        No machine is known to use this format, but it is useful for testing purposes \
-        since it represents the most complex data layout a parser will need to process.",
+        (
+            "An FCS 3.2 file with totally mixed numeric data types (not including ASCII). "
+            "No machine is known to use this format, but it is useful for testing purposes "
+            "since it represents the most complex data layout a parser will need to process."
+        ),
     )
 
     with open(root / BENCH_FILES_NAME, "w") as f:
@@ -1863,7 +1880,10 @@ def render_all(
     readme_path.parent.mkdir(exist_ok=True, parents=True)
 
     file_descriptions = [
-        (r[BENCH_NAME], r["description"]) for r in df_files.iter_rows(named=True)
+        "\n".join(
+            tw.wrap(f"* *{r[BENCH_NAME]}*: {r['description']}", subsequent_indent="  ")
+        )
+        for r in df_files.iter_rows(named=True)
     ]
 
     with open(readme_path, "w") as f:

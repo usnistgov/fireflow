@@ -9,12 +9,24 @@ from decimal import Decimal
 from random import randrange, shuffle
 from time import perf_counter_ns
 from enum import Enum
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from plotnine import (
+    ggplot,
+    aes,
+    geom_col,
+    geom_errorbar,
+    coord_flip,
+    labs,
+    scale_fill_discrete,
+)
 
 import polars as pl
 import numpy as np
 
 import pyreflow as pf
 import pyreflow.typing as pft
+
+TOOLS = ["fireflow", "fcsparser", "flowio", "flowcore"]
 
 BENCH_FILES_NAME = "bench_files.tsv"
 
@@ -23,13 +35,20 @@ BENCH_FILES_NAME = "bench_files.tsv"
 BENCH_NAME = "name"
 BYTEORD = "byteord"
 VERSION = "version"
-BIT_WIDTHS = "bit_widths"
 DATATYPES = "datatypes"
 WIDTH = "width"
 HEIGHT = "height"
 N_KEYWORDS = "n_keywords"
 TEXT_NBYTES = "text_nbytes"
 DATA_NBYTES = "data_nbytes"
+
+READ_TEXT_RUNS = "read_text_runs"
+WRITE_TEXT_RUNS = "write_text_runs"
+READ_DATA_RUNS = "read_data_runs"
+WRITE_DATA_RUNS = "write_data_runs"
+READ_STD_RUNS = "read_std_runs"
+READ_DATA_RNG_RUNS = "read_data_rng_runs"
+READ_DATA_CRC_RUNS = "read_data_crc_runs"
 
 MEAN_READ_TEXT_NS = "mean_r_text_ns"
 MEAN_READ_TEXT_NS_PER_KW = "mean_r_text_ns_per_kw"
@@ -204,10 +223,10 @@ class BenchFile(NamedTuple):
     width: int
     byteord: str
     datatypes: str
-    bit_widths: str
     n_keywords: int
     text_nbytes: int
     data_nbytes: int
+    description: str
 
 
 class BenchRun[X, Y](NamedTuple):
@@ -275,7 +294,7 @@ class FlowIOBenchRun(BenchRun[FlowIOBenchKey, FlowIOBenchResult]):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return BenchResult(name=self.name, key=self.key, value=value)
+        return BenchResult(self.name, self.key, value)
 
 
 class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
@@ -301,7 +320,7 @@ class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
             value = self.read_data(input_root)
         else:
             assert_never(self.key)
-        return BenchResult(name=self.name, key=self.key, value=value)
+        return BenchResult(self.name, self.key, value)
 
 
 class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
@@ -365,7 +384,7 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return BenchResult(name=self.name, key=self.key, value=value)
+        return BenchResult(self.name, self.key, value)
 
 
 class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
@@ -435,7 +454,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return BenchResult(name=self.name, key=self.key, value=value)
+        return BenchResult(self.name, self.key, value)
 
     def check_data(self, input_root: Path, scratch_root: Path) -> None:
         """Ensure DATA didn't get screwed up during optimization.
@@ -496,7 +515,20 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
 type AnyBenchRun = FCSParserBenchRun | FlowIOBenchRun | FlowCoreBenchRun | FFBenchRun
 
 
-def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
+def get_runs(k: AnyBenchKey) -> int:
+    if isinstance(k, FFBenchKey):
+        return FF_TRIAL_NUMBER[k]
+    elif isinstance(k, FlowCoreBenchKey):
+        return FLOWCORE_TRIAL_NUMBER[k]
+    elif isinstance(k, FCSParserBenchKey):
+        return FCSPARSER_TRIAL_NUMBER[k]
+    elif isinstance(k, FlowIOBenchKey):
+        return FLOWIO_TRIAL_NUMBER[k]
+    else:
+        assert_never(k)
+
+
+def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFile:
     def sum_dict(xs: dict[str, str]) -> int:
         return sum(len(k) + len(v) for k, v in xs.items())
 
@@ -508,24 +540,18 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
 
     lt = core.data_schema
 
-    bit_widths: str
-
     if isinstance(lt, pf.MixedDataSchema) or isinstance(lt, pf.VariableUintDataSchema):
         data_nbytes = sum(lt.byte_widths) * height
-        bit_widths = ",".join(str(i * 8) for i in sorted(set(lt.byte_widths)))
     elif isinstance(lt, pf.BigLittleF32DataSchema) or isinstance(
         lt, pf.OrderedF32DataSchema
     ):
         data_nbytes = 4 * n_values
-        bit_widths = "32"
     elif isinstance(lt, pf.BigLittleF64DataSchema) or isinstance(
         lt, pf.OrderedF64DataSchema
     ):
         data_nbytes = 8 * n_values
-        bit_widths = "64"
     elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
         data_nbytes = lt.byte_width * n_values
-        bit_widths = str(lt.byte_width * 8)
     else:
         assert False, "invalid layout"
 
@@ -534,14 +560,14 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
     if isinstance(lt, pf.MixedDataSchema):
         datatypes = ",".join(sorted(set(t for (t, _) in lt.typed_ranges)))
     elif isinstance(lt, pf.BigLittleF32DataSchema | pf.OrderedF32DataSchema):
-        datatypes = "F"
+        datatypes = "F32"
     elif isinstance(lt, pf.BigLittleF64DataSchema | pf.OrderedF64DataSchema):
-        datatypes = "D"
-    elif isinstance(
-        lt,
-        pf.OrderedUintDataSchema | pf.SingleUintDataSchema | pf.VariableUintDataSchema,
-    ):
-        datatypes = "I"
+        datatypes = "F64"
+    elif isinstance(lt, pf.VariableUintDataSchema):
+        datatypes = ",".join(sorted(set(f"U{w * 8:02}" for w in lt.byte_widths)))
+    elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
+        width = lt.byte_width * 8
+        datatypes = f"U{width}"
     else:
         assert False, "invalid layout"
 
@@ -581,11 +607,11 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset) -> BenchFile:
         height=height,
         width=width,
         byteord=byteord,
-        bit_widths=bit_widths,
         datatypes=datatypes,
         text_nbytes=text_nbytes,
         data_nbytes=data_nbytes,
         n_keywords=n_keywords,
+        description=desc,
     )
 
 
@@ -730,15 +756,10 @@ def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
 
 
 def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
-    # per https://github.com/RGLab/flowCore/issues/46, 4x16+32+8
-    rs: list[pft.VariableBitmask] = [
-        ("U16", 2**16 - 1),
-        ("U16", 2**16 - 1),
-        ("U16", 2**16 - 1),
-        ("U16", 2**16 - 1),
-        ("U32", 2**32 - 1),
-        ("U08", 2**8 - 1),
-    ]
+    # per https://github.com/RGLab/flowCore/issues/46, Nx16+32+8
+    N_OPTICAL = 12
+    optical: list[pft.VariableBitmask] = [("U16", 2**16 - 1)] * N_OPTICAL
+    rs: list[pft.VariableBitmask] = [*optical, ("U32", 2**32 - 1), ("U08", 2**8 - 1)]
     layout = pf.VariableUintDataSchema(
         rs,
         endian="big" if big_endian else "little",
@@ -748,7 +769,7 @@ def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
             pl.Series(
                 np.random.uniform(low=0, high=2**16 - 1, size=height), dtype=pl.UInt16
             )
-            for _ in range(0, 4)
+            for _ in range(0, N_OPTICAL)
         ]
         + [
             pl.Series(
@@ -759,7 +780,7 @@ def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
             ),
         ]
     )
-    return core_3_1(6, layout, data)
+    return core_3_1(N_OPTICAL + 2, layout, data)
 
 
 def to_data_parts(r: pft.MixedRange) -> tuple[float | int, DType]:
@@ -824,49 +845,124 @@ def make_bench_files(root: Path) -> None:
     root.mkdir(parents=True, exist_ok=True)
     bench_files = []
 
-    def print_files(name: str, core: pft.AnyCoreDataset) -> None:
+    def print_files(name: str, core: pft.AnyCoreDataset, desc: str) -> None:
         print(f"Writing files for '{name}'")
         core.write_dataset(root / Path(f"{name}.fcs"))
         core.data.write_csv(
             root / Path(f"{name}.tsv"),
             separator="\t",
         )
-        bench_files.append(core_to_benchfile(name, core))
+        bench_files.append(core_to_benchfile(name, core, desc))
 
     # Make three different sizes of this to demonstrate how time changes with
     # width and height. We expect that for a given datatype, normalized DATA
     # throughput should not depend on width or height. TEXT throughput should
     # not depend on height but should depend on width. Standardization overhead
     # should depend on FCS version and width.
-    print_files("i32_10000x25", core_3_1_int(10000, 25, 4, False))
-    print_files("i32_10000x75", core_3_1_int(10000, 75, 4, False))
-    print_files("i32_100000x25", core_3_1_int(100000, 25, 4, False))
+    i32_name = "i32_10000x25"
+    print_files(
+        i32_name,
+        core_3_1_int(10000, 25, 4, False),
+        "32-bit unsigned integer data in little-endian in FCS3.1. \
+        This matches a typical file for instruments that don't use floating \
+        point data.",
+    )
+    print_files(
+        "i32_10000x75",
+        core_3_1_int(10000, 75, 4, False),
+        f"Same as '{i32_name}' but wider.",
+    )
+    print_files(
+        "i32_100000x25",
+        core_3_1_int(100000, 25, 4, False),
+        f"Same as '{i32_name} but with more events.'",
+    )
 
     # Make a mixed byteord file just for fun, it should be way slower. This
     # also helps test a 3.0 file vs other 3.1 files
-    print_files("mx_i32_10000x25", core_3_0_pdp11(10000, 25))
+    print_files(
+        "mx_i32_10000x25",
+        core_3_0_pdp11(10000, 25),
+        f"Same as '{i32_name}' but with PDP-11 byte order and in FCS3.0, which \
+        is the latest standard that allows this schema to exist.",
+    )
 
     # make a big endian file just for fun (it should be the same as le)
-    print_files("be_i32_10000x25", core_3_1_int(10000, 25, 4, True))
+    print_files(
+        "be_i32_10000x25",
+        core_3_1_int(10000, 25, 4, True),
+        f"Same as '{i32_name}' but with big-endian byte order.",
+    )
 
     # make some other int sizes
-    print_files("i16_10000x25", core_3_1_int(10000, 25, 2, False))
-    print_files("i24_10000x25", core_3_1_int(10000, 25, 3, False))
-    print_files("i64_10000x25", core_3_1_int(10000, 25, 8, False))
+    print_files(
+        "i16_10000x25",
+        core_3_1_int(10000, 25, 2, False),
+        "16-bit unsigned integer data. Some older instruments still use this bit width.",
+    )
+    print_files(
+        "i24_10000x25",
+        core_3_1_int(10000, 25, 3, False),
+        f"Like '{i32_name}' but 24-bit. This is much rarer than 16-bit files, but \
+        some older instruments still use this bit width. \
+        This is also a good width to test since it isn't a power of 2.",
+    )
+    print_files(
+        "i64_10000x25",
+        core_3_1_int(10000, 25, 8, False),
+        f"Like '{i32_name}' but 64-bit. Practically no machine uses this width, \
+        at least not explicitly. However, some machines have Time measurements \
+        which are actually 64-bit numbers split across 2 columns. There is also \
+        nothing stopping anyone from writing such a file manually.",
+    )
 
     # make float layouts
-    print_files("f32_10000x25", core_3_1_float(10000, 25, False))
-    print_files("f64_10000x25", core_3_1_float(10000, 25, True))
+    print_files(
+        "f32_10000x25",
+        core_3_1_float(10000, 25, False),
+        f"Like '{i32_name}' but with 32-bit floats. This is extremely common.",
+    )
+    print_files(
+        "f64_10000x25",
+        core_3_1_float(10000, 25, True),
+        f"Like '{i32_name}' but with 64-bit floats. Practically no machine uses \
+        this datatype, but nothing is stopping someone from writing a file manually.",
+    )
 
     # add cyflow cube's infamous mixed width layout
-    print_files("cube_10000x6", core_3_1_cube(10000, False))
+    print_files(
+        "cube_10000x6",
+        core_3_1_cube(10000, False),
+        "The Partec CyFlow Cube 6 layout. This is one of a few machines that \
+        uses mixed integer widths (Stratedigm broadly being the other vendor who \
+        does this). In this specific case, the layout has 12 optical channels at \
+        16-bit, one time channel at 32-bit, and a doublet mask at 8-bit. The exact \
+        machine does not matter much; this is simply a representative case to test \
+        variable bit width parsing.",
+    )
 
     # add BD S8/A8's mixed 32bit layout
-    print_files("s8_1000x400", core_3_2_a8(1000, False))
+    print_files(
+        "s8_1000x400",
+        core_3_2_a8(1000, False),
+        "The BD FACSDiscover S8 (or A8) layout. At time of writing, this is the only \
+        known machine that explicitly produces FCS 3.2 files. This standard is required \
+        because it includes a mix of float and integer data (all at 32-bit). `fireflow` \
+        also has optimizations for mixed data like this that is all the same width (it \
+        'cheats' by reading it all as one data type and then casting). The exact \
+        machine does not matter; this is a representative case meant to test this \
+        layout.",
+    )
 
     # layout with random mixed-width/type data, nobody uses this but it is a
     # good test since it should be the hardest to process
-    print_files("mixrand_1000x90", core_3_2_random_mixed(1000, False))
+    print_files(
+        "mixrand_1000x90",
+        core_3_2_random_mixed(1000, False),
+        "An FCS 3.2 file with totally mixed numeric data types (not including ASCII). \
+        No machine is known to use this format, but it is useful for testing purposes \
+        since it represents the most complex data layout a parser will need to process.",
+    )
 
     with open(root / BENCH_FILES_NAME, "w") as f:
         w = csv.writer(f, delimiter="\t")
@@ -879,10 +975,10 @@ def make_bench_files(root: Path) -> None:
                 str(b.width),
                 str(b.byteord),
                 str(b.datatypes),
-                str(b.bit_widths),
                 str(b.n_keywords),
                 str(b.text_nbytes),
                 str(b.data_nbytes),
+                str(b.description),
             ]
             w.writerow(row)
 
@@ -1013,12 +1109,11 @@ def read_bench_files(input_root: Path, names_filter: list[str]) -> pl.DataFrame:
 
 def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
     return [
-        FlowIOBenchRun(name=n, key=k)
+        FlowIOBenchRun(n, k)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
-            & ~pl.col("bit_widths").eq("24")
-            & ~(pl.col("bit_widths").eq("64") & pl.col("datatypes").eq("I"))
+            & ~pl.col("datatypes").is_in(["U24", "U64"])
         )[BENCH_NAME]
         for k in FlowIOBenchKey
         for _ in range(0, FLOWIO_TRIAL_NUMBER[k])
@@ -1027,11 +1122,11 @@ def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
 
 def fcsparser_runs(bench_files: pl.DataFrame) -> list[FCSParserBenchRun]:
     return [
-        FCSParserBenchRun(name=n, key=k)
+        FCSParserBenchRun(n, k)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
-            & ~(pl.col("bit_widths").eq("64") & pl.col("datatypes").eq("I"))
+            & ~pl.col("datatypes").eq("U64")
         )[BENCH_NAME]
         for k in FCSParserBenchKey
         for _ in range(0, FCSPARSER_TRIAL_NUMBER[k])
@@ -1040,12 +1135,11 @@ def fcsparser_runs(bench_files: pl.DataFrame) -> list[FCSParserBenchRun]:
 
 def flowcore_runs(bench_files: pl.DataFrame) -> list[FlowCoreBenchRun]:
     return [
-        FlowCoreBenchRun(name=n, key=k)
+        FlowCoreBenchRun(n, k)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
-            & ~pl.col("bit_widths").eq("8,16,32")
-            & ~(pl.col("bit_widths").eq("64") & pl.col("datatypes").eq("I"))
+            & ~pl.col("datatypes").is_in(["U08,U16,U32", "U64"])
         )[BENCH_NAME]
         for k in FlowCoreBenchKey
         for _ in range(0, FLOWCORE_TRIAL_NUMBER[k])
@@ -1053,12 +1147,21 @@ def flowcore_runs(bench_files: pl.DataFrame) -> list[FlowCoreBenchRun]:
 
 
 def ff_runs(
-    bench_files: pl.DataFrame, input_root: Path, scratch_root: Path
+    bench_files: pl.DataFrame,
+    input_root: Path,
+    scratch_root: Path,
+    rw_only: bool,
 ) -> list[FFBenchRun]:
+    NON_RW_KEYS = [
+        FFBenchKey.READ_DATA_CRC,
+        FFBenchKey.READ_DATA_RNG,
+        FFBenchKey.READ_STD,
+    ]
     runs = [
-        FFBenchRun(name=n, key=k)
+        FFBenchRun(n, k)
         for n in bench_files[BENCH_NAME]
         for k in FFBenchKey
+        if not (rw_only and k in NON_RW_KEYS)
         for _ in range(0, FF_TRIAL_NUMBER[k])
     ]
 
@@ -1078,7 +1181,6 @@ def run_all_bench(
         BENCH_NAME,
         BYTEORD,
         VERSION,
-        BIT_WIDTHS,
         DATATYPES,
         WIDTH,
         HEIGHT,
@@ -1099,6 +1201,8 @@ def run_all_bench(
         SERR_READ_DATA_DIFF_NS,
         SERR_READ_DATA_DIFF_NS_PER_KB,
         SERR_READ_DATA_DIFF_NS_PER_VAL,
+        READ_TEXT_RUNS,
+        READ_DATA_RUNS,
     ]
     write_columns = [
         MEAN_WRITE_TEXT_NS,
@@ -1115,6 +1219,8 @@ def run_all_bench(
         SERR_WRITE_DATA_DIFF_NS,
         SERR_WRITE_DATA_DIFF_NS_PER_KB,
         SERR_WRITE_DATA_DIFF_NS_PER_VAL,
+        WRITE_TEXT_RUNS,
+        WRITE_DATA_RUNS,
     ]
     all_columns = read_columns + write_columns
 
@@ -1126,26 +1232,28 @@ def run_all_bench(
         *fcsparser_runs(bench_files),
         *flowio_runs(bench_files),
         *flowcore_runs(bench_files),
-        *ff_runs(bench_files, input_root, scratch_root),
+        *ff_runs(bench_files, input_root, scratch_root, True),
     ]
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
     results = [r.run(input_root, scratch_root) for r in runs]
 
-    def to_df(key: AnyBenchKey, name: str) -> pl.DataFrame:
+    def to_df(key: AnyBenchKey, name: str, runs_name: str) -> pl.DataFrame:
+        runs = get_runs(key)
         rs = [r for r in results if r.key == key]
         full_name = f"{name}_ns"
         result_df = pl.DataFrame(
             [[r.name for r in rs], [r.value for r in rs]],
             {BENCH_NAME: pl.String, full_name: pl.Float32},
         )
-        return result_df.group_by(BENCH_NAME).agg(
+        df = result_df.group_by(BENCH_NAME).agg(
             pl.col(full_name).mean().name.prefix("mean_"),
             (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
                 "serr_"
             ),
         )
+        return df.with_columns(pl.lit(runs).alias(runs_name))
 
     def compute_read_write_df(
         df_read_text: pl.DataFrame,
@@ -1167,30 +1275,42 @@ def run_all_bench(
 
     df_fcsparser = compute_read_df(
         bench_files,
-        to_df(FCSParserBenchKey.READ_TEXT, "r_text"),
-        to_df(FCSParserBenchKey.READ_DATA, "r_data"),
+        to_df(FCSParserBenchKey.READ_TEXT, "r_text", READ_TEXT_RUNS),
+        to_df(FCSParserBenchKey.READ_DATA, "r_data", READ_DATA_RUNS),
     )
 
     df_flowio = compute_read_write_df(
-        to_df(FlowIOBenchKey.READ_TEXT, "r_text"),
-        to_df(FlowIOBenchKey.READ_DATA, "r_data"),
-        to_df(FlowIOBenchKey.WRITE_TEXT, "w_text"),
-        to_df(FlowIOBenchKey.WRITE_DATA, "w_data"),
+        to_df(FlowIOBenchKey.READ_TEXT, "r_text", READ_TEXT_RUNS),
+        to_df(FlowIOBenchKey.READ_DATA, "r_data", READ_DATA_RUNS),
+        to_df(FlowIOBenchKey.WRITE_TEXT, "w_text", WRITE_TEXT_RUNS),
+        to_df(FlowIOBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS),
     )
 
     df_flowcore = compute_read_write_df(
-        to_df(FlowCoreBenchKey.READ_TEXT, "r_text"),
-        to_df(FlowCoreBenchKey.READ_DATA, "r_data"),
-        to_df(FlowCoreBenchKey.WRITE_TEXT, "w_text"),
-        to_df(FlowCoreBenchKey.WRITE_DATA, "w_data"),
+        to_df(FlowCoreBenchKey.READ_TEXT, "r_text", READ_TEXT_RUNS),
+        to_df(FlowCoreBenchKey.READ_DATA, "r_data", READ_DATA_RUNS),
+        to_df(FlowCoreBenchKey.WRITE_TEXT, "w_text", WRITE_TEXT_RUNS),
+        to_df(FlowCoreBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS),
     )
 
     df_ff = compute_read_write_df(
-        to_df(FFBenchKey.READ_FLAT, "r_text"),
-        to_df(FFBenchKey.READ_DATA, "r_data"),
-        to_df(FFBenchKey.WRITE_TEXT, "w_text"),
-        to_df(FFBenchKey.WRITE_DATA, "w_data"),
+        to_df(FFBenchKey.READ_FLAT, "r_text", READ_TEXT_RUNS),
+        to_df(FFBenchKey.READ_DATA, "r_data", READ_DATA_RUNS),
+        to_df(FFBenchKey.WRITE_TEXT, "w_text", WRITE_TEXT_RUNS),
+        to_df(FFBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS),
     )
+
+    def get_tool(x: AnyBenchKey) -> str:
+        if isinstance(x, FFBenchKey):
+            return "fireflow"
+        elif isinstance(x, FlowCoreBenchKey):
+            return "flowcore"
+        elif isinstance(x, FCSParserBenchKey):
+            return "fcsparser"
+        elif isinstance(x, FlowIOBenchKey):
+            return "flowio"
+        else:
+            assert_never(x)
 
     df_all = pl.concat(
         [
@@ -1215,40 +1335,38 @@ def run_ff_bench(
     scratch_root.mkdir(parents=True, exist_ok=True)
 
     bench_files = read_bench_files(input_root, names_filter)
-    runs = ff_runs(bench_files, input_root, scratch_root)
+    runs = ff_runs(bench_files, input_root, scratch_root, False)
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
     results = [r.run(input_root, scratch_root) for r in runs]
 
-    read_flat_results = [r for r in results if r.key == FFBenchKey.READ_FLAT]
-    read_std_results = [r for r in results if r.key == FFBenchKey.READ_STD]
-    read_data_results = [r for r in results if r.key == FFBenchKey.READ_DATA]
-    read_data_rng_results = [r for r in results if r.key == FFBenchKey.READ_DATA_RNG]
-    read_data_crc_results = [r for r in results if r.key == FFBenchKey.READ_DATA_CRC]
-    write_text_results = [r for r in results if r.key == FFBenchKey.WRITE_TEXT]
-    write_data_results = [r for r in results if r.key == FFBenchKey.WRITE_DATA]
-
-    def to_df(rs: list[FFBenchResult], name: str) -> pl.DataFrame:
+    def to_df(key: FFBenchKey, name: str, runs_name: str) -> pl.DataFrame:
+        runs = get_runs(key)
+        rs = [r for r in results if r.key is key]
         full_name = f"{name}_ns"
         result_df = pl.DataFrame(
             [[r.name for r in rs], [r.value for r in rs]],
             {BENCH_NAME: pl.String, full_name: pl.Float32},
         )
-        return result_df.group_by(BENCH_NAME).agg(
-            pl.col(full_name).mean().name.prefix("mean_"),
-            (pl.col(full_name).std() / pl.col(full_name).count().sqrt()).name.prefix(
-                "serr_"
-            ),
+        return (
+            result_df.group_by(BENCH_NAME)
+            .agg(
+                pl.col(full_name).mean().name.prefix("mean_"),
+                (
+                    pl.col(full_name).std() / pl.col(full_name).count().sqrt()
+                ).name.prefix("serr_"),
+            )
+            .with_columns(pl.lit(runs).alias(runs_name))
         )
 
-    read_text_df = to_df(read_flat_results, "r_text")
-    read_std_df = to_df(read_std_results, "r_std")
-    read_data_df = to_df(read_data_results, "r_data")
-    read_data_rng_df = to_df(read_data_rng_results, "r_data_rng")
-    read_data_crc_df = to_df(read_data_crc_results, "r_data_crc")
-    write_text_df = to_df(write_text_results, "w_text")
-    write_data_df = to_df(write_data_results, "w_data")
+    read_text_df = to_df(FFBenchKey.READ_FLAT, "r_text", READ_TEXT_RUNS)
+    read_std_df = to_df(FFBenchKey.READ_STD, "r_std", READ_STD_RUNS)
+    read_data_df = to_df(FFBenchKey.READ_DATA, "r_data", READ_DATA_RUNS)
+    read_data_rng_df = to_df(FFBenchKey.READ_DATA_RNG, "r_data_rng", READ_DATA_RNG_RUNS)
+    read_data_crc_df = to_df(FFBenchKey.READ_DATA_CRC, "r_data_crc", READ_DATA_CRC_RUNS)
+    write_text_df = to_df(FFBenchKey.WRITE_TEXT, "w_text", WRITE_TEXT_RUNS)
+    write_data_df = to_df(FFBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS)
 
     df_read = compute_read_df(
         bench_files,
@@ -1355,11 +1473,10 @@ def print_ff_df(df: pl.DataFrame, output_root: Path | None) -> None:
         pl.col(WIDTH).alias("$PAR"),
         pl.col(HEIGHT).alias("$TOT"),
         pl.col(BYTEORD).alias("$BYTEORD"),
-        pl.col(DATATYPES).alias("$DATATYPE"),
-        pl.col(BIT_WIDTHS).alias("$PnB"),
+        pl.col(DATATYPES).alias("datatypes"),
     ]
 
-    sort_cols = [BYTEORD, VERSION, BIT_WIDTHS, DATATYPES, HEIGHT]
+    sort_cols = [BYTEORD, VERSION, DATATYPES, HEIGHT]
 
     READ_TEXT_PER_KW = "TEXT read (ns/kw)"
     READ_TEXT_PER_KB = "TEXT read (ns/kB)"
@@ -1463,12 +1580,251 @@ def print_ff_df(df: pl.DataFrame, output_root: Path | None) -> None:
             df_final.write_csv(f, separator="\t")
 
 
+def fill_cartesian[X](
+    df: pl.DataFrame, col: str, fill: int | float | None
+) -> pl.DataFrame:
+    wide = df.select(["name", col, "tool"]).pivot("tool", index="name")
+    return (wide.fill_null(fill) if fill is not None else wide).unpivot(
+        None,
+        index="name",
+        variable_name="tool",
+        value_name=col,
+    )
+
+
+def parser_enum() -> pl.Enum:
+    return pl.Enum(list(reversed(TOOLS)))
+
+
+def plot_read_text(df: pl.DataFrame, out_path: Path) -> None:
+    df_mean = fill_cartesian(df, "mean_r_text_ns_per_kw", 0)
+    df_serr = fill_cartesian(df, "serr_r_text_ns_per_kw", None)
+    df_combined = (
+        df_mean.join(df_serr, on=["name", "tool"])
+        .with_columns(
+            (pl.col("mean_r_text_ns_per_kw") - pl.col("serr_r_text_ns_per_kw")).alias(
+                "lower"
+            ),
+            (pl.col("mean_r_text_ns_per_kw") + pl.col("serr_r_text_ns_per_kw")).alias(
+                "upper"
+            ),
+        )
+        .with_columns(pl.col("tool").cast(parser_enum()))
+    )
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y="mean_r_text_ns_per_kw", x="name", fill="tool"),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="TEXT read time (ns/keyword pair)", x="FCS File", fill="Tool")
+        + coord_flip()
+        + scale_fill_discrete(limits=TOOLS)
+    )
+    read_text_plt.save(out_path)
+
+
+def plot_read_data(
+    df: pl.DataFrame, out_path: Path, out_path_no_flowcore: Path
+) -> None:
+    df_mean = fill_cartesian(df, "mean_r_data_diff_ns_per_value", 0)
+    df_serr = fill_cartesian(df, "serr_r_data_diff_ns_per_value", None)
+    df_combined = (
+        df_mean.join(df_serr, on=["name", "tool"])
+        .with_columns(
+            (
+                pl.col("mean_r_data_diff_ns_per_value")
+                - pl.col("serr_r_data_diff_ns_per_value")
+            ).alias("lower"),
+            (
+                pl.col("mean_r_data_diff_ns_per_value")
+                + pl.col("serr_r_data_diff_ns_per_value")
+            ).alias("upper"),
+        )
+        .with_columns(pl.col("tool").cast(parser_enum()))
+    )
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y="mean_r_data_diff_ns_per_value", x="name", fill="tool"),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Tool")
+        + coord_flip()
+        + scale_fill_discrete(limits=TOOLS)
+    )
+    read_text_plt.save(out_path)
+
+    read_text_plt = (
+        ggplot(
+            df_combined.filter(~pl.col("tool").eq("flowcore")),
+            aes(y="mean_r_data_diff_ns_per_value", x="name", fill="tool"),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Tool")
+        + coord_flip()
+        + scale_fill_discrete(limits=[t for t in TOOLS if not t == "flowcore"])
+    )
+    read_text_plt.save(out_path_no_flowcore)
+
+
+def plot_write_text(df: pl.DataFrame, out_path: Path) -> None:
+    df_mean = fill_cartesian(df, "mean_w_text_ns_per_kw", 0)
+    df_serr = fill_cartesian(df, "serr_w_text_ns_per_kw", None)
+    df_combined = (
+        df_mean.join(df_serr, on=["name", "tool"])
+        .with_columns(
+            (pl.col("mean_w_text_ns_per_kw") - pl.col("serr_w_text_ns_per_kw")).alias(
+                "lower"
+            ),
+            (pl.col("mean_w_text_ns_per_kw") + pl.col("serr_w_text_ns_per_kw")).alias(
+                "upper"
+            ),
+        )
+        .with_columns(pl.col("tool").cast(parser_enum()))
+    ).filter(~pl.col("tool").eq("fcsparser"))
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y="mean_w_text_ns_per_kw", x="name", fill="tool"),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="TEXT write time (ns/keyword pair)", x="FCS File", fill="Tool")
+        + coord_flip()
+        + scale_fill_discrete(limits=[t for t in TOOLS if not t == "fcsparser"])
+    )
+    read_text_plt.save(out_path)
+
+
+def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
+    df_mean = fill_cartesian(df, "mean_w_data_diff_ns_per_value", 0)
+    df_serr = fill_cartesian(df, "serr_w_data_diff_ns_per_value", None)
+    df_combined = (
+        df_mean.join(df_serr, on=["name", "tool"])
+        .with_columns(
+            (
+                pl.col("mean_w_data_diff_ns_per_value")
+                - pl.col("serr_w_data_diff_ns_per_value")
+            ).alias("lower"),
+            (
+                pl.col("mean_w_data_diff_ns_per_value")
+                + pl.col("serr_w_data_diff_ns_per_value")
+            ).alias("upper"),
+        )
+        .with_columns(pl.col("tool").cast(parser_enum()))
+    ).filter(~pl.col("tool").eq("fcsparser"))
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y="mean_w_data_diff_ns_per_value", x="name", fill="tool"),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="TEXT write time (ns/keyword pair)", x="FCS File", fill="Tool")
+        + coord_flip()
+        + scale_fill_discrete(limits=[t for t in TOOLS if not t == "fcsparser"])
+    )
+    read_text_plt.save(out_path)
+
+
+def dataframe_to_md(df: pl.DataFrame) -> str:
+    cols = df.columns
+    header = "| " + " | ".join(cols) + " |"
+    sep = "| " + " | ".join("---" for _ in cols) + " |"
+    rows = ["| " + " | ".join(str(v) for v in row) + " |" for row in df.rows()]
+    return "\n".join([header, sep, *rows])
+
+
+def render_all(
+    files_path: Path,
+    bench_path: Path,
+    template_path: Path,
+    static_dir: Path,
+    readme_path: Path,
+) -> None:
+    static_dir.mkdir(parents=True, exist_ok=True)
+    df_files = pl.read_csv(files_path, separator="\t")
+    df_results = pl.read_csv(bench_path, separator="\t")
+
+    readme_dir = readme_path.parent
+
+    read_text_path = static_dir / "read_text.svg"
+    read_data_path = static_dir / "read_data.svg"
+    read_data_noflowcore_path = static_dir / "read_data_no_flowcore.svg"
+    write_text_path = static_dir / "write_text.svg"
+    write_data_path = static_dir / "write_data.svg"
+
+    plot_read_text(df_results, read_text_path)
+    plot_read_data(df_results, read_data_path, read_data_noflowcore_path)
+    plot_write_text(df_results, write_text_path)
+    plot_write_data(df_results, write_data_path)
+
+    env = Environment(
+        loader=FileSystemLoader(template_path.parent),
+        undefined=StrictUndefined,
+    )
+    template = env.get_template(template_path.name)
+    readme_path.parent.mkdir(exist_ok=True, parents=True)
+
+    file_descriptions = [
+        (r[BENCH_NAME], r["description"]) for r in df_files.iter_rows(named=True)
+    ]
+
+    with open(readme_path, "w") as f:
+        f.write(
+            template.render(
+                {
+                    "read_text_plot_path": read_text_path.relative_to(readme_dir),
+                    "read_data_plot_path": read_data_path.relative_to(readme_dir),
+                    "read_data_noflowcore_plot_path": read_data_noflowcore_path.relative_to(
+                        readme_dir
+                    ),
+                    "write_text_plot_path": write_text_path.relative_to(readme_dir),
+                    "test_file_table": dataframe_to_md(df_files.drop(["description"])),
+                    "test_file_descriptions": file_descriptions,
+                    "write_data_plot_path": write_data_path.relative_to(readme_dir),
+                }
+            )
+        )
+
+
 def main(args: list[str]) -> None:
     cmd = args[1]
     bench_path = Path(args[2])
 
+    # make FCS files to test (and index them)
     if cmd == "make":
         make_bench_files(bench_path)
+
+    # run all benchmarks against FCS files
     elif cmd == "run_all":
         output_root = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
@@ -1481,11 +1837,23 @@ def main(args: list[str]) -> None:
             with open(output_root / "bench_all.tsv", "w") as f:
                 df_all.write_csv(f, separator="\t")
 
+    # run just the fireflow benchmarks on the FCS files
     elif cmd == "run_ff":
         output_root = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
         df = run_ff_bench(bench_path, scratch_root, args[5:])
         print_ff_df(df, output_root)
+
+    # render plots and benchmark summary
+    elif cmd == "render":
+        files_path = Path(args[2])
+        bench_path = Path(args[3])
+        template_path = Path(args[4])
+        static_dir = Path(args[5])
+        readme_path = Path(args[6])
+        render_all(files_path, bench_path, template_path, static_dir, readme_path)
+
+    # woopsie
     else:
         print(f"invalid command: {cmd}")
         exit(1)

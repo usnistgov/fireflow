@@ -1,5 +1,6 @@
 import csv
 import sys
+import platform as plm
 import flowio as fi  # type: ignore
 import fcsparser as fp  # type: ignore
 import subprocess as sp
@@ -1469,10 +1470,10 @@ def run_ff_bench(
         )
     )
 
-    return df_analyzed
+    return df_analyzed.drop(["description"])
 
 
-def print_ff_df(df: pl.DataFrame, output_path: Path | None) -> None:
+def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> None:
     metadata_cols = [
         "version",
         pl.col(WIDTH).alias("$PAR"),
@@ -1499,83 +1500,86 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None) -> None:
     WRITE_DATA_PER_VAL = "DATA write (ns/val)"
     WRITE_DATA_PER_KB = "DATA write (ns/kB)"
 
-    df_final = df.sort(by=sort_cols).select(
-        [
-            BENCH_NAME,
-            *metadata_cols,
-            # read flat
-            fmt_value(
-                MEAN_READ_TEXT_NS_PER_KW,
-                SERR_READ_TEXT_NS_PER_KW,
-                READ_TEXT_PER_KW,
-            ),
-            fmt_value(
-                MEAN_READ_TEXT_NS_PER_KB,
-                SERR_READ_TEXT_NS_PER_KB,
-                READ_TEXT_PER_KB,
-            ),
-            # read std
-            fmt_value(
-                MEAN_READ_STD_DIFF_NS_PER_KW,
-                SERR_READ_STD_DIFF_NS_PER_KW,
-                READ_STD_PER_KW,
-            ),
-            pl.col("r_std_ratio").round(1).alias(READ_STD_RATIO),
-            # read data
-            fmt_value(
-                MEAN_READ_DATA_DIFF_NS_PER_VAL,
-                SERR_READ_DATA_DIFF_NS_PER_VAL,
-                READ_DATA_PER_VAL,
-                3,
-            ),
-            fmt_value(
-                MEAN_READ_DATA_DIFF_NS_PER_KB,
-                SERR_READ_DATA_DIFF_NS_PER_KB,
-                READ_DATA_PER_KB,
-            ),
-            # read range
-            fmt_value(
-                MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL,
-                SERR_READ_DATA_RNG_DIFF_NS_PER_VAL,
-                READ_RNG_PER_VAL,
-                3,
-            ),
-            pl.col("r_data_rng_ratio").round(1).alias(READ_RNG_RATIO),
-            # read crc
-            fmt_value(
-                MEAN_READ_DATA_CRC_DIFF_NS_PER_KB,
-                SERR_READ_DATA_CRC_DIFF_NS_PER_KB,
-                READ_CRC_PER_KB,
-            ),
-            pl.col("r_data_crc_ratio").round(1).alias(READ_CRC_RATIO),
-            # write text
-            fmt_value(
-                MEAN_WRITE_TEXT_NS_PER_KW,
-                SERR_WRITE_TEXT_NS_PER_KW,
-                WRITE_TEXT_PER_KW,
-            ),
-            fmt_value(
-                MEAN_WRITE_TEXT_NS_PER_KB,
-                SERR_WRITE_TEXT_NS_PER_KB,
-                WRITE_TEXT_PER_KB,
-            ),
-            # write data
-            fmt_value(
-                MEAN_WRITE_DATA_DIFF_NS_PER_VAL,
-                SERR_WRITE_DATA_DIFF_NS_PER_VAL,
-                WRITE_DATA_PER_VAL,
-                3,
-            ),
-            fmt_value(
-                MEAN_WRITE_DATA_DIFF_NS_PER_KB,
-                SERR_WRITE_DATA_DIFF_NS_PER_KB,
-                WRITE_DATA_PER_KB,
-            ),
-            # read vs write
-            pl.col("text_rw_ratio").round(1).alias("TEXT R:W Ratio (%)"),
-            pl.col("data_rw_ratio").round(1).alias("DATA R:W Ratio (%)"),
-        ]
-    )
+    if not pretty:
+        df_final = df
+    else:
+        df_final = df.sort(by=sort_cols).select(
+            [
+                BENCH_NAME,
+                *metadata_cols,
+                # read flat
+                fmt_value(
+                    MEAN_READ_TEXT_NS_PER_KW,
+                    SERR_READ_TEXT_NS_PER_KW,
+                    READ_TEXT_PER_KW,
+                ),
+                fmt_value(
+                    MEAN_READ_TEXT_NS_PER_KB,
+                    SERR_READ_TEXT_NS_PER_KB,
+                    READ_TEXT_PER_KB,
+                ),
+                # read std
+                fmt_value(
+                    MEAN_READ_STD_DIFF_NS_PER_KW,
+                    SERR_READ_STD_DIFF_NS_PER_KW,
+                    READ_STD_PER_KW,
+                ),
+                pl.col("r_std_ratio").round(1).alias(READ_STD_RATIO),
+                # read data
+                fmt_value(
+                    MEAN_READ_DATA_DIFF_NS_PER_VAL,
+                    SERR_READ_DATA_DIFF_NS_PER_VAL,
+                    READ_DATA_PER_VAL,
+                    3,
+                ),
+                fmt_value(
+                    MEAN_READ_DATA_DIFF_NS_PER_KB,
+                    SERR_READ_DATA_DIFF_NS_PER_KB,
+                    READ_DATA_PER_KB,
+                ),
+                # read range
+                fmt_value(
+                    MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL,
+                    SERR_READ_DATA_RNG_DIFF_NS_PER_VAL,
+                    READ_RNG_PER_VAL,
+                    3,
+                ),
+                pl.col("r_data_rng_ratio").round(1).alias(READ_RNG_RATIO),
+                # read crc
+                fmt_value(
+                    MEAN_READ_DATA_CRC_DIFF_NS_PER_KB,
+                    SERR_READ_DATA_CRC_DIFF_NS_PER_KB,
+                    READ_CRC_PER_KB,
+                ),
+                pl.col("r_data_crc_ratio").round(1).alias(READ_CRC_RATIO),
+                # write text
+                fmt_value(
+                    MEAN_WRITE_TEXT_NS_PER_KW,
+                    SERR_WRITE_TEXT_NS_PER_KW,
+                    WRITE_TEXT_PER_KW,
+                ),
+                fmt_value(
+                    MEAN_WRITE_TEXT_NS_PER_KB,
+                    SERR_WRITE_TEXT_NS_PER_KB,
+                    WRITE_TEXT_PER_KB,
+                ),
+                # write data
+                fmt_value(
+                    MEAN_WRITE_DATA_DIFF_NS_PER_VAL,
+                    SERR_WRITE_DATA_DIFF_NS_PER_VAL,
+                    WRITE_DATA_PER_VAL,
+                    3,
+                ),
+                fmt_value(
+                    MEAN_WRITE_DATA_DIFF_NS_PER_KB,
+                    SERR_WRITE_DATA_DIFF_NS_PER_KB,
+                    WRITE_DATA_PER_KB,
+                ),
+                # read vs write
+                pl.col("text_rw_ratio").round(1).alias("TEXT R:W Ratio (%)"),
+                pl.col("data_rw_ratio").round(1).alias("DATA R:W Ratio (%)"),
+            ]
+        )
 
     if output_path is None:
         df_final.write_csv(sys.stdout, separator="\t")
@@ -1760,6 +1764,32 @@ def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
     read_text_plt.save(out_path)
 
 
+def plot_fireflow_std_overhead(df: pl.DataFrame, out_path: Path) -> None:
+    read_text_plt = (
+        ggplot(
+            df,
+            aes(y="r_std_ratio", x=BENCH_NAME),  # type: ignore
+        )
+        + geom_col()
+        + labs(y="TEXT Std. Overhead (% of TEXT parse time)", x="FCS File")
+        + coord_flip()
+    )
+    read_text_plt.save(out_path)
+
+
+def plot_fireflow_crc_overhead(df: pl.DataFrame, out_path: Path) -> None:
+    read_text_plt = (
+        ggplot(
+            df,
+            aes(y="r_data_crc_ratio", x=BENCH_NAME),  # type: ignore
+        )
+        + geom_col()
+        + labs(y="CRC Overhead (% of total read time)", x="FCS File")
+        + coord_flip()
+    )
+    read_text_plt.save(out_path)
+
+
 def dataframe_to_md(df: pl.DataFrame) -> str:
     cols = df.columns
     header = "| " + " | ".join(cols) + " |"
@@ -1768,9 +1798,25 @@ def dataframe_to_md(df: pl.DataFrame) -> str:
     return "\n".join([header, sep, *rows])
 
 
+def cpu_model() -> str:
+    for line in Path("/proc/cpuinfo").read_text().splitlines():
+        if line.startswith("model name"):
+            return line.split(":", 1)[1].strip()
+    return "unknown"
+
+
+def total_memory() -> float:
+    meminfo = dict(
+        (i.split()[0].rstrip(":"), int(i.split()[1]))
+        for i in open("/proc/meminfo").readlines()
+    )
+    return int(meminfo["MemTotal"] / 1024 / 1024)
+
+
 def render_all(
     files_path: Path,
     bench_path: Path,
+    bench_ff_path: Path,
     template_path: Path,
     static_dir: Path,
     readme_path: Path,
@@ -1778,6 +1824,7 @@ def render_all(
     static_dir.mkdir(parents=True, exist_ok=True)
     df_files = pl.read_csv(files_path, separator="\t")
     df_results = pl.read_csv(bench_path, separator="\t")
+    df_ff_results = pl.read_csv(bench_ff_path, separator="\t")
 
     df_runs = df_results.select(
         [
@@ -1802,6 +1849,12 @@ def render_all(
     plot_write_text(df_results, write_text_path)
     plot_write_data(df_results, write_data_path)
 
+    read_std_overhead_path = static_dir / "read_std_overhead.svg"
+    read_crc_overhead_path = static_dir / "read_crc_overhead.svg"
+
+    plot_fireflow_std_overhead(df_ff_results, read_std_overhead_path)
+    plot_fireflow_crc_overhead(df_ff_results, read_crc_overhead_path)
+
     env = Environment(
         loader=FileSystemLoader(template_path.parent),
         undefined=StrictUndefined,
@@ -1823,10 +1876,19 @@ def render_all(
                         readme_dir
                     ),
                     "write_text_plot_path": write_text_path.relative_to(readme_dir),
+                    "read_std_overhead_path": read_std_overhead_path.relative_to(
+                        readme_dir
+                    ),
+                    "read_crc_overhead_path": read_crc_overhead_path.relative_to(
+                        readme_dir
+                    ),
                     "test_file_table": dataframe_to_md(df_files.drop(["description"])),
                     "test_file_descriptions": file_descriptions,
                     "trial_number_table": dataframe_to_md(df_runs),
                     "write_data_plot_path": write_data_path.relative_to(readme_dir),
+                    "cpu_model": cpu_model(),
+                    "total_memory": total_memory(),
+                    "kernel_uname": plm.uname().release,
                 }
             )
         )
@@ -1854,20 +1916,28 @@ def main(args: list[str]) -> None:
                 df_all.write_csv(f, separator="\t")
 
     # run just the fireflow benchmarks on the FCS files
-    elif cmd == "run_ff":
+    elif cmd in ["run_ff", "run_ff_pretty"]:
         output_path = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
         df = run_ff_bench(bench_path, scratch_root, args[5:])
-        print_ff_df(df, output_path)
+        print_ff_df(df, output_path, cmd == "run_ff_pretty")
 
     # render plots and benchmark summary
     elif cmd == "render":
         files_path = Path(args[2])
         bench_path = Path(args[3])
-        template_path = Path(args[4])
-        static_dir = Path(args[5])
-        readme_path = Path(args[6])
-        render_all(files_path, bench_path, template_path, static_dir, readme_path)
+        bench_ff_path = Path(args[4])
+        template_path = Path(args[5])
+        static_dir = Path(args[6])
+        readme_path = Path(args[7])
+        render_all(
+            files_path,
+            bench_path,
+            bench_ff_path,
+            template_path,
+            static_dir,
+            readme_path,
+        )
 
     # woopsie
     else:

@@ -5,9 +5,10 @@ comparisons with existing FCS parsing tools.
 
 ## Comparison Results
 
-The following plots show execution speeds for reading and writing different
-segments of various FCS files. Not all libraries support all FCS versions and
-data layouts; a value will be missing in such cases.
+The following plots compare execution speeds of several FCS libraries for
+reading and writing different segments of various FCS files. Not all libraries
+support all FCS versions and data layouts; a value will be missing in such
+cases.
 
 ### *TEXT* Read Speed
 
@@ -27,6 +28,36 @@ here. See appendix for full plot.
 ### *TEXT* + *DATA* Write Speed
 
 ![write_data]({{write_data_plot_path}})
+
+## Fireflow-specific Results
+
+`fireflow` can do some things that no other current library can do. Therefore
+the performance of these features cannot be compared; however, these are useful
+for understanding `fireflow`'s overall performance and may help users understand
+how it will perform for their applications.
+
+### Standardization Overhead
+
+`fireflow` is the only library that will interpret the entire *TEXT* segment
+into an in-memory data structure that allows for database-like manipulation.
+This interpretation takes some computational power dependent on the complexity
+of *TEXT* and the FCS version.
+
+Reported percentage does not include reading TEXT as a flat list (ie "100%" in
+the plot below represents a 2x overall increase in execution time).
+
+![read_std_overhead]({{read_std_overhead_path}})
+
+### CRC Overhead
+
+`fireflow` is the only library which can compute the CRC of a dataset and
+compare against the checksum at the end. This requires extra computation on top
+of reading the segments themselves.
+
+Reported percentage does not include parsing *TEXT* + *DATA* (ie "100%" in
+the plot below represents a 2x overall increase in execution time).
+
+![read_crc_overhead]({{read_crc_overhead_path}})
 
 ## Methodology
 
@@ -67,12 +98,20 @@ Additionally, these libaries can parse the following FCS files types:
 Do to uneven support for some of these features, not all measurements were
 collected for all libaries.
 
-### Trial Number
+### Experimental setup
 
 The number of trials for each library and metric was the following. The same
 number was used across all test FCS files.
 
 {{trial_number_table}}
+
+For a given benchmarking experiment, all combinations of test FCS file, library,
+target metric, and repetition (as given in the above table) was executated *in
+random order*.
+
+Two benchmark experiments were performed, one comparing `fireflow` to existing
+FCS libraries (1-4 in next section), and the other measuring `fireflow`-specific
+performance characteristics (5-6 in next section)
 
 ### Metrics
 
@@ -83,6 +122,8 @@ main metrics:
 2) *TEXT* write speed per keyword pair
 3) *DATA* read speed per value 
 4) *DATA* write speed per value 
+5) *TEXT* standardization (`fireflow` only)
+6) CRC check (`fireflow` only)
 
 Each of these are relevant for users and readily comparable across libraries
 (with the exception of `fcsparser` which does not have write capability). Each
@@ -98,54 +139,77 @@ See next for specifics on how these libraries were invoked.
 
 #### fireflow
 
-`fireflow` was always invoked in flat mode. When reading only *TEXT*, this will
-put all keyword pairs into a flat hash table. When reading *DATA* only the
-necessary keywords are interpreted. This is the fairest comparison between
-`fireflow` and the other libraries, which each do something similar with *TEXT*.
-They do not have any analogue to `fireflow`'s standardized mode where keywords
-are interpreted into an in-memory data structure.
+(1) was measured by invoking `fcs_read_flat_text` which parses *TEXT* only
+without any additional standardization.
 
-When reading *DATA*, CRC calculation is turned off since other libraries do not
-check the CRC. Range checking was turned off except for bitmask checking.
+(2) was measured by invoking `fcs_read_flat_data` which does the same as (1) and
+then interprets the minimal number of keywords necessary to parse *DATA*. This
+is the fairest comparison between `fireflow` and the other libraries, which each
+do something similar with *TEXT*. CRC calculation was turned off since other
+libraries do not check the CRC (`compute_crc="never"`). Range checking was also
+turned off except for bitmask checking (`over_range_action="warn"`) which is
+comparable to the other libraries.
 
-Writing is tested without any exotic arguments or methods.
+(3) was measured by first reading an FCS file with `fcs_read_std_text` and then
+calling `write_text` on the resulting object.
+
+(4) was measured by first reading an FCS file with `fcs_read_std_dataset` and
+then calling `write_dataset` on the resulting object.
+
+(5) was measured by invoking `fcs_read_std_text` which will parse *TEXT* and put
+it into a standardized data structure. This was used with the value of (1) to
+compute the ratio of parsing *TEXT* with and without standardization.
+
+(6) was tested in the same manner as (2) but with `compute_crc="always"` which
+will force the computation of the CRC even if a checksum is not found at the end
+of the dataset. This was compared to the value of (4) (which did not have CRC
+checking enabled) to compute the overhead of computing the CRC.
 
 #### flowio
 
-*TEXT* without *DATA* is read by invoking `FlowData` with `only_text=True`. 0
+(1) was measured by invoking `FlowData` with `only_text=True`. 0
 
-*DATA* is read by invoking `FlowData` without any additional options. This is
+(2) was measured by invoking `FlowData` without any additional options. This is
 followed by calling `as_array(preprocess=False)` on the resulting object. This
 is to make the comparison more fair for `fireflow` and other libraries which
 store the *DATA* segment in 2D. Without this, `flowio` will keep the *DATA*
 segment as a 1D array.
 
-Writing *TEXT* alone was accomplished by setting the `events` attribute to an
-empty list (`None` doesn't work) and calling `write_fcs`. Write *TEXT* + *DATA*
-was measured by simply calling `write_fcs` on a `FlowData` object with events.
+(3) was measured by first reading an FCS file similar to (1) and (2) and then
+setting the `events` attribute to an empty list (`None` doesn't work) and
+calling `write_fcs`.
+
+(4) was measured simiarly to (3) except without zeroing the `events` attribute.
 
 #### fcsparser
 
 `fcsparser` does not have the ability to write FCS files so only read
 performance was measured.
 
-Parsing the *DATA* segment was controlled via the `meta_data_only` argument in
-the `parse` function.
+(1) was measured by setting `meta_data_only` to `True` in the `parse` function.
+(2) was measured similarly to (1) except with `meta_data_only` set to `False`
 
 #### flowCore
 
-Reading the *TEXT* segment alone was done by calling `read.FSCheader`.
+(1) was measured by calling `read.FSCheader`.
 
-Reading *TEXT* + *DATA* was done by calling `read.FCS` with `transformation =
-FALSE` and `truncate_max_range = FALSE` to be more comparable with the other
-libraries which do not transform their data or check ranges.
+(2) was measured by calling `read.FCS` with `transformation = FALSE` and
+`truncate_max_range = FALSE` to be more comparable with the other libraries
+which do not transform their data or check ranges.
 
-Writing *TEXT* alone was measured by first reading with `read.FCS` and setting
-the `exprs` slot to a 1x1 matrix (setting to a matrix with zero rows does not
-seem to work) and then calling `write.FCS`. This was assumed to have a
-negligible impact on write speed.
+(3) was measured by first reading with `read.FCS` and setting the `exprs` slot
+to a 1x1 matrix (setting to a matrix with zero rows does not seem to work) and
+then calling `write.FCS`. This was assumed to have a negligible impact on write
+speed.
 
-Writing *TEXT* + *DATA* was measured by calling `write.FCS`.
+(4) was measured by calling `write.FCS` on a flowFrame with events without any
+preprocessing as in (3).
+
+### Hardware
+
+* CPU Model: {{cpu_model}}
+* Total Memory (GiB): {{total_memory}}
+* Linux Kernel: {{kernel_uname}}
 
 ## Appendix
 

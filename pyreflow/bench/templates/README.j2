@@ -57,15 +57,22 @@ The following libraries were tested:
 
 Additionally, these libaries can parse the following FCS files types:
 
-| Library   | Mixed ByteOrd | FCS3.2 | Mixed Int | 24-bit Int | 64-bit Int |
-|-----------|---------------|--------|-----------|------------|------------|
-| fireflow  | X             | X      | X         | X          | X          |
-| flowio    |               |        | X         |            |            |
-| fcsparser |               |        |           | X          |            |
-| flowCore  |               |        |           | X          |            |
+| Library   | Mixed ByteOrd | FCS3.2 | 24-bit Int | 64-bit Int | Variable Int |
+|-----------|---------------|--------|------------|------------|--------------|
+| fireflow  | X             | X      | X          | X          | X            |
+| flowio    |               |        |            |            | X            |
+| fcsparser |               |        | X          |            | X            |
+| flowCore  | X             |        | X          |            |              |
 
 Do to uneven support for some of these features, not all measurements were
 collected for all libaries.
+
+### Trial Number
+
+The number of trials for each library and metric was the following. The same
+number was used across all test FCS files.
+
+{{trial_number_table}}
 
 ### Metrics
 

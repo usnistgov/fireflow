@@ -26,7 +26,12 @@ import numpy as np
 import pyreflow as pf
 import pyreflow.typing as pft
 
-TOOLS = ["fireflow", "fcsparser", "flowio", "flowcore"]
+FIREFLOW = "fireflow"
+FCSPARSER = "fcsparser"
+FLOWIO = "flowio"
+FLOWCORE = "flowCore"
+
+LIBRARIES = [FIREFLOW, FCSPARSER, FLOWIO, FLOWCORE]
 
 BENCH_FILES_NAME = "bench_files.tsv"
 
@@ -41,6 +46,7 @@ HEIGHT = "height"
 N_KEYWORDS = "n_keywords"
 TEXT_NBYTES = "text_nbytes"
 DATA_NBYTES = "data_nbytes"
+LIBRARY = "library"
 
 READ_TEXT_RUNS = "read_text_runs"
 WRITE_TEXT_RUNS = "write_text_runs"
@@ -1138,7 +1144,6 @@ def flowcore_runs(bench_files: pl.DataFrame) -> list[FlowCoreBenchRun]:
         FlowCoreBenchRun(n, k)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
-            & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
             & ~pl.col("datatypes").is_in(["U08,U16,U32", "U64"])
         )[BENCH_NAME]
         for k in FlowCoreBenchKey
@@ -1302,24 +1307,24 @@ def run_all_bench(
 
     def get_tool(x: AnyBenchKey) -> str:
         if isinstance(x, FFBenchKey):
-            return "fireflow"
+            return FIREFLOW
         elif isinstance(x, FlowCoreBenchKey):
-            return "flowcore"
+            return FLOWCORE
         elif isinstance(x, FCSParserBenchKey):
-            return "fcsparser"
+            return FCSPARSER
         elif isinstance(x, FlowIOBenchKey):
-            return "flowio"
+            return FLOWIO
         else:
             assert_never(x)
 
     df_all = pl.concat(
         [
-            df_ff.select(all_columns).with_columns(tool=pl.lit("fireflow")),
-            df_flowio.select(all_columns).with_columns(tool=pl.lit("flowio")),
+            df_ff.select(all_columns).with_columns(library=pl.lit(FIREFLOW)),
+            df_flowio.select(all_columns).with_columns(library=pl.lit(FLOWIO)),
             df_fcsparser.select(read_columns)
             .with_columns(pl.lit(None).alias(n) for n in write_columns)
-            .with_columns(tool=pl.lit("fcsparser")),
-            df_flowcore.select(all_columns).with_columns(tool=pl.lit("flowcore")),
+            .with_columns(library=pl.lit(FCSPARSER)),
+            df_flowcore.select(all_columns).with_columns(library=pl.lit(FLOWCORE)),
         ],
         how="vertical",
     )
@@ -1467,7 +1472,7 @@ def run_ff_bench(
     return df_analyzed
 
 
-def print_ff_df(df: pl.DataFrame, output_root: Path | None) -> None:
+def print_ff_df(df: pl.DataFrame, output_path: Path | None) -> None:
     metadata_cols = [
         "version",
         pl.col(WIDTH).alias("$PAR"),
@@ -1572,50 +1577,50 @@ def print_ff_df(df: pl.DataFrame, output_root: Path | None) -> None:
         ]
     )
 
-    if output_root is None:
+    if output_path is None:
         df_final.write_csv(sys.stdout, separator="\t")
     else:
-        output_root.mkdir(parents=True, exist_ok=True)
-        with open(output_root / "analysis.tsv", "w") as f:
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(output_path, "w") as f:
             df_final.write_csv(f, separator="\t")
 
 
 def fill_cartesian[X](
     df: pl.DataFrame, col: str, fill: int | float | None
 ) -> pl.DataFrame:
-    wide = df.select(["name", col, "tool"]).pivot("tool", index="name")
+    wide = df.select([BENCH_NAME, col, LIBRARY]).pivot(LIBRARY, index=BENCH_NAME)
     return (wide.fill_null(fill) if fill is not None else wide).unpivot(
         None,
-        index="name",
-        variable_name="tool",
+        index=BENCH_NAME,
+        variable_name=LIBRARY,
         value_name=col,
     )
 
 
 def parser_enum() -> pl.Enum:
-    return pl.Enum(list(reversed(TOOLS)))
+    return pl.Enum(list(reversed(LIBRARIES)))
 
 
 def plot_read_text(df: pl.DataFrame, out_path: Path) -> None:
-    df_mean = fill_cartesian(df, "mean_r_text_ns_per_kw", 0)
-    df_serr = fill_cartesian(df, "serr_r_text_ns_per_kw", None)
+    df_mean = fill_cartesian(df, MEAN_READ_TEXT_NS_PER_KW, 0)
+    df_serr = fill_cartesian(df, SERR_READ_TEXT_NS_PER_KW, None)
     df_combined = (
-        df_mean.join(df_serr, on=["name", "tool"])
+        df_mean.join(df_serr, on=[BENCH_NAME, LIBRARY])
         .with_columns(
-            (pl.col("mean_r_text_ns_per_kw") - pl.col("serr_r_text_ns_per_kw")).alias(
+            (pl.col(MEAN_READ_TEXT_NS_PER_KW) - pl.col(SERR_READ_TEXT_NS_PER_KW)).alias(
                 "lower"
             ),
-            (pl.col("mean_r_text_ns_per_kw") + pl.col("serr_r_text_ns_per_kw")).alias(
+            (pl.col(MEAN_READ_TEXT_NS_PER_KW) + pl.col(SERR_READ_TEXT_NS_PER_KW)).alias(
                 "upper"
             ),
         )
-        .with_columns(pl.col("tool").cast(parser_enum()))
+        .with_columns(pl.col(LIBRARY).cast(parser_enum()))
     )
 
     read_text_plt = (
         ggplot(
             df_combined,
-            aes(y="mean_r_text_ns_per_kw", x="name", fill="tool"),  # type: ignore
+            aes(y=MEAN_READ_TEXT_NS_PER_KW, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
         )
         + geom_col(position="dodge")
         + geom_errorbar(
@@ -1623,9 +1628,9 @@ def plot_read_text(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
-        + labs(y="TEXT read time (ns/keyword pair)", x="FCS File", fill="Tool")
+        + labs(y="TEXT read time (ns/keyword pair)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=TOOLS)
+        + scale_fill_discrete(limits=LIBRARIES)
     )
     read_text_plt.save(out_path)
 
@@ -1633,27 +1638,27 @@ def plot_read_text(df: pl.DataFrame, out_path: Path) -> None:
 def plot_read_data(
     df: pl.DataFrame, out_path: Path, out_path_no_flowcore: Path
 ) -> None:
-    df_mean = fill_cartesian(df, "mean_r_data_diff_ns_per_value", 0)
-    df_serr = fill_cartesian(df, "serr_r_data_diff_ns_per_value", None)
+    df_mean = fill_cartesian(df, MEAN_READ_DATA_DIFF_NS_PER_VAL, 0)
+    df_serr = fill_cartesian(df, SERR_READ_DATA_DIFF_NS_PER_VAL, None)
     df_combined = (
-        df_mean.join(df_serr, on=["name", "tool"])
+        df_mean.join(df_serr, on=[BENCH_NAME, LIBRARY])
         .with_columns(
             (
-                pl.col("mean_r_data_diff_ns_per_value")
-                - pl.col("serr_r_data_diff_ns_per_value")
+                pl.col(MEAN_READ_DATA_DIFF_NS_PER_VAL)
+                - pl.col(SERR_READ_DATA_DIFF_NS_PER_VAL)
             ).alias("lower"),
             (
-                pl.col("mean_r_data_diff_ns_per_value")
-                + pl.col("serr_r_data_diff_ns_per_value")
+                pl.col(MEAN_READ_DATA_DIFF_NS_PER_VAL)
+                + pl.col(SERR_READ_DATA_DIFF_NS_PER_VAL)
             ).alias("upper"),
         )
-        .with_columns(pl.col("tool").cast(parser_enum()))
+        .with_columns(pl.col(LIBRARY).cast(parser_enum()))
     )
 
     read_text_plt = (
         ggplot(
             df_combined,
-            aes(y="mean_r_data_diff_ns_per_value", x="name", fill="tool"),  # type: ignore
+            aes(y=MEAN_READ_DATA_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
         )
         + geom_col(position="dodge")
         + geom_errorbar(
@@ -1661,16 +1666,16 @@ def plot_read_data(
             position="dodge",
             width=0.9,
         )
-        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Tool")
+        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=TOOLS)
+        + scale_fill_discrete(limits=LIBRARIES)
     )
     read_text_plt.save(out_path)
 
     read_text_plt = (
         ggplot(
-            df_combined.filter(~pl.col("tool").eq("flowcore")),
-            aes(y="mean_r_data_diff_ns_per_value", x="name", fill="tool"),  # type: ignore
+            df_combined.filter(~pl.col(LIBRARY).eq(FLOWCORE)),
+            aes(y=MEAN_READ_DATA_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
         )
         + geom_col(position="dodge")
         + geom_errorbar(
@@ -1678,33 +1683,33 @@ def plot_read_data(
             position="dodge",
             width=0.9,
         )
-        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Tool")
+        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=[t for t in TOOLS if not t == "flowcore"])
+        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FLOWCORE])
     )
     read_text_plt.save(out_path_no_flowcore)
 
 
 def plot_write_text(df: pl.DataFrame, out_path: Path) -> None:
-    df_mean = fill_cartesian(df, "mean_w_text_ns_per_kw", 0)
-    df_serr = fill_cartesian(df, "serr_w_text_ns_per_kw", None)
+    df_mean = fill_cartesian(df, MEAN_WRITE_TEXT_NS_PER_KW, 0)
+    df_serr = fill_cartesian(df, SERR_WRITE_TEXT_NS_PER_KW, None)
     df_combined = (
-        df_mean.join(df_serr, on=["name", "tool"])
+        df_mean.join(df_serr, on=[BENCH_NAME, LIBRARY])
         .with_columns(
-            (pl.col("mean_w_text_ns_per_kw") - pl.col("serr_w_text_ns_per_kw")).alias(
-                "lower"
-            ),
-            (pl.col("mean_w_text_ns_per_kw") + pl.col("serr_w_text_ns_per_kw")).alias(
-                "upper"
-            ),
+            (
+                pl.col(MEAN_WRITE_TEXT_NS_PER_KW) - pl.col(SERR_WRITE_TEXT_NS_PER_KW)
+            ).alias("lower"),
+            (
+                pl.col(MEAN_WRITE_TEXT_NS_PER_KW) + pl.col(SERR_WRITE_TEXT_NS_PER_KW)
+            ).alias("upper"),
         )
-        .with_columns(pl.col("tool").cast(parser_enum()))
-    ).filter(~pl.col("tool").eq("fcsparser"))
+        .with_columns(pl.col(LIBRARY).cast(parser_enum()))
+    ).filter(~pl.col(LIBRARY).eq(FCSPARSER))
 
     read_text_plt = (
         ggplot(
             df_combined,
-            aes(y="mean_w_text_ns_per_kw", x="name", fill="tool"),  # type: ignore
+            aes(y=MEAN_WRITE_TEXT_NS_PER_KW, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
         )
         + geom_col(position="dodge")
         + geom_errorbar(
@@ -1712,35 +1717,35 @@ def plot_write_text(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
-        + labs(y="TEXT write time (ns/keyword pair)", x="FCS File", fill="Tool")
+        + labs(y="TEXT write time (ns/keyword pair)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=[t for t in TOOLS if not t == "fcsparser"])
+        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FCSPARSER])
     )
     read_text_plt.save(out_path)
 
 
 def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
-    df_mean = fill_cartesian(df, "mean_w_data_diff_ns_per_value", 0)
-    df_serr = fill_cartesian(df, "serr_w_data_diff_ns_per_value", None)
+    df_mean = fill_cartesian(df, MEAN_WRITE_DATA_DIFF_NS_PER_VAL, 0)
+    df_serr = fill_cartesian(df, SERR_WRITE_DATA_DIFF_NS_PER_VAL, None)
     df_combined = (
-        df_mean.join(df_serr, on=["name", "tool"])
+        df_mean.join(df_serr, on=[BENCH_NAME, LIBRARY])
         .with_columns(
             (
-                pl.col("mean_w_data_diff_ns_per_value")
-                - pl.col("serr_w_data_diff_ns_per_value")
+                pl.col(MEAN_WRITE_DATA_DIFF_NS_PER_VAL)
+                - pl.col(SERR_WRITE_DATA_DIFF_NS_PER_VAL)
             ).alias("lower"),
             (
-                pl.col("mean_w_data_diff_ns_per_value")
-                + pl.col("serr_w_data_diff_ns_per_value")
+                pl.col(MEAN_WRITE_DATA_DIFF_NS_PER_VAL)
+                + pl.col(SERR_WRITE_DATA_DIFF_NS_PER_VAL)
             ).alias("upper"),
         )
-        .with_columns(pl.col("tool").cast(parser_enum()))
-    ).filter(~pl.col("tool").eq("fcsparser"))
+        .with_columns(pl.col(LIBRARY).cast(parser_enum()))
+    ).filter(~pl.col(LIBRARY).eq(FCSPARSER))
 
     read_text_plt = (
         ggplot(
             df_combined,
-            aes(y="mean_w_data_diff_ns_per_value", x="name", fill="tool"),  # type: ignore
+            aes(y=MEAN_WRITE_DATA_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
         )
         + geom_col(position="dodge")
         + geom_errorbar(
@@ -1748,9 +1753,9 @@ def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
             position="dodge",
             width=0.9,
         )
-        + labs(y="TEXT write time (ns/keyword pair)", x="FCS File", fill="Tool")
+        + labs(y="DATA write time (ns/value)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=[t for t in TOOLS if not t == "fcsparser"])
+        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FCSPARSER])
     )
     read_text_plt.save(out_path)
 
@@ -1773,6 +1778,16 @@ def render_all(
     static_dir.mkdir(parents=True, exist_ok=True)
     df_files = pl.read_csv(files_path, separator="\t")
     df_results = pl.read_csv(bench_path, separator="\t")
+
+    df_runs = df_results.select(
+        [
+            LIBRARY,
+            READ_TEXT_RUNS,
+            READ_DATA_RUNS,
+            WRITE_TEXT_RUNS,
+            WRITE_DATA_RUNS,
+        ]
+    ).unique()
 
     readme_dir = readme_path.parent
 
@@ -1810,6 +1825,7 @@ def render_all(
                     "write_text_plot_path": write_text_path.relative_to(readme_dir),
                     "test_file_table": dataframe_to_md(df_files.drop(["description"])),
                     "test_file_descriptions": file_descriptions,
+                    "trial_number_table": dataframe_to_md(df_runs),
                     "write_data_plot_path": write_data_path.relative_to(readme_dir),
                 }
             )
@@ -1826,23 +1842,23 @@ def main(args: list[str]) -> None:
 
     # run all benchmarks against FCS files
     elif cmd == "run_all":
-        output_root = None if args[3] == "-" else Path(args[3])
+        output_path = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
         names_filter = args[5:]
         df_all = run_all_bench(bench_path, scratch_root, names_filter)
-        if output_root is None:
+        if output_path is None:
             df_all.write_csv(sys.stdout, separator="\t")
         else:
-            output_root.mkdir(parents=True, exist_ok=True)
-            with open(output_root / "bench_all.tsv", "w") as f:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w") as f:
                 df_all.write_csv(f, separator="\t")
 
     # run just the fireflow benchmarks on the FCS files
     elif cmd == "run_ff":
-        output_root = None if args[3] == "-" else Path(args[3])
+        output_path = None if args[3] == "-" else Path(args[3])
         scratch_root = Path(args[4])
         df = run_ff_bench(bench_path, scratch_root, args[5:])
-        print_ff_df(df, output_root)
+        print_ff_df(df, output_path)
 
     # render plots and benchmark summary
     elif cmd == "render":

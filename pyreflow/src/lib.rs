@@ -1,10 +1,11 @@
+use fireflow_core as fc;
 use fireflow_python as ff;
 
 use pyo3::prelude::*;
 
 #[pymodule]
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
-    m.add("__version__", env!("CARGO_PKG_VERSION"))?;
+    m.add("__version__", fc::api::build_info().version)?;
 
     macro_rules! exc {
         ($s:expr, $t:ident) => {

@@ -1035,6 +1035,8 @@ fn run() -> AppResult<()> {
         .action(ArgAction::SetTrue)
         .help("Enable vendor-specific heuristics when parsing files.");
 
+    let version_cmd = Command::new(SUBCMD_VERSION).about("Show version information.");
+
     let header_cmd = Command::new(SUBCMD_HEADER)
         .about("Show header as JSON.")
         .arg(&input_arg)
@@ -1155,6 +1157,7 @@ fn run() -> AppResult<()> {
         .arg_required_else_help(true)
         .next_line_help(true)
         .max_term_width(80)
+        .subcommand(version_cmd)
         .subcommand(header_cmd)
         .subcommand(flat_cmd)
         .subcommand(std_cmd)
@@ -1168,6 +1171,12 @@ fn run() -> AppResult<()> {
     let args = cmd.clone().get_matches();
 
     match args.subcommand() {
+        Some((SUBCMD_VERSION, _)) => {
+            let vi = api::build_info();
+            to_writer(stdout, &vi)?;
+            Ok(())
+        }
+
         Some((SUBCMD_HEADER, sargs)) => {
             let conf = get_header_config(sargs);
             let filepath = get_path(sargs, INPUT_PATH);
@@ -1940,6 +1949,8 @@ type BiKeystringPair = (KeyString, KeyString);
 type KeystringStringPair = (KeyString, NEString);
 
 type SubPatternPair = (KeyStringOrPattern, SubPattern);
+
+const SUBCMD_VERSION: &str = "version";
 
 const SUBCMD_HEADER: &str = "header";
 

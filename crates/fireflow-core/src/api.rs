@@ -88,6 +88,21 @@ use {
     pyo3::prelude::*,
 };
 
+/// Dump version and build information
+#[must_use]
+pub fn build_info() -> VersionInfo {
+    VersionInfo {
+        version: built::PKG_VERSION,
+        commit_hash: built::GIT_COMMIT_HASH,
+        build_date: built::BUILT_TIME_UTC,
+        rustc_version: built::RUSTC_VERSION,
+        target: built::TARGET,
+        is_debug: cfg!(debug_assertions),
+        opt_level: built::OPT_LEVEL,
+        // features: built::FEATURES_STR,
+    }
+}
+
 /// Read HEADER from an FCS file.
 pub fn fcs_read_header(
     path: &PathBuf,
@@ -417,6 +432,23 @@ pub fn fcs_write_datasets(
     } else {
         LogResult::new_ok_default()
     }
+}
+
+/// Version and build information for this libary
+#[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct VersionInfo {
+    pub version: &'static str,
+    pub commit_hash: Option<&'static str>,
+    pub build_date: &'static str,
+    pub rustc_version: &'static str,
+    pub target: &'static str,
+    pub is_debug: bool,
+    pub opt_level: &'static str,
+    // this will be good to include if/once we actually add features that make
+    // sense to toggle
+    //
+    // pub features: &'static str,
 }
 
 /// Output from parsing the TEXT segment.
@@ -2710,6 +2742,10 @@ fn split_first_delim<'a>(
     let flag = conf.allow_non_ascii_delim;
     SwitchableErrorResult::new_switchable_ok_if3(is_ok, (*delim, rest), (), e, flag)
         .switchable_into_commutative()
+}
+
+mod built {
+    include!(concat!(env!("OUT_DIR"), "/built.rs"));
 }
 
 #[cfg(test)]

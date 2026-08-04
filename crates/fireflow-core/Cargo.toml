@@ -5,6 +5,7 @@ edition = { workspace = true }
 description = """
 Core library code for fireflow.
 """
+build = "build.rs"
 
 [dependencies]
 derive_more.workspace = true
@@ -48,6 +49,9 @@ proptest = { workspace = true }
 proptest-derive = { workspace = true }
 assert_matches = { workspace = true }
 fireflow-types = { path = "../fireflow-types", features = ["testutil"] }
+
+[build-dependencies]
+built = { version = "0.8.1", features = ["git2", "chrono"]}
 
 [features]
 serde = [

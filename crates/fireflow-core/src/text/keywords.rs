@@ -4658,7 +4658,7 @@ mod tests {
         let go = |v| {
             let t = OpticalType::from_str(v).unwrap();
             let k = kr::OptOpticalKeyword::from_str(&t, MeasIndex::from(0)).unwrap();
-            assert!(k.as_std_key_pair().1.as_str() == v);
+            assert_eq!(k.as_std_key_pair().1.as_str(), v);
         };
         go("Forward Scatter");
         go("Side Scatter");
@@ -4675,7 +4675,7 @@ mod tests {
     fn pntype_time() {
         let t = TemporalType::from_str("Time").unwrap();
         let k = kr::OptMeasTemporalKeyword::from_opt_zst(t, MeasIndex::from(0)).unwrap();
-        assert!(k.as_std_key_pair().1.as_str() == "Time");
+        assert_eq!(k.as_std_key_pair().1.as_str(), "Time");
         assert_eq!(TemporalType::from_str("Space"), Err(TemporalTypeError));
     }
 

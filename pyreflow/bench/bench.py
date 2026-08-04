@@ -1,4 +1,5 @@
 import csv
+import json
 import sys
 import textwrap as tw
 import platform as plm
@@ -1830,7 +1831,14 @@ def total_memory() -> float:
     return int(meminfo["MemTotal"] / 1024 / 1024)
 
 
+def get_flowcore_version(script_path: Path) -> str:
+    with open(script_path.parent / "renv.lock", "r") as f:
+        j = json.load(f)
+        return str(j["Packages"]["flowCore"]["Version"])
+
+
 def render_all(
+    script_path: Path,
     files_path: Path,
     bench_path: Path,
     bench_ff_path: Path,
@@ -1904,6 +1912,10 @@ def render_all(
                     ),
                     "test_file_table": dataframe_to_md(df_files.drop(["description"])),
                     "test_file_descriptions": file_descriptions,
+                    "fireflow_version": pf.__version__,
+                    "flowio_version": fi.__version__,
+                    "fcsparser_version": fp.__version__,
+                    "flowcore_version": get_flowcore_version(script_path),
                     "trial_number_table": dataframe_to_md(df_runs),
                     "write_data_plot_path": write_data_path.relative_to(readme_dir),
                     "cpu_model": cpu_model(),
@@ -1915,6 +1927,7 @@ def render_all(
 
 
 def main(args: list[str]) -> None:
+    this = Path(args[0])
     cmd = args[1]
     bench_path = Path(args[2])
 
@@ -1951,6 +1964,7 @@ def main(args: list[str]) -> None:
         static_dir = Path(args[6])
         readme_path = Path(args[7])
         render_all(
+            this,
             files_path,
             bench_path,
             bench_ff_path,

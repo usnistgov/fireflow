@@ -3548,10 +3548,14 @@ def fcs_write_datasets(
     row_buffer_size: int = 28000,
 ) -> int | None: ...
 
+#
+def build_info() -> pft.BuildInfo: ...
+
 __version__: str
 
 __all__ = [
     "__version__",
+    "build_info",
     "PyreflowError",
     "FileLayoutError",
     "ParseKeyError",

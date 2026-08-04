@@ -90,8 +90,8 @@ use {
 
 /// Dump version and build information
 #[must_use]
-pub fn build_info() -> VersionInfo {
-    VersionInfo {
+pub fn build_info() -> BuildInfo {
+    BuildInfo {
         version: built::PKG_VERSION,
         commit_hash: built::GIT_COMMIT_HASH,
         build_date: built::BUILT_TIME_UTC,
@@ -437,7 +437,8 @@ pub fn fcs_write_datasets(
 /// Version and build information for this libary
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-pub struct VersionInfo {
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct BuildInfo {
     pub version: &'static str,
     pub commit_hash: Option<&'static str>,
     pub build_date: &'static str,

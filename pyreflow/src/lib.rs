@@ -7,6 +7,14 @@ use pyo3::prelude::*;
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", fc::api::build_info().version)?;
 
+    #[pyfunction]
+    /// Show build information.
+    fn build_info() -> fc::api::BuildInfo {
+        fc::api::build_info()
+    }
+
+    m.add_function(wrap_pyfunction!(build_info, m)?)?;
+
     macro_rules! exc {
         ($s:expr, $t:ident) => {
             m.add($s, py.get_type::<fireflow_types::python::$t>())?;

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from ._pyreflow import __version__ as __version__
+from ._pyreflow import build_info as build_info
 from ._pyreflow import PyreflowError as PyreflowError
 from ._pyreflow import FileLayoutError as FileLayoutError
 from ._pyreflow import ParseKeyError as ParseKeyError

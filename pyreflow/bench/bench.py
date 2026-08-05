@@ -1,5 +1,5 @@
 import csv
-import json
+import re
 import sys
 import textwrap as tw
 import platform as plm
@@ -1831,14 +1831,97 @@ def total_memory() -> float:
     return int(meminfo["MemTotal"] / 1024 / 1024)
 
 
-def get_flowcore_version(script_path: Path) -> str:
-    with open(script_path.parent / "renv.lock", "r") as f:
-        j = json.load(f)
-        return str(j["Packages"]["flowCore"]["Version"])
+def get_flowcore_version(exec_dir: Path) -> str:
+    ret = sp.run(
+        [
+            "R",
+            "--no-save",
+            "--no-restore",
+            "-s",
+            "-e",
+            'getNamespaceVersion("flowCore")[[1]]',
+        ],
+        capture_output=True,
+        text=True,
+        cwd=exec_dir,
+    )
+    if ret.returncode == 0:
+        if m := re.match('^\\[1\\] "(.+)"$', ret.stdout):
+            return m[1]
+        else:
+            assert False, f"could not get version from stdout: {ret.stdout}"
+    else:
+        assert False, ret.stderr
+
+
+def get_r_version(exec_dir: Path) -> str:
+    ret = sp.run(
+        ["R", "--no-save", "--no-restore", "--version"],
+        capture_output=True,
+        text=True,
+        cwd=exec_dir,
+    )
+    if ret.returncode == 0:
+        if (
+            m := re.match(
+                "^R version ([^ ]+) \\((.+)\\) .+\n.+\nPlatform: ([^ \n]+)", ret.stdout
+            )
+        ) is not None:
+            return f"{m[1]} ({m[2]}, {m[3]})"
+        else:
+            assert False, f"could not get version from stdout: {ret.stdout}"
+    else:
+        assert False, ret.stderr
+
+
+def get_flowcore_bytecompiled(exec_dir: Path) -> bool:
+    ret = sp.run(
+        ["R", "--no-save", "--no-restore", "-e", "flowCore::read.FCS"],
+        capture_output=True,
+        text=True,
+        cwd=exec_dir,
+    )
+    if ret.returncode == 0:
+        return re.search("<bytecode: [^ ]+>", ret.stdout) is not None
+    else:
+        assert False, ret.stderr
+
+
+def get_flowcore_compilers(exec_dir: Path) -> list[str]:
+    ret_r = sp.run(
+        [
+            "R",
+            "--no-save",
+            "--no-restore",
+            "-s",
+            "-e",
+            'cat(system.file("libs", package = "flowCore"), "\\n")',
+        ],
+        capture_output=True,
+        text=True,
+        cwd=exec_dir,
+    )
+    if ret_r.returncode == 0:
+        libpath = Path(ret_r.stdout.strip()) / "flowCore.so"
+        ret_elf = sp.run(
+            ["readelf", "-p", ".comment", str(libpath)],
+            capture_output=True,
+            text=True,
+            cwd=exec_dir,
+        )
+        if ret_elf.returncode == 0:
+            elf_lines = ret_elf.stdout.strip().split("\n")
+            return [
+                re.sub("  \\[.+\\]  ", "", s) for s in elf_lines if s.startswith("  [")
+            ]
+        else:
+            assert False, f"could not get compilers for {libpath}"
+    else:
+        assert False, ret_r.stderr
 
 
 def render_all(
-    script_path: Path,
+    bench_exec_dir: Path,
     files_path: Path,
     bench_path: Path,
     bench_ff_path: Path,
@@ -1894,6 +1977,13 @@ def render_all(
         for r in df_files.iter_rows(named=True)
     ]
 
+    np_cfg = np.show_config("dicts")  # type: ignore
+    np_xs = np_cfg["SIMD Extensions"]
+    np_xs_used = np_xs["baseline"] + np_xs["found"]
+    np_compilers = [
+        f"{v['name']}-{v['version']} ({k})" for k, v in np_cfg["Compilers"].items()
+    ]
+
     with open(readme_path, "w") as f:
         f.write(
             template.render(
@@ -1912,12 +2002,19 @@ def render_all(
                     ),
                     "test_file_table": dataframe_to_md(df_files.drop(["description"])),
                     "test_file_descriptions": file_descriptions,
-                    "fireflow_version": pf.__version__,
                     "flowio_version": fi.__version__,
                     "fcsparser_version": fp.__version__,
-                    "flowcore_version": get_flowcore_version(script_path),
+                    "flowcore_version": get_flowcore_version(bench_exec_dir),
                     "trial_number_table": dataframe_to_md(df_runs),
                     "write_data_plot_path": write_data_path.relative_to(readme_dir),
+                    "python_version": sys.version,
+                    "r_version": get_r_version(bench_exec_dir),
+                    "ff_build_info": pf.BuildInfo(),
+                    "numpy_version": np.__version__,
+                    "numpy_compilers": np_compilers,
+                    "numpy_extensions": np_xs_used,
+                    "flowcore_byte_compiled": get_flowcore_bytecompiled(bench_exec_dir),
+                    "flowcore_compilers": get_flowcore_compilers(bench_exec_dir),
                     "cpu_model": cpu_model(),
                     "total_memory": total_memory(),
                     "kernel_uname": plm.uname().release,
@@ -1964,7 +2061,7 @@ def main(args: list[str]) -> None:
         static_dir = Path(args[6])
         readme_path = Path(args[7])
         render_all(
-            this,
+            this.parent,
             files_path,
             bench_path,
             bench_ff_path,

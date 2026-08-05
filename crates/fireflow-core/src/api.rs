@@ -99,6 +99,7 @@ pub fn build_info() -> BuildInfo {
         target: built::TARGET,
         is_debug: cfg!(debug_assertions),
         opt_level: built::OPT_LEVEL,
+        target_features: env!("FIREFLOW_TARGET_FEATURES"),
         // features: built::FEATURES_STR,
     }
 }
@@ -445,6 +446,7 @@ pub struct BuildInfo {
     pub target: &'static str,
     pub is_debug: bool,
     pub opt_level: &'static str,
+    pub target_features: &'static str,
     // this will be good to include if/once we actually add features that make
     // sense to toggle
     //

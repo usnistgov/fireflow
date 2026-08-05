@@ -3098,6 +3098,13 @@ pub fn impl_py_build_info(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.opt_level.to_owned()),
     );
 
+    let target_features = DocArgROIvar::new_ivar_ro(
+        "target_features",
+        PyStr::default(),
+        format!("CPU features assumed when building {PYREFLOW}."),
+        |_, _| quote!(self.0.target_features.to_owned()),
+    );
+
     let args = [
         version,
         commit_hash,
@@ -3106,6 +3113,7 @@ pub fn impl_py_build_info(input: TokenStream) -> TokenStream {
         target,
         is_debug,
         opt_level,
+        target_features,
     ];
 
     let doc = DocString::new_class(format!("Information for this build of {PYREFLOW}")).args(args);

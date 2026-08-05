@@ -81,7 +81,7 @@ The following libraries were tested:
 
 | Library   | Language    | Read | Write | Version | 
 |-----------|-------------|------|-------|---------|
-| fireflow  | Rust/Python | X    | X     | {{"%7s"|format(fireflow_version)}} |
+| fireflow  | Rust/Python | X    | X     | {{"%7s"|format(ff_build_info.version)}} |
 | flowio    | Python      | X    | X     | {{"%7s"|format(flowio_version)}} |
 | fcsparser | Python      | X    |       | {{"%7s"|format(fcsparser_version)}} |
 | flowCore  | R           | X    | X     | {{"%7s"|format(flowcore_version)}} |
@@ -205,11 +205,41 @@ speed.
 (4) was measured by calling `write.FCS` on a flowFrame with events without any
 preprocessing as in (3).
 
+### Environment
+
+* Python Version: {{python_version}}
+* R Version: {{r_version}}
+* Linux Kernel: {{kernel_uname}}
+
+### Package and Build Info
+
+#### fireflow
+
+* Commit Hash: {{ff_build_info.commit_hash}}
+* Build Date: {{ff_build_info.build_date}}
+* Rust Compiler Version: {{ff_build_info.rustc_version}}
+* Build Target: {{ff_build_info.target}}
+* Build Is Debug: {{ff_build_info.is_debug}}
+* Optimization Level: {{ff_build_info.opt_level}}
+* Target Features: {{ff_build_info.target_features|replace(",", ", ")|upper}}
+
+#### numpy
+
+Pertinent for `flowio` and `fcsparser`
+
+* Numpy Version: {{numpy_version}}
+* Compilers: {{numpy_compilers|join(", ")}}
+* Extensions Used: {{numpy_extensions|join(", ")}}
+
+#### flowCore
+
+* Byte Compiled: {{flowcore_byte_compiled}}
+* Compilers: {{flowcore_compilers|join(", ")}}
+
 ### Hardware
 
 * CPU Model: {{cpu_model}}
 * Total Memory (GiB): {{total_memory}}
-* Linux Kernel: {{kernel_uname}}
 
 ## Appendix
 

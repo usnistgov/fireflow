@@ -67,7 +67,6 @@ assert_matches = "1.5" # TODO this is now in rust 1.96, wait a while to make thi
 # [profile.dev.build-override]
 # opt-level = 3
 
-
 # make property tests go faster
 [profile.test.package.proptest]
 opt-level = 3

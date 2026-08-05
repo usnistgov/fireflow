@@ -6,6 +6,7 @@ import platform as plm
 import flowio as fi  # type: ignore
 import fcsparser as fp  # type: ignore
 import subprocess as sp
+from datetime import datetime, UTC
 from typing import NamedTuple, assert_never, Literal
 from pathlib import Path
 from decimal import Decimal
@@ -191,8 +192,8 @@ FCSPARSER_TRIAL_NUMBER = {
 
 
 FLOWCORE_TRIAL_NUMBER = {
-    FlowCoreBenchKey.READ_TEXT: 3,
-    FlowCoreBenchKey.READ_DATA: 3,
+    FlowCoreBenchKey.READ_TEXT: 2,
+    FlowCoreBenchKey.READ_DATA: 2,
     FlowCoreBenchKey.WRITE_TEXT: 3,
     FlowCoreBenchKey.WRITE_DATA: 3,
 }
@@ -1379,7 +1380,8 @@ def run_ff_bench(
                 pl.col(full_name).mean().name.prefix("mean_"),
                 (
                     pl.col(full_name).std() / pl.col(full_name).count().sqrt()
-                ).name.prefix("serr_"),
+                ).name.prefix("serr_")
+                * 1.96,
             )
             .with_columns(pl.lit(runs).alias(runs_name))
         )
@@ -1988,6 +1990,7 @@ def render_all(
         f.write(
             template.render(
                 {
+                    "run_datetime": datetime.now(UTC).strftime("%b %d %Y %H:%M"),
                     "read_text_plot_path": read_text_path.relative_to(readme_dir),
                     "read_data_plot_path": read_data_path.relative_to(readme_dir),
                     "read_data_noflowcore_plot_path": read_data_noflowcore_path.relative_to(

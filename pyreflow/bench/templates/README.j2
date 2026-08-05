@@ -3,12 +3,17 @@
 The following are benchmarking results for the `fireflow` library, including
 comparisons with existing FCS parsing tools.
 
+This benchmark was created on {{run_datetime}} (UTC).
+
 ## Comparison Results
 
 The following plots compare execution speeds of several FCS libraries for
 reading and writing different segments of various FCS files. Not all libraries
 support all FCS versions and data layouts; a value will be missing in such
 cases.
+
+All bars are the mean of multiple samples. All error bars are 95% confidence
+intervals assuming normal sampling distribution.
 
 ### *TEXT* Read Speed
 
@@ -235,6 +240,11 @@ Pertinent for `flowio` and `fcsparser`
 
 * Byte Compiled: {{flowcore_byte_compiled}}
 * Compilers: {{flowcore_compilers|join(", ")}}
+
+#### Others
+
+See ![uv.lock](../uv.lock) and ![renv.lock](renv.lock) for all exact package
+versions for Python and R respectively.
 
 ### Hardware
 

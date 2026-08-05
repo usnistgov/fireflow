@@ -1,4 +1,5 @@
 import csv
+import json
 import gc
 import re
 import sys
@@ -1837,6 +1838,31 @@ def total_memory() -> float:
     return int(meminfo["MemTotal"] / 1024 / 1024)
 
 
+def get_filesystem(exec_dir: Path) -> str:
+    ret0 = sp.run(
+        ["df", "./"],
+        capture_output=True,
+        text=True,
+        cwd=exec_dir,
+    )
+    if ret0.returncode > 0:
+        assert False, ret0.stderr
+
+    devpath = ret0.stdout.strip().split("\n")[1].split(" ")[0]
+
+    ret1 = sp.run(
+        ["lsblk", "--json", "-f", devpath],
+        capture_output=True,
+        text=True,
+        cwd=exec_dir,
+    )
+
+    if ret1.returncode > 0:
+        assert False, ret1.stderr
+
+    return str(json.loads(ret1.stdout.strip())["blockdevices"][0]["fstype"])
+
+
 def get_flowcore_version(exec_dir: Path) -> str:
     ret = sp.run(
         [
@@ -2025,6 +2051,7 @@ def render_all(
                     "cpu_model": cpu_model(),
                     "total_memory": total_memory(),
                     "kernel_uname": plm.uname().release,
+                    "fstype": get_filesystem(bench_exec_dir),
                 }
             )
         )

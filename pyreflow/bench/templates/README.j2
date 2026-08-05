@@ -112,7 +112,12 @@ number was used across all test FCS files.
 
 For a given benchmarking experiment, all combinations of test FCS file, library,
 target metric, and repetition (as given in the above table) was executated *in
-random order*.
+random order*. This should evenly spread any biases due to warm caches and
+cached files across all runs.
+
+The python garbage collector was run at the start of each `flowio`, `fcsparser`,
+and `fireflow` run. `flowCore` was run and timed in an `R` subprocess so garbage
+collection should not matter in this case.
 
 Two benchmark experiments were performed, one comparing `fireflow` to existing
 FCS libraries (1-4 in next section), and the other measuring `fireflow`-specific
@@ -215,6 +220,7 @@ preprocessing as in (3).
 * Python Version: {{python_version}}
 * R Version: {{r_version}}
 * Linux Kernel: {{kernel_uname}}
+* Filesystem: {{fstype}}
 
 ### Package and Build Info
 

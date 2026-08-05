@@ -60,12 +60,6 @@ all-dev: rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 docs: build-dev
 	$(uv_at) run sphinx-build -M html docs/source/ docs/build/ --fresh-env -W
 
-pyreflow/bench/inputs/bench_files.tsv: pyreflow/.venv
-	$(uv_at) run ./bench/bench.py make ./bench/inputs
-
-pyreflow/bench/outputs/data.tsv: pyreflow/bench/inputs/bench_files.tsv build-prod
-	$(uv_at) run ./bench/bench.py run ./bench/inputs ./bench/outputs ./bench/scratch
-
 .PHONY: clean
 clean:  
 	rm -rf `find pyreflow -name __pycache__`
@@ -73,7 +67,28 @@ clean:
 	rm -rf pyreflow/.mypy_cache
 	rm -rf pyreflow/.pytest_cache
 	rm -rf pyreflow/.ruff_cache
+	cargo clean
+
+# NOTE: all benchmark paths are relative to the uv runtime directory (which is
+# pyreflow)
+
+pyreflow/bench/inputs/bench_files.tsv: pyreflow/.venv
+	$(uv_at) run bench/bench.py make bench/inputs
+
+pyreflow/bench/outputs/bench_all_ff.tsv: pyreflow/bench/inputs/bench_files.tsv
+	$(uv_at) run bench/bench.py run_ff bench/inputs bench/outputs/bench_all_ff.tsv bench/scratch
+
+pyreflow/bench/outputs/bench_all.tsv: pyreflow/bench/inputs/bench_files.tsv
+	$(uv_at) run bench/bench.py run_all bench/inputs bench/outputs/bench_all.tsv bench/scratch
+
+pyreflow/bench/README.md: pyreflow/bench/inputs/bench_files.tsv pyreflow/bench/outputs/bench_all_ff.tsv pyreflow/bench/outputs/bench_all.tsv
+	$(uv_at) run bench/bench.py render bench/inputs/bench_files.tsv bench/outputs/bench_all.tsv bench/outputs/bench_all_ff.tsv bench/templates/README.j2 bench/static bench/README.md
+
+.PHONY: bench
+bench: pyreflow/bench/README.md
+
+.PHONY: clean-bench
+clean-bench:  
 	rm -rf pyreflow/bench/inputs
 	rm -rf pyreflow/bench/outputs
 	rm -rf pyreflow/bench/scratch
-	cargo clean

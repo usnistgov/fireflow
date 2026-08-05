@@ -1,4 +1,5 @@
 import csv
+import gc
 import re
 import sys
 import textwrap as tw
@@ -294,6 +295,7 @@ class FlowIOBenchRun(BenchRun[FlowIOBenchKey, FlowIOBenchResult]):
         return end - start
 
     def run(self, input_root: Path, scratch_root: Path) -> FlowIOBenchResult:
+        gc.collect()
         if self.key == FlowIOBenchKey.READ_TEXT:
             value = self.read_text(input_root)
         elif self.key == FlowIOBenchKey.READ_DATA:
@@ -324,6 +326,7 @@ class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
         return end - start
 
     def run(self, input_root: Path, scratch_root: Path) -> FCSParserBenchResult:
+        gc.collect()
         if self.key == FCSParserBenchKey.READ_TEXT:
             value = self.read_text(input_root)
         elif self.key == FCSParserBenchKey.READ_DATA:
@@ -384,6 +387,7 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
         )
 
     def run(self, input_root: Path, scratch_root: Path) -> FlowCoreBenchResult:
+        gc.collect()
         if self.key == FlowCoreBenchKey.READ_TEXT:
             value = self.read_text(input_root)
         elif self.key == FlowCoreBenchKey.READ_DATA:

@@ -7,14 +7,6 @@ use pyo3::prelude::*;
 fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add("__version__", fc::api::build_info().version)?;
 
-    #[pyfunction]
-    /// Show build information.
-    fn build_info() -> fc::api::BuildInfo {
-        fc::api::build_info()
-    }
-
-    m.add_function(wrap_pyfunction!(build_info, m)?)?;
-
     macro_rules! exc {
         ($s:expr, $t:ident) => {
             m.add($s, py.get_type::<fireflow_types::python::$t>())?;
@@ -122,6 +114,8 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyTextToHeaderOffsetsOverlap>()?;
     m.add_class::<ff::PySuppToHeaderOffsetsOverlap>()?;
     m.add_class::<ff::PyTextToHeaderOrSuppOffsetsOverlap>()?;
+
+    m.add_class::<ff::PyBuildInfo>()?;
 
     macro_rules! fun {
         ($t:ident) => {

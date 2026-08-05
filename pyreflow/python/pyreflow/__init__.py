@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from ._pyreflow import __version__ as __version__
-from ._pyreflow import build_info as build_info
 from ._pyreflow import PyreflowError as PyreflowError
 from ._pyreflow import FileLayoutError as FileLayoutError
 from ._pyreflow import ParseKeyError as ParseKeyError
@@ -48,6 +47,7 @@ from ._pyreflow import BigLittleF64DataSchema as BigLittleF64DataSchema
 from ._pyreflow import SingleUintDataSchema as SingleUintDataSchema
 from ._pyreflow import VariableUintDataSchema as VariableUintDataSchema
 from ._pyreflow import MixedDataSchema as MixedDataSchema
+from ._pyreflow import BuildInfo as BuildInfo
 
 from pyreflow import api as api
 

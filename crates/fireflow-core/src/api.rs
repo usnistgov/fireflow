@@ -437,7 +437,6 @@ pub fn fcs_write_datasets(
 /// Version and build information for this libary
 #[derive(Clone, PartialEq)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct BuildInfo {
     pub version: &'static str,
     pub commit_hash: Option<&'static str>,

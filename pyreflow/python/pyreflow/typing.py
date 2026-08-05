@@ -1,6 +1,6 @@
 from __future__ import annotations
 import pyreflow._pyreflow as pf
-from typing import Literal, TypedDict
+from typing import Literal
 import numpy as np
 import numpy.typing as npt
 
@@ -393,17 +393,4 @@ type KeyTest = (
     tuple[Literal["has_key"], str]
     | tuple[Literal["key_is"], str, str]
     | tuple[Literal["key_matches"], str, str]
-)
-
-BuildInfo = TypedDict(
-    "BuildInfo",
-    {
-        "version": str,
-        "commit_hash": str,
-        "build_date": str,
-        "rustc_version": str,
-        "target": str,
-        "is_debug": bool,
-        "opt_level": str,
-    },
 )

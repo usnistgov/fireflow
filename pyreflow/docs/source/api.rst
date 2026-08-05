@@ -6,6 +6,7 @@ API Reference
 
    reader
    writer
+   misc
    core
    measurement
    gating

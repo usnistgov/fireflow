@@ -3045,6 +3045,95 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
+pub fn impl_py_build_info(input: TokenStream) -> TokenStream {
+    let path = parse_macro_input!(input as Path);
+    let name = path.segments.last().unwrap().ident.clone();
+
+    let version = DocArgROIvar::new_ivar_ro(
+        "version",
+        PyStr::default(),
+        format!("The version of {PYREFLOW}"),
+        |_, _| quote!(self.0.version.to_owned()),
+    );
+
+    let commit_hash = DocArgROIvar::new_ivar_ro(
+        "commit_hash",
+        PyOpt::new1(PyStr::default()),
+        format!("The git commit hash of the code used to build {PYREFLOW}."),
+        |_, _| quote!(self.0.commit_hash.map(|s: &str| s.to_owned())),
+    );
+
+    let build_date = DocArgROIvar::new_ivar_ro(
+        "build_date",
+        PyStr::default(),
+        format!("The date {PYREFLOW} was built."),
+        |_, _| quote!(self.0.build_date.to_owned()),
+    );
+
+    let rustc_version = DocArgROIvar::new_ivar_ro(
+        "rustc_version",
+        PyStr::default(),
+        format!("The version of the Rust compiler used to build {PYREFLOW}."),
+        |_, _| quote!(self.0.rustc_version.to_owned()),
+    );
+
+    let target = DocArgROIvar::new_ivar_ro(
+        "target",
+        PyStr::default(),
+        format!("The OS and CPU architecture target for this build of {PYREFLOW}."),
+        |_, _| quote!(self.0.target.to_owned()),
+    );
+
+    let is_debug = DocArgROIvar::new_ivar_ro(
+        "is_debug",
+        PyBool::default(),
+        format!("{TRUE} if {PYREFLOW} was built using the debug profile."),
+        |_, _| quote!(self.0.is_debug),
+    );
+
+    let opt_level = DocArgROIvar::new_ivar_ro(
+        "opt_level",
+        PyStr::default(),
+        format!("The optimization level used when compiling {PYREFLOW}."),
+        |_, _| quote!(self.0.opt_level.to_owned()),
+    );
+
+    let args = [
+        version,
+        commit_hash,
+        build_date,
+        rustc_version,
+        target,
+        is_debug,
+        opt_level,
+    ];
+
+    let doc = DocString::new_class(format!("Information for this build of {PYREFLOW}")).args(args);
+
+    let (pyname, wrapped) = doc.as_impl_wrapped(name, &path);
+    let get_set_methods = doc.quoted_methods();
+
+    let s = quote! {
+        #wrapped
+
+        #[pymethods]
+        impl #pyname {
+            #[new]
+            fn new() -> Self {
+                fireflow_core::api::build_info().into()
+            }
+
+            #get_set_methods
+
+            fn __deepcopy__(&self, _memo: &Bound<'_, pyo3::PyAny>) -> Self {
+                self.clone()
+            }
+        }
+    };
+    s.into()
+}
+
+#[proc_macro]
 #[allow(clippy::too_many_lines)]
 pub fn impl_new_core(input: TokenStream) -> TokenStream {
     let info = parse_macro_input!(input as NewCoreInfo);
@@ -12314,6 +12403,7 @@ const REGEXP_REF: &str = "`regexp-syntax <https://docs.rs/regex/latest/regex/#sy
 
 // formatted python constants used all over the place
 
+const PYREFLOW: &str = code!("pyreflow");
 const TRUE: &str = code!("True");
 const FALSE: &str = code!("False");
 const NONE: &str = code!("None");

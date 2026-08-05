@@ -2804,6 +2804,25 @@ class NewCoreTEXTConfig(_ConfigCommon):
 class NewCoreDatasetConfig(_ConfigCommon):
     pass
 
+@final
+class BuildInfo:
+    def __new__(cls) -> Self: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+    @property
+    def version(self) -> str: ...
+    @property
+    def commit_hash(self) -> str: ...
+    @property
+    def build_date(self) -> str: ...
+    @property
+    def rustc_version(self) -> str: ...
+    @property
+    def target(self) -> str: ...
+    @property
+    def is_debug(self) -> bool: ...
+    @property
+    def opt_level(self) -> str: ...
+
 def fcs_read_header(
     path: Path,
     # header args
@@ -3548,14 +3567,10 @@ def fcs_write_datasets(
     row_buffer_size: int = 28000,
 ) -> int | None: ...
 
-#
-def build_info() -> pft.BuildInfo: ...
-
 __version__: str
 
 __all__ = [
     "__version__",
-    "build_info",
     "PyreflowError",
     "FileLayoutError",
     "ParseKeyError",
@@ -3642,6 +3657,7 @@ __all__ = [
     "ReadFlatDatasetFromKeywordsConfig",
     "NewCoreTEXTConfig",
     "NewCoreDatasetConfig",
+    "BuildInfo",
     "fcs_read_header",
     "fcs_read_flat_text",
     "fcs_read_std_text",

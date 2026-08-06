@@ -995,7 +995,7 @@ def make_bench_files(root: Path) -> None:
     print_files(
         "i32_31_100000x75",
         core_3_1_int(100000, 75, 4, False),
-        f"Same as '{i32_name}' but wider.",
+        f"Same as '{i32_name}' but wider and with more events.",
     )
 
     # make different FCS versions of the same file

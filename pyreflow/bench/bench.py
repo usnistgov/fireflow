@@ -201,16 +201,11 @@ FLOWCORE_TRIAL_NUMBER = {
 }
 
 
-DType = (
-    type[pl.UInt8]
-    | type[pl.UInt16]
-    | type[pl.UInt32]
-    | type[pl.UInt64]
-    | type[pl.Float32]
-    | type[pl.Float64]
-)
+type UintDType = type[pl.UInt8] | type[pl.UInt16] | type[pl.UInt32] | type[pl.UInt64]
 
-Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
+type DType = UintDType | type[pl.Float32] | type[pl.Float64]
+
+type Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 
 
 class BenchResult[X](NamedTuple):
@@ -644,6 +639,19 @@ def nonstd_keywords(i: int) -> dict[str, str]:
     }
 
 
+def meas_2_0(i: int) -> pft.Measurement2_0:
+    return (
+        f"C{i + 1}",
+        pf.Optical2_0(
+            longname=f"Column{i + 1}",
+            wavelength=randrange(500, 700),
+            power=randrange(1, 1000),
+            detector_voltage=randrange(1, 1000),
+        ),
+        (1.0, 1.0),
+    )
+
+
 def meas_3_0(i: int) -> pft.Measurement3_0:
     return (
         f"C{i + 1}",
@@ -687,29 +695,30 @@ def meas_3_2(i: int) -> pft.Measurement3_2:
     )
 
 
-def core_3_0_pdp11(
-    height: int,
+def core_2_0(
     width: int,
+    layout: pf.OrderedUintDataSchema
+    | pf.OrderedF32DataSchema
+    | pf.OrderedF64DataSchema,
+    data: pl.DataFrame,
+) -> pf.CoreDataset2_0:
+    ms: pft.Measurements2_0 = [meas_2_0(i) for i in range(0, width)]
+    core = pf.CoreDataset2_0(ms, layout, data)
+    return core
+
+
+def core_3_0(
+    width: int,
+    layout: pf.OrderedUintDataSchema
+    | pf.OrderedF32DataSchema
+    | pf.OrderedF64DataSchema,
+    data: pl.DataFrame,
 ) -> pf.CoreDataset3_0:
     ms: pft.Measurements3_0 = [meas_3_0(i) for i in range(0, width)]
-    rs = [2**32 - 1 for _ in range(0, width)]
-    # wonky byteord...
-    layout = pf.OrderedUintDataSchema(rs, byteord=[3, 4, 1, 2])
-    data = pl.DataFrame(
-        [
-            pl.Series(
-                np.random.uniform(low=0, high=2**32 - 1, size=height),
-                dtype=pl.UInt32,
-            )
-            for _ in range(0, width)
-        ]
-    )
     core = pf.CoreDataset3_0(ms, layout, data)
     return core
 
 
-# TODO there is no way to save a file without truncating bits first, which
-# may or may not be what we want. Some files "use" these upper bits for things
 def core_3_1(
     width: int,
     layout: pf.SingleUintDataSchema
@@ -723,6 +732,102 @@ def core_3_1(
     return core
 
 
+def core_3_0_pdp11(
+    height: int,
+    width: int,
+) -> pf.CoreDataset3_0:
+    rs = [2**32 - 1 for _ in range(0, width)]
+    # wonky byteord...
+    layout = pf.OrderedUintDataSchema(rs, byteord=[3, 4, 1, 2])
+    data = pl.DataFrame(
+        [
+            pl.Series(
+                np.random.uniform(low=0, high=2**32 - 1, size=height),
+                dtype=pl.UInt32,
+            )
+            for _ in range(0, width)
+        ]
+    )
+    return core_3_0(width, layout, data)
+
+
+def width_to_uint_type(byte_width: int) -> UintDType:
+    if byte_width == 1:
+        return pl.UInt8
+    elif byte_width == 2:
+        return pl.UInt16
+    elif byte_width < 5:
+        return pl.UInt32
+    else:
+        return pl.UInt64
+
+
+def core_2_0_int(
+    height: int, width: int, byte_width: int, big_endian: bool
+) -> pf.CoreDataset2_0:
+    upper = 2 ** (8 * byte_width) - 1
+    rs = [upper for _ in range(0, width)]
+    layout = pf.OrderedUintDataSchema(
+        rs,
+        byte_width=byte_width,
+        byteord="big" if big_endian else "little",
+    )
+    data = pl.DataFrame(
+        [
+            pl.Series(
+                np.random.uniform(low=0, high=upper, size=height),
+                dtype=width_to_uint_type(byte_width),
+            )
+            for _ in range(0, width)
+        ]
+    )
+    return core_2_0(width, layout, data)
+
+
+def core_3_0_int(
+    height: int, width: int, byte_width: int, big_endian: bool
+) -> pf.CoreDataset3_0:
+    upper = 2 ** (8 * byte_width) - 1
+    rs = [upper for _ in range(0, width)]
+    layout = pf.OrderedUintDataSchema(
+        rs,
+        byte_width=byte_width,
+        byteord="big" if big_endian else "little",
+    )
+    data = pl.DataFrame(
+        [
+            pl.Series(
+                np.random.uniform(low=0, high=upper, size=height),
+                dtype=width_to_uint_type(byte_width),
+            )
+            for _ in range(0, width)
+        ]
+    )
+    return core_3_0(width, layout, data)
+
+
+def core_3_2_int(
+    height: int, width: int, byte_width: int, big_endian: bool
+) -> pf.CoreDataset3_0:
+    upper = 2 ** (8 * byte_width) - 1
+    rs = [upper for _ in range(0, width)]
+    layout = pf.OrderedUintDataSchema(
+        rs,
+        byte_width=byte_width,
+        byteord="big" if big_endian else "little",
+    )
+    data = pl.DataFrame(
+        [
+            pl.Series(
+                np.random.uniform(low=0, high=upper, size=height),
+                dtype=width_to_uint_type(byte_width),
+            )
+            for _ in range(0, width)
+        ]
+    )
+    return core_3_0(width, layout, data)
+
+
 def core_3_1_int(
     height: int, width: int, byte_width: int, big_endian: bool
 ) -> pf.CoreDataset3_1:
@@ -733,20 +838,11 @@ def core_3_1_int(
         byte_width=byte_width,
         endian="big" if big_endian else "little",
     )
-    dtype: type[pl.UInt8] | type[pl.UInt16] | type[pl.UInt32] | type[pl.UInt64]
-    if byte_width == 1:
-        dtype = pl.UInt8
-    elif byte_width == 2:
-        dtype = pl.UInt16
-    elif byte_width < 5:
-        dtype = pl.UInt32
-    else:
-        dtype = pl.UInt64
     data = pl.DataFrame(
         [
             pl.Series(
                 np.random.uniform(low=0, high=upper, size=height),
-                dtype=dtype,
+                dtype=width_to_uint_type(byte_width),
             )
             for _ in range(0, width)
         ]
@@ -874,7 +970,7 @@ def make_bench_files(root: Path) -> None:
     # throughput should not depend on width or height. TEXT throughput should
     # not depend on height but should depend on width. Standardization overhead
     # should depend on FCS version and width.
-    i32_name = "i32_10000x25"
+    i32_name = "i32_31_10000x25"
     print_files(
         i32_name,
         core_3_1_int(10000, 25, 4, False),
@@ -884,21 +980,45 @@ def make_bench_files(root: Path) -> None:
             "point data."
         ),
     )
+
+    # make different sizes of the same file
     print_files(
-        "i32_10000x75",
+        "i32_31_10000x75",
         core_3_1_int(10000, 75, 4, False),
         f"Same as '{i32_name}' but wider.",
     )
     print_files(
-        "i32_100000x25",
+        "i32_31_100000x25",
         core_3_1_int(100000, 25, 4, False),
         f"Same as '{i32_name}' but with more events.",
+    )
+    print_files(
+        "i32_31_100000x75",
+        core_3_1_int(100000, 75, 4, False),
+        f"Same as '{i32_name}' but wider.",
+    )
+
+    # make different FCS versions of the same file
+    print_files(
+        "i32_20_10000x25",
+        core_2_0_int(10000, 25, 4, False),
+        f"Same as '{i32_name}' but in FCS 2.0.",
+    )
+    print_files(
+        "i32_30_10000x25",
+        core_3_0_int(10000, 25, 4, False),
+        f"Same as '{i32_name}' but in FCS 3.0.",
+    )
+    print_files(
+        "i32_32_10000x25",
+        core_3_2_int(10000, 25, 4, False),
+        f"Same as '{i32_name}' but in FCS 3.2.",
     )
 
     # Make a mixed byteord file just for fun, it should be way slower. This
     # also helps test a 3.0 file vs other 3.1 files
     print_files(
-        "mx_i32_10000x25",
+        "i32_30_mx_10000x25",
         core_3_0_pdp11(10000, 25),
         (
             f"Same as '{i32_name}' but with PDP-11 byte order and in FCS3.0, which "
@@ -908,19 +1028,19 @@ def make_bench_files(root: Path) -> None:
 
     # make a big endian file just for fun (it should be the same as le)
     print_files(
-        "be_i32_10000x25",
+        "i32_31_be_10000x25",
         core_3_1_int(10000, 25, 4, True),
         f"Same as '{i32_name}' but with big-endian byte order.",
     )
 
     # make some other int sizes
     print_files(
-        "i16_10000x25",
+        "i16_31_10000x25",
         core_3_1_int(10000, 25, 2, False),
         "16-bit unsigned integer data. Some older instruments still use this bit width.",
     )
     print_files(
-        "i24_10000x25",
+        "i24_31_10000x25",
         core_3_1_int(10000, 25, 3, False),
         (
             f"Like '{i32_name}' but 24-bit. This is much rarer than 16-bit files, "
@@ -929,7 +1049,7 @@ def make_bench_files(root: Path) -> None:
         ),
     )
     print_files(
-        "i64_10000x25",
+        "i64_31_10000x25",
         core_3_1_int(10000, 25, 8, False),
         (
             f"Like '{i32_name}' but 64-bit. Practically no machine uses this width, "
@@ -941,12 +1061,12 @@ def make_bench_files(root: Path) -> None:
 
     # make float layouts
     print_files(
-        "f32_10000x25",
+        "f32_31_10000x25",
         core_3_1_float(10000, 25, False),
         f"Like '{i32_name}' but with 32-bit floats. This is extremely common.",
     )
     print_files(
-        "f64_10000x25",
+        "f64_31_10000x25",
         core_3_1_float(10000, 25, True),
         (
             f"Like '{i32_name}' but with 64-bit floats. Practically no machine uses "

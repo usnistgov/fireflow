@@ -82,17 +82,36 @@ bench_scratch = bench/scratch
 bench_static = bench/static
 bench_readme_template = bench/templates/README.j2
 
-pyreflow/$(bench_files): pyreflow/.venv pyreflow/$(bench_script)
+pyreflow/$(bench_files): pyreflow/.venv \
+	pyreflow/$(bench_script)
 	$(uv_at) run $(bench_script) make $(bench_inputs)
 
-pyreflow/$(bench_all_ff): pyreflow/$(bench_files) pyreflow/$(bench_script)
-	$(uv_at) run $(bench_script) run_ff $(bench_inputs) $(bench_all_ff) $(bench_scratch)
+pyreflow/$(bench_all_ff): pyreflow/$(bench_files) \
+	pyreflow/$(bench_script)
+	$(uv_at) run $(bench_script) run_ff \
+		$(bench_inputs) \
+		$(bench_all_ff) \
+		$(bench_scratch)
 
-pyreflow/$(bench_all): pyreflow/$(bench_files) pyreflow/$(bench_script)
-	$(uv_at) run $(bench_script) run_all $(bench_inputs) $(bench_all) $(bench_scratch)
+pyreflow/$(bench_all): pyreflow/$(bench_files) \
+	pyreflow/$(bench_script)
+	$(uv_at) run $(bench_script) run_all \
+		$(bench_inputs) \
+		$(bench_all) \
+		$(bench_scratch)
 
-pyreflow/$(bench_readme): pyreflow/$(bench_files) pyreflow/$(bench_all_ff) pyreflow/$(bench_all) pyreflow/$(bench_script) pyreflow/$(bench_readme_template)
-	$(uv_at) run $(bench_script) render $(bench_files) $(bench_all) $(bench_all_ff) $(bench_readme_template) $(bench_static) $(bench_readme)
+pyreflow/$(bench_readme): pyreflow/$(bench_files) \
+	pyreflow/$(bench_all_ff) \
+	pyreflow/$(bench_all) \
+	pyreflow/$(bench_script) \
+	pyreflow/$(bench_readme_template)
+	$(uv_at) run $(bench_script) render \
+		$(bench_files) \
+		$(bench_all) \
+		$(bench_all_ff) \
+		$(bench_readme_template) \
+		$(bench_static) \
+		$(bench_readme)
 
 .PHONY: bench
 bench: pyreflow/bench/README.md

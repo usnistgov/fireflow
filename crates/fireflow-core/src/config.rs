@@ -231,6 +231,9 @@ pub struct WriteTEXTInnerConfig {
 
     /// If `true` compute the CRC while writing
     pub compute_crc: ComputeWriteCRC,
+
+    /// If `true`, overwrite $FIL with the supplied file name when writing.
+    pub override_fil: OverrideFIL,
 }
 
 /// Specific configuration for writing one dataset
@@ -1430,6 +1433,7 @@ impl_config_flag!(ReadPostDatasetDarkBytes);
 
 impl_config_flag!(SkipConversionCheck);
 impl_config_flag!(BigOther);
+impl_config_flag!(OverrideFIL);
 impl_config_flag!(ComputeWriteCRC);
 impl_config_flag!(AppendableFlag);
 impl_config_flag!(AppendFlag);

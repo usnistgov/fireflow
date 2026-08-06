@@ -1053,10 +1053,11 @@ pub(crate) struct WriteHeaderAndTextConfig<'a> {
     pub(crate) analysis_len: u64,
     pub(crate) other_segs: &'a [Other],
     pub(crate) has_nextdata: AppendableFlag,
+    pub(crate) fil: Option<NEString>,
 }
 
 impl WriteHeaderAndTextConfig<'_> {
-    fn new_nodata(delim: TEXTDelim, has_nextdata: AppendableFlag) -> Self {
+    fn new_nodata(delim: TEXTDelim, has_nextdata: AppendableFlag, fil: Option<NEString>) -> Self {
         Self {
             delim,
             tot: Tot(0),
@@ -1064,6 +1065,7 @@ impl WriteHeaderAndTextConfig<'_> {
             analysis_len: 0,
             other_segs: &[],
             has_nextdata,
+            fil,
         }
     }
 
@@ -3927,7 +3929,13 @@ where
         let opts = conf.multi.append.file_options();
         let f = opts.open(path)?;
         let mut h = BufWriter::new(f);
-        self.h_write_text(&mut h, &conf.inner, conf.multi.appendable)
+        let fil = conf
+            .inner
+            .override_fil
+            .is_set()
+            .then(|| path_to_ne_string(path))
+            .flatten();
+        self.h_write_text(&mut h, &conf.inner, conf.multi.appendable, fil)
     }
 
     /// Write this core structure (HEADER+TEXT) to a handle
@@ -3936,6 +3944,7 @@ where
         h: &mut BufWriter<W>,
         conf: &WriteTEXTInnerConfig,
         has_nextdata: AppendableFlag,
+        fil: Option<NEString>,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         L: LayoutKeywords + LayoutOptMeasKeywords,
@@ -3943,9 +3952,9 @@ where
         let d = conf.delim;
         let c = conf.compute_crc;
         if conf.big_other.is_set() {
-            self.h_write_text_inner1::<_, UintSpacePad20>(h, d, has_nextdata, c)
+            self.h_write_text_inner1::<_, UintSpacePad20>(h, d, has_nextdata, c, fil)
         } else {
-            self.h_write_text_inner1::<_, UintSpacePad8>(h, d, has_nextdata, c)
+            self.h_write_text_inner1::<_, UintSpacePad8>(h, d, has_nextdata, c, fil)
         }
     }
 
@@ -3955,6 +3964,7 @@ where
         delim: TEXTDelim,
         has_nextdata: AppendableFlag,
         compute_crc: ComputeWriteCRC,
+        fil: Option<NEString>,
     ) -> Result<Nextdata, ImpureError<WriteTEXTHeaderError>>
     where
         L: LayoutKeywords + LayoutOptMeasKeywords,
@@ -3965,7 +3975,7 @@ where
             + HeaderString
             + Into<u64>,
     {
-        let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata);
+        let conf = WriteHeaderAndTextConfig::new_nodata(delim, has_nextdata, fil);
         let mut digest = WriteFCSDigest::new(compute_crc, V::as_version());
         let nextdata = self.h_write_text_inner::<_, T>(h, &conf, &mut digest)?;
         digest.write_final(h)?;
@@ -6396,7 +6406,14 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         let opts = conf.multi.append.file_options();
         let f = io_to_log!(opts.open(path));
         let mut h = BufWriter::new(f);
-        self.h_write_dataset(&mut h, &conf.inner, conf.multi.appendable)
+        let fil = conf
+            .inner
+            .text
+            .override_fil
+            .is_set()
+            .then(|| path_to_ne_string(path))
+            .flatten();
+        self.h_write_dataset(&mut h, &conf.inner, conf.multi.appendable, fil)
     }
 
     /// Write this dataset (HEADER+TEXT+DATA+ANALYSIS+OTHER) to a handle
@@ -6405,6 +6422,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
         h: &mut BufWriter<W>,
         conf: &WriteDatasetInnerConfig,
         has_nextdata: AppendableFlag,
+        fil: Option<NEString>,
     ) -> WarningsAndIOGroupResult<Nextdata, EventOverRangeError, StdWriterError, WriteDatasetSummary>
     {
         let df = self.meas.data();
@@ -6428,6 +6446,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                     analysis_len,
                     other_segs,
                     has_nextdata,
+                    fil,
                 };
                 let res = if conf.text.big_other.is_set() {
                     self.h_write_text_inner::<_, UintSpacePad20>(h, &ht_conf, &mut digest)
@@ -7652,6 +7671,14 @@ where
     );
 
     original
+}
+
+#[allow(clippy::ptr_arg)]
+fn path_to_ne_string(p: &PathBuf) -> Option<NEString> {
+    let n = p.as_path().file_name()?;
+    let s = n.to_str()?;
+    let ne = NEStr::try_new(s)?;
+    Some(ne.to_owned())
 }
 
 mod private {

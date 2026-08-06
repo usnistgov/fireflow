@@ -20,7 +20,8 @@ use crate::segment::write::{
     TEXTDataOffsetsToWrite,
 };
 use crate::text::keyword_enum::{
-    AnyKeyword, Escaped, Keyword0FromValue as _, OffsetKeyword, OptKeyword, ReqKeyword,
+    AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword0, OffsetKeyword, OptKeyword,
+    OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
@@ -31,7 +32,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{Key as _, StdKeywords};
+use crate::validated::keys::{DKey0, Key as _, StdKeywords};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
@@ -504,8 +505,19 @@ impl<T> HeaderKeywordsToWrite<T> {
 
         // Check for invalid delimiters and write non-offset keywords to buffers
         for x in kws {
-            x.has_delim(delim).map_or(Ok(()), Err)?;
-            Escaped::new(delim, &x).write_str(&mut text);
+            let y = if let Some(f) = conf.fil.as_ref()
+                && matches!(
+                    x,
+                    AnyKeyword::Opt(OptKeyword::Root(StdOrNonStdOptRootKeyword::Std(
+                        OptRootKeyword::Fil(_)
+                    )))
+                ) {
+                AnyKeyword::Opt(fil_to_kw(f))
+            } else {
+                x
+            };
+            y.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &y).write_str(&mut text);
         }
 
         let text_len: u64 = u64::try_from(text.len().get()).expect("overflow") + NEXTDATA_LEN;
@@ -564,8 +576,17 @@ impl<T> HeaderKeywordsToWrite<T> {
         }
 
         for x in opt {
-            x.has_delim(delim).map_or(Ok(()), Err)?;
-            Escaped::new(delim, &x).write_str(&mut opt_text);
+            let y = if let Some(f) = conf.fil.as_ref()
+                && matches!(
+                    x,
+                    OptKeyword::Root(StdOrNonStdOptRootKeyword::Std(OptRootKeyword::Fil(_)))
+                ) {
+                fil_to_kw(f)
+            } else {
+                x
+            };
+            y.has_delim(delim).map_or(Ok(()), Err)?;
+            Escaped::new(delim, &y).write_str(&mut opt_text);
         }
 
         // Compute lengths of primary and supplemental TEXT given the length of
@@ -775,4 +796,10 @@ const OFFSETS_LEN_3_0: u64 = DATA_LEN + ANALYSIS_LEN + STEXT_LEN + NEXTDATA_LEN;
 #[allow(clippy::as_conversions)]
 const fn std_key_len(s: &NEStr) -> u64 {
     (s.len().get() + 1) as u64
+}
+
+fn fil_to_kw(f: &NEString) -> OptKeyword<'_> {
+    let a = NEStringKeyword0::new(DKey0::default(), f.as_ne_str());
+    let b = StdOrNonStdOptRootKeyword::Std(OptRootKeyword::Fil(a));
+    OptKeyword::Root(b)
 }

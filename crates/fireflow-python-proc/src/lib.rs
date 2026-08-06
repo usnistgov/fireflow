@@ -642,6 +642,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
         .arg(DocArg::new_compute_write_crc_param())
+        .arg(DocArg::new_override_fil_param())
         .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size_param(false))
@@ -659,6 +660,7 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
                 delim,
                 big_other.into(),
                 compute_crc.into(),
+                override_fil.into(),
             );
             let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                 tconf,
@@ -3464,6 +3466,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
         .arg(DocArg::new_compute_write_crc_param())
+        .arg(DocArg::new_override_fil_param())
         .arg(DocArg::new_appendable_param())
         .arg(DocArg::new_append_param())
         .returns(ret);
@@ -3475,11 +3478,13 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
         #[pymethods]
         impl #i {
             #doc
+            #[allow(clippy::too_many_arguments)]
             fn write_text(&self, #fun_args) -> #ret_path {
                 let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
                     delim,
                     big_other.into(),
                     compute_crc.into(),
+                    override_fil.into(),
                 );
                 let mconf = fireflow_core::config::WriteMultiConfig::new(
                     appendable.into(),
@@ -3518,6 +3523,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
         .arg(DocArg::new_compute_write_crc_param())
+        .arg(DocArg::new_override_fil_param())
         .arg(DocArg::new_allow_over_bitmask())
         .arg(DocArg::new_disallow_over_range())
         .arg(DocArg::new_row_buffer_size_param(false))
@@ -3538,6 +3544,7 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
                     delim,
                     big_other.into(),
                     compute_crc.into(),
+                    override_fil.into(),
                 );
                 let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
                     tconf,
@@ -9928,6 +9935,14 @@ impl DocArgParam {
         Self::new_bool_param("compute_crc", desc)
     }
 
+    fn new_override_fil_param() -> Self {
+        let desc = format!(
+            "If {TRUE}, replace {} with the name of the output path.",
+            Kw::Fil.kw()
+        );
+        Self::new_bool_param("override_fil", desc)
+    }
+
     fn new_appendable_param() -> Self {
         const APPENDABLE: &str = "appendable";
         let d = format!(
@@ -10271,8 +10286,9 @@ impl DocArgParam {
         let delim = Self::new_textdelim_param();
         let big_other = Self::new_big_other_param();
         let compute_crc = Self::new_compute_write_crc_param();
+        let override_fil = Self::new_override_fil_param();
         let conf = config_path("WriteTEXTInnerConfig");
-        let ps = vec![delim, big_other, compute_crc];
+        let ps = vec![delim, big_other, compute_crc, override_fil];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }

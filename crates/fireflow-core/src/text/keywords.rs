@@ -3309,7 +3309,6 @@ kw_opt_root_string!(Com, tk::COM_KW, tk::COM_VERS);
 kw_opt_root_string!(Cells, tk::CELLS_KW, tk::CELLS_VERS);
 kw_opt_meta!(FCSDate, tk::DATE_KW, tk::DATE_VERS, Option<Self>);
 kw_opt_root_string!(Exp, tk::EXP_KW, tk::EXP_VERS);
-kw_opt_root_string!(Fil, tk::FIL_KW, tk::FIL_VERS);
 kw_opt_root_string!(Inst, tk::INST_KW, tk::INST_VERS);
 kw_opt_root_int!(Lost, u32, tk::LOST_KW, tk::LOST_VERS);
 kw_opt_root_string!(Op, tk::OP_KW, tk::OP_VERS);
@@ -3319,6 +3318,7 @@ kw_opt_root_string!(Smno, tk::SMNO_KW, tk::SMNO_VERS);
 kw_opt_root_string!(Src, tk::SRC_KW, tk::SRC_VERS);
 kw_opt_root_string!(Sys, tk::SYS_KW, tk::SYS_VERS);
 kw_opt_meta!(Trigger, tk::TR_KW, tk::TR_VERS, Option<Self>);
+kw_opt_root_string!(Fil, tk::FIL_KW, tk::FIL_VERS);
 
 // time for 2.0
 kw_time!(

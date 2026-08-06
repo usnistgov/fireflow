@@ -427,6 +427,7 @@ class _CoreCommon:
         delim: int = 30,
         big_other: bool = False,
         compute_crc: bool = False,
+        override_fil: bool = False,
         appendable: bool = False,
         append: bool = False,
     ) -> None: ...
@@ -438,6 +439,7 @@ class _CoreCommon:
         delim: int = 30,
         big_other: bool = False,
         compute_crc: bool = False,
+        override_fil: bool = False,
     ) -> None: ...
     @property
     def version(self) -> pft.FCSVersion: ...
@@ -450,6 +452,7 @@ class _CoreDatasetCommon:
         delim: int = 30,
         big_other: bool = False,
         compute_crc: bool = False,
+        override_fil: bool = False,
         allow_over_bitmask: pft.TriFlag = "false",
         disallow_over_range: pft.TriFlag = "false",
         row_buffer_size: int = 28000,
@@ -3564,6 +3567,7 @@ def fcs_write_datasets(
     delim: int = 30,
     big_other: bool = False,
     compute_crc: bool = False,
+    override_fil: bool = False,
     allow_over_bitmask: pft.TriFlag = "false",
     disallow_over_range: pft.TriFlag = "false",
     row_buffer_size: int = 28000,

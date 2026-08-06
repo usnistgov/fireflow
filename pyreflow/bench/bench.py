@@ -1,5 +1,4 @@
 import csv
-import json
 import gc
 import re
 import sys
@@ -64,36 +63,36 @@ READ_DATA_CRC_RUNS = "read_data_crc_runs"
 
 MEAN_READ_TEXT_NS = "mean_r_text_ns"
 MEAN_READ_TEXT_NS_PER_KW = "mean_r_text_ns_per_kw"
-MEAN_READ_TEXT_NS_PER_KB = "mean_r_text_ns_per_kB"
+MEAN_READ_TEXT_NS_PER_KIB = "mean_r_text_ns_per_kiB"
 SERR_READ_TEXT_NS = "serr_r_text_ns"
 SERR_READ_TEXT_NS_PER_KW = "serr_r_text_ns_per_kw"
-SERR_READ_TEXT_NS_PER_KB = "serr_r_text_ns_per_kB"
+SERR_READ_TEXT_NS_PER_KIB = "serr_r_text_ns_per_kiB"
 
 MEAN_READ_DATA_NS = "mean_r_data_ns"
 MEAN_READ_DATA_DIFF_NS = "mean_r_data_diff_ns"
-MEAN_READ_DATA_DIFF_NS_PER_KB = "mean_r_data_diff_ns_per_kb"
+MEAN_READ_DATA_DIFF_NS_PER_KIB = "mean_r_data_diff_ns_per_kb"
 MEAN_READ_DATA_DIFF_NS_PER_VAL = "mean_r_data_diff_ns_per_value"
 
 SERR_READ_DATA_NS = "serr_r_data_ns"
 SERR_READ_DATA_DIFF_NS = "serr_r_data_diff_ns"
-SERR_READ_DATA_DIFF_NS_PER_KB = "serr_r_data_diff_ns_per_kb"
+SERR_READ_DATA_DIFF_NS_PER_KIB = "serr_r_data_diff_ns_per_kb"
 SERR_READ_DATA_DIFF_NS_PER_VAL = "serr_r_data_diff_ns_per_value"
 
 MEAN_WRITE_TEXT_NS = "mean_w_text_ns"
 MEAN_WRITE_TEXT_NS_PER_KW = "mean_w_text_ns_per_kw"
-MEAN_WRITE_TEXT_NS_PER_KB = "mean_w_text_ns_per_kB"
+MEAN_WRITE_TEXT_NS_PER_KIB = "mean_w_text_ns_per_kiB"
 SERR_WRITE_TEXT_NS = "serr_w_text_ns"
 SERR_WRITE_TEXT_NS_PER_KW = "serr_w_text_ns_per_kw"
-SERR_WRITE_TEXT_NS_PER_KB = "serr_w_text_ns_per_kB"
+SERR_WRITE_TEXT_NS_PER_KIB = "serr_w_text_ns_per_kiB"
 
 MEAN_WRITE_DATA_NS = "mean_w_data_ns"
 MEAN_WRITE_DATA_DIFF_NS = "mean_w_data_diff_ns"
-MEAN_WRITE_DATA_DIFF_NS_PER_KB = "mean_w_data_diff_ns_per_kB"
+MEAN_WRITE_DATA_DIFF_NS_PER_KIB = "mean_w_data_diff_ns_per_kiB"
 MEAN_WRITE_DATA_DIFF_NS_PER_VAL = "mean_w_data_diff_ns_per_value"
 
 SERR_WRITE_DATA_NS = "serr_w_data_ns"
 SERR_WRITE_DATA_DIFF_NS = "serr_w_data_diff_ns"
-SERR_WRITE_DATA_DIFF_NS_PER_KB = "serr_w_data_diff_ns_per_kb"
+SERR_WRITE_DATA_DIFF_NS_PER_KIB = "serr_w_data_diff_ns_per_kb"
 SERR_WRITE_DATA_DIFF_NS_PER_VAL = "serr_w_data_diff_ns_per_value"
 
 MEAN_READ_STD_NS = "mean_r_std_ns"
@@ -111,10 +110,10 @@ SERR_READ_DATA_RNG_DIFF_NS_PER_VAL = "serr_r_data_rng_diff_ns_per_val"
 
 MEAN_READ_DATA_CRC_NS = "mean_r_data_crc_ns"
 MEAN_READ_DATA_CRC_DIFF_NS = "mean_r_data_crc_diff_ns"
-MEAN_READ_DATA_CRC_DIFF_NS_PER_KB = "mean_r_data_crc_diff_ns_per_kB"
+MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB = "mean_r_data_crc_diff_ns_per_kiB"
 SERR_READ_DATA_CRC_NS = "serr_r_data_crc_ns"
 SERR_READ_DATA_CRC_DIFF_NS = "serr_r_data_crc_diff_ns"
-SERR_READ_DATA_CRC_DIFF_NS_PER_KB = "serr_r_data_crc_diff_ns_per_kB"
+SERR_READ_DATA_CRC_DIFF_NS_PER_KIB = "serr_r_data_crc_diff_ns_per_kiB"
 
 
 class FFBenchKey(Enum):
@@ -1038,11 +1037,11 @@ def compute_read_df(
             (pl.col(SERR_READ_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
                 SERR_READ_TEXT_NS_PER_KW
             ),
-            (pl.col(MEAN_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                MEAN_READ_TEXT_NS_PER_KB
+            (pl.col(MEAN_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1024).alias(
+                MEAN_READ_TEXT_NS_PER_KIB
             ),
-            (pl.col(SERR_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                SERR_READ_TEXT_NS_PER_KB
+            (pl.col(SERR_READ_TEXT_NS) / pl.col(TEXT_NBYTES) * 1024).alias(
+                SERR_READ_TEXT_NS_PER_KIB
             ),
         )
         .join(read_data_df, on=BENCH_NAME)
@@ -1059,11 +1058,11 @@ def compute_read_df(
         .with_columns(
             # normalize DATA read time to number of kB read and number of
             # values read
-            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                MEAN_READ_DATA_DIFF_NS_PER_KB
+            (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1024).alias(
+                MEAN_READ_DATA_DIFF_NS_PER_KIB
             ),
-            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                SERR_READ_DATA_DIFF_NS_PER_KB
+            (pl.col(SERR_READ_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1024).alias(
+                SERR_READ_DATA_DIFF_NS_PER_KIB
             ),
             (pl.col(MEAN_READ_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
                 MEAN_READ_DATA_DIFF_NS_PER_VAL
@@ -1092,11 +1091,11 @@ def compute_write_df(
             (pl.col(SERR_WRITE_TEXT_NS) / pl.col(N_KEYWORDS)).alias(
                 SERR_WRITE_TEXT_NS_PER_KW
             ),
-            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                MEAN_WRITE_TEXT_NS_PER_KB
+            (pl.col(MEAN_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1024).alias(
+                MEAN_WRITE_TEXT_NS_PER_KIB
             ),
-            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1000).alias(
-                SERR_WRITE_TEXT_NS_PER_KB
+            (pl.col(SERR_WRITE_TEXT_NS) / pl.col(TEXT_NBYTES) * 1024).alias(
+                SERR_WRITE_TEXT_NS_PER_KIB
             ),
         )
         .join(write_data_df, on=BENCH_NAME)
@@ -1113,11 +1112,11 @@ def compute_write_df(
         .with_columns(
             # normalize DATA read time to number of kB written and number of
             # values written
-            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                MEAN_WRITE_DATA_DIFF_NS_PER_KB
+            (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1024).alias(
+                MEAN_WRITE_DATA_DIFF_NS_PER_KIB
             ),
-            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1000).alias(
-                SERR_WRITE_DATA_DIFF_NS_PER_KB
+            (pl.col(SERR_WRITE_DATA_DIFF_NS) / pl.col(DATA_NBYTES) * 1024).alias(
+                SERR_WRITE_DATA_DIFF_NS_PER_KIB
             ),
             (pl.col(MEAN_WRITE_DATA_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
                 MEAN_WRITE_DATA_DIFF_NS_PER_VAL
@@ -1219,17 +1218,17 @@ def run_all_bench(
         DATA_NBYTES,
         MEAN_READ_TEXT_NS,
         MEAN_READ_TEXT_NS_PER_KW,
-        MEAN_READ_TEXT_NS_PER_KB,
+        MEAN_READ_TEXT_NS_PER_KIB,
         SERR_READ_TEXT_NS,
         SERR_READ_TEXT_NS_PER_KW,
-        SERR_READ_TEXT_NS_PER_KB,
+        SERR_READ_TEXT_NS_PER_KIB,
         MEAN_READ_DATA_NS,
         MEAN_READ_DATA_DIFF_NS,
-        MEAN_READ_DATA_DIFF_NS_PER_KB,
+        MEAN_READ_DATA_DIFF_NS_PER_KIB,
         MEAN_READ_DATA_DIFF_NS_PER_VAL,
         SERR_READ_DATA_NS,
         SERR_READ_DATA_DIFF_NS,
-        SERR_READ_DATA_DIFF_NS_PER_KB,
+        SERR_READ_DATA_DIFF_NS_PER_KIB,
         SERR_READ_DATA_DIFF_NS_PER_VAL,
         READ_TEXT_RUNS,
         READ_DATA_RUNS,
@@ -1237,17 +1236,17 @@ def run_all_bench(
     write_columns = [
         MEAN_WRITE_TEXT_NS,
         MEAN_WRITE_TEXT_NS_PER_KW,
-        MEAN_WRITE_TEXT_NS_PER_KB,
+        MEAN_WRITE_TEXT_NS_PER_KIB,
         SERR_WRITE_TEXT_NS,
         SERR_WRITE_TEXT_NS_PER_KW,
-        SERR_WRITE_TEXT_NS_PER_KB,
+        SERR_WRITE_TEXT_NS_PER_KIB,
         MEAN_WRITE_DATA_NS,
         MEAN_WRITE_DATA_DIFF_NS,
-        MEAN_WRITE_DATA_DIFF_NS_PER_KB,
+        MEAN_WRITE_DATA_DIFF_NS_PER_KIB,
         MEAN_WRITE_DATA_DIFF_NS_PER_VAL,
         SERR_WRITE_DATA_NS,
         SERR_WRITE_DATA_DIFF_NS,
-        SERR_WRITE_DATA_DIFF_NS_PER_KB,
+        SERR_WRITE_DATA_DIFF_NS_PER_KIB,
         SERR_WRITE_DATA_DIFF_NS_PER_VAL,
         WRITE_TEXT_RUNS,
         WRITE_DATA_RUNS,
@@ -1264,6 +1263,9 @@ def run_all_bench(
         *flowcore_runs(bench_files),
         *ff_runs(bench_files, input_root, scratch_root, True),
     ]
+
+    # Warm up all code paths once; also load all files into page cache
+    _ = [r.run(input_root, scratch_root) for r in set(runs)]
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
@@ -1366,6 +1368,9 @@ def run_ff_bench(
 
     bench_files = read_bench_files(input_root, names_filter)
     runs = ff_runs(bench_files, input_root, scratch_root, False)
+
+    # warm up code paths and load files into page cache
+    _ = [r.run(input_root, scratch_root) for r in set(runs)]
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
@@ -1486,12 +1491,12 @@ def run_ff_bench(
                 pl.col(MEAN_READ_DATA_CRC_DIFF_NS)
                 / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
                 * 1000
-            ).alias(MEAN_READ_DATA_CRC_DIFF_NS_PER_KB),
+            ).alias(MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB),
             (
                 pl.col(SERR_READ_DATA_CRC_DIFF_NS)
                 / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
                 * 1000
-            ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KB),
+            ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KIB),
         )
     )
 
@@ -1510,20 +1515,20 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> Non
     sort_cols = [BYTEORD, VERSION, DATATYPES, HEIGHT]
 
     READ_TEXT_PER_KW = "TEXT read (ns/kw)"
-    READ_TEXT_PER_KB = "TEXT read (ns/kB)"
+    READ_TEXT_PER_KIB = "TEXT read (ns/kB)"
     READ_STD_PER_KW = "Std Overhead (ns/kw)"
     READ_STD_RATIO = "Std Overhead (%)"
     READ_RNG_PER_VAL = "$PnR Overhead (ns/val)"
     READ_RNG_RATIO = "$PnR Overhead (%)"
-    READ_CRC_PER_KB = "CRC Overhead (ns/kB)"
+    READ_CRC_PER_KIB = "CRC Overhead (ns/kB)"
     READ_CRC_RATIO = "CRC Overhead (%)"
-    READ_DATA_PER_KB = "DATA read (ns/kB)"
+    READ_DATA_PER_KIB = "DATA read (ns/kB)"
     READ_DATA_PER_VAL = "DATA read (ns/val)"
 
     WRITE_TEXT_PER_KW = "TEXT write (ns/kw)"
-    WRITE_TEXT_PER_KB = "TEXT write (ns/kB)"
+    WRITE_TEXT_PER_KIB = "TEXT write (ns/kB)"
     WRITE_DATA_PER_VAL = "DATA write (ns/val)"
-    WRITE_DATA_PER_KB = "DATA write (ns/kB)"
+    WRITE_DATA_PER_KIB = "DATA write (ns/kB)"
 
     if not pretty:
         df_final = df
@@ -1539,9 +1544,9 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> Non
                     READ_TEXT_PER_KW,
                 ),
                 fmt_value(
-                    MEAN_READ_TEXT_NS_PER_KB,
-                    SERR_READ_TEXT_NS_PER_KB,
-                    READ_TEXT_PER_KB,
+                    MEAN_READ_TEXT_NS_PER_KIB,
+                    SERR_READ_TEXT_NS_PER_KIB,
+                    READ_TEXT_PER_KIB,
                 ),
                 # read std
                 fmt_value(
@@ -1558,9 +1563,9 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> Non
                     3,
                 ),
                 fmt_value(
-                    MEAN_READ_DATA_DIFF_NS_PER_KB,
-                    SERR_READ_DATA_DIFF_NS_PER_KB,
-                    READ_DATA_PER_KB,
+                    MEAN_READ_DATA_DIFF_NS_PER_KIB,
+                    SERR_READ_DATA_DIFF_NS_PER_KIB,
+                    READ_DATA_PER_KIB,
                 ),
                 # read range
                 fmt_value(
@@ -1572,9 +1577,9 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> Non
                 pl.col("r_data_rng_ratio").round(1).alias(READ_RNG_RATIO),
                 # read crc
                 fmt_value(
-                    MEAN_READ_DATA_CRC_DIFF_NS_PER_KB,
-                    SERR_READ_DATA_CRC_DIFF_NS_PER_KB,
-                    READ_CRC_PER_KB,
+                    MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB,
+                    SERR_READ_DATA_CRC_DIFF_NS_PER_KIB,
+                    READ_CRC_PER_KIB,
                 ),
                 pl.col("r_data_crc_ratio").round(1).alias(READ_CRC_RATIO),
                 # write text
@@ -1584,9 +1589,9 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> Non
                     WRITE_TEXT_PER_KW,
                 ),
                 fmt_value(
-                    MEAN_WRITE_TEXT_NS_PER_KB,
-                    SERR_WRITE_TEXT_NS_PER_KB,
-                    WRITE_TEXT_PER_KB,
+                    MEAN_WRITE_TEXT_NS_PER_KIB,
+                    SERR_WRITE_TEXT_NS_PER_KIB,
+                    WRITE_TEXT_PER_KIB,
                 ),
                 # write data
                 fmt_value(
@@ -1596,9 +1601,9 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> Non
                     3,
                 ),
                 fmt_value(
-                    MEAN_WRITE_DATA_DIFF_NS_PER_KB,
-                    SERR_WRITE_DATA_DIFF_NS_PER_KB,
-                    WRITE_DATA_PER_KB,
+                    MEAN_WRITE_DATA_DIFF_NS_PER_KIB,
+                    SERR_WRITE_DATA_DIFF_NS_PER_KIB,
+                    WRITE_DATA_PER_KIB,
                 ),
                 # read vs write
                 pl.col("text_rw_ratio").round(1).alias("TEXT R:W Ratio (%)"),
@@ -1815,6 +1820,61 @@ def plot_fireflow_crc_overhead(df: pl.DataFrame, out_path: Path) -> None:
     read_text_plt.save(out_path)
 
 
+def plot_read_data_rate(
+    df: pl.DataFrame, out_path: Path, out_path_no_flowcore: Path
+) -> None:
+    df_mean = fill_cartesian(df, MEAN_READ_DATA_DIFF_NS_PER_KIB, 0)
+    df_serr = fill_cartesian(df, SERR_READ_DATA_DIFF_NS_PER_KIB, None)
+    df_combined = (
+        df_mean.join(df_serr, on=[BENCH_NAME, LIBRARY])
+        .with_columns(
+            (
+                pl.col(MEAN_READ_DATA_DIFF_NS_PER_VAL)
+                - pl.col(SERR_READ_DATA_DIFF_NS_PER_VAL)
+            ).alias("lower"),
+            (
+                pl.col(MEAN_READ_DATA_DIFF_NS_PER_VAL)
+                + pl.col(SERR_READ_DATA_DIFF_NS_PER_VAL)
+            ).alias("upper"),
+        )
+        .with_columns(pl.col(LIBRARY).cast(parser_enum()))
+    )
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y=MEAN_READ_DATA_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
+        + coord_flip()
+        + scale_fill_discrete(limits=LIBRARIES)
+    )
+    read_text_plt.save(out_path)
+
+    read_text_plt = (
+        ggplot(
+            df_combined.filter(~pl.col(LIBRARY).eq(FLOWCORE)),
+            aes(y=MEAN_READ_DATA_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
+        + coord_flip()
+        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FLOWCORE])
+    )
+    read_text_plt.save(out_path_no_flowcore)
+
+
 def dataframe_to_md(df: pl.DataFrame) -> str:
     cols = df.columns
     header = "| " + " | ".join(cols) + " |"
@@ -1836,31 +1896,6 @@ def total_memory() -> float:
         for i in open("/proc/meminfo").readlines()
     )
     return int(meminfo["MemTotal"] / 1024 / 1024)
-
-
-def get_filesystem(exec_dir: Path) -> str:
-    ret0 = sp.run(
-        ["df", "./"],
-        capture_output=True,
-        text=True,
-        cwd=exec_dir,
-    )
-    if ret0.returncode > 0:
-        assert False, ret0.stderr
-
-    devpath = ret0.stdout.strip().split("\n")[1].split(" ")[0]
-
-    ret1 = sp.run(
-        ["lsblk", "--json", "-f", devpath],
-        capture_output=True,
-        text=True,
-        cwd=exec_dir,
-    )
-
-    if ret1.returncode > 0:
-        assert False, ret1.stderr
-
-    return str(json.loads(ret1.stdout.strip())["blockdevices"][0]["fstype"])
 
 
 def get_flowcore_version(exec_dir: Path) -> str:
@@ -2051,7 +2086,6 @@ def render_all(
                     "cpu_model": cpu_model(),
                     "total_memory": total_memory(),
                     "kernel_uname": plm.uname().release,
-                    "fstype": get_filesystem(bench_exec_dir),
                 }
             )
         )

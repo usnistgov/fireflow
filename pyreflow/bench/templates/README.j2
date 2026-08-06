@@ -103,25 +103,28 @@ Additionally, these libaries can parse the following FCS files types:
 Do to uneven support for some of these features, not all measurements were
 collected for all libaries.
 
-### Experimental setup
+### Experimental Setup
 
 The number of trials for each library and metric was the following. The same
 number was used across all test FCS files.
 
 {{trial_number_table}}
 
-For a given benchmarking experiment, all combinations of test FCS file, library,
-target metric, and repetition (as given in the above table) was executated *in
-random order*. This should evenly spread any biases due to warm caches and
-cached files across all runs.
+A given experiment consisted of all combinations of test FCS file, library, and
+target metric repeated N times as given in the above table. Prior to performing
+the experiment, each run (1 repetition each) was executed to ensure all code
+paths were hot and that the files were loaded into the page cache. Each run was
+then executed *in random order*; randomization should evenly spread any biases
+due to code, data, and file caching.
 
 The python garbage collector was run at the start of each `flowio`, `fcsparser`,
-and `fireflow` run. `flowCore` was run and timed in an `R` subprocess so garbage
-collection should not matter in this case.
+and `fireflow` run to eliminate random noise that might be introduced by running
+it during execution. `flowCore` was run and timed in a fresh `R` subprocess so
+Python garbage collection should not matter in this case.
 
 Two benchmark experiments were performed, one comparing `fireflow` to existing
 FCS libraries (1-4 in next section), and the other measuring `fireflow`-specific
-performance characteristics (5-6 in next section)
+performance characteristics (5-6 in next section).
 
 ### Metrics
 
@@ -220,7 +223,6 @@ preprocessing as in (3).
 * Python Version: {{python_version}}
 * R Version: {{r_version}}
 * Linux Kernel: {{kernel_uname}}
-* Filesystem: {{fstype}}
 
 ### Package and Build Info
 
@@ -256,6 +258,31 @@ versions for Python and R respectively.
 
 * CPU Model: {{cpu_model}}
 * Total Memory (GiB): {{total_memory}}
+
+## Limitations
+
+### In-Memory Access
+
+The execution times in this benchmark will only reflect a real user's experience
+(in an absolute sense) if they access a small number of files repeatedly in a
+tight loop. This means that the files are loaded in the page cache which
+eliminates disk IO overhead. This will not be the case when many FCS files are
+read cold from disk and processed once. For many files, disk access will
+bottleneck before parsing (see Appendix for real data on this).
+
+This limitation exists because the alternative would require evicting the page
+cache before every read. This either requires triggering
+`/proc/sys/vm/drop_caches` (requires root, probably not accessible if running on
+cloud) or calling `posix_fadvise` (only a suggestion, doesn't guarantee page
+clearance).
+
+### Repairing FCS Files
+
+This benchmark did not investigate the use of any `fireflow`-specific repair
+flags which fix known FCS deviations. These will be necessary for almost all
+files in order to get a clean read of *TEXT* and *DATA*. These options usually
+add some overhead, particularly those that try to guess what an FCS file is
+trying to say based on heuristics (delimiter escaping for example).
 
 ## Appendix
 

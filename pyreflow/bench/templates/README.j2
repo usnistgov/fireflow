@@ -293,8 +293,8 @@ trying to say based on heuristics (delimiter escaping for example).
 ### B. Comparison to Disk Throughput
 
 Files in these benchmark experiments should be read from a hot page cache, not
-from disk. Read a file from a real disk will inflate the execution times upward
-non-trivially.
+from disk. Reading a file from a real disk will inflate the execution times
+upward non-trivially.
 
 The following plots show the *DATA* parsing throughput of `fireflow` in ns/KiB
 (note, this isn't something more familiar like GiB/s because getting the

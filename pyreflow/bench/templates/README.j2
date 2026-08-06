@@ -22,7 +22,7 @@ intervals assuming normal sampling distribution.
 ### *TEXT* + *DATA* Read Speed
 
 `flowCore` is many times slower than the other libaries, so it is not shown
-here. See appendix for full plot.
+here. See Appendix A for full plot.
 
 ![read_data_noflowcore]({{read_data_noflowcore_plot_path}})
 
@@ -268,7 +268,7 @@ The execution times in this benchmark will only reflect a real user's experience
 tight loop. This means that the files are loaded in the page cache which
 eliminates disk IO overhead. This will not be the case when many FCS files are
 read cold from disk and processed once. For many files, disk access will
-bottleneck before parsing (see Appendix for real data on this).
+bottleneck before parsing (see Appendix B for discussion on this).
 
 This limitation exists because the alternative would require evicting the page
 cache before every read. This either requires triggering
@@ -286,11 +286,11 @@ trying to say based on heuristics (delimiter escaping for example).
 
 ## Appendix
 
-### *TEXT* + *DATA* Read Speed (with flowCore)
+### A. *TEXT* + *DATA* Read Speed (with flowCore)
 
 ![read_data]({{read_data_plot_path}})
 
-### Comparison to Disk Throughput
+### B. Comparison to Disk Throughput
 
 Files in these benchmark experiments should be read from a hot page cache, not
 from disk. Read a file from a real disk will inflate the execution times upward

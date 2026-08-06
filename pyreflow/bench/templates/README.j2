@@ -289,3 +289,26 @@ trying to say based on heuristics (delimiter escaping for example).
 ### *TEXT* + *DATA* Read Speed (with flowCore)
 
 ![read_data]({{read_data_plot_path}})
+
+### Comparison to Disk Throughput
+
+Files in these benchmark experiments should be read from a hot page cache, not
+from disk. Read a file from a real disk will inflate the execution times upward
+non-trivially.
+
+The following plots show the *DATA* parsing throughput of `fireflow` in ns/KiB
+(note, this isn't something more familiar like GiB/s because getting the
+uncertainty of a reciprocal random variable is relatively difficult). Only
+`fireflow` is shown because all other libraries should be a similar speed or
+slower. *TEXT* is not shown because *DATA* will dominate in terms of total bytes
+transferred.
+
+Lines on the plots represent the following IO speeds for reference.
+
+* red: DDR5 memory speed, assumed to be {{ram_speed}} GiB/s for read and write
+* green: NVMe PCIe 3.0 speed, assumed to be {{nvme_read_speed}} and
+  {{nvme_write_speed}} GiB/s for read and write respectively
+* blue: SATA SSD speed, assumed to be {{ssd_speed}} GiB/s for read and write
+
+![read_data]({{read_data_kib_plot_path}})
+![read_data]({{write_data_kib_plot_path}})

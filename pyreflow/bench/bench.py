@@ -19,6 +19,7 @@ from plotnine import (
     ggplot,
     aes,
     geom_col,
+    geom_hline,
     geom_errorbar,
     coord_flip,
     labs,
@@ -1820,8 +1821,12 @@ def plot_fireflow_crc_overhead(df: pl.DataFrame, out_path: Path) -> None:
     read_text_plt.save(out_path)
 
 
-def plot_read_data_rate(
-    df: pl.DataFrame, out_path: Path, out_path_no_flowcore: Path
+def plot_read_data_kib(
+    df: pl.DataFrame,
+    out_path: Path,
+    ssd_speed: float,
+    nvme_speed: float,
+    ram_speed: float,
 ) -> None:
     df_mean = fill_cartesian(df, MEAN_READ_DATA_DIFF_NS_PER_KIB, 0)
     df_serr = fill_cartesian(df, SERR_READ_DATA_DIFF_NS_PER_KIB, None)
@@ -1829,21 +1834,21 @@ def plot_read_data_rate(
         df_mean.join(df_serr, on=[BENCH_NAME, LIBRARY])
         .with_columns(
             (
-                pl.col(MEAN_READ_DATA_DIFF_NS_PER_VAL)
-                - pl.col(SERR_READ_DATA_DIFF_NS_PER_VAL)
+                pl.col(MEAN_READ_DATA_DIFF_NS_PER_KIB)
+                - pl.col(SERR_READ_DATA_DIFF_NS_PER_KIB)
             ).alias("lower"),
             (
-                pl.col(MEAN_READ_DATA_DIFF_NS_PER_VAL)
-                + pl.col(SERR_READ_DATA_DIFF_NS_PER_VAL)
+                pl.col(MEAN_READ_DATA_DIFF_NS_PER_KIB)
+                + pl.col(SERR_READ_DATA_DIFF_NS_PER_KIB)
             ).alias("upper"),
         )
-        .with_columns(pl.col(LIBRARY).cast(parser_enum()))
+        .filter(pl.col(LIBRARY).eq(FIREFLOW))
     )
 
-    read_text_plt = (
+    plt = (
         ggplot(
             df_combined,
-            aes(y=MEAN_READ_DATA_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+            aes(y=MEAN_READ_DATA_DIFF_NS_PER_KIB, x=BENCH_NAME),  # type: ignore
         )
         + geom_col(position="dodge")
         + geom_errorbar(
@@ -1851,16 +1856,52 @@ def plot_read_data_rate(
             position="dodge",
             width=0.9,
         )
-        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
+        + geom_hline(
+            aes(yintercept=ssd_speed),  # type: ignore
+            color="blue",
+        )
+        + geom_hline(
+            aes(yintercept=nvme_speed),  # type: ignore
+            color="#00ff00",
+        )
+        + geom_hline(
+            aes(yintercept=ram_speed),  # type: ignore
+            color="red",
+        )
+        + labs(y="DATA read time (ns/KiB)", x="FCS File")
         + coord_flip()
-        + scale_fill_discrete(limits=LIBRARIES)
     )
-    read_text_plt.save(out_path)
+    plt.save(out_path)
 
-    read_text_plt = (
+
+def plot_write_data_kib(
+    df: pl.DataFrame,
+    out_path: Path,
+    ssd_speed: float,
+    nvme_speed: float,
+    ram_speed: float,
+) -> None:
+    df_mean = fill_cartesian(df, MEAN_WRITE_DATA_DIFF_NS_PER_KIB, 0)
+    df_serr = fill_cartesian(df, SERR_WRITE_DATA_DIFF_NS_PER_KIB, None)
+    df_combined = (
+        df_mean.join(df_serr, on=[BENCH_NAME, LIBRARY])
+        .with_columns(
+            (
+                pl.col(MEAN_WRITE_DATA_DIFF_NS_PER_KIB)
+                - pl.col(SERR_WRITE_DATA_DIFF_NS_PER_KIB)
+            ).alias("lower"),
+            (
+                pl.col(MEAN_WRITE_DATA_DIFF_NS_PER_KIB)
+                + pl.col(SERR_WRITE_DATA_DIFF_NS_PER_KIB)
+            ).alias("upper"),
+        )
+        .filter(pl.col(LIBRARY).eq(FIREFLOW))
+    )
+
+    plt = (
         ggplot(
-            df_combined.filter(~pl.col(LIBRARY).eq(FLOWCORE)),
-            aes(y=MEAN_READ_DATA_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+            df_combined,
+            aes(y=MEAN_WRITE_DATA_DIFF_NS_PER_KIB, x=BENCH_NAME),  # type: ignore
         )
         + geom_col(position="dodge")
         + geom_errorbar(
@@ -1868,11 +1909,22 @@ def plot_read_data_rate(
             position="dodge",
             width=0.9,
         )
-        + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
+        + geom_hline(
+            aes(yintercept=ssd_speed),  # type: ignore
+            color="blue",
+        )
+        + geom_hline(
+            aes(yintercept=nvme_speed),  # type: ignore
+            color="#00ff00",
+        )
+        + geom_hline(
+            aes(yintercept=ram_speed),  # type: ignore
+            color="red",
+        )
+        + labs(y="DATA write time (ns/KiB)", x="FCS File")
         + coord_flip()
-        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FLOWCORE])
     )
-    read_text_plt.save(out_path_no_flowcore)
+    plt.save(out_path)
 
 
 def dataframe_to_md(df: pl.DataFrame) -> str:
@@ -2030,6 +2082,31 @@ def render_all(
     plot_fireflow_std_overhead(df_ff_results, read_std_overhead_path)
     plot_fireflow_crc_overhead(df_ff_results, read_crc_overhead_path)
 
+    read_data_kib_path = static_dir / "read_data_kib.svg"
+    write_data_kib_path = static_dir / "write_data_kib.svg"
+
+    # convert from GiB/s to ns/KiB
+    SPEED_CONV_FACTOR = 1 / 1024 / 1024 * 1e9
+    RAM_SPEED = 20  # GiB/s
+    NVME_READ_SPEED = 3.5  # GiB/s
+    NVME_WRITE_SPEED = 2  # GiB/s
+    SSD_SPEED = 0.5  # GiB/s
+
+    plot_read_data_kib(
+        df_results,
+        read_data_kib_path,
+        (1 / SSD_SPEED) * SPEED_CONV_FACTOR,
+        (1 / NVME_READ_SPEED) * SPEED_CONV_FACTOR,
+        (1 / RAM_SPEED) * SPEED_CONV_FACTOR,
+    )
+    plot_write_data_kib(
+        df_results,
+        write_data_kib_path,
+        (1 / SSD_SPEED) * SPEED_CONV_FACTOR,
+        (1 / NVME_WRITE_SPEED) * SPEED_CONV_FACTOR,
+        (1 / RAM_SPEED) * SPEED_CONV_FACTOR,
+    )
+
     env = Environment(
         loader=FileSystemLoader(template_path.parent),
         undefined=StrictUndefined,
@@ -2074,7 +2151,6 @@ def render_all(
                     "fcsparser_version": fp.__version__,
                     "flowcore_version": get_flowcore_version(bench_exec_dir),
                     "trial_number_table": dataframe_to_md(df_runs),
-                    "write_data_plot_path": write_data_path.relative_to(readme_dir),
                     "python_version": sys.version,
                     "r_version": get_r_version(bench_exec_dir),
                     "ff_build_info": pf.BuildInfo(),
@@ -2086,6 +2162,17 @@ def render_all(
                     "cpu_model": cpu_model(),
                     "total_memory": total_memory(),
                     "kernel_uname": plm.uname().release,
+                    "write_data_plot_path": write_data_path.relative_to(readme_dir),
+                    "ssd_speed": SSD_SPEED,
+                    "nvme_read_speed": NVME_READ_SPEED,
+                    "nvme_write_speed": NVME_WRITE_SPEED,
+                    "ram_speed": RAM_SPEED,
+                    "read_data_kib_plot_path": read_data_kib_path.relative_to(
+                        readme_dir
+                    ),
+                    "write_data_kib_plot_path": write_data_kib_path.relative_to(
+                        readme_dir
+                    ),
                 }
             )
         )

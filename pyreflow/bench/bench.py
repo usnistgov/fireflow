@@ -1028,8 +1028,8 @@ def make_bench_files(root: Path) -> None:
 
     # make a big endian file just for fun (it should be the same as le)
     print_files(
-        "i32_31_be_10000x25",
-        core_3_1_int(10000, 25, 4, True),
+        "i32_30_be_10000x25",
+        core_3_0_int(10000, 25, 4, True),
         f"Same as '{i32_name}' but with big-endian byte order.",
     )
 

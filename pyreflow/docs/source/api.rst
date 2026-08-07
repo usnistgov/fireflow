@@ -6,10 +6,10 @@ API Reference
 
    reader
    writer
-   misc
    core
    measurement
    gating
    data_schema
+   misc
    exceptions
    pydantic

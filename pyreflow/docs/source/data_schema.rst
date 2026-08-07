@@ -14,16 +14,6 @@ Only certain data schema are valid for a given FCS version, summarized below:
      - FCS3.0
      - FCS3.1
      - FCS3.2
-   * - :py:class:`~pyreflow.FixedAsciiDataSchema`
-     - X
-     - X
-     - X
-     - X
-   * - :py:class:`~pyreflow.DelimAsciiDataSchema`
-     - X
-     - X
-     - X
-     - X
    * - :py:class:`~pyreflow.OrderedUintDataSchema`
      - X
      - X
@@ -64,17 +54,16 @@ Only certain data schema are valid for a given FCS version, summarized below:
      -
      -
      - X
-
-ASCII data schema
------------------
-
-Data schema encoded using ASCII characters. Available in all FCS versions.
-
-.. autoclass:: pyreflow.FixedAsciiDataSchema
-   :members:
-
-.. autoclass:: pyreflow.DelimAsciiDataSchema
-   :members:
+   * - :py:class:`~pyreflow.FixedAsciiDataSchema`
+     - X
+     - X
+     - X
+     - X
+   * - :py:class:`~pyreflow.DelimAsciiDataSchema`
+     - X
+     - X
+     - X
+     - X
 
 Ordered Numeric Data Schema
 ---------------------------
@@ -116,4 +105,15 @@ Data schema which can include any type (character, float, unsigned integer).
 Only for FCS 3.2.
 
 .. autoclass:: pyreflow.MixedDataSchema
+   :members:
+
+ASCII data schema
+-----------------
+
+Data schema encoded using ASCII characters. Available in all FCS versions.
+
+.. autoclass:: pyreflow.FixedAsciiDataSchema
+   :members:
+
+.. autoclass:: pyreflow.DelimAsciiDataSchema
    :members:

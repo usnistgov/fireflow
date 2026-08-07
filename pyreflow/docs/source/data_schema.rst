@@ -65,6 +65,24 @@ Only certain data schema are valid for a given FCS version, summarized below:
      - X
      - X
 
+Superclasses
+------------
+
+
+.. autoclass:: pyreflow.SingleTypedDataSchema
+   :members:
+
+.. autoclass:: pyreflow.AsciiDataSchema
+   :inherited-members:
+   :show-inheritance:
+
+.. autoclass:: pyreflow.MatrixDataSchema
+   :inherited-members:
+   :show-inheritance:
+
+.. autoclass:: pyreflow.VariableWidthDataSchema
+   :members:
+
 Ordered Numeric Data Schema
 ---------------------------
 
@@ -72,13 +90,16 @@ Data schema encoded using numeric binary types (unsigned integer or float) using
 any byte order. Used for FCS 2.0 and 3.0.
 
 .. autoclass:: pyreflow.OrderedUintDataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.OrderedF32DataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.OrderedF64DataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 Big/Little Numeric Data Schema
 ------------------------------
@@ -87,16 +108,20 @@ Data schema encoded using numeric binary types (unsigned integer or float) using
 either big or little endian. Used for FCS 3.1 and 3.2.
 
 .. autoclass:: pyreflow.BigLittleF32DataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.BigLittleF64DataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.SingleUintDataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.VariableUintDataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 Mixed Data Schema
 -----------------
@@ -113,7 +138,9 @@ ASCII data schema
 Data schema encoded using ASCII characters. Available in all FCS versions.
 
 .. autoclass:: pyreflow.FixedAsciiDataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.DelimAsciiDataSchema
-   :members:
+   :inherited-members:
+   :show-inheritance:

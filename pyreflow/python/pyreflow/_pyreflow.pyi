@@ -10,11 +10,31 @@ import numpy.typing as npt
 
 import pyreflow.typing as pft
 
-class _DataSchemaUnmixedCommon:
+class SingleTypedDataSchema:
+    def __new__(cls, datatype: pft.Datatype) -> Self: ...
     @property
     def datatype(self) -> pft.Datatype: ...
+    def __deepcopy__(self, memo: Any) -> Self: ...
+
+class AsciiDataSchema(SingleTypedDataSchema):
+    def __new__(cls) -> Self: ...
+
+class MatrixDataSchema(SingleTypedDataSchema):
+    def __new__(
+        cls,
+        byte_width: int,
+        is_float: bool,
+        datatype: pft.Datatype,
+    ) -> Self: ...
     @property
     def byte_width(self) -> int: ...
+    @property
+    def is_float(self) -> bool: ...
+
+class VariableWidthDataSchema:
+    def __new__(cls, byte_widths: list[int]) -> Self: ...
+    @property
+    def byte_widths(self) -> list[int]: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
 
 class _DataSchemaEndianCommon:
@@ -22,10 +42,10 @@ class _DataSchemaEndianCommon:
     def endian(self) -> pft.Endian: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
 
-class _DataSchemaAsciiCommon(_DataSchemaUnmixedCommon):
+class _DataSchemaAsciiCommon(AsciiDataSchema):
     def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
 
-class _DataSchemaOrderedUintCommon(_DataSchemaUnmixedCommon):
+class _DataSchemaOrderedUintCommon(MatrixDataSchema):
     def __new__(
         cls, ranges: list[pft.IntRange], byteord: pft.ByteOrd = "little"
     ) -> Self: ...
@@ -34,7 +54,7 @@ class _DataSchemaOrderedUintCommon(_DataSchemaUnmixedCommon):
     @property
     def byteord(self) -> pft.ByteOrd: ...
 
-class _DataSchemaOrderedFloatCommon(_DataSchemaUnmixedCommon):
+class _DataSchemaOrderedFloatCommon(MatrixDataSchema):
     def __new__(
         cls, ranges: list[pft.FloatRange], byteord: pft.ByteOrd = "little"
     ) -> Self: ...
@@ -43,7 +63,7 @@ class _DataSchemaOrderedFloatCommon(_DataSchemaUnmixedCommon):
     @property
     def byteord(self) -> pft.ByteOrd: ...
 
-class _DataSchemaEndianFloatCommon(_DataSchemaUnmixedCommon):
+class _DataSchemaEndianFloatCommon(MatrixDataSchema):
     def __new__(
         cls, ranges: list[pft.FloatRange], endian: pft.Endian = "little"
     ) -> Self: ...
@@ -53,10 +73,7 @@ class _DataSchemaEndianFloatCommon(_DataSchemaUnmixedCommon):
     def endian(self) -> pft.Endian: ...
 
 @final
-class FixedAsciiDataSchema(
-    _DataSchemaAsciiCommon,
-    _DataSchemaUnmixedCommon,
-):
+class FixedAsciiDataSchema(_DataSchemaAsciiCommon):
     def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
     @property
     def ranges(self) -> list[pft.FloatRange]: ...
@@ -64,13 +81,13 @@ class FixedAsciiDataSchema(
     def char_widths(self) -> list[int]: ...
 
 @final
-class DelimAsciiDataSchema(_DataSchemaAsciiCommon, _DataSchemaUnmixedCommon):
+class DelimAsciiDataSchema(_DataSchemaAsciiCommon):
     def __new__(cls, ranges: list[pft.IntRange]) -> Self: ...
     @property
     def ranges(self) -> list[pft.IntRange]: ...
 
 @final
-class OrderedUintDataSchema(_DataSchemaUnmixedCommon):
+class OrderedUintDataSchema(MatrixDataSchema):
     def __new__(
         cls,
         ranges: list[pft.IntRange],
@@ -95,7 +112,7 @@ class BigLittleF32DataSchema(_DataSchemaEndianCommon, _DataSchemaEndianFloatComm
 class BigLittleF64DataSchema(_DataSchemaEndianCommon, _DataSchemaEndianFloatCommon): ...
 
 @final
-class SingleUintDataSchema(_DataSchemaEndianCommon, _DataSchemaUnmixedCommon):
+class SingleUintDataSchema(_DataSchemaEndianCommon, MatrixDataSchema):
     def __new__(
         cls,
         ranges: list[pft.IntRange],
@@ -106,7 +123,7 @@ class SingleUintDataSchema(_DataSchemaEndianCommon, _DataSchemaUnmixedCommon):
     def ranges(self) -> list[pft.IntRange]: ...
 
 @final
-class VariableUintDataSchema(_DataSchemaEndianCommon, _DataSchemaUnmixedCommon):
+class VariableUintDataSchema(_DataSchemaEndianCommon, SingleTypedDataSchema):
     def __new__(
         cls, ranges: list[pft.VariableBitmask], endian: pft.Endian = "little"
     ) -> Self: ...
@@ -3623,6 +3640,10 @@ __all__ = [
     "SingleUintDataSchema",
     "VariableUintDataSchema",
     "MixedDataSchema",
+    "AsciiDataSchema",
+    "SingleTypedDataSchema",
+    "MatrixDataSchema",
+    "VariableWidthDataSchema",
     "Header",
     "FinalHeaderOffsets",
     "HeaderToHeaderOffsetsOverlap",

@@ -5859,7 +5859,8 @@ pub fn impl_new_ordered_float_data_schema(input: TokenStream) -> TokenStream {
 
     let widths = make_byte_width(&pyname, nbytes);
     let datatype = make_data_schema_datatype(&pyname, dt);
-    quote!(#class #widths #datatype).into()
+    let is_float = make_data_schema_is_float(&pyname, true);
+    quote!(#class #widths #datatype #is_float).into()
 }
 
 #[proc_macro]
@@ -5899,8 +5900,9 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
 
     let widths = make_byte_width(&pyname, nbytes);
     let datatype = make_data_schema_datatype(&pyname, dt);
+    let is_float = make_data_schema_is_float(&pyname, true);
 
-    quote!(#class #widths #datatype).into()
+    quote!(#class #widths #datatype #is_float).into()
 }
 
 #[proc_macro]
@@ -5936,7 +5938,8 @@ pub fn impl_new_ordered_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
     let datatype = make_data_schema_datatype(&pyname, "I");
-    quote!(#class #datatype).into()
+    let is_float = make_data_schema_is_float(&pyname, false);
+    quote!(#class #datatype #is_float).into()
 }
 
 #[proc_macro]
@@ -5965,7 +5968,8 @@ pub fn impl_new_single_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
     let datatype = make_data_schema_datatype(&pyname, "I");
-    quote!(#class #datatype).into()
+    let is_float = make_data_schema_is_float(&pyname, false);
+    quote!(#class #datatype #is_float).into()
 }
 
 #[proc_macro]
@@ -6002,7 +6006,8 @@ pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
     let datatype = make_data_schema_datatype(&pyname, "I");
-    quote!(#class #datatype).into()
+    let is_float = make_data_schema_is_float(&pyname, false);
+    quote!(#class #datatype #is_float).into()
 }
 
 #[proc_macro]
@@ -12012,6 +12017,13 @@ fn make_data_schema_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
     let doc = DocString::new_ivar(d, PyLiteral::new_datatype())
         .paras([format!("Will always return {dt}.", dt = code_str(dt))]);
     doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
+}
+
+fn make_data_schema_is_float(pyname: &Ident, is_float: bool) -> TokenStream2 {
+    let s = if is_float { TRUE } else { FALSE };
+    let d = "Denotes of numeric type is floating point.";
+    let doc = DocString::new_ivar(d, PyBool::default()).paras([format!("Will always return {s}.")]);
+    doc.into_impl_get(pyname, "is_float", |_, _| quote!(#is_float))
 }
 
 fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {

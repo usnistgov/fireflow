@@ -1,5 +1,4 @@
 from __future__ import annotations
-import inspect as ins
 from abc import ABC, abstractmethod
 import pyreflow._pyreflow as pf
 from typing import Literal
@@ -417,7 +416,17 @@ class AsciiDataSchema(SingleTypedDataSchema):
     pass
 
 
-class MatrixDataSchema(SingleTypedDataSchema):
+class NumericDataSchema(ABC):
+    """A data schema which uses binary-encoded numbers."""
+
+    @property
+    @abstractmethod
+    def is_float(self) -> bool:
+        """``True`` if the numeric type is a floating point."""
+        ...
+
+
+class MatrixDataSchema(SingleTypedDataSchema, NumericDataSchema):
     """A data schema which has only one numeric value type."""
 
     @property
@@ -466,7 +475,7 @@ _ABC_MAP: dict[type, list[type[ABC]]] = {
     pf.OrderedF32DataSchema: [OrderedDataSchema],
     pf.OrderedF64DataSchema: [OrderedDataSchema],
     pf.SingleUintDataSchema: [MatrixDataSchema, BigLittleDataSchema],
-    pf.VariableUintDataSchema: [BigLittleDataSchema],
+    pf.VariableUintDataSchema: [BigLittleDataSchema, NumericDataSchema],
     pf.BigLittleF32DataSchema: [MatrixDataSchema, BigLittleDataSchema],
     pf.BigLittleF64DataSchema: [MatrixDataSchema, BigLittleDataSchema],
     pf.MixedDataSchema: [BigLittleDataSchema],

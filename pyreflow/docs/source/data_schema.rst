@@ -157,6 +157,10 @@ by :py:func:`isinstance`.
    :members:
    :show-inheritance:
 
+.. autoclass:: pyreflow.typing.NumericDataSchema
+   :members:
+   :show-inheritance:
+
 .. autoclass:: pyreflow.typing.MatrixDataSchema
    :members:
    :show-inheritance:
@@ -164,3 +168,4 @@ by :py:func:`isinstance`.
 .. autoclass:: pyreflow.typing.OrderedDataSchema
    :members:
    :show-inheritance:
+

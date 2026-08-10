@@ -561,15 +561,12 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
 
     if isinstance(lt, pf.MixedDataSchema):
         datatypes = ",".join(sorted(set(t for (t, _) in lt.typed_ranges)))
-    elif isinstance(lt, pf.BigLittleF32DataSchema | pf.OrderedF32DataSchema):
-        datatypes = "F32"
-    elif isinstance(lt, pf.BigLittleF64DataSchema | pf.OrderedF64DataSchema):
-        datatypes = "F64"
+    elif isinstance(lt, pft.MatrixDataSchema) and isinstance(lt, pft.NumericDataSchema):
+        prefix = "F" if lt.is_float else "U"
+        width = lt.byte_width * 8
+        datatypes = f"{prefix}{width}"
     elif isinstance(lt, pf.VariableUintDataSchema):
         datatypes = ",".join(sorted(set(f"U{w * 8:02}" for w in lt.byte_widths)))
-    elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
-        width = lt.byte_width * 8
-        datatypes = f"U{width}"
     else:
         assert False, "invalid layout"
 

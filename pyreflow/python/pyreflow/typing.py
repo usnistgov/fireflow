@@ -88,13 +88,20 @@ type VersionOverride = (
     ]
 )
 
-type FloatType = Literal["F"]
-type DoubleType = Literal["D"]
-type IntegerType = Literal["I"]
-type AsciiType = Literal["A"]
-
 #: Any value value for the *$DATATYPE* keyword.
 type Datatype = FloatType | DoubleType | IntegerType | AsciiType
+
+#: Value when *$DATATYPE* corresponds to 32-bit float.
+type FloatType = Literal["F"]
+
+#: Value when *$DATATYPE* corresponds to 64-bit float.
+type DoubleType = Literal["D"]
+
+#: Value when *$DATATYPE* corresponds to an unsigned integer.
+type IntegerType = Literal["I"]
+
+#: Value when *$DATATYPE* corresponds to ASCII-encoded values.
+type AsciiType = Literal["A"]
 
 type F32Type = Literal["F32"]
 type F64Type = Literal["F64"]

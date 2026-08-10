@@ -11,5 +11,6 @@ API Reference
    gating
    data_schema
    misc
+   aliases
    exceptions
    pydantic

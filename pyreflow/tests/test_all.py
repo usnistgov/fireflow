@@ -6003,7 +6003,7 @@ class TestConfig:
                 p, fix_int_widths=f, time_meas_pattern=None
             )
             lt = core.data_schema
-            if isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
+            if isinstance(lt, pt.MatrixDataSchema):
                 return lt.byte_width
             else:
                 assert False
@@ -6033,7 +6033,7 @@ class TestConfig:
                 p, fix_int_widths=f, time_meas_pattern=None
             )
             lt = core.data_schema
-            if isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
+            if isinstance(lt, pt.MatrixDataSchema):
                 return lt.byte_width
             else:
                 assert False
@@ -6583,7 +6583,7 @@ class TestReadWrite:
         self,
         tmp_path: Path,
         core: AnyCoreDataset,
-        data_schema: pf.FixedAsciiDataSchema | pf.DelimAsciiDataSchema,
+        data_schema: pt.AsciiDataSchema,
     ) -> None:
         """Test writing then reading an ASCII dataset.
 

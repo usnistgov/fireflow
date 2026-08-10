@@ -552,15 +552,7 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
 
     if isinstance(lt, pf.MixedDataSchema) or isinstance(lt, pf.VariableUintDataSchema):
         data_nbytes = sum(lt.byte_widths) * height
-    elif isinstance(lt, pf.BigLittleF32DataSchema) or isinstance(
-        lt, pf.OrderedF32DataSchema
-    ):
-        data_nbytes = 4 * n_values
-    elif isinstance(lt, pf.BigLittleF64DataSchema) or isinstance(
-        lt, pf.OrderedF64DataSchema
-    ):
-        data_nbytes = 8 * n_values
-    elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
+    elif isinstance(lt, pft.MatrixDataSchema):
         data_nbytes = lt.byte_width * n_values
     else:
         assert False, "invalid layout"
@@ -586,21 +578,16 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
     def endian_to_order(e: pft.Endian) -> str:
         return "1,2,3,4" if e == "little" else "4,3,2,1"
 
-    if isinstance(
-        lt,
-        pf.BigLittleF32DataSchema
-        | pf.BigLittleF64DataSchema
-        | pf.MixedDataSchema
-        | pf.VariableUintDataSchema
-        | pf.SingleUintDataSchema,
-    ):
+    if isinstance(lt, pft.BigLittleDataSchema):
         byteord = endian_to_order(lt.endian)
-    else:
+    elif isinstance(lt, pft.OrderedDataSchema):
         byteord = (
             ",".join(map(str, lt.byteord))
             if isinstance(lt.byteord, list)
             else endian_to_order(lt.byteord)
         )
+    else:
+        assert False, "invalid layout"
 
     std_keywords = core.standard_keywords("both", "both")
 

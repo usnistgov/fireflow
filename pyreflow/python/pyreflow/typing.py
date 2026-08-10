@@ -1,8 +1,11 @@
 from __future__ import annotations
+import inspect as ins
+from abc import ABC, abstractmethod
 import pyreflow._pyreflow as pf
 from typing import Literal
 import numpy as np
 import numpy.typing as npt
+
 
 type MeasIndex = int
 
@@ -83,6 +86,8 @@ type FloatType = Literal["F"]
 type DoubleType = Literal["D"]
 type IntegerType = Literal["I"]
 type AsciiType = Literal["A"]
+
+#: Any value value for the *$DATATYPE* keyword.
 type Datatype = FloatType | DoubleType | IntegerType | AsciiType
 
 type F32Type = Literal["F32"]
@@ -174,26 +179,13 @@ type Measurements3_2 = Measurements[
 
 type OpticalKeyVals[X] = list[X | tuple[()] | None]
 
-type AnyAsciiDataSchema = pf.DelimAsciiDataSchema | pf.FixedAsciiDataSchema
 
-type AnyDataSchema2_0 = (
-    AnyAsciiDataSchema
-    | pf.OrderedUintDataSchema
-    | pf.OrderedF32DataSchema
-    | pf.OrderedF64DataSchema
-)
-
-type AnyDataSchema3_0 = AnyDataSchema2_0
-
-type AnyDataSchema3_1 = (
-    AnyAsciiDataSchema
-    | pf.SingleUintDataSchema
+type AnyDataSchema3_2 = (
+    BigLittleDataSchema
+    | AsciiDataSchema
     | pf.VariableUintDataSchema
-    | pf.BigLittleF32DataSchema
-    | pf.BigLittleF64DataSchema
+    | pf.MixedDataSchema
 )
-
-type AnyDataSchema3_2 = AnyDataSchema3_1 | pf.MixedDataSchema
 
 type AnyMeas = AnyOptical | AnyTemporal
 
@@ -374,7 +366,7 @@ type Condition = (
     | tuple[Literal["not"], KeyTest]
 )
 
-#: Evaluates to true of false depending on the value of an FCS file keyword.
+#: Evaluates to true or false depending on the value of an FCS file keyword.
 #:
 #: These are Lisp-like expressions represented as Python tuples where the first
 #: element is a "function" which is run with the arguments that follow.
@@ -394,3 +386,100 @@ type KeyTest = (
     | tuple[Literal["key_is"], str, str]
     | tuple[Literal["key_matches"], str, str]
 )
+
+
+class SingleTypedDataSchema(ABC):
+    """A data schema defined by a single *$DATATYPE* value."""
+
+    @property
+    @abstractmethod
+    def datatype(self) -> Datatype:
+        """The value of the *$DATATYPE* keyword."""
+        ...
+
+
+class AsciiDataSchema(SingleTypedDataSchema):
+    """A data schema which uses ASCII for the underlying encoding."""
+
+    pass
+
+
+class MatrixDataSchema(SingleTypedDataSchema):
+    """A data schema which has only one numeric value type."""
+
+    @property
+    @abstractmethod
+    def byte_width(self) -> int:
+        """The width of each value in bytes.
+
+        This is the same as *$PnB* divided by 8 which should be the same for
+        all measurement columns.
+        """
+        ...
+
+
+class OrderedDataSchema(MatrixDataSchema):
+    """A data schema which can be encoded with any byte order."""
+
+    @property
+    @abstractmethod
+    def byteord(self) -> ByteOrd:
+        """The order of bytes for each encoded value.
+
+        Corresponds to the value of the *$BYTEORD* keyword.
+
+        Only applies to non-ASCII schemas for FCS 2.0 and 3.0.
+        """
+        ...
+
+
+class BigLittleDataSchema(ABC):
+    """A data schema which can be either big or little endian."""
+
+    @property
+    @abstractmethod
+    def endian(self) -> Endian:
+        """The endian-ness of the encoded numeric values.
+
+        Corresponds to the value of the *$BYTEORD* keyword.
+
+        Only applies to non-ASCII schemas for FCS 3.1 and 3.2.
+        """
+        ...
+
+
+def shares_methods(a: type[ABC], b: type) -> bool:
+    abstract_names = set(n for n, _ in ins.getmembers(a) if not n.startswith("_"))
+    target_names = set(n for n, _ in ins.getmembers(b) if not n.startswith("_"))
+    return abstract_names <= target_names
+
+
+schema = [
+    pf.OrderedUintDataSchema,
+    pf.OrderedF32DataSchema,
+    pf.OrderedF64DataSchema,
+    pf.SingleUintDataSchema,
+    pf.VariableUintDataSchema,
+    pf.BigLittleF32DataSchema,
+    pf.BigLittleF64DataSchema,
+    pf.MixedDataSchema,
+    pf.FixedAsciiDataSchema,
+    pf.DelimAsciiDataSchema,
+]
+abcs = [
+    SingleTypedDataSchema,
+    MatrixDataSchema,
+    OrderedDataSchema,
+    BigLittleDataSchema,
+]
+
+_ABC_MAP: dict[type, list[type[ABC]]] = {k: [] for k in schema}
+
+for s in schema:
+    for a in abcs:
+        if shares_methods(a, s):
+            _ABC_MAP[s].append(a)
+
+
+_ABC_MAP[pf.FixedAsciiDataSchema].append(AsciiDataSchema)
+_ABC_MAP[pf.DelimAsciiDataSchema].append(AsciiDataSchema)

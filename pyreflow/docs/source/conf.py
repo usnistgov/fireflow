@@ -54,6 +54,26 @@ intersphinx_mapping = {
     "numpy": ("https://numpy.org/doc/stable/", None),
 }
 
+
+def process_bases(app, name, obj, options, bases):
+    # import lazily to avoid cycles
+    import importlib
+
+    pft = getattr(importlib.import_module("pyreflow"), "typing")
+    this_name = getattr(obj, "__name__")
+    extra = next(
+        (v for k, v in pft._ABC_MAP.items() if k.__name__ == this_name),
+        [],
+    )
+
+    for cls in extra:
+        bases.append(cls)
+
+
+def setup(app):
+    app.connect("autodoc-process-bases", process_bases)
+
+
 # include some type aliases
 
 autodoc_type_aliases = {

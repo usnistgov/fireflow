@@ -65,6 +65,15 @@ Only certain data schema are valid for a given FCS version, summarized below:
      - X
      - X
 
+
+..
+   Abstract Base Classes
+   ---------------------
+
+   .. autoclass:: pyreflow.typing.SingleTypedDataSchema
+      :members:
+
+
 Ordered Numeric Data Schema
 ---------------------------
 
@@ -73,12 +82,15 @@ any byte order. Used for FCS 2.0 and 3.0.
 
 .. autoclass:: pyreflow.OrderedUintDataSchema
    :members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.OrderedF32DataSchema
    :members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.OrderedF64DataSchema
    :members:
+   :show-inheritance:
 
 Big/Little Numeric Data Schema
 ------------------------------
@@ -88,15 +100,19 @@ either big or little endian. Used for FCS 3.1 and 3.2.
 
 .. autoclass:: pyreflow.BigLittleF32DataSchema
    :members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.BigLittleF64DataSchema
    :members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.SingleUintDataSchema
    :members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.VariableUintDataSchema
    :members:
+   :show-inheritance:
 
 Mixed Data Schema
 -----------------
@@ -106,6 +122,7 @@ Only for FCS 3.2.
 
 .. autoclass:: pyreflow.MixedDataSchema
    :members:
+   :show-inheritance:
 
 ASCII data schema
 -----------------
@@ -114,6 +131,8 @@ Data schema encoded using ASCII characters. Available in all FCS versions.
 
 .. autoclass:: pyreflow.FixedAsciiDataSchema
    :members:
+   :show-inheritance:
 
 .. autoclass:: pyreflow.DelimAsciiDataSchema
    :members:
+   :show-inheritance:

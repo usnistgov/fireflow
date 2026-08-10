@@ -50,6 +50,11 @@ from ._pyreflow import MixedDataSchema as MixedDataSchema
 from ._pyreflow import BuildInfo as BuildInfo
 
 from pyreflow import api as api
+from pyreflow import typing as pft
+
+for cls, extras in pft._ABC_MAP.items():
+    for x in extras:
+        x.register(cls)
 
 __all__ = [
     "__version__",

@@ -300,5 +300,10 @@ The above case for ``"HDR-T"`` (with a new AI-powered cytometer from Cytodyne
 Sytems named ``"T-1000"``) can be written as
 ``("if", ("key_is", "$CYT", "T-1000"), "HDR-T")``.
 
-.. automodule:: pyreflow.typing
-   :members:
+.. autotype:: pyreflow.typing.Selector
+
+.. autotype:: pyreflow.typing.AppendableSelector
+
+.. autotype:: pyreflow.typing.Condition
+
+.. autotype:: pyreflow.typing.KeyTest

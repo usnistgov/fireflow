@@ -68,6 +68,8 @@ def process_bases(app, name, obj, options, bases):
 
     for cls in extra:
         bases.append(cls)
+    if len(bases) > 1:
+        bases[:] = [b for b in bases if b.__name__ != "object"]
 
 
 def setup(app):

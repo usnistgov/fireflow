@@ -9,8 +9,14 @@ import numpy.typing as npt
 
 type MeasIndex = int
 
+#: The endian-ness of values in the *DATA* segment.
+#:
+#: Corresponds to the value of *$BYTEORD* for FCS 3.1/3.2.
 type Endian = Literal["big", "little"]
 
+#: The order of bytes to encode the values in the *DATA* segment.
+#:
+#: Corresponds to the value of *$BYTEORD* for FCS 2.0/3.0.
 type ByteOrd = list[int] | Endian
 
 type Range = float | int
@@ -354,7 +360,7 @@ type AppendableSelector[T] = Selector[T] | list[Selector[T]]
 
 #: An expression which evaluates to true or false depending on FCS keywords.
 #:
-#: This is either a bare :py:class:`~pyreflow.typing.KeywordFunction` which will
+#: This is either a bare :py:class:`~pyreflow.typing.KeyTest` which will
 #: evaluated directly or a List-like set of tuples that represent conditional
 #: logic. The first element in each tuple is a "logical function" which will
 #: evaluate to true or false depending on the boolean outputs of the arguments
@@ -448,38 +454,15 @@ class BigLittleDataSchema(ABC):
         ...
 
 
-def shares_methods(a: type[ABC], b: type) -> bool:
-    abstract_names = set(n for n, _ in ins.getmembers(a) if not n.startswith("_"))
-    target_names = set(n for n, _ in ins.getmembers(b) if not n.startswith("_"))
-    return abstract_names <= target_names
-
-
-schema = [
-    pf.OrderedUintDataSchema,
-    pf.OrderedF32DataSchema,
-    pf.OrderedF64DataSchema,
-    pf.SingleUintDataSchema,
-    pf.VariableUintDataSchema,
-    pf.BigLittleF32DataSchema,
-    pf.BigLittleF64DataSchema,
-    pf.MixedDataSchema,
-    pf.FixedAsciiDataSchema,
-    pf.DelimAsciiDataSchema,
-]
-abcs = [
-    SingleTypedDataSchema,
-    MatrixDataSchema,
-    OrderedDataSchema,
-    BigLittleDataSchema,
-]
-
-_ABC_MAP: dict[type, list[type[ABC]]] = {k: [] for k in schema}
-
-for s in schema:
-    for a in abcs:
-        if shares_methods(a, s):
-            _ABC_MAP[s].append(a)
-
-
-_ABC_MAP[pf.FixedAsciiDataSchema].append(AsciiDataSchema)
-_ABC_MAP[pf.DelimAsciiDataSchema].append(AsciiDataSchema)
+_ABC_MAP: dict[type, list[type[ABC]]] = {
+    pf.OrderedUintDataSchema: [OrderedDataSchema],
+    pf.OrderedF32DataSchema: [OrderedDataSchema],
+    pf.OrderedF64DataSchema: [OrderedDataSchema],
+    pf.SingleUintDataSchema: [MatrixDataSchema, BigLittleDataSchema],
+    pf.VariableUintDataSchema: [BigLittleDataSchema],
+    pf.BigLittleF32DataSchema: [MatrixDataSchema, BigLittleDataSchema],
+    pf.BigLittleF64DataSchema: [MatrixDataSchema, BigLittleDataSchema],
+    pf.MixedDataSchema: [BigLittleDataSchema],
+    pf.FixedAsciiDataSchema: [AsciiDataSchema],
+    pf.DelimAsciiDataSchema: [AsciiDataSchema],
+}

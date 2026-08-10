@@ -65,17 +65,11 @@ Only certain data schema are valid for a given FCS version, summarized below:
      - X
      - X
 
+Concrete Data Schema Class
+++++++++++++++++++++++++++
 
-..
-   Abstract Base Classes
-   ---------------------
-
-   .. autoclass:: pyreflow.typing.SingleTypedDataSchema
-      :members:
-
-
-Ordered Numeric Data Schema
----------------------------
+Ordered Numeric Data
+--------------------
 
 Data schema encoded using numeric binary types (unsigned integer or float) using
 any byte order. Used for FCS 2.0 and 3.0.
@@ -92,11 +86,18 @@ any byte order. Used for FCS 2.0 and 3.0.
    :members:
    :show-inheritance:
 
-Big/Little Numeric Data Schema
-------------------------------
+Big/Little Numeric Data
+-----------------------
 
 Data schema encoded using numeric binary types (unsigned integer or float) using
 either big or little endian. Used for FCS 3.1 and 3.2.
+
+Note that :py:func:`~pyreflow.VariableUintDataSchema` is special in that it has
+only datatype (according to the *$DATATYPE* keyword) but it is not considered a
+matrix data schema (ie does not subclass
+:py:func:`pyreflow.typing.MatrixDataSchema`) because its columns may be
+different widths and thus may be different primitive data types (ie ``u16`` vs
+``u32``).
 
 .. autoclass:: pyreflow.BigLittleF32DataSchema
    :members:
@@ -134,5 +135,32 @@ Data schema encoded using ASCII characters. Available in all FCS versions.
    :show-inheritance:
 
 .. autoclass:: pyreflow.DelimAsciiDataSchema
+   :members:
+   :show-inheritance:
+
+Abstract Superclasses
++++++++++++++++++++++
+
+The following classes are abstract interfaces for the concrete classes listed
+above. Their primary purpose is to provide a convenient way to filter each class
+by :py:func:`isinstance`.
+
+.. autoclass:: pyreflow.typing.BigLittleDataSchema
+   :members:
+   :show-inheritance:
+
+.. autoclass:: pyreflow.typing.SingleTypedDataSchema
+   :members:
+   :show-inheritance:
+
+.. autoclass:: pyreflow.typing.AsciiDataSchema
+   :members:
+   :show-inheritance:
+
+.. autoclass:: pyreflow.typing.MatrixDataSchema
+   :members:
+   :show-inheritance:
+
+.. autoclass:: pyreflow.typing.OrderedDataSchema
    :members:
    :show-inheritance:

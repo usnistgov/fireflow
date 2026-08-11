@@ -65,8 +65,8 @@ Only certain data schema are valid for a given FCS version, summarized below:
      - X
      - X
 
-Concrete Data Schema Class
-++++++++++++++++++++++++++
+Concrete Data Schema Classes
+++++++++++++++++++++++++++++
 
 Ordered Numeric Data
 --------------------

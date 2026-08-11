@@ -1181,7 +1181,7 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
 
     let origin_type_rstype = parse_quote!(fireflow_types::python::SuppTEXTOffsetOriginType);
     let origin_type_pt = tp::SuppTEXTOffsetOriginType::iter_str()
-        .collect::<PyLiteral>()
+        .collect::<PyStrLiteral>()
         .rstype(origin_type_rstype);
 
     let origin_type = DocArg::new_param(
@@ -1365,7 +1365,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
 
     let origin_type_rstype = parse_quote!(fireflow_types::python::TEXTOffsetOriginType);
     let origin_type_pt = tp::TEXTOffsetOriginType::iter_str()
-        .collect::<PyLiteral>()
+        .collect::<PyStrLiteral>()
         .rstype(origin_type_rstype);
 
     let origin_type = DocArg::new_param(
@@ -1764,7 +1764,7 @@ pub fn impl_py_intra_segment_dark_bytes(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let flank_path = parse_quote!(fireflow_core::core::FlankingSegmentName);
-    let str_names: PyLiteral = [
+    let str_names: PyStrLiteral = [
         tp::SEGMENT_NAME_TEXT,
         tp::SEGMENT_NAME_STEXT,
         tp::SEGMENT_NAME_DATA,
@@ -6535,7 +6535,9 @@ enum PyType<E> {
     #[from(PyList<E>)]
     List(Box<PyList<E>>),
     #[from]
-    Literal(PyLiteral),
+    StrLiteral(PyStrLiteral),
+    #[from]
+    IntLiteral(PyIntLiteral),
     #[from]
     PyClass(PyClass<E>),
     #[from(PyAlias<E>)]
@@ -6567,7 +6569,8 @@ enum PyAtom<R> {
     Dict(Box<Self>, Box<Self>),
     Tuple(Vec<Self>),
     List(Box<Self>),
-    Literal(PyLiteral),
+    StrLiteral(PyStrLiteral),
+    IntLiteral(PyIntLiteral),
     PyClass(PyClass<R>),
     PyAlias(PyAlias<R>),
     Union(Box<Self>, Box<Self>, Vec<Self>),
@@ -6641,14 +6644,15 @@ struct PyDatetime<E> {
 
 /// A Python 'typing.Literal'
 #[derive(Clone, PartialEq, Hash, Eq, new)]
-struct PyLiteral {
-    #[new(into)]
-    head: &'static str,
-    #[new(into_iter = "&'static str")]
-    tail: Vec<&'static str>,
-    #[new(into)]
+struct PyLiteral<T> {
+    head: T,
+    tail: Vec<T>,
     rstype: Option<Path>,
+    default_index: Option<usize>,
 }
+
+type PyStrLiteral = PyLiteral<&'static str>;
+type PyIntLiteral = PyLiteral<u32>;
 
 /// A Python 'Optional[X]' aka 'X | None'
 #[derive(Clone, new, PartialEq, Hash, Eq)]
@@ -6944,7 +6948,8 @@ impl<E> HasRustPath for PyType<E> {
             Self::List(x) => x.as_rust_type(),
             Self::Tuple(x) => x.as_rust_type(),
             Self::Union(x) => x.as_rust_type(),
-            Self::Literal(x) => x.as_rust_type(),
+            Self::StrLiteral(x) => x.as_rust_type(),
+            Self::IntLiteral(x) => x.as_rust_type(),
             Self::PyClass(x) => x.as_rust_type(),
             Self::PyAlias(x) => x.as_rust_type(),
         }
@@ -7038,7 +7043,7 @@ impl<E> HasRustPath for PyAlias<E> {
     }
 }
 
-impl HasRustPath for PyLiteral {
+impl<T> HasRustPath for PyLiteral<T> {
     fn as_rust_type(&self) -> Type {
         let x = self
             .rstype
@@ -7252,7 +7257,8 @@ impl<R: Clone> AsPyAtom<R> for PyType<R> {
             Self::Date(_) => PyAtom::Date,
             Self::Time(_) => PyAtom::Time,
             Self::Datetime(_) => PyAtom::Datetime,
-            Self::Literal(x) => PyAtom::Literal(x.clone()),
+            Self::StrLiteral(x) => PyAtom::StrLiteral(x.clone()),
+            Self::IntLiteral(x) => PyAtom::IntLiteral(x.clone()),
             Self::PyClass(x) => PyAtom::PyClass(x.clone()),
             Self::PyAlias(x) => PyAtom::PyAlias((**x).clone()),
             Self::List(x) => x.as_atom(),
@@ -8213,20 +8219,20 @@ impl<E: From<PyException>> PyList<E> {
     }
 }
 
-impl FromIterator<&'static str> for PyLiteral {
-    fn from_iter<I: IntoIterator<Item = &'static str>>(iter: I) -> Self {
+impl<T> FromIterator<T> for PyLiteral<T> {
+    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut it = iter.into_iter();
         let head = it.next().expect("Literal cannot be empty");
-        Self::new(head, it, None)
+        Self::new(head, it.collect(), None, None)
     }
 }
 
-impl PyLiteral {
-    fn new1(head: &'static str) -> Self {
-        Self::new(head, vec![], None)
+impl<T> PyLiteral<T> {
+    fn new1(head: T) -> Self {
+        Self::new(head, vec![], None, None)
     }
 
-    fn new_with_path(xs: impl IntoIterator<Item = &'static str>, rstype: Path) -> Self {
+    fn new_with_path(xs: impl IntoIterator<Item = T>, rstype: Path) -> Self {
         xs.into_iter().collect::<Self>().rstype(rstype)
     }
 
@@ -8235,6 +8241,42 @@ impl PyLiteral {
         self
     }
 
+    fn default_index(mut self, i: usize) -> Self {
+        self.default_index = Some(i);
+        self
+    }
+
+    fn fmt_with<F>(&self, f: &mut fmt::Formatter<'_>, inner_fmt: F) -> Result<(), fmt::Error>
+    where
+        F: FnMut(&T) -> String,
+    {
+        write!(
+            f,
+            ":obj:`~typing.Literal`\\ [{}]",
+            once(&self.head)
+                .chain(self.tail.iter())
+                .map(inner_fmt)
+                .join(", ")
+        )
+    }
+
+    fn doc_default_with<F>(&self, mut inner_fmt: F) -> (String, TokenStream2)
+    where
+        F: FnMut(&T) -> String,
+    {
+        let rt = &self.rstype;
+        let x = if let Some(i) = self.default_index.as_ref()
+            && *i > 0
+        {
+            &self.tail[*i - 1]
+        } else {
+            &self.head
+        };
+        (inner_fmt(x), quote!(#rt::default()))
+    }
+}
+
+impl PyStrLiteral {
     fn new_version() -> Self {
         let path = parse_quote!(fireflow_types::keywords::Version);
         Self::new_with_path(ALL_VERSION_STRINGS, path)
@@ -8302,6 +8344,13 @@ impl PyLiteral {
     fn new_column_type() -> Self {
         let path = parse_quote!(fireflow_types::python::ColumnType);
         Self::new_with_path(tp::ColumnType::iter_str(), path)
+    }
+}
+
+impl PyIntLiteral {
+    fn new_arg_bytes() -> Self {
+        let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
+        Self::new_with_path(1..=8, bytes_path).default_index(3)
     }
 }
 
@@ -8421,7 +8470,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_header_named_offsets() -> Self {
         let nt = quote!(fireflow_core::segment::read::HeaderOffsetsName);
         let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let header_levels: PyLiteral = [
+        let header_levels: PyStrLiteral = [
             tp::SEGMENT_NAME_TEXT,
             tp::SEGMENT_NAME_DATA,
             tp::SEGMENT_NAME_ANALYSIS,
@@ -8439,7 +8488,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_header_or_supp_named_offsets() -> Self {
         let nt = quote!(fireflow_core::segment::read::HeaderOrSuppOffsetsName);
         let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let header_levels: PyLiteral = [
+        let header_levels: PyStrLiteral = [
             tp::SEGMENT_NAME_TEXT,
             tp::SEGMENT_NAME_STEXT,
             tp::SEGMENT_NAME_DATA,
@@ -8458,7 +8507,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_text_named_offsets() -> Self {
         let nt = quote!(fireflow_core::segment::read::TextOffsetsName);
         let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let name_pt: PyLiteral = [tp::SEGMENT_NAME_DATA, tp::SEGMENT_NAME_ANALYSIS]
+        let name_pt: PyStrLiteral = [tp::SEGMENT_NAME_DATA, tp::SEGMENT_NAME_ANALYSIS]
             .into_iter()
             .map(NEStr::as_str)
             .collect();
@@ -8471,7 +8520,7 @@ impl<E: From<PyException>> PyTuple<E> {
     fn new_supp_text_named_offsets() -> Self {
         let nt = quote!(fireflow_core::segment::read::SuppTextOffsetsName);
         let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let name_pt = PyLiteral::new1(tp::SEGMENT_NAME_STEXT.as_str());
+        let name_pt = PyStrLiteral::new1(tp::SEGMENT_NAME_STEXT.as_str());
         Self::new1(name_pt)
             .add(RsInt::U64)
             .add(RsInt::U64)
@@ -8731,13 +8780,13 @@ impl<E: From<PyException>> PyUnion<E> {
             PyTuple::new1(
                 tp::IntegerWidth::iter_str()
                     .chain([tp::COL_TYPE_ASCII.as_str()])
-                    .collect::<PyLiteral>(),
+                    .collect::<PyStrLiteral>(),
             )
             .add(RsInt::U64),
             PyTuple::new1(
                 [tp::COL_TYPE_F32.as_str(), tp::COL_TYPE_F64.as_str()]
                     .into_iter()
-                    .collect::<PyLiteral>(),
+                    .collect::<PyStrLiteral>(),
             )
             .add(RsFloat::F64),
         )
@@ -8759,7 +8808,7 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_range_or_bitmask_range() -> Self {
         let path = quote!(fireflow_core::data::MaybeTypedVariableBitmask);
-        let ints = PyTuple::new1(tp::IntegerWidth::iter_str().collect::<PyLiteral>())
+        let ints = PyTuple::new1(tp::IntegerWidth::iter_str().collect::<PyStrLiteral>())
             .add(RsInt::U64)
             .into();
         let rng = PyType::from(Self::new_full_range());
@@ -8964,7 +9013,8 @@ impl<E> PyType<E> {
             Self::Option(x) => x.map_exc(f).into(),
             Self::Union(x) => x.map_exc(f).into(),
             Self::Tuple(xs) => xs.map_exc(f).into(),
-            Self::Literal(x) => x.into(),
+            Self::StrLiteral(x) => x.into(),
+            Self::IntLiteral(x) => x.into(),
         }
     }
 
@@ -8980,10 +9030,8 @@ impl<E> PyType<E> {
             Self::Dict(x) => x.doc_default(),
             Self::Option(x) => x.doc_default(),
             Self::PyAlias(x) => x.doc_default(),
-            Self::Literal(x) => {
-                let rt = &x.rstype;
-                (format!("\"{}\"", x.head), quote!(#rt::default()))
-            }
+            Self::StrLiteral(x) => x.doc_default_with(|s| format!("\"{s}\"")),
+            Self::IntLiteral(x) => x.doc_default_with(|s| format!("{s}")),
             Self::Union(x) => {
                 let rt = x.rstype.as_ref().map(|p| path_strip_args(p.clone()));
                 let (pt, _) = x.head0.doc_default();
@@ -9085,7 +9133,7 @@ impl ArgPyType {
                     acc0
                 }
             }
-            Self::Literal(_) => vec![],
+            Self::StrLiteral(_) | Self::IntLiteral(_) => vec![],
         }
     }
 }
@@ -9653,10 +9701,9 @@ impl DocArgROIvar {
     }
 
     fn new_byte_width_ivar() -> Self {
-        let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
         Self::new_ivar_ro(
             "byte_width",
-            PyInt::from(RsInt::U8).rstype(bytes_path),
+            PyLiteral::new_arg_bytes(),
             format!(
                 "The width of the data schema in bytes. Must be an integer 1 to 8. \
                  All in {arg} must be able to fit within the allotted bytes.",
@@ -9664,7 +9711,7 @@ impl DocArgROIvar {
             ),
             |_, _| quote!(self.0.byte_width()),
         )
-        .def(DocDefault::Int(4))
+        .def_auto()
     }
 }
 
@@ -10572,7 +10619,7 @@ impl DocArgParam {
             tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str(),
         ];
         let path = config_path("FixIntWidths");
-        let pt = PyUnion::new2(lit.into_iter().collect::<PyLiteral>(), RsInt::U8).rstype(path);
+        let pt = PyUnion::new2(lit.into_iter().collect::<PyStrLiteral>(), RsInt::U8).rstype(path);
         Self::new_param("fix_int_widths", pt, d).def_auto()
     }
 
@@ -10591,7 +10638,7 @@ impl DocArgParam {
         ];
         let path = config_path("ByteordOverride");
         let pt = PyUnion::new2(
-            lit.into_iter().collect::<PyLiteral>(),
+            lit.into_iter().collect::<PyStrLiteral>(),
             PyList::new1(RsInt::U32),
         )
         .rstype(path);
@@ -10658,7 +10705,7 @@ impl DocArgParam {
 
     fn new_guess_other_width_param() -> Self {
         let path = types_config_path("GuessOtherWidth");
-        let pt = PyLiteral::new_with_path(tc::GuessOtherWidth::iter_str(), path);
+        let pt = PyStrLiteral::new_with_path(tc::GuessOtherWidth::iter_str(), path);
         let d = format!(
             "Guess the width of {OTHER} segments. Valid values are {none} \
              (no guessing) or {error}, {warn} or {silent} which will guess and \
@@ -10850,7 +10897,7 @@ impl DocArgParam {
             tc::ENCODING_UTF8_LEVEL,
             tc::ENCODING_GUESS_LEVEL
         );
-        let pt: PyLiteral = tc::UseEncoding::iter_str().collect();
+        let pt: PyStrLiteral = tc::UseEncoding::iter_str().collect();
         let path = types_config_path("UseEncoding");
         Self::new_param("use_encoding", pt.rstype(path), d).def_auto()
     }
@@ -11779,7 +11826,8 @@ impl<R: Eq + Hash + Clone> fmt::Display for PyAtom<R> {
                 write!(f, ":py:class:`tuple`\\ [{s}]")
             }
             Self::List(x) => write!(f, ":py:class:`list`\\ [{x}]"),
-            Self::Literal(x) => x.fmt(f),
+            Self::StrLiteral(x) => x.fmt(f),
+            Self::IntLiteral(x) => x.fmt(f),
             Self::PyClass(x) => x.fmt(f),
             Self::PyAlias(x) => x.fmt(f),
             Self::Union(x0, x1, xs) => {
@@ -11806,16 +11854,15 @@ impl_display_pycomplex!(PyDict);
 impl_display_pycomplex!(PyList);
 impl_display_pycomplex!(PyTuple);
 
-impl fmt::Display for PyLiteral {
+impl fmt::Display for PyStrLiteral {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(
-            f,
-            ":obj:`~typing.Literal`\\ [{}]",
-            once(&self.head)
-                .chain(self.tail.iter())
-                .map(|s| format!("\"{s}\""))
-                .join(", ")
-        )
+        self.fmt_with(f, |s| format!("\"{s}\""))
+    }
+}
+
+impl fmt::Display for PyIntLiteral {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.fmt_with(f, |s| format!("{s}"))
     }
 }
 

@@ -87,6 +87,8 @@ type VersionOverride = (
     ]
 )
 
+type ByteWidth = Literal[1, 2, 3, 4, 5, 6, 7, 8]
+
 #: Any value value for the *$DATATYPE* keyword.
 type Datatype = FloatType | DoubleType | IntegerType | AsciiType
 
@@ -431,7 +433,7 @@ class MatrixDataSchema(SingleTypedDataSchema, NumericDataSchema):
 
     @property
     @abstractmethod
-    def byte_width(self) -> int:
+    def byte_width(self) -> ByteWidth:
         """The width of each value in bytes.
 
         This is the same as *$PnB* divided by 8 which should be the same for

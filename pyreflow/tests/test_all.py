@@ -2350,7 +2350,7 @@ class TestCore:
         core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
         series1: pl.Series,
-        byte_width: int,
+        byte_width: pt.ByteWidth,
         right_type: pt.IntegerWidth,
         wrong_type: pt.IntegerWidth,
     ) -> None:
@@ -2889,7 +2889,7 @@ class TestCore:
             assert False
 
         assert isinstance(core.data_schema, pf.OrderedUintDataSchema)
-        assert core.data_schema.byte_width == 8
+        assert int(core.data_schema.byte_width) == 8
 
     @pytest.mark.parametrize(
         "core, optical",
@@ -3667,7 +3667,7 @@ class TestDataSchema:
     @pytest.mark.parametrize("width", [8, 16, 24, 32, 40, 48, 56, 64])
     def test_ordered_uint(self, width: int) -> None:
         """Test creation of integer data schema (2.0/3.0)."""
-        n = int(width / 8)
+        n: pt.ByteWidth = int(width / 8)  # type: ignore
         bitmasks = [2 ** (8 * (b + 1)) - 1 for b in range(n)]
         new = pf.OrderedUintDataSchema(bitmasks, byte_width=n)
         assert new.byteord == "little"

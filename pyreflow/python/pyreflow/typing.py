@@ -50,6 +50,9 @@ type UnstainedCenters = dict[StdKey, float]
 
 type Offsets = tuple[int, int]
 
+#: Correction for segment offset pair.
+#:
+#: Each number will be added to the two offsets in the pair respectively.
 type OffsetCorrection = tuple[int, int]
 
 type StdKeywords = dict[StdKey, str]
@@ -71,8 +74,16 @@ type Originality = Literal["Original", "NonDataModified", "Appended", "DataModif
 
 type Feature = Literal["Area", "Width", "Height"]
 
+#: Any of the supported version strings.
+#:
+#: One of these must always be in first six bytes of an FCS dataset.
 type FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
 
+#: Flag to denote how version should be overridden.
+#:
+#: Supplying a literal FCS version will directly override the version.
+#:
+#: The other options denote how version should be guessed based on keywords.
 type VersionOverride = (
     FCSVersion
     | Literal[
@@ -121,6 +132,7 @@ type MixedRange = (
 type MaybeTypedVariableBitmask = IntRange | VariableBitmask
 type MaybeTypedMixedRange = Range | MixedRange
 
+#: A key which should only be used for optical measurements.
 type TemporalOpticalKey = Literal[
     "G",
     "F",
@@ -138,8 +150,10 @@ type TemporalOpticalKey = Literal[
 
 type TemporalType = Literal["Time"]
 
+#: A standardized FCS *TEXT* segment from any version.
 type AnyCoreTEXT = pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
 
+#: A standardized FCS dataset from any version.
 type AnyCoreDataset = (
     pf.CoreDataset2_0 | pf.CoreDataset3_0 | pf.CoreDataset3_1 | pf.CoreDataset3_2
 )
@@ -225,12 +239,21 @@ type AppliedGates3_2 = tuple[
     str | None,
 ]
 
+#: A list of patterns which match standard or nonstandard key values.
 type KeyPatterns = list[str]
 
+#: A sed-like pattern which substitutes values in a string.
 type SubPattern = tuple[str, str, bool]
 
+#: Substitution patterns which may be used to modify keywords on the fly.
+#:
+#: Keys in the dictionary are patterns to match a standard or nonstandard key.
+#:
+#: Values in the dictionary are the substation directives themselves which
+#: denote how the values of matched keywords should be modified.
 type SubPatterns = dict[str, SubPattern]
 
+#: Flag to denote how delimiters in *TEXT* should be interpreted.
 type DelimEscapeMode = Literal[
     "escaped",
     "unescaped",
@@ -243,16 +266,24 @@ type ReqOrOpt = Literal["req_only", "opt_only", "both"]
 
 type RootOrMeas = Literal["root_only", "meas_only", "both"]
 
+#: Flag denoting what should happen if a keyword cannot be parsed.
 type ProcessKeywordFailure = Literal[
     "error", "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
 
+#: Flag denoting how to handle optical keywords found in a temporal measurement.
 type ProcessTimeOpticalKeys = Literal[
     "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
 
+#: Flag which may be in three states.
+#:
+#: The meaning of ``"true"`` and ``"false"`` depends on context.
+#:``"silent"`` means the behavior  controlled by the flag will not emit any
+#: errors or warnings.
 type TriFlag = Literal["false", "true", "silent"]
 
+#: Flag denoting where to fix *$PnE* values that should be linear but are not.
 type ForceLinearScale = Literal["none", "time_only", "all_non_int", "all"]
 
 type MeasScaleDiagnostic = (
@@ -261,10 +292,12 @@ type MeasScaleDiagnostic = (
 
 type GateScaleDiagnostic = tuple[str, Literal["log", "trimmed", "trimmed_log"]] | None
 
+#: Flag denoting how to handle whitespace around keyword values in *TEXT*.
 type TrimValueWhitespace = Literal[
     "notrim", "trim", "trim_blank_warn", "trim_blank_silent"
 ]
 
+#: Flag denoting how to interpret "names" for *$SPILLOVER* keyword.
 type SpilloverMeasurementMode = Literal["named", "indexed", "guess"]
 
 type KeywordVersionScores = tuple[
@@ -274,24 +307,28 @@ type KeywordVersionScores = tuple[
     pf.KeywordVersionScore,
 ]
 
+#: Flag denoting how bytes in *TEXT* should be interpreted.
 type UseEncoding = Literal["single", "utf8", "guess"]
 
+#: Flag to denote how *OTHER* width fields should be guessed.
 type GuessOtherWidth = Literal["none", "error", "warn", "silent"]
 
 type OtherOffsets = tuple[list[tuple[int, Offsets]], int]
 
+#: Flag denoting what to do if offsets from *HEADER* and *TEXT* mismatch.
 type AllowHeaderTextOffsetMismatch = Literal[
     "error", "header_warn", "header_silent", "text_warn", "text_silent"
 ]
 
-type CheckedRangeDatatypes = Literal["bitmask_only", "int_only", "all", "none"]
-
+#: Flag to denote what should happen if a value is over range or over bitmask.
 type OverLimitAction = Literal[
     "error", "warn", "silent", "trunc_warn", "trunc_silent", "none"
 ]
 
+#: Flag denoting how integers should be fixed if their *$PnB* is wrong.
 type FixIntWidths = int | Literal["next_byte", "never"]
 
+#: Flag denoting how/when to override *$BYTEORD* if it is broken.
 type ByteordOverride = list[int] | Literal["endian", "none"]
 
 type HeaderOffsetsName = Literal["text", "data", "header"]
@@ -330,6 +367,7 @@ type TEXTOffsetsOriginType = Literal[
 
 type CRCOutput = bytes | str | tuple[int, int] | None
 
+#: Flag denoting when to compute the CRC
 type ComputeReadCRC = Literal["never", "always", "test"]
 
 type FlankingSegmentName = Literal["text", "stext", "data", "analysis"] | int

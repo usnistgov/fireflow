@@ -6,6 +6,8 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
+from docutils import nodes  # type: ignore
+
 project = "pyreflow"
 copyright = "2025, Nate Dwarshuis"
 author = "Nate Dwarshuis"
@@ -52,7 +54,30 @@ autodoc_member_order = "bysource"
 intersphinx_mapping = {
     "python": ("https://docs.python.org/3", None),
     "numpy": ("https://numpy.org/doc/stable/", None),
+    "polars": ("https://docs.pola.rs/api/python/stable/", None),
 }
+
+_MANUAL_XREFS = {
+    ("py:class", "polars.DataFrame"): (
+        "https://docs.pola.rs/api/python/stable/reference/dataframe/index.html",
+        "polars.DataFrame",
+    ),
+    ("py:class", "polars.Series"): (
+        "https://docs.pola.rs/api/python/stable/reference/series/index.html",
+        "polars.Series",
+    ),
+}
+
+
+def resolve_missing_xref(app, env, node, contnode):
+    key = (f"{node['refdomain']}:{node['reftype']}", node["reftarget"])
+    hit = _MANUAL_XREFS.get(key)
+    if hit is None:
+        return None
+    uri, label = hit
+    ref = nodes.reference("", "", internal=False, refuri=uri, reftitle=label)
+    ref.append(contnode)
+    return ref
 
 
 def process_bases(app, name, obj, options, bases):
@@ -73,6 +98,7 @@ def process_bases(app, name, obj, options, bases):
 
 
 def setup(app):
+    app.connect("missing-reference", resolve_missing_xref)
     app.connect("autodoc-process-bases", process_bases)
 
 

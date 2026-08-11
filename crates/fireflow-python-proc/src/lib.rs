@@ -9241,12 +9241,12 @@ impl DocArgRWIvar {
     }
 
     fn new_data_schema_ivar(version: Version) -> Self {
-        let ascii_schema = ["FixedAsciiDataSchema", "DelimAsciiHeaders"];
+        let ascii_schema = ["FixedAsciiDataSchema", "DelimAsciiDataSchema"];
         let non_mixed_schema = [
             "VariableUintDataSchema",
             "SingleUintDataSchema",
-            "EndianF32DataSchema",
-            "EndianF64DataSchema",
+            "BigLittleF32DataSchema",
+            "BigLittleF64DataSchema",
         ];
         let ordered_schema = [
             "OrderedUintDataSchema",

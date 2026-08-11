@@ -36,13 +36,13 @@ Legend:
 4. :py:func:`~pyreflow.api.fcs_read_flat_dataset`
 5. :py:func:`~pyreflow.api.fcs_read_std_dataset`
 6. :py:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`
-7. :py:func:`CoreTEXT*.from_kws` (see :ref:`coretext`)
-8. :py:func:`CoreDataset*.from_kws` (see :ref:`coredataset`)
-9. :py:meth:`CoreTEXT*.to_dataset` (see :ref:`coretext`)
-10. :py:meth:`CoreTEXT*.write_text` (see :ref:`coretext`)
-11. :py:meth:`CoreDataset*.write_dataset` (see :ref:`coredataset`)
-12. :py:meth:`CoreTEXT*.version_*` (see :ref:`coretext`)
-13. :py:meth:`CoreDataset*.version_*` (see :ref:`coredataset`)
+7. ``CoreTEXT*.from_kws()`` (see :ref:`coretext`)
+8. ``CoreDataset*.from_kws()`` (see :ref:`coredataset`)
+9. ``CoreTEXT*.to_dataset()`` (see :ref:`coretext`)
+10. ``CoreTEXT*.write_text()`` (see :ref:`coretext`)
+11. ``CoreDataset*.write_dataset()`` (see :ref:`coredataset`)
+12. ``CoreTEXT*.version_*()`` (see :ref:`coretext`)
+13. ``CoreDataset*.version_*()`` (see :ref:`coredataset`)
 
 Flat vs standardized mode
 -------------------------
@@ -82,5 +82,4 @@ For extreme cases where these flags are not enough, the recommended strategy is
 to first use :func:`~pyreflow.api.fcs_read_flat_text` to get a keyword
 dictionary. These can then be fixed using arbitrary python code ("offline
 manipulation" above). Finally, these can be parsed again using
-:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords` or
-:func:`~pyreflow.api.fcs_read_std_dataset_with_keywords`.
+:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`

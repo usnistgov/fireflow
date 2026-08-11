@@ -7970,6 +7970,27 @@ impl<D> VariableUintDataSchema<D> {
     }
 }
 
+impl MixedDataSchema {
+    /// Return the widths of each measurement in bytes.
+    ///
+    /// Returned number will reflect the number of bytes each columns consumes.
+    /// For ASCII columns, this will be the number of characters. For numeric
+    /// columns, this will be the width of the type. The former will be equal
+    /// to $PnB, the latter will be equal to $PnB / 8.
+    #[must_use]
+    pub fn byte_widths(&self) -> Vec<u32> {
+        self.container
+            .iter()
+            .map(|b| match b {
+                AnyDatatype::Ascii(x) => u32::from(u8::from(x.chars())),
+                AnyDatatype::Uint(x) => u32::from(u8::from(x.as_bytes())),
+                AnyDatatype::F32(_) => 4,
+                AnyDatatype::F64(_) => 8,
+            })
+            .collect()
+    }
+}
+
 impl<T, D, const ORD: bool> AnyAsciiDataSchema<ORD, ColumnMarkers<T, D>>
 where
     FixedAsciiCol: IsCol<VecFamily, ORD, Inner = FixedAsciiRange, Layout = NoByteOrd<ORD>>,

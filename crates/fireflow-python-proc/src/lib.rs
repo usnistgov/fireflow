@@ -6063,28 +6063,19 @@ pub fn impl_new_mixed_data_schema(input: TokenStream) -> TokenStream {
         }
     };
 
-    doc.into_impl_class(name.value(), &path, new).1.into()
-}
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
 
-#[proc_macro]
-pub fn impl_data_schema_byte_widths(input: TokenStream) -> TokenStream {
-    let t = parse_macro_input!(input as Ident);
-
-    let doc = DocString::new_ivar(
+    let byte_widths = DocString::new_ivar(
         "The width of each measurement in bytes.",
         PyList::new1(RsInt::U32),
     )
     .para(format!(
-        "This corresponds to the value of {PNB} for each measurement \
-         divided by 8. Values for each measurement may be different."
-    ));
+        "For numeric columns, this corresponds to the value of {PNB}  \
+         divided by 8. For ASCII columns, this corresponds to {PNB} exactly."
+    ))
+    .into_impl_get(&pyname, "byte_widths", |_, _| quote!(self.0.byte_widths()));
 
-    doc.into_impl_get(&t, "byte_widths", |_, _| {
-        quote! {
-            type_families::Functor::fmap(self.0.widths(), |x| u32::from(u8::from(x)) / 8)
-        }
-    })
-    .into()
+    quote!(#class #byte_widths).into()
 }
 
 #[proc_macro]

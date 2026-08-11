@@ -87,6 +87,11 @@ type VersionOverride = (
     ]
 )
 
+#: A valid width for a numeric data type.
+#:
+#: Technically floats can only be 4 or 8 bytes wide, but this type variable
+#: represents the union of this and all possible values for integer widths,
+# ; which is 1-8 bytes.
 type ByteWidth = Literal[1, 2, 3, 4, 5, 6, 7, 8]
 
 #: Any value value for the *$DATATYPE* keyword.
@@ -108,7 +113,7 @@ type F32Type = Literal["F32"]
 type F64Type = Literal["F64"]
 type IntegerWidth = Literal["U08", "U16", "U24", "U32", "U40", "U48", "U56", "U64"]
 type AnyType = F32Type | F64Type | AsciiType | IntegerWidth
-type VariableBitmask = tuple[IntegerWidth, IntRange]
+type VariableBitmask = tuple[ByteWidth, IntRange]
 type MixedRange = (
     tuple[F32Type | F64Type, Range] | tuple[AsciiType | IntegerWidth, IntRange]
 )

@@ -29,7 +29,7 @@ import ast
 X = TypeVar("X")
 
 
-INTEGER_WIDTHS: list[pt.VariableBitmask] = [
+INTEGER_WIDTHS: list[tuple[pt.IntegerWidth, pt.IntRange]] = [
     ("U08", 1),
     ("U16", 2),
     ("U24", 3),
@@ -1912,12 +1912,12 @@ class TestCore:
             core.remove_measurement_by_index(0)
 
     @pytest.mark.parametrize(
-        "core, optical, temporal",
+        "core, optical, temporal, removed_type",
         [
-            (lazy_fixture(c), o, t)
-            for c, o, t in [
-                ("text2_3_1", pf.Optical3_1, pf.Temporal3_1),
-                ("text2_3_2", pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture(c), o, t, r)
+            for c, o, t, r in [
+                ("text2_3_1", pf.Optical3_1, pf.Temporal3_1, 2),
+                ("text2_3_2", pf.Optical3_2, pf.Temporal3_2, "U16"),
             ]
         ],
     )
@@ -1926,6 +1926,7 @@ class TestCore:
         core: pf.CoreTEXT3_1 | pf.CoreTEXT3_2,
         optical: type,
         temporal: type,
+        removed_type: Any,
     ) -> None:
         """Test removing measurement from variable int data schema (TEXT).
 
@@ -1933,7 +1934,8 @@ class TestCore:
         removed range. It should match the column that was removed.
         """
         assert len(core.measurements) == 2
-        core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
+        core.data_schema = pf.VariableUintDataSchema([(2, 1000), (4, 2000)])
+        assert isinstance(core.data_schema, pf.VariableUintDataSchema)
         n0, m0, r0, s0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         n1, m1, r1, s1, t1 = core.remove_measurement_by_index(0)
@@ -1944,18 +1946,18 @@ class TestCore:
         assert isinstance(m1, temporal)
         assert r0 == 1000
         assert r1 == 2000
-        assert t0 == "U16"
+        assert t0 == removed_type
         assert t1 is None
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
 
     @pytest.mark.parametrize(
-        "core, optical, temporal",
+        "core, optical, temporal, removed_type",
         [
-            (lazy_fixture(c), o, t)
-            for c, o, t in [
-                ("dataset2_3_1", pf.Optical3_1, pf.Temporal3_1),
-                ("dataset2_3_2", pf.Optical3_2, pf.Temporal3_2),
+            (lazy_fixture(c), o, t, r)
+            for c, o, t, r in [
+                ("dataset2_3_1", pf.Optical3_1, pf.Temporal3_1, 2),
+                ("dataset2_3_2", pf.Optical3_2, pf.Temporal3_2, "U16"),
             ]
         ],
     )
@@ -1964,6 +1966,7 @@ class TestCore:
         core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: type,
         temporal: type,
+        removed_type: Any,
     ) -> None:
         """Test removing measurement from variable int data schema (Dataset).
 
@@ -1971,7 +1974,7 @@ class TestCore:
         removed range. It should match the column that was removed.
         """
         assert len(core.measurements) == 2
-        core.data_schema = pf.VariableUintDataSchema([("U16", 1000), ("U32", 2000)])
+        core.data_schema = pf.VariableUintDataSchema([(2, 1000), (4, 2000)])
         n0, m0, c0, r0, s0, t0 = core.remove_measurement_by_index(0)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         n1, m1, c1, r1, s1, t1 = core.remove_measurement_by_index(0)
@@ -1984,7 +1987,7 @@ class TestCore:
         assert r1 == 2000
         assert c0.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
         assert c1.equals(pl.Series("unnamed", [1, 2, 3], dtype=pl.UInt32))
-        assert t0 == "U16"
+        assert t0 == removed_type
         assert t1 is None
         with pytest.raises(IndexError):
             core.remove_measurement_by_index(0)
@@ -2333,22 +2336,46 @@ class TestCore:
         assert isinstance(core.data_schema, data_schema)
 
     @pytest.mark.parametrize(
-        "core, optical, byte_width, right_type, wrong_type",
+        "right_width, wrong_width",
+        [(x, y) for x in range(1, 9) for y in range(1, 9) if not x == y],
+    )
+    def test_insert_typed_single_uint_3_1(
+        self,
+        dataset2_3_1: pf.CoreDataset3_1,
+        blank_optical_3_1: pf.Optical3_1,
+        series1: pl.Series,
+        right_width: pt.ByteWidth,
+        wrong_width: pt.ByteWidth,
+    ) -> None:
+        """Test typed insertion into single uint width schema.
+
+        If type matches current schema, the width should be the same. If type
+        does not match, the schema should change to variable.
+        """
+        core = dataset2_3_1
+        optical = blank_optical_3_1
+        core.data_schema = pf.SingleUintDataSchema([255, 255], byte_width=right_width)
+        assert isinstance(core.data_schema, pf.SingleUintDataSchema)
+        core.insert_optical(0, "iloveyou", optical, (right_width, 1), series1)
+        assert isinstance(core.measurement_at(1), type(optical))
+        assert isinstance(core.data_schema, pf.SingleUintDataSchema)
+        assert core.data_schema.byte_width == right_width
+        core.insert_optical(0, "eyehateu", optical, (wrong_width, 1), series1)
+        assert isinstance(core.data_schema, pf.VariableUintDataSchema)
+
+    @pytest.mark.parametrize(
+        "byte_width, right_type, wrong_type",
         [
-            (lazy_fixture(c), lazy_fixture(o), right_width, right_type, wrong_type)
-            for c, o in [
-                ("dataset2_3_1", "blank_optical_3_1"),
-                ("dataset2_3_2", "blank_optical_3_2"),
-            ]
+            (right_width, right_type, wrong_type)
             for (right_type, right_width) in INTEGER_WIDTHS
             for (wrong_type, _) in INTEGER_WIDTHS
             if not wrong_type == right_type
         ],
     )
-    def test_insert_typed_single_uint(
+    def test_insert_typed_single_uint_3_2(
         self,
-        core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
-        optical: Any,
+        dataset2_3_2: pf.CoreDataset3_2,
+        blank_optical_3_2: pf.Optical3_2,
         series1: pl.Series,
         byte_width: pt.ByteWidth,
         right_type: pt.IntegerWidth,
@@ -2359,6 +2386,8 @@ class TestCore:
         If type matches current schema, the width should be the same. If type
         does not match, the schema should change to variable.
         """
+        core = dataset2_3_2
+        optical = blank_optical_3_2
         core.data_schema = pf.SingleUintDataSchema([255, 255], byte_width=byte_width)
         assert isinstance(core.data_schema, pf.SingleUintDataSchema)
         core.insert_optical(0, "iloveyou", optical, (right_type, 1), series1)
@@ -2393,7 +2422,7 @@ class TestCore:
         assert isinstance(dataset2_3_1.data_schema, type(schema))
         with pytest.RaisesGroup(pf.RelationalError):
             dataset2_3_1.insert_optical(
-                0, "pegasus", blank_optical_3_1, ("U08", 1), series1
+                0, "pegasus", blank_optical_3_1, (1, 1), series1
             )
 
     @pytest.mark.parametrize(
@@ -2441,12 +2470,12 @@ class TestCore:
         assert isinstance(dataset2_3_2.data_schema, pf.MixedDataSchema)
 
     @pytest.mark.parametrize(
-        "core, optical",
+        "core, optical, insert_type",
         [
-            (lazy_fixture(c), lazy_fixture(o))
-            for c, o in [
-                ("dataset2_3_1", "blank_optical_3_1"),
-                ("dataset2_3_2", "blank_optical_3_2"),
+            (lazy_fixture(c), lazy_fixture(o), i)
+            for c, o, i in [
+                ("dataset2_3_1", "blank_optical_3_1", 8),
+                ("dataset2_3_2", "blank_optical_3_2", "U64"),
             ]
         ],
     )
@@ -2455,15 +2484,16 @@ class TestCore:
         core: pf.CoreDataset3_1 | pf.CoreDataset3_2,
         optical: Any,
         series1: pl.Series,
+        insert_type: Any,
     ) -> None:
         """Test variable uint schema insertion.
 
         Inserting a plain decimal (without type) should result in error.
         Inserting decimal with type should not change the schema.
         """
-        core.data_schema = pf.VariableUintDataSchema([("U16", 10000), ("U32", 10000)])
+        core.data_schema = pf.VariableUintDataSchema([(2, 10000), (4, 10000)])
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
-        core.insert_optical(0, "wannacry", optical, ("U64", 10000), series1)
+        core.insert_optical(0, "wannacry", optical, (insert_type, 10000), series1)
         assert isinstance(core.measurement_at(1), type(optical))
         assert isinstance(core.data_schema, pf.VariableUintDataSchema)
         with pytest.RaisesGroup(pf.RelationalError):
@@ -3699,9 +3729,9 @@ class TestDataSchema:
     def test_variable_uint(self) -> None:
         """Test creation of variable integer data schema (3.1/3.2)."""
         ranges: list[pt.VariableBitmask] = [
-            ("U08", 2**8 - 1),
-            ("U16", 2**16 - 1),
-            ("U32", 2**24 - 1),
+            (1, 2**8 - 1),
+            (2, 2**16 - 1),
+            (4, 2**24 - 1),
         ]
         new = pf.VariableUintDataSchema(ranges)
         assert new.byte_widths == [1, 2, 4]

@@ -699,7 +699,6 @@ fpp::impl_new_variable_uint_data_schema!(
 fpp::impl_new_mixed_data_schema!("MixedDataSchema", data::MixedDataSchema);
 
 // Implement method to return the byte widths of variable-widths data_schema
-fpp::impl_data_schema_byte_widths!(PyVariableUintDataSchema);
 fpp::impl_data_schema_byte_widths!(PyMixedDataSchema);
 
 #[derive(IntoPyObject, From)]

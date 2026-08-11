@@ -535,7 +535,7 @@ class _CoreTEXTRemove2_0:
         Optical2_0 | Temporal2_0,
         pft.Range,
         pft.OpticalScale2_0,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -544,7 +544,7 @@ class _CoreTEXTRemove2_0:
         Optical2_0 | Temporal2_0,
         pft.Range,
         pft.OpticalScale2_0,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
 
 class _CoreTEXTRemove3_0:
@@ -555,7 +555,7 @@ class _CoreTEXTRemove3_0:
         Optical3_0 | Temporal3_0,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -564,7 +564,7 @@ class _CoreTEXTRemove3_0:
         Optical3_0 | Temporal3_0,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
 
 class _CoreTEXTRemove3_1:
@@ -575,7 +575,7 @@ class _CoreTEXTRemove3_1:
         Optical3_1 | Temporal3_1,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -584,7 +584,7 @@ class _CoreTEXTRemove3_1:
         Optical3_1 | Temporal3_1,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
 
 class _CoreTEXTRemove3_2:
@@ -656,7 +656,7 @@ class _CoreDatasetRemove3_1:
         Series,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
     def remove_measurement_by_index(
         self, index: pft.MeasIndex
@@ -666,7 +666,7 @@ class _CoreDatasetRemove3_1:
         Series,
         pft.Range,
         pft.OpticalScale3_0 | None,
-        pft.IntegerWidth | None,
+        pft.ByteWidth | None,
     ]: ...
 
 class _CoreDatasetRemove3_2:

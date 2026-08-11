@@ -4149,7 +4149,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
 
     let meas = PyUnion::new_measurement(version);
     let rng = PyUnion::new_full_range();
-    let int_widths = PyOpt::new1(PyLiteral::new_integer_width());
+    let int_widths = PyOpt::new1(PyLiteral::new_arg_bytes());
     let col_type = PyOpt::new1(PyLiteral::new_column_type());
 
     let make_ret = |is_index: bool| {
@@ -6005,9 +6005,20 @@ pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
     };
 
     let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+
+    let byte_widths = DocString::new_ivar(
+        "The width of each measurement in bytes.",
+        PyList::new1(PyLiteral::new_arg_bytes()),
+    )
+    .para(format!(
+        "This corresponds to the value of {PNB} for each measurement \
+         divided by 8. Values for each measurement may be different."
+    ))
+    .into_impl_get(&pyname, "byte_widths", |_, _| quote!(self.0.byte_widths()));
+
     let datatype = make_data_schema_datatype(&pyname, "I");
     let is_float = make_data_schema_is_float(&pyname, false);
-    quote!(#class #datatype #is_float).into()
+    quote!(#class #datatype #is_float #byte_widths).into()
 }
 
 #[proc_macro]
@@ -8336,11 +8347,6 @@ impl PyStrLiteral {
         Self::new_with_path(tc::TriFlag::iter_str(), path)
     }
 
-    fn new_integer_width() -> Self {
-        let path = parse_quote!(fireflow_types::python::IntegerWidth);
-        Self::new_with_path(tp::IntegerWidth::iter_str(), path)
-    }
-
     fn new_column_type() -> Self {
         let path = parse_quote!(fireflow_types::python::ColumnType);
         Self::new_with_path(tp::ColumnType::iter_str(), path)
@@ -8583,7 +8589,7 @@ impl<E: From<PyException>> PyTuple<E> {
 
     fn new_variable_bitmask() -> Self {
         let path = quote!(fireflow_core::data::VariableBitmask);
-        Self::new1(PyLiteral::new_integer_width())
+        Self::new1(PyIntLiteral::new_arg_bytes())
             .add(RsInt::U64)
             .rstype(parse_quote!(#path))
     }
@@ -8808,7 +8814,7 @@ impl<E: From<PyException>> PyUnion<E> {
 
     fn new_range_or_bitmask_range() -> Self {
         let path = quote!(fireflow_core::data::MaybeTypedVariableBitmask);
-        let ints = PyTuple::new1(tp::IntegerWidth::iter_str().collect::<PyStrLiteral>())
+        let ints = PyTuple::new1(PyIntLiteral::new_arg_bytes())
             .add(RsInt::U64)
             .into();
         let rng = PyType::from(Self::new_full_range());

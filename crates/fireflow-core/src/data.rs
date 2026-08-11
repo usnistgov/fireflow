@@ -685,8 +685,6 @@ type AnyOrderedUintLayout<F, T> = AnyUintLayout<F, true, ColumnMarkers<T, Nothin
 
 pub type AnyOrderedUintDataSchema<T> = AnyOrderedUintLayout<VecFamily, T>;
 
-// type AnyOrderedUintDataFrame<T> = AnyOrderedUintLayout<DataFrameFamily, T>;
-
 pub type VariableBitmask =
     AnyUint<Bitmask08, Bitmask16, Bitmask24, Bitmask32, Bitmask40, Bitmask48, Bitmask56, Bitmask64>;
 
@@ -7776,17 +7774,7 @@ impl<D> AnySingleUintDataSchema<D> {
 
     #[must_use]
     pub fn byte_width(&self) -> ArgBytes {
-        let b = match self {
-            AnyUint::Uint08(_) => PrivBytes::B1,
-            AnyUint::Uint16(_) => PrivBytes::B2,
-            AnyUint::Uint24(_) => PrivBytes::B3,
-            AnyUint::Uint32(_) => PrivBytes::B4,
-            AnyUint::Uint40(_) => PrivBytes::B5,
-            AnyUint::Uint48(_) => PrivBytes::B6,
-            AnyUint::Uint56(_) => PrivBytes::B7,
-            AnyUint::Uint64(_) => PrivBytes::B8,
-        };
-        ArgBytes(b)
+        ArgBytes(self.as_bytes())
     }
 }
 
@@ -7826,17 +7814,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
 
     #[must_use]
     pub fn byte_width(&self) -> ArgBytes {
-        let b = match self {
-            AnyUint::Uint08(_) => PrivBytes::B1,
-            AnyUint::Uint16(_) => PrivBytes::B2,
-            AnyUint::Uint24(_) => PrivBytes::B3,
-            AnyUint::Uint32(_) => PrivBytes::B4,
-            AnyUint::Uint40(_) => PrivBytes::B5,
-            AnyUint::Uint48(_) => PrivBytes::B6,
-            AnyUint::Uint56(_) => PrivBytes::B7,
-            AnyUint::Uint64(_) => PrivBytes::B8,
-        };
-        ArgBytes(b)
+        ArgBytes(self.as_bytes())
     }
 
     #[allow(clippy::too_many_lines)]
@@ -7978,6 +7956,17 @@ impl<T> AnyOrderedUintDataSchema<T> {
                     new_from_byteord(ne_cs, bo, old_bytes, None)
                 }),
         }
+    }
+}
+
+impl<D> VariableUintDataSchema<D> {
+    /// Return the widths of each measurement in bytes.
+    #[must_use]
+    pub fn byte_widths(&self) -> Vec<ArgBytes> {
+        self.container
+            .iter()
+            .map(|b| ArgBytes(b.as_bytes()))
+            .collect()
     }
 }
 
@@ -8460,6 +8449,21 @@ impl VariableUintSeries {
 
 // Implement misc methods for data schema ranges
 
+impl<C08, C16, C24, C32, C40, C48, C56, C64> AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
+    pub(crate) fn as_bytes(&self) -> PrivBytes {
+        match self {
+            Self::Uint08(_) => PrivBytes::B1,
+            Self::Uint16(_) => PrivBytes::B2,
+            Self::Uint24(_) => PrivBytes::B3,
+            Self::Uint32(_) => PrivBytes::B4,
+            Self::Uint40(_) => PrivBytes::B5,
+            Self::Uint48(_) => PrivBytes::B6,
+            Self::Uint56(_) => PrivBytes::B7,
+            Self::Uint64(_) => PrivBytes::B8,
+        }
+    }
+}
+
 impl<T> FloatRange<T> {
     /// Make new float range from $PnB and $PnR values.
     ///
@@ -8656,9 +8660,10 @@ mod private {
 mod python {
     use super::{AnyUint, FloatRange, MixedRange, VariableBitmask};
 
+    use crate::text::byteord::{ArgBytes, PrivBytes};
     use crate::validated::finite_float::FiniteFloat;
 
-    use fireflow_types::python::{ColumnType, IntegerWidth};
+    use fireflow_types::python::ColumnType;
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;
@@ -8676,16 +8681,16 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for VariableBitmask {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (width, value): (IntegerWidth, Bound<'py, PyAny>) = obj.extract()?;
-            let ret = match width {
-                IntegerWidth::U08 => Self::Uint08(value.extract()?),
-                IntegerWidth::U16 => Self::Uint16(value.extract()?),
-                IntegerWidth::U24 => Self::Uint24(value.extract()?),
-                IntegerWidth::U32 => Self::Uint32(value.extract()?),
-                IntegerWidth::U40 => Self::Uint40(value.extract()?),
-                IntegerWidth::U48 => Self::Uint48(value.extract()?),
-                IntegerWidth::U56 => Self::Uint56(value.extract()?),
-                IntegerWidth::U64 => Self::Uint64(value.extract()?),
+            let (width, value): (ArgBytes, Bound<'py, PyAny>) = obj.extract()?;
+            let ret = match width.0 {
+                PrivBytes::B1 => Self::Uint08(value.extract()?),
+                PrivBytes::B2 => Self::Uint16(value.extract()?),
+                PrivBytes::B3 => Self::Uint24(value.extract()?),
+                PrivBytes::B4 => Self::Uint32(value.extract()?),
+                PrivBytes::B5 => Self::Uint40(value.extract()?),
+                PrivBytes::B6 => Self::Uint48(value.extract()?),
+                PrivBytes::B7 => Self::Uint56(value.extract()?),
+                PrivBytes::B8 => Self::Uint64(value.extract()?),
             };
             Ok(ret)
         }
@@ -8698,14 +8703,14 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Uint08(x) => (IntegerWidth::U08, x).into_pyobject(py),
-                Self::Uint16(x) => (IntegerWidth::U16, x).into_pyobject(py),
-                Self::Uint24(x) => (IntegerWidth::U24, x).into_pyobject(py),
-                Self::Uint32(x) => (IntegerWidth::U32, x).into_pyobject(py),
-                Self::Uint40(x) => (IntegerWidth::U40, x).into_pyobject(py),
-                Self::Uint48(x) => (IntegerWidth::U48, x).into_pyobject(py),
-                Self::Uint56(x) => (IntegerWidth::U56, x).into_pyobject(py),
-                Self::Uint64(x) => (IntegerWidth::U64, x).into_pyobject(py),
+                Self::Uint08(x) => (ArgBytes(PrivBytes::B1), x).into_pyobject(py),
+                Self::Uint16(x) => (ArgBytes(PrivBytes::B2), x).into_pyobject(py),
+                Self::Uint24(x) => (ArgBytes(PrivBytes::B3), x).into_pyobject(py),
+                Self::Uint32(x) => (ArgBytes(PrivBytes::B4), x).into_pyobject(py),
+                Self::Uint40(x) => (ArgBytes(PrivBytes::B5), x).into_pyobject(py),
+                Self::Uint48(x) => (ArgBytes(PrivBytes::B6), x).into_pyobject(py),
+                Self::Uint56(x) => (ArgBytes(PrivBytes::B7), x).into_pyobject(py),
+                Self::Uint64(x) => (ArgBytes(PrivBytes::B8), x).into_pyobject(py),
             }
         }
     }

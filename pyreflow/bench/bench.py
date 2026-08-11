@@ -747,7 +747,7 @@ def width_to_uint_type(byte_width: int) -> UintDType:
 
 
 def core_2_0_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset2_0:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -769,7 +769,7 @@ def core_2_0_int(
 
 
 def core_3_0_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_0:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -791,7 +791,7 @@ def core_3_0_int(
 
 
 def core_3_2_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_0:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -813,7 +813,7 @@ def core_3_2_int(
 
 
 def core_3_1_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_1:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -853,8 +853,8 @@ def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
 def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
     # per https://github.com/RGLab/flowCore/issues/46, Nx16+32+8
     N_OPTICAL = 12
-    optical: list[pft.VariableBitmask] = [("U16", 2**16 - 1)] * N_OPTICAL
-    rs: list[pft.VariableBitmask] = [*optical, ("U32", 2**32 - 1), ("U08", 2**8 - 1)]
+    optical: list[pft.VariableBitmask] = [(2, 2**16 - 1)] * N_OPTICAL
+    rs: list[pft.VariableBitmask] = [*optical, (4, 2**32 - 1), (1, 2**8 - 1)]
     layout = pf.VariableUintDataSchema(
         rs,
         endian="big" if big_endian else "little",

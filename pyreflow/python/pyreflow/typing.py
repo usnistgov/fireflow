@@ -91,7 +91,7 @@ type VersionOverride = (
 #:
 #: Technically floats can only be 4 or 8 bytes wide, but this type variable
 #: represents the union of this and all possible values for integer widths,
-# ; which is 1-8 bytes.
+#: which is 1-8 bytes.
 type ByteWidth = Literal[1, 2, 3, 4, 5, 6, 7, 8]
 
 #: Any value value for the *$DATATYPE* keyword.

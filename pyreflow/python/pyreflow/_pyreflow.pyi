@@ -709,7 +709,7 @@ class _CoreReplaceTemporal3_2:
         name: pft.Shortname,
         meas: Temporal3_2,
         allow_loss: pft.TriFlag = "false",
-    ) -> tuple[Optical3_2, pft.OpticalScale2_0] | Temporal3_2 | None: ...
+    ) -> tuple[Optical3_2, pft.OpticalScale3_0] | Temporal3_2 | None: ...
 
 class _CoreTEXTInsertMeas2_0:
     def push_optical(

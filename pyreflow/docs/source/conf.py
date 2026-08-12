@@ -80,6 +80,10 @@ _XREF_FALSE_NEGATIVES = {
         "https://docs.pola.rs/api/python/stable/reference/series/index.html",
         "polars.Series",
     ),
+    ("py:class", "numpy.float32"): (
+        "https://numpy.org/doc/stable/reference/arrays.scalars.html#numpy.float32",
+        "numpy.float32",
+    ),
 }
 
 # x-refs that sphinx mistakenly thinks exist but really shouldn't
@@ -87,7 +91,15 @@ _XREF_FALSE_POSITIVES = {
     # this is a generic type variable that sphinx will try to document if it
     # appears by itself (ie not encosed in "[]" as a parameter for another
     # generic type
-    "T"
+    "T",
+    # ditto
+    "N",
+    # ditto
+    "O",
+    # ditto
+    "S",
+    # ditto
+    "X",
 }
 
 

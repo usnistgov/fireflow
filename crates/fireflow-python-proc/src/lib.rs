@@ -724,10 +724,8 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
             "Config for {}.",
             api_fun("fcs_read_flat_dataset_with_keywords")
         )),
-        "NewCoreTEXTConfig" => DocString::new_class("Config for :py:func:`CoreTEXT*.from_kws`."),
-        "NewCoreDatasetConfig" => {
-            DocString::new_class("Config for :py:func:`CoreDataset*.from_kws`.")
-        }
+        "NewCoreTEXTConfig" => DocString::new_class("Config for ``CoreTEXT*.from_kws()``."),
+        "NewCoreDatasetConfig" => DocString::new_class("Config for ``CoreDataset*.from_kws()``."),
         s => panic!("unsupported type '{s}'"),
     };
 

@@ -8,15 +8,19 @@ import numpy.typing as npt
 
 type MeasIndex = int
 
-#: The endian-ness of values in the *DATA* segment.
-#:
-#: Corresponds to the value of *$BYTEORD* for FCS 3.1/3.2.
 type Endian = Literal["big", "little"]
+"""
+The endian-ness of values in the *DATA* segment.
 
-#: The order of bytes to encode the values in the *DATA* segment.
-#:
-#: Corresponds to the value of *$BYTEORD* for FCS 2.0/3.0.
+Corresponds to the value of *$BYTEORD* for FCS 3.1/3.2.
+"""
+
 type ByteOrd = list[int] | Endian
+"""
+The order of bytes to encode the values in the *DATA* segment.
+
+Corresponds to the value of *$BYTEORD* for FCS 2.0/3.0.
+"""
 
 type Range = float | int
 
@@ -50,10 +54,12 @@ type UnstainedCenters = dict[StdKey, float]
 
 type Offsets = tuple[int, int]
 
-#: Correction for segment offset pair.
-#:
-#: Each number will be added to the two offsets in the pair respectively.
 type OffsetCorrection = tuple[int, int]
+"""
+Correction for segment offset pair.
+
+Each number will be added to the two offsets in the pair respectively.
+"""
 
 type StdKeywords = dict[StdKey, str]
 type NonStdKeywords = dict[NonStdKey, str]
@@ -74,16 +80,13 @@ type Originality = Literal["Original", "NonDataModified", "Appended", "DataModif
 
 type Feature = Literal["Area", "Width", "Height"]
 
-#: Any of the supported version strings.
-#:
-#: One of these must always be in first six bytes of an FCS dataset.
 type FCSVersion = Literal["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"]
+"""
+Any of the supported version strings.
 
-#: Flag to denote how version should be overridden.
-#:
-#: Supplying a literal FCS version will directly override the version.
-#:
-#: The other options denote how version should be guessed based on keywords.
+One of these must always be in first six bytes of an FCS dataset.
+"""
+
 type VersionOverride = (
     FCSVersion
     | Literal[
@@ -97,28 +100,47 @@ type VersionOverride = (
         "current_or_strict",
     ]
 )
+"""
+Flag to denote how version should be overridden.
 
-#: A valid width for a numeric data type.
-#:
-#: Technically floats can only be 4 or 8 bytes wide, but this type variable
-#: represents the union of this and all possible values for integer widths,
-#: which is 1-8 bytes.
+Supplying a literal FCS version will directly override the version.
+
+The other options denote how version should be guessed based on keywords.
+"""
+
 type ByteWidth = Literal[1, 2, 3, 4, 5, 6, 7, 8]
+"""
+A valid width for a numeric data type.
 
-#: Any value value for the *$DATATYPE* keyword.
+Technically floats can only be 4 or 8 bytes wide, but this type variable
+represents the union of this and all possible values for integer widths,
+which is 1-8 bytes.
+"""
+
 type Datatype = FloatType | DoubleType | IntegerType | AsciiType
+"""
+Any value value for the *$DATATYPE* keyword.
+"""
 
-#: Value when *$DATATYPE* corresponds to 32-bit float.
 type FloatType = Literal["F"]
+"""
+Value when *$DATATYPE* corresponds to 32-bit float.
+"""
 
-#: Value when *$DATATYPE* corresponds to 64-bit float.
 type DoubleType = Literal["D"]
+"""
+Value when *$DATATYPE* corresponds to 64-bit float.
+"""
 
-#: Value when *$DATATYPE* corresponds to an unsigned integer.
 type IntegerType = Literal["I"]
+"""
+Value when *$DATATYPE* corresponds to an unsigned integer.
+"""
 
-#: Value when *$DATATYPE* corresponds to ASCII-encoded values.
 type AsciiType = Literal["A"]
+"""
+Value when *$DATATYPE* corresponds to ASCII-encoded values.
+"""
 
 type F32Type = Literal["F32"]
 type F64Type = Literal["F64"]
@@ -132,7 +154,6 @@ type MixedRange = (
 type MaybeTypedVariableBitmask = IntRange | VariableBitmask
 type MaybeTypedMixedRange = Range | MixedRange
 
-#: A key which should only be used for optical measurements.
 type TemporalOpticalKey = Literal[
     "G",
     "F",
@@ -147,16 +168,23 @@ type TemporalOpticalKey = Literal[
     "FEATURE",
     "ANALYTE",
 ]
+"""
+A key which should only be used for optical measurements.
+"""
 
 type TemporalType = Literal["Time"]
 
-#: A standardized FCS *TEXT* segment from any version.
 type AnyCoreTEXT = pf.CoreTEXT2_0 | pf.CoreTEXT3_0 | pf.CoreTEXT3_1 | pf.CoreTEXT3_2
+"""
+A standardized FCS *TEXT* segment from any version.
+"""
 
-#: A standardized FCS dataset from any version.
 type AnyCoreDataset = (
     pf.CoreDataset2_0 | pf.CoreDataset3_0 | pf.CoreDataset3_1 | pf.CoreDataset3_2
 )
+"""
+A standardized FCS dataset from any version.
+"""
 
 type AnyCore = AnyCoreTEXT | AnyCoreDataset
 
@@ -239,52 +267,67 @@ type AppliedGates3_2 = tuple[
     str | None,
 ]
 
-#: A list of patterns which match standard or nonstandard key values.
 type KeyPatterns = list[str]
+"""
+A list of patterns which match standard or nonstandard key values.
+"""
 
-#: A sed-like pattern which substitutes values in a string.
 type SubPattern = tuple[str, str, bool]
+"""
+A sed-like pattern which substitutes values in a string.
+"""
 
-#: Substitution patterns which may be used to modify keywords on the fly.
-#:
-#: Keys in the dictionary are patterns to match a standard or nonstandard key.
-#:
-#: Values in the dictionary are the substation directives themselves which
-#: denote how the values of matched keywords should be modified.
 type SubPatterns = dict[str, SubPattern]
+"""
+Substitution patterns which may be used to modify keywords on the fly.
 
-#: Flag to denote how delimiters in *TEXT* should be interpreted.
+Keys in the dictionary are patterns to match a standard or nonstandard key.
+
+Values in the dictionary are the substation directives themselves which
+denote how the values of matched keywords should be modified.
+"""
+
 type DelimEscapeMode = Literal[
     "escaped",
     "unescaped",
     "guess_escaped",
     "guess_unescaped",
 ]
-
+"""
+Flag to denote how delimiters in *TEXT* should be interpreted.
+"""
 
 type ReqOrOpt = Literal["req_only", "opt_only", "both"]
 
 type RootOrMeas = Literal["root_only", "meas_only", "both"]
 
-#: Flag denoting what should happen if a keyword cannot be parsed.
 type ProcessKeywordFailure = Literal[
     "error", "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
+"""
+Flag denoting what should happen if a keyword cannot be parsed.
+"""
 
-#: Flag denoting how to handle optical keywords found in a temporal measurement.
 type ProcessTimeOpticalKeys = Literal[
     "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
+"""
+Flag denoting how to handle optical keywords found in a temporal measurement.
+"""
 
-#: Flag which may be in three states.
-#:
-#: The meaning of ``"true"`` and ``"false"`` depends on context.
-#:``"silent"`` means the behavior  controlled by the flag will not emit any
-#: errors or warnings.
 type TriFlag = Literal["false", "true", "silent"]
+"""
+Flag which may be in three states.
 
-#: Flag denoting where to fix *$PnE* values that should be linear but are not.
+The meaning of ``"true"`` and ``"false"`` depends on context.
+``"silent"`` means the behavior  controlled by the flag will not emit any
+errors or warnings.
+"""
+
 type ForceLinearScale = Literal["none", "time_only", "all_non_int", "all"]
+"""
+Flag denoting where to fix *$PnE* values that should be linear but are not.
+"""
 
 type MeasScaleDiagnostic = (
     tuple[str, Literal["forced", "log", "trimmed", "trimmed_log"]] | None
@@ -292,13 +335,17 @@ type MeasScaleDiagnostic = (
 
 type GateScaleDiagnostic = tuple[str, Literal["log", "trimmed", "trimmed_log"]] | None
 
-#: Flag denoting how to handle whitespace around keyword values in *TEXT*.
 type TrimValueWhitespace = Literal[
     "notrim", "trim", "trim_blank_warn", "trim_blank_silent"
 ]
+"""
+Flag denoting how to handle whitespace around keyword values in *TEXT*.
+"""
 
-#: Flag denoting how to interpret "names" for *$SPILLOVER* keyword.
 type SpilloverMeasurementMode = Literal["named", "indexed", "guess"]
+"""
+Flag denoting how to interpret "names" for *$SPILLOVER* keyword.
+"""
 
 type KeywordVersionScores = tuple[
     pf.KeywordVersionScore,
@@ -307,29 +354,41 @@ type KeywordVersionScores = tuple[
     pf.KeywordVersionScore,
 ]
 
-#: Flag denoting how bytes in *TEXT* should be interpreted.
 type UseEncoding = Literal["single", "utf8", "guess"]
+"""
+Flag denoting how bytes in *TEXT* should be interpreted.
+"""
 
-#: Flag to denote how *OTHER* width fields should be guessed.
 type GuessOtherWidth = Literal["none", "error", "warn", "silent"]
+"""
+Flag to denote how *OTHER* width fields should be guessed.
+"""
 
 type OtherOffsets = tuple[list[tuple[int, Offsets]], int]
 
-#: Flag denoting what to do if offsets from *HEADER* and *TEXT* mismatch.
 type AllowHeaderTextOffsetMismatch = Literal[
     "error", "header_warn", "header_silent", "text_warn", "text_silent"
 ]
+"""
+Flag denoting what to do if offsets from *HEADER* and *TEXT* mismatch.
+"""
 
-#: Flag to denote what should happen if a value is over range or over bitmask.
 type OverLimitAction = Literal[
     "error", "warn", "silent", "trunc_warn", "trunc_silent", "none"
 ]
+"""
+Flag to denote what should happen if a value is over range or over bitmask.
+"""
 
-#: Flag denoting how integers should be fixed if their *$PnB* is wrong.
 type FixIntWidths = int | Literal["next_byte", "never"]
+"""
+Flag denoting how integers should be fixed if their *$PnB* is wrong.
+"""
 
-#: Flag denoting how/when to override *$BYTEORD* if it is broken.
 type ByteordOverride = list[int] | Literal["endian", "none"]
+"""
+Flag denoting how/when to override *$BYTEORD* if it is broken.
+"""
 
 type HeaderOffsetsName = Literal["text", "data", "header"]
 type SuppTextOffsetsName = Literal["supp_text"]
@@ -367,83 +426,93 @@ type TEXTOffsetsOriginType = Literal[
 
 type CRCOutput = bytes | str | tuple[int, int] | None
 
-#: Flag denoting when to compute the CRC
 type ComputeReadCRC = Literal["never", "always", "test"]
+"""
+Flag denoting when to compute the CRC
+"""
 
 type FlankingSegmentName = Literal["text", "stext", "data", "analysis"] | int
 
 type DarkBytes = str | bytes | tuple[int, int]
 
-#: A dynamic selector for a type based on contents of an FCS file.
-#:
-#: This is used to select certain configuration options based on the keywords
-#: of an FCS file.
-#:
-#: The type can be included simply by itself, in which case no selection will
-#: occur.
-#:
-#: Alternatively, the type can be embedded in a series of Lisp-like conditional
-#: statements represented as Python tuples.
-#:
-#: If the tuple's first element is ``"if"``, the second must be a condition, the
-#: third must be a another selector (the same as this type) which will be
-#: evaluated if the condition is true, and the fourth must be another selector
-#: or ``None`` which will be evaluated if the condition is false.
-#:
-#: If the tuple's first element is ``"cond"``, each subsequent element must be a
-#: tuple pair with a condition and and a statement to be evaluated if the
-#: condition is true. These conditions will be evaluated in series until the
-#: the first true case.
-#:
-#: If this evaluates to ``None``, the default for the underlying type ``T`` will
-#: be chosen.
 type Selector[T] = (
     T
     | tuple[Literal["if"], Condition, Selector[T]]
     | tuple[Literal["if"], Condition, Selector[T], Selector[T]]
     | tuple[Literal["cond"], list[tuple[Condition, Selector[T]]]]
 )
+"""
+A dynamic selector for a type based on contents of an FCS file.
 
-#: Like a :py:class:`~pyreflow.typing.Selector` but can also include a list.
-#:
-#: The values of the results of each individual selector will be concatenated.
+This is used to select certain configuration options based on the keywords
+of an FCS file.
+
+The type can be included simply by itself, in which case no selection will
+occur.
+
+Alternatively, the type can be embedded in a series of Lisp-like conditional
+statements represented as Python tuples.
+
+If the tuple's first element is ``"if"``, the second must be a condition, the
+third must be a another selector (the same as this type) which will be
+evaluated if the condition is true, and the fourth must be another selector
+or ``None`` which will be evaluated if the condition is false.
+
+If the tuple's first element is ``"cond"``, each subsequent element must be a
+tuple pair with a condition and and a statement to be evaluated if the
+condition is true. These conditions will be evaluated in series until the
+the first true case.
+
+If this evaluates to ``None``, the default for the underlying type ``T`` will
+be chosen.
+"""
+
 type AppendableSelector[T] = Selector[T] | list[Selector[T]]
+"""
+Like a :py:class:`~pyreflow.typing.Selector` but can also include a list.
 
-#: An expression which evaluates to true or false depending on FCS keywords.
-#:
-#: This is either a bare :py:class:`~pyreflow.typing.KeyTest` which will
-#: evaluated directly or a List-like set of tuples that represent conditional
-#: logic. The first element in each tuple is a "logical function" which will
-#: evaluate to true or false depending on the boolean outputs of the arguments
-#: that follow.
+The values of the results of each individual selector will be concatenated.
+"""
+
 type Condition = (
     KeyTest
     | tuple[Literal["and"], KeyTest, KeyTest]
     | tuple[Literal["or"], KeyTest, KeyTest]
     | tuple[Literal["not"], KeyTest]
 )
+"""
+An expression which evaluates to true or false depending on FCS keywords.
 
-#: Evaluates to true or false depending on the value of an FCS file keyword.
-#:
-#: These are Lisp-like expressions represented as Python tuples where the first
-#: element is a "function" which is run with the arguments that follow.
-#:
-#: If ``"has_key"``, return true if the indicated key is present.
-#:
-#: If ``"key_is"``, return true if the indicated key (first argument) has a
-#: value exactly equal to the second argument.
-#:
-#: If ``"key_matches"``, return true if the indicated key (first argument) has a
-#: value which matches the regular expression (second argument). The regexp must
-#: follow the syntax of the rust `regexp crate <https://docs.rs/regex-syntax/latest/regex_syntax/>`__.
-#:
-#: Keys can either be standard (start with ``"$"``) or non-standard (no ``"$"``).
+This is either a bare :py:class:`~pyreflow.typing.KeyTest` which will
+evaluated directly or a List-like set of tuples that represent conditional
+logic. The first element in each tuple is a "logical function" which will
+evaluate to true or false depending on the boolean outputs of the arguments
+that follow.
+"""
+
 type KeyTest = (
     tuple[Literal["has_key"], str]
     | tuple[Literal["key_is"], str, str]
     | tuple[Literal["key_matches"], str, str]
 )
+"""
+Evaluates to true or false depending on the value of an FCS file keyword.
 
+These are Lisp-like expressions represented as Python tuples where the first
+element is a "function" which is run with the arguments that follow.
+
+If ``"has_key"``, return true if the indicated key is present.
+
+If ``"key_is"``, return true if the indicated key (first argument) has a
+value exactly equal to the second argument.
+
+If ``"key_matches"``, return true if the indicated key (first argument) has a
+value which matches the regular expression (second argument). The regexp must
+follow the syntax of the rust
+`regexp crate <https://docs.rs/regex-syntax/latest/regex_syntax/>`__.
+
+Keys can either be standard (start with ``"$"``) or non-standard (no ``"$"``).
+"""
 
 class SingleTypedDataSchema(ABC):
     """A data schema defined by a single *$DATATYPE* value."""

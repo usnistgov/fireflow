@@ -9425,7 +9425,7 @@ impl DocArgRWIvar {
         };
         Self::new_opt_ivar_rw(
             "comp",
-            PyClass::new1("~numpy.ndarray").rstype(rstype),
+            PyAlias::new_py(["typing"], "Compensation").rstype(rstype),
             desc,
             true,
             |_, _| quote!(self.0.compensation().cloned()),
@@ -9434,12 +9434,7 @@ impl DocArgRWIvar {
     }
 
     fn new_spillover_ivar() -> Self {
-        let desc = formatcp!(
-            "First element of tuple the list of measurement names and the second \
-             is the matrix. Each measurement name must correspond to a {PNN}, \
-             must be unique, and the length of this list must match the number \
-             of rows and columns of the matrix. The matrix must be at least 2x2."
-        );
+        let desc = formatcp!("Each measurement name must correspond to a {PNN}.");
         DocArgParam::new_kw_param(Kw::Spillover, Some(desc), true).into_rw(
             true,
             |_, _| quote!(self.0.spillover().map(|x| x.clone())),
@@ -9449,12 +9444,15 @@ impl DocArgRWIvar {
 
     fn new_csvflags_ivar() -> Self {
         let path: Path = parse_quote!(fireflow_core::core::CSVFlags);
+        let inner = PyList::new1(PyOpt::new1(PyInt::new_u32()));
+        let pt = PyAlias::new_py(["typing"], "CsvFlags")
+            .rstype(path.clone())
+            .set_default(inner);
         Self::new_ivar_rw(
             "csvflags",
-            PyList::new(PyOpt::new1(PyInt::new_u32()), path.clone(), None),
+            pt,
             format!(
-                "Subset flags. Each element in the list corresponds to {csvnflag} \
-                 and the length of the list corresponds to {csmode}.",
+                "Subset flags (combined values of {csvnflag} and {csmode}).",
                 csvnflag = fcs_kw("$CSVnFLAG"),
                 csmode = fcs_kw("$CSMODE"),
             ),
@@ -9467,10 +9465,7 @@ impl DocArgRWIvar {
 
     // TODO exception for mismatch PnN
     fn new_trigger_ivar() -> Self {
-        let desc = formatcp!(
-            "First member of tuple is threshold and second \
-             is the measurement name which must match a {PNN}."
-        );
+        let desc = formatcp!("The measurement name which must match a {PNN}.");
         DocArg::new_kw_param(Kw::Tr, Some(desc), true).into_rw(
             true,
             |_, _| quote!(self.0.metaroot_opt().cloned()),
@@ -9480,8 +9475,9 @@ impl DocArgRWIvar {
 
     fn new_unstainedcenters_ivar() -> Self {
         let path = keyword_path("UnstainedCenters");
+        let d = format!("Each key must match a {PNN}.");
         // TODO exceptions for links
-        let desc = Some("Each key must match a {PNN}.");
+        let desc = Some(d.as_str());
         DocArg::new_kw_param(Kw::UnstainedCenters, desc, true).into_rw(
             true,
             |_, _| quote!(self.0.metaroot::<#path>().clone()),
@@ -12202,8 +12198,16 @@ impl Kw {
     {
         let path = self.type_name();
         match self {
-            Self::Mode => PyLiteral::new_with_path(["L", "U", "C"], path).into(),
-            Self::Mode3_2 => PyOpt::new1(PyLiteral::new_with_path(["L"], path)).into(),
+            Self::Mode => {
+                let inner = ["L", "U", "C"].into_iter().collect::<PyStrLiteral>();
+                PyAlias::new_py(["typing"], "Mode")
+                    .rstype(path)
+                    .set_default(inner)
+                    .into()
+            }
+            Self::Mode3_2 => {
+                PyOpt::new1(PyAlias::new_py(["typing"], "Mode3_2").rstype(path)).into()
+            }
             Self::Cyt
             | Self::Com
             | Self::Cells
@@ -12229,35 +12233,29 @@ impl Kw {
             Self::Abrt | Self::Lost => PyOpt::new1(PyInt::new_u32().rstype(path)).into(),
             Self::CSVBits | Self::CSTot => PyInt::new_u32().rstype(path).into(),
             Self::Unicode => {
-                let inner = PyTuple::new1(RsInt::U32).add(PyList::new1(PyStr::default()));
-                PyOpt::new1(inner.rstype(path)).into()
+                let inner = PyAlias::new_py(["typing"], "Unicode").rstype(path);
+                PyOpt::new1(inner).into()
             }
             Self::LastModified => PyOpt::new1(PyDatetime::default().rstype(path)).into(),
             Self::Originality => {
-                let choices = ["Original", "NonDataModified", "Appended", "DataModified"];
-                PyOpt::new1(PyLiteral::new_with_path(choices, path)).into()
+                let inner = PyAlias::new_py(["typing"], "Originality").rstype(path);
+                PyOpt::new1(inner).into()
             }
             Self::Vol => PyOpt::new1(PyFloat::new_non_negative_float().rstype(path)).into(),
             Self::Spillover => {
-                // TODO add exception for when $PnN don't match
-                let ed = format!("if {ARG_TOKEN} is not a square matrix that is 2x2 or larger");
-                let matrix_exc = PyException::new_invalid_keyword().desc(ed);
-                let d = format!(
-                    "if matrix in {ARG_TOKEN} does not have the same number of rows \
-                     and columns as the measurement vector",
-                );
-                let spill_exc = PyException::new_invalid_keyword().desc(d);
-                let inner = PyTuple::new1(PyList::new1(PyStr::new_shortname()))
-                    .add(PyClass::new1("~numpy.ndarray").exc(matrix_exc))
-                    .exc(spill_exc);
-                PyOpt::new1(inner.rstype(path)).into()
+                let inner = PyAlias::new_py(["typing"], "Spillover").rstype(path);
+                PyOpt::new1(inner).into()
             }
             Self::UnstainedCenters => {
-                PyDict::new(PyStr::new_shortname(), RsFloat::F32, path, None).into()
+                let inner = PyDict::new1(PyStr::new_shortname(), RsFloat::F32);
+                PyAlias::new_py(["typing"], "UnstainedCenters")
+                    .rstype(path)
+                    .set_default(inner)
+                    .into()
             }
             Self::Tr => {
-                let inner = PyTuple::new1(PyInt::new_u32()).add(PyStr::new_shortname());
-                PyOpt::new1(inner.rstype(path)).into()
+                let inner = PyAlias::new_py(["typing"], "Trigger").rstype(path);
+                PyOpt::new1(inner).into()
             }
         }
     }
@@ -12380,12 +12378,12 @@ impl MeasKw {
                 PyOpt::new1(PyFloat::new_non_negative_float().rstype(path)).into()
             }
             Self::PnCALIBRATION3_1 => {
-                let inner = PyTuple::new1(pf).add(PyStr::default());
-                PyOpt::new1(inner.rstype(path)).into()
+                let inner = PyAlias::new_py(["typing"], "Calibration3_1").rstype(path);
+                PyOpt::new1(inner).into()
             }
             Self::PnCALIBRATION3_2 => {
-                let inner = PyTuple::new1(pf).add(RsFloat::F32).add(PyStr::default());
-                PyOpt::new1(inner.rstype(path)).into()
+                let inner = PyAlias::new_py(["typing"], "Calibration3_2").rstype(path);
+                PyOpt::new1(inner).into()
             }
             Self::PnD => {
                 let desc = format!(

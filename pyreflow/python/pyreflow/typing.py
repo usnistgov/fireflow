@@ -361,6 +361,7 @@ type NonStdKeywords = dict[NonStdKey, str]
 """All non-standard keywords and their serialized values."""
 
 type MeasIndex = int
+"""The index for a measurement in a dataset (starting at 0)."""
 
 type Endian = Literal["big", "little"]
 """The endian-ness of values in the *DATA* segment.
@@ -398,9 +399,9 @@ This must be greater than ``"0.0"``.
 type Trigger = tuple[Shortname, int]
 """The value of the *$TR* keyword.
 
-The first element is the measurement name and the second is the trigger
-threshold value. When serialized in an FCS file this will be like
-``"<name>,<threshold>"``.
+The first element is the measurement name (ie a *$PnN*) and the second
+is the trigger threshold value. When serialized in an FCS file this will
+be like ``"<name>,<threshold>"``.
 
 """
 
@@ -422,14 +423,7 @@ list corresponds to $CSMODE.
 """
 
 type Compensation = npt.NDArray[np.float32]
-"""The value of the compensation matrix.
-
-For FCS2.0 this is the combined value of all non-zero *$DFCmTOn*
-keywords.
-
-For FCS3.0 this is the value of *$COMP*.
-
-"""
+"""The value of the compensation matrix."""
 
 type Spillover = tuple[list[str], npt.NDArray[np.float32]]
 """The value of *$SPILLOVER* for FCS 3.1/3.2.

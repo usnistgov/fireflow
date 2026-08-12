@@ -34,9 +34,9 @@ use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::config::{
     self as tc, AllowHeaderTEXTOffsetMismatch, ComputeCRC, DelimEscapeMode, ForceLinearScale,
-    GuessOtherWidth, OverBitmaskAction, OverLimitAction, OverRangeAction, ProcessKeywordFailure,
-    ProcessTemporalOpticalKeys, ReadStrategy, RowBufferSize, SpilloverMeasurementMode,
-    TemporalOpticalKey, TriFlag, TrimValueWhitespace, UseEncoding,
+    GuessOtherWidth, OpticalOnlyKey, OverBitmaskAction, OverLimitAction, OverRangeAction,
+    ProcessKeywordFailure, ProcessOpticalOnlyKeys, ReadStrategy, RowBufferSize,
+    SpilloverMeasurementMode, TriFlag, TrimValueWhitespace, UseEncoding,
 };
 use fireflow_types::keywords::Version;
 use fireflow_types::nonempty_string::NEString;
@@ -566,8 +566,8 @@ impl ReadStdKeywordsConfig {
             allow_missing_time: self.allow_missing_time,
             add_missing_timestep: self.add_missing_timestep,
             force_linear_scale: self.force_linear_scale,
-            ignore_time_optical_keys: self.ignore_time_optical_keys.clone(),
-            process_time_optical_keys: self.process_time_optical_keys,
+            ignore_optical_only_keys: self.ignore_optical_only_keys.clone(),
+            process_optical_only_keys: self.process_optical_only_keys,
             spillover_measurement_mode: self.spillover_measurement_mode,
             date_pattern: self.date_pattern.eval(kws),
             time_pattern: self.time_pattern.eval(kws),
@@ -638,13 +638,13 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
     ///
     /// In the case of $PnG, the value is allowed to be set to 1.0 since this
     /// equates to a no-op.
-    pub ignore_time_optical_keys: TemporalOpticalKeys,
+    pub ignore_optical_only_keys: OpticalOnlyKeys,
 
     /// Choose what to do with optical keywords in the time channel when found.
     ///
     /// Does nothing unless keys are specified in
-    /// [`Self::ignore_time_optical_keys`].
-    pub process_time_optical_keys: ProcessTemporalOpticalKeys,
+    /// [`Self::ignore_optical_only_keys`].
+    pub process_optical_only_keys: ProcessOpticalOnlyKeys,
 
     /// Choose how to interpret measurements in $SPILLOVER.
     ///
@@ -1599,7 +1599,7 @@ impl Default for TimeMeasNamePattern {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct TemporalHasOpticalKeyError {
     index: MeasIndex,
-    key: TemporalOpticalKey,
+    key: OpticalOnlyKey,
 }
 
 /// A map of [`KeyString`]/[`String`] pairs.
@@ -1630,51 +1630,51 @@ pub struct DataRemainderLimit(pub u64);
 
 /// Set of temporal optical keys.
 #[derive(Clone, Default, From, Into)]
-pub struct TemporalOpticalKeys(pub HashSet<TemporalOpticalKey>);
+pub struct OpticalOnlyKeys(pub HashSet<OpticalOnlyKey>);
 
-type TemporalOpticalResult = WarningsAndErrorsResult<
+type OpticalOnlyResult = WarningsAndErrorsResult<
     Vec<(StdKey, NEString)>,
     (),
     TemporalHasOpticalKeyError,
     TemporalHasOpticalKeyError,
 >;
 
-impl TemporalOpticalKeys {
+impl OpticalOnlyKeys {
     fn all() -> Self {
         let keys = [
-            TemporalOpticalKey::Gain,
-            TemporalOpticalKey::Analyte,
-            TemporalOpticalKey::Calibration,
-            TemporalOpticalKey::DetectorName,
-            TemporalOpticalKey::DetectorType,
-            TemporalOpticalKey::DetectorVoltage,
-            TemporalOpticalKey::Feature,
-            TemporalOpticalKey::Filter,
-            TemporalOpticalKey::PercentEmitted,
-            TemporalOpticalKey::Power,
-            TemporalOpticalKey::Tag,
-            TemporalOpticalKey::Wavelength,
+            OpticalOnlyKey::Gain,
+            OpticalOnlyKey::Analyte,
+            OpticalOnlyKey::Calibration,
+            OpticalOnlyKey::DetectorName,
+            OpticalOnlyKey::DetectorType,
+            OpticalOnlyKey::DetectorVoltage,
+            OpticalOnlyKey::Feature,
+            OpticalOnlyKey::Filter,
+            OpticalOnlyKey::PercentEmitted,
+            OpticalOnlyKey::Power,
+            OpticalOnlyKey::Tag,
+            OpticalOnlyKey::Wavelength,
         ];
         Self(keys.into_iter().collect())
     }
 
     pub(crate) fn remove(
         &self,
-        targets: &[TemporalOpticalKey],
+        targets: &[OpticalOnlyKey],
         kws: &mut ValidKeywords,
         i: MeasIndex,
-        flag: ProcessTemporalOpticalKeys,
-    ) -> TemporalOpticalResult {
+        flag: ProcessOpticalOnlyKeys,
+    ) -> OpticalOnlyResult {
         let mut es = vec![];
         let mut ws = vec![];
         let mut pairs = vec![];
         for t in targets {
             let k = StdKey::from_temporal_optical_key(*t, i);
             let (demote, warn) = match flag {
-                ProcessTemporalOpticalKeys::DemoteWarn => (true, true),
-                ProcessTemporalOpticalKeys::DemoteSilent => (true, false),
-                ProcessTemporalOpticalKeys::DropWarn => (false, true),
-                ProcessTemporalOpticalKeys::DropSilent => (false, false),
+                ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
+                ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
+                ProcessOpticalOnlyKeys::DropWarn => (false, true),
+                ProcessOpticalOnlyKeys::DropSilent => (false, false),
             };
             if let Some(v) = kws.std.remove(&k) {
                 let err = || TemporalHasOpticalKeyError::new(i, *t);
@@ -1883,8 +1883,8 @@ impl HasStrategy for ReadStdKeywordsConfig {
         self.fix_log_scale_offsets = true.into();
         // This flag all optical keys as ignorable in the time measurement.
         // The next flag tells what to do with them (in this case, demote)
-        self.ignore_time_optical_keys = TemporalOpticalKeys::all();
-        self.process_time_optical_keys = ProcessTemporalOpticalKeys::DemoteWarn;
+        self.ignore_optical_only_keys = OpticalOnlyKeys::all();
+        self.process_optical_only_keys = ProcessOpticalOnlyKeys::DemoteWarn;
         self.process_pseudostandard = ProcessKeywordFailure::DemoteWarn.into();
         self.process_hyper_par = ProcessKeywordFailure::DemoteWarn.into();
         self.process_other_version = ProcessKeywordFailure::DemoteWarn.into();
@@ -1892,7 +1892,7 @@ impl HasStrategy for ReadStdKeywordsConfig {
     }
 
     fn with_sledgehammer(&mut self) {
-        self.process_time_optical_keys = ProcessTemporalOpticalKeys::DropWarn;
+        self.process_optical_only_keys = ProcessOpticalOnlyKeys::DropWarn;
         self.process_pseudostandard = ProcessKeywordFailure::DropWarn.into();
         self.process_hyper_par = ProcessKeywordFailure::DropWarn.into();
         self.process_other_version = ProcessKeywordFailure::DropWarn.into();
@@ -1951,9 +1951,9 @@ impl EvaledReadDataKeywordsConfig {
 mod python {
     use super::{
         ByteordOverride, FixIntWidths, KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig,
-        ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig, ReadFlatTEXTConfig,
-        ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
-        TemporalOpticalKeys, TimeMeasNamePattern,
+        OpticalOnlyKeys, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
+        ReadFlatTEXTConfig, ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
+        TimeMeasNamePattern,
     };
 
     use crate::text::keywords::ByteOrd2_0;
@@ -2028,7 +2028,7 @@ mod python {
 
     impl_into_flat_dict!(NewCoreDatasetConfig, offset, standard, layout, data, shared);
 
-    impl<'py> FromPyObject<'_, 'py> for TemporalOpticalKeys {
+    impl<'py> FromPyObject<'_, 'py> for OpticalOnlyKeys {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             let xs: Vec<_> = obj.extract()?;
@@ -2036,7 +2036,7 @@ mod python {
         }
     }
 
-    impl<'py> IntoPyObject<'py> for TemporalOpticalKeys {
+    impl<'py> IntoPyObject<'py> for OpticalOnlyKeys {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;

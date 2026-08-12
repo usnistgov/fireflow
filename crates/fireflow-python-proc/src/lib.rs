@@ -8282,19 +8282,6 @@ impl PyStrLiteral {
         Self::new_with_path(ALL_VERSION_STRINGS, path)
     }
 
-    fn new_version_override() -> Self {
-        let path = config_path("VersionOverride");
-        let vs = ALL_VERSION_STRINGS
-            .into_iter()
-            .chain(tc::VERSION_STRATEGY_ALL_LEVELS);
-        Self::new_with_path(vs, path)
-    }
-
-    fn new_temporal_optical_key() -> Self {
-        let path = parse_quote!(fireflow_core::config::TemporalOpticalKeys);
-        Self::new_with_path(tc::TemporalOpticalKey::iter_str(), path)
-    }
-
     fn new_datatype() -> Self {
         let path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
         Self::new_with_path(["A", "I", "F", "D"], path)
@@ -8329,11 +8316,6 @@ impl PyStrLiteral {
         ]
         .into_iter()
         .collect()
-    }
-
-    fn new_tri_flag(name: &str) -> Self {
-        let path = config_path(name);
-        Self::new_with_path(tc::TriFlag::iter_str(), path)
     }
 
     fn new_column_type() -> Self {
@@ -8960,6 +8942,43 @@ impl<E> PyAlias<E> {
 }
 
 impl<E: From<PyException>> PyAlias<E> {
+    fn new_correction(seg: AnySegment, is_header: bool) -> Self {
+        let path = seg.correction_path(is_header);
+        let pytype = [PyInt::new_int(RsInt::I32), PyInt::new_int(RsInt::I32)]
+            .into_iter()
+            .collect::<PyTuple<_>>();
+        Self::new_py(["typing"], "OffsetCorrection")
+            .rstype(path)
+            .set_default(pytype)
+    }
+
+    fn new_optical_only_key() -> Self {
+        let path = parse_quote!(fireflow_core::config::TemporalOpticalKeys);
+        let pytype = tc::OpticalOnlyKey::iter_str().collect::<PyStrLiteral>();
+        Self::new_py(["typing"], "OpticalOnlyKey")
+            .rstype(path)
+            .set_default(pytype)
+    }
+
+    fn new_tri_flag(name: &str) -> Self {
+        let path = config_path(name);
+        let pytype = tc::TriFlag::iter_str().collect::<PyStrLiteral>();
+        Self::new_py(["typing"], "TriFlag")
+            .rstype(path)
+            .set_default(pytype)
+    }
+
+    fn new_version_override() -> Self {
+        let path = config_path("VersionOverride");
+        let pytype = ALL_VERSION_STRINGS
+            .into_iter()
+            .chain(tc::VERSION_STRATEGY_ALL_LEVELS)
+            .collect::<PyStrLiteral>();
+        Self::new_py(["typing"], "VersionOverride")
+            .rstype(path)
+            .set_default(pytype)
+    }
+
     fn new_selector(inner: impl Into<PyType<E>>) -> Self
     where
         PyType<E>: Clone,
@@ -9750,7 +9769,7 @@ impl DocArgParam {
             true_ = code_str(tc::TRI_TRUE_LEVEL),
             silent = code_str(tc::TRI_SILENT_LEVEL),
         );
-        let pt = PyLiteral::new_tri_flag(ident_name);
+        let pt = PyAlias::new_tri_flag(ident_name);
         Self::new_param(name, pt, d).def_auto()
     }
 
@@ -9760,19 +9779,11 @@ impl DocArgParam {
         desc: impl fmt::Display,
     ) -> Self {
         let path = config_path(ident_name);
-        let pt = PyLiteral::new_with_path(tc::ProcessKeywordFailure::iter_str(), path);
-        let d = format!(
-            "{desc} Use {error} to throw error on failure, {demote} to demote \
-             to non-standard with warning, {demote_silent} to demote to \
-             non-standard with no warning, {drop} to drop with warning, or \
-             {drop_silent} to drop with no warning",
-            error = code_str(tc::KW_ERROR_LEVEL),
-            demote = code_str(tc::KW_DEMOTE_WARN_LEVEL),
-            demote_silent = code_str(tc::KW_DEMOTE_SILENT_LEVEL),
-            drop = code_str(tc::KW_DROP_WARN_LEVEL),
-            drop_silent = code_str(tc::KW_DROP_SILENT_LEVEL),
-        );
-        Self::new_param(name, pt, d).def_auto()
+        let inner = tc::ProcessKeywordFailure::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "ProcessKeywordFailure")
+            .rstype(path)
+            .set_default(inner);
+        Self::new_param(name, pt, desc).def_auto()
     }
 
     fn new_opt_param(
@@ -10402,24 +10413,21 @@ impl DocArgParam {
 
     fn new_force_linear_scale_param() -> Self {
         let path = types_config_path("ForceLinearScale");
-        let pt = PyLiteral::new_with_path(tc::ForceLinearScale::iter_str(), path);
+        let inner = tc::ForceLinearScale::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "ForceLinearScale")
+            .rstype(path)
+            .set_default(inner);
         let d = format!(
-            "Force {PNE} to be linear. Use {time} to only change the temporal \
-             measurement, {non_int} to change all non-integer measurements and \
-             temporal measurement, {all} to change all measurements, and {none} \
-             to change no measurements. Affected columns will never fail.",
-            time = code_str(tc::FORCE_LINEAR_TIME_LEVEL),
-            non_int = code_str(tc::FORCE_LINEAR_NON_INT_LEVEL),
-            all = code_str(tc::FORCE_LINEAR_ALL_LEVEL),
-            none = code_str(tc::FORCE_LINEAR_NONE_LEVEL),
+            "Force {PNE} to be linear for certain measurements. \
+             Affected measurements will never fail."
         );
         Self::new_param("force_linear_scale", pt, d).def_auto()
     }
 
     fn new_ignore_time_optical_keys_param() -> Self {
         let p = PyList::new(
-            PyLiteral::new_temporal_optical_key(),
-            Some(parse_quote!(fireflow_core::config::TemporalOpticalKeys)),
+            PyAlias::new_optical_only_key(),
+            Some(parse_quote!(fireflow_core::config::OpticalOnlyKeys)),
             None,
         );
         let d = format!(
@@ -10435,42 +10443,33 @@ impl DocArgParam {
             pn = code_str("Pn"),
             pnx = code_str("PnX"),
         );
-        Self::new_param(IGNORE_TIME_OPTICAL_KEYS, p, d).def_auto()
+        Self::new_param(IGNORE_OPTICAL_ONLY_KEYS, p, d).def_auto()
     }
 
     fn new_process_time_optical_keys_param() -> Self {
         let d = format!(
             "Choose how to handle optical keys found in temporal measurements. \
-             Does nothing unless keys are specified in {other_arg}. \
-             Pass {demote}, {demote_silent}, {drop}, or \
-             {drop_silent} to demote found keys to nonstandard (with \
-             or without warning) or drop keys entirely (with or without \
-             warning) respectively.",
-            other_arg = arg(IGNORE_TIME_OPTICAL_KEYS),
-            demote = code_str(tc::TMP_OPT_DEMOTE_WARN_LEVEL),
-            demote_silent = code_str(tc::TMP_OPT_DEMOTE_SILENT_LEVEL),
-            drop = code_str(tc::TMP_OPT_DROP_WARN_LEVEL),
-            drop_silent = code_str(tc::TMP_OPT_DROP_SILENT_LEVEL),
+             Does nothing unless keys are specified in {other_arg}.",
+            other_arg = arg(IGNORE_OPTICAL_ONLY_KEYS),
         );
-        let path = types_config_path("ProcessTemporalOpticalKeys");
-        let pt = PyLiteral::new_with_path(tc::ProcessTemporalOpticalKeys::iter_str(), path);
-        Self::new_param("process_time_optical_keys", pt, d).def_auto()
+        let path = types_config_path("ProcessOpticalOnlyKeys");
+        let inner = tc::ProcessOpticalOnlyKeys::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "ProcessOpticalOnlyKeys")
+            .rstype(path)
+            .set_default(inner);
+        Self::new_param("process_optical_only_keys", pt, d).def_auto()
     }
 
     fn new_spillover_meas_mode_param() -> Self {
         let d = format!(
-            "Choose how to interpret measurement strings in {spillover}. \
-             Set to {named} to interpret as names which link to \
-             {PNN}. Set to {indexed} to interpret as 1-indices which \
-             point to measurements. Set to {guess} to automatically \
-             choose the prior two modes.",
+            "Choose how to interpret measurement strings in {spillover}.",
             spillover = Kw::Spillover.kw(),
-            named = code_str(tc::SPILLOVER_NAMED_LEVEL),
-            indexed = code_str(tc::SPILLOVER_INDEXED_LEVEL),
-            guess = code_str(tc::SPILLOVER_GUESS_LEVEL),
         );
         let path = types_config_path("SpilloverMeasurementMode");
-        let pt = PyLiteral::new_with_path(tc::SpilloverMeasurementMode::iter_str(), path);
+        let inner = tc::SpilloverMeasurementMode::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "SpilloverMeasurementMode")
+            .rstype(path)
+            .set_default(inner);
         Self::new_param("spillover_measurement_mode", pt, d).def_auto()
     }
 
@@ -10530,8 +10529,10 @@ impl DocArgParam {
             Some(Version::FCS3_0) => fmt3_0,
             _ => fmt3_1,
         };
-        let line1 = "If supplied, will be used as an alternative pattern when \
-                     parsing {BTIM} and {ETIM}.";
+        let line1 = format!(
+            "If supplied, will be used as an alternative pattern when \
+             parsing {BTIM} and {ETIM}."
+        );
         let line2 = format!(
             "The values {b60} or {b100} may be used to match \
              {TIMEPATTERN_NAME3_0} or {TIMEPATTERN_NAME3_1} respectively.",
@@ -10542,7 +10543,7 @@ impl DocArgParam {
             "If not supplied, {BTIM} and {ETIM} will be parsed \
              according to the standard pattern which is {std_pat}.",
         );
-        let arg_desc = [line1.to_owned(), line2, line3].into_iter().join(" ");
+        let arg_desc = [line1, line2, line3].into_iter().join(" ");
 
         let pt = PyAlias::new_selector(PyOpt::new1(PyStr::new_time_pattern()));
         Self::new_param("time_pattern", pt, arg_desc).def_auto()
@@ -10602,41 +10603,33 @@ impl DocArgParam {
     }
 
     fn new_fix_int_widths_param() -> Self {
-        let d = format!(
-            "Fix {PNB}. Only has effect on integer layouts in FCS 2.0/3.0. \
-             Set to {} or {} to round up to next multiple of 8 or do nothing. \
-             Set to an integer 1-8 to override all {PNB} explicitly.",
-            code_str(tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL),
-            code_str(tc::FIX_INT_WIDTH_NEVER_LEVEL)
-        );
+        let d = format!("Override {PNB}. Only affects integer layouts in FCS 2.0/3.0.");
         let lit = [
             tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str(),
             tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str(),
         ];
         let path = config_path("FixIntWidths");
-        let pt = PyUnion::new2(lit.into_iter().collect::<PyStrLiteral>(), RsInt::U8).rstype(path);
+        let inner = PyUnion::new2(lit.into_iter().collect::<PyStrLiteral>(), RsInt::U8);
+        let pt = PyAlias::new_py(["typing"], "FixIntWidths")
+            .rstype(path)
+            .set_default(inner);
         Self::new_param("fix_int_widths", pt, d).def_auto()
     }
 
     fn new_byteord_override_param() -> Self {
-        let d = format!(
-            "Override the value of {BYTEORD}. Set to {} or {} to do nothing \
-             or interpret {BYTEORD} based on its endian-ness (ie without its \
-             length). Set to an explicit comma-separated integer sequence to \
-             set {BYTEORD} directly.",
-            code_str(tc::BYTEORD_OVERRIDE_NONE_LEVEL),
-            code_str(tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL)
-        );
+        let d = format!("Override {BYTEORD}. Only affects integer layouts in FCS 2.0/3.0.");
         let lit = [
             tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str(),
             tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str(),
         ];
         let path = config_path("ByteordOverride");
-        let pt = PyUnion::new2(
+        let inner = PyUnion::new2(
             lit.into_iter().collect::<PyStrLiteral>(),
             PyList::new1(RsInt::U32),
-        )
-        .rstype(path);
+        );
+        let pt = PyAlias::new_py(["typing"], "ByteordOverride")
+            .rstype(path)
+            .set_default(inner);
         Self::new_param("byteord_override", pt, d).def_auto()
     }
 
@@ -10671,7 +10664,7 @@ impl DocArgParam {
     fn new_other_corrections_param() -> Self {
         Self::new_param(
             "other_corrections",
-            PyList::new1(PyTuple::new_correction(AnySegment::Other, true)),
+            PyList::new1(PyAlias::new_correction(AnySegment::Other, true)),
             format!(
                 "Corrections for {OTHER} offsets if they exist. Each correction will \
                  be applied in order. If an offset does not need to be corrected, \
@@ -10700,18 +10693,14 @@ impl DocArgParam {
 
     fn new_guess_other_width_param() -> Self {
         let path = types_config_path("GuessOtherWidth");
-        let pt = PyStrLiteral::new_with_path(tc::GuessOtherWidth::iter_str(), path);
+        let inner = tc::GuessOtherWidth::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "GuessOtherWidth")
+            .rstype(path)
+            .set_default(inner);
         let d = format!(
-            "Guess the width of {OTHER} segments. Valid values are {none} \
-             (no guessing) or {error}, {warn} or {silent} which will guess and \
-             throw an error, warning, or nothing on failure. For {warn} and \
-             {silent}, failure will fall back to the 8 or whatever was given in \
-             {other_arg}",
+            "Guess the width of {OTHER} segments. Non-fatal failure to guess \
+             width will fall back to ``8`` or whatever was given in {other_arg}",
             other_arg = arg(OTHER_WIDTH),
-            none = code_str(tc::OTHER_WIDTH_NONE_LEVEL),
-            error = code_str(tc::OTHER_WIDTH_ERROR_LEVEL),
-            warn = code_str(tc::OTHER_WIDTH_WARN_LEVEL),
-            silent = code_str(tc::OTHER_WIDTH_SILENT_LEVEL),
         );
         Self::new_param("guess_other_width", pt, d).def_auto()
     }
@@ -10768,26 +10757,8 @@ impl DocArgParam {
     }
 
     fn new_version_override() -> Self {
-        let d = format!(
-            "Override the FCS version as seen in {HEADER}. Use an FCS \
-             version string like {verstr} to force to a specific version. \
-             Alternatively, autodetect the version from keywords in {TEXT} \
-             using one of {latest}, {earliest}, {strict}, or {loose}. These \
-             will be used to select the latest version, earliest version, \
-             version with least optional keywords, or version with most optional \
-             keywords respectively in the event that more than one version can \
-             accommodate the keywords from {TEXT}. Autodetection will fail \
-             if no versions can be found which accommodate all required \
-             keywords in {TEXT}. Append {current} to prioritize the current \
-             version before ranking others.",
-            verstr = code_str("FCS3.2"),
-            latest = code_str(tc::VERSION_LATEST_LEVEL),
-            earliest = code_str(tc::VERSION_EARLIEST_LEVEL),
-            strict = code_str(tc::VERSION_STRICT_LEVEL),
-            loose = code_str(tc::VERSION_LOOSE_LEVEL),
-            current = code_str("current_or"),
-        );
-        Self::new_opt_param("version_override", PyLiteral::new_version_override(), d)
+        let d = format!("Override the FCS version as seen in {HEADER}.");
+        Self::new_opt_param("version_override", PyAlias::new_version_override(), d)
     }
 
     fn new_supp_text_correction() -> Self {
@@ -10817,18 +10788,11 @@ impl DocArgParam {
 
     fn new_delim_escape_mode() -> Self {
         let path = types_config_path("DelimEscapeMode");
-        let d = format!(
-            "Determine how to escape delims in {TEXT}. If {escaped} \
-             or {unescaped}, escape or do not escape delimiters \
-             respectively. If {guess_escaped} or  {guess_unescaped}, \
-             attempt to guess how delimiters should be treated, falling back \
-             to escaped or unescaped mode respectively if the choice is ambiguous.",
-            escaped = code_str(tc::DELIM_ESCAPED_LEVEL),
-            unescaped = code_str(tc::DELIM_UNESCAPED_LEVEL),
-            guess_escaped = code_str(tc::DELIM_GUESS_ESCAPED_LEVEL),
-            guess_unescaped = code_str(tc::DELIM_GUESS_UNESCAPED_LEVEL),
-        );
-        let pt = PyLiteral::new_with_path(tc::DelimEscapeMode::iter_str(), path);
+        let d = format!("Determine how to escape delims in {TEXT}.");
+        let inner = tc::DelimEscapeMode::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "DelimEscapeMode")
+            .rstype(path)
+            .set_default(inner);
         Self::new_param("delim_escape_mode", pt, d).def_auto()
     }
 
@@ -10883,18 +10847,13 @@ impl DocArgParam {
     }
 
     fn new_use_encoding() -> Self {
-        let d = format!(
-            "Choose how to interpret characters in {TEXT}. Choose \
-             {}, {}, or {} to interpret bytes as IANA ISO/IEC-8859-1 \
-             UTF-8, or first as UTF-8 and falling back to IANA ISO/IEC-8859-1 \
-             if a non-UTF-8 byte is found.",
-            tc::ENCODING_SINGLE_LEVEL,
-            tc::ENCODING_UTF8_LEVEL,
-            tc::ENCODING_GUESS_LEVEL
-        );
-        let pt: PyStrLiteral = tc::UseEncoding::iter_str().collect();
+        let d = format!("Choose how to interpret characters in {TEXT}.");
+        let inner: PyStrLiteral = tc::UseEncoding::iter_str().collect();
         let path = types_config_path("UseEncoding");
-        Self::new_param("use_encoding", pt.rstype(path), d).def_auto()
+        let pt = PyAlias::new_py(["typing"], "UseEncoding")
+            .rstype(path)
+            .set_default(inner);
+        Self::new_param("use_encoding", pt, d).def_auto()
     }
 
     fn new_allow_non_ascii_keys() -> Self {
@@ -10948,19 +10907,13 @@ impl DocArgParam {
     }
 
     fn new_trim_value_whitespace() -> Self {
-        let d = format!(
-            "Trim whitespace from beginning and end of all values. This may \
-             create blank values if the starting string is entirely whitespace. \
-             Set to {notrim} to not trim at all. Set to {trim}, {trim_blank_warn}, \
-             or {trim_blank_nowarn} to enable trimming and throw error, warning, \
-             or nothing when trimming results in a blank.",
-            notrim = code_str(tc::TRIM_NONE_LEVEL),
-            trim = code_str(tc::TRIM_ERROR_LEVEL),
-            trim_blank_warn = code_str(tc::TRIM_BLANK_WARN_LEVEL),
-            trim_blank_nowarn = code_str(tc::TRIM_BLANK_SILENT_LEVEL),
-        );
+        let d = "Trim whitespace from beginning and end of all values. This may \
+                 create blank values if the starting string is entirely whitespace.";
         let rstype = types_config_path("TrimValueWhitespace");
-        let pt = PyLiteral::new_with_path(tc::TrimValueWhitespace::iter_str(), rstype);
+        let inner = tc::TrimValueWhitespace::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "TrimValueWhitespace")
+            .rstype(rstype)
+            .set_default(inner);
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
     }
 
@@ -11084,18 +11037,15 @@ impl DocArgParam {
         let exc = PyreflowError::FileLayout.fmt_ref();
         let n = "allow_header_text_offset_mismatch";
         let d = format!(
-            "Allow {HEADER} and {TEXT} offsets to be different. If \
-             {header_warn} or {header_silent}, choose {HEADER} and throw \
-             a warning or nothing on mismatch. If {text_warn} or {text_silent} \
-             behave analogously for {TEXT}. If {error} throw {exc}",
-            header_warn = code_str(tc::MISMATCH_HEADER_WARN_LEVEL),
-            header_silent = code_str(tc::MISMATCH_HEADER_SILENT_LEVEL),
-            text_warn = code_str(tc::MISMATCH_TEXT_WARN_LEVEL),
-            text_silent = code_str(tc::MISMATCH_TEXT_SILENT_LEVEL),
-            error = code_str(tc::MISMATCH_ERROR_LEVEL),
+            "Choose what to do if {HEADER} and {TEXT} offsets are different. \
+             Exception will be {exc} if emitted.",
         );
         let path = types_config_path("AllowHeaderTEXTOffsetMismatch");
-        let pt = PyLiteral::new_with_path(tc::AllowHeaderTEXTOffsetMismatch::iter_str(), path);
+        let inner = tc::AllowHeaderTEXTOffsetMismatch::iter_str().collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "AllowHeaderTextOffsetMismatch")
+            .rstype(path)
+            .set_default(inner);
+
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -11136,17 +11086,8 @@ impl DocArgParam {
 
     fn new_over_bitmask_action() -> Self {
         let n = "over_bitmask_action";
-        let d = format!(
-            "Choose what to do with event integer values in {DATA} which exceed bitmask. \
-             Pass {error} to emit error, {warn} to emit \
-             warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
-             warning, and {trunc_silent} to truncate with no warning.",
-            error = code_str(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
-            warn = code_str(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
-            silent = code_str(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
-            trunc_warn = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
-        );
+        let d =
+            format!("Choose what to do with event integer values in {DATA} which exceed bitmask.");
         let path = types_config_path("OverBitmaskAction");
         // explicitly spell out options here since the default is not
         // set at the inner type level
@@ -11158,7 +11099,13 @@ impl DocArgParam {
             tc::OVER_LIMIT_ACTION_SILENT_LEVEL,
             tc::OVER_LIMIT_ACTION_NONE_LEVEL,
         ];
-        let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
+        let inner = options
+            .into_iter()
+            .map(NEStr::as_str)
+            .collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "OverLimitAction")
+            .rstype(path)
+            .set_default(inner);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -11179,17 +11126,7 @@ impl DocArgParam {
 
     fn new_over_range_action() -> Self {
         let n = "over_range_action";
-        let d = format!(
-            "Choose what to do with event values in {DATA} which exceed {PNR}. \
-             Pass {error} to emit error, {warn} to emit \
-             warning, {silent} to do nothing, {trunc_warn} to truncate and emit \
-             warning, and {trunc_silent} to truncate with no warning.",
-            error = code_str(tc::OVER_LIMIT_ACTION_ERROR_LEVEL),
-            warn = code_str(tc::OVER_LIMIT_ACTION_WARN_LEVEL),
-            silent = code_str(tc::OVER_LIMIT_ACTION_SILENT_LEVEL),
-            trunc_warn = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL),
-            trunc_silent = code_str(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
-        );
+        let d = format!("Choose what to do with event values in {DATA} which exceed {PNR}.");
         let path = types_config_path("OverRangeAction");
         // explicitly spell out options here since the default is not
         // set at the inner type level
@@ -11201,7 +11138,13 @@ impl DocArgParam {
             tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
             tc::OVER_LIMIT_ACTION_NONE_LEVEL,
         ];
-        let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
+        let inner = options
+            .into_iter()
+            .map(NEStr::as_str)
+            .collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "OverLimitAction")
+            .rstype(path)
+            .set_default(inner);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -11254,7 +11197,13 @@ impl DocArgParam {
             tc::COMPUTE_CRC_ALWAYS_LEVEL,
             tc::COMPUTE_CRC_TEST_LEVEL,
         ];
-        let pt = PyLiteral::new_with_path(options.into_iter().map(NEStr::as_str), path);
+        let inner = options
+            .into_iter()
+            .map(NEStr::as_str)
+            .collect::<PyStrLiteral>();
+        let pt = PyAlias::new_py(["typing"], "ComputeCRC")
+            .rstype(path)
+            .set_default(inner);
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -12501,7 +12450,7 @@ const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
 const BIG_OTHER: &str = "big_other";
 const MEASUREMENTS: &str = "measurements";
 const MAX_OTHER: &str = "max_other";
-const IGNORE_TIME_OPTICAL_KEYS: &str = "ignore_time_optical_keys";
+const IGNORE_OPTICAL_ONLY_KEYS: &str = "ignore_optical_only_keys";
 const OTHER_WIDTH: &str = "other_width";
 const UINT_RANGES: &str = "ranges";
 

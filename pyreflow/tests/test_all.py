@@ -5348,10 +5348,10 @@ class TestConfig:
         assert go("all") == non_int_result
 
     @all_versions
-    def test_ignore_time_optical_keys(
+    def test_ignore_optical_only_keys(
         self, version: pt.FCSVersion, tmp_path: Path
     ) -> None:
-        """Test the ignore_time_optical_keys arg."""
+        """Test the ignore_optical_only_keys arg."""
         jiggawatt = "10000000000000000000000000000"
         kws = {
             "$P1N": "TIME",
@@ -5366,12 +5366,12 @@ class TestConfig:
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
         def go(
-            f: list[pt.TemporalOpticalKey], g: pt.ProcessTimeOpticalKeys
+            f: list[pt.OpticalOnlyKey], g: pt.ProcessOpticalOnlyKeys
         ) -> tuple[dict[str, str], dict[str, str]]:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
-                ignore_time_optical_keys=f,
-                process_time_optical_keys=g,
+                ignore_optical_only_keys=f,
+                process_optical_only_keys=g,
             )
             ps = uncore.std_diagnostics.pseudostandard
             ns = core.nonstandard_keywords

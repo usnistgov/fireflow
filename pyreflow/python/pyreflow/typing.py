@@ -40,7 +40,16 @@ type VersionOverride = (
 
 Supplying a literal FCS version will directly override the version.
 
-The other options denote how version should be guessed based on keywords.
+Alternatively, autodetect the version from keywords in *TEXT* using one
+of ``"latest"``, ``"earliest"``, ``"strict"``, or ``"loose"``. These
+will select the latest version, earliest version, version with least
+optional keywords, or version with most optional keywords respectively
+in the event that more than one version can accommodate the keywords
+from *TEXT*. Append ``"current_or"`` to prioritize the current version
+before ranking others.
+
+Autodetection will fail if no versions can be found which accommodate
+all required keywords in *TEXT*.
 
 """
 
@@ -50,7 +59,14 @@ type DelimEscapeMode = Literal[
     "guess_escaped",
     "guess_unescaped",
 ]
-"""Flag to denote how delimiters in *TEXT* should be interpreted."""
+"""Flag to determine how to escape delims in *TEXT*.
+
+If ``"escaped"`` or ``"unescaped"``, escape or do not escape delimiters
+respectively. If ``"guess_escaped"`` or ``"guess_unescaped"``, attempt
+to guess how delimiters should be treated, falling back to escaped or
+unescaped mode respectively if the choice is ambiguous.
+
+"""
 
 type KeyPatterns = list[str]
 """A list of patterns which match standard or nonstandard key values."""
@@ -72,9 +88,35 @@ denote how the values of matched keywords should be modified.
 type ProcessKeywordFailure = Literal[
     "error", "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
-"""Flag denoting what should happen if a keyword cannot be parsed."""
+"""Flag denoting what should happen if a keyword cannot be parsed.
 
-type ProcessTimeOpticalKeys = Literal[
+Levels are as follows:
+
+* ``"error"``: throw error
+* ``"demote_warn"``: demote to non-standard with warning
+* ``"demote_silent"``: demote to non-standard without warning
+* ``"drop_warn"``: drop with warning
+* ``"drop_silent"``: drop without warning
+
+"""
+
+type OpticalOnlyKey = Literal[
+    "G",
+    "F",
+    "L",
+    "O",
+    "T",
+    "P",
+    "V",
+    "CALIBRATION",
+    "DET",
+    "TAG",
+    "FEATURE",
+    "ANALYTE",
+]
+"""A key which should only be used for optical measurements."""
+
+type ProcessOpticalOnlyKeys = Literal[
     "demote_warn", "demote_silent", "drop_warn", "drop_silent"
 ]
 """Flag denoting how to handle optical keywords found in a temporal measurement."""
@@ -89,40 +131,129 @@ errors or warnings.
 """
 
 type ForceLinearScale = Literal["none", "time_only", "all_non_int", "all"]
-"""Flag denoting where to fix *$PnE* values that should be linear."""
+"""Flag denoting where to fix *$PnE* values that should be linear.
+
+Levels are as follows:
+
+* ``"time_only"``: only change the temporal measurement
+* ``"all_non_int"``: change non-integer and temporal measurements
+* ``"all"``: change all measurements
+* ``"none"``: change no measurements 
+
+"""
 
 type TrimValueWhitespace = Literal[
     "notrim", "trim", "trim_blank_warn", "trim_blank_silent"
 ]
-"""Flag denoting how to handle whitespace around keyword values in *TEXT*."""
+"""Flag denoting how to trim whitespace around keyword values in *TEXT*.
+
+Levels are as follows:
+
+* ``"notrim"``: do not trim at all
+* ``"trim"``: trim and throw error if result is blank
+* ``"trim_blank_warn"``: trim and throw warning if result is blank
+* ``"trim_blank_silent"`` trim and do nothing if result is blank
+
+"""
 
 type SpilloverMeasurementMode = Literal["named", "indexed", "guess"]
-"""Flag denoting how to interpret "names" for *$SPILLOVER* keyword."""
+"""Flag denoting how to interpret names for *$SPILLOVER* keyword.
+
+The "names" are the sequence of identifiers after the first integer (the
+size of the matrix) and before the values of the matrix itself.
+
+Levels are as follows:
+
+* ``"named"``: interpret as names which link to *$PnN*
+* ``"indexed"``: interpret as 1-indices which point to measurements
+* ``"guess"``: automatically choose the prior two modes
+
+"""
 
 type UseEncoding = Literal["single", "utf8", "guess"]
-"""Flag denoting how bytes in *TEXT* should be interpreted."""
+"""Flag denoting how bytes in *TEXT* should be interpreted.
+
+Levels are as follows:
+
+* ``"single"``: interpret bytes as IANA ISO/IEC-8859-1 (aka Latin-1)
+* ``"utf8"``: interpret bytes as UTF-8
+* ``"guess"``: interpret bytes as UTF-8 and fall back to to IANA
+  ISO/IEC-8859-1 on failure
+
+"""
 
 type GuessOtherWidth = Literal["none", "error", "warn", "silent"]
-"""Flag to denote how *OTHER* width fields should be guessed."""
+"""Flag to denote how *OTHER* width fields should be guessed.
+
+Levels are as follows:
+
+* ``"none"``: do not guess
+* ``"error"``: guess and throw error on failure
+* ``"warn"``: guess and throw warning on failure
+* ``"silent"`` guess and do nothing on failure
+
+"""
 
 type AllowHeaderTextOffsetMismatch = Literal[
     "error", "header_warn", "header_silent", "text_warn", "text_silent"
 ]
-"""Flag denoting what to do if offsets from *HEADER* and *TEXT* mismatch."""
+"""Flag denoting what to do if offsets from *HEADER* and *TEXT* mismatch.
+
+Levels are as follows:
+
+* ``"error"``: throw error
+* ``"header_warn"``: choose *HEADER* and throw warning
+* ``"header_silent"``: choose *HEADER* and do nothing
+* ``"text_warn"``: choose *TEXT* and throw warning
+* ``"text_silent"``: choose *TEXT* and do nothing
+
+"""
 
 type OverLimitAction = Literal[
     "error", "warn", "silent", "trunc_warn", "trunc_silent", "none"
 ]
-"""Flag to denote what should happen if a value is over *$PnR*."""
+"""Flag to denote what should happen if a value out of range.
+
+Levels are as follows:
+
+* ``"error"``: emit error
+* ``"warn"``: emit warning
+* ``"silent"``: do nothing
+* ``"trunc_warn"`` truncate and emit warning
+* ``"trunc_silent"``: truncate with no warning
+
+"""
 
 type FixIntWidths = int | Literal["next_byte", "never"]
-"""Flag denoting how integers should be fixed if their *$PnB* is wrong."""
+"""Fix *$PnB* if incorrect.
+
+Set to ``"next_byte"`` or ``"never"`` to round up to next multiple of 8
+or do nothing respectively.
+
+Set to an integer 1-8 to override all *$PnB* explicitly.
+
+"""
 
 type ByteordOverride = list[int] | Literal["endian", "none"]
-"""Flag denoting how/when to override *$BYTEORD* if it is broken."""
+"""Flag denoting how/when to override *$BYTEORD* if it is broken.
 
-type ComputeReadCRC = Literal["never", "always", "test"]
-"""Flag denoting when to compute the CRC."""
+Set to ``"none"`` or ``"endian"`` to do nothing or interpret *$BYTEORD*
+based on its endian-ness (ie without its length) respectively. Set to an
+explicit integer sequence to set *$BYTEORD* directly.
+
+"""
+
+type ComputeCRC = Literal["never", "always", "test"]
+"""Flag denoting when to compute the CRC.
+
+Levels are as follows:
+
+* ``"never"``: never compute CRC
+* ``"always"``: always compute CRC
+* ``"test"``: only compute CRC when a CRC word was found at the end of
+  the dataset to which the computed CRC should be compared
+
+"""
 
 type Selector[T] = (
     T
@@ -490,22 +621,6 @@ This is necessary for FCS3.2 which may have data schemas that include
 multiple data types.
 
 """
-
-type TemporalOpticalKey = Literal[
-    "G",
-    "F",
-    "L",
-    "O",
-    "T",
-    "P",
-    "V",
-    "CALIBRATION",
-    "DET",
-    "TAG",
-    "FEATURE",
-    "ANALYTE",
-]
-"""A key which should only be used for optical measurements."""
 
 type AppliedGates2_0 = tuple[
     list[pf.GatedMeasurement],

@@ -544,12 +544,12 @@ fn run() -> AppResult<()> {
              comma-separated list of strings like the X in {pn_any}.",
         ))
         .value_delimiter(',')
-        .value_parser(value_parser!(tc::TemporalOpticalKey));
+        .value_parser(value_parser!(tc::OpticalOnlyKey));
 
     let process_time_optical_keys = Arg::new(PROCESS_TIME_OPTICAL_KEYS)
         .long(PROCESS_TIME_OPTICAL_KEYS)
         .value_name("LEVEL")
-        .value_parser(value_parser!(tc::ProcessTemporalOpticalKeys))
+        .value_parser(value_parser!(tc::ProcessOpticalOnlyKeys))
         .help(format!(
             "Choose how to handle optical keys found in temporal measurements. \
              Does nothing unless keys are specified in {arg}. Pass \
@@ -1495,12 +1495,12 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
 
     get_opt(s, FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
 
-    if let Some(xs) = s.get_many::<tc::TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS) {
-        c.ignore_time_optical_keys = xs.copied().collect::<HashSet<_>>().into();
+    if let Some(xs) = s.get_many::<tc::OpticalOnlyKey>(IGNORE_TIME_OPTICAL_KEYS) {
+        c.ignore_optical_only_keys = xs.copied().collect::<HashSet<_>>().into();
     }
 
     get_opt(s, PROCESS_TIME_OPTICAL_KEYS, |x| {
-        c.process_time_optical_keys = x;
+        c.process_optical_only_keys = x;
     });
     get_opt(s, ALLOW_MISSING_TIME, |x| c.allow_missing_time = x);
     get_opt(s, ADD_MISSING_TIMESTEP, |x| c.add_missing_timestep = x);
@@ -2044,9 +2044,9 @@ const ADD_MISSING_TIMESTEP: &str = cli_arg!(ReadStdKeywordsConfig::add_missing_t
 
 const FORCE_LINEAR_SCALE: &str = cli_arg!(ReadStdKeywordsConfig::force_linear_scale);
 
-const IGNORE_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::ignore_time_optical_keys);
+const IGNORE_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::ignore_optical_only_keys);
 
-const PROCESS_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::process_time_optical_keys);
+const PROCESS_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::process_optical_only_keys);
 
 const SPILLOVER_MEASUREMENT_MODE: &str =
     cli_arg!(ReadStdKeywordsConfig::spillover_measurement_mode);

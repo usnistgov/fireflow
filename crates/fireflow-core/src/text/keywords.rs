@@ -45,7 +45,7 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
-use fireflow_types::config::{ForceLinearScale, TemporalOpticalKey};
+use fireflow_types::config::{ForceLinearScale, OpticalOnlyKey};
 use fireflow_types::keywords::{
     self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
     VersionMembership,
@@ -483,11 +483,11 @@ impl Gain {
     where
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
-        let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_time_optical_keys;
+        let ignore = &AsRef::<EvaledReadStdKeywordsConfig>::as_ref(conf).ignore_optical_only_keys;
         let drop_flag = AsRef::<EvaledReadDataKeywordsConfig>::as_ref(conf)
             .process_optional_failure
             .as_triflag();
-        if ignore.0.contains(&TemporalOpticalKey::Gain) {
+        if ignore.0.contains(&OpticalOnlyKey::Gain) {
             kws.transfer_demoted(Self::std(i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {

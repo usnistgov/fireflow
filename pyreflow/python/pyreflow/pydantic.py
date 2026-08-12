@@ -80,8 +80,8 @@ class _ReadStdKeywordsConfig(BaseModel):
     allow_missing_time: pft.TriFlag = _DEFAULT_TRIFLAG
     add_missing_timestep: float | None = None
     force_linear_scale: pft.ForceLinearScale = "none"
-    ignore_time_optical_keys: list[pft.TemporalOpticalKey] = []
-    process_time_optical_keys: pft.ProcessTimeOpticalKeys = "demote_warn"
+    ignore_optical_only_keys: list[pft.OpticalOnlyKey] = []
+    process_optical_only_keys: pft.ProcessOpticalOnlyKeys = "demote_warn"
     date_pattern: pft.Selector[str | None] = None
     time_pattern: pft.Selector[str | None] = None
     datetime_pattern: pft.Selector[str | None] = None
@@ -129,7 +129,7 @@ class _ReadEventsConfig(BaseModel):
     over_range_action: pft.OverLimitAction = "warn"
     allow_missing_crc: pft.TriFlag = _DEFAULT_TRIFLAG
     allow_mismatch_crc: pft.TriFlag = _DEFAULT_TRIFLAG
-    compute_crc: pft.ComputeReadCRC = "never"
+    compute_crc: pft.ComputeCRC = "never"
     read_intra_segment_dark_bytes: bool = False
     read_post_dataset_dark_bytes: bool = False
     row_buffer_size: int = 28000

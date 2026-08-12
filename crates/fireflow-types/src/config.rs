@@ -343,9 +343,9 @@ pub const TMP_OPT_DROP_SILENT_LEVEL: &NEStr = DROP_SILENT_LEVEL;
 
 impl_config_flag!(
     /// Choose what to do with optical keys in time measurement when found.
-    pub ProcessTemporalOpticalKeys,
+    pub ProcessOpticalOnlyKeys,
     /// Error when parsing [`ForceLinearScale`] from [`String`]
-    pub ProcessTemporalOpticalKeysError,
+    pub ProcessOpticalOnlyKeysError,
     /// Demote to nonstandard with warning
     DemoteWarn   => TMP_OPT_DEMOTE_WARN_LEVEL,
     /// Demote to nonstandard with no warning
@@ -530,11 +530,11 @@ impl_str_enum!(
     #[derive(PartialEq, Eq, Debug, Hash, Display)]
     #[display("{}", self.as_str())]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-    pub TemporalOpticalKey,
-    /// Error when creating [`TemporalOpticalKey`] from [`String`]
+    pub OpticalOnlyKey,
+    /// Error when creating [`OpticalOnlyKey`] from [`String`]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
     #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-    pub TemporalOpticalKeyError,
+    pub OpticalOnlyKeyError,
     /// Ignore $PnG
     Gain            => GAIN_LEVEL,
     /// Ignore $PnF
@@ -561,7 +561,7 @@ impl_str_enum!(
     Analyte         => ANALYTE_LEVEL
 );
 
-impl TemporalOpticalKey {
+impl OpticalOnlyKey {
     pub const TARGETS_2_0: [Self; 6] = [
         Self::DetectorType,
         Self::DetectorVoltage,

@@ -2131,7 +2131,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let dedup_names = DocArgROIvar::new_ivar_ro(
         "dedup_names",
-        PyList::new1(PyOpt::new1(PyStr::new_shortname())),
+        PyList::new1(PyOpt::new1(PyAlias::new_shortname())),
         format!("Original {PNN} if they were renamed."),
         |_, _| quote!(self.0.dedup_names.clone()),
     );
@@ -2985,7 +2985,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
 
     let datatype = DocArgROIvar::new_ivar_ro(
         "datatype",
-        PyOpt::new1(PyLiteral::new_datatype()),
+        PyOpt::new1(PyAlias::new_datatype()),
         format!("The value of {DATATYPE}"),
         |_, _| quote!(self.0.datatype),
     );
@@ -3572,7 +3572,7 @@ pub fn impl_core_all_shortnames_attr(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_ivar(
         format!("Value of {PNN} for all measurements."),
-        PyList::new1(PyStr::new_shortname()),
+        PyList::new1(PyAlias::new_shortname()),
     )
     .para("Strings are unique and cannot contain commas.");
 
@@ -3593,7 +3593,7 @@ pub fn impl_core_all_shortnames_maybe_attr(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_ivar(
         format!("The possibly-empty values of {PNN} for all measurements."),
-        PyList::new1(PyOpt::new1(PyStr::new_shortname())),
+        PyList::new1(PyOpt::new1(PyAlias::new_shortname())),
     )
     .para(format!(
         "{PNN} is optional for this FCS version so values may be {NONE}."
@@ -3619,14 +3619,14 @@ pub fn impl_core_get_set_timestep(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_pycore(&i).1;
 
-    let t = PyOpt::new1(PyFloat::new_timestep());
+    let t = PyOpt::new1(PyAlias::new_timestep());
     let get_doc = DocString::new_ivar(format!("The value of {TIMESTEP}"), t.clone());
 
     let getq = get_doc.into_impl_get(&i, "timestep", |_, _| quote!(self.0.timestep().copied()));
 
     let param = DocArg::new_param(
         "timestep",
-        PyFloat::new_timestep(),
+        PyAlias::new_timestep(),
         "The timestep to set. Must be greater than zero.",
     );
     let set_doc = DocString::new_method(format!(
@@ -3669,7 +3669,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
         };
         let timestep = has_timestep.then_some(DocArg::new_param(
             "timestep",
-            PyFloat::new_timestep(),
+            PyAlias::new_timestep(),
             format!("The value of {TIMESTEP} to use."),
         ));
         let allow_loss = DocArg::new_allow_loss_param(
@@ -3748,7 +3748,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
             .into_iter();
         let (rt, rd) = if has_timestep {
             (
-                PyOpt::new1(PyFloat::new_timestep()).into(),
+                PyOpt::new1(PyAlias::new_timestep()).into(),
                 format!("Value of {TIMESTEP} if time measurement was present."),
             )
         } else {
@@ -3813,7 +3813,7 @@ pub fn impl_core_rename_temporal(input: TokenStream) -> TokenStream {
     let doc = DocString::new_method("Rename temporal measurement if present.")
         .arg(DocArg::new_name_param("New name to assign."))
         .returns(
-            DocReturn::new(PyOpt::new1(PyStr::new_shortname()))
+            DocReturn::new(PyOpt::new1(PyAlias::new_shortname()))
                 .desc("Previous name if present.")
                 .exc([exc]),
         );
@@ -3881,7 +3881,7 @@ pub fn impl_core_all_transforms_attr(input: TokenStream) -> TokenStream {
             unity = code("1.0"),
         );
         let ss = [s0.into(), s1, s2.into(), s3];
-        let doc = DocString::new_ivar(sum, PyList::new1(PyUnion::new_scale3_0())).paras(ss);
+        let doc = DocString::new_ivar(sum, PyList::new1(PyAlias::new_scale3_0())).paras(ss);
 
         doc.into_impl_get_set(
             &i,
@@ -3950,7 +3950,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
         "The temporal measurement if it exists.",
         PyOpt::new1(
             PyTuple::new1(PyInt::new_meas_index())
-                .add(PyStr::new_shortname())
+                .add(PyAlias::new_shortname())
                 .add(PyClass::new_temporal(version)),
         ),
     )
@@ -4146,9 +4146,9 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
     let (is_dataset, version) = split_ident_version_pycore(&i);
 
     let meas = PyUnion::new_measurement(version);
-    let rng = PyUnion::new_full_range();
-    let int_widths = PyOpt::new1(PyLiteral::new_arg_bytes());
-    let col_type = PyOpt::new1(PyLiteral::new_column_type());
+    let rng = PyAlias::new_full_range();
+    let int_widths = PyOpt::new1(PyAlias::new_arg_bytes());
+    let col_type = PyOpt::new1(PyAlias::new_column_type());
 
     let make_ret = |is_index: bool| {
         // NOTE this is not a typo, these are supposed to be flipped
@@ -4167,7 +4167,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
                 .add(meas.clone())
                 .add(rng.clone())
         };
-        let scale3 = PyOpt::new1(PyUnion::new_scale3_0());
+        let scale3 = PyOpt::new1(PyAlias::new_scale3_0());
         let ret = match version {
             Version::FCS2_0 => pre_ret.add(PyOpt::new_scale2_0()),
             Version::FCS3_0 => pre_ret.add(scale3),
@@ -5188,7 +5188,7 @@ pub fn impl_new_meas(input: TokenStream) -> TokenStream {
 
     let timestep = DocArg::new_ivar_rw(
         "timestep",
-        PyFloat::new_timestep(),
+        PyAlias::new_timestep(),
         format!("Value of {TIMESTEP}."),
         false,
         |_, _| quote!(*self.0.as_ref()),
@@ -5689,7 +5689,7 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
     let percent_emitted = make_arg_float("percent_emitted", "P", "GatePercentEmitted");
     let detector_voltage = make_arg_float("detector_voltage", "V", "GateDetectorVoltage");
 
-    let shortname_pytype = PyStr::new_shortname().rstype(keyword_path("GateShortname"));
+    let shortname_pytype = PyAlias::new_shortname().rstype(keyword_path("GateShortname"));
     let shortname = make_arg_opt("shortname", "N", shortname_pytype.into());
 
     let range_pytype = PyDecimal::new_gate_range();
@@ -5728,7 +5728,7 @@ pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
 
     let chars_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyInt::new_ascii_range_value()),
+        PyList::new1(PyAlias::new_ascii_range_value()),
         format!(
             "The range for each measurement. Equivalent to {PNR}. The value of \
              {PNB} will be derived from these and will be equivalent to the \
@@ -5782,7 +5782,7 @@ pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
 
     let ranges_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyInt::new_delim_ascii_range()),
+        PyList::new1(PyAlias::new_delim_ascii_range()),
         format!(
             "The range for each measurement. Equivalent to the {PNR} keyword. \
              This is not used internally."
@@ -5826,18 +5826,17 @@ pub fn impl_new_ordered_float_data_schema(input: TokenStream) -> TokenStream {
 
     let range_param = DocArg::new_ivar_ro(
         RANGES,
-        PyList::new1(PyFloat::new_float_range(nbytes)),
+        PyList::new1(PyAlias::new_float_range(nbytes)),
         format!(
             "The range for each measurement. Corresponds to {PNR}. \
-             This is not used internally so only serves for users' \
-             own purposes.",
+             This is not used internally.",
         ),
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
-        PyUnion::new_py_byteord(Some(nbytes)),
+        PyAlias::new_py_byteord(Some(nbytes)),
         "The byte order to use when encoding values.",
         |_, _| quote!(PyByteOrder::from(self.0.byte_order())),
     )
@@ -5873,7 +5872,7 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyFloat::new_float_range(nbytes)),
+        PyList::new1(PyAlias::new_float_range(nbytes)),
         format!(
             "The range for each measurement. Corresponds to {PNR}. This is not \
              used internally."
@@ -5914,7 +5913,7 @@ pub fn impl_new_ordered_uint_data_schema(input: TokenStream) -> TokenStream {
     let width_param = DocArg::new_byte_width_ivar();
     let byteord_param = DocArg::new_ivar_ro(
         "byteord",
-        PyUnion::new_py_byteord(None),
+        PyAlias::new_py_byteord(None),
         "The byte order to use when encoding values.",
         |_, _| quote!(self.0.byte_order().into()),
     )
@@ -5979,13 +5978,8 @@ pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let ranges_param: DocArgROIvar = DocArg::new_ivar_ro(
         "ranges",
-        PyList::new1(PyTuple::new_variable_bitmask()),
-        format!(
-            "The range of each measurement. The first member of each tuple \
-             indicates the number of bytes ({PNB}) to encode the {PNR} value \
-             and data in the column. The second member corresponds to the {PNR} \
-             keyword less one."
-        ),
+        PyList::new1(PyAlias::new_variable_bitmask()),
+        "The width and range of each measurement.",
         |_, _| quote!(self.0.columns().iter().map(|c| (*c).into()).collect()),
     );
 
@@ -6006,7 +6000,7 @@ pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let byte_widths = DocString::new_ivar(
         "The width of each measurement in bytes.",
-        PyList::new1(PyLiteral::new_arg_bytes()),
+        PyList::new1(PyAlias::new_arg_bytes()),
     )
     .para(format!(
         "This corresponds to the value of {PNB} for each measurement \
@@ -6026,26 +6020,11 @@ pub fn impl_new_mixed_data_schema(input: TokenStream) -> TokenStream {
     let path = parsed.path;
     let bare_path = path_strip_args(path.clone());
 
-    let dt_ascii = code("A");
-    let dt_int = code("I**");
-    let dt_float = code("F**");
-
-    let range_pytype = PyList::new1(PyUnion::new_mixed_range());
+    let range_pytype = PyList::new1(PyAlias::new_mixed_range());
     let types_param: DocArgROIvar = DocArg::new_ivar_ro(
         "typed_ranges",
         range_pytype,
-        format!(
-            "The type and range for each measurement corresponding to {DATATYPE} \
-             and/or {PNDATATYPE} and {PNR} respectively. These are given \
-             as 2-tuples like {tuple_pattern} where {tuple_first} is one of \
-             {dt_ascii}, {dt_int}, or {dt_float} corresponding to Ascii, \
-             unsigned integer, or float datatypes respectively. For integers and \
-             floats, the {stars} encode the size, which must be 08-64 (in multiples \
-             of 8) and 32/64 respectively.",
-            tuple_pattern = code("(<type>, <range>)"),
-            tuple_first = code("type"),
-            stars = code("**"),
-        ),
+        "The type and range for each measurement.",
         |_, _| quote!(self.0.columns().iter().map(|c| c.clone()).collect()),
     );
 
@@ -6750,7 +6729,7 @@ enum RsInt {
 #[derive(Clone, PartialEq, Hash, Eq)]
 enum RsFloat {
     F32,
-    F64,
+    // F64,
 }
 
 /// Any segment (not HEADER).
@@ -7101,7 +7080,7 @@ impl HasRustPath for RsFloat {
     fn as_rust_type(&self) -> Type {
         match self {
             Self::F32 => parse_quote!(f32),
-            Self::F64 => parse_quote!(f64),
+            // Self::F64 => parse_quote!(f64),
         }
     }
 }
@@ -7871,21 +7850,6 @@ impl<E: From<PyException>> PyInt<E> {
         let e = PyException::new_config().desc(d);
         Self::new_int(RsInt::NonZeroU8).rstype(path).exc(e)
     }
-
-    fn new_ascii_range_value() -> Self {
-        let p = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
-        Self::new_int(RsInt::U64).rstype(p)
-    }
-
-    fn new_delim_ascii_range() -> Self {
-        let p = parse_quote!(fireflow_core::validated::ascii_range::DelimAsciiRange);
-        Self::new_int(RsInt::U64).rstype(p)
-    }
-
-    fn new_full_int_range() -> Self {
-        let path = parse_quote!(fireflow_core::data::FullIntRange);
-        Self::from(RsInt::U64).rstype(path)
-    }
 }
 
 impl<E> PyFloat<E> {
@@ -7922,28 +7886,6 @@ impl<E: From<PyException>> PyFloat<E> {
         let e = PyException::new_invalid_keyword().desc(d);
         Self::from(RsFloat::F32).exc(e)
     }
-
-    fn new_float_range(nbytes: usize) -> Self {
-        let i = format_ident!("F{:02}Range", nbytes * 8);
-        let r = match nbytes {
-            4 => RsFloat::F32,
-            8 => RsFloat::F64,
-            _ => panic!("invalid number of float bytes: {nbytes}"),
-        };
-        let msg = format!(
-            "if {ARG_TOKEN} is {NAN}, {INF}, {NEG_INF}, \
-             or outside the bounds of a {}-bit float",
-            nbytes * 8,
-        );
-        let e = PyException::new_invalid_keyword().desc(msg);
-        let path = parse_quote!(fireflow_core::data::#i);
-        Self::from(r).rstype(path).exc(e)
-    }
-
-    fn new_timestep() -> Self {
-        let path = keyword_path("Timestep");
-        Self::new_positive_float().rstype(path)
-    }
 }
 
 impl<E> PyStr<E> {
@@ -7954,16 +7896,6 @@ impl<E> PyStr<E> {
 }
 
 impl<E: From<PyException>> PyStr<E> {
-    fn new_shortname() -> Self {
-        let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
-        let d = format!(
-            "if {ARG_TOKEN} is {blank} or contains commas",
-            blank = code_str("")
-        );
-        let e = PyException::new_parse_keyval().desc(d);
-        Self::default().rstype(path).exc(e)
-    }
-
     fn new_keystring() -> Self {
         let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
         let d = format!("if {ARG_TOKEN} contains non-ASCII characters or is empty");
@@ -8241,10 +8173,10 @@ impl<T> PyLiteral<T> {
         self
     }
 
-    fn default_index(mut self, i: usize) -> Self {
-        self.default_index = Some(i);
-        self
-    }
+    // fn default_index(mut self, i: usize) -> Self {
+    //     self.default_index = Some(i);
+    //     self
+    // }
 
     fn fmt_with<F>(&self, f: &mut fmt::Formatter<'_>, inner_fmt: F) -> Result<(), fmt::Error>
     where
@@ -8282,19 +8214,9 @@ impl PyStrLiteral {
         Self::new_with_path(ALL_VERSION_STRINGS, path)
     }
 
-    fn new_datatype() -> Self {
-        let path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
-        Self::new_with_path(["A", "I", "F", "D"], path)
-    }
-
     fn new_awh_feature() -> Self {
         let path = parse_quote!(fireflow_types::keywords::OpticalFeature);
         Self::new_with_path(tk::OpticalFeature::iter_str(), path)
-    }
-
-    fn new_endian() -> Self {
-        let endian: Path = parse_quote!(fireflow_core::text::byteord::Endian);
-        Self::new_with_path([tk::BYTEORD_LITTLE, tk::BYTEORD_BIG], endian)
     }
 
     fn new_scale_fix() -> Self {
@@ -8305,6 +8227,7 @@ impl PyStrLiteral {
             tk::SCALE_DIAGNOSTIC_FORCED,
         ]
         .into_iter()
+        .map(NEStr::as_str)
         .collect()
     }
 
@@ -8315,19 +8238,8 @@ impl PyStrLiteral {
             tk::SCALE_DIAGNOSTIC_TRIMMED_LOG,
         ]
         .into_iter()
+        .map(NEStr::as_str)
         .collect()
-    }
-
-    fn new_column_type() -> Self {
-        let path = parse_quote!(fireflow_types::python::ColumnType);
-        Self::new_with_path(tp::ColumnType::iter_str(), path)
-    }
-}
-
-impl PyIntLiteral {
-    fn new_arg_bytes() -> Self {
-        let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
-        Self::new_with_path(1..=8, bytes_path).default_index(3)
     }
 }
 
@@ -8362,14 +8274,13 @@ impl<E> PyOpt<E> {
 
 impl<E: From<PyException>> PyOpt<E> {
     fn new_scale2_0() -> Self {
-        let path = parse_quote! {fireflow_core::meas::OpticalScale2_0};
+        let path: Path = parse_quote!(fireflow_core::meas::OpticalScale2_0);
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
-        let inner = PyUnion::new2(
-            PyTuple::default(),
-            repeat_n(RsFloat::F32, 2).collect::<PyTuple<_>>(),
-        )
-        .exc(exc);
+        let inner = PyAlias::new_py(["typing"], "OpticalScale2_0")
+            .exc(exc)
+            .rstype(path.clone())
+            .set_default(PyTuple::default());
         Self::new1(inner).rstype(path).default_from_inner()
     }
 
@@ -8557,13 +8468,6 @@ impl<E: From<PyException>> PyTuple<E> {
             .collect::<Self>()
             .rstype(keyword_path("UniGate"))
     }
-
-    fn new_variable_bitmask() -> Self {
-        let path = quote!(fireflow_core::data::VariableBitmask);
-        Self::new1(PyIntLiteral::new_arg_bytes())
-            .add(RsInt::U64)
-            .rstype(parse_quote!(#path))
-    }
 }
 
 impl<T, E> FromIterator<T> for PyUnion<E>
@@ -8660,19 +8564,6 @@ impl<E: From<PyException>> PyUnion<E> {
         Self::new2(tmp, opt).rstype(meas_argtype)
     }
 
-    fn new_scale3_0() -> Self {
-        let path = parse_quote! {fireflow_core::meas::OpticalScale3_0};
-        let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
-        let exc = PyException::new_invalid_keyword().desc(d);
-        // TODO the linear gain should also be positive
-        Self::new2(
-            RsFloat::F32,
-            repeat_n(RsFloat::F32, 2).collect::<PyTuple<_>>(),
-        )
-        .rstype(path)
-        .exc(exc)
-    }
-
     fn new_gate_scale() -> Self {
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
@@ -8682,29 +8573,6 @@ impl<E: From<PyException>> PyUnion<E> {
         )
         .rstype(keyword_path("GateScale"))
         .exc(exc)
-    }
-
-    fn new_py_byteord(nbytes: Option<usize>) -> Self {
-        let (path, exc_desc) = if let Some(n) = nbytes {
-            let sizedbyteord_path: Path = parse_quote!(PyByteOrder);
-            let p = parse_quote!(#sizedbyteord_path<#n>);
-            let d = format!(
-                "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
-                 or a list of all integers from 1 to {n} in any order"
-            );
-            (p, d)
-        } else {
-            let p = parse_quote!(fireflow_core::text::byteord::AnyByteOrder);
-            let d = format!(
-                "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
-                 or a list of unique integers in any order"
-            );
-            (p, d)
-        };
-        let exc = PyException::new_invalid_keyword().desc(exc_desc);
-        Self::new2(PyLiteral::new_endian(), PyList::new1(RsInt::U32))
-            .rstype(path)
-            .exc(exc)
     }
 
     fn new_anycoretext() -> Self {
@@ -8749,54 +8617,6 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_key_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::KeyOrBytes);
         Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
-    }
-
-    fn new_mixed_range() -> Self {
-        let path = quote!(fireflow_core::data::MixedRange);
-        Self::new2(
-            PyTuple::new1(
-                tp::IntegerWidth::iter_str()
-                    .chain([tp::COL_TYPE_ASCII.as_str()])
-                    .collect::<PyStrLiteral>(),
-            )
-            .add(RsInt::U64),
-            PyTuple::new1(
-                [tp::COL_TYPE_F32.as_str(), tp::COL_TYPE_F64.as_str()]
-                    .into_iter()
-                    .collect::<PyStrLiteral>(),
-            )
-            .add(RsFloat::F64),
-        )
-        .rstype(parse_quote!(#path))
-    }
-
-    fn new_any_range(version: Version) -> Self {
-        match version {
-            Version::FCS2_0 | Version::FCS3_0 => Self::new_full_range(),
-            Version::FCS3_1 => Self::new_range_or_bitmask_range(),
-            Version::FCS3_2 => Self::new_range_or_mixed_range(),
-        }
-    }
-
-    fn new_full_range() -> Self {
-        let path = parse_quote!(fireflow_core::data::FullRange);
-        Self::new2(RsInt::U64, RsFloat::F64).rstype(path)
-    }
-
-    fn new_range_or_bitmask_range() -> Self {
-        let path = quote!(fireflow_core::data::MaybeTypedVariableBitmask);
-        let ints = PyTuple::new1(PyIntLiteral::new_arg_bytes())
-            .add(RsInt::U64)
-            .into();
-        let rng = PyType::from(Self::new_full_range());
-        Self::from_iter([ints, rng]).rstype(parse_quote!(#path))
-    }
-
-    fn new_range_or_mixed_range() -> Self {
-        let path = quote!(fireflow_core::data::MaybeTypedMixedRange);
-        let mixed = PyType::from(Self::new_mixed_range());
-        let rng = PyType::from(Self::new_full_range());
-        Self::from_iter([mixed, rng]).rstype(parse_quote!(#path))
     }
 }
 
@@ -8884,6 +8704,18 @@ impl<E> PyAlias<E> {
         Self::new1(n)
     }
 
+    fn new_py_str_default(
+        modpath: impl IntoIterator<Item = impl fmt::Display>,
+        name: impl fmt::Display,
+        rstype: Path,
+        default: &'static str,
+    ) -> Self {
+        // make a dummy literal with one value for the default; only the first
+        // value is necessary
+        let lit = once(default).collect::<PyStrLiteral>();
+        Self::new_py(modpath, name).rstype(rstype).set_default(lit)
+    }
+
     fn add_generics(mut self, generics: impl IntoIterator<Item = PyType<E>>) -> Self {
         self.generics = generics.into_iter().collect();
         self
@@ -8899,15 +8731,15 @@ impl<E> PyAlias<E> {
         )
     }
 
-    // fn exc(self, e: impl Into<E>) -> Self {
-    //     Self::new(
-    //         self.pyname,
-    //         self.generics,
-    //         self.rstype,
-    //         self.default_pytype,
-    //         Some(e.into()),
-    //     )
-    // }
+    fn exc(self, e: impl Into<E>) -> Self {
+        Self::new(
+            self.pyname,
+            self.generics,
+            self.rstype,
+            self.default_pytype,
+            Some(e.into()),
+        )
+    }
 
     fn set_default(mut self, pt: impl Into<PyType<E>>) -> Self {
         self.default_pytype = Some(pt.into());
@@ -8954,29 +8786,22 @@ impl<E: From<PyException>> PyAlias<E> {
 
     fn new_optical_only_key() -> Self {
         let path = parse_quote!(fireflow_core::config::TemporalOpticalKeys);
-        let pytype = tc::OpticalOnlyKey::iter_str().collect::<PyStrLiteral>();
-        Self::new_py(["typing"], "OpticalOnlyKey")
-            .rstype(path)
-            .set_default(pytype)
+        Self::new_py_str_default(
+            ["typing"],
+            "OpticalOnlyKey",
+            path,
+            tc::OpticalOnlyKey::first_str(),
+        )
     }
 
     fn new_tri_flag(name: &str) -> Self {
         let path = config_path(name);
-        let pytype = tc::TriFlag::iter_str().collect::<PyStrLiteral>();
-        Self::new_py(["typing"], "TriFlag")
-            .rstype(path)
-            .set_default(pytype)
+        Self::new_py_str_default(["typing"], "TriFlag", path, tc::TriFlag::first_str())
     }
 
     fn new_version_override() -> Self {
         let path = config_path("VersionOverride");
-        let pytype = ALL_VERSION_STRINGS
-            .into_iter()
-            .chain(tc::VERSION_STRATEGY_ALL_LEVELS)
-            .collect::<PyStrLiteral>();
-        Self::new_py(["typing"], "VersionOverride")
-            .rstype(path)
-            .set_default(pytype)
+        Self::new_py(["typing"], "VersionOverride").rstype(path)
     }
 
     fn new_selector(inner: impl Into<PyType<E>>) -> Self
@@ -9005,6 +8830,138 @@ impl<E: From<PyException>> PyAlias<E> {
             .add_generics([inner_pt.clone()])
             .rstype(path)
             .set_default(inner_pt)
+    }
+
+    fn new_scale3_0() -> Self {
+        let path = parse_quote! {fireflow_core::meas::OpticalScale3_0};
+        let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
+        let exc = PyException::new_invalid_keyword().desc(d);
+        // TODO the linear gain should also be positive
+        Self::new_py(["typing"], "OpticalScale3_0")
+            .rstype(path)
+            .set_default(RsFloat::F32)
+            .exc(exc)
+    }
+
+    fn new_arg_bytes() -> Self {
+        let bytes_path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
+        let inner: PyIntLiteral = once(4).collect();
+        Self::new_py(["typing"], "ByteWidth")
+            .rstype(bytes_path)
+            .set_default(inner)
+    }
+
+    fn new_datatype() -> Self {
+        let path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
+        Self::new_py(["typing"], "Datatype").rstype(path)
+    }
+
+    fn new_column_type() -> Self {
+        let path = parse_quote!(fireflow_types::python::ColumnType);
+        Self::new_py(["typing"], "AnyType").rstype(path)
+    }
+
+    fn new_variable_bitmask() -> Self {
+        let path = parse_quote!(fireflow_core::data::VariableBitmask);
+        Self::new_py(["typing"], "VariableBitmask").rstype(path)
+    }
+
+    fn new_mixed_range() -> Self {
+        let path = parse_quote!(fireflow_core::data::MixedRange);
+        Self::new_py(["typing"], "MixedRange").rstype(path)
+    }
+
+    fn new_any_range(version: Version) -> Self {
+        match version {
+            Version::FCS2_0 | Version::FCS3_0 => Self::new_full_range(),
+            Version::FCS3_1 => Self::new_range_or_bitmask_range(),
+            Version::FCS3_2 => Self::new_range_or_mixed_range(),
+        }
+    }
+
+    fn new_full_range() -> Self {
+        let path = parse_quote!(fireflow_core::data::FullRange);
+        Self::new_py(["typing"], "Range").rstype(path)
+    }
+
+    fn new_range_or_bitmask_range() -> Self {
+        let path = parse_quote!(fireflow_core::data::MaybeTypedVariableBitmask);
+        Self::new_py(["typing"], "MaybeTypedVariableBitmask").rstype(path)
+    }
+
+    fn new_range_or_mixed_range() -> Self {
+        let path = parse_quote!(fireflow_core::data::MaybeTypedMixedRange);
+        Self::new_py(["typing"], "MaybeTypedMixedRange").rstype(path)
+    }
+
+    fn new_ascii_range_value() -> Self {
+        let path = parse_quote!(fireflow_core::validated::ascii_range::AsciiRangeValue);
+        Self::new_py(["typing"], "IntRange").rstype(path)
+    }
+
+    fn new_delim_ascii_range() -> Self {
+        let path = parse_quote!(fireflow_core::validated::ascii_range::DelimAsciiRange);
+        Self::new_py(["typing"], "IntRange").rstype(path)
+    }
+
+    fn new_full_int_range() -> Self {
+        let path = parse_quote!(fireflow_core::data::FullIntRange);
+        Self::new_py(["typing"], "IntRange").rstype(path)
+    }
+
+    fn new_shortname() -> Self {
+        let path = parse_quote!(fireflow_core::validated::shortname::Shortname);
+        let d = format!(
+            "if {ARG_TOKEN} is {blank} or contains commas",
+            blank = code_str("")
+        );
+        let e = PyException::new_parse_keyval().desc(d);
+        Self::new_py(["typing"], "Shortname").rstype(path).exc(e)
+    }
+
+    fn new_timestep() -> Self {
+        let path = keyword_path("Timestep");
+        Self::new_py(["typing"], "Timestep").rstype(path)
+    }
+
+    fn new_endian() -> Self {
+        let path = parse_quote!(fireflow_core::text::byteord::Endian);
+        Self::new_py_str_default(["typing"], "Endian", path, tk::BYTEORD_LITTLE.as_str())
+    }
+
+    fn new_py_byteord(nbytes: Option<usize>) -> Self {
+        let (path, exc_desc) = if let Some(n) = nbytes {
+            let sizedbyteord_path: Path = parse_quote!(PyByteOrder);
+            // the weird colon is needed because we need the default rust
+            // expression to go like "Type::<X>::default()"
+            let p = parse_quote!(#sizedbyteord_path::<#n>);
+            let d = format!(
+                "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
+                 or a list of all integers from 1 to {n} in any order"
+            );
+            (p, d)
+        } else {
+            let p = parse_quote!(fireflow_core::text::byteord::AnyByteOrder);
+            let d = format!(
+                "if {ARG_TOKEN} is not {BYTEORD_LITTLE_STR}, {BYTEORD_BIG_STR}, \
+                 or a list of unique integers in any order"
+            );
+            (p, d)
+        };
+        let exc = PyException::new_invalid_keyword().desc(exc_desc);
+        Self::new_py_str_default(["typing"], "ByteOrd", path, tk::BYTEORD_LITTLE.as_str()).exc(exc)
+    }
+
+    fn new_float_range(nbytes: usize) -> Self {
+        let i = format_ident!("F{:02}Range", nbytes * 8);
+        let msg = format!(
+            "if {ARG_TOKEN} is {NAN}, {INF}, {NEG_INF}, \
+             or outside the bounds of a {}-bit float",
+            nbytes * 8,
+        );
+        let e = PyException::new_invalid_keyword().desc(msg);
+        let path = parse_quote!(fireflow_core::data::#i);
+        Self::new_py(["typing"], "FloatRange").rstype(path).exc(e)
     }
 }
 
@@ -9072,11 +9029,11 @@ impl<E> PyType<E> {
 impl<E: From<PyException>> PyType<E> {
     fn new_versioned_shortname(version: Version) -> Self {
         if version < Version::FCS3_1 {
-            PyOpt::new1(PyStr::new_shortname()).into()
+            PyOpt::new1(PyAlias::new_shortname()).into()
         } else {
             let inner = quote!(fireflow_core::validated::shortname::Shortname);
             let outer = parse_quote!(fireflow_core::text::optional::Identity<#inner>);
-            PyStr::new_shortname().rstype(outer).into()
+            PyAlias::new_shortname().rstype(outer).into()
         }
     }
 
@@ -9084,7 +9041,7 @@ impl<E: From<PyException>> PyType<E> {
         if version == Version::FCS2_0 {
             PyOpt::new_scale2_0().into()
         } else {
-            PyUnion::new_scale3_0().into()
+            PyAlias::new_scale3_0().into()
         }
     }
 }
@@ -9666,7 +9623,7 @@ impl DocArgROIvar {
             bigval = code(ys),
             littleval = code(xs),
         );
-        Self::new_ivar_ro("endian", PyLiteral::new_endian(), d, |_, _| body).def_auto()
+        Self::new_ivar_ro("endian", PyAlias::new_endian(), d, |_, _| body).def_auto()
     }
 
     fn new_version_scores_param() -> Self {
@@ -9701,7 +9658,7 @@ impl DocArgROIvar {
     fn new_uint_ranges_ivar() -> Self {
         Self::new_ivar_ro(
             UINT_RANGES,
-            PyList::new1(PyInt::new_full_int_range()),
+            PyList::new1(PyAlias::new_full_int_range()),
             format!(
                 "The maximum value of each measurement. Corresponds to the {PNR} \
                  keyword less one."
@@ -9713,7 +9670,7 @@ impl DocArgROIvar {
     fn new_byte_width_ivar() -> Self {
         Self::new_ivar_ro(
             "byte_width",
-            PyLiteral::new_arg_bytes(),
+            PyAlias::new_arg_bytes(),
             format!(
                 "The width of the data schema in bytes. Must be an integer 1 to 8. \
                  All in {arg} must be able to fit within the allotted bytes.",
@@ -9775,10 +9732,12 @@ impl DocArgParam {
         desc: impl fmt::Display,
     ) -> Self {
         let path = config_path(ident_name);
-        let inner = tc::ProcessKeywordFailure::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "ProcessKeywordFailure")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "ProcessKeywordFailure",
+            path,
+            tc::ProcessKeywordFailure::first_str(),
+        );
         Self::new_param(name, pt, desc).def_auto()
     }
 
@@ -10081,12 +10040,12 @@ impl DocArgParam {
 
     fn new_name_param(short_desc: &str) -> Self {
         let desc = format!("{short_desc} Corresponds to {PNN}.");
-        Self::new_param("name", PyStr::new_shortname(), desc)
+        Self::new_param("name", PyAlias::new_shortname(), desc)
     }
 
     fn new_any_range_param(version: Version) -> Self {
         let desc = format!("Range of measurement. Corresponds to {PNR}.");
-        Self::new_param("range", PyUnion::new_any_range(version), desc)
+        Self::new_param("range", PyAlias::new_any_range(version), desc)
     }
 
     fn new_scale_param(version: Version) -> Self {
@@ -10403,16 +10362,18 @@ impl DocArgParam {
              This will do nothing on FCS2.0 files since this version \
              does not specify {TIMESTEP}."
         );
-        let pt = PyOpt::new1(PyFloat::new_timestep());
+        let pt = PyOpt::new1(PyAlias::new_timestep());
         Self::new_param("add_missing_timestep", pt, d).def_auto()
     }
 
     fn new_force_linear_scale_param() -> Self {
         let path = types_config_path("ForceLinearScale");
-        let inner = tc::ForceLinearScale::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "ForceLinearScale")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "ForceLinearScale",
+            path,
+            tc::ForceLinearScale::first_str(),
+        );
         let d = format!(
             "Force {PNE} to be linear for certain measurements. \
              Affected measurements will never fail."
@@ -10449,10 +10410,12 @@ impl DocArgParam {
             other_arg = arg(IGNORE_OPTICAL_ONLY_KEYS),
         );
         let path = types_config_path("ProcessOpticalOnlyKeys");
-        let inner = tc::ProcessOpticalOnlyKeys::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "ProcessOpticalOnlyKeys")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "ProcessOpticalOnlyKeys",
+            path,
+            tc::ProcessOpticalOnlyKeys::first_str(),
+        );
         Self::new_param("process_optical_only_keys", pt, d).def_auto()
     }
 
@@ -10462,10 +10425,12 @@ impl DocArgParam {
             spillover = Kw::Spillover.kw(),
         );
         let path = types_config_path("SpilloverMeasurementMode");
-        let inner = tc::SpilloverMeasurementMode::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "SpilloverMeasurementMode")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "SpilloverMeasurementMode",
+            path,
+            tc::SpilloverMeasurementMode::first_str(),
+        );
         Self::new_param("spillover_measurement_mode", pt, d).def_auto()
     }
 
@@ -10600,32 +10565,25 @@ impl DocArgParam {
 
     fn new_fix_int_widths_param() -> Self {
         let d = format!("Override {PNB}. Only affects integer layouts in FCS 2.0/3.0.");
-        let lit = [
-            tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str(),
-            tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str(),
-        ];
         let path = config_path("FixIntWidths");
-        let inner = PyUnion::new2(lit.into_iter().collect::<PyStrLiteral>(), RsInt::U8);
-        let pt = PyAlias::new_py(["typing"], "FixIntWidths")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "FixIntWidths",
+            path,
+            tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str(),
+        );
         Self::new_param("fix_int_widths", pt, d).def_auto()
     }
 
     fn new_byteord_override_param() -> Self {
         let d = format!("Override {BYTEORD}. Only affects integer layouts in FCS 2.0/3.0.");
-        let lit = [
-            tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str(),
-            tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str(),
-        ];
         let path = config_path("ByteordOverride");
-        let inner = PyUnion::new2(
-            lit.into_iter().collect::<PyStrLiteral>(),
-            PyList::new1(RsInt::U32),
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "ByteordOverride",
+            path,
+            tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str(),
         );
-        let pt = PyAlias::new_py(["typing"], "ByteordOverride")
-            .rstype(path)
-            .set_default(inner);
         Self::new_param("byteord_override", pt, d).def_auto()
     }
 
@@ -10689,10 +10647,12 @@ impl DocArgParam {
 
     fn new_guess_other_width_param() -> Self {
         let path = types_config_path("GuessOtherWidth");
-        let inner = tc::GuessOtherWidth::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "GuessOtherWidth")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "GuessOtherWidth",
+            path,
+            tc::GuessOtherWidth::first_str(),
+        );
         let d = format!(
             "Guess the width of {OTHER} segments. Non-fatal failure to guess \
              width will fall back to ``8`` or whatever was given in {other_arg}",
@@ -10785,10 +10745,12 @@ impl DocArgParam {
     fn new_delim_escape_mode() -> Self {
         let path = types_config_path("DelimEscapeMode");
         let d = format!("Determine how to escape delims in {TEXT}.");
-        let inner = tc::DelimEscapeMode::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "DelimEscapeMode")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "DelimEscapeMode",
+            path,
+            tc::DelimEscapeMode::first_str(),
+        );
         Self::new_param("delim_escape_mode", pt, d).def_auto()
     }
 
@@ -10844,11 +10806,13 @@ impl DocArgParam {
 
     fn new_use_encoding() -> Self {
         let d = format!("Choose how to interpret characters in {TEXT}.");
-        let inner: PyStrLiteral = tc::UseEncoding::iter_str().collect();
         let path = types_config_path("UseEncoding");
-        let pt = PyAlias::new_py(["typing"], "UseEncoding")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "UseEncoding",
+            path,
+            tc::UseEncoding::first_str(),
+        );
         Self::new_param("use_encoding", pt, d).def_auto()
     }
 
@@ -10905,11 +10869,13 @@ impl DocArgParam {
     fn new_trim_value_whitespace() -> Self {
         let d = "Trim whitespace from beginning and end of all values. This may \
                  create blank values if the starting string is entirely whitespace.";
-        let rstype = types_config_path("TrimValueWhitespace");
-        let inner = tc::TrimValueWhitespace::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "TrimValueWhitespace")
-            .rstype(rstype)
-            .set_default(inner);
+        let path = types_config_path("TrimValueWhitespace");
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "TrimValueWhitespace",
+            path,
+            tc::TrimValueWhitespace::first_str(),
+        );
         Self::new_param("trim_value_whitespace", pt, d).def_auto()
     }
 
@@ -11037,10 +11003,12 @@ impl DocArgParam {
              Exception will be {exc} if emitted.",
         );
         let path = types_config_path("AllowHeaderTEXTOffsetMismatch");
-        let inner = tc::AllowHeaderTEXTOffsetMismatch::iter_str().collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "AllowHeaderTextOffsetMismatch")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "AllowHeaderTextOffsetMismatch",
+            path,
+            tc::AllowHeaderTEXTOffsetMismatch::first_str(),
+        );
 
         Self::new_param(n, pt, d).def_auto()
     }
@@ -11085,23 +11053,12 @@ impl DocArgParam {
         let d =
             format!("Choose what to do with event integer values in {DATA} which exceed bitmask.");
         let path = types_config_path("OverBitmaskAction");
-        // explicitly spell out options here since the default is not
-        // set at the inner type level
-        let options = [
-            tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
-            tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
-            tc::OVER_LIMIT_ACTION_WARN_LEVEL,
-            tc::OVER_LIMIT_ACTION_ERROR_LEVEL,
-            tc::OVER_LIMIT_ACTION_SILENT_LEVEL,
-            tc::OVER_LIMIT_ACTION_NONE_LEVEL,
-        ];
-        let inner = options
-            .into_iter()
-            .map(NEStr::as_str)
-            .collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "OverLimitAction")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "OverLimitAction",
+            path,
+            tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL.as_str(),
+        );
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -11124,23 +11081,12 @@ impl DocArgParam {
         let n = "over_range_action";
         let d = format!("Choose what to do with event values in {DATA} which exceed {PNR}.");
         let path = types_config_path("OverRangeAction");
-        // explicitly spell out options here since the default is not
-        // set at the inner type level
-        let options = [
-            tc::OVER_LIMIT_ACTION_WARN_LEVEL,
-            tc::OVER_LIMIT_ACTION_ERROR_LEVEL,
-            tc::OVER_LIMIT_ACTION_SILENT_LEVEL,
-            tc::OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
-            tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
-            tc::OVER_LIMIT_ACTION_NONE_LEVEL,
-        ];
-        let inner = options
-            .into_iter()
-            .map(NEStr::as_str)
-            .collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "OverLimitAction")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "OverLimitAction",
+            path,
+            tc::OVER_LIMIT_ACTION_WARN_LEVEL.as_str(),
+        );
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -11188,18 +11134,12 @@ impl DocArgParam {
         let n = "compute_crc";
         let d = "Choose when to compute the CRC for a dataset.";
         let path = types_config_path("ComputeCRC");
-        let options = [
-            tc::COMPUTE_CRC_NEVER_LEVEL,
-            tc::COMPUTE_CRC_ALWAYS_LEVEL,
-            tc::COMPUTE_CRC_TEST_LEVEL,
-        ];
-        let inner = options
-            .into_iter()
-            .map(NEStr::as_str)
-            .collect::<PyStrLiteral>();
-        let pt = PyAlias::new_py(["typing"], "ComputeCRC")
-            .rstype(path)
-            .set_default(inner);
+        let pt = PyAlias::new_py_str_default(
+            ["typing"],
+            "ComputeCRC",
+            path,
+            tc::COMPUTE_CRC_NEVER_LEVEL.as_str(),
+        );
         Self::new_param(n, pt, d).def_auto()
     }
 
@@ -11224,7 +11164,7 @@ impl DocDefault {
         };
         let rs_def = pytype.doc_default().1;
         let py_str = |s| format!("\"{s}\"");
-        let py_float = |s| format!("{s:.15}");
+        let py_float = |s| format!("{s:.015}");
         match (self, pytype) {
             (Self::Auto, _) => pytype.doc_default(),
             (Self::Float(x), PyType::Float(_)) => (py_float(x), rs_def),
@@ -11511,7 +11451,6 @@ impl<A, R, S> DocString<Vec<A>, R, S> {
                 let i = format_ident!("{n}");
                 if let Some(d) = a.default() {
                     let (t, r) = d.as_value(a.pytype());
-                    // let t = d.as_py_value();
                     (quote! {#i=#r}, format!("{n}={t}"))
                 } else {
                     (quote! {#i}, (*n).into())
@@ -12001,7 +11940,7 @@ fn pytemporal(version: Version) -> Ident {
 
 fn make_data_schema_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
     let d = format!("The value of {DATATYPE}.");
-    let doc = DocString::new_ivar(d, PyLiteral::new_datatype())
+    let doc = DocString::new_ivar(d, PyAlias::new_datatype())
         .paras([format!("Will always return {dt}.", dt = code_str(dt))]);
     doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
 }
@@ -12198,13 +12137,7 @@ impl Kw {
     {
         let path = self.type_name();
         match self {
-            Self::Mode => {
-                let inner = ["L", "U", "C"].into_iter().collect::<PyStrLiteral>();
-                PyAlias::new_py(["typing"], "Mode")
-                    .rstype(path)
-                    .set_default(inner)
-                    .into()
-            }
+            Self::Mode => PyAlias::new_py_str_default(["typing"], "Mode", path, "L").into(),
             Self::Mode3_2 => {
                 PyOpt::new1(PyAlias::new_py(["typing"], "Mode3_2").rstype(path)).into()
             }
@@ -12247,7 +12180,9 @@ impl Kw {
                 PyOpt::new1(inner).into()
             }
             Self::UnstainedCenters => {
-                let inner = PyDict::new1(PyStr::new_shortname(), RsFloat::F32);
+                // only the dict matters for this type since it will default to
+                // "{}" in the signature
+                let inner = PyDict::new1(PyAlias::new_shortname(), RsFloat::F32);
                 PyAlias::new_py(["typing"], "UnstainedCenters")
                     .rstype(path)
                     .set_default(inner)
@@ -12391,9 +12326,7 @@ impl MeasKw {
                      {TRUE}) and the two floats are not both positive"
                 );
                 let exc = PyException::new_value().desc(desc);
-                let inner = PyTuple::new1(PyBool::default())
-                    .add(RsFloat::F32)
-                    .add(RsFloat::F32);
+                let inner = PyAlias::new_py(["typing"], "Display");
                 PyOpt::new1(inner.exc(exc).rstype(path)).into()
             }
             Self::PKn | Self::PKNn => PyOpt::new1(PyInt::new_u32().rstype(path)).into(),
@@ -12440,8 +12373,8 @@ const DOLLAR_STR: &str = code_str!("$");
 const FEATURE_AREA_STR: &str = code_str!(tk::OPT_FEATURE_AREA.as_str());
 const FEATURE_WIDTH_STR: &str = code_str!(tk::OPT_FEATURE_WIDTH.as_str());
 const FEATURE_HEIGHT_STR: &str = code_str!(tk::OPT_FEATURE_HEIGHT.as_str());
-const BYTEORD_LITTLE_STR: &str = code_str!(tk::BYTEORD_LITTLE);
-const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG);
+const BYTEORD_LITTLE_STR: &str = code_str!(tk::BYTEORD_LITTLE.as_str());
+const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG.as_str());
 
 // argument names that are referenced in doc strings
 

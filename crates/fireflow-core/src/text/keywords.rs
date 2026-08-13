@@ -5183,7 +5183,7 @@ mod python {
         SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
         TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
     };
-    use fireflow_types::nonempty_string::NEString;
+    use fireflow_types::nonempty_string::{NEStr, NEString};
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;
@@ -5433,16 +5433,19 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for ScaleFix {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = obj.extract::<Option<(NEString, NEString)>>()? {
-                match y.as_ref() {
-                    SCALE_DIAGNOSTIC_LOG => Ok(Self::LogFixed(x)),
-                    SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
-                    SCALE_DIAGNOSTIC_TRIMMED_LOG => Ok(Self::TrimmedLogFixed(x)),
-                    _ => Err(PyValueError::new_err(format!(
+            if let Some((x, y)) = obj.extract::<Option<(NEString, &NEStr)>>()? {
+                if y == SCALE_DIAGNOSTIC_LOG {
+                    Ok(Self::LogFixed(x))
+                } else if y == SCALE_DIAGNOSTIC_TRIMMED {
+                    Ok(Self::Trimmed(x))
+                } else if y == SCALE_DIAGNOSTIC_TRIMMED_LOG {
+                    Ok(Self::TrimmedLogFixed(x))
+                } else {
+                    Err(PyValueError::new_err(format!(
                         "second string must be '{SCALE_DIAGNOSTIC_LOG}', \
                          '{SCALE_DIAGNOSTIC_TRIMMED}', or \
                          '{SCALE_DIAGNOSTIC_TRIMMED_LOG}'",
-                    ))),
+                    )))
                 }
             } else {
                 Ok(Self::None)
@@ -5453,17 +5456,21 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for OpticalScaleFix {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = obj.extract::<Option<(NEString, NEString)>>()? {
-                match y.as_ref() {
-                    SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
-                    SCALE_DIAGNOSTIC_LOG => Ok(ScaleFix::LogFixed(x).into()),
-                    SCALE_DIAGNOSTIC_TRIMMED => Ok(ScaleFix::Trimmed(x).into()),
-                    SCALE_DIAGNOSTIC_TRIMMED_LOG => Ok(ScaleFix::TrimmedLogFixed(x).into()),
-                    _ => Err(PyValueError::new_err(format!(
+            if let Some((x, y)) = obj.extract::<Option<(NEString, &NEStr)>>()? {
+                if y == SCALE_DIAGNOSTIC_FORCED {
+                    Ok(Self::Forced(x))
+                } else if y == SCALE_DIAGNOSTIC_LOG {
+                    Ok(ScaleFix::LogFixed(x).into())
+                } else if y == SCALE_DIAGNOSTIC_TRIMMED {
+                    Ok(ScaleFix::Trimmed(x).into())
+                } else if y == SCALE_DIAGNOSTIC_TRIMMED_LOG {
+                    Ok(ScaleFix::TrimmedLogFixed(x).into())
+                } else {
+                    Err(PyValueError::new_err(format!(
                         "second string must be '{SCALE_DIAGNOSTIC_FORCED}', \
                          '{SCALE_DIAGNOSTIC_LOG}', '{SCALE_DIAGNOSTIC_TRIMMED}', \
                          or '{SCALE_DIAGNOSTIC_TRIMMED_LOG}'",
-                    ))),
+                    )))
                 }
             } else {
                 Ok(ScaleFix::None.into())
@@ -5474,14 +5481,16 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for TemporalScaleFix {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Some((x, y)) = obj.extract::<Option<(NEString, NEString)>>()? {
-                match y.as_ref() {
-                    TEMPORAL_SCALE_DIAGNOSTIC_FORCED => Ok(Self::Forced(x)),
-                    TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED => Ok(Self::Trimmed(x)),
-                    _ => Err(PyValueError::new_err(format!(
+            if let Some((x, y)) = obj.extract::<Option<(NEString, &NEStr)>>()? {
+                if y == TEMPORAL_SCALE_DIAGNOSTIC_FORCED {
+                    Ok(Self::Forced(x))
+                } else if y == TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED {
+                    Ok(Self::Trimmed(x))
+                } else {
+                    Err(PyValueError::new_err(format!(
                         "second string must be '{TEMPORAL_SCALE_DIAGNOSTIC_FORCED}' \
                          or '{TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED}'"
-                    ))),
+                    )))
                 }
             } else {
                 Ok(Self::None)

@@ -22,6 +22,16 @@ pub trait EnumStrIter<const LEN: usize>: Sized {
         self.as_ne_str().as_ref()
     }
 
+    fn first_ne_str() -> &'static NEStr {
+        assert!(LEN > 0, "enum str literal is empty");
+        Self::ITEMS[0].as_ne_str()
+    }
+
+    #[must_use]
+    fn first_str() -> &'static str {
+        Self::first_ne_str().as_str()
+    }
+
     fn iter() -> impl Iterator<Item = Self> {
         Self::ITEMS.into_iter()
     }

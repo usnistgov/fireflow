@@ -173,6 +173,12 @@ impl ToOwned for NEStr {
     }
 }
 
+impl PartialEq<str> for NEStr {
+    fn eq(&self, other: &str) -> bool {
+        self.as_str() == other
+    }
+}
+
 // TODO these should be added upstream
 pub trait NESliceExt<'a>: Sized {
     type Inner;
@@ -815,5 +821,32 @@ mod tests {
     fn padded_not_enough() {
         let v = PaddedU64::new(2, '0', 100).to_ne_string();
         assert_eq!(v.as_str(), "100");
+    }
+}
+
+#[cfg(feature = "python")]
+mod python {
+    use super::NEStr;
+
+    use pyo3::{exceptions::PyValueError, prelude::*, types::PyString};
+
+    use std::convert::Infallible;
+
+    impl<'a, 'py> FromPyObject<'a, 'py> for &'a NEStr {
+        type Error = PyErr;
+        fn extract(obj: Borrowed<'a, 'py, PyAny>) -> PyResult<Self> {
+            let s = obj.extract::<&'a str>()?;
+            NEStr::try_new(s).ok_or(PyValueError::new_err("string must not be empty"))
+        }
+    }
+
+    impl<'py> IntoPyObject<'py> for &'_ NEStr {
+        type Target = PyString;
+        type Output = Bound<'py, Self::Target>;
+        type Error = Infallible;
+
+        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
+            self.as_str().into_pyobject(py)
+        }
     }
 }

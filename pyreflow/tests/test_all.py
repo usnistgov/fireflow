@@ -29,7 +29,7 @@ import ast
 X = TypeVar("X")
 
 
-INTEGER_WIDTHS: list[tuple[pt.IntegerWidth, pt.IntRange]] = [
+INTEGER_WIDTHS: list[tuple[pt.AnyIntegerType, pt.IntRange]] = [
     ("U08", 1),
     ("U16", 2),
     ("U24", 3),
@@ -2378,8 +2378,8 @@ class TestCore:
         blank_optical_3_2: pf.Optical3_2,
         series1: pl.Series,
         byte_width: pt.ByteWidth,
-        right_type: pt.IntegerWidth,
-        wrong_type: pt.IntegerWidth,
+        right_type: pt.AnyIntegerType,
+        wrong_type: pt.AnyIntegerType,
     ) -> None:
         """Test typed insertion into single uint width schema.
 
@@ -2605,7 +2605,7 @@ class TestCore:
         blank_dataset_3_2: pf.CoreDataset3_2,
         blank_optical_3_2: pf.Optical3_2,
         dtype: DTYPE,
-        width: pt.IntegerWidth,
+        width: pt.AnyIntegerType,
         should_err: bool,
     ) -> None:
         """Test inserting series which may be different type than data schema.

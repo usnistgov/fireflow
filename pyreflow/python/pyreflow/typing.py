@@ -369,7 +369,7 @@ type Endian = Literal["big", "little"]
 Corresponds to the value of *$BYTEORD* for FCS 3.1/3.2.
 """
 
-type ByteOrd = list[int] | Endian
+type ByteOrd = Endian | list[int]
 """The order of bytes to encode the values in the *DATA* segment.
 
 Corresponds to the value of *$BYTEORD* for FCS 2.0/3.0.
@@ -387,7 +387,7 @@ type IntRange = int
 type Shortname = str
 """The value of *$PnN*.
 
-This must not contain commas.
+This must not contain commas and must be non-empty.
 """
 
 type Timestep = float
@@ -466,7 +466,7 @@ type OpticalScale2_0 = tuple[float, float] | tuple[()] | None
 """The value of *$PnE* (FCS 2.0 only).
 
 The first variant corresponds to log-scaled values where both values
-must be non-zero.
+must be positive.
 
 The second variant corresponds to linear scaling, which in FCS is
 written as ``"0,0"``.
@@ -496,7 +496,8 @@ type Display = tuple[bool, float, float]
 The first element is ``False`` if the display is linear, ``True`` if logarithmic.
 
 The second and third elements correspond to either lower and upper bound
-(linear) or decades and offset (logarithmic).
+(linear) or decades and offset (logarithmic). In the latter case, both numbers
+must be positive.
 
 """
 
@@ -524,22 +525,13 @@ represents the union of this and all possible values for integer widths,
 which is 1-8 bytes.
 """
 
-type Datatype = FloatType | DoubleType | IntegerType | AsciiType
-"""Any value value for the *$DATATYPE* keyword."""
-
-type FloatType = Literal["F"]
-"""Value when *$DATATYPE* corresponds to 32-bit float."""
-
-type DoubleType = Literal["D"]
-"""Value when *$DATATYPE* corresponds to 64-bit float."""
-
-type IntegerType = Literal["I"]
-"""Value when *$DATATYPE* corresponds to an unsigned integer."""
+type Datatype = Literal["F", "D", "I", "A"]
+"""The value of the *$DATATYPE* keyword."""
 
 type AsciiType = Literal["A"]
 """Value when *$DATATYPE* corresponds to ASCII-encoded values."""
 
-type AnyType = F32Type | F64Type | AsciiType | IntegerWidth
+type AnyType = AnyFloatType | AnyIntegerType | AsciiType
 """Any numeric datatype supported in the *DATA* segment.
 
 This is not the same as the allowed values for *$DATATYPE* since it
@@ -547,21 +539,21 @@ also needs to include integer widths.
 """
 
 type VariableBitmask = tuple[ByteWidth, IntRange]
-"""The width and range for a column in a variable-width integer data schema.
+"""The width and range for a column in :py:class:`~pyreflow.VariableUintDataSchema`.
 
-This is necessary for this specific data schema since starting in
-FCS3.1, integer measurement columns are no longer restricted by
-*$BYTEORD*.
+Both width and range are necessary since starting in FCS3.1, integer measurement
+column widths are no longer restricted by *$BYTEORD* and thus are allowed to be
+different.
 
 Each element corresponds to the byte width and range for a given
 measurement. In the FCS file, this is *$PnB* divided by 8 and *$PnR*
-respectively.
+less one respectively.
 
 """
 
 
 type MixedRange = (
-    tuple[F32Type | F64Type, Range] | tuple[AsciiType | IntegerWidth, IntRange]
+    tuple[AnyFloatType, Range] | tuple[AsciiType | AnyIntegerType, IntRange]
 )
 """The data type and range for a column in a mixed-type data schema.
 
@@ -577,13 +569,10 @@ exists for this particular measurement column). ``range`` corresponds to
 
 """
 
-type F32Type = Literal["F32"]
-"""An identifier corresponding to 32-bit floating point numeric types."""
+type AnyFloatType = Literal["F32", "F64"]
+"""An identifier corresponding to floating point numeric types."""
 
-type F64Type = Literal["F64"]
-"""An identifier corresponding to 64-bit floating point numeric types."""
-
-type IntegerWidth = Literal["U08", "U16", "U24", "U32", "U40", "U48", "U56", "U64"]
+type AnyIntegerType = Literal["U08", "U16", "U24", "U32", "U40", "U48", "U56", "U64"]
 """An identifier corresponding to integer data types of any supported width."""
 
 type MaybeTypedVariableBitmask = IntRange | VariableBitmask

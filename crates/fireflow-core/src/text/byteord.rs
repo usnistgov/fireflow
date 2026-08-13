@@ -692,6 +692,7 @@ mod python {
     use super::{ArgBytes, Endian, NewArgBytesError};
 
     use fireflow_types::keywords::{BYTEORD_BIG, BYTEORD_LITTLE};
+    use fireflow_types::nonempty_string::NEStr;
     use fireflow_types::python::InvalidKeywordValueError;
 
     use pyo3::types::PyInt;
@@ -725,14 +726,14 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for Endian {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let xs = obj.extract::<String>()?;
-            match xs.as_str() {
-                BYTEORD_BIG => Ok(Self::Big),
-                BYTEORD_LITTLE => Ok(Self::Little),
-                _ => {
-                    let msg = format!("must be '{BYTEORD_BIG}' or '{BYTEORD_LITTLE}'");
-                    Err(InvalidKeywordValueError::new_err(msg))
-                }
+            let s = obj.extract::<&NEStr>()?;
+            if BYTEORD_BIG == s {
+                Ok(Self::Big)
+            } else if BYTEORD_LITTLE == s {
+                Ok(Self::Little)
+            } else {
+                let msg = format!("must be '{BYTEORD_BIG}' or '{BYTEORD_LITTLE}'");
+                Err(InvalidKeywordValueError::new_err(msg))
             }
         }
     }

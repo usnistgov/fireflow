@@ -9467,57 +9467,19 @@ impl DocArgRWIvar {
         )
         .into();
         let gtype = PyType::from(PyOpt::new1(PyStr::default()));
-        let pytype = gm_pytype
+        let inner = gm_pytype
             .into_iter()
             .chain([reg_pytype, gtype])
-            .collect::<PyTuple<_>>()
-            .rstype(parse_quote!(#rstype));
+            .collect::<PyTuple<_>>();
 
-        let desc = if collapsed_version == Version::FCS2_0 {
-            format!(
-                "Value for {GM_ANY}/{RN_ANY}/{GATING}/{GATE} keywords. The first member of \
-                 the tuple corresponds to the {GM_ANY} keywords, where {m} is given by \
-                 position in the list. The second member corresponds to the {RNI} and \
-                 {RNW} keywords and is a mapping of regions and windows to be used in \
-                 gating scheme. Keys in dictionary are the region indices (the {n} in \
-                 {RN_ANY}). The values in the dictionary are either univariate \
-                 or bivariate gates and must correspond to an index in the list in the \
-                 first element. The third member corresponds to the {GATING} keyword. \
-                 All {rn} in this string must reference a key in the dict of the second \
-                 member.",
-                m = fcs_kw("m"),
-                n = fcs_kw("n"),
-                rn = code_str("Rn"),
-            )
-        } else if collapsed_version < Version::FCS3_2 {
-            format!(
-                "Value for {GM_ANY}/{RN_ANY}/{GATING}/{GATE} keywords. The first member of \
-                 the tuple corresponds to the {GM_ANY} keywords, where {m} is given by \
-                 position in the list. The second member corresponds to the {RNI} and \
-                 {RNW} keywords and is a mapping of regions and windows to be used in \
-                 gating scheme. Keys in dictionary are the region indices (the {n} in \
-                 {RN_ANY}). The values in the dictionary are either univariate \
-                 or bivariate gates and must correspond to an index in the list in the \
-                 first element or a physical measurement. The third member corresponds \
-                 to the {GATING} keyword. All {rn} in this string must reference a key \
-                 in the dict of the second member.",
-                m = fcs_kw("m"),
-                n = fcs_kw("n"),
-                rn = code_str("Rn"),
-            )
+        let pytype = PyAlias::new_py(["typing"], format!("AppliedGates{vsu}"))
+            .rstype(parse_quote!(#rstype))
+            .set_default(inner);
+
+        let desc = if collapsed_version < Version::FCS3_2 {
+            format!("Value for {GM_ANY}/{RN_ANY}/{GATING}/{GATE} keywords.")
         } else {
-            format!(
-                "Value for {RN_ANY}/{GATING} keywords. The first member corresponds to \
-                 the {RNI} and {RNW} keywords and is a mapping of regions and windows \
-                 to be used in gating scheme. Keys in dictionary are the region indices \
-                 (the {n} in {RN_ANY}). The values in the dictionary are either \
-                 univariate or bivariate gates and must correspond to a physical \
-                 measurement. The second member corresponds to the {GATING} keyword. \
-                 All {rn} in this string must reference a key in the dict of the first \
-                 member.",
-                n = fcs_kw("n"),
-                rn = code_str("Rn"),
-            )
+            format!("Value for {RN_ANY}/{GATING} keywords.")
         };
 
         let param = DocArgParam::new_param("applied_gates", pytype, desc).def_auto();
@@ -12412,8 +12374,6 @@ const ENDDATETIME: &str = fcs_kw!(tk::ENDDATETIME);
 const PAR: &str = fcs_kw!(tk::PAR);
 const GATE: &str = fcs_kw!(tk::GATE);
 const GATING: &str = fcs_kw!(tk::GATING);
-const RNI: &str = fcs_kw!(tk::RNI);
-const RNW: &str = fcs_kw!(tk::RNW);
 const PNR: &str = fcs_kw!(tk::PNR);
 const PNB: &str = fcs_kw!(tk::PNB);
 const PNN: &str = fcs_kw!(tk::PNN);

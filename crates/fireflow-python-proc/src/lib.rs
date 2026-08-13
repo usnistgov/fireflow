@@ -2087,21 +2087,21 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let optional = DocArgROIvar::new_ivar_ro(
         "optional",
-        PyDict::new_std_keywords(),
+        PyAlias::new_std_keywords(),
         "Optional standard keywords which failed parsing and were dropped.",
         |_, _| quote!(self.0.optional.clone()),
     );
 
     let pseudostandard = DocArgROIvar::new_ivar_ro(
         "pseudostandard",
-        PyDict::new_std_keywords(),
+        PyAlias::new_std_keywords(),
         format!("Keywords which start with {DOLLAR_STR} but are not part of the standard."),
         |_, _| quote!(self.0.pseudostandard.clone()),
     );
 
     let hyper_par = DocArgROIvar::new_ivar_ro(
         "hyper_par",
-        PyDict::new_std_keywords(),
+        PyAlias::new_std_keywords(),
         format!(
             "Measurement keywords which are part of the standard but have an index outside {PAR}."
         ),
@@ -2110,14 +2110,14 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let hyper_gate = DocArgROIvar::new_ivar_ro(
         "hyper_gate",
-        PyDict::new_std_keywords(),
+        PyAlias::new_std_keywords(),
         format!("Gating keywords which are part of the standard but have an index outside {GATE}."),
         |_, _| quote!(self.0.hyper_gate.clone()),
     );
 
     let other_version = DocArgROIvar::new_ivar_ro(
         "other_version",
-        PyDict::new_std_keywords(),
+        PyAlias::new_std_keywords(),
         "Keywords which are from a different FCS version.",
         |_, _| quote!(self.0.other_version.clone()),
     );
@@ -3660,7 +3660,7 @@ pub fn impl_core_set_temporal(input: TokenStream) -> TokenStream {
 
     let make_doc = |has_timestep: bool, has_index: bool| {
         let name = DocArg::new_name_param("Name to set to temporal.");
-        let index = DocArg::new_param("index", PyInt::new_meas_index(), "Index to set.");
+        let index = DocArg::new_param("index", PyAlias::new_meas_index(), "Index to set.");
         let (i, p) = if has_index {
             ("index", index)
         } else {
@@ -3948,7 +3948,7 @@ pub fn impl_core_get_temporal(input: TokenStream) -> TokenStream {
     let doc = DocString::new_ivar(
         "The temporal measurement if it exists.",
         PyOpt::new1(
-            PyTuple::new1(PyInt::new_meas_index())
+            PyTuple::new1(PyAlias::new_meas_index())
                 .add(PyAlias::new_shortname())
                 .add(PyClass::new_temporal(version)),
         ),
@@ -4154,7 +4154,7 @@ pub fn impl_core_remove_measurement(input: TokenStream) -> TokenStream {
         let name_or_index = if is_index {
             PyType::new_versioned_shortname(version)
         } else {
-            PyInt::new_meas_index().into()
+            PyAlias::new_meas_index().into()
         };
         let pre_ret = if is_dataset {
             PyTuple::new1(name_or_index)
@@ -4581,13 +4581,13 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
 
     let std_param = DocArg::new_param(
         "std",
-        PyDict::new_std_keywords(),
+        PyAlias::new_std_keywords(),
         format!("Standard keywords. {no_kws}"),
     );
 
     let nonstd_param = DocArg::new_param(
         "nonstd",
-        PyDict::new_nonstd_keywords(),
+        PyAlias::new_nonstd_keywords(),
         "Non-Standard keywords.",
     );
 
@@ -4676,10 +4676,10 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
 
     let path_param = DocArg::new_path_param(true);
     let header_param = DocArg::new_header_and_supp_param();
-    let std_param = DocArg::new_param("std", PyDict::new_std_keywords(), "Standard keywords.");
+    let std_param = DocArg::new_param("std", PyAlias::new_std_keywords(), "Standard keywords.");
     let nonstd_param = DocArg::new_param(
         "nonstd",
-        PyDict::new_nonstd_keywords(),
+        PyAlias::new_nonstd_keywords(),
         "Non-Standard keywords.",
     );
     let dataset_offset_param = DocArg::new_dataset_offset_param(true);
@@ -7815,11 +7815,6 @@ impl<E: From<PyException>> PyInt<E> {
         Self::new_int(RsInt::U64).rstype(p)
     }
 
-    fn new_meas_index() -> Self {
-        let p = parse_quote!(fireflow_core::text::index::MeasIndex);
-        Self::new_nonzero_usize().rstype(p)
-    }
-
     fn new_dataset_offset() -> Self {
         let p = parse_quote!(fireflow_core::validated::read_state::DatasetOffset);
         Self::new_int(RsInt::U64).rstype(p).no_exc()
@@ -8080,14 +8075,6 @@ impl<E: From<PyException>> PyDict<E> {
         let path: Path = parse_quote!(fireflow_core::validated::keystring_pairs::KeyStringPairs);
         // TODO exception if dict keys are not unique
         Self::new(PyStr::new_keystring(), PyStr::new_keystring(), path, None)
-    }
-
-    fn new_std_keywords() -> Self {
-        Self::new1(PyStr::new_std_keyword(), PyStr::new_ne_str())
-    }
-
-    fn new_nonstd_keywords() -> Self {
-        Self::new1(PyStr::new_nonstd_keyword(), PyStr::new_ne_str())
     }
 
     fn new_keywords() -> Self {
@@ -8982,6 +8969,28 @@ impl<E: From<PyException>> PyAlias<E> {
         let path = parse_quote!(fireflow_core::data::#i);
         Self::new_py(["typing"], "FloatRange").rstype(path).exc(e)
     }
+
+    fn new_std_keywords() -> Self {
+        let keypath: Path = parse_quote!(fireflow_core::validated::keys::StdKey);
+        let valpath: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
+        Self::new_py(["typing"], "StdKeywords")
+            .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
+            .set_default(PyDict::new_dummy())
+    }
+
+    fn new_nonstd_keywords() -> Self {
+        let keypath: Path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        let valpath: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
+        // TODO the :: here is awkward
+        Self::new_py(["typing"], "NonStdKeywords")
+            .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
+            .set_default(PyDict::new_dummy())
+    }
+
+    fn new_meas_index() -> Self {
+        let path = parse_quote!(fireflow_core::text::index::MeasIndex);
+        Self::new_py(["typing"], "MeasIndex").rstype(path)
+    }
 }
 
 impl<E> PyType<E> {
@@ -9575,7 +9584,7 @@ impl DocArgRWIvar {
         f: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
         g: impl FnOnce(&Ident, &ArgPyType) -> TokenStream2,
     ) -> Self {
-        let p = PyDict::new_nonstd_keywords();
+        let p = PyAlias::new_nonstd_keywords();
         Self::new_ivar_rw("nonstandard_keywords", p, desc, false, f, g).def_auto()
     }
 }
@@ -9803,12 +9812,12 @@ impl DocArgParam {
     }
 
     fn new_std_keywords_param() -> Self {
-        Self::new_param("std", PyDict::new_std_keywords(), "Standard keywords.")
+        Self::new_param("std", PyAlias::new_std_keywords(), "Standard keywords.")
     }
 
     fn new_nonstd_keywords_param() -> Self {
         let desc = "Non-standard keywords.";
-        Self::new_param("nonstd", PyDict::new_nonstd_keywords(), desc)
+        Self::new_param("nonstd", PyAlias::new_nonstd_keywords(), desc)
     }
 
     fn new_valid_keywords_param(name: &str) -> Self {
@@ -10018,7 +10027,7 @@ impl DocArgParam {
     }
 
     fn new_index_param(desc: &str) -> Self {
-        Self::new_param("index", PyInt::new_meas_index(), desc)
+        Self::new_param("index", PyAlias::new_meas_index(), desc)
     }
 
     fn new_col_param() -> Self {

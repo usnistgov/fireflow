@@ -7903,23 +7903,6 @@ impl<E> PyStr<E> {
 }
 
 impl<E: From<PyException>> PyStr<E> {
-    fn new_keystring() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyString);
-        let d = format!("if {ARG_TOKEN} contains non-ASCII characters or is empty");
-        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
-        Self::default().rstype(path).exc(e)
-    }
-
-    fn new_keystring_or_pattern() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keys::KeyStringOrPattern);
-        let d = format!(
-            "if {ARG_TOKEN} contains non-ASCII characters, is empty, or is an invalid regex"
-        );
-        // TODO this exception is wrong for regexp
-        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
-        Self::default().rstype(path).exc(e)
-    }
-
     fn new_ne_truncated_str() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
         Self::default().rstype(path)
@@ -8054,9 +8037,9 @@ impl<E> PyDict<E> {
         Self::new1(PyType::Dummy, PyType::Dummy)
     }
 
-    fn rstype(self, rstype: Path) -> Self {
-        Self::new(self.key, self.value, Some(rstype), self.exc)
-    }
+    // fn rstype(self, rstype: Path) -> Self {
+    //     Self::new(self.key, self.value, Some(rstype), self.exc)
+    // }
 
     impl_py_prim_doc_default!("{}".into(), hashbrown::HashMap);
 
@@ -8071,21 +8054,8 @@ impl<E> PyDict<E> {
 }
 
 impl<E: From<PyException>> PyDict<E> {
-    fn new_keystring_pairs() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keystring_pairs::KeyStringPairs);
-        // TODO exception if dict keys are not unique
-        Self::new(PyStr::new_keystring(), PyStr::new_keystring(), path, None)
-    }
-
     fn new_keywords() -> Self {
         Self::new1(PyStr::new_ne_str(), PyStr::new_ne_str())
-    }
-
-    fn new_sub_patterns() -> Self {
-        let path = config_path("SubPatterns");
-        let k = PyStr::new_keystring_or_pattern();
-        let v = PyTuple::new_sub_pattern();
-        Self::new1(k, v).rstype(path)
     }
 }
 
@@ -8131,11 +8101,6 @@ impl<E: From<PyException>> PyList<E> {
         let inner_path = keyword_path("Vertex");
         let inner: PyTuple<_> = repeat_n(RsFloat::F32, 2).collect();
         Self::new_non_empty(inner, Some(&inner_path))
-    }
-
-    fn new_key_patterns() -> Self {
-        let path = config_path("KeyPatterns");
-        Self::new1(PyStr::new_keystring_or_pattern()).rstype(path)
     }
 
     fn new_overrange_columns() -> Self {
@@ -8349,9 +8314,9 @@ impl<E> PyTuple<E> {
         Self::new(self.inner, Some(rstype), self.exc)
     }
 
-    fn exc(self, exc: impl Into<E>) -> Self {
-        Self::new(self.inner, self.rstype, Some(exc.into()))
-    }
+    // fn exc(self, exc: impl Into<E>) -> Self {
+    //     Self::new(self.inner, self.rstype, Some(exc.into()))
+    // }
 
     fn map_exc<F: Clone + Fn(E) -> E1, E1>(self, f: F) -> PyTuple<E1> {
         PyTuple::new(
@@ -8366,18 +8331,6 @@ impl<E> PyTuple<E> {
 }
 
 impl<E: From<PyException>> PyTuple<E> {
-    fn new_sub_pattern() -> Self {
-        let desc = format!(
-            "if references in replacement string in {ARG_TOKEN} \
-             do not match captures in regular expression"
-        );
-        let exc = PyException::new_config().desc(desc);
-        Self::new1(PyStr::new_regexp())
-            .add(PyStr::default())
-            .add(PyBool::default())
-            .exc(exc)
-    }
-
     fn new_header_named_offsets() -> Self {
         let nt = quote!(fireflow_core::segment::read::HeaderOffsetsName);
         let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
@@ -8475,14 +8428,6 @@ impl<E: From<PyException>> PyTuple<E> {
             SegmentSrc::Any => "AnyAnalysisOffsets",
         };
         Self::new_offset_pair(id)
-    }
-
-    fn new_correction(seg: AnySegment, is_header: bool) -> Self {
-        let path = seg.correction_path(is_header);
-        [PyInt::new_int(RsInt::I32), PyInt::new_int(RsInt::I32)]
-            .into_iter()
-            .collect::<Self>()
-            .rstype(path)
     }
 
     fn new_unigate() -> Self {
@@ -8796,7 +8741,10 @@ impl<E> PyAlias<E> {
 impl<E: From<PyException>> PyAlias<E> {
     fn new_correction(seg: AnySegment, is_header: bool) -> Self {
         let path = seg.correction_path(is_header);
-        Self::new_py(["typing"], "OffsetCorrection").rstype(path)
+        let inner: PyTuple<_> = [RsInt::I32, RsInt::I32].into_iter().collect();
+        Self::new_py(["typing"], "OffsetCorrection")
+            .rstype(path)
+            .set_default(inner)
     }
 
     fn new_optical_only_key() -> Self {
@@ -8990,6 +8938,36 @@ impl<E: From<PyException>> PyAlias<E> {
     fn new_meas_index() -> Self {
         let path = parse_quote!(fireflow_core::text::index::MeasIndex);
         Self::new_py(["typing"], "MeasIndex").rstype(path)
+    }
+
+    fn new_sub_patterns() -> Self {
+        let path = config_path("SubPatterns");
+        Self::new_py(["typing"], "SubPatterns")
+            .rstype(path)
+            .set_default(PyDict::new_dummy())
+    }
+
+    fn new_key_patterns() -> Self {
+        let path = config_path("KeyPatterns");
+        Self::new_py(["typing"], "KeyPatterns")
+            .rstype(path)
+            .set_default(PyList::new_dummy())
+    }
+
+    fn new_keystring_pairs() -> Self {
+        let path: Path = parse_quote!(fireflow_core::validated::keystring_pairs::KeyStringPairs);
+        // TODO exception if dict keys are not unique
+        Self::new_py(["typing"], "KeyStringPairs")
+            .rstype(path)
+            .set_default(PyDict::new_dummy())
+    }
+
+    fn new_keystring_values() -> Self {
+        let path: Path = parse_quote!(fireflow_core::config::KeyStringValues);
+        // TODO exception if dict keys are not unique
+        Self::new_py(["typing"], "KeyStringValues")
+            .rstype(path)
+            .set_default(PyDict::new_dummy())
     }
 }
 
@@ -10574,7 +10552,7 @@ impl DocArgParam {
     fn new_config_correction_arg(name: &str, what: AnySegment, is_header: bool) -> Self {
         let location = if is_header { HEADER } else { TEXT };
         let d = format!("Corrections for {} offsets in {location}.", what.name());
-        Self::new_param(name, PyTuple::new_correction(what, is_header), d).def_auto()
+        Self::new_param(name, PyAlias::new_correction(what, is_header), d).def_auto()
     }
 
     fn new_text_correction_param() -> Self {
@@ -10777,10 +10755,12 @@ impl DocArgParam {
 
     fn new_allow_non_ascii_keys() -> Self {
         let n = "allow_non_ascii_keys";
-        let d = "Choose how to handle non-ASCII keys. This only applies to \
-                 non-standard keywords, as all standardized keywords may only \
-                 contain letters, numbers, and start with {DOLLAR_STR}. Regardless, all \
-                 compliant keys must only have ASCII.";
+        let d = format!(
+            "Choose how to handle non-ASCII keys. This only applies to \
+             non-standard keywords, as all standardized keywords may only \
+             contain letters, numbers, and start with {DOLLAR_STR}. Regardless, all \
+             compliant keys must only have ASCII."
+        );
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowNonAsciiKeywords", d, e)
     }
@@ -10853,19 +10833,13 @@ impl DocArgParam {
     }
 
     fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
-        let inner = PyList::new_key_patterns();
+        let inner = PyAlias::new_key_patterns();
         let pt = PyAlias::new_appendable_selector(inner);
-        let common = format!(
-            "Values that start and end with {delim} will be \
-             interpreted as regular expressions.",
-            delim = tc::PATTERN_DELIMITER
-        );
-        let d = format!("{desc} {common}");
-        Self::new_param(argname, pt, d).def_auto()
+        Self::new_param(argname, pt, desc).def_auto()
     }
 
     fn new_rename_standard_keys() -> Self {
-        let inner = PyDict::new_keystring_pairs();
+        let inner = PyAlias::new_keystring_pairs();
         let pt = PyAlias::new_appendable_selector(inner);
         let d = format!(
             "Rename standard keys in {TEXT}. Keys matching the first part of \
@@ -10876,12 +10850,12 @@ impl DocArgParam {
     }
 
     fn new_replace_standard_key_values() -> Self {
-        let inner = PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str());
+        let inner = PyAlias::new_keystring_values();
         Self::new_param(
             "replace_standard_key_values",
             PyAlias::new_appendable_selector(inner),
             format!(
-                "Replace values for standard keys in {TEXT} Comparisons are case \
+                "Replace values for standard keys in {TEXT}. Comparisons are case \
                  insensitive. The leading {DOLLAR_STR} is implied so do not include it."
             ),
         )
@@ -10891,26 +10865,14 @@ impl DocArgParam {
     fn new_substitute_standard_key_values() -> Self {
         let d = format!(
             "Apply sed-like substitution operation on matching standard keys. \
-             The leading {DOLLAR_STR} is implied when matching keys. The first \
-             dict corresponds to keys which are matched literally, and the \
-             second corresponds to keys which are matched via regular \
-             expression. The members in the 3-tuple values correspond to a \
-             regular expression, replacement string, and global flag \
-             respectively. The regular expression may contain capture \
-             expressions which must be matched exactly in the replacement \
-             string. If the global flag is {TRUE}, replace all found \
-             matches, otherwise only replace the first. Any references in \
-             replacement string must be given with surrounding brackets \
-             like {bracket0} or {bracket1}.",
-            bracket0 = code_str("${1}"),
-            bracket1 = code_str("${cygnus}"),
+             The leading {DOLLAR_STR} is implied when matching keys.",
         );
-        let p = PyAlias::new_appendable_selector(PyDict::new_sub_patterns());
+        let p = PyAlias::new_appendable_selector(PyAlias::new_sub_patterns());
         Self::new_param("substitute_standard_key_values", p, d).def_auto()
     }
 
     fn new_append_standard_keywords() -> Self {
-        let inner = PyDict::new1(PyStr::new_keystring(), PyStr::new_ne_str());
+        let inner = PyAlias::new_keystring_values();
         Self::new_param(
             "append_standard_keywords",
             PyAlias::new_appendable_selector(inner),
@@ -11098,7 +11060,7 @@ impl DocDefault {
         };
         let rs_def = pytype.doc_rs_default();
         let py_str = |s| format!("\"{s}\"");
-        let py_float = |s| format!("{s:.015}");
+        let py_float = |s| format!("{s:?}");
         match (self, pytype) {
             (Self::Auto, _) => (pytype.doc_text_default(), rs_def),
             (Self::Float(x), PyType::Float(_)) => (py_float(x), rs_def),
@@ -11973,7 +11935,8 @@ impl AnySegment {
         let s = format_ident!("{src}");
         let i = self.id();
         let root = quote!(fireflow_core::segment);
-        parse_quote! (#root::read::OffsetsCorrection<#root::#i, #root::#s>)
+        // TODO non-obvious '::' in path before the parameters
+        parse_quote! (#root::read::OffsetsCorrection::<#root::#i, #root::#s>)
     }
 }
 

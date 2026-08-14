@@ -104,9 +104,9 @@ class _ReadDataKeywordsConfig(BaseModel):
     demote_from_standard: pft.AppendableSelector[pft.KeyPatterns] = (
         _DEFAULT_KEY_PATTERNS
     )
-    rename_standard_keys: pft.AppendableSelector[dict[str, str]] = {}
-    replace_standard_key_values: pft.AppendableSelector[dict[str, str]] = {}
-    append_standard_keywords: pft.AppendableSelector[dict[str, str]] = {}
+    rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {}
+    replace_standard_key_values: pft.AppendableSelector[pft.KeyStringValues] = {}
+    append_standard_keywords: pft.AppendableSelector[pft.KeyStringValues] = {}
     substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {}
     allow_repair_non_unique: pft.TriFlag = "false"
     text_data_correction: pft.OffsetCorrection = _DEFAULT_CORRECTION

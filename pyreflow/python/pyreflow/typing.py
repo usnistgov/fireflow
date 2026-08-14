@@ -88,14 +88,14 @@ unescaped mode respectively if the choice is ambiguous.
 
 """
 
-type KeyPattern = str
+type KeyPattern = NEStr
 """A pattern which matches standard or nonstandard key values.
 
 This may be either a literal keyword value or a regular expression
 pattern.
 
-A literal pattern must match the target keyword exactly. This is less flexible
-than a regular expression but is much faster.
+A literal pattern must match the target keyword exactly (case insensitive). This
+is less flexible than a regular expression but is much faster.
 
 A regular expression is denoted by prefixing and suffixing with ``"/"`` (ie like
 ``"/<pattern>/"``). The value of ``"<pattern>"`` must follow the syntax outlined
@@ -103,7 +103,7 @@ in `regexp-syntax <https://docs.rs/regex/latest/regex/#syntax>`__.
 
 """
 
-type SubPattern = tuple[str, str, bool]
+type SubPattern = tuple[NEStr, str, bool]
 """A sed-like pattern which substitutes values in a string.
 
 Each element corresponds to a regular expression, replacement pattern, and
@@ -125,7 +125,6 @@ replace the first.
 type KeyPatterns = list[KeyPattern]
 """A list of patterns which match standard or nonstandard key values."""
 
-
 type SubPatterns = dict[KeyPattern, SubPattern]
 """Substitution patterns which may be used to modify keywords.
 
@@ -133,6 +132,15 @@ The key is matched using :py:type:`~pyreflow.typing.KeyPattern`, and the
 the value of the key is modified via :py:type:`~pyreflow.typing.SubPattern`.
 
 """
+
+type KeyStringPairs = dict[KeyString, KeyString]
+"""Mapping between names of keys from *TEXT*.
+
+All values must be unique and no value can match its own key.
+"""
+
+type KeyStringValues = dict[KeyString, NEStr]
+"""Mapping between a key from *TEXT* and a value."""
 
 type ProcessKeywordFailure = Literal[
     "error",
@@ -401,16 +409,36 @@ type RootOrMeas = Literal["root_only", "meas_only", "both"]
 # Keyword value aliases
 #
 
-type StdKey = str
-"""The value of a standard key (ie starts with ``"$"``)."""
+type NEStr = str
+"""A string which cannot be empty."""
 
-type NonStdKey = str
-"""The value of a non-standard key (ie does not start with ``"$"``)."""
+type KeyString = NEStr
+"""A standard or nonstandard key depending on context.
 
-type StdKeywords = dict[StdKey, str]
+If referring to a standard key, the leading ``"$"`` is implied.
+
+Only printable ASCII characters are allowed.
+
+"""
+
+type StdKey = NEStr
+"""The value of a standard key (ie starts with ``"$"``).
+
+Only printable ASCII characters are allowed.
+
+"""
+
+type NonStdKey = NEStr
+"""The value of a non-standard key (ie does not start with ``"$"``).
+
+Only printable ASCII characters are allowed.
+
+"""
+
+type StdKeywords = dict[StdKey, NEStr]
 """All standard keywords and their serialized values."""
 
-type NonStdKeywords = dict[NonStdKey, str]
+type NonStdKeywords = dict[NonStdKey, NEStr]
 """All non-standard keywords and their serialized values."""
 
 type MeasIndex = int
@@ -437,10 +465,10 @@ type FloatRange = float
 type IntRange = int
 """The value of *$PnR* for integer layouts (including ASCII)."""
 
-type Shortname = str
+type Shortname = NEStr
 """The value of *$PnN*.
 
-This must not contain commas and must be non-empty.
+This must not contain commas..
 """
 
 type Timestep = float
@@ -458,7 +486,7 @@ be like ``"<name>,<threshold>"``.
 
 """
 
-type Unicode = tuple[int, list[str]]
+type Unicode = tuple[int, list[NEStr]]
 """The value of the *$UNICODE* keyword.
 
 The first element is the page code and the second is is a list of
@@ -478,7 +506,7 @@ list corresponds to $CSMODE.
 type Compensation = npt.NDArray[np.float32]
 """The value of the compensation matrix."""
 
-type Spillover = tuple[list[str], npt.NDArray[np.float32]]
+type Spillover = tuple[list[Shortname], npt.NDArray[np.float32]]
 """The value of *$SPILLOVER* for FCS 3.1/3.2.
 
 The first element of the tuple corresponds to the row and column
@@ -497,7 +525,7 @@ type UnstainedCenters = dict[StdKey, float]
 Keys correspond to *$PnN*.
 """
 
-type Calibration3_1 = tuple[float, str]
+type Calibration3_1 = tuple[float, NEStr]
 """The value of *$PnCALIBRATION* (FCS 3.1).
 
 The first element corresponds to the calibration factor (ie slope).
@@ -505,7 +533,7 @@ The first element corresponds to the calibration factor (ie slope).
 The second element corresponds to the calibration unit (ie ERF).
 """
 
-type Calibration3_2 = tuple[float, float, str]
+type Calibration3_2 = tuple[float, float, NEStr]
 """The value of *$PnCALIBRATION* (FCS 3.2).
 
 The first element corresponds to the calibration factor (ie slope).
@@ -770,7 +798,6 @@ measurement have no scaling so this parameter is meaningless.
 
 """
 
-
 type Measurements[
     N,
     T: AnyTemporal,
@@ -879,7 +906,7 @@ Each level is as follows:
 
 """
 
-type GateScaleDiagnostic = tuple[str, Literal["log", "trimmed", "trimmed_log"]] | None
+type GateScaleDiagnostic = tuple[NEStr, Literal["log", "trimmed", "trimmed_log"]] | None
 """Diagnostic output from correcting *$GmE* keywords.
 
 This will be ``None`` if the keyword value was valid and not changed.

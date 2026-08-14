@@ -48,10 +48,14 @@ into an in-memory data structure that allows for database-like manipulation.
 This interpretation takes some computational power dependent on the complexity
 of *TEXT* and the FCS version.
 
+![read_std_overhead]({{read_std_overhead_path}})
+
+The consequence of this is more clearly seen when taking the ratio.
+
 Reported percentage does not include reading TEXT as a flat list (ie "100%" in
 the plot below represents a 2x overall increase in execution time).
 
-![read_std_overhead]({{read_std_overhead_path}})
+![read_std_overhead_ratio]({{read_std_overhead_ratio_path}})
 
 ### CRC Overhead
 
@@ -59,10 +63,29 @@ the plot below represents a 2x overall increase in execution time).
 compare against the checksum at the end. This requires extra computation on top
 of reading the segments themselves.
 
+![read_crc_overhead]({{read_crc_overhead_path}})
+
+The consequence of this is more clearly seen when taking the ratio.
+
 Reported percentage does not include parsing *TEXT* + *DATA* (ie "100%" in
 the plot below represents a 2x overall increase in execution time).
 
-![read_crc_overhead]({{read_crc_overhead_path}})
+![read_crc_overhead_ratio]({{read_crc_overhead_ratio_path}})
+
+### Range Check Overhead
+
+`fireflow` can check if values are within their designated *$PnR*. This is in
+addition to the bitmask check for integer values, which is effectively required
+in order to guarantee data integrity.
+
+![read_rng_overhead]({{read_rng_overhead_path}})
+
+The consequence of this is more clearly seen when taking the ratio.
+
+Reported percentage does not include parsing *TEXT* + *DATA* (ie "100%" in
+the plot below represents a 2x overall increase in execution time).
+
+![read_rng_overhead_ratio]({{read_rng_overhead_ratio_path}})
 
 ## Methodology
 
@@ -177,6 +200,14 @@ compute the ratio of parsing *TEXT* with and without standardization.
 will force the computation of the CRC even if a checksum is not found at the end
 of the dataset. This was compared to the value of (4) (which did not have CRC
 checking enabled) to compute the overhead of computing the CRC.
+
+#### fireflow_fix
+
+This was identical to running *fireflow* as described in the previous section
+except the configuration was created with the scalpal preset. Consult
+documentation for details; this will attempt to parse and repair an FCS file on
+the fly. Since all FCS files for this benchmark should be perfect, this setting
+is actually measuring the overhead to check for deviations from the standard.
 
 #### flowio
 

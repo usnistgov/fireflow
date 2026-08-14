@@ -7,6 +7,7 @@ import platform as plm
 import flowio as fi  # type: ignore
 import fcsparser as fp  # type: ignore
 import subprocess as sp
+from dataclasses import dataclass
 from datetime import datetime, UTC
 from typing import NamedTuple, assert_never, Literal
 from pathlib import Path
@@ -30,14 +31,16 @@ import polars as pl
 import numpy as np
 
 import pyreflow as pf
+import pyreflow.pydantic as pfp
 import pyreflow.typing as pft
 
 FIREFLOW = "fireflow"
+FIREFLOW_FIX = "fireflow_fix"
 FCSPARSER = "fcsparser"
 FLOWIO = "flowio"
 FLOWCORE = "flowCore"
 
-LIBRARIES = [FIREFLOW, FCSPARSER, FLOWIO, FLOWCORE]
+LIBRARIES = [FIREFLOW, FIREFLOW_FIX, FCSPARSER, FLOWIO, FLOWCORE]
 
 BENCH_FILES_NAME = "bench_files.tsv"
 
@@ -167,7 +170,9 @@ class FCSParserBenchKey(Enum):
     READ_DATA = "read_data"
 
 
-type AnyBenchKey = FlowCoreBenchKey | FFBenchKey | FCSParserBenchKey | FlowIOBenchKey
+type AnyBenchKey = (
+    FlowCoreBenchKey | tuple[FFBenchKey, bool] | FCSParserBenchKey | FlowIOBenchKey
+)
 
 
 FF_TRIAL_NUMBER = {
@@ -208,7 +213,8 @@ type DType = UintDType | type[pl.Float32] | type[pl.Float64]
 type Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 
 
-class BenchResult[X](NamedTuple):
+@dataclass(frozen=True)
+class BenchResult[X]:
     name: str
     key: X
     value: float
@@ -217,7 +223,9 @@ class BenchResult[X](NamedTuple):
 type FCSParserBenchResult = BenchResult[FCSParserBenchKey]
 type FlowIOBenchResult = BenchResult[FlowIOBenchKey]
 type FlowCoreBenchResult = BenchResult[FlowCoreBenchKey]
-type FFBenchResult = BenchResult[FFBenchKey]
+type FFBenchResult = BenchResult[tuple[FFBenchKey, bool]]
+
+
 type AnyBenchResult = (
     FCSParserBenchResult | FlowIOBenchResult | FlowCoreBenchResult | FFBenchResult
 )
@@ -236,7 +244,8 @@ class BenchFile(NamedTuple):
     description: str
 
 
-class BenchRun[X, Y](NamedTuple):
+@dataclass(frozen=True)
+class BenchRun[X, Y]:
     name: str
     key: X
 
@@ -249,6 +258,7 @@ class BenchRun[X, Y](NamedTuple):
         raise NotImplementedError
 
 
+@dataclass(frozen=True)
 class FlowIOBenchRun(BenchRun[FlowIOBenchKey, FlowIOBenchResult]):
     """A benchmark run for flowio."""
 
@@ -305,6 +315,7 @@ class FlowIOBenchRun(BenchRun[FlowIOBenchKey, FlowIOBenchResult]):
         return BenchResult(self.name, self.key, value)
 
 
+@dataclass(frozen=True)
 class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
     """A benchmark run for fcsparser."""
 
@@ -332,6 +343,7 @@ class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
         return BenchResult(self.name, self.key, value)
 
 
+@dataclass(frozen=True)
 class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
     """A benchmark run for flowCore."""
 
@@ -397,21 +409,31 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
         return BenchResult(self.name, self.key, value)
 
 
+@dataclass(frozen=True)
 class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
     """A benchmark run for fireflow."""
+
+    scalpal: bool
 
     @property
     def tsv_name(self) -> Path:
         return Path(f"{self.name}.tsv")
 
     def read_flat(self, root: Path) -> float:
+        conf = pfp.PyreflowReadFlatTEXTConfig()
+        if self.scalpal:
+            conf = conf.new_scalpal()
         start = perf_counter_ns()
-        pf.api.fcs_read_flat_text(root / self.fcs_name())
+        conf.read_flat_text(root / self.fcs_name())
         return perf_counter_ns() - start
 
     def read_std(self, root: Path) -> float:
+        conf = pfp.PyreflowReadStdTEXTConfig()
+        if self.scalpal:
+            conf = conf.new_scalpal()
+        conf.time_meas_pattern = None
         start = perf_counter_ns()
-        pf.api.fcs_read_std_text(root / self.fcs_name(), time_meas_pattern=None)
+        conf.read_std_text(root / self.fcs_name())
         return perf_counter_ns() - start
 
     def read_flat_data(
@@ -420,12 +442,14 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
         check_range: bool,
         compute_crc: bool,
     ) -> float:
+        conf = pfp.PyreflowReadFlatDatasetConfig()
+        if self.scalpal:
+            conf = conf.new_scalpal()
+        conf.over_range_action = "warn" if check_range else "none"
+        conf.compute_crc = "always" if compute_crc else "never"
+
         start = perf_counter_ns()
-        pf.api.fcs_read_flat_dataset(
-            root / self.fcs_name(),
-            over_range_action="warn" if check_range else "none",
-            compute_crc="always" if compute_crc else "never",
-        )
+        conf.read_flat_dataset(root / self.fcs_name())
         end = perf_counter_ns()
         return end - start
 
@@ -434,7 +458,8 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             input_root / self.fcs_name(), time_meas_pattern=None
         )
         start = perf_counter_ns()
-        core.write_text(scratch_root / self.fcs_name("ff_write_text"))
+        mode = "scalpal" if self.scalpal else "clean"
+        core.write_text(scratch_root / self.fcs_name(f"ff_write_text_{mode}"))
         end = perf_counter_ns()
         return end - start
 
@@ -443,7 +468,8 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             input_root / self.fcs_name(), time_meas_pattern=None
         )
         start = perf_counter_ns()
-        core.write_dataset(scratch_root / self.fcs_name("ff_write_data"))
+        mode = "scalpal" if self.scalpal else "clean"
+        core.write_dataset(scratch_root / self.fcs_name(f"ff_write_data_{mode}"))
         end = perf_counter_ns()
         return end - start
 
@@ -464,7 +490,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return BenchResult(self.name, self.key, value)
+        return BenchResult(self.name, (self.key, self.scalpal), value)
 
     def check_data(self, input_root: Path, scratch_root: Path) -> None:
         """Ensure DATA didn't get screwed up during optimization.
@@ -526,8 +552,8 @@ type AnyBenchRun = FCSParserBenchRun | FlowIOBenchRun | FlowCoreBenchRun | FFBen
 
 
 def get_runs(k: AnyBenchKey) -> int:
-    if isinstance(k, FFBenchKey):
-        return FF_TRIAL_NUMBER[k]
+    if isinstance(k, tuple) and isinstance(k[0], FFBenchKey):
+        return FF_TRIAL_NUMBER[k[0]]
     elif isinstance(k, FlowCoreBenchKey):
         return FLOWCORE_TRIAL_NUMBER[k]
     elif isinstance(k, FCSParserBenchKey):
@@ -1285,6 +1311,7 @@ def ff_runs(
     input_root: Path,
     scratch_root: Path,
     rw_only: bool,
+    scalpal: bool,
 ) -> list[FFBenchRun]:
     NON_RW_KEYS = [
         FFBenchKey.READ_DATA_CRC,
@@ -1292,7 +1319,7 @@ def ff_runs(
         FFBenchKey.READ_STD,
     ]
     runs = [
-        FFBenchRun(n, k)
+        FFBenchRun(n, k, scalpal)
         for n in bench_files[BENCH_NAME]
         for k in FFBenchKey
         if not (rw_only and k in NON_RW_KEYS)
@@ -1365,8 +1392,9 @@ def run_all_bench(
     runs: list[AnyBenchRun] = [
         *fcsparser_runs(bench_files),
         *flowio_runs(bench_files),
-        *flowcore_runs(bench_files),
-        *ff_runs(bench_files, input_root, scratch_root, True),
+        # *flowcore_runs(bench_files),
+        *ff_runs(bench_files, input_root, scratch_root, True, True),
+        *ff_runs(bench_files, input_root, scratch_root, True, False),
     ]
 
     # Warm up all code paths once; also load all files into page cache
@@ -1430,28 +1458,24 @@ def run_all_bench(
         to_df(FlowCoreBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS),
     )
 
-    df_ff = compute_read_write_df(
-        to_df(FFBenchKey.READ_FLAT, "r_text", READ_TEXT_RUNS),
-        to_df(FFBenchKey.READ_DATA, "r_data", READ_DATA_RUNS),
-        to_df(FFBenchKey.WRITE_TEXT, "w_text", WRITE_TEXT_RUNS),
-        to_df(FFBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS),
+    df_ff_clean = compute_read_write_df(
+        to_df((FFBenchKey.READ_FLAT, False), "r_text", READ_TEXT_RUNS),
+        to_df((FFBenchKey.READ_DATA, False), "r_data", READ_DATA_RUNS),
+        to_df((FFBenchKey.WRITE_TEXT, False), "w_text", WRITE_TEXT_RUNS),
+        to_df((FFBenchKey.WRITE_DATA, False), "w_data", WRITE_DATA_RUNS),
     )
 
-    def get_tool(x: AnyBenchKey) -> str:
-        if isinstance(x, FFBenchKey):
-            return FIREFLOW
-        elif isinstance(x, FlowCoreBenchKey):
-            return FLOWCORE
-        elif isinstance(x, FCSParserBenchKey):
-            return FCSPARSER
-        elif isinstance(x, FlowIOBenchKey):
-            return FLOWIO
-        else:
-            assert_never(x)
+    df_ff_fix = compute_read_write_df(
+        to_df((FFBenchKey.READ_FLAT, True), "r_text", READ_TEXT_RUNS),
+        to_df((FFBenchKey.READ_DATA, True), "r_data", READ_DATA_RUNS),
+        to_df((FFBenchKey.WRITE_TEXT, True), "w_text", WRITE_TEXT_RUNS),
+        to_df((FFBenchKey.WRITE_DATA, True), "w_data", WRITE_DATA_RUNS),
+    )
 
     df_all = pl.concat(
         [
-            df_ff.select(all_columns).with_columns(library=pl.lit(FIREFLOW)),
+            df_ff_clean.select(all_columns).with_columns(library=pl.lit(FIREFLOW)),
+            df_ff_fix.select(all_columns).with_columns(library=pl.lit(FIREFLOW_FIX)),
             df_flowio.select(all_columns).with_columns(library=pl.lit(FLOWIO)),
             df_fcsparser.select(read_columns)
             .with_columns(pl.lit(None).alias(n) for n in write_columns)
@@ -1472,7 +1496,10 @@ def run_ff_bench(
     scratch_root.mkdir(parents=True, exist_ok=True)
 
     bench_files = read_bench_files(input_root, names_filter)
-    runs = ff_runs(bench_files, input_root, scratch_root, False)
+    runs = [
+        *ff_runs(bench_files, input_root, scratch_root, False, True),
+        *ff_runs(bench_files, input_root, scratch_root, False, False),
+    ]
 
     # warm up code paths and load files into page cache
     _ = [r.run(input_root, scratch_root) for r in set(runs)]
@@ -1481,9 +1508,9 @@ def run_ff_bench(
     shuffle(runs)
     results = [r.run(input_root, scratch_root) for r in runs]
 
-    def to_df(key: FFBenchKey, name: str, runs_name: str) -> pl.DataFrame:
+    def to_df(key: tuple[FFBenchKey, bool], name: str, runs_name: str) -> pl.DataFrame:
         runs = get_runs(key)
-        rs = [r for r in results if r.key is key]
+        rs = [r for r in results if r.key == key]
         full_name = f"{name}_ns"
         result_df = pl.DataFrame(
             [[r.name for r in rs], [r.value for r in rs]],
@@ -1501,111 +1528,140 @@ def run_ff_bench(
             .with_columns(pl.lit(runs).alias(runs_name))
         )
 
-    read_text_df = to_df(FFBenchKey.READ_FLAT, "r_text", READ_TEXT_RUNS)
-    read_std_df = to_df(FFBenchKey.READ_STD, "r_std", READ_STD_RUNS)
-    read_data_df = to_df(FFBenchKey.READ_DATA, "r_data", READ_DATA_RUNS)
-    read_data_rng_df = to_df(FFBenchKey.READ_DATA_RNG, "r_data_rng", READ_DATA_RNG_RUNS)
-    read_data_crc_df = to_df(FFBenchKey.READ_DATA_CRC, "r_data_crc", READ_DATA_CRC_RUNS)
-    write_text_df = to_df(FFBenchKey.WRITE_TEXT, "w_text", WRITE_TEXT_RUNS)
-    write_data_df = to_df(FFBenchKey.WRITE_DATA, "w_data", WRITE_DATA_RUNS)
+    def analyze(scalpal: bool) -> pl.DataFrame:
+        read_text_df = to_df((FFBenchKey.READ_FLAT, scalpal), "r_text", READ_TEXT_RUNS)
+        read_std_df = to_df((FFBenchKey.READ_STD, scalpal), "r_std", READ_STD_RUNS)
+        read_data_df = to_df((FFBenchKey.READ_DATA, scalpal), "r_data", READ_DATA_RUNS)
+        read_data_rng_df = to_df(
+            (FFBenchKey.READ_DATA_RNG, scalpal), "r_data_rng", READ_DATA_RNG_RUNS
+        )
+        read_data_crc_df = to_df(
+            (FFBenchKey.READ_DATA_CRC, scalpal), "r_data_crc", READ_DATA_CRC_RUNS
+        )
+        write_text_df = to_df(
+            (FFBenchKey.WRITE_TEXT, scalpal), "w_text", WRITE_TEXT_RUNS
+        )
+        write_data_df = to_df(
+            (FFBenchKey.WRITE_DATA, scalpal), "w_data", WRITE_DATA_RUNS
+        )
 
-    df_read = compute_read_df(
-        bench_files,
-        read_text_df,
-        read_data_df,
-    )
+        df_read = compute_read_df(
+            bench_files,
+            read_text_df,
+            read_data_df,
+        )
 
-    df_read_write = compute_write_df(
-        df_read,
-        write_text_df,
-        write_data_df,
-    )
+        df_read_write = compute_write_df(
+            df_read,
+            write_text_df,
+            write_data_df,
+        )
 
-    df_analyzed = (
-        df_read_write.join(read_std_df, on=BENCH_NAME)
-        .with_columns(
-            # compute the overhead of standardizing TEXT by taking difference of
-            # total std run and flat run
-            (
-                (pl.col(MEAN_READ_STD_NS) - pl.col(MEAN_READ_TEXT_NS))
-                / pl.col(N_KEYWORDS)
-            ).alias(MEAN_READ_STD_DIFF_NS_PER_KW),
-            (
+        df_analyzed = (
+            df_read_write.join(read_std_df, on=BENCH_NAME)
+            .with_columns(
+                # compute the overhead of standardizing TEXT by taking difference of
+                # total std run and flat run
                 (
-                    pl.col(SERR_READ_STD_NS).pow(2) + pl.col(SERR_READ_TEXT_NS).pow(2)
-                ).sqrt()
-                / pl.col(N_KEYWORDS)
-            ).alias(SERR_READ_STD_DIFF_NS_PER_KW),
-            # also compute the ratio of standard to flat (no variance since this
-            # is really complex
-            (pl.col(MEAN_READ_STD_NS) / pl.col(MEAN_READ_TEXT_NS) * 100 - 100).alias(
-                "r_std_ratio"
-            ),
+                    (pl.col(MEAN_READ_STD_NS) - pl.col(MEAN_READ_TEXT_NS))
+                    / pl.col(N_KEYWORDS)
+                ).alias(MEAN_READ_STD_DIFF_NS_PER_KW),
+                (
+                    (
+                        pl.col(SERR_READ_STD_NS).pow(2)
+                        + pl.col(SERR_READ_TEXT_NS).pow(2)
+                    ).sqrt()
+                    / pl.col(N_KEYWORDS)
+                ).alias(SERR_READ_STD_DIFF_NS_PER_KW),
+                # also compute the ratio of standard to flat (no variance since this
+                # is really complex
+                (
+                    pl.col(MEAN_READ_STD_NS) / pl.col(MEAN_READ_TEXT_NS) * 100 - 100
+                ).alias("r_std_ratio"),
+            )
+            .join(read_data_rng_df, on=BENCH_NAME)
+            .with_columns(
+                # compute time taken to check ranges by taking difference of reading
+                # DATA with and without range change applied. Note that there should
+                # be no actual range errors given how to dataframes were built.
+                (pl.col(MEAN_READ_DATA_RNG_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
+                    MEAN_READ_DATA_RNG_DIFF_NS
+                ),
+                (
+                    pl.col(SERR_READ_DATA_RNG_NS).pow(2)
+                    + pl.col(SERR_READ_DATA_NS).pow(2)
+                )
+                .sqrt()
+                .alias(SERR_READ_DATA_RNG_DIFF_NS),
+                # also compute the ratio of DATA+range check to reading DATA alone
+                # (no variance since this is really complex
+                (
+                    pl.col(MEAN_READ_DATA_RNG_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
+                    - 100
+                ).alias("r_data_rng_ratio"),
+            )
+            .join(read_data_crc_df, on=BENCH_NAME)
+            .with_columns(
+                # do analogous calculation to range check for CRC computation
+                (pl.col(MEAN_READ_DATA_CRC_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
+                    MEAN_READ_DATA_CRC_DIFF_NS
+                ),
+                (
+                    pl.col(SERR_READ_DATA_CRC_NS).pow(2)
+                    + pl.col(SERR_READ_DATA_NS).pow(2)
+                )
+                .sqrt()
+                .alias(SERR_READ_DATA_CRC_DIFF_NS),
+                # also compute the ratio of DATA+CRC check to reading DATA alone
+                # (no variance since this is really complex
+                (
+                    pl.col(MEAN_READ_DATA_CRC_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
+                    - 100
+                ).alias("r_data_crc_ratio"),
+            )
+            .with_columns(
+                # ratio of write to read (no variance because this more complicated than its worth)
+                (pl.col(MEAN_READ_TEXT_NS) / pl.col(MEAN_WRITE_TEXT_NS) * 100).alias(
+                    "text_rw_ratio"
+                ),
+                (pl.col("mean_r_data_ns") / pl.col(MEAN_WRITE_DATA_NS) * 100).alias(
+                    "data_rw_ratio"
+                ),
+                # normalize the CRC and range check differences similar to
+                # standardization overhead
+                (
+                    pl.col(MEAN_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)
+                ).alias(MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL),
+                (
+                    pl.col(SERR_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)
+                ).alias(SERR_READ_DATA_RNG_DIFF_NS_PER_VAL),
+                (
+                    pl.col(MEAN_READ_DATA_CRC_DIFF_NS)
+                    / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
+                    * 1000
+                ).alias(MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB),
+                (
+                    pl.col(SERR_READ_DATA_CRC_DIFF_NS)
+                    / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
+                    * 1000
+                ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KIB),
+            )
         )
-        .join(read_data_rng_df, on=BENCH_NAME)
-        .with_columns(
-            # compute time taken to check ranges by taking difference of reading
-            # DATA with and without range change applied. Note that there should
-            # be no actual range errors given how to dataframes were built.
-            (pl.col(MEAN_READ_DATA_RNG_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
-                MEAN_READ_DATA_RNG_DIFF_NS
-            ),
-            (pl.col(SERR_READ_DATA_RNG_NS).pow(2) + pl.col(SERR_READ_DATA_NS).pow(2))
-            .sqrt()
-            .alias(SERR_READ_DATA_RNG_DIFF_NS),
-            # also compute the ratio of DATA+range check to reading DATA alone
-            # (no variance since this is really complex
-            (
-                pl.col(MEAN_READ_DATA_RNG_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
-                - 100
-            ).alias("r_data_rng_ratio"),
-        )
-        .join(read_data_crc_df, on=BENCH_NAME)
-        .with_columns(
-            # do analogous calculation to range check for CRC computation
-            (pl.col(MEAN_READ_DATA_CRC_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
-                MEAN_READ_DATA_CRC_DIFF_NS
-            ),
-            (pl.col(SERR_READ_DATA_CRC_NS).pow(2) + pl.col(SERR_READ_DATA_NS).pow(2))
-            .sqrt()
-            .alias(SERR_READ_DATA_CRC_DIFF_NS),
-            # also compute the ratio of DATA+CRC check to reading DATA alone
-            # (no variance since this is really complex
-            (
-                pl.col(MEAN_READ_DATA_CRC_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
-                - 100
-            ).alias("r_data_crc_ratio"),
-        )
-        .with_columns(
-            # ratio of write to read (no variance because this more complicated than its worth)
-            (pl.col(MEAN_READ_TEXT_NS) / pl.col(MEAN_WRITE_TEXT_NS) * 100).alias(
-                "text_rw_ratio"
-            ),
-            (pl.col("mean_r_data_ns") / pl.col(MEAN_WRITE_DATA_NS) * 100).alias(
-                "data_rw_ratio"
-            ),
-            # normalize the CRC and range check differences similar to
-            # standardization overhead
-            (pl.col(MEAN_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL
-            ),
-            (pl.col(SERR_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)).alias(
-                SERR_READ_DATA_RNG_DIFF_NS_PER_VAL
-            ),
-            (
-                pl.col(MEAN_READ_DATA_CRC_DIFF_NS)
-                / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
-                * 1000
-            ).alias(MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB),
-            (
-                pl.col(SERR_READ_DATA_CRC_DIFF_NS)
-                / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
-                * 1000
-            ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KIB),
-        )
+
+        return df_analyzed.drop(["description"])
+
+    df_clean = analyze(False)
+    df_fix = analyze(True)
+
+    df_all = pl.concat(
+        [
+            df_clean.with_columns(library=pl.lit(FIREFLOW)),
+            df_fix.with_columns(library=pl.lit(FIREFLOW_FIX)),
+        ],
+        how="vertical",
     )
 
-    return df_analyzed.drop(["description"])
+    return df_all
 
 
 def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> None:
@@ -1900,12 +1956,39 @@ def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
 
 
 def plot_fireflow_std_overhead(df: pl.DataFrame, out_path: Path) -> None:
+    df_combined = df.with_columns(
+        (
+            pl.col(MEAN_READ_STD_DIFF_NS_PER_KW) - pl.col(SERR_READ_STD_DIFF_NS_PER_KW)
+        ).alias("lower"),
+        (
+            pl.col(MEAN_READ_STD_DIFF_NS_PER_KW) + pl.col(SERR_READ_STD_DIFF_NS_PER_KW)
+        ).alias("upper"),
+    )
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y=MEAN_READ_STD_DIFF_NS_PER_KW, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="TEXT Std. Overhead (ns/keyword pair)", x="FCS File")
+        + coord_flip()
+    )
+    read_text_plt.save(out_path)
+
+
+def plot_fireflow_std_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
     read_text_plt = (
         ggplot(
             df,
-            aes(y="r_std_ratio", x=BENCH_NAME),  # type: ignore
+            aes(y="r_std_ratio", x=BENCH_NAME, fill=LIBRARY),  # type: ignore
         )
-        + geom_col()
+        + geom_col(position="dodge")
         + labs(y="TEXT Std. Overhead (% of TEXT parse time)", x="FCS File")
         + coord_flip()
     )
@@ -1913,13 +1996,84 @@ def plot_fireflow_std_overhead(df: pl.DataFrame, out_path: Path) -> None:
 
 
 def plot_fireflow_crc_overhead(df: pl.DataFrame, out_path: Path) -> None:
+    df_combined = df.with_columns(
+        (
+            pl.col(MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB)
+            - pl.col(SERR_READ_DATA_CRC_DIFF_NS_PER_KIB)
+        ).alias("lower"),
+        (
+            pl.col(MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB)
+            + pl.col(SERR_READ_DATA_CRC_DIFF_NS_PER_KIB)
+        ).alias("upper"),
+    )
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y=MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="CRC Overhead (ns/KiB)", x="FCS File")
+        + coord_flip()
+    )
+    read_text_plt.save(out_path)
+
+
+def plot_fireflow_crc_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
     read_text_plt = (
         ggplot(
             df,
-            aes(y="r_data_crc_ratio", x=BENCH_NAME),  # type: ignore
+            aes(y="r_data_crc_ratio", x=BENCH_NAME, fill=LIBRARY),  # type: ignore
         )
-        + geom_col()
+        + geom_col(position="dodge")
         + labs(y="CRC Overhead (% of total read time)", x="FCS File")
+        + coord_flip()
+    )
+    read_text_plt.save(out_path)
+
+
+def plot_fireflow_rng_overhead(df: pl.DataFrame, out_path: Path) -> None:
+    df_combined = df.with_columns(
+        (
+            pl.col(MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL)
+            - pl.col(SERR_READ_DATA_RNG_DIFF_NS_PER_VAL)
+        ).alias("lower"),
+        (
+            pl.col(MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL)
+            + pl.col(SERR_READ_DATA_RNG_DIFF_NS_PER_VAL)
+        ).alias("upper"),
+    )
+
+    read_text_plt = (
+        ggplot(
+            df_combined,
+            aes(y=MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL, x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + geom_errorbar(
+            aes(ymin="lower", ymax="upper"),  # type: ignore
+            position="dodge",
+            width=0.9,
+        )
+        + labs(y="Range Overhead (ns/value)", x="FCS File")
+        + coord_flip()
+    )
+    read_text_plt.save(out_path)
+
+
+def plot_fireflow_rng_overhead_ratio(df: pl.DataFrame, out_path: Path) -> None:
+    read_text_plt = (
+        ggplot(
+            df,
+            aes(y="r_data_rng_ratio", x=BENCH_NAME, fill=LIBRARY),  # type: ignore
+        )
+        + geom_col(position="dodge")
+        + labs(y="Range Check Overhead (% of total read time)", x="FCS File")
         + coord_flip()
     )
     read_text_plt.save(out_path)
@@ -2182,9 +2336,19 @@ def render_all(
 
     read_std_overhead_path = static_dir / "read_std_overhead.svg"
     read_crc_overhead_path = static_dir / "read_crc_overhead.svg"
+    read_rng_overhead_path = static_dir / "read_rng_overhead.svg"
+
+    read_std_overhead_ratio_path = static_dir / "read_std_overhead_ratio.svg"
+    read_crc_overhead_ratio_path = static_dir / "read_crc_overhead_ratio.svg"
+    read_rng_overhead_ratio_path = static_dir / "read_rng_overhead_ratio.svg"
 
     plot_fireflow_std_overhead(df_ff_results, read_std_overhead_path)
     plot_fireflow_crc_overhead(df_ff_results, read_crc_overhead_path)
+    plot_fireflow_rng_overhead(df_ff_results, read_rng_overhead_path)
+
+    plot_fireflow_std_overhead_ratio(df_ff_results, read_std_overhead_ratio_path)
+    plot_fireflow_crc_overhead_ratio(df_ff_results, read_crc_overhead_ratio_path)
+    plot_fireflow_rng_overhead_ratio(df_ff_results, read_rng_overhead_ratio_path)
 
     read_data_kib_path = static_dir / "read_data_kib.svg"
     write_data_kib_path = static_dir / "write_data_kib.svg"
@@ -2247,6 +2411,18 @@ def render_all(
                         readme_dir
                     ),
                     "read_crc_overhead_path": read_crc_overhead_path.relative_to(
+                        readme_dir
+                    ),
+                    "read_rng_overhead_path": read_rng_overhead_path.relative_to(
+                        readme_dir
+                    ),
+                    "read_std_overhead_ratio_path": read_std_overhead_ratio_path.relative_to(
+                        readme_dir
+                    ),
+                    "read_crc_overhead_ratio_path": read_crc_overhead_ratio_path.relative_to(
+                        readme_dir
+                    ),
+                    "read_rng_overhead_ratio_path": read_rng_overhead_ratio_path.relative_to(
                         readme_dir
                     ),
                     "test_file_table": dataframe_to_md(df_files.drop(["description"])),

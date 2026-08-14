@@ -290,9 +290,14 @@ versions for Python and R respectively.
 * CPU Model: {{cpu_model}}
 * Total Memory (GiB): {{total_memory}}
 
+Note, disk is not reported since read/write for all benchmarks was done in
+memory. See [limitations](#limitations).
+
 ## Limitations
 
 ### In-Memory Access
+
+#### Read benchmarks
 
 The execution times in this benchmark will only reflect a real user's experience
 (in an absolute sense) if they access a small number of files repeatedly in a
@@ -307,13 +312,20 @@ cache before every read. This either requires triggering
 cloud) or calling `posix_fadvise` (only a suggestion, doesn't guarantee page
 clearance).
 
+#### Write benchmarks
+
+All write benchmarks wrote their output files to `/tmp` (the in-memory temporary
+folder in Linux). Therefore the interpretation for write performance is
+analogous to read performance.
+
 ### Repairing FCS Files
 
-This benchmark did not investigate the use of any `fireflow`-specific repair
-flags which fix known FCS deviations. These will be necessary for almost all
-files in order to get a clean read of *TEXT* and *DATA*. These options usually
-add some overhead, particularly those that try to guess what an FCS file is
-trying to say based on heuristics (delimiter escaping for example).
+This benchmark does not test any imperfect FCS files. However, it does measure
+the overhead of checking for FCS standard deviations on perfect FCS files.
+
+In reality, almost all FCS files in the wild will be imperfect. Therefore, the
+values of the `fireflow_fix` level in the above results should be taken as a
+lower bound on the performance one can expect for real files.
 
 ## Appendix
 

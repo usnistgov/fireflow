@@ -1899,7 +1899,7 @@ def plot_write_text(df: pl.DataFrame, out_path: Path) -> None:
             ).alias("upper"),
         )
         .with_columns(pl.col(LIBRARY).cast(parser_enum()))
-    ).filter(~pl.col(LIBRARY).eq(FCSPARSER))
+    ).filter(~pl.col(LIBRARY).is_in([FCSPARSER, FIREFLOW_FIX]))
 
     read_text_plt = (
         ggplot(
@@ -1914,7 +1914,9 @@ def plot_write_text(df: pl.DataFrame, out_path: Path) -> None:
         )
         + labs(y="TEXT write time (ns/keyword pair)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FCSPARSER])
+        + scale_fill_discrete(
+            limits=[t for t in LIBRARIES if t not in [FCSPARSER, FIREFLOW_FIX]]
+        )
     )
     read_text_plt.save(out_path)
 
@@ -1935,7 +1937,7 @@ def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
             ).alias("upper"),
         )
         .with_columns(pl.col(LIBRARY).cast(parser_enum()))
-    ).filter(~pl.col(LIBRARY).eq(FCSPARSER))
+    ).filter(~pl.col(LIBRARY).is_in([FCSPARSER, FIREFLOW_FIX]))
 
     read_text_plt = (
         ggplot(
@@ -1950,7 +1952,9 @@ def plot_write_data(df: pl.DataFrame, out_path: Path) -> None:
         )
         + labs(y="DATA write time (ns/value)", x="FCS File", fill="Library")
         + coord_flip()
-        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FCSPARSER])
+        + scale_fill_discrete(
+            limits=[t for t in LIBRARIES if t not in [FCSPARSER, FIREFLOW_FIX]]
+        )
     )
     read_text_plt.save(out_path)
 

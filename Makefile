@@ -78,7 +78,7 @@ bench_files = $(bench_inputs)/bench_files.tsv
 bench_all_ff = bench/outputs/bench_all_ff.tsv
 bench_all = bench/outputs/bench_all.tsv
 bench_readme = bench/README.md
-bench_scratch = bench/scratch
+bench_scratch = /tmp/fireflow_bench/scratch
 bench_static = bench/static
 bench_readme_template = bench/templates/README.j2
 

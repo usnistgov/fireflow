@@ -3120,7 +3120,7 @@ pub fn impl_py_build_info(input: TokenStream) -> TokenStream {
 
     let doc = DocString::new_class(format!("Information for this build of {PYREFLOW}")).args(args);
 
-    let (pyname, wrapped) = doc.as_impl_wrapped(name, &path, false, []);
+    let (pyname, wrapped) = doc.as_impl_wrapped(name, &path);
     let get_set_methods = doc.quoted_methods();
 
     let s = quote! {
@@ -5722,184 +5722,6 @@ pub fn impl_gated_meas(input: TokenStream) -> TokenStream {
 }
 
 #[proc_macro]
-pub fn impl_new_ascii_data_schema(input: TokenStream) -> TokenStream {
-    let name: Ident = syn::parse(input).unwrap();
-
-    let doc = DocString::new_class("An ASCII data schema.");
-
-    let to_def = |pyname: &Ident| {
-        quote! {
-            #[derive(Clone, PartialEq)]
-            pub struct #pyname;
-        }
-    };
-
-    let new = |_| {
-        quote! {
-            fn new() -> (Self, PySingleTypedDataSchema) {
-                let dt = fireflow_core::text::keywords::AlphaNumType::Ascii;
-                (Self, PySingleTypedDataSchema::new(dt))
-            }
-        }
-    };
-
-    let extends = ["PySingleTypedDataSchema"];
-
-    doc.into_impl_class0(name, false, true, extends, to_def, new)
-        .1
-        .into()
-}
-
-#[proc_macro]
-pub fn impl_new_single_typed_data_schema(input: TokenStream) -> TokenStream {
-    let name: Ident = syn::parse(input).unwrap();
-
-    let type_path: Path = parse_quote!(fireflow_core::text::keywords::AlphaNumType);
-
-    let datatype_param = DocArg::new_ivar_ro(
-        "datatype",
-        PyLiteral::new_datatype(),
-        format!("The value of the {DATATYPE} keyword."),
-        |_, _| quote!(self.datatype),
-    );
-
-    let doc = DocString::new_class("A data schema which has one type via {DATATYPE}.")
-        .arg(datatype_param);
-
-    let to_def = |pyname: &Ident| {
-        quote! {
-            #[derive(Clone, PartialEq)]
-            pub struct #pyname {
-                datatype: #type_path,
-            }
-        }
-    };
-
-    let new = |_| {
-        quote! {
-            fn new(datatype: #type_path) -> Self {
-                Self { datatype }
-            }
-        }
-    };
-
-    doc.into_impl_class0(name, true, true, [], to_def, new)
-        .1
-        .into()
-}
-
-#[proc_macro]
-pub fn impl_new_matrix_data_schema(input: TokenStream) -> TokenStream {
-    let name: Ident = syn::parse(input).unwrap();
-
-    let bytes_path: Path = parse_quote!(fireflow_core::text::byteord::ArgBytes);
-
-    // TODO not DRY
-    let datatype_param = DocArg::new_param(
-        "datatype",
-        PyLiteral::new_datatype(),
-        format!("The value of the {DATATYPE} keyword."),
-    );
-
-    let width_param = DocArg::new_ivar_ro(
-        "byte_width",
-        PyInt::from(RsInt::U8).rstype(bytes_path.clone()),
-        format!(
-            "The width of each value in bytes. \
-             Corresponds to {PNB} divided by 8, assumed to be all the same value. \
-             Must be an integer 1 to 8."
-        ),
-        |_, _| quote!(self.byte_width),
-    );
-
-    let is_float_param = DocArg::new_ivar_ro(
-        "is_float",
-        PyBool::default(),
-        format!(
-            "{TRUE} if values are a floating point value type, \
-             {FALSE} if they are an integer type."
-        ),
-        |_, _| quote!(self.is_float),
-    );
-
-    let doc = DocString::new_class("A data schema which is entirely one numeric type.")
-        .arg(width_param)
-        .arg(is_float_param)
-        .arg(datatype_param);
-
-    let to_def = |pyname: &Ident| {
-        quote! {
-            #[derive(Clone, PartialEq)]
-            pub struct #pyname {
-                byte_width: #bytes_path,
-                is_float: bool,
-            }
-        }
-    };
-
-    let new = |fun_args| {
-        quote! {
-            fn new(#fun_args) -> (Self, PySingleTypedDataSchema) {
-                let this = Self {
-                    byte_width,
-                    is_float,
-                };
-                let parent = PySingleTypedDataSchema::new(datatype);
-                (this, parent)
-            }
-        }
-    };
-
-    let extends = ["PySingleTypedDataSchema"];
-
-    doc.into_impl_class0(name, false, true, extends, to_def, new)
-        .1
-        .into()
-}
-
-#[proc_macro]
-pub fn impl_new_variable_width_data_schema(input: TokenStream) -> TokenStream {
-    let name: Ident = syn::parse(input).unwrap();
-
-    // TODO make this a Literal[1, 2 .. 7, 8]
-    let widths_param = DocArg::new_ivar_ro(
-        "byte_widths",
-        PyList::new1(RsInt::U32),
-        format!(
-            "The width of each measurement column in bytes. \
-             Corresponds to {PNB} for each measurement divided by 8. \
-             Values for each measurement may be different. \
-             Each must be integer 1 to 8."
-        ),
-        |_, _| quote!(self.byte_widths.clone()),
-    );
-
-    let doc = DocString::new_class("A data schema which has types that may have different widths.")
-        .arg(widths_param);
-
-    let to_def = |pyname: &Ident| {
-        quote! {
-            #[derive(Clone, PartialEq)]
-            pub struct #pyname {
-                byte_widths: Vec<u32>,
-            }
-        }
-    };
-
-    let new = |fun_args| {
-        quote! {
-            fn new(#fun_args) -> Self {
-                Self { byte_widths }
-            }
-        }
-    };
-
-    doc.into_impl_class0(name, true, true, [], to_def, new)
-        .1
-        .into()
-}
-
-#[proc_macro]
 pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
     let parsed = parse_macro_input!(input as NamedPath);
     let path = parsed.path;
@@ -5921,17 +5743,13 @@ pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
 
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> PyClassInitializer<Self> {
-                let this = #bare_path::new_ascii_u64(ranges).into();
-                let parent = PyAsciiDataSchema::new();
-                PyClassInitializer::from(parent).add_subclass(this)
+            fn new(#fun_args) -> Self {
+                #bare_path::new_ascii_u64(ranges).into()
             }
         }
     };
 
-    let extends = ["PyAsciiDataSchema"];
-
-    let (pyname, class) = doc.into_impl_class_sub(name.value(), &path, false, extends, new);
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
 
     let char_widths_doc =
         DocString::new_ivar("The width of each measurement.", PyList::new1(RsInt::U64)).para(
@@ -5947,9 +5765,12 @@ pub fn impl_new_fixed_ascii_data_schema(input: TokenStream) -> TokenStream {
         }
     });
 
+    let datatype = make_data_schema_datatype(&pyname, "A");
+
     quote! {
         #class
         #char_widths
+        #datatype
     }
     .into()
 }
@@ -5980,17 +5801,15 @@ pub fn impl_new_delim_ascii_data_schema(input: TokenStream) -> TokenStream {
 
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> PyClassInitializer<Self> {
-                let this = #bare_path::new_ascii(ranges).into();
-                let parent = PyAsciiDataSchema::new();
-                PyClassInitializer::from(parent).add_subclass(this)
+            fn new(#fun_args) -> Self {
+                #bare_path::new_ascii(ranges).into()
             }
         }
     };
 
-    let extends = ["PyAsciiDataSchema"];
-    let (_, q) = doc.into_impl_class_sub(name.value(), path, true, extends, new);
-    q.into()
+    let (pyname, class) = doc.into_impl_class(name.value(), path, new);
+    let datatype = make_data_schema_datatype(&pyname, "A");
+    quote!(#class #datatype).into()
 }
 
 #[proc_macro]
@@ -6003,11 +5822,7 @@ pub fn impl_new_ordered_float_data_schema(input: TokenStream) -> TokenStream {
     let nbytes = parsed.nbytes;
     let nbits = nbytes * 8;
     let bare_path = path_strip_args(path.clone());
-    let kw_dt = if nbytes == 4 {
-        quote!(Float)
-    } else {
-        quote!(Double)
-    };
+    let dt = if nbytes == 4 { "F" } else { "D" };
 
     let summary = format!("{nbits}-bit ordered float data schema.");
 
@@ -6035,18 +5850,16 @@ pub fn impl_new_ordered_float_data_schema(input: TokenStream) -> TokenStream {
     let doc = make_doc(vec![range_param, byteord_param]);
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> PyClassInitializer<Self> {
-                let this = #bare_path::new(ranges, byteord.into()).into();
-                let b = #nbytes.try_into().unwrap();
-                let d = fireflow_core::text::keywords::AlphaNumType::#kw_dt;
-                let parent = PyMatrixDataSchema::new(b, true, d);
-                PyClassInitializer::from(parent).add_subclass(this)
+            fn new(#fun_args) -> Self {
+                #bare_path::new(ranges, byteord.into()).into()
             }
         }
     };
-    let extends = ["PyMatrixDataSchema"];
-    let (_, class) = doc.into_impl_class_sub(name.value(), &path, true, extends, new);
-    class.into()
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+
+    let widths = make_byte_width(&pyname, nbytes);
+    let datatype = make_data_schema_datatype(&pyname, dt);
+    quote!(#class #widths #datatype).into()
 }
 
 #[proc_macro]
@@ -6057,11 +5870,7 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
     let nbytes = parsed.nbytes;
     let nbits = nbytes * 8;
     let bare_path = path_strip_args(path.clone());
-    let kw_dt = if nbytes == 4 {
-        quote!(Float)
-    } else {
-        quote!(Double)
-    };
+    let dt = if nbytes == 4 { "F" } else { "D" };
 
     let range_param = DocArg::new_ivar_ro(
         "ranges",
@@ -6080,19 +5889,18 @@ pub fn impl_new_endian_float_data_schema(input: TokenStream) -> TokenStream {
 
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> PyClassInitializer<Self> {
-                let this = #bare_path::new(ranges, endian).into();
-                let b = #nbytes.try_into().unwrap();
-                let d = fireflow_core::text::keywords::AlphaNumType::#kw_dt;
-                let parent = PyMatrixDataSchema::new(b, true, d);
-                PyClassInitializer::from(parent).add_subclass(this)
+            fn new(#fun_args) -> Self {
+                #bare_path::new(ranges, endian).into()
             }
         }
     };
 
-    let extends = ["PyMatrixDataSchema"];
-    let (_, class) = doc.into_impl_class_sub(name.value(), &path, true, extends, new);
-    class.into()
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+
+    let widths = make_byte_width(&pyname, nbytes);
+    let datatype = make_data_schema_datatype(&pyname, dt);
+
+    quote!(#class #widths #datatype).into()
 }
 
 #[proc_macro]
@@ -6120,18 +5928,15 @@ pub fn impl_new_ordered_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> PyResult<PyClassInitializer<Self>> {
-                let this = #bare_path::new_ordered_uint(ranges, &byte_width, byteord)?.into();
-                let dt = fireflow_core::text::keywords::AlphaNumType::Integer;
-                let parent = PyMatrixDataSchema::new(byte_width, false, dt);
-                Ok(PyClassInitializer::from(parent).add_subclass(this))
+            fn new(#fun_args) -> PyResult<Self> {
+                Ok(#bare_path::new_ordered_uint(ranges, &byte_width, byteord)?.into())
             }
         }
     };
 
-    let extends = ["PyMatrixDataSchema"];
-    let (_, class) = doc.into_impl_class_sub(name.value(), &path, true, extends, new);
-    class.into()
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let datatype = make_data_schema_datatype(&pyname, "I");
+    quote!(#class #datatype).into()
 }
 
 #[proc_macro]
@@ -6152,18 +5957,15 @@ pub fn impl_new_single_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> PyResult<PyClassInitializer<Self>> {
-                let this = #bare_path::new_single_uint(ranges, &byte_width, endian)?.into();
-                let dt = fireflow_core::text::keywords::AlphaNumType::Integer;
-                let parent = PyMatrixDataSchema::new(byte_width, false, dt);
-                Ok(PyClassInitializer::from(parent).add_subclass(this))
+            fn new(#fun_args) -> PyResult<Self> {
+                Ok(#bare_path::new_single_uint(ranges, &byte_width, endian)?.into())
             }
         }
     };
 
-    let extends = ["PyMatrixDataSchema"];
-    let (_, class) = doc.into_impl_class_sub(name.value(), &path, true, extends, new);
-    class.into()
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let datatype = make_data_schema_datatype(&pyname, "I");
+    quote!(#class #datatype).into()
 }
 
 #[proc_macro]
@@ -6192,18 +5994,15 @@ pub fn impl_new_variable_uint_data_schema(input: TokenStream) -> TokenStream {
 
     let new = |fun_args| {
         quote! {
-            fn new(#fun_args) -> (Self, PySingleTypedDataSchema) {
-                let this = #bare_path::new(ranges, endian).into();
-                let dt = fireflow_core::text::keywords::AlphaNumType::Integer;
-                let parent = PySingleTypedDataSchema::new(dt);
-                (this, parent)
+            fn new(#fun_args) -> Self {
+                #bare_path::new(ranges, endian).into()
             }
         }
     };
 
-    let extends = ["PySingleTypedDataSchema"];
-    let (_, class) = doc.into_impl_class_sub(name.value(), &path, true, extends, new);
-    class.into()
+    let (pyname, class) = doc.into_impl_class(name.value(), &path, new);
+    let datatype = make_data_schema_datatype(&pyname, "I");
+    quote!(#class #datatype).into()
 }
 
 #[proc_macro]
@@ -6424,18 +6223,17 @@ impl Parse for NamedPath {
 /// Macro arg for making data schema classes with a fixed size.
 struct SizedDataSchemaPath {
     named_path: NamedPath,
-    nbytes: u8,
+    nbytes: usize,
 }
 
 impl Parse for SizedDataSchemaPath {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let named_path = input.parse()?;
         let _: Comma = input.parse()?;
-        let n = input
+        let nbytes = input
             .parse::<LitInt>()?
             .base10_parse::<usize>()
             .expect("Number of bytes must be an unsigned integer");
-        let nbytes = n.try_into().expect("bytes was over 255");
         Ok(Self { named_path, nbytes })
     }
 }
@@ -8114,7 +7912,7 @@ impl<E: From<PyException>> PyFloat<E> {
         Self::from(RsFloat::F32).exc(e)
     }
 
-    fn new_float_range(nbytes: u8) -> Self {
+    fn new_float_range(nbytes: usize) -> Self {
         let i = format_ident!("F{:02}Range", nbytes * 8);
         let r = match nbytes {
             4 => RsFloat::F32,
@@ -8855,8 +8653,8 @@ impl<E: From<PyException>> PyUnion<E> {
         .exc(exc)
     }
 
-    fn new_py_byteord(nbytes: Option<u8>) -> Self {
-        let (path, exc_desc) = if let Some(n) = nbytes.map(usize::from) {
+    fn new_py_byteord(nbytes: Option<usize>) -> Self {
+        let (path, exc_desc) = if let Some(n) = nbytes {
             let sizedbyteord_path: Path = parse_quote!(PyByteOrder);
             let p = parse_quote!(#sizedbyteord_path<#n>);
             let d = format!(
@@ -11487,56 +11285,10 @@ impl ClassDocString {
     where
         F: FnOnce(TokenStream2) -> TokenStream2,
     {
-        self.into_impl_class_sub(name, path, false, [], constr)
-    }
-
-    fn into_impl_class_sub<F>(
-        self,
-        name: impl fmt::Display,
-        path: &Path,
-        subclass: bool,
-        extends: impl IntoIterator<Item = &'static str>,
-        constr: F,
-    ) -> (Ident, TokenStream2)
-    where
-        F: FnOnce(TokenStream2) -> TokenStream2,
-    {
-        let go = |pyname: &Ident| {
-            quote! {
-                #[derive(Clone, From, Into, PartialEq)]
-                pub struct #pyname(#path);
-            }
-        };
-        self.into_impl_class0(name, true, subclass, extends, go, constr)
-    }
-
-    fn into_impl_class0<F, G>(
-        self,
-        name: impl fmt::Display,
-        deepcopy: bool,
-        subclass: bool,
-        extends: impl IntoIterator<Item = &'static str>,
-        to_def: F,
-        constr: G,
-    ) -> (Ident, TokenStream2)
-    where
-        F: FnOnce(&Ident) -> TokenStream2,
-        G: FnOnce(TokenStream2) -> TokenStream2,
-    {
-        let (pyname, wrapped) = self.as_impl_wrapped0(to_def, name, subclass, extends);
+        let (pyname, wrapped) = self.as_impl_wrapped(name, path);
         let sig = self.sig();
         let get_set_methods = self.quoted_methods();
         let new = constr(self.fun_args());
-        let dc = if deepcopy {
-            quote! {
-                // allow all classes to be deepcopy-ed
-                fn __deepcopy__(&self, _memo: &Bound<'_, pyo3::PyAny>) -> Self {
-                    self.clone()
-                }
-            }
-        } else {
-            quote!()
-        };
         let s = quote! {
             #wrapped
 
@@ -11549,50 +11301,19 @@ impl ClassDocString {
 
                 #get_set_methods
 
-                #dc
-
+                // allow all classes to be deepcopy-ed
+                fn __deepcopy__(&self, _memo: &Bound<'_, pyo3::PyAny>) -> Self {
+                    self.clone()
+                }
             }
         };
         (pyname, s)
     }
 
-    fn as_impl_wrapped(
-        &self,
-        name: impl fmt::Display,
-        path: &Path,
-        subclass: bool,
-        extends: impl IntoIterator<Item = &'static str>,
-    ) -> (Ident, TokenStream2) {
-        let go = |pyname: &Ident| {
-            quote! {
-                #[derive(Clone, From, Into, PartialEq)]
-                pub struct #pyname(#path);
-            }
-        };
-        self.as_impl_wrapped0(go, name, subclass, extends)
-    }
-
-    fn as_impl_wrapped0<F>(
-        &self,
-        f: F,
-        name: impl fmt::Display,
-        subclass: bool,
-        extends: impl IntoIterator<Item = &'static str>,
-    ) -> (Ident, TokenStream2)
-    where
-        F: FnOnce(&Ident) -> TokenStream2,
-    {
-        let pyname = format_ident!("Py{name}");
+    fn as_impl_wrapped(&self, name: impl fmt::Display, path: &Path) -> (Ident, TokenStream2) {
         let doc = self.doc();
         let n = name.to_string();
-        let xs: Vec<_> = extends.into_iter().map(|x| format_ident!("{x}")).collect();
-        let pyclass = match (subclass, &xs[..]) {
-            (false, []) => quote!(name = #n, eq),
-            (true, []) => quote!(name = #n, eq, subclass),
-            (false, ys) => quote!(name = #n, eq, extends = #(#ys),*),
-            (true, ys) => quote!(name = #n, eq, subclass, extends = #(#ys),*),
-        };
-        let def = f(&pyname);
+        let pyname = format_ident!("Py{name}");
         let q = quote! {
             // pyo3 currently cannot add docstrings to __new__ methods, see
             // https://github.com/PyO3/pyo3/issues/4326
@@ -11600,8 +11321,9 @@ impl ClassDocString {
             // workaround, put them on the structs themselves, which works but has the
             // disadvantage of being not next to the method def itself
             #doc
-            #[pyclass(#pyclass)]
-            #def
+            #[pyclass(name = #n, eq)]
+            #[derive(Clone, From, Into, PartialEq)]
+            pub struct #pyname(#path);
         };
         (pyname, q)
     }
@@ -12283,6 +12005,25 @@ fn pyoptical(version: Version) -> Ident {
 
 fn pytemporal(version: Version) -> Ident {
     format_ident!("PyTemporal{}", version.short_underscore())
+}
+
+fn make_data_schema_datatype(pyname: &Ident, dt: &str) -> TokenStream2 {
+    let d = format!("The value of {DATATYPE}.");
+    let doc = DocString::new_ivar(d, PyLiteral::new_datatype())
+        .paras([format!("Will always return {dt}.", dt = code_str(dt))]);
+    doc.into_impl_get(pyname, "datatype", |_, _| quote!(self.0.datatype().into()))
+}
+
+fn make_byte_width(pyname: &Ident, nbytes: usize) -> TokenStream2 {
+    let s0 = format!("Will always return {}.", code(nbytes));
+    let s1 = format!(
+        "This corresponds to the value of {PNB} divided by 8, which are \
+         all equal for this data schema.",
+    );
+    let doc = DocString::new_ivar("The width of each measurement in bytes.", RsInt::Usize)
+        .paras([s0, s1]);
+
+    doc.into_impl_get(pyname, "byte_width", |_, _| quote!(#nbytes))
 }
 
 impl Version {

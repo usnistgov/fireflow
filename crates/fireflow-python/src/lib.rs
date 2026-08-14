@@ -57,7 +57,7 @@
 use fireflow_core::api;
 use fireflow_core::config as cfg;
 use fireflow_core::core;
-use fireflow_core::data::{self, LayoutByteOrder as _, PhantomInto as _};
+use fireflow_core::data::{self, LayoutByteOrder as _, LayoutDatatype as _, PhantomInto as _};
 use fireflow_core::header;
 use fireflow_core::match_map_uint;
 use fireflow_core::meas;
@@ -93,12 +93,6 @@ use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 use std::num::NonZeroU8;
 
-// Define top level API functions
-//
-// Each macro is a 1-1 mapping between the rust function and the python function
-// where all config fields are flattened into an argument list (which in some
-// cases is ~100 arguments).
-
 fpp::def_fcs_read_header!(api::fcs_read_header);
 fpp::def_fcs_read_flat_text!(api::fcs_read_flat_text, api::fcs_read_flat_texts);
 fpp::def_fcs_read_std_text!(api::fcs_read_std_text, api::fcs_read_std_texts);
@@ -110,11 +104,6 @@ fpp::def_fcs_read_flat_dataset!(
 fpp::def_fcs_read_std_dataset!(api::fcs_read_std_dataset, api::fcs_read_std_datasets);
 fpp::def_fcs_read_flat_dataset_with_keywords!(api::fcs_read_flat_dataset_with_keywords);
 fpp::def_fcs_write_datasets!(api::fcs_write_datasets);
-
-// Define classes used in top level API functions
-//
-// These could be defined in the core crate, but then we would lose out on the
-// documentation provided by the python proc macros.
 
 fpp::impl_config_defaults!(cfg::ReadHeaderConfig);
 fpp::impl_config_defaults!(cfg::ReadFlatTEXTConfig);
@@ -164,69 +153,6 @@ fpp::impl_py_offsets_overlap!(segment::read::TextToHeaderOffsetsOverlap);
 fpp::impl_py_offsets_overlap!(segment::read::SuppToHeaderOffsetsOverlap);
 fpp::impl_py_offsets_overlap!(segment::read::TextToHeaderOrSuppOffsetsOverlap);
 
-// Implement methods and wrapper for Core* struct/enums in rust
-//
-// This is relatively straightforward, albeit alot of code since every method
-// (there are many) needs to be transparently exposed in python, and often these
-// method differ by version. Death by macro ;)
-
-#[derive(IntoPyObject, From)]
-pub enum PyAnyCoreTEXT {
-    #[from(core::CoreTEXT2_0)]
-    FCS2_0(PyCoreTEXT2_0),
-    #[from(core::CoreTEXT3_0)]
-    FCS3_0(PyCoreTEXT3_0),
-    #[from(core::CoreTEXT3_1)]
-    FCS3_1(PyCoreTEXT3_1),
-    #[from(core::CoreTEXT3_2)]
-    FCS3_2(PyCoreTEXT3_2),
-}
-
-impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
-    fn from(value: core::AnyCoreTEXT) -> Self {
-        match value {
-            core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
-            core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
-            core::AnyCoreTEXT::FCS3_1(x) => (*x).into(),
-            core::AnyCoreTEXT::FCS3_2(x) => (*x).into(),
-        }
-    }
-}
-
-#[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyAnyCoreDataset {
-    #[from(core::CoreDataset2_0)]
-    FCS2_0(PyCoreDataset2_0),
-    #[from(core::CoreDataset3_0)]
-    FCS3_0(PyCoreDataset3_0),
-    #[from(core::CoreDataset3_1)]
-    FCS3_1(PyCoreDataset3_1),
-    #[from(core::CoreDataset3_2)]
-    FCS3_2(PyCoreDataset3_2),
-}
-
-impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
-    fn from(value: core::AnyCoreDataset) -> Self {
-        match value {
-            core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
-            core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
-            core::AnyCoreDataset::FCS3_1(x) => (*x).into(),
-            core::AnyCoreDataset::FCS3_2(x) => (*x).into(),
-        }
-    }
-}
-
-impl From<PyAnyCoreDataset> for core::AnyCoreDataset {
-    fn from(value: PyAnyCoreDataset) -> Self {
-        match value {
-            PyAnyCoreDataset::FCS2_0(x) => x.0.into(),
-            PyAnyCoreDataset::FCS3_0(x) => x.0.into(),
-            PyAnyCoreDataset::FCS3_1(x) => x.0.into(),
-            PyAnyCoreDataset::FCS3_2(x) => x.0.into(),
-        }
-    }
-}
-
 // Implement python classes for core* structs
 //
 // Will actually make classes called PyCoreTEXT* and PyCoreDataset* which
@@ -238,6 +164,27 @@ fpp::impl_new_core!(core::CoreTEXT2_0, core::CoreDataset2_0);
 fpp::impl_new_core!(core::CoreTEXT3_0, core::CoreDataset3_0);
 fpp::impl_new_core!(core::CoreTEXT3_1, core::CoreDataset3_1);
 fpp::impl_new_core!(core::CoreTEXT3_2, core::CoreDataset3_2);
+
+// Implement python classes for Optical* structs (as PyOptical*)
+//
+// This will include the __new__ methods and all attributes corresponding to
+// "instance variables" supplied to __new__
+fpp::impl_new_meas!(meas::Optical2_0);
+fpp::impl_new_meas!(meas::Optical3_0);
+fpp::impl_new_meas!(meas::Optical3_1);
+fpp::impl_new_meas!(meas::Optical3_2);
+
+// Implement $PnFEATURE (area/width/height) get/set for 3.2
+fpp::impl_meas_awh_pnfeature!(PyOptical3_2);
+
+// Implement python classes for Temporal* structs (as PyTemporal*)
+//
+// This will include the __new__ methods and all attributes corresponding to
+// "instance variables" supplied to __new__
+fpp::impl_new_meas!(meas::Temporal2_0);
+fpp::impl_new_meas!(meas::Temporal3_0);
+fpp::impl_new_meas!(meas::Temporal3_1);
+fpp::impl_new_meas!(meas::Temporal3_2);
 
 // Common methods for all Core* versions. Some of these macros will implement a
 // slightly different method depending on version.
@@ -477,66 +424,6 @@ fpp::impl_core_get_all_other_pnfeature!(PyCoreDataset3_2);
 fpp::impl_core_all_pnanalyte!(PyCoreTEXT3_2);
 fpp::impl_core_all_pnanalyte!(PyCoreDataset3_2);
 
-// Implement methods for measurement structs in rust
-
-// Implement python classes for Optical* structs (as PyOptical*)
-//
-// This will include the __new__ methods and all attributes corresponding to
-// "instance variables" supplied to __new__
-fpp::impl_new_meas!(meas::Optical2_0);
-fpp::impl_new_meas!(meas::Optical3_0);
-fpp::impl_new_meas!(meas::Optical3_1);
-fpp::impl_new_meas!(meas::Optical3_2);
-
-// Implement $PnFEATURE (area/width/height) get/set for 3.2
-fpp::impl_meas_awh_pnfeature!(PyOptical3_2);
-
-// Implement python classes for Temporal* structs (as PyTemporal*)
-//
-// This will include the __new__ methods and all attributes corresponding to
-// "instance variables" supplied to __new__
-fpp::impl_new_meas!(meas::Temporal2_0);
-fpp::impl_new_meas!(meas::Temporal3_0);
-fpp::impl_new_meas!(meas::Temporal3_1);
-fpp::impl_new_meas!(meas::Temporal3_2);
-
-type MeasElements<K, U, V, S> = Vec<Element<(sn::Shortname, U), (K, V, S)>>;
-
-struct PyEithers<K, U, V, S>(MeasElements<K, U, V, S>);
-
-impl<'py, K, U, V, S> FromPyObject<'_, 'py> for PyEithers<K, U, V, S>
-where
-    for<'a> V: FromPyObject<'a, 'py>,
-    for<'a> U: FromPyObject<'a, 'py>,
-    for<'a> S: FromPyObject<'a, 'py>,
-    for<'a> K: FromPyObject<'a, 'py>,
-{
-    type Error = PyErr;
-    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
-        obj.extract().map(Self)
-    }
-}
-
-impl<K, U, V, S, Uf, Vf> From<PyEithers<K, U, V, S>> for MeasElements<K, Uf, Vf, S>
-where
-    U: Into<Uf>,
-    V: Into<Vf>,
-{
-    fn from(value: PyEithers<K, U, V, S>) -> Self {
-        value.0.fmap(|x| {
-            x.first_once(|(k, v)| (k, v.into()))
-                .second_once(|(k, v, s)| (k, v.into(), s))
-        })
-    }
-}
-
-// Implement methods and wrappers for gating struct in rust.
-//
-// These are abstracted into python classes since they follow a different
-// pattern (mostly tuple-based) in the python interface that doesn't directly
-// map onto the internal rust structure. This is easier to define here rather
-// than in the core crate.
-
 #[derive(From, Into, Default)]
 struct PyAppliedGates2_0(gating::AppliedGates2_0);
 
@@ -642,6 +529,36 @@ fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::MeasOrGateIndex>);
 // Implement __new__ and attributes for PyBivariate3_2
 fpp::impl_new_gate_bi_regions!(gating::BivariateRegion<kws::PrefixedMeasIndex>);
 
+type MeasElements<K, U, V, S> = Vec<Element<(sn::Shortname, U), (K, V, S)>>;
+
+struct PyEithers<K, U, V, S>(MeasElements<K, U, V, S>);
+
+impl<'py, K, U, V, S> FromPyObject<'_, 'py> for PyEithers<K, U, V, S>
+where
+    for<'a> V: FromPyObject<'a, 'py>,
+    for<'a> U: FromPyObject<'a, 'py>,
+    for<'a> S: FromPyObject<'a, 'py>,
+    for<'a> K: FromPyObject<'a, 'py>,
+{
+    type Error = PyErr;
+    fn extract(obj: Borrowed<'_, 'py, PyAny>) -> Result<Self, Self::Error> {
+        obj.extract().map(Self)
+    }
+}
+
+impl<K, U, V, S, Uf, Vf> From<PyEithers<K, U, V, S>> for MeasElements<K, Uf, Vf, S>
+where
+    U: Into<Uf>,
+    V: Into<Vf>,
+{
+    fn from(value: PyEithers<K, U, V, S>) -> Self {
+        value.0.fmap(|x| {
+            x.first_once(|(k, v)| (k, v.into()))
+                .second_once(|(k, v, s)| (k, v.into(), s))
+        })
+    }
+}
+
 #[derive(IntoPyObject, FromPyObject)]
 enum PyRegion<U, B> {
     Uni(U),
@@ -728,18 +645,119 @@ impl From<Vec<gating::GatedMeasurement>> for PyGatedMeasurements {
     }
 }
 
-// Implement methods and wrappers for data schemas.
-//
-// This is complicated since the types used in the python interface do not
-// directly map onto the rust types. It is convenient in python to present a
-// union of different types (uint, f32, etc) corresponding to the different
-// layouts, and these are all different classes. In rust, these classes are
-// buried in enums. It is much easier to define the mapping here rather than in
-// core.
-//
-// Furthermore, the generic parameters used in the rust types can't be used in
-// python and also don't matter. These need to be abstracted away using wrapper
-// types.
+// These are dummy markers for use inside python objects. They have no meaning
+// in the python API so this is arbitrary.
+type ColumnMarkers_ = data::ColumnMarkers<(), ()>;
+
+type FixedAsciiDataSchema_ = data::FixedAsciiDataSchema<false, ColumnMarkers_>;
+
+type DelimAsciiDataSchema_ = data::DelimAsciiDataSchema<false, ColumnMarkers_>;
+
+// Implement __new__ and attributes for PyFixedAsciiDataSchema
+fpp::impl_new_fixed_ascii_data_schema!("FixedAsciiDataSchema", FixedAsciiDataSchema_);
+
+// Implement __new__ and attributes for PyDelimAsciiDataSchema
+fpp::impl_new_delim_ascii_data_schema!("DelimAsciiDataSchema", DelimAsciiDataSchema_);
+
+// TODO these can probably be combined
+
+// Implement __new__ and attributes for all PyOrderedF*DataSchema structs
+fpp::impl_new_ordered_float_data_schema!("OrderedF32DataSchema", data::OrderedF32DataSchema<()>, 4);
+fpp::impl_new_ordered_float_data_schema!("OrderedF64DataSchema", data::OrderedF64DataSchema<()>, 8);
+
+// Implement __new__ and attributes for all PyBigLittleF*DataSchema structs
+fpp::impl_new_endian_float_data_schema!(
+    "BigLittleF32DataSchema",
+    data::BigLittleF32DataSchema<()>,
+    4
+);
+
+fpp::impl_new_endian_float_data_schema!(
+    "BigLittleF64DataSchema",
+    data::BigLittleF64DataSchema<()>,
+    8
+);
+
+// Implement __new__ and attributes for PyOrderedUintDataSchema
+fpp::impl_new_ordered_uint_data_schema!(
+    "OrderedUintDataSchema",
+    data::AnyOrderedUintDataSchema<()>
+);
+
+// Implement __new__ and attributes for PySingleUintDataSchema
+fpp::impl_new_single_uint_data_schema!("SingleUintDataSchema", data::AnySingleUintDataSchema<()>);
+
+// TODO update docs to reflect new range parameters
+
+// Implement __new__ and attributes for PyVariableUintDataSchema
+fpp::impl_new_variable_uint_data_schema!(
+    "VariableUintDataSchema",
+    data::VariableUintDataSchema<()>
+);
+
+// Implement __new__ and attributes for PyMixedDataSchema
+fpp::impl_new_mixed_data_schema!("MixedDataSchema", data::MixedDataSchema);
+
+// Implement method to return the byte widths of variable-widths data_schema
+fpp::impl_data_schema_byte_widths!(PyVariableUintDataSchema);
+fpp::impl_data_schema_byte_widths!(PyMixedDataSchema);
+
+#[derive(IntoPyObject, From)]
+pub enum PyAnyCoreTEXT {
+    #[from(core::CoreTEXT2_0)]
+    FCS2_0(PyCoreTEXT2_0),
+    #[from(core::CoreTEXT3_0)]
+    FCS3_0(PyCoreTEXT3_0),
+    #[from(core::CoreTEXT3_1)]
+    FCS3_1(PyCoreTEXT3_1),
+    #[from(core::CoreTEXT3_2)]
+    FCS3_2(PyCoreTEXT3_2),
+}
+
+impl From<core::AnyCoreTEXT> for PyAnyCoreTEXT {
+    fn from(value: core::AnyCoreTEXT) -> Self {
+        match value {
+            core::AnyCoreTEXT::FCS2_0(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_0(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_1(x) => (*x).into(),
+            core::AnyCoreTEXT::FCS3_2(x) => (*x).into(),
+        }
+    }
+}
+
+#[derive(FromPyObject, IntoPyObject, From)]
+pub enum PyAnyCoreDataset {
+    #[from(core::CoreDataset2_0)]
+    FCS2_0(PyCoreDataset2_0),
+    #[from(core::CoreDataset3_0)]
+    FCS3_0(PyCoreDataset3_0),
+    #[from(core::CoreDataset3_1)]
+    FCS3_1(PyCoreDataset3_1),
+    #[from(core::CoreDataset3_2)]
+    FCS3_2(PyCoreDataset3_2),
+}
+
+impl From<core::AnyCoreDataset> for PyAnyCoreDataset {
+    fn from(value: core::AnyCoreDataset) -> Self {
+        match value {
+            core::AnyCoreDataset::FCS2_0(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_0(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_1(x) => (*x).into(),
+            core::AnyCoreDataset::FCS3_2(x) => (*x).into(),
+        }
+    }
+}
+
+impl From<PyAnyCoreDataset> for core::AnyCoreDataset {
+    fn from(value: PyAnyCoreDataset) -> Self {
+        match value {
+            PyAnyCoreDataset::FCS2_0(x) => x.0.into(),
+            PyAnyCoreDataset::FCS3_0(x) => x.0.into(),
+            PyAnyCoreDataset::FCS3_1(x) => x.0.into(),
+            PyAnyCoreDataset::FCS3_2(x) => x.0.into(),
+        }
+    }
+}
 
 /// All data_schema used for 2.0/3.0 in Python.
 #[derive(FromPyObject, IntoPyObject)]
@@ -749,6 +767,35 @@ pub enum PyOrderedDataSchema {
     Uint(PyOrderedUintDataSchema),
     F32(PyOrderedF32DataSchema),
     F64(PyOrderedF64DataSchema),
+}
+
+/// All data_schema used for 3.1 in Python.
+#[derive(FromPyObject, IntoPyObject, From)]
+pub enum PyNonMixedDataSchema {
+    #[from(PyFixedAsciiDataSchema, FixedAsciiDataSchema_)]
+    AsciiFixed(PyFixedAsciiDataSchema),
+
+    #[from(PyDelimAsciiDataSchema, DelimAsciiDataSchema_)]
+    AsciiDelim(PyDelimAsciiDataSchema),
+
+    #[from(PyVariableUintDataSchema, data::VariableUintDataSchema<()>)]
+    VariableUint(PyVariableUintDataSchema),
+
+    #[from(PySingleUintDataSchema, data::AnySingleUintDataSchema<()>)]
+    SingleUint(PySingleUintDataSchema),
+
+    #[from(PyBigLittleF32DataSchema, data::BigLittleF32DataSchema<()>)]
+    F32(PyBigLittleF32DataSchema),
+
+    #[from(PyBigLittleF64DataSchema, data::BigLittleF64DataSchema<()>)]
+    F64(PyBigLittleF64DataSchema),
+}
+
+/// All data_schema used for 3.2 in Python.
+#[derive(FromPyObject, IntoPyObject, From)]
+pub enum PyDataSchema3_2 {
+    NonMixed(PyNonMixedDataSchema),
+    Mixed(PyMixedDataSchema),
 }
 
 impl From<PyOrderedDataSchema> for data::DataSchema2_0 {
@@ -800,28 +847,6 @@ impl From<data::DataSchema3_0> for PyOrderedDataSchema {
     }
 }
 
-/// All data_schema used for 3.1 in Python.
-#[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyNonMixedDataSchema {
-    #[from(PyFixedAsciiDataSchema, FixedAsciiDataSchema_)]
-    AsciiFixed(PyFixedAsciiDataSchema),
-
-    #[from(PyDelimAsciiDataSchema, DelimAsciiDataSchema_)]
-    AsciiDelim(PyDelimAsciiDataSchema),
-
-    #[from(PyVariableUintDataSchema, data::VariableUintDataSchema<()>)]
-    VariableUint(PyVariableUintDataSchema),
-
-    #[from(PySingleUintDataSchema, data::AnySingleUintDataSchema<()>)]
-    SingleUint(PySingleUintDataSchema),
-
-    #[from(PyBigLittleF32DataSchema, data::BigLittleF32DataSchema<()>)]
-    F32(PyBigLittleF32DataSchema),
-
-    #[from(PyBigLittleF64DataSchema, data::BigLittleF64DataSchema<()>)]
-    F64(PyBigLittleF64DataSchema),
-}
-
 impl From<data::DataSchema3_1> for PyNonMixedDataSchema {
     fn from(value: data::DataSchema3_1) -> Self {
         match value {
@@ -856,13 +881,6 @@ impl From<PyNonMixedDataSchema> for data::DataSchema3_1 {
     }
 }
 
-/// All data schemas used for 3.2 in Python.
-#[derive(FromPyObject, IntoPyObject, From)]
-pub enum PyDataSchema3_2 {
-    NonMixed(PyNonMixedDataSchema),
-    Mixed(PyMixedDataSchema),
-}
-
 impl From<PyDataSchema3_2> for data::DataSchema3_2 {
     fn from(value: PyDataSchema3_2) -> Self {
         match value {
@@ -882,199 +900,6 @@ impl From<data::DataSchema3_2> for PyDataSchema3_2 {
         }
     }
 }
-
-// These are dummy markers for use inside python objects. They have no meaning
-// in the python API so this is arbitrary.
-type ColumnMarkers_ = data::ColumnMarkers<(), ()>;
-
-type FixedAsciiDataSchema_ = data::FixedAsciiDataSchema<false, ColumnMarkers_>;
-
-type DelimAsciiDataSchema_ = data::DelimAsciiDataSchema<false, ColumnMarkers_>;
-
-// Implement __new__ and attributes for PyFixedAsciiDataSchema
-fpp::impl_new_fixed_ascii_data_schema!("FixedAsciiDataSchema", FixedAsciiDataSchema_);
-
-impl<'py> IntoPyObject<'py> for PyFixedAsciiDataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let x = PyClassInitializer::from(PyAsciiDataSchema::new()).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-// Implement __new__ and attributes for PyDelimAsciiDataSchema
-fpp::impl_new_delim_ascii_data_schema!("DelimAsciiDataSchema", DelimAsciiDataSchema_);
-
-impl<'py> IntoPyObject<'py> for PyDelimAsciiDataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let x = PyClassInitializer::from(PyAsciiDataSchema::new()).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-// TODO these can probably be combined
-
-// Implement __new__ and attributes for all PyOrderedF*DataSchema structs
-fpp::impl_new_ordered_float_data_schema!("OrderedF32DataSchema", data::OrderedF32DataSchema<()>, 4);
-fpp::impl_new_ordered_float_data_schema!("OrderedF64DataSchema", data::OrderedF64DataSchema<()>, 8);
-
-impl<'py> IntoPyObject<'py> for PyOrderedF32DataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let nbytes = 4.try_into().unwrap();
-        let parent = PyMatrixDataSchema::new(nbytes, true, kws::AlphaNumType::Float);
-        let x = PyClassInitializer::from(parent).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyOrderedF64DataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let nbytes = 8.try_into().unwrap();
-        let parent = PyMatrixDataSchema::new(nbytes, true, kws::AlphaNumType::Double);
-        let x = PyClassInitializer::from(parent).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-// Implement __new__ and attributes for all PyBigLittleF*DataSchema structs
-fpp::impl_new_endian_float_data_schema!(
-    "BigLittleF32DataSchema",
-    data::BigLittleF32DataSchema<()>,
-    4
-);
-
-fpp::impl_new_endian_float_data_schema!(
-    "BigLittleF64DataSchema",
-    data::BigLittleF64DataSchema<()>,
-    8
-);
-
-// TODO clean these up
-impl<'py> IntoPyObject<'py> for PyBigLittleF32DataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let nbytes = 4.try_into().unwrap();
-        let parent = PyMatrixDataSchema::new(nbytes, true, kws::AlphaNumType::Float);
-        let x = PyClassInitializer::from(parent).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-impl<'py> IntoPyObject<'py> for PyBigLittleF64DataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let nbytes = 8.try_into().unwrap();
-        let parent = PyMatrixDataSchema::new(nbytes, true, kws::AlphaNumType::Double);
-        let x = PyClassInitializer::from(parent).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-// Implement __new__ and attributes for PyOrderedUintDataSchema
-fpp::impl_new_ordered_uint_data_schema!(
-    "OrderedUintDataSchema",
-    data::AnyOrderedUintDataSchema<()>
-);
-
-impl<'py> IntoPyObject<'py> for PyOrderedUintDataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let nbytes = self.0.byte_width();
-        let parent = PyMatrixDataSchema::new(nbytes, true, kws::AlphaNumType::Double);
-        let x = PyClassInitializer::from(parent).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-// Implement __new__ and attributes for PySingleUintDataSchema
-fpp::impl_new_single_uint_data_schema!("SingleUintDataSchema", data::AnySingleUintDataSchema<()>);
-
-impl<'py> IntoPyObject<'py> for PySingleUintDataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let nbytes = self.0.byte_width();
-        let parent = PyMatrixDataSchema::new(nbytes, true, kws::AlphaNumType::Double);
-        let x = PyClassInitializer::from(parent).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-// TODO update docs to reflect new range parameters
-
-// Implement __new__ and attributes for PyVariableUintDataSchema
-fpp::impl_new_variable_uint_data_schema!(
-    "VariableUintDataSchema",
-    data::VariableUintDataSchema<()>
-);
-
-impl<'py> IntoPyObject<'py> for PyVariableUintDataSchema {
-    type Target = Self;
-    type Output = Bound<'py, Self::Target>;
-    type Error = PyErr;
-
-    fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-        let parent = PySingleTypedDataSchema::new(kws::AlphaNumType::Integer);
-        let x = PyClassInitializer::from(parent).add_subclass(self);
-        Bound::new(py, x)
-    }
-}
-
-// Implement __new__ and attributes for PyMixedDataSchema
-fpp::impl_new_mixed_data_schema!("MixedDataSchema", data::MixedDataSchema);
-
-// Implement method to return the byte widths of variable-widths data_schema
-fpp::impl_data_schema_byte_widths!(PyVariableUintDataSchema);
-fpp::impl_data_schema_byte_widths!(PyMixedDataSchema);
-
-// Define schema subclasses
-//
-// These will be inherited by the toplevel schema classes defined above. There
-// main purpose is to aggregate properties into common interfaces and to allow
-// easy filtering via isinstance (note that the data schemas in python will be
-// typed as unions).
-//
-// There is no analogue for these in the rust api, hence they are defined here.
-// Use proc macros since we want pretty documentation, and defining it manually
-// stopped being cool long ago.
-
-fpp::impl_new_single_typed_data_schema!(SingleTypedDataSchema);
-fpp::impl_new_ascii_data_schema!(AsciiDataSchema);
-fpp::impl_new_matrix_data_schema!(MatrixDataSchema);
-fpp::impl_new_variable_width_data_schema!(VariableWidthDataSchema);
-
-// Implement wrapper for ByteOrd
-//
-// This is necessary since some arguments to functions require either a byte
-// order or a literal "big" or "little" for endian. The literals for big/little
-// are python-specific, so wrapping it here allows us to keep this logic out of
-// the core crate
 
 /// Any byte order that can be used in a 2.0/3.0 layout with a given size.
 ///
@@ -1155,12 +980,9 @@ impl<'py, const LEN: usize> IntoPyObject<'py> for PyByteOrder<LEN> {
     }
 }
 
-// Implement dataframe and series wrappers for FCSDataframe and AnyFCSColumn
-//
-// These allow conversion to/from proper polars types which are also wrapped as
-// Python types. This is confusing because we actually have 4 different types
-// for df and column.
-//
+// Wrappers for FCSDataframe and AnyFCSColumn which allow conversion to/from
+// proper polars types which are also wrapped as Python types. This is confusing
+// because we actually have 4 different types for df and column.
 // 1. FCS* type which is validated for only a few datatypes FCS supports
 // 2. Native polars type
 // 3. Pyo3 type which wraps the native polars type

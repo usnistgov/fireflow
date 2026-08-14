@@ -68,11 +68,6 @@ fn _pyreflow(py: Python<'_>, m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<ff::PyVariableUintDataSchema>()?;
     m.add_class::<ff::PyMixedDataSchema>()?;
 
-    m.add_class::<ff::PyAsciiDataSchema>()?;
-    m.add_class::<ff::PySingleTypedDataSchema>()?;
-    m.add_class::<ff::PyMatrixDataSchema>()?;
-    m.add_class::<ff::PyVariableWidthDataSchema>()?;
-
     m.add_class::<ff::PyHeader>()?;
     m.add_class::<ff::PyFinalHeaderOffsets>()?;
     m.add_class::<ff::PyOriginalHeaderOffsets>()?;

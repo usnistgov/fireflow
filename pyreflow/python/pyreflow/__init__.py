@@ -47,10 +47,6 @@ from ._pyreflow import BigLittleF64DataSchema as BigLittleF64DataSchema
 from ._pyreflow import SingleUintDataSchema as SingleUintDataSchema
 from ._pyreflow import VariableUintDataSchema as VariableUintDataSchema
 from ._pyreflow import MixedDataSchema as MixedDataSchema
-from ._pyreflow import AsciiDataSchema as AsciiDataSchema
-from ._pyreflow import SingleTypedDataSchema as SingleTypedDataSchema
-from ._pyreflow import MatrixDataSchema as MatrixDataSchema
-from ._pyreflow import VariableWidthDataSchema as VariableWidthDataSchema
 from ._pyreflow import BuildInfo as BuildInfo
 
 from pyreflow import api as api
@@ -102,9 +98,5 @@ __all__ = [
     "SingleUintDataSchema",
     "VariableUintDataSchema",
     "MixedDataSchema",
-    "AsciiDataSchema",
-    "SingleTypedDataSchema",
-    "MatrixDataSchema",
-    "VariableWidthDataSchema",
     "api",
 ]

@@ -28,11 +28,10 @@ rs-test:
 rs-docs:
 	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-core --no-deps
 
-# TODO when we have python 3.15, actually check the disjoint_bases errors
 .PHONY: py-lint
 py-lint: pyreflow/.venv
 	$(uv_at) run ruff format --check
-	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow --ignore-disjoint-bases
+	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow
 	$(uv_at) run mypy --no-incremental --cache-dir=/dev/null python
 	$(uv_at) run mypy --no-incremental --cache-dir=/dev/null tests
 

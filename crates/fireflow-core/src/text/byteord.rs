@@ -159,7 +159,6 @@ impl TryFrom<u8> for Bytes {
 pub struct ParseBytesError;
 
 /// The number of bytes for a numeric measurement; used for method arguments.
-#[derive(Clone, Copy, PartialEq)]
 pub struct ArgBytes(pub(crate) PrivBytes);
 
 impl Default for ArgBytes {

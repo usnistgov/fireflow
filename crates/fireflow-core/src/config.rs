@@ -840,7 +840,7 @@ impl ReadDataKeywordsConfig {
                         allow_header_text_offset_mismatch: self.allow_header_text_offset_mismatch,
                         allow_missing_required_offsets: self.allow_missing_required_offsets,
                         process_optional_failure: self.process_optional_failure,
-                        fix_int_widths: self.fix_int_widths,
+                        int_width_override: self.int_width_override,
                         byteord_override: self.byteord_override,
                         disallow_range_truncation: self.disallow_range_truncation,
                     }
@@ -983,7 +983,7 @@ pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// If given, fix $PnB values using $BYTEORD.
     ///
     /// This only has an effect for FCS 2.0-3.0 where $DATATYPE=I.
-    pub fix_int_widths: FixIntWidths,
+    pub int_width_override: IntWidthOverride,
 
     /// If given, override the $BYTEORD keyword for 2.0-3.0 integer layouts.
     ///
@@ -993,7 +993,7 @@ pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// $BYTEORD value, which will need a different intervention.
     ///
     /// Obviously this must match the actual layout of the numbers in DATA. If
-    /// $PnB is also incorrect, use [`Self::fix_int_widths`] to override those
+    /// $PnB is also incorrect, use [`Self::int_width_override`] to override those
     /// values as well.
     pub byteord_override: ByteordOverride,
 
@@ -1307,7 +1307,7 @@ impl_proc_key_fail!(ProcessExtraTimestep);
 /// must be a multiple of 8 (NOTE this is a restriction of this library; the
 /// standard allows such $PnB values though exceedingly rare and not advised).
 #[derive(Clone, Copy, Default)]
-pub enum FixIntWidths {
+pub enum IntWidthOverride {
     /// Do nothing
     #[default]
     Never,
@@ -1917,7 +1917,7 @@ impl HasStrategy for ReadDataKeywordsConfig {
         self.allow_header_text_offset_mismatch = AllowHeaderTEXTOffsetMismatch::HeaderWarn;
         self.allow_missing_required_offsets = TriFlag::True.into();
         self.process_optional_failure = ProcessKeywordFailure::DemoteWarn.into();
-        self.fix_int_widths = FixIntWidths::NextByte;
+        self.int_width_override = IntWidthOverride::NextByte;
         self.byteord_override = ByteordOverride::Endian;
     }
 
@@ -1950,7 +1950,7 @@ impl EvaledReadDataKeywordsConfig {
 #[cfg(feature = "python")]
 mod python {
     use super::{
-        ByteordOverride, FixIntWidths, KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig,
+        ByteordOverride, IntWidthOverride, KeyPatterns, NewCoreDatasetConfig, NewCoreTEXTConfig,
         OpticalOnlyKeys, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
         ReadFlatTEXTConfig, ReadHeaderConfig, ReadStdDatasetConfig, ReadStdTEXTConfig, SubPatterns,
         TimeMeasNamePattern,
@@ -2110,7 +2110,7 @@ mod python {
         }
     }
 
-    impl<'py> FromPyObject<'_, 'py> for FixIntWidths {
+    impl<'py> FromPyObject<'_, 'py> for IntWidthOverride {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(b) = obj
@@ -2133,7 +2133,7 @@ mod python {
         }
     }
 
-    impl<'py> IntoPyObject<'py> for FixIntWidths {
+    impl<'py> IntoPyObject<'py> for IntWidthOverride {
         type Target = PyAny;
         type Output = Bound<'py, Self::Target>;
         type Error = PyErr;

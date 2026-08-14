@@ -4150,13 +4150,13 @@ class TestConfig:
         path: Path,
         v: str,
         text_diff: tuple[int, int] = (0, 0),
-        header_data: pt.Offsets = (0, 0),
-        header_analysis: pt.Offsets = (0, 0),
+        header_data: pt.FinalOffsets = (0, 0),
+        header_analysis: pt.FinalOffsets = (0, 0),
         other_width: int = 8,
         other_segs: list[tuple[int, int]] = [],
         delim: int = 47,
         kws: dict[str, str] = {},
-        stext: pt.Offsets | None = (0, 0),
+        stext: pt.FinalOffsets | None = (0, 0),
         nextdata: int | None = 0,
         rest: bytes = b"",
     ) -> None:
@@ -4198,15 +4198,15 @@ class TestConfig:
         path: Path,
         v: str,
         text_diff: tuple[int, int] = (0, 0),
-        header_data: pt.Offsets = (0, 0),
-        header_analysis: pt.Offsets = (0, 0),
+        header_data: pt.FinalOffsets = (0, 0),
+        header_analysis: pt.FinalOffsets = (0, 0),
         other_width: int = 8,
         other_segs: list[tuple[int, int]] = [],
         delim: int = 47,
         kws: dict[str, str] = {},
-        stext: pt.Offsets | None = (0, 0),
-        text_data: pt.Offsets | None = (0, 0),
-        text_analysis: pt.Offsets | None = (0, 0),
+        stext: pt.FinalOffsets | None = (0, 0),
+        text_data: pt.FinalOffsets | None = (0, 0),
+        text_analysis: pt.FinalOffsets | None = (0, 0),
         nextdata: int | None = 0,
         par: int | None = 0,
         tot: int | None = 0,
@@ -4353,7 +4353,7 @@ class TestConfig:
             rest=b"\0\0\0\0",
         )
 
-        def go(f: pt.AllowHeaderTextOffsetMismatch) -> pt.Offsets:
+        def go(f: pt.AllowHeaderTextOffsetMismatch) -> pt.FinalOffsets:
             core, uncore = pf.api.fcs_read_std_text(
                 path,
                 allow_header_text_offset_mismatch=f,
@@ -4662,7 +4662,7 @@ class TestConfig:
 
         def go3(
             f: TriFlag,
-        ) -> tuple[pt.SuppTEXTOffsetsOriginType, pt.Offsets | None]:
+        ) -> tuple[pt.SuppTEXTOffsetsOriginType, pt.FinalOffsets | None]:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
             sout = out.flat_diagnostics.header_supp.supp_text
             return (sout.origin_type, sout.final_offsets)
@@ -4672,7 +4672,7 @@ class TestConfig:
             self._test_tri_flag_nofail(go2, "empty")
         else:
             comp: pt.SuppTEXTOffsetsOriginType = "dup_ptext"
-            offsets: pt.Offsets | None = None
+            offsets: pt.FinalOffsets | None = None
             self._test_tri_flag(go3, (comp, offsets), [pf.FileLayoutError])
 
             out3 = pf.api.fcs_read_flat_text(
@@ -4703,7 +4703,7 @@ class TestConfig:
             h = out.flat_diagnostics.header_supp
             return h.supp_text.origin_type
 
-        Out3 = tuple[pt.SuppTEXTOffsetsOriginType, pt.Offsets, int | None]
+        Out3 = tuple[pt.SuppTEXTOffsetsOriginType, pt.FinalOffsets, int | None]
 
         def go3(f: TriFlag) -> Out3:
             out = pf.api.fcs_read_flat_text(p, allow_duplicated_supp_text=f)
@@ -5821,7 +5821,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
-        def go(f: tuple[int, int]) -> pt.Offsets:
+        def go(f: tuple[int, int]) -> pt.FinalOffsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_data_correction=f,
@@ -5845,7 +5845,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=(0, -1))
 
-        def go(f: tuple[int, int]) -> pt.Offsets:
+        def go(f: tuple[int, int]) -> pt.FinalOffsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_analysis_correction=f,
@@ -5874,7 +5874,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, -1))
 
-        def go(f: bool) -> pt.Offsets:
+        def go(f: bool) -> pt.FinalOffsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_data_offsets=f,
@@ -5895,7 +5895,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=(0, 0), text_analysis=(0, -1))
 
-        def go(f: bool) -> pt.Offsets:
+        def go(f: bool) -> pt.FinalOffsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_analysis_offsets=f,
@@ -5939,7 +5939,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_data=None)
 
-        def go(f: TriFlag) -> pt.Offsets:
+        def go(f: TriFlag) -> pt.FinalOffsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
@@ -5972,7 +5972,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, text_analysis=None)
 
-        def go(f: TriFlag) -> pt.Offsets:
+        def go(f: TriFlag) -> pt.FinalOffsets:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
@@ -6028,9 +6028,9 @@ class TestConfig:
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "24", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1)
 
-        def go(f: pt.FixIntWidths) -> int:
+        def go(f: pt.IntWidthOverride) -> int:
             core, uncore = pf.api.fcs_read_std_text(
-                p, fix_int_widths=f, time_meas_pattern=None
+                p, int_width_override=f, time_meas_pattern=None
             )
             lt = core.data_schema
             if isinstance(lt, pt.MatrixDataSchema):
@@ -6058,9 +6058,9 @@ class TestConfig:
         kws = {"$P1N": "xyz", "$P1E": "0,0", "$P1B": "30", "$P1R": "32"}
         self.mock_header_std_text(p, version, kws=kws, par=1)
 
-        def go(f: pt.FixIntWidths) -> int:
+        def go(f: pt.IntWidthOverride) -> int:
             core, uncore = pf.api.fcs_read_std_text(
-                p, fix_int_widths=f, time_meas_pattern=None
+                p, int_width_override=f, time_meas_pattern=None
             )
             lt = core.data_schema
             if isinstance(lt, pt.MatrixDataSchema):
@@ -6139,7 +6139,7 @@ class TestConfig:
         ],
     )
     def test_allow_uneven_event_width(
-        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.FinalOffsets, tmp_path: Path
     ) -> None:
         """Test the allow_uneven_event_width arg."""
         p = tmp_path / "thing.fcs"
@@ -6179,7 +6179,7 @@ class TestConfig:
         ],
     )
     def test_allow_tot_mismatch(
-        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.FinalOffsets, tmp_path: Path
     ) -> None:
         """Test the allow_tot_mistmatch arg."""
         p = tmp_path / "thing.fcs"
@@ -6218,7 +6218,7 @@ class TestConfig:
         ],
     )
     def test_truncate_range_datatypes_int(
-        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.FinalOffsets, tmp_path: Path
     ) -> None:
         """Test $PnR truncation on read (int case).
 
@@ -6334,7 +6334,7 @@ class TestConfig:
         ],
     )
     def test_truncate_range_datatypes_float(
-        self, version: pt.FCSVersion, data_seg: pt.Offsets, tmp_path: Path
+        self, version: pt.FCSVersion, data_seg: pt.FinalOffsets, tmp_path: Path
     ) -> None:
         """Test range truncation on read (float case).
 

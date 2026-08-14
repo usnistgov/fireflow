@@ -2,7 +2,6 @@ extern crate proc_macro;
 
 use fireflow_types::config::{self as tc, EnumStrIter as _};
 use fireflow_types::keywords as tk;
-use fireflow_types::nonempty_string::NEStr;
 use fireflow_types::python as tp;
 
 use const_format::formatcp;
@@ -804,13 +803,8 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
 
     let dark = DocArgROIvar::new_ivar_ro(
         "dark_bytes",
-        PyOpt::new1(PyUnion::new_dark_bytes()),
-        format!(
-            "Bytes between the end of the {HEADER} and the first segment. \
-             If a tuple, the first element is a character and the second \
-             element is the number of times it was repeated (ie padding). \
-             This is expected to be common."
-        ),
+        PyOpt::new1(PyAlias::new_dark_bytes()),
+        format!("Bytes between the end of the {HEADER} and the first segment."),
         |_, _| quote!(self.0.dark_bytes.clone()),
     );
 
@@ -947,7 +941,7 @@ pub fn impl_py_original_header_offsets(input: TokenStream) -> TokenStream {
 
     let other = DocArg::new_param(
         "others",
-        PyList::new1(PyTuple::new_original_offsets()),
+        PyList::new1(PyAlias::new_original_offsets()),
         format!("The uncorrected {OTHER} segments from {HEADER}."),
     )
     .into_ro(|_, _| quote!(self.0.other.clone()));
@@ -1178,9 +1172,8 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let origin_type_rstype = parse_quote!(fireflow_types::python::SuppTEXTOffsetOriginType);
-    let origin_type_pt = tp::SuppTEXTOffsetOriginType::iter_str()
-        .collect::<PyStrLiteral>()
-        .rstype(origin_type_rstype);
+    let origin_type_pt =
+        PyAlias::new_py(["typing"], "SuppTEXTOffsetsOriginType").rstype(origin_type_rstype);
 
     let origin_type = DocArg::new_param(
         ORIGIN_TYPE,
@@ -1194,14 +1187,14 @@ pub fn impl_py_supp_text_offsets_origin(input: TokenStream) -> TokenStream {
 
     let original_offsets = DocArg::new_param(
         ORIGINAL_OFFSETS,
-        PyOpt::new1(PyTuple::new_original_offsets()),
+        PyOpt::new1(PyAlias::new_original_offsets()),
         format!("The original supplemental {TEXT} offsets as written in the file."),
     )
     .into_ro(|_, _| quote!(self.0.py_original_offsets()));
 
     let final_offsets = DocArg::new_param(
         FINAL_OFFSETS,
-        PyOpt::new1(PyTuple::new_supp_text_offsets()),
+        PyOpt::new1(PyAlias::new_supp_text_offsets()),
         format!("The final offsets used to read supplemental {TEXT}."),
     )
     .into_ro(|_, _| quote!(self.0.py_final_offsets()));
@@ -1362,9 +1355,8 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let origin_type_rstype = parse_quote!(fireflow_types::python::TEXTOffsetOriginType);
-    let origin_type_pt = tp::TEXTOffsetOriginType::iter_str()
-        .collect::<PyStrLiteral>()
-        .rstype(origin_type_rstype);
+    let origin_type_pt =
+        PyAlias::new_py(["typing"], "TEXTOffsetsOriginType").rstype(origin_type_rstype);
 
     let origin_type = DocArg::new_param(
         ORIGIN_TYPE,
@@ -1376,7 +1368,7 @@ pub fn impl_py_text_offsets_origin(input: TokenStream) -> TokenStream {
 
     let original_offsets = DocArg::new_param(
         ORIGINAL_OFFSETS,
-        PyOpt::new1(PyTuple::new_original_offsets()),
+        PyOpt::new1(PyAlias::new_original_offsets()),
         "The original offsets as written in the file.",
     )
     .into_ro(|_, _| quote!(self.0.py_original_offsets()));
@@ -1503,63 +1495,75 @@ pub fn impl_py_repair_diagnostics(input: TokenStream) -> TokenStream {
 
     let non_unique_std = DocArgROIvar::new_ivar_ro(
         "non_unique_std",
-        PyList::new_std_truncated(),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Standard keys which where promoted and collided with existing keys.",
         |_, _| quote!(self.0.non_unique_std.clone()),
     );
 
     let non_unique_nonstd = DocArgROIvar::new_ivar_ro(
         "non_unique_nonstd",
-        PyList::new_nonstd_truncated(),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_nonstd_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Non-standard keys which where demoted and collided with existing keys.",
         |_, _| quote!(self.0.non_unique_nonstd.clone()),
     );
 
     let demoted = DocArgROIvar::new_ivar_ro(
         "demoted",
-        PyList::new1(PyStr::new_std_keyword()),
+        PyList::new1(PyAlias::new_std_keyword()),
         "Standard keys which were demoted.",
         |_, _| quote!(self.0.demoted.clone()),
     );
 
     let promoted = DocArgROIvar::new_ivar_ro(
         "promoted",
-        PyList::new1(PyStr::new_nonstd_keyword()),
+        PyList::new1(PyAlias::new_nonstd_keyword()),
         "Non-standard keys which were promoted.",
         |_, _| quote!(self.0.promoted.clone()),
     );
 
     let subbed = DocArgROIvar::new_ivar_ro(
         "subbed",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Standard keys which had values that were edited by substitution.",
         |_, _| quote!(self.0.subbed.clone()),
     );
 
     let replaced = DocArgROIvar::new_ivar_ro(
         "replaced",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Standard keys which had values that were replaced.",
         |_, _| quote!(self.0.replaced.clone()),
     );
 
     let renamed = DocArgROIvar::new_ivar_ro(
         "renamed",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_std_keyword())),
+        PyList::new1(PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_std_keyword())),
         "Standard keys which were renamed. The first element of the pair is the original name.",
         |_, _| quote!(self.0.renamed.clone()),
     );
 
     let ignored = DocArgROIvar::new_ivar_ro(
         "ignored",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Standard keys which were ignored.",
         |_, _| quote!(self.0.ignored.clone()),
     );
 
     let removed = DocArgROIvar::new_ivar_ro(
         "removed",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Standard keys which were removed.",
         |_, _| quote!(self.0.removed.clone()),
     );
@@ -1660,10 +1664,9 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
 
     let post_dataset_dark = DocArg::new_param(
         "post_dataset_dark_bytes",
-        PyOpt::new1(PyUnion::new_dark_bytes()),
+        PyOpt::new1(PyAlias::new_dark_bytes()),
         "Unparsed bytes between the end of this dataset and the beginning of the \
-         next. If a tuple, the first element is a byte and the second is the number \
-         of times it was repeated (ie padding). This is expected to be common.",
+         next.",
     )
     .into_ro(|_, _| quote!(self.0.post_dataset_dark_bytes.clone()));
 
@@ -1762,32 +1765,19 @@ pub fn impl_py_intra_segment_dark_bytes(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let flank_path = parse_quote!(fireflow_core::core::FlankingSegmentName);
-    let str_names: PyStrLiteral = [
-        tp::SEGMENT_NAME_TEXT,
-        tp::SEGMENT_NAME_STEXT,
-        tp::SEGMENT_NAME_DATA,
-        tp::SEGMENT_NAME_ANALYSIS,
-    ]
-    .into_iter()
-    .map(NEStr::as_str)
-    .collect();
-    let flank_name_pt = PyUnion::new2(str_names, RsInt::Usize).rstype(flank_path);
-    let flank_expl = format!(
-        "A string for primary/supplemental {TEXT}, {DATA}, or {ANALYSIS}, \
-         and integer if an {OTHER} segment."
-    );
+    let flank_name_pt = PyAlias::new_py(["typing"], "FlankingSegmentName").rstype(flank_path);
 
     let prev = DocArgROIvar::new_ivar_ro(
         "prev",
         flank_name_pt.clone(),
-        format!("The name of the segment immediately prior. {flank_expl}"),
+        "Identifier for the segment immediately prior.",
         |_, _| quote!(self.0.prev),
     );
 
     let next = DocArgROIvar::new_ivar_ro(
         "next",
         flank_name_pt,
-        format!("The name of the segment immediately after. {flank_expl}"),
+        "Identifier for the segment immediately after.",
         |_, _| quote!(self.0.next),
     );
 
@@ -1807,10 +1797,8 @@ pub fn impl_py_intra_segment_dark_bytes(input: TokenStream) -> TokenStream {
 
     let bytes = DocArgROIvar::new_ivar_ro(
         "bytes",
-        PyUnion::new_dark_bytes(),
-        "The byte contents of this region. If a tuple, the first element is a \
-         byte character and the second is the number of times it was repeated \
-         (ie padding). This is expected to be common.",
+        PyAlias::new_dark_bytes(),
+        "The byte contents of this region.",
         |_, _| quote!(self.0.bytes.clone()),
     );
 
@@ -1934,9 +1922,9 @@ pub fn impl_py_offsets_overflow(input: TokenStream) -> TokenStream {
     let sname = name.to_string();
 
     let offsets_pt = match sname.as_str() {
-        "HeaderOffsetsOverflow" => PyTuple::new_header_named_offsets(),
-        "TextOffsetsOverflow" => PyTuple::new_text_named_offsets(),
-        "SuppOffsetsOverflow" => PyTuple::new_supp_text_named_offsets(),
+        "HeaderOffsetsOverflow" => PyAlias::new_header_named_offsets(),
+        "TextOffsetsOverflow" => PyAlias::new_text_named_offsets(),
+        "SuppOffsetsOverflow" => PyAlias::new_supp_text_named_offsets(),
         _ => panic!("incompatible overflow type"),
     };
 
@@ -2004,32 +1992,32 @@ pub fn impl_py_offsets_overlap(input: TokenStream) -> TokenStream {
     let (desc, offsets_pt0, offsets_pt1) = match sname.as_str() {
         "HeaderToHeaderOffsetsOverlap" => (
             format!("Overlap between offset pairs from {HEADER}."),
-            PyTuple::new_header_named_offsets(),
-            PyTuple::new_header_named_offsets(),
+            PyAlias::new_header_named_offsets(),
+            PyAlias::new_header_named_offsets(),
         ),
         "TextToHeaderOffsetsOverlap" => (
             format!(
                 "Overlap between an offsets from {HEADER} \
                  and an offsets from {TEXT}."
             ),
-            PyTuple::new_text_named_offsets(),
-            PyTuple::new_header_named_offsets(),
+            PyAlias::new_text_named_offsets(),
+            PyAlias::new_header_named_offsets(),
         ),
         "SuppToHeaderOffsetsOverlap" => (
             format!(
                 "Overlap between supplemental {TEXT} offsets and \
                  offsets from {HEADER}."
             ),
-            PyTuple::new_supp_text_named_offsets(),
-            PyTuple::new_header_named_offsets(),
+            PyAlias::new_supp_text_named_offsets(),
+            PyAlias::new_header_named_offsets(),
         ),
         "TextToHeaderOrSuppOffsetsOverlap" => (
             format!(
                 "Overlap between {TEXT} offset pair and {HEADER} \
                  or supp {TEXT} pair."
             ),
-            PyTuple::new_text_named_offsets(),
-            PyTuple::new_header_or_supp_named_offsets(),
+            PyAlias::new_text_named_offsets(),
+            PyAlias::new_header_or_supp_named_offsets(),
         ),
         _ => panic!("incompatible overlap type"),
     };
@@ -2124,7 +2112,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let timestep = DocArgROIvar::new_ivar_ro(
         "timestep",
-        PyOpt::new1(PyStr::new_ne_str()),
+        PyOpt::new1(PyAlias::new_ne_str()),
         format!("Unused {TIMESTEP} keyword"),
         |_, _| quote!(self.0.timestep.clone()),
     );
@@ -2138,28 +2126,28 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
 
     let scale = DocArgROIvar::new_ivar_ro(
         "scale",
-        PyList::new1(PyOpt::new_scale_fix()),
+        PyList::new1(PyAlias::new_scale_fix()),
         format!("Diagnostic data from parsing {PNE} keywords."),
         |_, _| quote!(self.0.scale.clone()),
     );
 
     let gate_scale = DocArgROIvar::new_ivar_ro(
         "gate_scale",
-        PyList::new1(PyOpt::new_gate_scale_fix()),
+        PyList::new1(PyAlias::new_gate_scale_fix()),
         format!("Diagnostic data from parsing {GME} keywords."),
         |_, _| quote!(self.0.gate_scale.clone()),
     );
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "trimmed",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_str())),
+        PyList::new1(PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_str())),
         "Keywords which had whitespace between commas trimmed.",
         |_, _| quote!(self.0.trimmed.clone()),
     );
 
     let tmp_opt_pairs = DocArgROIvar::new_ivar_ro(
         "temporal_optical_pairs",
-        PyList::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_str())),
+        PyList::new1(PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_str())),
         "Optical keys that were found in the temporal measurement.",
         |_, _| quote!(self.0.temporal_optical_pairs.clone()),
     );
@@ -2713,7 +2701,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
     let byte_pairs = DocArgROIvar::new_ivar_ro(
         "byte_pairs",
         PyList::new1(
-            PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyUnion::new_ne_string_or_bytes()),
+            PyTuple::new1(PyAlias::new_key_or_bytes()).add(PyAlias::new_ne_string_or_bytes()),
         ),
         "Keywords with keys that are not ASCII or values that are not UTF-8.",
         |_, _| quote!(self.0.byte_pairs.clone()),
@@ -2721,28 +2709,34 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let non_unique_std = DocArgROIvar::new_ivar_ro(
         "non_unique_std_keywords",
-        PyList::new_std_truncated(),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_std_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         format!("Standard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_std_keywords.clone()),
     );
 
     let non_unique_nonstd = DocArgROIvar::new_ivar_ro(
         "non_unique_nonstd_keywords",
-        PyList::new_nonstd_truncated(),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_nonstd_keyword()).add(PyAlias::new_ne_truncated_str()),
+        ),
         format!("Nonstandard keys which already appeared in {TEXT} previously."),
         |_, _| quote!(self.0.non_unique_nonstd_keywords.clone()),
     );
 
     let trimmed_empty = DocArgROIvar::new_ivar_ro(
         "keys_with_empty_trimmed_values",
-        PyList::new1(PyUnion::new_key_or_bytes()),
+        PyList::new1(PyAlias::new_key_or_bytes()),
         "Keys with empty values as a result of trimming whitespace.",
         |_, _| quote!(self.0.keys_with_empty_trimmed_values.clone()),
     );
 
     let trimmed = DocArgROIvar::new_ivar_ro(
         "keys_with_trimmed_values",
-        PyList::new1(PyTuple::new1(PyUnion::new_key_or_bytes()).add(PyStr::new_ne_truncated_str())),
+        PyList::new1(
+            PyTuple::new1(PyAlias::new_key_or_bytes()).add(PyAlias::new_ne_truncated_str()),
+        ),
         "Keys with values that are not empty after whitespace was trimmed off.",
         |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
     );
@@ -2836,14 +2830,14 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let keys_with_blank_values = DocArgROIvar::new_ivar_ro(
         "keys_with_blank_values",
-        PyList::new1(PyUnion::new_ne_string_or_bytes()),
+        PyList::new1(PyAlias::new_ne_string_or_bytes()),
         "Keys which have blank values (relatively common).",
         |_, _| quote!(self.0.keys_with_blank_values.clone()),
     );
 
     let values_with_blank_keys = DocArgROIvar::new_ivar_ro(
         "values_with_blank_keys",
-        PyList::new1(PyUnion::new_ne_string_or_bytes()),
+        PyList::new1(PyAlias::new_ne_string_or_bytes()),
         "Values which have blank keys (relatively rare).",
         |_, _| quote!(self.0.values_with_blank_keys.clone()),
     );
@@ -2857,7 +2851,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
 
     let tokens_with_boundary_delims = DocArgROIvar::new_ivar_ro(
         "tokens_with_boundary_delims",
-        PyList::new1(PyUnion::new_ne_string_or_bytes()),
+        PyList::new1(PyAlias::new_ne_string_or_bytes()),
         "Tokens (keys or values) which have delimiters at their boundary.",
         |_, _| quote!(self.0.tokens_with_boundary_delims.clone()),
     );
@@ -3355,7 +3349,7 @@ pub fn impl_new_core(input: TokenStream) -> TokenStream {
 pub fn impl_core_version(input: TokenStream) -> TokenStream {
     let t = parse_macro_input!(input as Ident);
     let _ = split_ident_version_pycore(&t);
-    let doc = DocString::new_ivar("Show the FCS version.", PyLiteral::new_version());
+    let doc = DocString::new_ivar("Show the FCS version.", PyAlias::new_version());
     doc.into_impl_get(&t, "version", |_, _| quote!(self.0.fcs_version()))
         .into()
 }
@@ -4828,13 +4822,16 @@ pub fn impl_coretext_unset_measurements(input: TokenStream) -> TokenStream {
     let s = "Remove measurements and clear data.";
     let p0 = format!(
         "This is equivalent to deleting all {PN_ANY} keywords and setting \
-         {PAR} to {zero}.",
+         {PAR} to {zero}. Keywords which reference any {PNN} must not be set.",
         zero = code(0_u8)
     );
 
-    let exc = PyException::new_existing();
-    let ret = DocReturn::new(PyTuple::default()).exc([exc]);
-    let doc = DocString::new_method(s).paras([p0]).returns(ret);
+    // TODO document this exception somehow, which for now is impossible unless
+    // a return type is used, but this is nonsense since this function returns
+    // nothing (the best I can do now is return '()' which will show up in the
+    // docs as 'tuple[()]' which is confusing).
+    // let exc = PyException::new_existing();
+    let doc = DocString::new_method(s).paras([p0]);
 
     quote! {
         #[pymethods]
@@ -4853,9 +4850,15 @@ pub fn impl_coredataset_unset_data(input: TokenStream) -> TokenStream {
     let i: Ident = syn::parse(input).unwrap();
     let _ = split_ident_version_checked("PyCoreDataset", &i);
 
-    let exc = PyException::new_existing();
-    let ret = DocReturn::new(PyTuple::default()).exc([exc]);
-    let doc = DocString::new_method("Remove all measurements and their data.").returns(ret);
+    let p0 = format!(
+        "This is equivalent to deleting all {PN_ANY} keywords, setting \
+         {PAR} to {zero}, and setting *DATA* to an empty dataframe. \
+         Keywords which reference any {PNN} must not be set.",
+        zero = code(0_u8)
+    );
+
+    // let exc = PyException::new_existing();
+    let doc = DocString::new_method("Remove all measurements and their data.").para(p0);
 
     quote! {
         #[pymethods]
@@ -6522,6 +6525,8 @@ enum PyType<E> {
     PyAlias(Box<PyAlias<E>>),
     #[from(PyUnion<E>)]
     Union(Box<PyUnion<E>>),
+    // used as a a placefholder when this struct is used to define defaults for
+    // complex types (something like a "([], {})")
     Dummy,
 }
 
@@ -6718,7 +6723,6 @@ enum RsInt {
     U32,
     U64,
     I32,
-    I128,
     Usize,
     NonZeroU8,
     NonZeroU64,
@@ -6729,7 +6733,6 @@ enum RsInt {
 #[derive(Clone, PartialEq, Hash, Eq)]
 enum RsFloat {
     F32,
-    // F64,
 }
 
 /// Any segment (not HEADER).
@@ -7072,7 +7075,6 @@ impl HasRustPath for RsInt {
             Self::NonZeroU64 => parse_quote!(std::num::NonZeroU64),
             Self::NonZeroUsize => parse_quote!(std::num::NonZeroUsize),
             Self::I32 => parse_quote!(i32),
-            Self::I128 => parse_quote!(i128),
         }
     }
 }
@@ -7603,12 +7605,12 @@ impl PyException {
             .desc(format!("If values in {DATA} cannot be read"))
     }
 
-    fn new_existing() -> Self {
-        Self::new_pyreflow(PyreflowError::Relational).desc(
-            "If keywords are set which refer to measurements and would be \
-             invalidated if measurements were removed",
-        )
-    }
+    // fn new_existing() -> Self {
+    //     Self::new_pyreflow(PyreflowError::Relational).desc(
+    //         "If keywords are set which refer to measurements and would be \
+    //          invalidated if measurements were removed",
+    //     )
+    // }
 
     fn desc(self, desc: impl fmt::Display) -> Self {
         Self {
@@ -7903,28 +7905,6 @@ impl<E> PyStr<E> {
 }
 
 impl<E: From<PyException>> PyStr<E> {
-    fn new_ne_truncated_str() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
-        Self::default().rstype(path)
-    }
-
-    fn new_std_keyword() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::StdKey);
-        let d = format!(
-            "if {ARG_TOKEN} is empty, does not start with {DOLLAR_STR}, \
-             or is only a {DOLLAR_STR}"
-        );
-        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
-        Self::default().rstype(path).exc(e)
-    }
-
-    fn new_nonstd_keyword() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-        let d = format!("if {ARG_TOKEN} is empty or starts with {DOLLAR_STR}");
-        let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
-        Self::default().rstype(path).exc(e)
-    }
-
     fn new_regexp() -> Self {
         let desc = format!(
             "if {ARG_TOKEN} is not a valid regular expression \
@@ -7945,11 +7925,6 @@ impl<E: From<PyException>> PyStr<E> {
         );
         let e = PyException::new_pyreflow(PyreflowError::ParseKeywordValue).desc(d);
         Self::default().rstype(path).exc(e)
-    }
-
-    fn new_ne_str() -> Self {
-        let path: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
-        Self::new_ne_str_inner(path)
     }
 
     fn new_ne_str_inner(path: Path) -> Self {
@@ -8055,7 +8030,7 @@ impl<E> PyDict<E> {
 
 impl<E: From<PyException>> PyDict<E> {
     fn new_keywords() -> Self {
-        Self::new1(PyStr::new_ne_str(), PyStr::new_ne_str())
+        Self::new1(PyAlias::new_ne_str(), PyAlias::new_ne_str())
     }
 }
 
@@ -8113,14 +8088,6 @@ impl<E: From<PyException>> PyList<E> {
         let path = keyword_path("ByteOrd2_0");
         Self::new1(RsInt::U32).rstype(path)
     }
-
-    fn new_std_truncated() -> Self {
-        Self::new1(PyTuple::new1(PyStr::new_std_keyword()).add(PyStr::new_ne_truncated_str()))
-    }
-
-    fn new_nonstd_truncated() -> Self {
-        Self::new1(PyTuple::new1(PyStr::new_nonstd_keyword()).add(PyStr::new_ne_truncated_str()))
-    }
 }
 
 impl<T> FromIterator<T> for PyLiteral<T> {
@@ -8132,9 +8099,9 @@ impl<T> FromIterator<T> for PyLiteral<T> {
 }
 
 impl<T> PyLiteral<T> {
-    fn new1(head: T) -> Self {
-        Self::new(head, vec![], None, None)
-    }
+    // fn new1(head: T) -> Self {
+    //     Self::new(head, vec![], None, None)
+    // }
 
     fn new_with_path(xs: impl IntoIterator<Item = T>, rstype: Path) -> Self {
         xs.into_iter().collect::<Self>().rstype(rstype)
@@ -8185,37 +8152,9 @@ impl<T> PyLiteral<T> {
 }
 
 impl PyStrLiteral {
-    fn new_version() -> Self {
-        let path = parse_quote!(fireflow_types::keywords::Version);
-        Self::new_with_path(ALL_VERSION_STRINGS, path)
-    }
-
     fn new_awh_feature() -> Self {
         let path = parse_quote!(fireflow_types::keywords::OpticalFeature);
         Self::new_with_path(tk::OpticalFeature::iter_str(), path)
-    }
-
-    fn new_scale_fix() -> Self {
-        [
-            tk::SCALE_DIAGNOSTIC_TRIMMED,
-            tk::SCALE_DIAGNOSTIC_LOG,
-            tk::SCALE_DIAGNOSTIC_TRIMMED_LOG,
-            tk::SCALE_DIAGNOSTIC_FORCED,
-        ]
-        .into_iter()
-        .map(NEStr::as_str)
-        .collect()
-    }
-
-    fn new_gate_scale_fix() -> Self {
-        [
-            tk::SCALE_DIAGNOSTIC_TRIMMED,
-            tk::SCALE_DIAGNOSTIC_LOG,
-            tk::SCALE_DIAGNOSTIC_TRIMMED_LOG,
-        ]
-        .into_iter()
-        .map(NEStr::as_str)
-        .collect()
     }
 }
 
@@ -8271,18 +8210,6 @@ impl<E: From<PyException>> PyOpt<E> {
             .set_default(PyTuple::default());
         Self::new1(inner).rstype(path).default_from_inner()
     }
-
-    fn new_scale_fix() -> Self {
-        let path = keyword_path("AnyMeasScaleFix");
-        let inner = PyTuple::new1(PyStr::new_ne_str()).add(PyLiteral::new_scale_fix());
-        Self::new1(inner).rstype(path)
-    }
-
-    fn new_gate_scale_fix() -> Self {
-        let path = keyword_path("ScaleFix");
-        let inner = PyTuple::new1(PyStr::new_ne_str()).add(PyLiteral::new_gate_scale_fix());
-        Self::new1(inner).rstype(path)
-    }
 }
 
 impl<E> Default for PyTuple<E> {
@@ -8331,105 +8258,6 @@ impl<E> PyTuple<E> {
 }
 
 impl<E: From<PyException>> PyTuple<E> {
-    fn new_header_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::read::HeaderOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let header_levels: PyStrLiteral = [
-            tp::SEGMENT_NAME_TEXT,
-            tp::SEGMENT_NAME_DATA,
-            tp::SEGMENT_NAME_ANALYSIS,
-        ]
-        .into_iter()
-        .map(NEStr::as_str)
-        .collect();
-        let name_pt = PyUnion::new2(header_levels, RsInt::Usize);
-        Self::new1(name_pt)
-            .add(RsInt::U64)
-            .add(RsInt::U64)
-            .rstype(path)
-    }
-
-    fn new_header_or_supp_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::read::HeaderOrSuppOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let header_levels: PyStrLiteral = [
-            tp::SEGMENT_NAME_TEXT,
-            tp::SEGMENT_NAME_STEXT,
-            tp::SEGMENT_NAME_DATA,
-            tp::SEGMENT_NAME_ANALYSIS,
-        ]
-        .into_iter()
-        .map(NEStr::as_str)
-        .collect();
-        let name_pt = PyUnion::new2(header_levels, RsInt::Usize);
-        Self::new1(name_pt)
-            .add(RsInt::U64)
-            .add(RsInt::U64)
-            .rstype(path)
-    }
-
-    fn new_text_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::read::TextOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let name_pt: PyStrLiteral = [tp::SEGMENT_NAME_DATA, tp::SEGMENT_NAME_ANALYSIS]
-            .into_iter()
-            .map(NEStr::as_str)
-            .collect();
-        Self::new1(name_pt)
-            .add(RsInt::U64)
-            .add(RsInt::U64)
-            .rstype(path)
-    }
-
-    fn new_supp_text_named_offsets() -> Self {
-        let nt = quote!(fireflow_core::segment::read::SuppTextOffsetsName);
-        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
-        let name_pt = PyStrLiteral::new1(tp::SEGMENT_NAME_STEXT.as_str());
-        Self::new1(name_pt)
-            .add(RsInt::U64)
-            .add(RsInt::U64)
-            .rstype(path)
-    }
-
-    fn new_original_offsets() -> Self {
-        let p = parse_quote!(fireflow_core::segment::read::OriginalOffsets);
-        repeat_n(RsInt::I128, 2).collect::<Self>().rstype(p)
-    }
-
-    fn new_offset_pair(n: &str) -> Self {
-        let t = format_ident!("{n}");
-        let p = parse_quote!(fireflow_core::segment::read::#t);
-        repeat_n(RsInt::U64, 2).collect::<Self>().rstype(p)
-    }
-
-    fn new_text_segment() -> Self {
-        Self::new_offset_pair("PrimaryTextOffsets")
-    }
-
-    fn new_supp_text_offsets() -> Self {
-        Self::new_offset_pair("SupplementalTextOffsets")
-    }
-
-    fn new_other_offsets() -> Self {
-        Self::new_offset_pair("OtherOffsets20")
-    }
-
-    fn new_data_offsets(src: SegmentSrc) -> Self {
-        let id = match src {
-            SegmentSrc::Header => "HeaderDataOffsets",
-            SegmentSrc::Any => "AnyDataOffsets",
-        };
-        Self::new_offset_pair(id)
-    }
-
-    fn new_analysis_offsets(src: SegmentSrc) -> Self {
-        let id = match src {
-            SegmentSrc::Header => "HeaderAnalysisOffsets",
-            SegmentSrc::Any => "AnyAnalysisOffsets",
-        };
-        Self::new_offset_pair(id)
-    }
-
     fn new_unigate() -> Self {
         [PyDecimal::default(), PyDecimal::default()]
             .into_iter()
@@ -8456,10 +8284,10 @@ impl<E> PyUnion<E> {
         Self::new(x, y, vec![], None, None)
     }
 
-    fn add(mut self, x: impl Into<PyType<E>>) -> Self {
-        self.tail.push(x.into());
-        self
-    }
+    // fn add(mut self, x: impl Into<PyType<E>>) -> Self {
+    //     self.tail.push(x.into());
+    //     self
+    // }
 
     fn rstype(mut self, rstype: Path) -> Self {
         self.rstype = Some(rstype);
@@ -8519,24 +8347,6 @@ impl<E: From<PyException>> PyUnion<E> {
         .rstype(path)
     }
 
-    fn new_meas_with_name_and_scale(version: Version) -> Self
-    where
-        E: Clone,
-    {
-        let name_pytype = PyType::new_versioned_shortname(version);
-        let name_rstype = name_pytype.as_rust_type();
-        let meas_opt_pyname = pyoptical(version);
-        let meas_tmp_pyname = pytemporal(version);
-        let scale_pytype = PyType::new_scale(version);
-        let scale_rstype = scale_pytype.as_rust_type();
-        let meas_argtype = parse_quote!(PyEithers<#name_rstype, #meas_tmp_pyname, #meas_opt_pyname, #scale_rstype>);
-        let tmp = PyTuple::new1(name_pytype.clone()).add(PyClass::new_temporal(version));
-        let opt = PyTuple::new1(name_pytype)
-            .add(PyClass::new_temporal(version))
-            .add(scale_pytype);
-        Self::new2(tmp, opt).rstype(meas_argtype)
-    }
-
     fn new_gate_scale() -> Self {
         let d = format!("if {ARG_TOKEN} has log scale floats which are not both positive");
         let exc = PyException::new_invalid_keyword().desc(d);
@@ -8564,11 +8374,6 @@ impl<E: From<PyException>> PyUnion<E> {
             .rstype(parse_quote!(PyAnyCoreDataset))
     }
 
-    fn new_ne_string_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::NEStringOrBytes);
-        Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
-    }
-
     fn new_string_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
         Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
@@ -8577,19 +8382,6 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_analysis() -> Self {
         let r = parse_quote!(fireflow_core::core::Analysis);
         Self::new_string_or_bytes().rstype(r)
-    }
-
-    fn new_dark_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::core::DarkBytes);
-        let padding = PyTuple::new1(RsInt::U8).add(RsInt::Usize);
-        Self::new2(PyStr::default(), PyBytes::default())
-            .add(padding)
-            .rstype(path)
-    }
-
-    fn new_key_or_bytes() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::KeyOrBytes);
-        Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
     }
 }
 
@@ -8641,13 +8433,13 @@ impl<E: From<PyException>> PyClass<E> {
             // ASSUME this is in scope
             parse_quote!(PyFCSDataFrame)
         };
-        Self::new1("polars.DataFrame").rstype(path)
+        Self::new1("~polars.DataFrame").rstype(path)
     }
 
     fn new_series() -> Self {
         // ASSUME this is in scope
         let path: Path = parse_quote!(PyAnyFCSColumn);
-        Self::new1("polars.Series").rstype(path)
+        Self::new1("~polars.Series").rstype(path)
     }
 
     fn new_coretext(version: Version) -> Self {
@@ -8935,6 +8727,38 @@ impl<E: From<PyException>> PyAlias<E> {
             .set_default(PyDict::new_dummy())
     }
 
+    // fn new_std_truncated() -> Self {
+    //     let keypath: Path = parse_quote!(fireflow_core::validated::keys::StdKey);
+    //     let valpath: Path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
+    //     Self::new_py(["typing"], "StdKeywords").rstype(parse_quote!(Vec::<(#keypath, #valpath)>))
+    // }
+
+    // fn new_nonstd_truncated() -> Self {
+    //     let keypath: Path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+    //     let valpath: Path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
+    //     Self::new_py(["typing"], "NonStdKeywords").rstype(parse_quote!(Vec::<(#keypath, #valpath)>))
+    // }
+
+    fn new_std_keyword() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::StdKey);
+        Self::new_py(["typing"], "StdKey").rstype(path)
+        // let d = format!(
+        //     "if {ARG_TOKEN} is empty, does not start with {DOLLAR_STR}, \
+        //      or is only a {DOLLAR_STR}"
+        // );
+        // let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
+        // Self::default().rstype(path).exc(e)
+    }
+
+    fn new_nonstd_keyword() -> Self {
+        // let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        // let d = format!("if {ARG_TOKEN} is empty or starts with {DOLLAR_STR}");
+        // let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
+        // Self::default().rstype(path).exc(e)
+        let path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
+        Self::new_py(["typing"], "NonStdKey").rstype(path)
+    }
+
     fn new_meas_index() -> Self {
         let path = parse_quote!(fireflow_core::text::index::MeasIndex);
         Self::new_py(["typing"], "MeasIndex").rstype(path)
@@ -8968,6 +8792,120 @@ impl<E: From<PyException>> PyAlias<E> {
         Self::new_py(["typing"], "KeyStringValues")
             .rstype(path)
             .set_default(PyDict::new_dummy())
+    }
+
+    fn new_meas_with_name_and_scale(version: Version) -> Self
+    where
+        E: Clone,
+    {
+        let name_pytype = PyType::<PyException>::new_versioned_shortname(version);
+        let name_rstype = name_pytype.as_rust_type();
+        let meas_opt_pyname = pyoptical(version);
+        let meas_tmp_pyname = pytemporal(version);
+        let scale_pytype = PyType::<PyException>::new_scale(version);
+        let scale_rstype = scale_pytype.as_rust_type();
+        let meas_argtype = parse_quote!(PyEithers<#name_rstype, #meas_tmp_pyname, #meas_opt_pyname, #scale_rstype>);
+        let vsu = version.short_underscore();
+        Self::new_py(["typing"], format!("Measurements{vsu}")).rstype(meas_argtype)
+    }
+
+    fn new_header_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::read::HeaderOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
+        Self::new_py(["typing"], "HeaderNamedOffsets").rstype(path)
+    }
+
+    fn new_header_or_supp_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::read::HeaderOrSuppOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
+        Self::new_py(["typing"], "HeaderOrSuppNamedOffsets").rstype(path)
+    }
+
+    fn new_text_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::read::TextOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
+        Self::new_py(["typing"], "TextNamedOffsets").rstype(path)
+    }
+
+    fn new_supp_text_named_offsets() -> Self {
+        let nt = quote!(fireflow_core::segment::read::SuppTextOffsetsName);
+        let path = parse_quote!(fireflow_core::segment::read::NamedOffsets<#nt>);
+        Self::new_py(["typing"], "SuppTEXTNamedOffsets").rstype(path)
+    }
+
+    fn new_original_offsets() -> Self {
+        let path = parse_quote!(fireflow_core::segment::read::OriginalOffsets);
+        Self::new_py(["typing"], "OriginalOffsets").rstype(path)
+    }
+
+    fn new_offset_pair(n: &str) -> Self {
+        let t = format_ident!("{n}");
+        let path = parse_quote!(fireflow_core::segment::read::#t);
+        Self::new_py(["typing"], "FinalOffsets").rstype(path)
+    }
+
+    fn new_text_segment() -> Self {
+        Self::new_offset_pair("PrimaryTextOffsets")
+    }
+
+    fn new_supp_text_offsets() -> Self {
+        Self::new_offset_pair("SupplementalTextOffsets")
+    }
+
+    fn new_data_offsets(src: SegmentSrc) -> Self {
+        let id = match src {
+            SegmentSrc::Header => "HeaderDataOffsets",
+            SegmentSrc::Any => "AnyDataOffsets",
+        };
+        Self::new_offset_pair(id)
+    }
+
+    fn new_analysis_offsets(src: SegmentSrc) -> Self {
+        let id = match src {
+            SegmentSrc::Header => "HeaderAnalysisOffsets",
+            SegmentSrc::Any => "AnyAnalysisOffsets",
+        };
+        Self::new_offset_pair(id)
+    }
+
+    fn new_dark_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::core::DarkBytes);
+        Self::new_py(["typing"], "DarkBytes").rstype(path)
+    }
+
+    fn new_scale_fix() -> Self {
+        let path = keyword_path("AnyMeasScaleFix");
+        Self::new_py(["typing"], "MeasScaleDiagnostic").rstype(path)
+    }
+
+    fn new_gate_scale_fix() -> Self {
+        let path = keyword_path("ScaleFix");
+        Self::new_py(["typing"], "GateScaleDiagnostic").rstype(path)
+    }
+
+    fn new_ne_str() -> Self {
+        let path: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
+        Self::new_py(["typing"], "NEStr").rstype(path)
+    }
+
+    fn new_ne_truncated_str() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
+        Self::new_py(["typing"], "NEStr").rstype(path)
+    }
+
+    fn new_ne_string_or_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::NEStringOrBytes);
+        Self::new_py(["typing"], "NEStrOrBytes").rstype(path)
+    }
+
+    fn new_key_or_bytes() -> Self {
+        let path = parse_quote!(fireflow_core::validated::keys::KeyOrBytes);
+        Self::new_py(["typing"], "KeyOrBytes").rstype(path)
+    }
+
+    fn new_version() -> Self {
+        let path = parse_quote!(fireflow_types::keywords::Version);
+        Self::new_py(["typing"], "FCSVersion").rstype(path)
     }
 }
 
@@ -9578,7 +9516,7 @@ impl DocArgROIvar {
     }
 
     fn new_version_ivar() -> Self {
-        let p = PyLiteral::new_version();
+        let p = PyAlias::new_version();
         let d = "The FCS version.";
         Self::new_ivar_ro("version", p, d, |_, _| quote!(self.0.version))
     }
@@ -9607,9 +9545,15 @@ impl DocArgROIvar {
 
     fn new_version_scores_param() -> Self {
         let desc = "Scores generated if version was guessed.";
-        let s = PyClass::new_py(["api"], "KeywordVersionScore");
-        let t = repeat_n(s, 4).collect::<PyTuple<_>>();
-        let p = PyOpt::new1(t);
+        let t = PyAlias::new_py(["typing"], "KeywordVersionScores");
+        let p = PyOpt::new1(t).rstype(parse_quote!(
+            Option<(
+                PyKeywordVersionScore,
+                PyKeywordVersionScore,
+                PyKeywordVersionScore,
+                PyKeywordVersionScore,
+            )>
+        ));
         DocArgParam::new_param("version_scores", p, desc).into_ro(|_, _| {
             quote!(self.0.version_scores.clone().map(|(a, b, c, d)| (
                 a.into(),
@@ -9849,17 +9793,11 @@ impl DocArgParam {
     fn new_file_crc_param() -> Self {
         let d = format!(
             "The value of the cyclic redundancy check (CRC) value. \
-             Will be a tuple pair if a valid CRC was found, where the first \
-             integer is the CRC and the second is its offset. \
-             Will be up to an 8-character string if the CRC could not be parsed. \
-             Will be {NONE} if not found at all. \
              FCS 2.0 will always return {NONE}."
         );
-        let path = parse_quote!(fireflow_core::core::CRCOutput);
-        let pair: PyTuple<_> = [RsInt::U16, RsInt::U64].into_iter().collect();
-        let inner = PyUnion::new2(PyBytes::default(), pair).rstype(path);
-        let p = PyOpt::new1(inner);
-        Self::new_param("file_crc", p, d)
+        let path = parse_quote!(Option<fireflow_core::core::CRCOutput>);
+        let pt = PyAlias::new_py(["typing"], "CRCOutput").rstype(path);
+        Self::new_param("file_crc", pt, d)
     }
 
     fn new_computed_crc_param() -> Self {
@@ -9872,34 +9810,31 @@ impl DocArgParam {
     }
 
     fn new_uncorrected_header_offsets_param(argname: &str, seg: AnySegment) -> Self {
-        let pt = PyTuple::new_original_offsets();
+        let pt = PyAlias::new_original_offsets();
         let desc = format!("The uncorrected {} offsets from {HEADER}.", seg.name());
         Self::new_param(argname, pt, desc)
     }
 
     fn new_text_offsets_param() -> Self {
         let desc = format!("The primary {TEXT} offsets from {HEADER}.");
-        Self::new_param("text", PyTuple::new_text_segment(), desc)
+        Self::new_param("text", PyAlias::new_text_segment(), desc)
     }
 
     fn new_data_offsets_param(name: &str, src: SegmentSrc) -> Self {
         let desc = format!("The {DATA} offsets from {src}.");
-        Self::new_param(name, PyTuple::new_data_offsets(src), desc)
+        Self::new_param(name, PyAlias::new_data_offsets(src), desc)
     }
 
     fn new_analysis_offsets_param(name: &str, src: SegmentSrc, default: bool) -> Self {
         let desc = format!("The {ANALYSIS} offsets from {src}.");
-        let p = PyTuple::new_analysis_offsets(src);
+        let p = PyAlias::new_analysis_offsets(src);
         Self::new_param(name, p, desc).def_auto_if(default)
     }
 
     fn new_other_offset_pairs_param() -> Self {
-        let seg = PyTuple::new_other_offsets();
-        let indexed_seg = PyTuple::new1(RsInt::Usize).add(seg);
-        let width = PyInt::new_other_width();
         let rstype = parse_quote!(fireflow_core::validated::header_offsets::PyFinalOtherOffsets);
-        let pt = PyOpt::new1(PyTuple::new1(PyList::new_non_empty(indexed_seg, None)).add(width))
-            .rstype(rstype);
+        let inner = PyAlias::new_py(["typing"], "FinalOtherOffsets");
+        let pt = PyOpt::new1(inner).rstype(rstype);
         let d = format!("The {OTHER} offsets from {HEADER}.");
         Self::new_param("others", pt, d)
     }
@@ -9957,7 +9892,7 @@ impl DocArgParam {
     fn new_paired_measurements_param(version: Version) -> Self {
         let meas_desc = "Measurements corresponding to columns in FCS file. \
                          Temporal must be given zero or one times.";
-        let pytype = PyUnion::new_meas_with_name_and_scale(version);
+        let pytype = PyAlias::new_meas_with_name_and_scale(version);
         Self::new_param(MEASUREMENTS, pytype, meas_desc)
     }
 
@@ -9971,7 +9906,7 @@ impl DocArgParam {
     fn new_set_meas_param(version: Version) -> Self {
         let d = "The new measurements. The first member of the tuple corresponds to \
                  the measurement name and the second is the measurement object.";
-        let pytype = PyUnion::new_meas_with_name_and_scale(version);
+        let pytype = PyAlias::new_meas_with_name_and_scale(version);
         Self::new_param(MEASUREMENTS, pytype, d)
     }
 
@@ -10210,7 +10145,7 @@ impl DocArgParam {
         };
 
         let process_optional_failure = Self::new_process_optional_failure();
-        let integer_widths_from_byteord = Self::new_fix_int_widths_param();
+        let integer_widths_from_byteord = Self::new_int_width_override_param();
         let integer_byteord_override = Self::new_byteord_override_param();
         let disallow_range_truncation = Self::new_disallow_range_truncation_param();
 
@@ -10525,11 +10460,11 @@ impl DocArgParam {
         Self::new_bool_param("disallow_localtime", d)
     }
 
-    fn new_fix_int_widths_param() -> Self {
+    fn new_int_width_override_param() -> Self {
         let d = format!("Override {PNB}. Only affects integer layouts in FCS 2.0/3.0.");
-        let path = config_path("FixIntWidths");
-        let pt = PyAlias::new_py(["typing"], "FixIntWidths").rstype(path);
-        Self::new_param("fix_int_widths", pt, d).def_str(tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str())
+        let path = config_path("IntWidthOverride");
+        let pt = PyAlias::new_py(["typing"], "IntWidthOverride").rstype(path);
+        Self::new_param("int_width_override", pt, d).def_str(tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str())
     }
 
     fn new_byteord_override_param() -> Self {
@@ -12238,8 +12173,6 @@ const ALL_VERSIONS: [Version; 4] = [
     Version::FCS3_1,
     Version::FCS3_2,
 ];
-
-const ALL_VERSION_STRINGS: [&str; 4] = ["FCS2.0", "FCS3.0", "FCS3.1", "FCS3.2"];
 
 /// String to replace with argument name in exceptions attached to arguments.
 const ARG_TOKEN: &str = "%x";

@@ -1,5 +1,5 @@
 use fireflow_core::api;
-use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
+use fireflow_core::config::{self as cfg, ByteordOverride, HasStrategy as _, IntWidthOverride};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::read::OffsetsCorrection;
 use fireflow_core::selector::{AppendableSelector, Selector};
@@ -788,8 +788,8 @@ fn run() -> AppResult<()> {
     )
     .value_parser(value_parser!(cfg::ProcessOptionalFailure));
 
-    let int_widths_from_byteord = Arg::new(FIX_INT_WIDTHS)
-        .long(FIX_INT_WIDTHS)
+    let int_widths_from_byteord = Arg::new(INT_WIDTH_OVERRIDE)
+        .long(INT_WIDTH_OVERRIDE)
         .value_name("INT_OR_FLAG")
         .value_parser(parse_fix_int_widths)
         .help(format!(
@@ -1584,7 +1584,7 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
     get_opt(s, PROCESS_OPTIONAL_FAILURE, |x| {
         c.process_optional_failure = x;
     });
-    get_opt(s, FIX_INT_WIDTHS, |x| c.fix_int_widths = x);
+    get_opt(s, INT_WIDTH_OVERRIDE, |x| c.int_width_override = x);
     get_opt(s, BYTEORD_OVERRIDE, |x| c.byteord_override = x);
     get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;
@@ -1823,13 +1823,13 @@ fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
     Ok(SubPattern::try_new(r, to.to_owned(), global)?)
 }
 
-fn parse_fix_int_widths(s: &str) -> StrResult<FixIntWidths> {
+fn parse_fix_int_widths(s: &str) -> StrResult<IntWidthOverride> {
     if s == tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str() {
-        return Ok(FixIntWidths::Never);
+        return Ok(IntWidthOverride::Never);
     } else if s == tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str() {
-        return Ok(FixIntWidths::NextByte);
+        return Ok(IntWidthOverride::NextByte);
     }
-    Ok(FixIntWidths::Explicit(
+    Ok(IntWidthOverride::Explicit(
         s.parse::<Bytes>().map_err(|e| e.to_string())?,
     ))
 }
@@ -2108,7 +2108,7 @@ const ALLOW_MISSING_REQUIRED_OFFSETS: &str =
 
 const PROCESS_OPTIONAL_FAILURE: &str = cli_arg!(ReadDataKeywordsConfig::process_optional_failure);
 
-const FIX_INT_WIDTHS: &str = cli_arg!(ReadDataKeywordsConfig::fix_int_widths);
+const INT_WIDTH_OVERRIDE: &str = cli_arg!(ReadDataKeywordsConfig::int_width_override);
 
 const BYTEORD_OVERRIDE: &str = cli_arg!(ReadDataKeywordsConfig::byteord_override);
 

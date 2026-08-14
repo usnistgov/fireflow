@@ -108,8 +108,8 @@
 
 use crate::config::{
     AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
-    DummyTriFlag, EvaledReadDataKeywordsConfig, FixIntWidths, ReadDatasetConfig, TriErrorFlag as _,
-    WriteDatasetInnerConfig,
+    DummyTriFlag, EvaledReadDataKeywordsConfig, IntWidthOverride, ReadDatasetConfig,
+    TriErrorFlag as _, WriteDatasetInnerConfig,
 };
 use crate::convert::{U64Ext as _, UsizeExt as _};
 use crate::logging::{
@@ -7896,14 +7896,14 @@ impl<T> AnyOrderedUintDataSchema<T> {
             })
         };
 
-        let bytes_res = match conf.fix_int_widths {
-            FixIntWidths::Never => get_widths().and_then_commutative(|width| {
+        let bytes_res = match conf.int_width_override {
+            IntWidthOverride::Never => get_widths().and_then_commutative(|width| {
                 PrivBytes::try_from(width)
                     .map(|x| (x, None))
                     .map_err(SingleFixedWidthError::from)
                     .into_log()
             }),
-            FixIntWidths::NextByte => get_widths().and_then_commutative(|width| {
+            IntWidthOverride::NextByte => get_widths().and_then_commutative(|width| {
                 width
                     .next_byte()
                     .map_or_else(
@@ -7923,7 +7923,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
             // "reason" why we return none for the original width is that we
             // are saving time and possible parse errors by not computing the
             // width.
-            FixIntWidths::Explicit(b) => LogResult::new_ok((b.0, None)),
+            IntWidthOverride::Explicit(b) => LogResult::new_ok((b.0, None)),
         };
 
         match conf.byteord_override {

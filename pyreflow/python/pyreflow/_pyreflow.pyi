@@ -1163,7 +1163,7 @@ class CoreTEXT2_0(
         substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
         allow_repair_non_unique: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
-        fix_int_widths: pft.FixIntWidths = "never",
+        int_width_override: pft.IntWidthOverride = "never",
         byteord_override: pft.ByteordOverride = "none",
         disallow_range_truncation: pft.TriFlag = "false",
         # shared args
@@ -1272,7 +1272,7 @@ class CoreTEXT3_0(
         allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
-        fix_int_widths: pft.FixIntWidths = "never",
+        int_width_override: pft.IntWidthOverride = "never",
         byteord_override: pft.ByteordOverride = "none",
         disallow_range_truncation: pft.TriFlag = "false",
         # shared args
@@ -1616,7 +1616,7 @@ class CoreDataset2_0(
         substitute_standard_key_values: pft.AppendableSelector[pft.SubPatterns] = {},
         allow_repair_non_unique: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
-        fix_int_widths: pft.FixIntWidths = "never",
+        int_width_override: pft.IntWidthOverride = "never",
         byteord_override: pft.ByteordOverride = "none",
         disallow_range_truncation: pft.TriFlag = "false",
         # data args
@@ -1746,7 +1746,7 @@ class CoreDataset3_0(
         allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
         allow_missing_required_offsets: pft.TriFlag = "false",
         process_optional_failure: pft.ProcessKeywordFailure = "error",
-        fix_int_widths: pft.FixIntWidths = "never",
+        int_width_override: pft.IntWidthOverride = "never",
         byteord_override: pft.ByteordOverride = "none",
         disallow_range_truncation: pft.TriFlag = "false",
         # data args
@@ -2084,39 +2084,39 @@ class PyreflowWarning(Warning): ...
 class FinalHeaderOffsets:
     def __new__(
         cls,
-        text: pft.Offsets,
-        data: pft.Offsets,
-        analysis: pft.Offsets,
-        others: pft.OtherOffsets,
+        text: pft.FinalOffsets,
+        data: pft.FinalOffsets,
+        analysis: pft.FinalOffsets,
+        others: pft.FinalOtherOffsets,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text(self) -> pft.Offsets: ...
+    def text(self) -> pft.FinalOffsets: ...
     @property
-    def data(self) -> pft.Offsets: ...
+    def data(self) -> pft.FinalOffsets: ...
     @property
-    def analysis(self) -> pft.Offsets: ...
+    def analysis(self) -> pft.FinalOffsets: ...
     @property
-    def others(self) -> pft.OtherOffsets: ...
+    def others(self) -> pft.FinalOtherOffsets: ...
 
 @final
 class OriginalHeaderOffsets:
     def __new__(
         cls,
-        text: pft.Offsets,
-        data: pft.Offsets,
-        analysis: pft.Offsets,
-        others: list[pft.Offsets],
+        text: pft.OriginalOffsets,
+        data: pft.OriginalOffsets,
+        analysis: pft.OriginalOffsets,
+        others: list[pft.OriginalOffsets],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def text(self) -> pft.Offsets: ...
+    def text(self) -> pft.OriginalOffsets: ...
     @property
-    def data(self) -> pft.Offsets: ...
+    def data(self) -> pft.OriginalOffsets: ...
     @property
-    def analysis(self) -> pft.Offsets: ...
+    def analysis(self) -> pft.OriginalOffsets: ...
     @property
-    def others(self) -> list[pft.Offsets]: ...
+    def others(self) -> list[pft.OriginalOffsets]: ...
 
 @final
 class Header:
@@ -2156,35 +2156,35 @@ class ValidKeywords:
 class RepairDiagnostics:
     def __new__(
         cls,
-        non_unique_std: list[tuple[str, str]],
-        non_unique_nonstd: list[tuple[str, str]],
-        demoted: list[str],
-        promoted: list[str],
-        subbed: list[tuple[str, str]],
-        replaced: list[tuple[str, str]],
-        renamed: list[tuple[str, str]],
-        ignored: list[tuple[str, str]],
-        removed: list[tuple[str, str]],
+        non_unique_std: list[tuple[pft.StdKey, str]],
+        non_unique_nonstd: list[tuple[pft.NonStdKey, str]],
+        demoted: list[pft.StdKey],
+        promoted: list[pft.NonStdKey],
+        subbed: list[tuple[pft.StdKey, str]],
+        replaced: list[tuple[pft.StdKey, str]],
+        renamed: list[tuple[pft.StdKey, pft.StdKey]],
+        ignored: list[tuple[pft.StdKey, str]],
+        removed: list[tuple[pft.StdKey, str]],
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def non_unique_std(self) -> list[tuple[str, str]]: ...
+    def non_unique_std(self) -> list[tuple[pft.StdKey, str]]: ...
     @property
-    def non_unique_nonstd(self) -> list[tuple[str, str]]: ...
+    def non_unique_nonstd(self) -> list[tuple[pft.NonStdKey, str]]: ...
     @property
-    def demoted(self) -> list[str]: ...
+    def demoted(self) -> list[pft.StdKey]: ...
     @property
-    def promoted(self) -> list[str]: ...
+    def promoted(self) -> list[pft.NonStdKey]: ...
     @property
-    def subbed(self) -> list[tuple[str, str]]: ...
+    def subbed(self) -> list[tuple[pft.StdKey, str]]: ...
     @property
-    def replaced(self) -> list[tuple[str, str]]: ...
+    def replaced(self) -> list[tuple[pft.StdKey, str]]: ...
     @property
-    def renamed(self) -> list[tuple[str, str]]: ...
+    def renamed(self) -> list[tuple[pft.StdKey, pft.StdKey]]: ...
     @property
-    def ignored(self) -> list[tuple[str, str]]: ...
+    def ignored(self) -> list[tuple[pft.StdKey, str]]: ...
     @property
-    def removed(self) -> list[tuple[str, str]]: ...
+    def removed(self) -> list[tuple[pft.StdKey, str]]: ...
 
 @final
 class DataSchemaDiagnostics:
@@ -2279,17 +2279,17 @@ class StdTEXTDiagnostics:
 class DatasetOffsets:
     def __new__(
         cls,
-        final_data_offsets: pft.Offsets,
-        final_analysis_offsets: pft.Offsets,
+        final_data_offsets: pft.FinalOffsets,
+        final_analysis_offsets: pft.FinalOffsets,
         data_origin: TEXTOffsetsOrigin,
         analysis_origin: TEXTOffsetsOrigin,
         data_analysis_overlap: int | None,
     ) -> Self: ...
     def __deepcopy__(self, memo: Any) -> Self: ...
     @property
-    def final_data_offsets(self) -> pft.Offsets: ...
+    def final_data_offsets(self) -> pft.FinalOffsets: ...
     @property
-    def final_analysis_offsets(self) -> pft.Offsets: ...
+    def final_analysis_offsets(self) -> pft.FinalOffsets: ...
     @property
     def data_origin(self) -> TEXTOffsetsOrigin: ...
     @property
@@ -2408,8 +2408,8 @@ class SuppTEXTOffsetsOutput:
     def __new__(
         cls,
         origin_type: pft.SuppTEXTOffsetsOriginType,
-        final_offsets: pft.Offsets | None,
-        original_offsets: pft.Offsets | None,
+        final_offsets: pft.FinalOffsets | None,
+        original_offsets: pft.OriginalOffsets | None,
         other_index: int | None,
         overlaps: list[SuppToHeaderOffsetsOverlap],
         overflow: SuppOffsetsOverflow | None,
@@ -2418,9 +2418,9 @@ class SuppTEXTOffsetsOutput:
     @property
     def origin_type(self) -> pft.SuppTEXTOffsetsOriginType: ...
     @property
-    def final_offsets(self) -> pft.Offsets: ...
+    def final_offsets(self) -> pft.FinalOffsets: ...
     @property
-    def original_offsets(self) -> pft.Offsets | None: ...
+    def original_offsets(self) -> pft.OriginalOffsets | None: ...
     @property
     def other_index(self) -> int | None: ...
     @property
@@ -2433,7 +2433,7 @@ class TEXTOffsetsOrigin:
     def __new__(
         cls,
         origin_type: pft.TEXTOffsetsOriginType,
-        original_offsets: pft.Offsets | None,
+        original_offsets: pft.OriginalOffsets | None,
         overlaps: list[TextToHeaderOrSuppOffsetsOverlap],
         overflow: TextOffsetsOverflow | None,
     ) -> Self: ...
@@ -2441,7 +2441,7 @@ class TEXTOffsetsOrigin:
     @property
     def origin_type(self) -> pft.TEXTOffsetsOriginType: ...
     @property
-    def original_offsets(self) -> pft.Offsets | None: ...
+    def original_offsets(self) -> pft.OriginalOffsets | None: ...
     @property
     def overlaps(self) -> list[TextToHeaderOrSuppOffsetsOverlap]: ...
     @property
@@ -2973,7 +2973,7 @@ def fcs_read_std_text(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # shared args
@@ -3034,7 +3034,7 @@ def fcs_read_flat_dataset(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # data args
@@ -3129,7 +3129,7 @@ def fcs_read_std_dataset(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # data args
@@ -3271,7 +3271,7 @@ def fcs_read_std_texts(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # shared args
@@ -3334,7 +3334,7 @@ def fcs_read_flat_datasets(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # data args
@@ -3430,7 +3430,7 @@ def fcs_read_std_datasets(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # data args
@@ -3475,7 +3475,7 @@ def fcs_read_flat_dataset_with_keywords(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # data args
@@ -3552,7 +3552,7 @@ def fcs_summarize(
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error",
     allow_missing_required_offsets: pft.TriFlag = "false",
     process_optional_failure: pft.ProcessKeywordFailure = "error",
-    fix_int_widths: pft.FixIntWidths = "never",
+    int_width_override: pft.IntWidthOverride = "never",
     byteord_override: pft.ByteordOverride = "none",
     disallow_range_truncation: pft.TriFlag = "false",
     # data args

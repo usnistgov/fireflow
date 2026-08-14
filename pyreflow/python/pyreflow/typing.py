@@ -285,7 +285,7 @@ Levels are as follows:
 
 """
 
-type FixIntWidths = int | Literal["next_byte", "never"]
+type IntWidthOverride = int | Literal["next_byte", "never"]
 """Fix *$PnB* if incorrect.
 
 Set to ``"next_byte"`` or ``"never"`` to round up to next multiple of 8
@@ -411,6 +411,12 @@ type RootOrMeas = Literal["root_only", "meas_only", "both"]
 
 type NEStr = str
 """A string which cannot be empty."""
+
+type NEStrOrBytes = str | bytes
+"""A string or bytestring which cannot be empty."""
+
+type KeyOrBytes = StdKey | NonStdKey | bytes
+"""A valid key from *TEXT* or a bytestring."""
 
 type KeyString = NEStr
 """A standard or nonstandard key depending on context.
@@ -940,16 +946,6 @@ and 3.2 respectively).
 
 """
 
-type OtherOffsets = tuple[list[tuple[int, Offsets]], int]
-"""Output when parsing *OTHER* offsets from an FCS file.
-
-The first element corresponds to the offsets themselves.
-
-The second element corresponds to the width (in bytes/ASCII characters)
-used to parse the offsets.
-
-"""
-
 type HeaderOffsetsName = Literal["text", "data", "header"]
 """Identifier for a segment whose offsets are given in *HEADER*."""
 
@@ -983,9 +979,6 @@ type TextNamedOffsets = NamedOffsets[TextOffsetsName]
 
 type HeaderOrSuppNamedOffsets = NamedOffsets[HeaderOrSuppOffsetsName]
 """Segment offsets from *HEADER* or the supplemented *TEXT* offsets"""
-
-type Offsets = tuple[int, int]
-"""The offsets for a segment in an FCS file."""
 
 
 type SuppTEXTOffsetsOriginType = Literal[
@@ -1023,6 +1016,32 @@ The meaning of each level is further described in
 coupled with other adjacent values in this class.
 
 """
+
+type FinalOffsets = tuple[int, int]
+"""The offsets used to parse a segment in an FCS file.
+
+The final offset points to the next byte after the segment (not the last
+as is the case for offsets in the FCS file).
+
+The offsets will always point to a valid region in the original FCS file and
+will never be empty.
+
+"""
+
+type FinalOtherOffsets = tuple[list[tuple[int, FinalOffsets]], int]
+"""Output from parsing *OTHER* offsets from an FCS file.
+
+The first element corresponds to the offsets themselves. Each tuple pair in the
+list encodes the offset pair index in the *HEADER* and the offset values
+respectively. Empty offsets will not be returned.
+
+The second element corresponds to the width (in bytes/ASCII characters)
+used to parse the offsets.
+
+"""
+
+type OriginalOffsets = tuple[int, int]
+"""An offset pair as literally written in an FCS file."""
 
 type CRCOutput = bytes | str | tuple[int, int] | None
 """The result of parsing the CRC word at the end of a dataset.

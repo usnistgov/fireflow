@@ -116,7 +116,7 @@ class _ReadDataKeywordsConfig(BaseModel):
     allow_header_text_offset_mismatch: pft.AllowHeaderTextOffsetMismatch = "error"
     allow_missing_required_offsets: pft.TriFlag = _DEFAULT_TRIFLAG
     process_optional_failure: pft.ProcessKeywordFailure = "error"
-    fix_int_widths: pft.FixIntWidths = "never"
+    int_width_override: pft.IntWidthOverride = "never"
     byteord_override: pft.ByteordOverride = "none"
     disallow_range_truncation: pft.TriFlag = _DEFAULT_TRIFLAG
 

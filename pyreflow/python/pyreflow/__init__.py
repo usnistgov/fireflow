@@ -50,6 +50,11 @@ from ._pyreflow import MixedDataSchema as MixedDataSchema
 from ._pyreflow import BuildInfo as BuildInfo
 
 from pyreflow import api as api
+from pyreflow import typing as typing
+
+for cls, extras in typing._ABC_MAP.items():
+    for x in extras:
+        x.register(cls)
 
 __all__ = [
     "__version__",
@@ -99,4 +104,5 @@ __all__ = [
     "VariableUintDataSchema",
     "MixedDataSchema",
     "api",
+    "typing",
 ]

@@ -14,7 +14,7 @@ use crate::text::keywords as kws;
 use crate::validated::case_ins_regex::CaseInsRegex;
 use crate::validated::sub_pattern::SubPattern;
 
-use fireflow_types::config::{Encoding, PATTERN_DELIMITER, TemporalOpticalKey};
+use fireflow_types::config::{Encoding, OpticalOnlyKey, PATTERN_DELIMITER};
 use fireflow_types::keywords::{Version, VersionMembership};
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{
@@ -1047,22 +1047,22 @@ impl StdKey {
         Self(KeyString::new_unchecked(s))
     }
 
-    pub(crate) fn from_temporal_optical_key(x: TemporalOpticalKey, i: MeasIndex) -> Self {
+    pub(crate) fn from_temporal_optical_key(x: OpticalOnlyKey, i: MeasIndex) -> Self {
         match x {
-            TemporalOpticalKey::Gain => kws::Gain::std(i),
-            TemporalOpticalKey::Filter => kws::Filter::std(i),
+            OpticalOnlyKey::Gain => kws::Gain::std(i),
+            OpticalOnlyKey::Filter => kws::Filter::std(i),
             // NOTE this is $PnL for all versions
-            TemporalOpticalKey::Wavelength => kws::Wavelength::std(i),
-            TemporalOpticalKey::Power => kws::Power::std(i),
-            TemporalOpticalKey::DetectorType => kws::DetectorType::std(i),
-            TemporalOpticalKey::DetectorVoltage => kws::DetectorVoltage::std(i),
-            TemporalOpticalKey::PercentEmitted => kws::PercentEmitted::std(i),
+            OpticalOnlyKey::Wavelength => kws::Wavelength::std(i),
+            OpticalOnlyKey::Power => kws::Power::std(i),
+            OpticalOnlyKey::DetectorType => kws::DetectorType::std(i),
+            OpticalOnlyKey::DetectorVoltage => kws::DetectorVoltage::std(i),
+            OpticalOnlyKey::PercentEmitted => kws::PercentEmitted::std(i),
             // NOTE this is $PnCALIBRATION for all versions
-            TemporalOpticalKey::Calibration => kws::Calibration3_1::std(i),
-            TemporalOpticalKey::DetectorName => kws::DetectorName::std(i),
-            TemporalOpticalKey::Tag => kws::Tag::std(i),
-            TemporalOpticalKey::Feature => kws::Feature::std(i),
-            TemporalOpticalKey::Analyte => kws::Analyte::std(i),
+            OpticalOnlyKey::Calibration => kws::Calibration3_1::std(i),
+            OpticalOnlyKey::DetectorName => kws::DetectorName::std(i),
+            OpticalOnlyKey::Tag => kws::Tag::std(i),
+            OpticalOnlyKey::Feature => kws::Feature::std(i),
+            OpticalOnlyKey::Analyte => kws::Analyte::std(i),
         }
     }
 }

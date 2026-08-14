@@ -552,15 +552,7 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
 
     if isinstance(lt, pf.MixedDataSchema) or isinstance(lt, pf.VariableUintDataSchema):
         data_nbytes = sum(lt.byte_widths) * height
-    elif isinstance(lt, pf.BigLittleF32DataSchema) or isinstance(
-        lt, pf.OrderedF32DataSchema
-    ):
-        data_nbytes = 4 * n_values
-    elif isinstance(lt, pf.BigLittleF64DataSchema) or isinstance(
-        lt, pf.OrderedF64DataSchema
-    ):
-        data_nbytes = 8 * n_values
-    elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
+    elif isinstance(lt, pft.MatrixDataSchema):
         data_nbytes = lt.byte_width * n_values
     else:
         assert False, "invalid layout"
@@ -569,15 +561,12 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
 
     if isinstance(lt, pf.MixedDataSchema):
         datatypes = ",".join(sorted(set(t for (t, _) in lt.typed_ranges)))
-    elif isinstance(lt, pf.BigLittleF32DataSchema | pf.OrderedF32DataSchema):
-        datatypes = "F32"
-    elif isinstance(lt, pf.BigLittleF64DataSchema | pf.OrderedF64DataSchema):
-        datatypes = "F64"
+    elif isinstance(lt, pft.MatrixDataSchema) and isinstance(lt, pft.NumericDataSchema):
+        prefix = "F" if lt.is_float else "U"
+        width = lt.byte_width * 8
+        datatypes = f"{prefix}{width}"
     elif isinstance(lt, pf.VariableUintDataSchema):
         datatypes = ",".join(sorted(set(f"U{w * 8:02}" for w in lt.byte_widths)))
-    elif isinstance(lt, pf.OrderedUintDataSchema | pf.SingleUintDataSchema):
-        width = lt.byte_width * 8
-        datatypes = f"U{width}"
     else:
         assert False, "invalid layout"
 
@@ -586,21 +575,16 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
     def endian_to_order(e: pft.Endian) -> str:
         return "1,2,3,4" if e == "little" else "4,3,2,1"
 
-    if isinstance(
-        lt,
-        pf.BigLittleF32DataSchema
-        | pf.BigLittleF64DataSchema
-        | pf.MixedDataSchema
-        | pf.VariableUintDataSchema
-        | pf.SingleUintDataSchema,
-    ):
+    if isinstance(lt, pft.BigLittleDataSchema):
         byteord = endian_to_order(lt.endian)
-    else:
+    elif isinstance(lt, pft.OrderedDataSchema):
         byteord = (
             ",".join(map(str, lt.byteord))
             if isinstance(lt.byteord, list)
             else endian_to_order(lt.byteord)
         )
+    else:
+        assert False, "invalid layout"
 
     std_keywords = core.standard_keywords("both", "both")
 
@@ -763,7 +747,7 @@ def width_to_uint_type(byte_width: int) -> UintDType:
 
 
 def core_2_0_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset2_0:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -785,7 +769,7 @@ def core_2_0_int(
 
 
 def core_3_0_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_0:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -807,7 +791,7 @@ def core_3_0_int(
 
 
 def core_3_2_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_0:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -829,7 +813,7 @@ def core_3_2_int(
 
 
 def core_3_1_int(
-    height: int, width: int, byte_width: int, big_endian: bool
+    height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_1:
     upper = 2 ** (8 * byte_width) - 1
     rs = [upper for _ in range(0, width)]
@@ -869,8 +853,8 @@ def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
 def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
     # per https://github.com/RGLab/flowCore/issues/46, Nx16+32+8
     N_OPTICAL = 12
-    optical: list[pft.VariableBitmask] = [("U16", 2**16 - 1)] * N_OPTICAL
-    rs: list[pft.VariableBitmask] = [*optical, ("U32", 2**32 - 1), ("U08", 2**8 - 1)]
+    optical: list[pft.VariableBitmask] = [(2, 2**16 - 1)] * N_OPTICAL
+    rs: list[pft.VariableBitmask] = [*optical, (4, 2**32 - 1), (1, 2**8 - 1)]
     layout = pf.VariableUintDataSchema(
         rs,
         endian="big" if big_endian else "little",

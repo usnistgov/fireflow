@@ -7786,10 +7786,11 @@ mod python {
     use crate::meas::{
         OpticalScale2_0, OpticalScale3_0, TemporalOrOptical, TemporalOrOpticalWithScale,
     };
+    use crate::text::byteord::ArgBytes;
     use crate::text::named_vec::Element;
     use crate::validated::keys::StringOrBytes;
 
-    use fireflow_types::python::{self as py, ColumnType, ConfigError, IntegerWidth};
+    use fireflow_types::python::{self as py, ColumnType, ConfigError};
 
     use pyo3::{IntoPyObjectExt as _, prelude::*};
 
@@ -7833,25 +7834,13 @@ mod python {
         fn split_range(range: Self::Range) -> (FullRange, Option<Self>);
     }
 
-    impl PyRangeType for IntegerWidth {
+    impl PyRangeType for ArgBytes {
         type Range = MaybeTypedVariableBitmask;
 
         fn split_range(range: Self::Range) -> (FullRange, Option<Self>) {
             match range {
                 MaybeTypedRange::Untyped(x) => (x, None),
-                MaybeTypedRange::Typed(x) => {
-                    let w = match x {
-                        AnyUint::Uint08(_) => Self::U08,
-                        AnyUint::Uint16(_) => Self::U16,
-                        AnyUint::Uint24(_) => Self::U24,
-                        AnyUint::Uint32(_) => Self::U32,
-                        AnyUint::Uint40(_) => Self::U40,
-                        AnyUint::Uint48(_) => Self::U48,
-                        AnyUint::Uint56(_) => Self::U56,
-                        AnyUint::Uint64(_) => Self::U64,
-                    };
-                    (x.into(), Some(w))
-                }
+                MaybeTypedRange::Typed(x) => (x.into(), Some(Self(x.as_bytes()))),
             }
         }
     }

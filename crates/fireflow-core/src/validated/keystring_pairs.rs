@@ -1,13 +1,16 @@
 use crate::validated::keys::KeyString;
 
-use derive_more::AsRef;
+use derive_more::{AsRef, Display, From};
 use hashbrown::{HashMap, hash_map::IntoIter};
 use itertools::Itertools as _;
-use nonempty_collections::NEVec;
+use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
 
 #[cfg(feature = "python")]
-use {fireflow_core_proc::DisplayAsPyErr, pyo3::prelude::*};
+use {
+    fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
+    pyo3::prelude::*,
+};
 
 /// A map of [`KeyString`]/[`KeyString`] pairs.
 ///
@@ -28,12 +31,13 @@ impl IntoIterator for KeyStringPairs {
     }
 }
 
-// TODO also ensure that destination keys are all unique so we never get
-// collisions
 impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
     type Error = KeyStringPairsError;
 
     fn try_from(value: HashMap<KeyString, KeyString>) -> Result<Self, Self::Error> {
+        if let Some(ne) = value.values().duplicates().try_into_nonempty_iter() {
+            return Err(KeyStringNonUniqueError(ne.cloned().collect()).into());
+        }
         let mut names = vec![];
         for (k, v) in &value {
             if k == v {
@@ -41,7 +45,7 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
             }
         }
         if let Ok(ns) = NEVec::try_from(names) {
-            Err(KeyStringPairsError(ns))
+            Err(KeyStringMatchingKeyValueError(ns).into())
         } else {
             Ok(Self(value))
         }
@@ -49,11 +53,26 @@ impl TryFrom<HashMap<KeyString, KeyString>> for KeyStringPairs {
 }
 
 /// Error when building [`KeyStringPairs`] from configuration
+#[derive(Error, Display, Debug, PartialEq, Clone, From)]
+#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
+pub enum KeyStringPairsError {
+    Matching(KeyStringMatchingKeyValueError),
+    NonUnique(KeyStringNonUniqueError),
+}
+
+/// Error when key and value in [`KeyStringPairs`] matches
 #[derive(Error, Debug, PartialEq, Clone)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
-pub struct KeyStringPairsError(NEVec<KeyString>);
+pub struct KeyStringMatchingKeyValueError(NEVec<KeyString>);
+
+/// Error when values in [`KeyStringPairs`] are not unique
+#[derive(Error, Debug, PartialEq, Clone)]
+#[error("the following value are not unique: {}", .0.iter().join(","))]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
+pub struct KeyStringNonUniqueError(NEVec<KeyString>);
 
 #[cfg(feature = "python")]
 mod python {

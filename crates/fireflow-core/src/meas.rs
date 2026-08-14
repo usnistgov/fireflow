@@ -52,7 +52,7 @@ use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::keys::{IndexedKey as _, Key1, StdKey, StdKeywords, ValidKeywords};
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::config::{OverBitmaskAction, OverRangeAction, TemporalOpticalKey};
+use fireflow_types::config::{OpticalOnlyKey, OverBitmaskAction, OverRangeAction};
 use fireflow_types::keywords::{
     HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2,
 };
@@ -2047,11 +2047,11 @@ impl LookupTemporal for InnerTemporal2_0 {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let flag = sconf.process_time_optical_keys;
-        let ignore = &sconf.ignore_time_optical_keys;
+        let flag = sconf.process_optical_only_keys;
+        let ignore = &sconf.ignore_optical_only_keys;
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
-        let tgts = TemporalOpticalKey::TARGETS_2_0;
+        let tgts = OpticalOnlyKey::TARGETS_2_0;
         let tmp_opt_res = ignore
             .remove(&tgts, kws, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
@@ -2082,11 +2082,11 @@ impl LookupTemporal for InnerTemporal3_0 {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let flag = sconf.process_time_optical_keys;
-        let ignore = &sconf.ignore_time_optical_keys;
+        let flag = sconf.process_optical_only_keys;
+        let ignore = &sconf.ignore_optical_only_keys;
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
-        let tgts = TemporalOpticalKey::TARGETS_3_0;
+        let tgts = OpticalOnlyKey::TARGETS_3_0;
         let tmp_opt = ignore
             .remove(&tgts, kws, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
@@ -2121,11 +2121,11 @@ impl LookupTemporal for InnerTemporal3_1 {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let flag = sconf.process_time_optical_keys;
-        let ignore = &sconf.ignore_time_optical_keys;
+        let flag = sconf.process_optical_only_keys;
+        let ignore = &sconf.ignore_optical_only_keys;
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
-        let tgts = TemporalOpticalKey::TARGETS_3_1;
+        let tgts = OpticalOnlyKey::TARGETS_3_1;
         let tmp_opt = ignore
             .remove(&tgts, kws, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
@@ -2166,11 +2166,11 @@ impl LookupTemporal for InnerTemporal3_2 {
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
     {
         let sconf: &EvaledReadStdKeywordsConfig = conf.as_ref();
-        let flag = sconf.process_time_optical_keys;
-        let ignore = &sconf.ignore_time_optical_keys;
+        let flag = sconf.process_optical_only_keys;
+        let ignore = &sconf.ignore_optical_only_keys;
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
-        let tgts = TemporalOpticalKey::TARGETS_3_2;
+        let tgts = OpticalOnlyKey::TARGETS_3_2;
         let tmp_opt = ignore
             .remove(&tgts, kws, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);

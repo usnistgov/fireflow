@@ -107,7 +107,6 @@ Represents one dataset from an FCS file (*HEADER* + *TEXT* + *DATA* +
 These can be created by:
 
 * calling :func:`pyreflow.api.fcs_read_std_dataset`
-* calling :func:`pyreflow.api.fcs_read_std_dataset_with_keywords`
 * calling ``from_kws`` (described below)
 * calling ``__new__``
 

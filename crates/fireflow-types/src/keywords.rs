@@ -235,18 +235,18 @@ pub const SUPP_TEXT_DUP_PTEXT: &NEStr = ne_str!("duplicated_primary_text");
 
 // BYTEORD big/little flags
 
-pub const BYTEORD_BIG: &str = "big";
-pub const BYTEORD_LITTLE: &str = "little";
+pub const BYTEORD_BIG: &NEStr = ne_str!("big");
+pub const BYTEORD_LITTLE: &NEStr = ne_str!("little");
 
 // Scale Diagnostic flags
 
-pub const SCALE_DIAGNOSTIC_FORCED: &str = "forced";
-pub const SCALE_DIAGNOSTIC_LOG: &str = "log";
-pub const SCALE_DIAGNOSTIC_TRIMMED: &str = "trimmed";
-pub const SCALE_DIAGNOSTIC_TRIMMED_LOG: &str = "trimmed_log";
+pub const SCALE_DIAGNOSTIC_FORCED: &NEStr = ne_str!("forced");
+pub const SCALE_DIAGNOSTIC_LOG: &NEStr = ne_str!("log");
+pub const SCALE_DIAGNOSTIC_TRIMMED: &NEStr = ne_str!("trimmed");
+pub const SCALE_DIAGNOSTIC_TRIMMED_LOG: &NEStr = ne_str!("trimmed_log");
 
-pub const TEMPORAL_SCALE_DIAGNOSTIC_FORCED: &str = "forced";
-pub const TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED: &str = "trimmed";
+pub const TEMPORAL_SCALE_DIAGNOSTIC_FORCED: &NEStr = ne_str!("forced");
+pub const TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED: &NEStr = ne_str!("trimmed");
 
 // ISO datetime formats
 

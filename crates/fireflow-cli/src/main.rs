@@ -1,5 +1,5 @@
 use fireflow_core::api;
-use fireflow_core::config::{self as cfg, ByteordOverride, FixIntWidths, HasStrategy as _};
+use fireflow_core::config::{self as cfg, ByteordOverride, HasStrategy as _, IntWidthOverride};
 use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::read::OffsetsCorrection;
 use fireflow_core::selector::{AppendableSelector, Selector};
@@ -544,12 +544,12 @@ fn run() -> AppResult<()> {
              comma-separated list of strings like the X in {pn_any}.",
         ))
         .value_delimiter(',')
-        .value_parser(value_parser!(tc::TemporalOpticalKey));
+        .value_parser(value_parser!(tc::OpticalOnlyKey));
 
     let process_time_optical_keys = Arg::new(PROCESS_TIME_OPTICAL_KEYS)
         .long(PROCESS_TIME_OPTICAL_KEYS)
         .value_name("LEVEL")
-        .value_parser(value_parser!(tc::ProcessTemporalOpticalKeys))
+        .value_parser(value_parser!(tc::ProcessOpticalOnlyKeys))
         .help(format!(
             "Choose how to handle optical keys found in temporal measurements. \
              Does nothing unless keys are specified in {arg}. Pass \
@@ -788,8 +788,8 @@ fn run() -> AppResult<()> {
     )
     .value_parser(value_parser!(cfg::ProcessOptionalFailure));
 
-    let int_widths_from_byteord = Arg::new(FIX_INT_WIDTHS)
-        .long(FIX_INT_WIDTHS)
+    let int_widths_from_byteord = Arg::new(INT_WIDTH_OVERRIDE)
+        .long(INT_WIDTH_OVERRIDE)
         .value_name("INT_OR_FLAG")
         .value_parser(parse_fix_int_widths)
         .help(format!(
@@ -1495,12 +1495,12 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
 
     get_opt(s, FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
 
-    if let Some(xs) = s.get_many::<tc::TemporalOpticalKey>(IGNORE_TIME_OPTICAL_KEYS) {
-        c.ignore_time_optical_keys = xs.copied().collect::<HashSet<_>>().into();
+    if let Some(xs) = s.get_many::<tc::OpticalOnlyKey>(IGNORE_TIME_OPTICAL_KEYS) {
+        c.ignore_optical_only_keys = xs.copied().collect::<HashSet<_>>().into();
     }
 
     get_opt(s, PROCESS_TIME_OPTICAL_KEYS, |x| {
-        c.process_time_optical_keys = x;
+        c.process_optical_only_keys = x;
     });
     get_opt(s, ALLOW_MISSING_TIME, |x| c.allow_missing_time = x);
     get_opt(s, ADD_MISSING_TIMESTEP, |x| c.add_missing_timestep = x);
@@ -1584,7 +1584,7 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
     get_opt(s, PROCESS_OPTIONAL_FAILURE, |x| {
         c.process_optional_failure = x;
     });
-    get_opt(s, FIX_INT_WIDTHS, |x| c.fix_int_widths = x);
+    get_opt(s, INT_WIDTH_OVERRIDE, |x| c.int_width_override = x);
     get_opt(s, BYTEORD_OVERRIDE, |x| c.byteord_override = x);
     get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;
@@ -1823,13 +1823,13 @@ fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
     Ok(SubPattern::try_new(r, to.to_owned(), global)?)
 }
 
-fn parse_fix_int_widths(s: &str) -> StrResult<FixIntWidths> {
+fn parse_fix_int_widths(s: &str) -> StrResult<IntWidthOverride> {
     if s == tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str() {
-        return Ok(FixIntWidths::Never);
+        return Ok(IntWidthOverride::Never);
     } else if s == tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str() {
-        return Ok(FixIntWidths::NextByte);
+        return Ok(IntWidthOverride::NextByte);
     }
-    Ok(FixIntWidths::Explicit(
+    Ok(IntWidthOverride::Explicit(
         s.parse::<Bytes>().map_err(|e| e.to_string())?,
     ))
 }
@@ -2044,9 +2044,9 @@ const ADD_MISSING_TIMESTEP: &str = cli_arg!(ReadStdKeywordsConfig::add_missing_t
 
 const FORCE_LINEAR_SCALE: &str = cli_arg!(ReadStdKeywordsConfig::force_linear_scale);
 
-const IGNORE_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::ignore_time_optical_keys);
+const IGNORE_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::ignore_optical_only_keys);
 
-const PROCESS_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::process_time_optical_keys);
+const PROCESS_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::process_optical_only_keys);
 
 const SPILLOVER_MEASUREMENT_MODE: &str =
     cli_arg!(ReadStdKeywordsConfig::spillover_measurement_mode);
@@ -2108,7 +2108,7 @@ const ALLOW_MISSING_REQUIRED_OFFSETS: &str =
 
 const PROCESS_OPTIONAL_FAILURE: &str = cli_arg!(ReadDataKeywordsConfig::process_optional_failure);
 
-const FIX_INT_WIDTHS: &str = cli_arg!(ReadDataKeywordsConfig::fix_int_widths);
+const INT_WIDTH_OVERRIDE: &str = cli_arg!(ReadDataKeywordsConfig::int_width_override);
 
 const BYTEORD_OVERRIDE: &str = cli_arg!(ReadDataKeywordsConfig::byteord_override);
 

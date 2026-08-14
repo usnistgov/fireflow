@@ -58,7 +58,7 @@ match":
 * ``"current_or_*"``: like each of the above levels but choose the version
   listed in *HEADER* above all others if this matches
 
-There are some non-obvious edge cases for how the version-matching algorithm:
+There are some non-obvious edge cases for the version-matching algorithm:
 
 * The *$DFCmTOn* keywords in FCS2.0 are collectively counted as one optional
   keyword. This is because the equivalent in FCS3.0 is *$COMP* which is just one

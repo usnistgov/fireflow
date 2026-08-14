@@ -3373,13 +3373,13 @@ pub fn impl_core_standard_keywords(input: TokenStream) -> TokenStream {
 
     let req_or_opt = DocArg::new_param(
         "req_or_opt",
-        PyLiteral::new_with_path(tc::IncludeReqOrOpt::iter_str(), req_or_opt_path),
+        PyAlias::new_py(["typing"], "ReqOrOpt").rstype(req_or_opt_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
     let root_or_meas = DocArg::new_param(
         "root_or_meas",
-        PyLiteral::new_with_path(tc::IncludeRootOrMeas::iter_str(), root_or_meas_path),
+        PyAlias::new_py(["typing"], "RootOrMeas").rstype(root_or_meas_path),
         "Selects if required, optional, or both keywords should be returned",
     );
 
@@ -8069,7 +8069,7 @@ impl<E: From<PyException>> PyList<E> {
 
     fn new_others() -> Self {
         let path: Path = parse_quote!(fireflow_core::core::Others);
-        Self::new(PyUnion::new_string_or_bytes(), path, None)
+        Self::new(PyAlias::new_other(), path, None)
     }
 
     fn new_vertices() -> Self {
@@ -8377,11 +8377,6 @@ impl<E: From<PyException>> PyUnion<E> {
     fn new_string_or_bytes() -> Self {
         let path = parse_quote!(fireflow_core::validated::keys::StringOrBytes);
         Self::new2(PyStr::default(), PyBytes::default()).rstype(path)
-    }
-
-    fn new_analysis() -> Self {
-        let r = parse_quote!(fireflow_core::core::Analysis);
-        Self::new_string_or_bytes().rstype(r)
     }
 }
 
@@ -8906,6 +8901,18 @@ impl<E: From<PyException>> PyAlias<E> {
     fn new_version() -> Self {
         let path = parse_quote!(fireflow_types::keywords::Version);
         Self::new_py(["typing"], "FCSVersion").rstype(path)
+    }
+
+    fn new_analysis() -> Self {
+        let path = parse_quote!(fireflow_core::core::Analysis);
+        Self::new_py(["typing"], "AnalysisBytes")
+            .rstype(path)
+            .set_default(PyStr::default())
+    }
+
+    fn new_other() -> Self {
+        let path = parse_quote!(fireflow_core::core::Other);
+        Self::new_py(["typing"], "OtherBytes").rstype(path)
     }
 }
 
@@ -9999,7 +10006,7 @@ impl DocArgParam {
 
     fn new_analysis_param(default: bool) -> Self {
         let desc = format!("Contents of the {ANALYSIS} segment.");
-        Self::new_param("analysis", PyUnion::new_analysis(), desc).def_auto_if(default)
+        Self::new_param("analysis", PyAlias::new_analysis(), desc).def_auto_if(default)
     }
 
     fn new_others_param(default: bool) -> Self {

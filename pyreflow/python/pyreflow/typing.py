@@ -38,18 +38,38 @@ type VersionOverride = (
 )
 """Flag to denote how version should be overridden.
 
-Supplying a literal FCS version will directly override the version.
+Supplying a literal FCS version will directly override the version. It will be
+as if the version in *HEADER* does not exist.
 
-Alternatively, autodetect the version from keywords in *TEXT* using one
-of ``"latest"``, ``"earliest"``, ``"strict"``, or ``"loose"``. These
-will select the latest version, earliest version, version with least
-optional keywords, or version with most optional keywords respectively
-in the event that more than one version can accommodate the keywords
-from *TEXT*. Append ``"current_or"`` to prioritize the current version
-before ranking others.
+If an explicit version is not supplied, this flag will trigger an algorithm to
+guess the version based on the keywords present in *TEXT*. A given version will
+"match" if it all of its required keywords are satisfied based on *TEXT*. If no
+versions match, the algorithm fails and throw an error. If one version matches,
+the algorithm returns that version.
 
-Autodetection will fail if no versions can be found which accommodate
-all required keywords in *TEXT*.
+The remaining levels in this flag only matter if more than one version matches,
+in which case they describe the criteria by which to rank and choose the "best
+match":
+
+* ``"latest"``: choose the latest version (ie FCS3.2 > FCS3.1)
+* ``"earliest"``: choose the earliest version (ie FCS3.2 < FCS3.1)
+* ``"strict"``: choose the version with the least  optional keywords
+* ``"loose"``: choose the version with the most optional keywords
+* ``"current_or_*"``: like each of the above levels but choose the version
+  listed in *HEADER* above all others if this matches
+
+There are some non-obvious edge cases for how the version-matching algorithm:
+
+* The *$DFCmTOn* keywords in FCS2.0 are collectively counted as one optional
+  keyword. This is because the equivalent in FCS3.0 is *$COMP* which is just one
+  keyword.
+* The *$PnB* keywords are required in all versions, but starting in FCS3.1 they
+  are allowed to differ. Therefore if multiple *$PnB* values are found, FCS2.0
+  and FCS3.0 automatically are deemed invalid matches.
+* If *$BYTEORD* is monotonic, the version must be FCS2.0 or FCS3.0.
+* If *$MODE* is ``"U"`` or ``"C"``, the version cannot be FCS3.2.
+* If *$PnL* is a comma-separated list of numbers, the version must be FCS3.1 or
+  FCS3.2.
 
 """
 
@@ -68,25 +88,58 @@ unescaped mode respectively if the choice is ambiguous.
 
 """
 
-type KeyPatterns = list[str]
-"""A list of patterns which match standard or nonstandard key values."""
+type KeyPattern = str
+"""A pattern which matches standard or nonstandard key values.
+
+This may be either a literal keyword value or a regular expression
+pattern.
+
+A literal pattern must match the target keyword exactly. This is less flexible
+than a regular expression but is much faster.
+
+A regular expression is denoted by prefixing and suffixing with ``"/"`` (ie like
+``"/<pattern>/"``). The value of ``"<pattern>"`` must follow the syntax outlined
+in `regexp-syntax <https://docs.rs/regex/latest/regex/#syntax>`__.
+
+"""
 
 type SubPattern = tuple[str, str, bool]
-"""A sed-like pattern which substitutes values in a string."""
+"""A sed-like pattern which substitutes values in a string.
 
-type SubPatterns = dict[str, SubPattern]
+Each element corresponds to a regular expression, replacement pattern, and
+global flag respectively (ie roughly analogous to
+``s/<pattern>/<replacement>[/g]`` in the ``sed`` command).
+
+The regular expression must follow the syntax outlined in `regexp-syntax
+<https://docs.rs/regex/latest/regex/#syntax>`__. It may also contain capture
+expressions which must be matched exactly in the replacement string. Any
+references in replacement string must be given with surrounding brackets like
+``"${1}"`` (equivalent to ``\\1`` in ``sed``) or ``"${cygnus}"`` which
+corresponds to the Rust regexp syntax.
+
+If the global flag is ``True``, replace all found matches, otherwise only
+replace the first.
+
+"""
+
+type KeyPatterns = list[KeyPattern]
+"""A list of patterns which match standard or nonstandard key values."""
+
+
+type SubPatterns = dict[KeyPattern, SubPattern]
 """Substitution patterns which may be used to modify keywords.
 
-Keys in the dictionary are patterns to match a standard or nonstandard
-key.
-
-Values in the dictionary are the substation directives themselves which
-denote how the values of matched keywords should be modified.
+The key is matched using :py:type:`~pyreflow.typing.KeyPattern`, and the
+the value of the key is modified via :py:type:`~pyreflow.typing.SubPattern`.
 
 """
 
 type ProcessKeywordFailure = Literal[
-    "error", "demote_warn", "demote_silent", "drop_warn", "drop_silent"
+    "error",
+    "demote_warn",
+    "demote_silent",
+    "drop_warn",
+    "drop_silent",
 ]
 """Flag denoting what should happen if a keyword cannot be parsed.
 

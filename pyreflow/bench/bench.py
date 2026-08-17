@@ -1394,36 +1394,41 @@ def run_all_bench(
         here = Path(sys.argv[0]).parent
 
         # start R loop in subprocess
-        sp.Popen(
-            [
-                "Rscript",
-                "--no-save",
-                "--no-restore",
-                "R/run_flowcore_loop.R",
-                str(py_to_r),
-                str(r_to_py),
-            ],
-            cwd=here,
-        )
-
-        runs: list[AnyBenchRun] = [
-            *fcsparser_runs(bench_files),
-            *flowio_runs(bench_files),
-            *flowcore_runs(bench_files, py_to_r, r_to_py),
-            *ff_runs(bench_files, input_root, scratch_root, True, True),
-            *ff_runs(bench_files, input_root, scratch_root, True, False),
+        r_cmd = [
+            "Rscript",
+            "--no-save",
+            "--no-restore",
+            "R/run_flowcore_loop.R",
+            str(py_to_r),
+            str(r_to_py),
         ]
+        with sp.Popen(r_cmd, cwd=here) as r_proc:
+            print("starting R deamon")
 
-        # Warm up all code paths once; also load all files into page cache
-        _ = [r.run(input_root, scratch_root) for r in set(runs)]
+            try:
+                runs: list[AnyBenchRun] = [
+                    *fcsparser_runs(bench_files),
+                    *flowio_runs(bench_files),
+                    *flowcore_runs(bench_files, py_to_r, r_to_py),
+                    *ff_runs(bench_files, input_root, scratch_root, True, True),
+                    *ff_runs(bench_files, input_root, scratch_root, True, False),
+                ]
 
-        # randomly shuffle runs to eliminate temporal bias
-        shuffle(runs)
-        results = [r.run(input_root, scratch_root) for r in runs]
+                # Warm up all code paths once; also load all files into page cache
+                _ = [r.run(input_root, scratch_root) for r in set(runs)]
 
-        # shutdown the R loop (politely)
-        with open(py_to_r, "w") as f:
-            f.write("exit")
+                # randomly shuffle runs to eliminate temporal bias
+                shuffle(runs)
+                results = [r.run(input_root, scratch_root) for r in runs]
+            finally:
+                # This should fire on any exception, including KeyboardInterrupt
+                print("stopping R deamon (politely)")
+                r_proc.terminate()
+                try:
+                    r_proc.wait(timeout=5)
+                except sp.TimeoutExpired:
+                    print("killing R deamon (impolitely)")
+                    r_proc.kill()
 
     def to_df(key: AnyBenchKey, name: str, runs_name: str) -> pl.DataFrame:
         runs = get_runs(key)

@@ -1,5 +1,6 @@
 import csv
 import os
+import select
 import gc
 import re
 import sys
@@ -355,8 +356,15 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
     def call_flowcore(self, cmd: str) -> float:
         with open(self.py_to_r, "w") as f:
             f.write(cmd)
-        with open(self.r_to_py, "r") as f:
-            return float(f.read().strip())
+        # Wait for R to finish running flowcore for 5 seconds; if we hear
+        # nothing assume something terrible happened and scream (loudly).
+        fd = os.open(self.r_to_py, os.O_RDONLY | os.O_NONBLOCK)
+        r, _, _ = select.select([fd], [], [], 5.0)
+        if len(r) == 0:
+            raise TimeoutError("Writer never showed up. Rude.")
+        data = os.read(fd, 4096)
+        os.close(fd)
+        return float(data.strip())
 
     def read_text(self, root: Path) -> float:
         here = Path(sys.argv[0]).parent

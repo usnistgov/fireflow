@@ -331,6 +331,14 @@ lower bound on the performance one can expect for real files.
 
 ### A. *TEXT* + *DATA* Read Speed (with flowCore)
 
+`flowCore` stores *DATA* internally as a 64-bit float matrix. This is due to R
+only having 64-bit floats and 32-bit signed integers. Given this, it makes sense
+why the fastest `flowCore` run is a file with entirely 64-bit floats; no data
+needs to be copied into an R-native matrix. Even so, this is still much slower
+than other libraries for this same data schema. Others are much worse.
+
+Note that 64-bit FCS files (in any type) are very rare, if not non-existent.
+
 ![read_data]({{read_data_plot_path}})
 
 ### B. Comparison to Disk Throughput

@@ -1888,7 +1888,7 @@ def plot_read_data(
             width=0.9,
         )
         + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
-        + coord_flip()
+        + coord_flip(ylim=(None, 40))
         + scale_fill_discrete(limits=LIBRARIES)
     )
     read_text_plt.save(out_path)

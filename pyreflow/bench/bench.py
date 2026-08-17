@@ -1,7 +1,9 @@
 import csv
+import os
 import gc
 import re
 import sys
+import tempfile as tf
 import textwrap as tw
 import platform as plm
 import flowio as fi  # type: ignore
@@ -347,52 +349,36 @@ class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
 class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
     """A benchmark run for flowCore."""
 
-    @staticmethod
-    def run_rscript(exec_dir: Path, script_path: Path, rest: list[str]) -> float:
-        ret = sp.run(
-            ["Rscript", "--no-save", "--no-restore", str(script_path), *rest],
-            capture_output=True,
-            text=True,
-            cwd=exec_dir,
-        )
-        if ret.returncode == 0:
-            return float(ret.stdout.strip()) * 1e9
-        else:
-            assert False, f"error for [{', '.join(rest)}]: {ret.stderr}"
+    py_to_r: Path
+    r_to_py: Path
+
+    def call_flowcore(self, cmd: str) -> float:
+        with open(self.py_to_r, "w") as f:
+            f.write(cmd)
+        with open(self.r_to_py, "r") as f:
+            return float(f.read().strip())
 
     def read_text(self, root: Path) -> float:
         here = Path(sys.argv[0]).parent
         fcs_path = (root / self.fcs_name()).relative_to(here)
-        return self.run_rscript(
-            here, Path("R/test_flowcore_read.R"), ["text", str(fcs_path)]
-        )
+        return self.call_flowcore(f"read text {fcs_path}")
 
     def read_data(self, root: Path) -> float:
         here = Path(sys.argv[0]).parent
         fcs_path = (root / self.fcs_name()).relative_to(here)
-        return self.run_rscript(
-            here, Path("R/test_flowcore_read.R"), ["data", str(fcs_path)]
-        )
+        return self.call_flowcore(f"read data {fcs_path}")
 
     def write_text(self, input_root: Path, scratch_root: Path) -> float:
         here = Path(sys.argv[0]).parent
         in_path = (input_root / self.fcs_name()).relative_to(here)
-        out_path = (scratch_root / self.fcs_name("flowcore_write_text")).relative_to(
-            here
-        )
-        return self.run_rscript(
-            here, Path("R/test_flowcore_write.R"), ["text", str(in_path), str(out_path)]
-        )
+        out_path = scratch_root / self.fcs_name("flowcore_write_text")
+        return self.call_flowcore(f"write text {in_path} {out_path}")
 
     def write_data(self, input_root: Path, scratch_root: Path) -> float:
         here = Path(sys.argv[0]).parent
         in_path = (input_root / self.fcs_name()).relative_to(here)
-        out_path = (scratch_root / self.fcs_name("flowcore_write_data")).relative_to(
-            here
-        )
-        return self.run_rscript(
-            here, Path("R/test_flowcore_write.R"), ["data", str(in_path), str(out_path)]
-        )
+        out_path = scratch_root / self.fcs_name("flowcore_write_text")
+        return self.call_flowcore(f"write data {in_path} {out_path}")
 
     def run(self, input_root: Path, scratch_root: Path) -> FlowCoreBenchResult:
         gc.collect()
@@ -1294,9 +1280,11 @@ def fcsparser_runs(bench_files: pl.DataFrame) -> list[FCSParserBenchRun]:
     ]
 
 
-def flowcore_runs(bench_files: pl.DataFrame) -> list[FlowCoreBenchRun]:
+def flowcore_runs(
+    bench_files: pl.DataFrame, py_to_r: Path, r_to_py: Path
+) -> list[FlowCoreBenchRun]:
     return [
-        FlowCoreBenchRun(n, k)
+        FlowCoreBenchRun(n, k, py_to_r, r_to_py)
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & ~pl.col("datatypes").is_in(["U08,U16,U32", "U64"])
@@ -1389,20 +1377,45 @@ def run_all_bench(
 
     bench_files = read_bench_files(input_root, names_filter)
 
-    runs: list[AnyBenchRun] = [
-        *fcsparser_runs(bench_files),
-        *flowio_runs(bench_files),
-        # *flowcore_runs(bench_files),
-        *ff_runs(bench_files, input_root, scratch_root, True, True),
-        *ff_runs(bench_files, input_root, scratch_root, True, False),
-    ]
+    with tf.TemporaryDirectory() as td:
+        py_to_r = Path(td) / "py_to_r"
+        r_to_py = Path(td) / "r_to_py"
+        os.mkfifo(py_to_r)
+        os.mkfifo(r_to_py)
 
-    # Warm up all code paths once; also load all files into page cache
-    _ = [r.run(input_root, scratch_root) for r in set(runs)]
+        here = Path(sys.argv[0]).parent
 
-    # randomly shuffle runs to eliminate temporal bias
-    shuffle(runs)
-    results = [r.run(input_root, scratch_root) for r in runs]
+        # start R loop in subprocess
+        sp.Popen(
+            [
+                "Rscript",
+                "--no-save",
+                "--no-restore",
+                "R/run_flowcore_loop.R",
+                str(py_to_r),
+                str(r_to_py),
+            ],
+            cwd=here,
+        )
+
+        runs: list[AnyBenchRun] = [
+            *fcsparser_runs(bench_files),
+            *flowio_runs(bench_files),
+            *flowcore_runs(bench_files, py_to_r, r_to_py),
+            *ff_runs(bench_files, input_root, scratch_root, True, True),
+            *ff_runs(bench_files, input_root, scratch_root, True, False),
+        ]
+
+        # Warm up all code paths once; also load all files into page cache
+        _ = [r.run(input_root, scratch_root) for r in set(runs)]
+
+        # randomly shuffle runs to eliminate temporal bias
+        shuffle(runs)
+        results = [r.run(input_root, scratch_root) for r in runs]
+
+        # shutdown the R loop (politely)
+        with open(py_to_r, "w") as f:
+            f.write("exit")
 
     def to_df(key: AnyBenchKey, name: str, runs_name: str) -> pl.DataFrame:
         runs = get_runs(key)

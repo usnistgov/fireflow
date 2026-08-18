@@ -1,3 +1,5 @@
+use std::time::{Duration, Instant};
+
 pub(crate) trait U32Ext: Sized {
     fn into_u32(self) -> u32;
 
@@ -22,6 +24,12 @@ pub(crate) trait UsizeExt: Sized {
     }
 }
 
+pub(crate) trait InstantExt: Sized {
+    // better version of "duration_since" which does not panic in recent
+    // versions; I want it to panic so I know what to fix ;)
+    fn duration_since1(self, other: Instant) -> Duration;
+}
+
 impl U32Ext for u32 {
     fn into_u32(self) -> u32 {
         self
@@ -37,5 +45,12 @@ impl U64Ext for u64 {
 impl UsizeExt for usize {
     fn into_usize(self) -> usize {
         self
+    }
+}
+
+impl InstantExt for Instant {
+    fn duration_since1(self, other: Instant) -> Duration {
+        self.checked_duration_since(other)
+            .expect("self be later than other")
     }
 }

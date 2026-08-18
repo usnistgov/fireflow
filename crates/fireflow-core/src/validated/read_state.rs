@@ -1,5 +1,6 @@
 use crate::{
     config::{ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},
+    convert::InstantExt as _,
     core::CRCOutput,
     logging::{IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log},
     text::keywords::Nextdata,
@@ -15,6 +16,7 @@ use derive_new::new;
 use thiserror::Error;
 
 use std::io::{self, BufReader, Read, Seek, Write as _};
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -118,6 +120,11 @@ pub struct ReadDatasetState<C, D> {
     /// TEXT is read.
     dataset_bounds: D,
 
+    /// The time that this file object was opened.
+    start_time: Instant,
+
+    // /// The amount of time passed since `start_time` and the last elapsed query.
+    // time_offset: Duration,
     /// A read-only configuration to be used with this state.
     conf: C,
 }
@@ -129,17 +136,26 @@ pub struct DatasetBounds {
     pub(crate) from_nextdata: bool,
 }
 
+#[derive(new)]
+pub(crate) struct TestCRCOutput {
+    pub(crate) file_crc: Option<CRCOutput>,
+    pub(crate) computed_crc: Option<u16>,
+    pub(crate) read_time: Duration,
+    pub(crate) read_end: Instant,
+}
+
 impl<C> HeaderReadState<C> {
     pub(crate) fn init(
         fl: FileLen,
         dataset_offset: DatasetOffset,
+        start_time: Instant,
         conf: C,
     ) -> Result<Self, DatasetOffsetError> {
         if u64::from(fl) < u64::from(dataset_offset) {
             let e = DatasetOffsetError(dataset_offset, fl);
             return Err(e);
         }
-        Ok(Self::new(fl, dataset_offset, (), conf))
+        Ok(Self::new(fl, dataset_offset, (), start_time, conf))
     }
 
     pub(crate) fn maybe_with_dataset_length(
@@ -178,7 +194,7 @@ impl<C> HeaderReadState<C> {
             "dataset offset ({d}) + dataset length ({dataset_len}), exceeds file length ({f})"
         );
         let bounds = DatasetBounds::new(dataset_len, from_nextdata);
-        ReadDatasetState::new(f, d, bounds, self.conf)
+        ReadDatasetState::new(f, d, bounds, self.start_time, self.conf)
     }
 
     // this should only be called if $NEXTDATA is 0 or missing (if allowed)
@@ -189,7 +205,7 @@ impl<C> HeaderReadState<C> {
             f.0.checked_sub(d.0)
                 .expect("dataset offset should not exceed file length");
         let bounds = DatasetBounds::new(DatasetLen(dl), false);
-        ReadDatasetState::new(f, d, bounds, self.conf)
+        ReadDatasetState::new(f, d, bounds, self.start_time, self.conf)
     }
 }
 
@@ -200,13 +216,15 @@ impl<C> TEXTReadState<C> {
         crc_start: u64,
         next_dataset_abs_offset: u64,
         version: Version,
+        start_time: Instant,
         conf: &ReadDatasetConfig,
-    ) -> WarningAndIOGroupResult<(Option<CRCOutput>, Option<u16>), CRCError, CRCError, ()>
+    ) -> WarningAndIOGroupResult<TestCRCOutput, CRCError, CRCError, ()>
     where
         R: Read + Seek,
     {
         if version == Version::FCS2_0 {
-            return LogResult::new_ok((None, None));
+            let ret = TestCRCOutput::new(None, None, Duration::default(), start_time);
+            return LogResult::new_ok(ret);
         }
         let file_crc_out = io_to_log!(self.read_crc(h, crc_start, next_dataset_abs_offset));
         let res = match file_crc_out {
@@ -234,9 +252,13 @@ impl<C> TEXTReadState<C> {
                 }
             }
         };
-        res.map_ok_value(|computed| (Some(file_crc_out), computed))
-            .group()
-            .map_errors(IOErrorGroup::Pure)
+        let read_end = Instant::now();
+        let read_time = read_end.duration_since1(start_time);
+        res.map_ok_value(|computed| {
+            TestCRCOutput::new(Some(file_crc_out), computed, read_time, read_end)
+        })
+        .group()
+        .map_errors(IOErrorGroup::Pure)
     }
 
     fn read_crc<R>(
@@ -293,6 +315,10 @@ impl<C, D> ReadDatasetState<C, D> {
         &self.conf
     }
 
+    pub(crate) fn start_time(&self) -> Instant {
+        self.start_time
+    }
+
     pub(crate) fn file_len(&self) -> FileLen {
         self.file_len
     }
@@ -315,6 +341,7 @@ impl<C, D> ReadDatasetState<C, D> {
             self.file_len,
             self.dataset_offset,
             self.dataset_bounds.clone(),
+            self.start_time,
             &self.conf,
         )
     }
@@ -328,6 +355,7 @@ impl<A, B> BifunctorOnce<A, B> for ReadDatasetState<A, B> {
             self.file_len,
             self.dataset_offset,
             self.dataset_bounds,
+            self.start_time,
             f(self.conf),
         )
     }
@@ -337,6 +365,7 @@ impl<A, B> BifunctorOnce<A, B> for ReadDatasetState<A, B> {
             self.file_len,
             self.dataset_offset,
             f(self.dataset_bounds),
+            self.start_time,
             self.conf,
         )
     }

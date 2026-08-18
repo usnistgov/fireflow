@@ -1411,6 +1411,7 @@ impl ParsedKeywords {
 }
 
 impl ParsedKeywordsDiagnostic {
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn into_flat_diag(
         self,
         header_supp: HeaderAndSuppOffsets,
@@ -1418,6 +1419,7 @@ impl ParsedKeywordsDiagnostic {
         header_overflows: Vec<HeaderOffsetsOverflow>,
         primary_split: SplitTEXTDiagnostics,
         supp_split: Option<SplitTEXTDiagnostics>,
+        read_text_ns: u128,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> DeferredWarningsAndErrors<
         FlatTEXTDiagnostics,
@@ -1492,6 +1494,7 @@ impl ParsedKeywordsDiagnostic {
             keys_with_trimmed_values: self.keys_with_trimmed_values,
             primary_split,
             supp_split,
+            read_text_ns,
         };
         LogResult::new_ok(ret)
             .extend_deferred_errors(es)

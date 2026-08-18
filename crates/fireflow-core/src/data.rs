@@ -111,7 +111,7 @@ use crate::config::{
     DummyTriFlag, EvaledReadDataKeywordsConfig, IntWidthOverride, ReadDatasetConfig,
     TriErrorFlag as _, WriteDatasetInnerConfig,
 };
-use crate::convert::{U64Ext as _, UsizeExt as _};
+use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
     DeferredWarningAndError, ErrorGroup, ErrorsResult, IOErrorGroup, IOResult, ImpureError,
@@ -191,6 +191,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::num::NonZeroU8;
 use std::ops::Shr;
+use std::time::Instant;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -763,6 +764,9 @@ pub struct NewDataSchema<T> {
     /// The data schema itself.
     pub(crate) data_schema: T,
 
+    /// The time at which parsing the schema was completed
+    pub(crate) end_time: Instant,
+
     /// Diagnostics pertaining to building the schema.
     pub(crate) diagnostics: DataSchemaDiagnostics,
 }
@@ -773,7 +777,7 @@ impl_functor_once!(
     NewDataSchema,
     self,
     mut f,
-    NewDataSchema::new(f(self.data_schema), self.diagnostics)
+    NewDataSchema::new(f(self.data_schema), self.end_time, self.diagnostics)
 );
 
 /// Diagnostics pertaining to the data schema.
@@ -796,6 +800,9 @@ pub struct DataSchemaDiagnostics {
     ///
     /// Only used for integer 2.0/3.0 schemas.
     pub original_byteord: Option<ByteOrd2_0>,
+
+    /// The number of nanoseconds spent reading data schema.
+    pub read_schema_ns: u128,
 }
 
 /// Diagnostic output from reading DATA segment
@@ -853,10 +860,11 @@ impl TruncatedValueResult {
     }
 }
 
-#[derive(Default, new)]
+#[derive(new)]
 pub struct ReadDataFrameResult<D> {
     pub(crate) inner: D,
     pub(crate) diagnostics: EventsDiagnostics,
+    pub(crate) read_end: Instant,
 }
 
 #[derive(new)]
@@ -1860,12 +1868,14 @@ where
         kws: &mut ValidKeywords,
         par: Par,
         dropped: &mut StdKeywords,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>>;
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>>;
 
@@ -1875,6 +1885,7 @@ where
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Self::NumType>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>;
 
@@ -1883,6 +1894,7 @@ where
         h: &mut BufReader<R>,
         tot: Self::Tot,
         offsets: &mut AnyDataOffsets,
+        start_time: Instant,
         conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         ReadDataFrameResult<<Self as DataSchemaToEmptyDataFrame>::DfTarget>,
@@ -1915,14 +1927,16 @@ where
                         .map_commutative_warnings(ReadCheckedDataframeWarning::from)
                         .map_ok_value(|overrange| {
                             let df = res.dataframe;
-                            let diag = res.diagnostics;
-                            ReadDataFrameResult::new(df, diag.add_overrange(overrange))
+                            let diag = res.diagnostics.add_overrange(overrange);
+                            let read_end = Instant::now();
+                            ReadDataFrameResult::new(df, diag, read_end)
                         })
                 })
         } else {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
-            let ret = ReadDataFrameResult::new(self.empty(), EventsDiagnostics::default());
+            let ret =
+                ReadDataFrameResult::new(self.empty(), EventsDiagnostics::default(), start_time);
             LogResult::new_ok(ret)
         }
     }
@@ -1937,18 +1951,21 @@ impl VersionedDataSchema for DataSchema2_0 {
         kws: &mut ValidKeywords,
         par: Par,
         dropped: &mut StdKeywords,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup(kws, par, dropped, conf)
+        AnyOrderedDataSchema::lookup(kws, par, dropped, start_time, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
+        AnyOrderedDataSchema::lookup_ro(kws, par, start_time, conf)
+            .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -1959,10 +1976,11 @@ impl VersionedDataSchema for DataSchema2_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Self::NumType>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
-        AnyOrderedDataSchema::try_new(datatype, byteord, columns, conf)
+        AnyOrderedDataSchema::try_new(datatype, byteord, columns, start_time, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 }
@@ -1976,18 +1994,21 @@ impl VersionedDataSchema for DataSchema3_0 {
         kws: &mut ValidKeywords,
         par: Par,
         dropped: &mut StdKeywords,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup(kws, par, dropped, conf)
+        AnyOrderedDataSchema::lookup(kws, par, dropped, start_time, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        AnyOrderedDataSchema::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
+        AnyOrderedDataSchema::lookup_ro(kws, par, start_time, conf)
+            .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -1998,10 +2019,11 @@ impl VersionedDataSchema for DataSchema3_0 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
-        AnyOrderedDataSchema::try_new(datatype, byteord, columns, conf)
+        AnyOrderedDataSchema::try_new(datatype, byteord, columns, start_time, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 }
@@ -2015,18 +2037,21 @@ impl VersionedDataSchema for DataSchema3_1 {
         kws: &mut ValidKeywords,
         par: Par,
         dropped: &mut StdKeywords,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        NonMixedDataSchema::lookup(kws, par, dropped, conf)
+        NonMixedDataSchema::lookup(kws, par, dropped, start_time, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
-        NonMixedDataSchema::lookup_ro(kws, par, conf).map_ok_value(FunctorOnce::fmap_into_once)
+        NonMixedDataSchema::lookup_ro(kws, par, start_time, conf)
+            .map_ok_value(FunctorOnce::fmap_into_once)
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -2037,10 +2062,11 @@ impl VersionedDataSchema for DataSchema3_1 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
-        NonMixedDataSchema::try_new(datatype, byteord, columns, conf)
+        NonMixedDataSchema::try_new(datatype, byteord, columns, start_time, conf)
             .map_ok_value(FunctorOnce::fmap_into_once)
     }
 }
@@ -2054,23 +2080,25 @@ impl VersionedDataSchema for DataSchema3_2 {
         kws: &mut ValidKeywords,
         par: Par,
         dropped: &mut StdKeywords,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(&mut kws.std);
         let endian = ByteOrd3_1::remove_metaroot_req(&mut kws.std);
         let columns = Option::lookup_all(kws, par, dropped, conf);
-        Self::lookup_inner(datatype, endian, columns, conf)
+        Self::lookup_inner(datatype, endian, columns, start_time, conf)
     }
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Option::<NumType>::lookup_ro_all(kws, par, conf);
-        Self::lookup_inner(datatype, endian, columns, conf)
+        Self::lookup_inner(datatype, endian, columns, start_time, conf)
     }
 
     fn new_empty(datatype: AlphaNumType) -> Self {
@@ -2081,6 +2109,7 @@ impl VersionedDataSchema for DataSchema3_2 {
         datatype: AlphaNumType,
         byteord: Self::ByteOrder,
         columns: Vec<DataSchemaKeywordValues<Option<NumType>>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
@@ -2095,13 +2124,17 @@ impl VersionedDataSchema for DataSchema3_2 {
             // default layout is
             [] => {
                 let l = NonMixedDataSchema::new_empty1(datatype, byteord.0).into();
-                LogResult::new_ok(NewDataSchema::new(l, DataSchemaDiagnostics::default()))
+                LogResult::new_ok(NewDataSchema::new(
+                    l,
+                    start_time,
+                    DataSchemaDiagnostics::default(),
+                ))
             }
             // has columns with one datatype, use nonmixed layout
             [dt] => {
                 let ds = columns
                     .fmap(|c| DataSchemaKeywordValues::new(c.width, c.range, Nothing::default()));
-                NonMixedDataSchema::try_new(dt, byteord.0, ds, conf).map_ok_value(
+                NonMixedDataSchema::try_new(dt, byteord.0, ds, start_time, conf).map_ok_value(
                     |x: NewDataSchema<_>| {
                         x.fmap_once(|y: NonMixedDataSchema<_>| Self::NonMixed(y.phantom_into()))
                     },
@@ -2114,7 +2147,7 @@ impl VersionedDataSchema for DataSchema3_2 {
                         c.width, c.range, c.datatype, datatype, i, notrunc,
                     )
                 };
-                Layout::try_new1(columns, byteord.0, go)
+                Layout::try_new1(columns, byteord.0, start_time, go)
                     .map_errors(NewDataSchemaError::from)
                     .map_ok_value(FunctorOnce::fmap_into_once)
             }
@@ -7541,6 +7574,7 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
     fn try_new1<F, P, W, E>(
         cs: Vec<DataSchemaKeywordValues<D>>,
         byte_layout: L,
+        start_time: Instant,
         new_col_f: F,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), W, E>
     where
@@ -7550,7 +7584,7 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
             DataSchemaKeywordValues<D>,
         ) -> WarningsAndErrorsResult<ConvertedRange<C>, P, W, E>,
     {
-        Self::try_new(cs, byte_layout, None, None, new_col_f)
+        Self::try_new(cs, byte_layout, None, None, start_time, new_col_f)
     }
 
     fn try_new<F, P, W, E>(
@@ -7558,6 +7592,7 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
         byte_layout: L,
         old_bytes: Option<NonZeroU8>,
         old_byteord: Option<ByteOrd2_0>,
+        start_time: Instant,
         new_col_f: F,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), W, E>
     where
@@ -7577,8 +7612,10 @@ impl<C, I, L, T, D, const ORD: bool> Layout<Vec<C>, VecFamily, I, L, ColumnMarke
                     .map(|cr| (cr.native, cr.non_truncated))
                     .unzip();
                 let new_layout = Self::new(new_columns, byte_layout);
-                let diag = DataSchemaDiagnostics::new(truncated, old_bytes, old_byteord);
-                NewDataSchema::new(new_layout, diag)
+                let now = Instant::now();
+                let ns = now.duration_since1(start_time).as_nanos();
+                let diag = DataSchemaDiagnostics::new(truncated, old_bytes, old_byteord, ns);
+                NewDataSchema::new(new_layout, now, diag)
             })
     }
 }
@@ -7821,6 +7858,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
     fn try_new(
         cs: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
         bo: ByteOrd2_0,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), IndexedBitmaskError, NewFixedIntLayoutError>
     {
@@ -7840,7 +7878,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
                 o,
                 AnyUint::from(Layout::new_empty(o))
             );
-            let schema = NewDataSchema::new(empty, DataSchemaDiagnostics::default());
+            let schema = NewDataSchema::new(empty, start_time, DataSchemaDiagnostics::default());
             return LogResult::new_ok(schema);
         };
 
@@ -7883,13 +7921,20 @@ impl<T> AnyOrderedUintDataSchema<T> {
 
         let new_from_byteord = |local_cs: NEVec<_>, local_bo, old_bytes, old_byteord| {
             match_many_to_one!(local_bo, ByteOrd2_0, [O1, O2, O3, O4, O5, O6, O7, O8], o, {
-                Layout::try_new(local_cs.into(), o, old_bytes, old_byteord, |i, c| {
-                    Bitmask::from_range(c.range, notrunc)
-                        .map_switchable_errors(|e| IndexedError::new(i, e))
-                        .map_switchable_errors(IndexedBitmaskError)
-                        .switchable_into_commutative()
-                        .into_semigroup()
-                })
+                Layout::try_new(
+                    local_cs.into(),
+                    o,
+                    old_bytes,
+                    old_byteord,
+                    start_time,
+                    |i, c| {
+                        Bitmask::from_range(c.range, notrunc)
+                            .map_switchable_errors(|e| IndexedError::new(i, e))
+                            .map_switchable_errors(IndexedBitmaskError)
+                            .switchable_into_commutative()
+                            .into_semigroup()
+                    },
+                )
                 .map_errors(NewFixedIntLayoutError::from)
                 .set_err_value(())
                 .map_ok_value(FunctorOnce::fmap_into_once)
@@ -7999,6 +8044,7 @@ where
     fn try_new(
         cs: Vec<DataSchemaKeywordValues<D>>,
         flag: DisallowRangeTrunc,
+        start_time: Instant,
     ) -> WarningsAndErrorsResult<
         NewDataSchema<Self>,
         (),
@@ -8017,12 +8063,14 @@ where
                     let ranges = rs.iter().map(|r| r.native.value().into()).collect();
                     let non_truncated = rs.into_iter().map(|r| r.non_truncated).collect();
                     let l = Layout::new_ascii(ranges);
-                    let diag = DataSchemaDiagnostics::new(non_truncated, None, None);
-                    NewDataSchema::new(Self::Delimited(l), diag)
+                    let now = Instant::now();
+                    let ns = now.duration_since1(start_time).as_nanos();
+                    let diag = DataSchemaDiagnostics::new(non_truncated, None, None, ns);
+                    NewDataSchema::new(Self::Delimited(l), now, diag)
                 })
                 .map_err_value(|_| ())
         } else {
-            Layout::try_new1(cs, NoByteOrd, |i, c| {
+            Layout::try_new1(cs, NoByteOrd, start_time, |i, c| {
                 FixedAsciiRange::from_width_and_range(c.width, c.range, i, flag)
             })
             .map_ok_value(FunctorOnce::fmap_into_once)
@@ -8053,6 +8101,7 @@ impl DataSchema3_2 {
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Option<NumType>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let endian_ = endian.map_err(LookupDataSchemaError::from).into_log();
@@ -8064,7 +8113,7 @@ impl DataSchema3_2 {
             .into_log()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
-                Self::try_new(d, e, cs, conf)
+                Self::try_new(d, e, cs, start_time, conf)
                     .map_commutative_warnings(LookupDataSchemaWarning::from)
                     .map_errors(LookupDataSchemaError::from)
             })
@@ -8076,29 +8125,32 @@ impl<T> AnyOrderedDataSchema<T> {
         kws: &mut ValidKeywords,
         par: Par,
         dropped: &mut StdKeywords,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(&mut kws.std);
         let byteord = ByteOrd2_0::remove_metaroot_req(&mut kws.std);
         let columns = Nothing::lookup_all(kws, par, dropped, conf);
-        Self::lookup_inner(datatype, byteord, columns, conf)
+        Self::lookup_inner(datatype, byteord, columns, start_time, conf)
     }
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let byteord = ByteOrd2_0::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
-        Self::lookup_inner(datatype, byteord, columns, conf)
+        Self::lookup_inner(datatype, byteord, columns, start_time, conf)
     }
 
     fn lookup_inner(
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         byteord: Result<ByteOrd2_0, ReqKeyError<ByteOrd2_0>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let byteord_ = byteord.map_err(LookupDataSchemaError::from).into_log();
@@ -8110,7 +8162,7 @@ impl<T> AnyOrderedDataSchema<T> {
             .into_log()
             .zip3_commutative(byteord_, columns_)
             .and_then_commutative(|(d, e, cs)| {
-                Self::try_new(d, e, cs, conf)
+                Self::try_new(d, e, cs, start_time, conf)
                     .map_commutative_warnings(LookupDataSchemaWarning::from)
                     .map_errors(LookupDataSchemaError::from)
             })
@@ -8139,6 +8191,7 @@ impl<T> AnyOrderedDataSchema<T> {
         datatype: AlphaNumType,
         byteord: ByteOrd2_0,
         columns: Vec<DataSchemaKeywordValues2_0>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
@@ -8157,7 +8210,7 @@ impl<T> AnyOrderedDataSchema<T> {
                     .map_err(NewDataSchemaError::from)
                     .into_log()
                     .and_then_commutative(|b| {
-                        from! {Layout::try_new(columns, b, None, None, |i, c| {
+                        from! {Layout::try_new(columns, b, None, None, start_time, |i, c| {
                             $t::from_width_and_range(c.width, c.range, i, $notrunc)
                                 .repack_errors()
                         })}
@@ -8168,9 +8221,11 @@ impl<T> AnyOrderedDataSchema<T> {
         let notrunc = conf.disallow_range_truncation;
 
         match datatype {
-            AlphaNumType::Ascii => from!(AnyAsciiDataSchema::try_new(columns, notrunc)),
+            AlphaNumType::Ascii => from!(AnyAsciiDataSchema::try_new(columns, notrunc, start_time)),
             AlphaNumType::Integer => {
-                from!(AnyOrderedUintDataSchema::try_new(columns, byteord, conf))
+                from!(AnyOrderedUintDataSchema::try_new(
+                    columns, byteord, start_time, conf
+                ))
             }
             AlphaNumType::Float => go_float!(F32Range, notrunc),
             AlphaNumType::Double => go_float!(F64Range, notrunc),
@@ -8183,29 +8238,32 @@ impl NonMixedDataSchema<Nothing<NumType>> {
         kws: &mut ValidKeywords,
         par: Par,
         dropped: &mut StdKeywords,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::remove_metaroot_req(&mut kws.std);
         let endian = ByteOrd3_1::remove_metaroot_req(&mut kws.std);
         let columns = Nothing::<NumType>::lookup_all(kws, par, dropped, conf);
-        Self::lookup_inner(datatype, endian, columns, conf)
+        Self::lookup_inner(datatype, endian, columns, start_time, conf)
     }
 
     fn lookup_ro(
         kws: &StdKeywords,
         par: Par,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let datatype = AlphaNumType::get_metaroot_req(kws);
         let endian = ByteOrd3_1::get_metaroot_req(kws);
         let columns = Nothing::<NumType>::lookup_ro_all(kws, par, conf);
-        Self::lookup_inner(datatype, endian, columns, conf)
+        Self::lookup_inner(datatype, endian, columns, start_time, conf)
     }
 
     fn lookup_inner(
         datatype: Result<AlphaNumType, ReqKeyError<AlphaNumType>>,
         endian: Result<ByteOrd3_1, ReqKeyError<ByteOrd3_1>>,
         columns: LookupMeasLayoutResult<Nothing<NumType>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> LookupLayoutResult<NewDataSchema<Self>> {
         let endian_ = endian.map_err(LookupDataSchemaError::from).into_log();
@@ -8217,7 +8275,7 @@ impl NonMixedDataSchema<Nothing<NumType>> {
             .into_log()
             .zip3_commutative(endian_, columns_)
             .and_then_commutative(|(d, e, cs)| {
-                Self::try_new(d, e.0, cs, conf)
+                Self::try_new(d, e.0, cs, start_time, conf)
                     .map_commutative_warnings(LookupDataSchemaWarning::from)
                     .map_errors(LookupDataSchemaError::from)
             })
@@ -8227,6 +8285,7 @@ impl NonMixedDataSchema<Nothing<NumType>> {
         datatype: AlphaNumType,
         endian: Endian,
         columns: Vec<DataSchemaKeywordValues<Nothing<NumType>>>,
+        start_time: Instant,
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), NewMixedRangeWarning, NewDataSchemaError>
     {
@@ -8249,14 +8308,18 @@ impl NonMixedDataSchema<Nothing<NumType>> {
         }
 
         match datatype {
-            AlphaNumType::Ascii => from!(AnyAsciiDataSchema::try_new(columns, notrunc)),
+            AlphaNumType::Ascii => from!(AnyAsciiDataSchema::try_new(columns, notrunc, start_time)),
             AlphaNumType::Integer => {
                 from!(AnyBigLittleUintDataSchema::try_new(
-                    columns, endian, notrunc
+                    columns, endian, notrunc, start_time,
                 ))
             }
-            AlphaNumType::Float => from!(Layout::try_new1(columns, endian, go_f32)),
-            AlphaNumType::Double => from!(Layout::try_new1(columns, endian, go_f64)),
+            AlphaNumType::Float => {
+                from!(Layout::try_new1(columns, endian, start_time, go_f32))
+            }
+            AlphaNumType::Double => {
+                from!(Layout::try_new1(columns, endian, start_time, go_f64))
+            }
         }
     }
 }
@@ -8308,11 +8371,12 @@ impl<D> AnyBigLittleUintDataSchema<D> {
         cs: Vec<DataSchemaKeywordValues<D>>,
         e: Endian,
         flag: DisallowRangeTrunc,
+        start_time: Instant,
     ) -> WarningsAndErrorsResult<NewDataSchema<Self>, (), IndexedBitmaskError, NewUintTypeError>
     where
         D: IsNumType,
     {
-        Layout::try_new1(cs, e, |i, c| {
+        Layout::try_new1(cs, e, start_time, |i, c| {
             AnyUint::from_width_and_range(c.width, c.range, i, flag).repack_errors()
         })
         .map_ok_value(|res| {

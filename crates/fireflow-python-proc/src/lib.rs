@@ -808,6 +808,13 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.dark_bytes.clone()),
     );
 
+    let ns = DocArgROIvar::new_ivar_ro(
+        "read_header_ns",
+        RsInt::U128,
+        format!("Number of nanoseconds spent reading {HEADER}"),
+        |_, _| quote!(self.0.read_header_ns),
+    );
+
     let args = [
         dataset_offset,
         version,
@@ -815,6 +822,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
         original_offsets,
         overlaps,
         dark,
+        ns,
     ];
 
     let doc = DocString::new_class(format!("The {HEADER} segment from an FCS dataset.")).args(args);
@@ -829,6 +837,7 @@ pub fn impl_py_header(input: TokenStream) -> TokenStream {
                     original_offsets.into(),
                     overlaps.into_iter().map(Into::into).collect(),
                     dark_bytes,
+                    read_header_ns,
                 ).into()
             }
 
@@ -1703,6 +1712,34 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.next_dataset_manually_scanned),
     );
 
+    let read_data_ns = DocArgROIvar::new_ivar_ro(
+        "read_data_ns",
+        RsInt::U128,
+        format!("Number of nanoseconds spent reading {DATA}."),
+        |_, _| quote!(self.0.read_data_ns),
+    );
+
+    let read_crc_ns = DocArgROIvar::new_ivar_ro(
+        "read_crc_ns",
+        RsInt::U128,
+        "Number of nanoseconds spent computing the CRC.",
+        |_, _| quote!(self.0.read_crc_ns),
+    );
+
+    let read_dark_bytes_ns = DocArgROIvar::new_ivar_ro(
+        "read_dark_bytes_ns",
+        RsInt::U128,
+        "Number of nanoseconds spent reading dark bytes.",
+        |_, _| quote!(self.0.read_dark_bytes_ns),
+    );
+
+    let scan_next_ns = DocArgROIvar::new_ivar_ro(
+        "scan_next_ns",
+        RsInt::U128,
+        "Number of nanoseconds spent scanning for the next dataset.",
+        |_, _| quote!(self.0.scan_next_ns),
+    );
+
     let args = [
         event_width,
         event_data_remainder,
@@ -1715,6 +1752,10 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
         dataset_len,
         next_dataset_offset,
         next_dataset_manually_scanned,
+        read_data_ns,
+        read_crc_ns,
+        read_dark_bytes_ns,
+        scan_next_ns,
     ];
     let doc =
         DocString::new_class(format!("Diagnostic output from reading {DATA} segment.")).args(args);
@@ -1734,6 +1775,10 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
                     dataset_len,
                     next_dataset_offset,
                     next_dataset_manually_scanned,
+                    read_data_ns,
+                    read_crc_ns,
+                    read_dark_bytes_ns,
+                    scan_next_ns
                 ).into()
             }
 
@@ -2228,6 +2273,13 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.last_modified_pattern.clone()),
     );
 
+    let read_std_ns = DocArgROIvar::new_ivar_ro(
+        "read_std_ns",
+        RsInt::U128,
+        format!("Number of nanoseconds spent standardizing {TEXT}."),
+        |_, _| quote!(self.0.read_std_ns),
+    );
+
     let schema_diagnostics = DocArg::new_data_schema_diagnostics_param()
         .into_ro(|_, _| quote!(self.0.schema_diagnostics.clone().into()));
 
@@ -2254,6 +2306,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
             begindatetime_used_localtime,
             enddatetime_used_localtime,
             last_modified_pattern,
+            read_std_ns,
             schema_diagnostics,
         ]);
     let inner_args = doc.idents_into();
@@ -2333,10 +2386,18 @@ pub fn impl_py_data_schema_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.original_byteord),
     );
 
+    let ns = DocArgROIvar::new_ivar_ro(
+        "read_schema_ns",
+        RsInt::U128,
+        format!("Number of nanoseconds spent reading schema for {DATA}."),
+        |_, _| quote!(self.0.read_schema_ns),
+    );
+
     let doc = DocString::new_class("Diagnostic output from creating data schema.").args([
         truncated_columns,
         original_int_width,
         original_byteord,
+        ns,
     ]);
     let inner_args = doc.idents_into();
 
@@ -2741,6 +2802,13 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.keys_with_trimmed_values.clone()),
     );
 
+    let ns = DocArgROIvar::new_ivar_ro(
+        "read_text_ns",
+        RsInt::U128,
+        format!("Number of nanoseconds spent reading {TEXT}."),
+        |_, _| quote!(self.0.read_text_ns),
+    );
+
     let primary_split = DocArgROIvar::new_ivar_ro(
         "primary_split",
         PyClass::new_py(["api"], "SplitTEXTDiagnostics"),
@@ -2764,6 +2832,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
         non_unique_nonstd,
         trimmed_empty,
         trimmed,
+        ns,
         primary_split,
         supp_split,
     ];
@@ -2782,6 +2851,7 @@ pub fn impl_py_flat_text_diagnostics(input: TokenStream) -> TokenStream {
                     non_unique_nonstd_keywords,
                     keys_with_empty_trimmed_values,
                     keys_with_trimmed_values,
+                    read_text_ns,
                     primary_split.into(),
                     supp_split.map(Into::into)
                 ).into()
@@ -2929,6 +2999,7 @@ pub fn impl_py_split_text_diagnostics(input: TokenStream) -> TokenStream {
     doc.into_impl_class(name, &path, new).1.into()
 }
 
+#[allow(clippy::too_many_lines)]
 #[proc_macro]
 pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
     let path = parse_macro_input!(input as Path);
@@ -2943,6 +3014,10 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
             format!("Length of {which} (in bytes)"),
             |n, _| quote!(self.0.#n),
         )
+    };
+
+    let read_ns = |argname, desc| {
+        DocArgROIvar::new_ivar_ro(argname, RsInt::U128, desc, |n, _| quote!(self.0.#n))
     };
 
     let text_len = seg_len("text_len", TEXT);
@@ -2991,6 +3066,41 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
 
     let comp_crc = DocArg::new_computed_crc_param().into_ro(|_, _| quote!(self.0.computed_crc));
 
+    let read_header_ns = read_ns(
+        "read_header_ns",
+        format!("Number of nanoseconds spent reading {HEADER}."),
+    );
+
+    let read_text_ns = read_ns(
+        "read_text_ns",
+        format!("Number of nanoseconds spent reading {TEXT}."),
+    );
+
+    let read_schema_ns = read_ns(
+        "read_schema_ns",
+        format!("Number of nanoseconds spent reading the schema for {DATA}."),
+    );
+
+    let read_data_ns = read_ns(
+        "read_data_ns",
+        format!("Number of nanoseconds spent reading {DATA}."),
+    );
+
+    let read_crc_ns = read_ns(
+        "read_crc_ns",
+        "Number of nanoseconds spent computing the CRC.".into(),
+    );
+
+    let read_dark_bytes_ns = read_ns(
+        "read_dark_bytes_ns",
+        "Number of nanoseconds spent reading dark bytes.".into(),
+    );
+
+    let scan_next_ns = read_ns(
+        "scan_next_ns",
+        "Number of nanoseconds spent scanning for the next dataset.".into(),
+    );
+
     let args = [
         version,
         text_len,
@@ -3004,6 +3114,13 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         dataset_offset,
         file_crc,
         comp_crc,
+        read_header_ns,
+        read_text_ns,
+        read_schema_ns,
+        read_data_ns,
+        read_crc_ns,
+        read_dark_bytes_ns,
+        scan_next_ns,
     ];
 
     let doc = DocString::new_class("High-level data describing an FCS dataset").args(args);
@@ -6722,6 +6839,7 @@ enum RsInt {
     U16,
     U32,
     U64,
+    U128,
     I32,
     Usize,
     NonZeroU8,
@@ -7070,6 +7188,7 @@ impl HasRustPath for RsInt {
             Self::U16 => parse_quote!(u16),
             Self::U32 => parse_quote!(u32),
             Self::U64 => parse_quote!(u64),
+            Self::U128 => parse_quote!(u128),
             Self::Usize => parse_quote!(usize),
             Self::NonZeroU8 => parse_quote!(std::num::NonZeroU8),
             Self::NonZeroU64 => parse_quote!(std::num::NonZeroU64),

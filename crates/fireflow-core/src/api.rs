@@ -7,7 +7,7 @@ use crate::config::{
     ReadStdTEXTConfig, VersionOverride, WriteDatasetInnerConfig, WriteMultiConfig,
     WriteMultiDatasetConfig,
 };
-use crate::convert::UsizeExt as _;
+use crate::convert::{InstantExt as _, UsizeExt as _};
 use crate::core::{
     Analysis, AnyCoreDataset, AnyCoreTEXT, AnyStdDatasetFromFlatTextError, CRCOutput,
     DatasetDiagnostics, DatasetOffsets, LookupAndReadDataAnalysisError,
@@ -76,6 +76,7 @@ use std::io::{self, BufReader, Read, Seek};
 use std::iter;
 use std::num::NonZeroUsize;
 use std::path::PathBuf;
+use std::time::Instant;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -110,13 +111,16 @@ pub fn fcs_read_header(
     dataset_offset: DatasetOffset,
     conf: &ReadHeaderConfig,
 ) -> WarningsAndIOGroupResult<Header, GuessOtherWidthError, ReadHeaderError, HeaderSummary> {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.as_read_dataset_state(dataset_offset, conf)
+    fr.as_read_dataset_state(dataset_offset, start_time, conf)
         .map_err(ReadHeaderError::from)
         .map_err(IOAnonErrorGroup::new_pure_one)
         .into_log()
         .and_then_commutative(|mut st| {
-            Header::h_read(&mut fr.buf_read, &mut st).map_error(|e| e.fmap(ReadHeaderError::from))
+            Header::h_read(&mut fr.buf_read, &mut st)
+                .map_error(|e| e.fmap(ReadHeaderError::from))
+                .map_ok_value(|out| out.header)
             // .warnings_to_pure_errors(&conf.shared, ReadHeaderError::from)
         })
         .deanonymize()
@@ -134,8 +138,9 @@ pub fn fcs_read_flat_text(
     HeaderOrFlatTextError,
     FlatTEXTSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_text(dataset_offset, conf)
+    fr.read_flat_text(dataset_offset, start_time, conf)
 }
 
 /// Read HEADER and standardized TEXT at a given position from an FCS file.
@@ -150,8 +155,9 @@ pub fn fcs_read_std_text(
     StdTEXTError,
     StdTEXTSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_text(dataset_offset, conf)
+    fr.read_std_text(dataset_offset, start_time, conf)
 }
 
 /// Read dataset from FCS at given position file using flat TEXT.
@@ -167,8 +173,9 @@ pub fn fcs_read_flat_dataset(
     FlatDatasetError,
     FlatDatasetSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_dataset(dataset_offset, scan_next_dataset, conf)
+    fr.read_flat_dataset(dataset_offset, scan_next_dataset, start_time, conf)
 }
 
 /// Read dataset from FCS file at given position using standardized TEXT.
@@ -184,8 +191,9 @@ pub fn fcs_read_std_dataset(
     StdDatasetError,
     StdDatasetSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_dataset(dataset_offset, scan_next_dataset, conf)
+    fr.read_std_dataset(dataset_offset, scan_next_dataset, start_time, conf)
 }
 
 /// Read DATA/ANALYSIS in FCS file using provided keywords.
@@ -204,7 +212,8 @@ pub fn fcs_read_flat_dataset_with_keywords(
     LookupAndReadDataAnalysisError,
     FlatDatasetWithKwsSummary,
 > {
-    FCSFileReader::open_with_state(path, dataset_offset, conf)
+    let start_time = Instant::now();
+    FCSFileReader::open_with_state(path, dataset_offset, start_time, conf)
         .map_err(|e| e.fmap_once(LookupAndReadDataAnalysisError::from))
         .and_then(|(fr, st)| {
             st.maybe_with_dataset_length(dataset_len)
@@ -222,6 +231,7 @@ pub fn fcs_read_flat_dataset_with_keywords(
                 kws,
                 &mut hns,
                 false,
+                txt_st.start_time(),
                 &txt_st,
             )
         })
@@ -244,8 +254,9 @@ pub fn fcs_read_flat_texts(
     HeaderOrFlatTextError,
     FlatTEXTSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_texts(skip, limit, scan, conf)
+    fr.read_flat_texts(skip, limit, scan, start_time, conf)
 }
 
 /// Read HEADER and TEXT from multiple datasets in standardized mode.
@@ -262,8 +273,9 @@ pub fn fcs_read_std_texts(
     MultiStdTEXTError,
     StdTEXTSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_texts(skip, limit, scan, conf)
+    fr.read_std_texts(skip, limit, scan, start_time, conf)
 }
 
 /// Read multiple datasets from FCS file in flat mode.
@@ -280,8 +292,9 @@ pub fn fcs_read_flat_datasets(
     MultiFlatDatasetError,
     FlatDatasetSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_flat_datasets(skip, limit, scan, conf)
+    fr.read_flat_datasets(skip, limit, scan, start_time, conf)
 }
 
 /// Read multiple datasets from FCS file
@@ -298,8 +311,9 @@ pub fn fcs_read_std_datasets(
     MultiStdDatasetError,
     StdDatasetSummary,
 > {
+    let start_time = Instant::now();
     let mut fr = io_to_log!(FCSFileReader::open(path));
-    fr.read_std_datasets(skip, limit, scan, conf)
+    fr.read_std_datasets(skip, limit, scan, start_time, conf)
 }
 
 /// Summarize the contents of an FCS file
@@ -590,6 +604,9 @@ pub struct FlatTEXTDiagnostics {
     /// Values included here are the original values before trimming.
     pub keys_with_trimmed_values: Vec<(KeyOrBytes, TruncatedNEString)>,
 
+    /// The total time in nanoseconds it took to read TEXT.
+    pub read_text_ns: u128,
+
     /// Output from splitting primary TEXT
     pub primary_split: SplitTEXTDiagnostics,
 
@@ -748,6 +765,27 @@ pub struct DatasetSummary {
     ///
     /// Will always be `None` for 2.0.
     pub computed_crc: Option<u16>,
+
+    /// Number of nanoseconds spent reading HEADER
+    pub read_header_ns: u128,
+
+    /// Number of nanoseconds spent reading TEXT
+    pub read_text_ns: u128,
+
+    /// Number of nanoseconds spent reading the data schema
+    pub read_schema_ns: u128,
+
+    /// Number of nanoseconds spent reading DATA
+    pub read_data_ns: u128,
+
+    /// Number of nanoseconds spent computing the CRC
+    pub read_crc_ns: u128,
+
+    /// Number of nanoseconds spent read dark bytes
+    pub read_dark_bytes_ns: u128,
+
+    /// Number of nanoseconds spent scanning for next dataset
+    pub scan_next_ns: u128,
 }
 
 /// Warning when parsing [`Header`]
@@ -1091,6 +1129,13 @@ pub(crate) struct FCSFileReader {
     pub(crate) buf_read: BufReader<File>,
 }
 
+#[derive(new)]
+struct FlatTEXTOutputInner<T, C> {
+    this: T,
+    read_end: Instant,
+    state: TEXTReadState<C>,
+}
+
 def_summary!(pub HeaderSummary, "could not parse HEADER");
 
 def_summary!(pub FlatTEXTSummary, "could not parse TEXT segment");
@@ -1124,11 +1169,12 @@ impl FCSFileReader {
     pub(crate) fn open_with_state<C>(
         p: &PathBuf,
         dataset_offset: DatasetOffset,
+        start_time: Instant,
         conf: C,
     ) -> IOResult<(Self, HeaderReadState<C>), DatasetOffsetError> {
         let fr = Self::open(p)?;
         let st = fr
-            .as_read_dataset_state(dataset_offset, conf)
+            .as_read_dataset_state(dataset_offset, start_time, conf)
             .map_err(ImpureError::Pure)?;
         Ok((fr, st))
     }
@@ -1136,14 +1182,16 @@ impl FCSFileReader {
     pub(crate) fn as_read_dataset_state<C>(
         &self,
         dataset_offset: DatasetOffset,
+        start_time: Instant,
         conf: C,
     ) -> Result<HeaderReadState<C>, DatasetOffsetError> {
-        HeaderReadState::init(self.file_len, dataset_offset, conf)
+        HeaderReadState::init(self.file_len, dataset_offset, start_time, conf)
     }
 
     fn read_flat_text(
         &mut self,
         dataset_offset: DatasetOffset,
+        start_time: Instant,
         conf: &ReadFlatTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         FlatTEXTOutput,
@@ -1151,8 +1199,8 @@ impl FCSFileReader {
         HeaderOrFlatTextError,
         FlatTEXTSummary,
     > {
-        self.read_flat_text_inner(dataset_offset, conf)
-            .map_ok_value(|(x, _)| x)
+        self.read_flat_text_inner(dataset_offset, start_time, conf)
+            .map_ok_value(|out| out.this)
             .warnings_to_pure_errors(conf.shared, HeaderOrFlatTextError::from)
             .deanonymize()
     }
@@ -1160,6 +1208,7 @@ impl FCSFileReader {
     fn read_std_text(
         &mut self,
         dataset_offset: DatasetOffset,
+        start_time: Instant,
         conf: &ReadStdTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         (AnyCoreTEXT, StdTEXTOutput),
@@ -1167,11 +1216,12 @@ impl FCSFileReader {
         StdTEXTError,
         StdTEXTSummary,
     > {
-        self.read_flat_text_inner(dataset_offset, conf)
+        self.read_flat_text_inner(dataset_offset, start_time, conf)
             .map_pure_errors(StdTEXTError::from)
             .map_commutative_warnings(StdTEXTWarning::from)
-            .and_then_commutative(|(flat, txt_st)| {
-                flat.into_std_text(&txt_st)
+            .and_then_commutative(|out| {
+                out.this
+                    .into_std_text(out.read_end, &out.state)
                     .map_commutative_warnings(StdTEXTWarning::from)
                     .map_errors(StdTEXTError::from)
                     .group()
@@ -1185,6 +1235,7 @@ impl FCSFileReader {
         &mut self,
         dataset_offset: DatasetOffset,
         scan_next_dataset: bool,
+        start_time: Instant,
         conf: &ReadFlatDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         FlatDatasetOutput,
@@ -1192,19 +1243,20 @@ impl FCSFileReader {
         FlatDatasetError,
         FlatDatasetSummary,
     > {
-        self.read_flat_text_inner(dataset_offset, conf)
+        self.read_flat_text_inner(dataset_offset, start_time, conf)
             .map_commutative_warnings(FlatDatasetWarning::from)
             .map_pure_errors(FlatDatasetError::from)
-            .and_then_commutative(|(flat, txt_st)| {
-                let version = flat.flat_diagnostics.header_supp.header.version;
+            .and_then_commutative(|out| {
+                let version = out.this.flat_diagnostics.header_supp.header.version;
                 let oride = conf.flat.version_override.as_ref();
-                autodetect_version(version, &flat.keywords.std, oride)
+                autodetect_version(version, &out.this.keywords.std, oride)
                     .map_err(FlatDatasetError::from)
                     .map_err(IOErrorGroup::new_pure_one)
-                    .map(|(new_version, scores)| (new_version, flat, txt_st, scores))
+                    .map(|(new_version, scores)| (new_version, out, scores))
                     .into_log()
             })
-            .and_then_commutative(|(new_ver, mut flat, st, scores)| {
+            .and_then_commutative(|(new_ver, out, scores)| {
+                let mut flat = out.this;
                 let hns = &mut flat.flat_diagnostics.header_supp;
                 let mut kws = flat.keywords;
                 FlatDatasetFromKwsOutput::h_read_with_header_and_text(
@@ -1213,7 +1265,8 @@ impl FCSFileReader {
                     &mut kws,
                     hns,
                     scan_next_dataset,
-                    &st,
+                    out.read_end,
+                    &out.state,
                 )
                 .map_ok_value(|dataset| {
                     FlatDatasetOutput::new(kws, flat.flat_diagnostics, dataset, scores)
@@ -1229,6 +1282,7 @@ impl FCSFileReader {
         &mut self,
         dataset_offset: DatasetOffset,
         scan_next_dataset: bool,
+        start_time: Instant,
         conf: &ReadStdDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         (AnyCoreDataset, StdDatasetOutput),
@@ -1236,11 +1290,17 @@ impl FCSFileReader {
         StdDatasetError,
         StdDatasetSummary,
     > {
-        self.read_flat_text_inner(dataset_offset, conf)
+        self.read_flat_text_inner(dataset_offset, start_time, conf)
             .map_pure_errors(StdDatasetError::from)
             .map_commutative_warnings(StdDatasetWarning::from)
-            .and_then_commutative(|(flat, txt_st)| {
-                flat.into_std_dataset(&mut self.buf_read, scan_next_dataset, &txt_st)
+            .and_then_commutative(|out| {
+                out.this
+                    .into_std_dataset(
+                        &mut self.buf_read,
+                        scan_next_dataset,
+                        out.read_end,
+                        &out.state,
+                    )
                     .map_commutative_warnings(StdDatasetWarning::from)
                     .map_pure_errors(StdDatasetError::from)
             })
@@ -1253,6 +1313,7 @@ impl FCSFileReader {
         skip: Option<usize>,
         limit: Option<usize>,
         scan_next_dataset: bool,
+        mut start_time: Instant,
         conf: &ReadFlatTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         Vec<FlatTEXTOutput>,
@@ -1266,7 +1327,7 @@ impl FCSFileReader {
         while let Some(dso) = dataset_offset
             && limit.is_none_or(|x| count <= x)
         {
-            let res = self.read_flat_text(dso, conf);
+            let res = self.read_flat_text(dso, start_time, conf);
             let succ = split_log!(res);
             let scanned_dataset_offset = if scan_next_dataset {
                 io_to_log!(next_dataset_boundary(&mut self.buf_read))
@@ -1284,6 +1345,9 @@ impl FCSFileReader {
             });
             results.push(nextdata_res);
             count += 1;
+            // Subsequent start times will be a bit shorter because the file is
+            // already open.
+            start_time = Instant::now();
         }
         results
             .into_iter()
@@ -1297,6 +1361,7 @@ impl FCSFileReader {
         skip: Option<usize>,
         limit: Option<usize>,
         scan_next_dataset: bool,
+        mut start_time: Instant,
         conf: &ReadStdTEXTConfig,
     ) -> WarningsAndIOGroupResult<
         Vec<(AnyCoreTEXT, StdTEXTOutput)>,
@@ -1327,7 +1392,7 @@ impl FCSFileReader {
         {
             let nextdata_res = if skip.is_some_and(|s| count < s) {
                 let res = self
-                    .read_flat_text(dso, &rconf)
+                    .read_flat_text(dso, start_time, &rconf)
                     .map_commutative_warnings(MultiStdTEXTWarning::from)
                     .map_pure_errors(MultiStdTEXTError::from)
                     .map_error(|e| e.set_group(StdTEXTSummary));
@@ -1343,7 +1408,7 @@ impl FCSFileReader {
                     None
                 })
             } else {
-                let res = Self::read_std_text(self, dso, conf)
+                let res = Self::read_std_text(self, dso, start_time, conf)
                     .map_commutative_warnings(MultiStdTEXTWarning::from)
                     .map_pure_errors(MultiStdTEXTError::from);
                 let succ = split_log!(res);
@@ -1358,6 +1423,9 @@ impl FCSFileReader {
             };
             results.push(nextdata_res);
             count += 1;
+            // Subsequent start times will be a bit shorter because the file is
+            // already open.
+            start_time = Instant::now();
         }
         results
             .into_iter()
@@ -1371,6 +1439,7 @@ impl FCSFileReader {
         skip: Option<usize>,
         limit: Option<usize>,
         scan_next_dataset: bool,
+        start_time: Instant,
         conf: &ReadFlatDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         Vec<FlatDatasetOutput>,
@@ -1382,6 +1451,7 @@ impl FCSFileReader {
             skip,
             limit,
             scan_next_dataset,
+            start_time,
             conf,
             FlatDatasetSummary,
             Self::read_flat_dataset,
@@ -1394,6 +1464,7 @@ impl FCSFileReader {
         skip: Option<usize>,
         limit: Option<usize>,
         scan_next_dataset: bool,
+        start_time: Instant,
         conf: &ReadStdDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         Vec<(AnyCoreDataset, StdDatasetOutput)>,
@@ -1405,6 +1476,7 @@ impl FCSFileReader {
             skip,
             limit,
             scan_next_dataset,
+            start_time,
             conf,
             StdDatasetSummary,
             Self::read_std_dataset,
@@ -1415,9 +1487,10 @@ impl FCSFileReader {
     fn read_flat_text_inner<C>(
         &mut self,
         dataset_offset: DatasetOffset,
+        start_time: Instant,
         conf: C,
     ) -> WarningsAndIOGroupResult<
-        (FlatTEXTOutput, TEXTReadState<C>),
+        FlatTEXTOutputInner<FlatTEXTOutput, C>,
         HeaderOrFlatTEXTWarning,
         HeaderOrFlatTextError,
         (),
@@ -1425,7 +1498,7 @@ impl FCSFileReader {
     where
         C: AsRef<ReadHeaderAndTEXTConfig> + AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
     {
-        self.as_read_dataset_state(dataset_offset, conf)
+        self.as_read_dataset_state(dataset_offset, start_time, conf)
             .map_err(HeaderOrFlatTextError::from)
             .map_err(IOAnonErrorGroup::new_pure_one)
             .into_log()
@@ -1438,13 +1511,20 @@ impl FCSFileReader {
         skip: Option<usize>,
         limit: Option<usize>,
         scan_next_dataset: bool,
+        mut start_time: Instant,
         conf: &C,
         g: G,
         mut f0: Fsucc,
         mut fnext: Fnext,
     ) -> WarningsAndIOGroupResult<Vec<X>, W, E, G>
     where
-        Fsucc: FnMut(&mut Self, DatasetOffset, bool, &C) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
+        Fsucc: FnMut(
+            &mut Self,
+            DatasetOffset,
+            bool,
+            Instant,
+            &C,
+        ) -> WarningsAndIOGroupResult<X, Wi, Ei, G>,
         Fnext: FnMut(&X) -> Option<DatasetOffset>,
         E: From<HeaderOrFlatTextError> + From<Ei>,
         W: From<HeaderOrFlatTEXTWarning> + From<Wi>,
@@ -1468,7 +1548,7 @@ impl FCSFileReader {
         {
             let nextdata_res = if skip.is_some_and(|s| count < s) {
                 let res = self
-                    .read_flat_text(dso, &rconf)
+                    .read_flat_text(dso, start_time, &rconf)
                     .map_commutative_warnings(W::from)
                     .map_pure_errors(E::from)
                     .map_error(|e| e.set_group(g));
@@ -1488,7 +1568,7 @@ impl FCSFileReader {
                     None
                 })
             } else {
-                let res = f0(self, dso, scan_next_dataset, conf)
+                let res = f0(self, dso, scan_next_dataset, start_time, conf)
                     .map_commutative_warnings(W::from)
                     .map_pure_errors(E::from);
                 let succ = split_log!(res);
@@ -1500,6 +1580,9 @@ impl FCSFileReader {
             };
             results.push(nextdata_res);
             count += 1;
+            // Subsequent start times will be a bit shorter because the file is
+            // already open.
+            start_time = Instant::now();
         }
         results
             .into_iter()
@@ -1602,6 +1685,13 @@ impl FlatDatasetOutput {
             dataset_offset: hdr.dataset_offset,
             file_crc: ds.dataset_diagnostics.file_crc,
             computed_crc: ds.dataset_diagnostics.computed_crc,
+            read_header_ns: hdr.read_header_ns,
+            read_text_ns: fd.read_text_ns,
+            read_schema_ns: ds.schema_diagnostics.read_schema_ns,
+            read_data_ns: ds.dataset_diagnostics.read_data_ns,
+            read_crc_ns: ds.dataset_diagnostics.read_crc_ns,
+            read_dark_bytes_ns: ds.dataset_diagnostics.read_dark_bytes_ns,
+            scan_next_ns: ds.dataset_diagnostics.scan_next_ns,
         }
     }
 }
@@ -1614,6 +1704,7 @@ impl FlatDatasetFromKwsOutput {
         kws: &mut ValidKeywords,
         hns: &mut HeaderAndSuppOffsets,
         scan_next_dataset: bool,
+        start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         Self,
@@ -1625,13 +1716,17 @@ impl FlatDatasetFromKwsOutput {
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
     {
-        kws_to_df_analysis(new_version, h, kws, hns, st)
+        kws_to_df_analysis(new_version, h, kws, hns, start_time, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|out| {
                 let or = hns.header.final_offsets.others_reader();
                 let v = new_version;
                 let d = &out.ds_offsets;
-                DatasetDiagnostics::from_parts(h, v, out.event_diag, hns, d, scan_next_dataset, st)
+                let ed = out.event_diag;
+                let r0 = start_time;
+                let r1 = out.read_end;
+                let rd = r1.duration_since1(r0);
+                DatasetDiagnostics::from_parts(h, v, ed, hns, d, scan_next_dataset, rd, r1, st)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .repack_warnings()
@@ -1659,7 +1754,7 @@ impl FlatTEXTOutput {
         h: &mut BufReader<R>,
         mut st: HeaderReadState<C>,
     ) -> WarningsAndErrorResult<
-        (Self, TEXTReadState<C>),
+        FlatTEXTOutputInner<Self, C>,
         (),
         HeaderOrFlatTEXTWarning,
         IOErrorGroup<HeaderOrFlatTextError, ()>,
@@ -1671,8 +1766,8 @@ impl FlatTEXTOutput {
         Header::h_read(h, &mut st)
             .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
             .map_pure_errors(HeaderOrFlatTextError::from)
-            .and_then_commutative(|header| {
-                Self::h_read_from_header(h, header, st)
+            .and_then_commutative(|out| {
+                Self::h_read_from_header(h, out.header, out.read_end, st)
                     .map_commutative_warnings(HeaderOrFlatTEXTWarning::from)
                     .map_pure_errors(HeaderOrFlatTextError::from)
             })
@@ -1682,9 +1777,10 @@ impl FlatTEXTOutput {
     fn h_read_from_header<C, R>(
         h: &mut BufReader<R>,
         mut header: Header,
+        start_time: Instant,
         st: HeaderReadState<C>,
     ) -> WarningsAndIOGroupResult<
-        (Self, TEXTReadState<C>),
+        FlatTEXTOutputInner<Self, C>,
         ParseFlatTEXTWarning,
         ParseFlatTEXTError,
         (),
@@ -1774,6 +1870,8 @@ impl FlatTEXTOutput {
 
                     let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
+                    let text_read_end = Instant::now();
+
                     hdr_trunc_res
                         .and_then_commutative(|nd_overlaps| {
                             // Build diagnostics output, throw errors for any badly
@@ -1783,6 +1881,7 @@ impl FlatTEXTOutput {
                             // TODO technically this does not depend on the previous
                             // results so this can be folded out and run in parallel
                             // with nextdata and append checks
+                            let text_read_ns = text_read_end.duration_since1(start_time).as_nanos();
                             kws.diag
                                 .into_flat_diag(
                                     header_supp,
@@ -1790,13 +1889,16 @@ impl FlatTEXTOutput {
                                     nd_overlaps,
                                     prim_out,
                                     supp_out,
+                                    text_read_ns,
                                     txt_st.conf().as_ref(),
                                 )
                                 .map_commutative_warnings(ParseFlatTEXTWarning::from)
                                 .map_errors(ParseFlatTEXTError::from)
                                 .set_err_value(())
                         })
-                        .map_ok_value(|diag| (Self::new(vkws, diag), txt_st))
+                        .map_ok_value(|diag| {
+                            FlatTEXTOutputInner::new(Self::new(vkws, diag), text_read_end, txt_st)
+                        })
                         .group()
                         .map_error(IOErrorGroup::Pure)
                 },
@@ -1806,6 +1908,7 @@ impl FlatTEXTOutput {
     /// Convert flat TEXT into standardized TEXT.
     fn into_std_text<C>(
         mut self,
+        read_text_end: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndErrorsResult<
         (AnyCoreTEXT, StdTEXTOutput),
@@ -1821,17 +1924,19 @@ impl FlatTEXTOutput {
     {
         let hns = &mut self.flat_diagnostics.header_supp;
         let version = hns.header.version;
-        AnyCoreTEXT::parse_flat(version, self.keywords, hns, st).map_ok_value(|out| {
-            let std_out = StdTEXTOutput::new(
-                out.offsets.tot,
-                out.offsets.offsets,
-                out.repair_diag,
-                out.std_diag,
-                self.flat_diagnostics,
-                out.scores,
-            );
-            (out.inner, std_out)
-        })
+        AnyCoreTEXT::parse_flat(version, self.keywords, hns, read_text_end, st).map_ok_value(
+            |out| {
+                let std_out = StdTEXTOutput::new(
+                    out.offsets.tot,
+                    out.offsets.offsets,
+                    out.repair_diag,
+                    out.std_diag,
+                    self.flat_diagnostics,
+                    out.scores,
+                );
+                (out.inner, std_out)
+            },
+        )
     }
 
     /// Convert into standardized dataset, reading data as necessary.
@@ -1839,6 +1944,7 @@ impl FlatTEXTOutput {
         mut self,
         h: &mut BufReader<R>,
         scan_next_dataset: bool,
+        read_text_end: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndIOGroupResult<
         (AnyCoreDataset, StdDatasetOutput),
@@ -1855,11 +1961,18 @@ impl FlatTEXTOutput {
             + AsRef<ReadDatasetConfig>,
     {
         let hdr = &mut self.flat_diagnostics.header_supp;
-        AnyCoreDataset::new_from_keywords(h, hdr, self.keywords, scan_next_dataset, st)
-            .map_ok_value(|(core, out, scores)| {
-                let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores);
-                (core, dx)
-            })
+        AnyCoreDataset::new_from_keywords(
+            h,
+            hdr,
+            self.keywords,
+            scan_next_dataset,
+            read_text_end,
+            st,
+        )
+        .map_ok_value(|(core, out, scores)| {
+            let dx = StdDatasetOutput::new(out, self.flat_diagnostics, scores);
+            (core, dx)
+        })
     }
 }
 
@@ -2715,6 +2828,7 @@ fn kws_to_df_analysis<C, R>(
     h: &mut BufReader<R>,
     kws: &mut ValidKeywords,
     hns: &mut HeaderAndSuppOffsets,
+    read_text_end: Instant,
     st: &TEXTReadState<C>,
 ) -> WarningsAndIOGroupResult<
     LookupFlatDatasetOutput,
@@ -2727,10 +2841,10 @@ where
     C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
 {
     match new_version {
-        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, st),
-        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, st),
-        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, st),
-        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, st),
+        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, read_text_end, st),
+        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, read_text_end, st),
+        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, read_text_end, st),
+        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, read_text_end, st),
     }
 }
 

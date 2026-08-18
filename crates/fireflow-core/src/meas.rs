@@ -72,6 +72,7 @@ use std::io::{BufReader, Read, Seek};
 use std::iter::{empty, once, repeat};
 use std::marker::PhantomData;
 use std::mem;
+use std::time::Instant;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -3925,6 +3926,7 @@ where
         h: &mut BufReader<R>,
         tot: <V::DataSchema as VersionedDataSchema>::Tot,
         seg: &mut AnyDataOffsets,
+        start_time: Instant,
         conf: &ReadDatasetConfig,
     ) -> WarningsAndIOGroupResult<
         ReadDataFrameResult<VCoreMeasurements<<V as VersionMeasSet>::DataFrame, V>>,
@@ -3937,13 +3939,13 @@ where
         V::DataSchema: VersionedDataSchema + DataSchemaToEmptyDataFrame<DfTarget = V::DataFrame>,
     {
         self.data
-            .h_read_df(h, tot, seg, conf)
+            .h_read_df(h, tot, seg, start_time, conf)
             .map_ok_value(|df_out| {
                 // New dataframe should have same metadata and column number
                 // compared to old schema, so calling new with no checks should
                 // be valid.
                 let new = CoreMeasurements::new(self.meta, df_out.inner);
-                ReadDataFrameResult::new(new, df_out.diagnostics)
+                ReadDataFrameResult::new(new, df_out.diagnostics, df_out.read_end)
             })
     }
 }

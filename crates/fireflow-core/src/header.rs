@@ -4,6 +4,7 @@ use crate::config::{
     AppendableFlag, ConfigFlag as _, ReadHeaderInnerConfig, ReadOffsetConfig,
     SelectVersionStrategy, VersionOverride,
 };
+use crate::convert::InstantExt as _;
 use crate::core::{DarkBytes, Other, WriteHeaderAndTextConfig};
 use crate::logging::{
     IOAnonErrorGroup, IOErrorGroup, IOGroupResult, LogResult, ResultExt as _,
@@ -51,6 +52,7 @@ use thiserror::Error;
 use std::fmt::{self, Write as _};
 use std::io::{self, BufReader, BufWriter, Read, Seek, SeekFrom, Write as _};
 use std::iter::once;
+use std::time::Instant;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -146,13 +148,23 @@ pub struct Header {
     /// The "end of the HEADER" is the first byte after the second ANALYSIS
     /// offset or the last OTHER offset pair if it exists.
     pub dark_bytes: Option<DarkBytes>,
+
+    /// The number of nanoseconds spent reading HEADER.
+    pub read_header_ns: u128,
+}
+
+/// Result of parsing HEADER.
+#[derive(new)]
+pub struct ParseHeaderOutput {
+    pub(crate) header: Header,
+    pub(crate) read_end: Instant,
 }
 
 impl Header {
     pub fn h_read<C, R>(
         h: &mut BufReader<R>,
         st: &mut HeaderReadState<C>,
-    ) -> WarningsAndIOGroupResult<Self, GuessOtherWidthError, HeaderError, ()>
+    ) -> WarningsAndIOGroupResult<ParseHeaderOutput, GuessOtherWidthError, HeaderError, ()>
     where
         C: AsRef<ReadHeaderInnerConfig> + AsRef<ReadOffsetConfig>,
         R: Read + Seek,
@@ -195,7 +207,12 @@ impl Header {
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .map_ok_value(|(final_, overlaps)| {
-                        Self::new(d, req.version, final_, original, overlaps, dark_other)
+                        let t0 = st.start_time();
+                        let t1 = Instant::now();
+                        let t = t1.duration_since1(t0).as_nanos();
+                        let hdr =
+                            Self::new(d, req.version, final_, original, overlaps, dark_other, t);
+                        ParseHeaderOutput::new(hdr, t1)
                     })
             })
     }

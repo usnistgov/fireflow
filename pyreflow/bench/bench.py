@@ -427,8 +427,9 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             conf = conf.new_scalpal()
         conf.time_meas_pattern = None
         start = perf_counter_ns()
-        conf.read_std_text(root / self.fcs_name())
-        return perf_counter_ns() - start
+        _, diag = conf.read_std_text(root / self.fcs_name())
+        total = perf_counter_ns() - start
+        return total
 
     def read_flat_data(
         self,

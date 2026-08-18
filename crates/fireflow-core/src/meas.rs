@@ -3945,7 +3945,13 @@ where
                 // compared to old schema, so calling new with no checks should
                 // be valid.
                 let new = CoreMeasurements::new(self.meta, df_out.inner);
-                ReadDataFrameResult::new(new, df_out.diagnostics, df_out.read_end)
+                ReadDataFrameResult::new(
+                    new,
+                    df_out.diagnostics,
+                    df_out.read_time,
+                    df_out.check_ranges_time,
+                    df_out.check_ranges_end,
+                )
             })
     }
 }

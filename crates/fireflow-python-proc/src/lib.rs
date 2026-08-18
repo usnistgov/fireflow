@@ -1719,6 +1719,13 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.read_data_ns),
     );
 
+    let check_range_ns = DocArgROIvar::new_ivar_ro(
+        "check_range_ns",
+        RsInt::U128,
+        format!("Number of nanoseconds spent checking {DATA} against {PNR}."),
+        |_, _| quote!(self.0.check_range_ns),
+    );
+
     let read_crc_ns = DocArgROIvar::new_ivar_ro(
         "read_crc_ns",
         RsInt::U128,
@@ -1753,6 +1760,7 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
         next_dataset_offset,
         next_dataset_manually_scanned,
         read_data_ns,
+        check_range_ns,
         read_crc_ns,
         read_dark_bytes_ns,
         scan_next_ns,
@@ -1776,6 +1784,7 @@ pub fn impl_py_read_dataset_diagnostics(input: TokenStream) -> TokenStream {
                     next_dataset_offset,
                     next_dataset_manually_scanned,
                     read_data_ns,
+                    check_range_ns,
                     read_crc_ns,
                     read_dark_bytes_ns,
                     scan_next_ns
@@ -3086,6 +3095,11 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         format!("Number of nanoseconds spent reading {DATA}."),
     );
 
+    let check_range_ns = read_ns(
+        "check_range_ns",
+        format!("Number of nanoseconds spent checking {DATA} against {PNR}."),
+    );
+
     let read_crc_ns = read_ns(
         "read_crc_ns",
         "Number of nanoseconds spent computing the CRC.".into(),
@@ -3118,6 +3132,7 @@ pub fn impl_py_dataset_summary(input: TokenStream) -> TokenStream {
         read_text_ns,
         read_schema_ns,
         read_data_ns,
+        check_range_ns,
         read_crc_ns,
         read_dark_bytes_ns,
         scan_next_ns,

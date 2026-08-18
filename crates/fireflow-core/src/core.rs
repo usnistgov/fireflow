@@ -940,6 +940,9 @@ pub struct DatasetDiagnostics {
     /// The number of nanoseconds spent reading DATA
     pub read_data_ns: u128,
 
+    /// The number of nanoseconds spent checking DATA with $PnR.
+    pub check_range_ns: u128,
+
     /// The number of nanoseconds spent reading dark bytes
     pub read_dark_bytes_ns: u128,
 
@@ -2093,6 +2096,7 @@ impl_version_set!(Version3_2, InnerRootMeta3_2, TEXTOffsets3_2);
 //
 // Used to keep messy functions out of public API
 
+#[allow(clippy::too_many_arguments)]
 #[derive(new)]
 pub(crate) struct LookupFlatDatasetOutput {
     pub(crate) df: PrimitiveDataFrame,
@@ -2101,7 +2105,9 @@ pub(crate) struct LookupFlatDatasetOutput {
     pub(crate) event_diag: EventsDiagnostics,
     pub(crate) schema_diag: DataSchemaDiagnostics,
     pub(crate) repair_diag: RepairDiagnostics,
-    pub(crate) read_end: Instant,
+    pub(crate) read_time: Duration,
+    pub(crate) check_ranges_time: Duration,
+    pub(crate) check_range_end: Instant,
 }
 
 pub(crate) trait PrivVersionSet: VersionSet {
@@ -2194,7 +2200,9 @@ pub(crate) trait PrivVersionSet: VersionSet {
                                             df_out.diagnostics,
                                             layout_out.diagnostics,
                                             repair_diag,
-                                            df_out.read_end,
+                                            df_out.read_time,
+                                            df_out.check_ranges_time,
+                                            df_out.check_ranges_end,
                                         )
                                     })
                                     .map_err(IOErrorGroup::from)
@@ -6448,9 +6456,10 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                         let s = scan_next_dataset;
                         let ns = core.nonstandard_keywords;
                         let new = Self::new(core.rootmeta, df_out.inner, ns, analysis, other);
-                        let r1 = df_out.read_end;
-                        let rd = r1.duration_since1(r0);
-                        DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, rd, r1, st)
+                        let rd = df_out.read_time;
+                        let cd = df_out.check_ranges_time;
+                        let t0 = df_out.check_ranges_end;
+                        DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, rd, cd, t0, st)
                             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                             .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                             .repack_warnings()
@@ -7567,6 +7576,7 @@ impl DatasetDiagnostics {
         dataset_offsets: &DatasetOffsets,
         scan_next_dataset: bool,
         read_data_time: Duration,
+        check_ranges_time: Duration,
         read_data_end: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningAndIOGroupResult<Self, CRCError, CRCError, ()>
@@ -7699,6 +7709,7 @@ impl DatasetDiagnostics {
                 next_dataset_abs_start,
                 scan_next_dataset,
                 read_data_time.as_nanos(),
+                check_ranges_time.as_nanos(),
                 read_dark_bytes_ns.as_nanos(),
                 crc_out.read_time.as_nanos(),
                 scan_next_ns.as_nanos(),

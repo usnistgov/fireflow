@@ -191,7 +191,7 @@ use std::marker::PhantomData;
 use std::mem;
 use std::num::NonZeroU8;
 use std::ops::Shr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -864,7 +864,9 @@ impl TruncatedValueResult {
 pub struct ReadDataFrameResult<D> {
     pub(crate) inner: D,
     pub(crate) diagnostics: EventsDiagnostics,
-    pub(crate) read_end: Instant,
+    pub(crate) read_time: Duration,
+    pub(crate) check_ranges_time: Duration,
+    pub(crate) check_ranges_end: Instant,
 }
 
 #[derive(new)]
@@ -1919,24 +1921,40 @@ where
                     // check dataframe ranges (if configured)
                     let trunc = conf.over_bitmask_action;
                     let flag = conf.over_range_action;
-                    res.dataframe
+                    let read_end = Instant::now();
+                    let check_res = res
+                        .dataframe
                         .check_ranges_mut(trunc, flag)
                         .group()
                         .map_error(ReadCheckedDataframeError::from)
                         .map_error(IOErrorGroup::new_pure_one)
-                        .map_commutative_warnings(ReadCheckedDataframeWarning::from)
-                        .map_ok_value(|overrange| {
-                            let df = res.dataframe;
-                            let diag = res.diagnostics.add_overrange(overrange);
-                            let read_end = Instant::now();
-                            ReadDataFrameResult::new(df, diag, read_end)
-                        })
+                        .map_commutative_warnings(ReadCheckedDataframeWarning::from);
+                    let check_ranges_end = Instant::now();
+                    check_res.map_ok_value(|overrange| {
+                        let df = res.dataframe;
+                        let diag = res.diagnostics.add_overrange(overrange);
+                        let read_time = read_end.duration_since1(start_time);
+                        let check_ranges_time = check_ranges_end.duration_since1(read_end);
+                        ReadDataFrameResult::new(
+                            df,
+                            diag,
+                            read_time,
+                            check_ranges_time,
+                            check_ranges_end,
+                        )
+                    })
                 })
         } else {
             // if we cannot get coords, it means the segment is empty, thus the
             // returned dataframe should be empty
-            let ret =
-                ReadDataFrameResult::new(self.empty(), EventsDiagnostics::default(), start_time);
+            let diag = EventsDiagnostics::default();
+            let ret = ReadDataFrameResult::new(
+                self.empty(),
+                diag,
+                Duration::default(),
+                Duration::default(),
+                start_time,
+            );
             LogResult::new_ok(ret)
         }
     }

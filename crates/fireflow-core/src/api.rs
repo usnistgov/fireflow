@@ -778,6 +778,9 @@ pub struct DatasetSummary {
     /// Number of nanoseconds spent reading DATA
     pub read_data_ns: u128,
 
+    /// Number of nanoseconds spent checking DATA against PNR
+    pub check_range_ns: u128,
+
     /// Number of nanoseconds spent computing the CRC
     pub read_crc_ns: u128,
 
@@ -1689,6 +1692,7 @@ impl FlatDatasetOutput {
             read_text_ns: fd.read_text_ns,
             read_schema_ns: ds.schema_diagnostics.read_schema_ns,
             read_data_ns: ds.dataset_diagnostics.read_data_ns,
+            check_range_ns: ds.dataset_diagnostics.check_range_ns,
             read_crc_ns: ds.dataset_diagnostics.read_crc_ns,
             read_dark_bytes_ns: ds.dataset_diagnostics.read_dark_bytes_ns,
             scan_next_ns: ds.dataset_diagnostics.scan_next_ns,
@@ -1723,10 +1727,10 @@ impl FlatDatasetFromKwsOutput {
                 let v = new_version;
                 let d = &out.ds_offsets;
                 let ed = out.event_diag;
-                let r0 = start_time;
-                let r1 = out.read_end;
-                let rd = r1.duration_since1(r0);
-                DatasetDiagnostics::from_parts(h, v, ed, hns, d, scan_next_dataset, rd, r1, st)
+                let rd = out.read_time;
+                let cd = out.check_ranges_time;
+                let t0 = out.check_range_end;
+                DatasetDiagnostics::from_parts(h, v, ed, hns, d, scan_next_dataset, rd, cd, t0, st)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .repack_warnings()

@@ -2542,6 +2542,7 @@ class DatasetDiagnostics:
         next_dataset_manually_scanned: bool,
         read_data_ns: int,
         check_range_ns: int,
+        read_other_analysis_ns: int,
         read_crc_ns: int,
         read_dark_bytes_ns: int,
         scan_next_ns: int,
@@ -2573,6 +2574,8 @@ class DatasetDiagnostics:
     def read_data_ns(self) -> int: ...
     @property
     def check_range_ns(self) -> int: ...
+    @property
+    def read_other_analysis_ns(self) -> int: ...
     @property
     def read_crc_ns(self) -> int: ...
     @property
@@ -2784,6 +2787,7 @@ class DatasetSummary:
         read_schema_ns: int,
         read_data_ns: int,
         check_range_ns: int,
+        read_other_analysis_ns: int,
         read_crc_ns: int,
         read_dark_bytes_ns: int,
         scan_next_ns: int,
@@ -2823,6 +2827,8 @@ class DatasetSummary:
     def read_data_ns(self) -> int: ...
     @property
     def check_range_ns(self) -> int: ...
+    @property
+    def read_other_analysis_ns(self) -> int: ...
     @property
     def read_crc_ns(self) -> int: ...
     @property

@@ -864,9 +864,9 @@ impl TruncatedValueResult {
 pub struct ReadDataFrameResult<D> {
     pub(crate) inner: D,
     pub(crate) diagnostics: EventsDiagnostics,
-    pub(crate) read_time: Duration,
+    pub(crate) read_data_time: Duration,
     pub(crate) check_ranges_time: Duration,
-    pub(crate) check_ranges_end: Instant,
+    pub(crate) read_end: Instant,
 }
 
 #[derive(new)]

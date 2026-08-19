@@ -3948,9 +3948,9 @@ where
                 ReadDataFrameResult::new(
                     new,
                     df_out.diagnostics,
-                    df_out.read_time,
+                    df_out.read_data_time,
                     df_out.check_ranges_time,
-                    df_out.check_ranges_end,
+                    df_out.read_end,
                 )
             })
     }

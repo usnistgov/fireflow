@@ -943,6 +943,9 @@ pub struct DatasetDiagnostics {
     /// The number of nanoseconds spent checking DATA with $PnR.
     pub check_range_ns: u128,
 
+    /// The number of nanoseconds spent reading OTHER and/or ANALYSIS.
+    pub read_other_analysis_ns: u128,
+
     /// The number of nanoseconds spent reading dark bytes
     pub read_dark_bytes_ns: u128,
 
@@ -1182,7 +1185,7 @@ impl StdTEXTDiagnostics {
         schema: DataSchemaDiagnostics,
         post_start_time: Instant,
         pre: Duration,
-    ) -> Self {
+    ) -> (Self, Instant) {
         let mut trimmed = metaroot.trimmed;
         trimmed.extend(meas.trimmed);
         trimmed.extend(metaroot.spillover.trimmed);
@@ -1191,9 +1194,10 @@ impl StdTEXTDiagnostics {
         // middle of "standardization" but we can't just compute the end instant
         // for standardization since we have this extend stuff above which
         // probably will take some time.
-        let post = Instant::now().duration_since1(post_start_time);
+        let std_end = Instant::now();
+        let post = std_end.duration_since1(post_start_time);
         let read_std_ns = (post + pre).as_nanos();
-        Self {
+        let ret = Self {
             optional,
             pseudostandard: extra.pseudostandard,
             hyper_par: extra.hyper_par,
@@ -1217,7 +1221,8 @@ impl StdTEXTDiagnostics {
             last_modified_pattern: metaroot.last_modified_pattern,
             schema_diagnostics: schema,
             read_std_ns,
-        }
+        };
+        (ret, std_end)
     }
 }
 
@@ -2101,13 +2106,20 @@ impl_version_set!(Version3_2, InnerRootMeta3_2, TEXTOffsets3_2);
 pub(crate) struct LookupFlatDatasetOutput {
     pub(crate) df: PrimitiveDataFrame,
     pub(crate) analysis: Analysis,
+    pub(crate) others: Others,
     pub(crate) ds_offsets: DatasetOffsets,
     pub(crate) event_diag: EventsDiagnostics,
     pub(crate) schema_diag: DataSchemaDiagnostics,
     pub(crate) repair_diag: RepairDiagnostics,
-    pub(crate) read_time: Duration,
+    pub(crate) timings: LookupFlatDatasetTimings,
+}
+
+#[derive(new)]
+pub(crate) struct LookupFlatDatasetTimings {
+    pub(crate) read_data_time: Duration,
     pub(crate) check_ranges_time: Duration,
-    pub(crate) check_range_end: Instant,
+    pub(crate) read_other_analysis_time: Duration,
+    pub(crate) end: Instant,
 }
 
 pub(crate) trait PrivVersionSet: VersionSet {
@@ -2182,6 +2194,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
                     .group()
                     .map_error(IOErrorGroup::Pure)
                     .and_then_commutative(|(mut layout_out, mut offsets, repair_diag)| {
+                        let or = hns.header.final_offsets.others_reader();
                         let ar = AnalysisReader::new(offsets.offsets.final_analysis);
                         let fd = &mut offsets.offsets.final_data;
                         let t0 = layout_out.end_time;
@@ -2191,22 +2204,28 @@ pub(crate) trait PrivVersionSet: VersionSet {
                             .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                             .map_pure_errors(LookupAndReadDataAnalysisError::from)
                             .and_then_commutative(|df_out| {
-                                ar.h_read(h)
-                                    .map(|a| {
-                                        LookupFlatDatasetOutput::new(
-                                            df_out.inner.into(),
-                                            a,
-                                            offsets.offsets,
-                                            df_out.diagnostics,
-                                            layout_out.diagnostics,
-                                            repair_diag,
-                                            df_out.read_time,
-                                            df_out.check_ranges_time,
-                                            df_out.check_ranges_end,
-                                        )
-                                    })
-                                    .map_err(IOErrorGroup::from)
-                                    .into_log()
+                                let analysis = io_to_log!(ar.h_read(h));
+                                let others = io_to_log!(or.h_read(h));
+                                let read_other_anal_end = Instant::now();
+                                let read_other_analysis_time =
+                                    read_other_anal_end.duration_since1(df_out.read_end);
+                                let timings = LookupFlatDatasetTimings::new(
+                                    df_out.read_data_time,
+                                    df_out.check_ranges_time,
+                                    read_other_analysis_time,
+                                    read_other_anal_end,
+                                );
+                                let ret = LookupFlatDatasetOutput::new(
+                                    df_out.inner.into(),
+                                    analysis,
+                                    others,
+                                    offsets.offsets,
+                                    df_out.diagnostics,
+                                    layout_out.diagnostics,
+                                    repair_diag,
+                                    timings,
+                                );
+                                LogResult::new_ok(ret)
                             })
                     })
             })
@@ -3673,11 +3692,17 @@ impl<M: VersionedRootMeta> RootMeta<M> {
 // Implement methods for Core*
 
 #[derive(new)]
-pub(crate) struct CoreFromKwsWithOffsetOutput<T, O> {
-    pub(crate) this: T,
+pub(crate) struct LookupCoreWithOffsetOutput<T, O> {
+    pub(crate) core: LookupCoreOutput<T>,
     pub(crate) offsets: O,
-    pub(crate) std_diag: StdTEXTDiagnostics,
     pub(crate) repair_diag: RepairDiagnostics,
+}
+
+#[derive(new)]
+pub(crate) struct LookupCoreOutput<T> {
+    pub(crate) this: T,
+    pub(crate) std_diag: StdTEXTDiagnostics,
+    pub(crate) lookup_end: Instant,
 }
 
 impl CoreTEXT2_0 {
@@ -5751,7 +5776,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         start_time: Instant,
         st: &TEXTReadState<C>,
     ) -> WarningsAndErrorsResult<
-        CoreFromKwsWithOffsetOutput<Self, MetarootTEXTOffsets<V>>,
+        LookupCoreWithOffsetOutput<Self, MetarootTEXTOffsets<V>>,
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTErrorInner,
@@ -5785,7 +5810,9 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
 
         Self::lookup_inner(kws, dropped, start_time, st.conf())
             .zip3_commutative(offsets_res, repair_res)
-            .map_ok_value(|((a, b), c, d)| CoreFromKwsWithOffsetOutput::new(a, c, b, d))
+            .map_ok_value(|(core, core_offsets, repair_diag)| {
+                LookupCoreWithOffsetOutput::new(core, core_offsets, repair_diag)
+            })
     }
 
     /// Make a new CoreTEXT from flat keywords.
@@ -5844,7 +5871,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     .map_errors(StdTEXTFromKeywordsError::from)
                     .map_commutative_warnings(StdTEXTFromKeywordsWarning::from)
                     .zip_commutative(repair_res)
-                    .map_ok_value(|((a, b), c)| (a, b, c))
+                    .map_ok_value(|(out, repair_diag)| (out.this, out.std_diag, repair_diag))
                     .group()
             })
     }
@@ -5856,7 +5883,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         start_time: Instant,
         conf: &C,
     ) -> WarningsAndErrorsResult<
-        (Self, StdTEXTDiagnostics),
+        LookupCoreOutput<Self>,
         (),
         StdTEXTFromFlatTEXTWarning,
         StdTEXTFromFlatTEXTErrorInner,
@@ -6013,7 +6040,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 )| {
                     let std_pre_ns = schema_start_time.duration_since1(start_time);
 
-                    let d = StdTEXTDiagnostics::from_extra(
+                    let (diag, std_end) = StdTEXTDiagnostics::from_extra(
                         extra,
                         dropped,
                         original_names,
@@ -6023,7 +6050,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                         schema_end_time,
                         std_pre_ns,
                     );
-                    (ret, d)
+                    LookupCoreOutput::new(ret, diag, std_end)
                 },
             )
         })
@@ -6436,15 +6463,18 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .group()
             .map_error(IOErrorGroup::Pure)
             .and_then_commutative(|std_out| {
-                let core = std_out.this;
+                let core = std_out.core.this;
                 let mut offsets = std_out.offsets;
                 let or = hns.header.final_offsets.others_reader();
                 let ar = AnalysisReader::new(offsets.offsets.final_analysis);
-                let other = io_to_log!(or.h_read(h));
-                let analysis = io_to_log!(ar.h_read(h));
                 let version = core.fcs_version();
                 let final_data = &mut offsets.offsets.final_data;
-                let r0 = Instant::now();
+                let other = io_to_log!(or.h_read(h));
+                let analysis = io_to_log!(ar.h_read(h));
+                let read_other_anal_end = Instant::now();
+                let read_other_anal_time =
+                    read_other_anal_end.duration_since1(std_out.core.lookup_end);
+                let r0 = read_other_anal_end;
                 core.meas
                     .h_read_df(h, offsets.tot, final_data, r0, st.conf().as_ref())
                     .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
@@ -6456,10 +6486,13 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                         let s = scan_next_dataset;
                         let ns = core.nonstandard_keywords;
                         let new = Self::new(core.rootmeta, df_out.inner, ns, analysis, other);
-                        let rd = df_out.read_time;
-                        let cd = df_out.check_ranges_time;
-                        let t0 = df_out.check_ranges_end;
-                        DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, rd, cd, t0, st)
+                        let ts = LookupFlatDatasetTimings::new(
+                            df_out.read_data_time,
+                            df_out.check_ranges_time,
+                            read_other_anal_time,
+                            df_out.read_end,
+                        );
+                        DatasetDiagnostics::from_parts(h, v, ed, hns, d, s, &ts, st)
                             .map_commutative_warnings(StdDatasetFromFlatTEXTWarning::from)
                             .map_pure_errors(StdDatasetFromFlatTextErrorInner::from)
                             .repack_warnings()
@@ -6467,7 +6500,7 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
                                 let diag = StdDatasetFromKwsOutput::new(
                                     offsets.offsets,
                                     std_out.repair_diag,
-                                    std_out.std_diag,
+                                    std_out.core.std_diag,
                                     ds_diag,
                                 );
                                 (new, diag)
@@ -7032,8 +7065,8 @@ impl AnyCoreTEXT {
                 $t::new_from_keywords_with_offsets(kws, offsets, read_text_end, $st)
                     .map_ok_value(|std_out| {
                         AnyCoreOutput::new(
-                            std_out.this.into(),
-                            std_out.std_diag,
+                            std_out.core.this.into(),
+                            std_out.core.std_diag,
                             std_out.offsets.into_common(),
                             std_out.repair_diag,
                             $s,
@@ -7575,9 +7608,7 @@ impl DatasetDiagnostics {
         header_supp_offsets: &HeaderAndSuppOffsets,
         dataset_offsets: &DatasetOffsets,
         scan_next_dataset: bool,
-        read_data_time: Duration,
-        check_ranges_time: Duration,
-        read_data_end: Instant,
+        timings: &LookupFlatDatasetTimings,
         st: &TEXTReadState<C>,
     ) -> WarningAndIOGroupResult<Self, CRCError, CRCError, ()>
     where
@@ -7610,7 +7641,7 @@ impl DatasetDiagnostics {
             ));
             (dark, Instant::now())
         } else {
-            (vec![], read_data_end)
+            (vec![], timings.end)
         };
 
         // If desired, manually determine the "real" boundary of this dataset by
@@ -7688,7 +7719,7 @@ impl DatasetDiagnostics {
                 (vec![], crc_out.read_end)
             };
 
-            let read_intra_dark_ns = read_intra_dark_end.duration_since1(read_data_end);
+            let read_intra_dark_ns = read_intra_dark_end.duration_since1(timings.end);
 
             let scan_next_ns = scan_next_end.duration_since1(read_intra_dark_end);
 
@@ -7708,8 +7739,9 @@ impl DatasetDiagnostics {
                 dataset_len,
                 next_dataset_abs_start,
                 scan_next_dataset,
-                read_data_time.as_nanos(),
-                check_ranges_time.as_nanos(),
+                timings.read_data_time.as_nanos(),
+                timings.check_ranges_time.as_nanos(),
+                timings.read_other_analysis_time.as_nanos(),
                 read_dark_bytes_ns.as_nanos(),
                 crc_out.read_time.as_nanos(),
                 scan_next_ns.as_nanos(),

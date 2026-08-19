@@ -216,6 +216,19 @@ type DType = UintDType | type[pl.Float32] | type[pl.Float64]
 type Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 
 
+class FFInternalResult(NamedTuple):
+    name: str
+    scalpal: bool
+    total_ns: int
+    read_header_ns: int
+    read_text_ns: int
+    read_std_ns: int
+    read_schema_ns: int
+    read_data_ns: int
+    check_range_ns: int
+    read_crc_ns: int
+
+
 @dataclass(frozen=True)
 class BenchResult[X]:
     name: str
@@ -541,6 +554,56 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
         )
 
         assert core.data.equals(nu_core.data)
+
+
+class FFInternalBenchRun(NamedTuple):
+    """A benchmark run for fireflow (internal testing)."""
+
+    name: str
+    scalpal: bool
+
+    def fcs_name(self, suffix: str | None = None) -> Path:
+        if suffix is not None:
+            return Path(f"{self.name}_{suffix}.fcs")
+        return Path(f"{self.name}.fcs")
+
+    def read_std_data(self, root: Path) -> FFInternalResult:
+        conf = pfp.PyreflowReadStdDatasetConfig()
+        if self.scalpal:
+            conf = conf.new_scalpal()
+        conf.over_range_action = "warn"
+        conf.compute_crc = "always"
+        conf.time_meas_pattern = None
+
+        target = root / self.fcs_name()
+
+        opts = conf.model_dump()
+
+        gc.collect()
+        start = perf_counter_ns()
+        _, diag = pf.api.fcs_read_std_dataset(target, **opts)
+        end = perf_counter_ns()
+
+        total = end - start
+
+        fd = diag.flat_diagnostics
+        ds = diag.dataset
+        sd = ds.std_diagnostics
+        dds = ds.dataset_diagnostics
+
+        ret = FFInternalResult(
+            self.name,
+            self.scalpal,
+            total,
+            fd.header_supp.header.read_header_ns,
+            fd.read_text_ns,
+            sd.read_std_ns,
+            sd.schema_diagnostics.read_schema_ns,
+            dds.read_data_ns,
+            dds.check_range_ns,
+            dds.read_crc_ns,
+        )
+        return ret
 
 
 type AnyBenchRun = FCSParserBenchRun | FlowIOBenchRun | FlowCoreBenchRun | FFBenchRun
@@ -1524,171 +1587,200 @@ def run_ff_bench(
 
     bench_files = read_bench_files(input_root, names_filter)
     runs = [
-        *ff_runs(bench_files, input_root, scratch_root, False, True),
-        *ff_runs(bench_files, input_root, scratch_root, False, False),
+        FFInternalBenchRun(n, s)
+        for n in bench_files[BENCH_NAME]
+        for _ in range(0, 3)
+        for s in [True, False]
     ]
 
     # warm up code paths and load files into page cache
-    _ = [r.run(input_root, scratch_root) for r in set(runs)]
+    _ = [r.read_std_data(input_root) for r in set(runs)]
 
     # randomly shuffle runs to eliminate temporal bias
     shuffle(runs)
-    results = [r.run(input_root, scratch_root) for r in runs]
+    results = [r.read_std_data(input_root) for r in runs]
 
-    def to_df(key: tuple[FFBenchKey, bool], name: str, runs_name: str) -> pl.DataFrame:
-        runs = get_runs(key)
-        rs = [r for r in results if r.key == key]
-        full_name = f"{name}_ns"
-        result_df = pl.DataFrame(
-            [[r.name for r in rs], [r.value for r in rs]],
-            {BENCH_NAME: pl.String, full_name: pl.Float32},
+    df = (
+        pl.DataFrame(results)
+        .with_columns(
+            (
+                pl.col("read_header_ns")
+                + pl.col("read_text_ns")
+                + pl.col("read_std_ns")
+                + pl.col("read_schema_ns")
+                + pl.col("read_data_ns")
+                + pl.col("check_range_ns")
+                + pl.col("read_crc_ns")
+            ).alias("rs_total_ns"),
         )
-        return (
-            result_df.group_by(BENCH_NAME)
-            .agg(
-                pl.col(full_name).mean().name.prefix("mean_"),
-                (
-                    pl.col(full_name).std() / pl.col(full_name).count().sqrt()
-                ).name.prefix("serr_")
-                * 1.96,
-            )
-            .with_columns(pl.lit(runs).alias(runs_name))
+        .with_columns(
+            (pl.col("total_ns") - pl.col("rs_total_ns")).alias("py_overhead_ns")
         )
-
-    def analyze(scalpal: bool) -> pl.DataFrame:
-        read_text_df = to_df((FFBenchKey.READ_FLAT, scalpal), "r_text", READ_TEXT_RUNS)
-        read_std_df = to_df((FFBenchKey.READ_STD, scalpal), "r_std", READ_STD_RUNS)
-        read_data_df = to_df((FFBenchKey.READ_DATA, scalpal), "r_data", READ_DATA_RUNS)
-        read_data_rng_df = to_df(
-            (FFBenchKey.READ_DATA_RNG, scalpal), "r_data_rng", READ_DATA_RNG_RUNS
+        .with_columns(
+            pl.when(pl.col("scalpal"))
+            .then(pl.lit(FIREFLOW_FIX))
+            .otherwise(pl.lit(FIREFLOW))
+            .alias(LIBRARY)
         )
-        read_data_crc_df = to_df(
-            (FFBenchKey.READ_DATA_CRC, scalpal), "r_data_crc", READ_DATA_CRC_RUNS
-        )
-        write_text_df = to_df(
-            (FFBenchKey.WRITE_TEXT, scalpal), "w_text", WRITE_TEXT_RUNS
-        )
-        write_data_df = to_df(
-            (FFBenchKey.WRITE_DATA, scalpal), "w_data", WRITE_DATA_RUNS
-        )
-
-        df_read = compute_read_df(
-            bench_files,
-            read_text_df,
-            read_data_df,
-        )
-
-        df_read_write = compute_write_df(
-            df_read,
-            write_text_df,
-            write_data_df,
-        )
-
-        df_analyzed = (
-            df_read_write.join(read_std_df, on=BENCH_NAME)
-            .with_columns(
-                # compute the overhead of standardizing TEXT by taking difference of
-                # total std run and flat run
-                (
-                    (pl.col(MEAN_READ_STD_NS) - pl.col(MEAN_READ_TEXT_NS))
-                    / pl.col(N_KEYWORDS)
-                ).alias(MEAN_READ_STD_DIFF_NS_PER_KW),
-                (
-                    (
-                        pl.col(SERR_READ_STD_NS).pow(2)
-                        + pl.col(SERR_READ_TEXT_NS).pow(2)
-                    ).sqrt()
-                    / pl.col(N_KEYWORDS)
-                ).alias(SERR_READ_STD_DIFF_NS_PER_KW),
-                # also compute the ratio of standard to flat (no variance since this
-                # is really complex
-                (
-                    pl.col(MEAN_READ_STD_NS) / pl.col(MEAN_READ_TEXT_NS) * 100 - 100
-                ).alias("r_std_ratio"),
-            )
-            .join(read_data_rng_df, on=BENCH_NAME)
-            .with_columns(
-                # compute time taken to check ranges by taking difference of reading
-                # DATA with and without range change applied. Note that there should
-                # be no actual range errors given how to dataframes were built.
-                (pl.col(MEAN_READ_DATA_RNG_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
-                    MEAN_READ_DATA_RNG_DIFF_NS
-                ),
-                (
-                    pl.col(SERR_READ_DATA_RNG_NS).pow(2)
-                    + pl.col(SERR_READ_DATA_NS).pow(2)
-                )
-                .sqrt()
-                .alias(SERR_READ_DATA_RNG_DIFF_NS),
-                # also compute the ratio of DATA+range check to reading DATA alone
-                # (no variance since this is really complex
-                (
-                    pl.col(MEAN_READ_DATA_RNG_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
-                    - 100
-                ).alias("r_data_rng_ratio"),
-            )
-            .join(read_data_crc_df, on=BENCH_NAME)
-            .with_columns(
-                # do analogous calculation to range check for CRC computation
-                (pl.col(MEAN_READ_DATA_CRC_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
-                    MEAN_READ_DATA_CRC_DIFF_NS
-                ),
-                (
-                    pl.col(SERR_READ_DATA_CRC_NS).pow(2)
-                    + pl.col(SERR_READ_DATA_NS).pow(2)
-                )
-                .sqrt()
-                .alias(SERR_READ_DATA_CRC_DIFF_NS),
-                # also compute the ratio of DATA+CRC check to reading DATA alone
-                # (no variance since this is really complex
-                (
-                    pl.col(MEAN_READ_DATA_CRC_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
-                    - 100
-                ).alias("r_data_crc_ratio"),
-            )
-            .with_columns(
-                # ratio of write to read (no variance because this more complicated than its worth)
-                (pl.col(MEAN_READ_TEXT_NS) / pl.col(MEAN_WRITE_TEXT_NS) * 100).alias(
-                    "text_rw_ratio"
-                ),
-                (pl.col("mean_r_data_ns") / pl.col(MEAN_WRITE_DATA_NS) * 100).alias(
-                    "data_rw_ratio"
-                ),
-                # normalize the CRC and range check differences similar to
-                # standardization overhead
-                (
-                    pl.col(MEAN_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)
-                ).alias(MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL),
-                (
-                    pl.col(SERR_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)
-                ).alias(SERR_READ_DATA_RNG_DIFF_NS_PER_VAL),
-                (
-                    pl.col(MEAN_READ_DATA_CRC_DIFF_NS)
-                    / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
-                    * 1000
-                ).alias(MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB),
-                (
-                    pl.col(SERR_READ_DATA_CRC_DIFF_NS)
-                    / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
-                    * 1000
-                ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KIB),
-            )
-        )
-
-        return df_analyzed.drop(["description"])
-
-    df_clean = analyze(False)
-    df_fix = analyze(True)
-
-    df_all = pl.concat(
-        [
-            df_clean.with_columns(library=pl.lit(FIREFLOW)),
-            df_fix.with_columns(library=pl.lit(FIREFLOW_FIX)),
-        ],
-        how="vertical",
+        .drop("scalpal")
     )
 
-    return df_all
+    return df
+
+    # def to_df(key: tuple[FFBenchKey, bool], name: str, runs_name: str) -> pl.DataFrame:
+    #     runs = get_runs(key)
+    #     rs = [r for r in results if r.key == key]
+    #     full_name = f"{name}_ns"
+    #     result_df = pl.DataFrame(
+    #         [[r.name for r in rs], [r.value for r in rs]],
+    #         {BENCH_NAME: pl.String, full_name: pl.Float32},
+    #     )
+    #     return (
+    #         result_df.group_by(BENCH_NAME)
+    #         .agg(
+    #             pl.col(full_name).mean().name.prefix("mean_"),
+    #             (
+    #                 pl.col(full_name).std() / pl.col(full_name).count().sqrt()
+    #             ).name.prefix("serr_")
+    #             * 1.96,
+    #         )
+    #         .with_columns(pl.lit(runs).alias(runs_name))
+    #     )
+
+    # def analyze(scalpal: bool) -> pl.DataFrame:
+    #     read_text_df = to_df((FFBenchKey.READ_FLAT, scalpal), "r_text", READ_TEXT_RUNS)
+    #     read_std_df = to_df((FFBenchKey.READ_STD, scalpal), "r_std", READ_STD_RUNS)
+    #     read_data_df = to_df((FFBenchKey.READ_DATA, scalpal), "r_data", READ_DATA_RUNS)
+    #     read_data_rng_df = to_df(
+    #         (FFBenchKey.READ_DATA_RNG, scalpal), "r_data_rng", READ_DATA_RNG_RUNS
+    #     )
+    #     read_data_crc_df = to_df(
+    #         (FFBenchKey.READ_DATA_CRC, scalpal), "r_data_crc", READ_DATA_CRC_RUNS
+    #     )
+    #     write_text_df = to_df(
+    #         (FFBenchKey.WRITE_TEXT, scalpal), "w_text", WRITE_TEXT_RUNS
+    #     )
+    #     write_data_df = to_df(
+    #         (FFBenchKey.WRITE_DATA, scalpal), "w_data", WRITE_DATA_RUNS
+    #     )
+
+    #     df_read = compute_read_df(
+    #         bench_files,
+    #         read_text_df,
+    #         read_data_df,
+    #     )
+
+    #     df_read_write = compute_write_df(
+    #         df_read,
+    #         write_text_df,
+    #         write_data_df,
+    #     )
+
+    #     df_analyzed = (
+    #         df_read_write.join(read_std_df, on=BENCH_NAME)
+    #         .with_columns(
+    #             # compute the overhead of standardizing TEXT by taking difference of
+    #             # total std run and flat run
+    #             (
+    #                 (pl.col(MEAN_READ_STD_NS) - pl.col(MEAN_READ_TEXT_NS))
+    #                 / pl.col(N_KEYWORDS)
+    #             ).alias(MEAN_READ_STD_DIFF_NS_PER_KW),
+    #             (
+    #                 (
+    #                     pl.col(SERR_READ_STD_NS).pow(2)
+    #                     + pl.col(SERR_READ_TEXT_NS).pow(2)
+    #                 ).sqrt()
+    #                 / pl.col(N_KEYWORDS)
+    #             ).alias(SERR_READ_STD_DIFF_NS_PER_KW),
+    #             # also compute the ratio of standard to flat (no variance since this
+    #             # is really complex
+    #             (
+    #                 pl.col(MEAN_READ_STD_NS) / pl.col(MEAN_READ_TEXT_NS) * 100 - 100
+    #             ).alias("r_std_ratio"),
+    #         )
+    #         .join(read_data_rng_df, on=BENCH_NAME)
+    #         .with_columns(
+    #             # compute time taken to check ranges by taking difference of reading
+    #             # DATA with and without range change applied. Note that there should
+    #             # be no actual range errors given how to dataframes were built.
+    #             (pl.col(MEAN_READ_DATA_RNG_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
+    #                 MEAN_READ_DATA_RNG_DIFF_NS
+    #             ),
+    #             (
+    #                 pl.col(SERR_READ_DATA_RNG_NS).pow(2)
+    #                 + pl.col(SERR_READ_DATA_NS).pow(2)
+    #             )
+    #             .sqrt()
+    #             .alias(SERR_READ_DATA_RNG_DIFF_NS),
+    #             # also compute the ratio of DATA+range check to reading DATA alone
+    #             # (no variance since this is really complex
+    #             (
+    #                 pl.col(MEAN_READ_DATA_RNG_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
+    #                 - 100
+    #             ).alias("r_data_rng_ratio"),
+    #         )
+    #         .join(read_data_crc_df, on=BENCH_NAME)
+    #         .with_columns(
+    #             # do analogous calculation to range check for CRC computation
+    #             (pl.col(MEAN_READ_DATA_CRC_NS) - pl.col(MEAN_READ_DATA_NS)).alias(
+    #                 MEAN_READ_DATA_CRC_DIFF_NS
+    #             ),
+    #             (
+    #                 pl.col(SERR_READ_DATA_CRC_NS).pow(2)
+    #                 + pl.col(SERR_READ_DATA_NS).pow(2)
+    #             )
+    #             .sqrt()
+    #             .alias(SERR_READ_DATA_CRC_DIFF_NS),
+    #             # also compute the ratio of DATA+CRC check to reading DATA alone
+    #             # (no variance since this is really complex
+    #             (
+    #                 pl.col(MEAN_READ_DATA_CRC_NS) / pl.col(MEAN_READ_DATA_DIFF_NS) * 100
+    #                 - 100
+    #             ).alias("r_data_crc_ratio"),
+    #         )
+    #         .with_columns(
+    #             # ratio of write to read (no variance because this more complicated than its worth)
+    #             (pl.col(MEAN_READ_TEXT_NS) / pl.col(MEAN_WRITE_TEXT_NS) * 100).alias(
+    #                 "text_rw_ratio"
+    #             ),
+    #             (pl.col("mean_r_data_ns") / pl.col(MEAN_WRITE_DATA_NS) * 100).alias(
+    #                 "data_rw_ratio"
+    #             ),
+    #             # normalize the CRC and range check differences similar to
+    #             # standardization overhead
+    #             (
+    #                 pl.col(MEAN_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)
+    #             ).alias(MEAN_READ_DATA_RNG_DIFF_NS_PER_VAL),
+    #             (
+    #                 pl.col(SERR_READ_DATA_RNG_DIFF_NS) / pl.col(WIDTH) / pl.col(HEIGHT)
+    #             ).alias(SERR_READ_DATA_RNG_DIFF_NS_PER_VAL),
+    #             (
+    #                 pl.col(MEAN_READ_DATA_CRC_DIFF_NS)
+    #                 / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
+    #                 * 1000
+    #             ).alias(MEAN_READ_DATA_CRC_DIFF_NS_PER_KIB),
+    #             (
+    #                 pl.col(SERR_READ_DATA_CRC_DIFF_NS)
+    #                 / (pl.col(TEXT_NBYTES) + pl.col(DATA_NBYTES))
+    #                 * 1000
+    #             ).alias(SERR_READ_DATA_CRC_DIFF_NS_PER_KIB),
+    #         )
+    #     )
+
+    #     return df_analyzed.drop(["description"])
+
+    # df_clean = analyze(False)
+    # df_fix = analyze(True)
+
+    # df_all = pl.concat(
+    #     [
+    #         df_clean.with_columns(library=pl.lit(FIREFLOW)),
+    #         df_fix.with_columns(library=pl.lit(FIREFLOW_FIX)),
+    #     ],
+    #     how="vertical",
+    # )
+
+    # return df_all
 
 
 def print_ff_df(df: pl.DataFrame, output_path: Path | None, pretty: bool) -> None:

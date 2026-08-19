@@ -781,6 +781,9 @@ pub struct DatasetSummary {
     /// Number of nanoseconds spent checking DATA against PNR
     pub check_range_ns: u128,
 
+    /// The number of nanoseconds spent reading OTHER and/or ANALYSIS.
+    pub read_other_analysis_ns: u128,
+
     /// Number of nanoseconds spent computing the CRC
     pub read_crc_ns: u128,
 
@@ -1693,6 +1696,7 @@ impl FlatDatasetOutput {
             read_schema_ns: ds.schema_diagnostics.read_schema_ns,
             read_data_ns: ds.dataset_diagnostics.read_data_ns,
             check_range_ns: ds.dataset_diagnostics.check_range_ns,
+            read_other_analysis_ns: ds.dataset_diagnostics.read_other_analysis_ns,
             read_crc_ns: ds.dataset_diagnostics.read_crc_ns,
             read_dark_bytes_ns: ds.dataset_diagnostics.read_dark_bytes_ns,
             scan_next_ns: ds.dataset_diagnostics.scan_next_ns,
@@ -1720,33 +1724,28 @@ impl FlatDatasetFromKwsOutput {
         R: Read + Seek,
         C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
     {
-        kws_to_df_analysis(new_version, h, kws, hns, start_time, st)
+        kws_to_flat_dataset(new_version, h, kws, hns, start_time, st)
             .map_pure_errors(LookupAndReadDataAnalysisError::from)
             .and_then_commutative(|out| {
-                let or = hns.header.final_offsets.others_reader();
+                let snd = scan_next_dataset;
                 let v = new_version;
                 let d = &out.ds_offsets;
                 let ed = out.event_diag;
-                let rd = out.read_time;
-                let cd = out.check_ranges_time;
-                let t0 = out.check_range_end;
-                DatasetDiagnostics::from_parts(h, v, ed, hns, d, scan_next_dataset, rd, cd, t0, st)
+                let t = &out.timings;
+                DatasetDiagnostics::from_parts(h, v, ed, hns, d, snd, t, st)
                     .map_commutative_warnings(LookupAndReadDataAnalysisWarning::from)
                     .map_pure_errors(LookupAndReadDataAnalysisError::from)
                     .repack_warnings()
-                    .and_then_commutative(|ds_diag| {
-                        let go = |others| {
-                            Self::new(
-                                out.df,
-                                out.analysis,
-                                others,
-                                out.ds_offsets,
-                                out.repair_diag,
-                                out.schema_diag,
-                                ds_diag,
-                            )
-                        };
-                        or.h_read(h).map(go).map_err(IOErrorGroup::from).into_log()
+                    .map_ok_value(|ds_diag| {
+                        Self::new(
+                            out.df,
+                            out.analysis,
+                            out.others,
+                            out.ds_offsets,
+                            out.repair_diag,
+                            out.schema_diag,
+                            ds_diag,
+                        )
                     })
             })
     }
@@ -2827,12 +2826,12 @@ impl SuppTEXTOffsetsOutput {
     }
 }
 
-fn kws_to_df_analysis<C, R>(
+fn kws_to_flat_dataset<C, R>(
     new_version: Version,
     h: &mut BufReader<R>,
     kws: &mut ValidKeywords,
     hns: &mut HeaderAndSuppOffsets,
-    read_text_end: Instant,
+    start_time: Instant,
     st: &TEXTReadState<C>,
 ) -> WarningsAndIOGroupResult<
     LookupFlatDatasetOutput,
@@ -2845,10 +2844,10 @@ where
     C: AsRef<ReadDataKeywordsConfig> + AsRef<ReadOffsetConfig> + AsRef<ReadDatasetConfig>,
 {
     match new_version {
-        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, read_text_end, st),
-        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, read_text_end, st),
-        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, read_text_end, st),
-        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, read_text_end, st),
+        Version::FCS2_0 => Version2_0::h_lookup_and_read(h, kws, hns, start_time, st),
+        Version::FCS3_0 => Version3_0::h_lookup_and_read(h, kws, hns, start_time, st),
+        Version::FCS3_1 => Version3_1::h_lookup_and_read(h, kws, hns, start_time, st),
+        Version::FCS3_2 => Version3_2::h_lookup_and_read(h, kws, hns, start_time, st),
     }
 }
 

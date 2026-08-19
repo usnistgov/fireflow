@@ -106,7 +106,7 @@ impl AppendableSelector<KeyPatterns> {
                 .map(|x| (x, ()))
                 .collect();
         let kw_test = KeyTest::HasKey(Spillover::std().into());
-        let cond = Condition::Root(kw_test);
+        let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pats));
         self.push(new);
     }
@@ -125,7 +125,7 @@ impl AppendableSelector<KeyStringPairs> {
         hm.insert(from, to);
         let pairs = KeyStringPairs::try_from(hm).unwrap();
         let kw_test = KeyTest::HasKey(Spillover::std().into());
-        let cond = Condition::Root(kw_test);
+        let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pairs));
         self.push(new);
     }

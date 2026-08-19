@@ -493,8 +493,8 @@ mod python {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok((op, condition, consequent, alternative)) =
-                obj.extract::<(String, Condition, Selector<T>, Selector<T>)>()
-                && op.as_str() == fp::SELECTOR_IF.as_str()
+                obj.extract::<(&NEStr, Condition, Selector<T>, Selector<T>)>()
+                && op == fp::SELECTOR_IF
             {
                 return Ok(Self {
                     condition,
@@ -502,8 +502,8 @@ mod python {
                     alternative: Some(alternative),
                 });
             } else if let Ok((op, condition, consequent)) =
-                obj.extract::<(String, Condition, Selector<T>)>()
-                && op.as_str() == fp::SELECTOR_IF.as_str()
+                obj.extract::<(&NEStr, Condition, Selector<T>)>()
+                && op == fp::SELECTOR_IF
             {
                 return Ok(Self {
                     condition,
@@ -528,7 +528,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            const OP: &str = fp::SELECTOR_IF.as_str();
+            const OP: &NEStr = fp::SELECTOR_IF;
             if let Some(alternative) = self.alternative {
                 (OP, self.condition, self.consequent, alternative).into_pyobject(py)
             } else {
@@ -543,9 +543,9 @@ mod python {
     {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let (op, forms) = obj.extract::<(String, Vec<(Condition, Selector<T>)>)>()?;
+            let (op, forms) = obj.extract::<(&NEStr, Vec<(Condition, Selector<T>)>)>()?;
             if let Some(ne) = NEVec::try_from_vec(forms)
-                && op == fp::SELECTOR_COND.as_str()
+                && op == fp::SELECTOR_COND
             {
                 return Ok(Self { forms: ne });
             }
@@ -565,7 +565,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (fp::SELECTOR_COND.as_str(), Vec::from(self.forms)).into_pyobject(py)
+            (fp::SELECTOR_COND, Vec::from(self.forms)).into_pyobject(py)
         }
     }
 
@@ -574,15 +574,15 @@ mod python {
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(s) = obj.extract::<KeyTest>() {
                 return Ok(Self::Root(s));
-            } else if let Ok((op, a, b)) = obj.extract::<(String, Self, Self)>() {
-                if op == fp::CONDITION_AND.as_str() {
+            } else if let Ok((op, a, b)) = obj.extract::<(&NEStr, Self, Self)>() {
+                if op == fp::CONDITION_AND {
                     return Ok(Self::And(Box::new(a), Box::new(b)));
                 }
-                if op == fp::CONDITION_OR.as_str() {
+                if op == fp::CONDITION_OR {
                     return Ok(Self::Or(Box::new(a), Box::new(b)));
                 }
-            } else if let Ok((op, a)) = obj.extract::<(String, Self)>()
-                && op == fp::CONDITION_NOT.as_str()
+            } else if let Ok((op, a)) = obj.extract::<(&NEStr, Self)>()
+                && op == fp::CONDITION_NOT
             {
                 return Ok(Self::Not(Box::new(a)));
             }
@@ -603,7 +603,7 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             let go = |a: Self, b: Self, op: &NEStr| {
-                let e0 = op.as_str().into_py_any(py)?;
+                let e0 = op.into_py_any(py)?;
                 let e1 = a.into_py_any(py)?;
                 let e2 = b.into_py_any(py)?;
                 PyTuple::new(py, [e0, e1, e2])
@@ -613,7 +613,7 @@ mod python {
                 Self::And(a, b) => go(*a, *b, fp::CONDITION_AND),
                 Self::Or(a, b) => go(*a, *b, fp::CONDITION_OR),
                 Self::Not(p) => {
-                    let op = fp::CONDITION_NOT.as_str().into_py_any(py)?;
+                    let op = fp::CONDITION_NOT.into_py_any(py)?;
                     let pred = p.into_py_any(py)?;
                     PyTuple::new(py, [op, pred])
                 }
@@ -624,16 +624,16 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for KeyTest {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Ok((op, key)) = obj.extract::<(String, AnyKey)>()
-                && op == fp::STATEMENT_HAS_KEY.as_str()
+            if let Ok((op, key)) = obj.extract::<(&NEStr, AnyKey)>()
+                && op == fp::STATEMENT_HAS_KEY
             {
                 return Ok(Self::HasKey(key));
-            } else if let Ok((op, key, value)) = obj.extract::<(String, AnyKey, NEString)>()
-                && op == fp::STATEMENT_KEY_IS.as_str()
+            } else if let Ok((op, key, value)) = obj.extract::<(&NEStr, AnyKey, NEString)>()
+                && op == fp::STATEMENT_KEY_IS
             {
                 return Ok(Self::KeyIs(key, value));
-            } else if let Ok((op, key, pat)) = obj.extract::<(String, AnyKey, ValueRegex)>()
-                && op == fp::STATEMENT_KEY_MATCHES.as_str()
+            } else if let Ok((op, key, pat)) = obj.extract::<(&NEStr, AnyKey, ValueRegex)>()
+                && op == fp::STATEMENT_KEY_MATCHES
             {
                 return Ok(Self::KeyMatches(key, pat));
             }
@@ -654,11 +654,9 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::HasKey(k) => (fp::STATEMENT_HAS_KEY.as_str(), k).into_pyobject(py),
-                Self::KeyIs(k, v) => (fp::STATEMENT_KEY_IS.as_str(), k, v).into_pyobject(py),
-                Self::KeyMatches(k, p) => {
-                    (fp::STATEMENT_KEY_MATCHES.as_str(), k, p).into_pyobject(py)
-                }
+                Self::HasKey(k) => (fp::STATEMENT_HAS_KEY, k).into_pyobject(py),
+                Self::KeyIs(k, v) => (fp::STATEMENT_KEY_IS, k, v).into_pyobject(py),
+                Self::KeyMatches(k, p) => (fp::STATEMENT_KEY_MATCHES, k, p).into_pyobject(py),
             }
         }
     }
@@ -667,9 +665,8 @@ mod python {
         if let Ok(tup) = obj.cast::<PyTuple>()
             && (2..=4).contains(&tup.len())
             && let Ok(x0) = tup.get_item(0)
-            && let Ok(op) = x0.extract::<String>()
-            && (op.as_str() == fp::SELECTOR_COND.as_str()
-                || op.as_str() == fp::SELECTOR_IF.as_str())
+            && let Ok(op) = x0.extract::<&NEStr>()
+            && (op == fp::SELECTOR_COND || op == fp::SELECTOR_IF)
         {
             true
         } else {

@@ -1911,8 +1911,8 @@ impl HasStrategy for ReadDataKeywordsConfig {
         // https://github.com/RGLab/flowCore/blob/4935c7bf318697b3128ee50dae81018a6b246ab8/R/eval-methods.R#L649
         // and
         // https://github.com/whitews/FlowIO/blob/83d28a22d42235c10d17afb017250ee208afed95/src/flowio/flowdata.py#L761
-        self.promote_to_standard.push_promote_spillover();
-        self.rename_standard_keys.push_rename_spill_to_spillover();
+        // self.promote_to_standard.push_promote_spillover();
+        // self.rename_standard_keys.push_rename_spill_to_spillover();
 
         self.allow_header_text_offset_mismatch = AllowHeaderTEXTOffsetMismatch::HeaderWarn;
         self.allow_missing_required_offsets = TriFlag::True.into();

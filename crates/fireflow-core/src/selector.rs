@@ -93,6 +93,11 @@ impl<T: Default> Default for Selector<T> {
     }
 }
 
+// TODO this option causes a non-negligible increase in python call overhead
+// (comparable to parsing TEXT itself) compared to a blank list. It isn't clear
+// if this is a problem or a sign of something very suboptimal. When this is
+// mainlined it would be worth checking.
+
 impl AppendableSelector<KeyPatterns> {
     /// Promote SPILL or SPILLOVER but only if $SPILLOVER is not already present.
     ///

@@ -36,10 +36,33 @@ here. See Appendix A for full plot.
 
 ## Fireflow-specific Results
 
-`fireflow` can do some things that no other current library can do. Therefore
-the performance of these features cannot be compared; however, these are useful
-for understanding `fireflow`'s overall performance and may help users understand
-how it will perform for their applications.
+In addition to reading and writing files, `fireflow` can parse all keyword
+values in an FCS version-specific manner (standardization), check ranges (not
+just bitmask), and compute the CRC.
+
+The other libraries cannot do most of these. Therefore the performance of these
+features cannot be compared; however, these are useful for understanding
+`fireflow`'s overall performance and may help users understand how it will
+perform for their applications.
+
+Each of the following was assessed using `fireflow`'s internal execution
+timings. For purposes of uncertainty, these timing were assumed to have such
+small error ranges compared to the execution time that their uncertainty was
+assumed zero.
+
+### Read Time Composition
+
+This is an overview of how much time `fireflow` spends in each stage of parsing.
+
+Each fill category in the plot represents execution time as follows:
+
+* TEXT: python overhead + HEADER parsing + TEXT parsing
+* Std: keyword value parsing and standardization
+* DATA: DATA parsing
+* Rng: $PnR checking (all values, not just bitmask for integers)
+* CRC: CRC computation and checking
+
+![read_std_composition]({{read_std_composition_path}})
 
 ### Standardization Overhead
 
@@ -48,12 +71,15 @@ into an in-memory data structure that allows for database-like manipulation.
 This interpretation takes some computational power dependent on the complexity
 of *TEXT* and the FCS version.
 
+Overhead in the following plot was computed as the time taken to standardize all
+keywords (not including parsing HEADER and parsing TEXT as a flat list)
+normalized to the number of keywords.
+
 ![read_std_overhead]({{read_std_overhead_path}})
 
-The consequence of this is more clearly seen when taking the ratio.
-
-Reported percentage does not include reading TEXT as a flat list (ie "100%" in
-the plot below represents a 2x overall increase in execution time).
+The consequence of standardization can be more clearly seen as a fraction of
+reading TEXT and standardizing it (reading HEADER + reading TEXT as flat list +
+standardizing TEXT).
 
 ![read_std_overhead_ratio]({{read_std_overhead_ratio_path}})
 
@@ -63,12 +89,14 @@ the plot below represents a 2x overall increase in execution time).
 compare against the checksum at the end. This requires extra computation on top
 of reading the segments themselves.
 
+Overhead in the following plot was computed as the time taken to compute/test
+the CRC normalized to the total size of the file.
+
 ![read_crc_overhead]({{read_crc_overhead_path}})
 
-The consequence of this is more clearly seen when taking the ratio.
-
-Reported percentage does not include parsing *TEXT* + *DATA* (ie "100%" in
-the plot below represents a 2x overall increase in execution time).
+The consequence of this can be more clearly seen by normalizing to total
+execution time (reading and standardizing TEXT + reading DATA + checking
+ranges + computing CRC).
 
 ![read_crc_overhead_ratio]({{read_crc_overhead_ratio_path}})
 
@@ -78,12 +106,16 @@ the plot below represents a 2x overall increase in execution time).
 addition to the bitmask check for integer values, which is effectively required
 in order to guarantee data integrity.
 
+In general, floats are expected to be harder to compare and thus will be slower.
+
+Overhead in the following plot was computed as the time taken to check ranges
+normalized to the number of values in DATA.
+
 ![read_rng_overhead]({{read_rng_overhead_path}})
 
-The consequence of this is more clearly seen when taking the ratio.
-
-Reported percentage does not include parsing *TEXT* + *DATA* (ie "100%" in
-the plot below represents a 2x overall increase in execution time).
+The consequence of this can be more clearly seen by normalizing to total
+execution time (reading and standardizing TEXT + reading DATA + checking
+ranges + computing CRC).
 
 ![read_rng_overhead_ratio]({{read_rng_overhead_ratio_path}})
 
@@ -142,8 +174,8 @@ due to code, data, and file caching.
 
 The python garbage collector was run at the start of each `flowio`, `fcsparser`,
 and `fireflow` run to eliminate random noise that might be introduced by running
-it during execution. `flowCore` was run and timed in a fresh `R` subprocess so
-Python garbage collection should not matter in this case.
+it during execution. The R garbage collector was run analogously in its own
+process.
 
 Two benchmark experiments were performed, one comparing `fireflow` to existing
 FCS libraries (1-4 in next section), and the other measuring `fireflow`-specific
@@ -158,8 +190,6 @@ main metrics:
 2) *TEXT* write speed per keyword pair
 3) *DATA* read speed per value 
 4) *DATA* write speed per value 
-5) *TEXT* standardization (`fireflow` only)
-6) CRC check (`fireflow` only)
 
 Each of these are relevant for users and readily comparable across libraries
 (with the exception of `fcsparser` which does not have write capability). Each
@@ -191,15 +221,6 @@ calling `write_text` on the resulting object.
 
 (4) was measured by first reading an FCS file with `fcs_read_std_dataset` and
 then calling `write_dataset` on the resulting object.
-
-(5) was measured by invoking `fcs_read_std_text` which will parse *TEXT* and put
-it into a standardized data structure. This was used with the value of (1) to
-compute the ratio of parsing *TEXT* with and without standardization.
-
-(6) was tested in the same manner as (2) but with `compute_crc="always"` which
-will force the computation of the CRC even if a checksum is not found at the end
-of the dataset. This was compared to the value of (4) (which did not have CRC
-checking enabled) to compute the overhead of computing the CRC.
 
 #### fireflow_fix
 
@@ -248,6 +269,40 @@ speed.
 
 (4) was measured by calling `write.FCS` on a flowFrame with events without any
 preprocessing as in (3).
+
+### R Subprocess Setup
+
+Measuring `flowCore` required special setup since it required an R subprocess to
+be run from within a Python session.
+
+First, the Python parent process creates two named pipes (one for Python->R, one
+for the reverse). Next, Python forks an R script asynchronously as a deamon
+subprocess. This script runs a single thread which blocks synchronously on a the
+Python->R named pipe. Upon receiving input, the R loop will dispact to one of
+the test functions. Upon completion, this function will write its output to the
+second named pipe. The python parent process blocks on the other end and
+continues to the next test after receiving the output. Timing is done with the
+`microbenchmark` library in R which should provide the highest precision clock
+on the OS with the least amount of overhead.
+
+This setup is necessary since it is desirable to keep caches (CPU, page,
+whatever R/flowCore do themselves) warm. The alternative is to fork a subprocess
+for each individual test, which will nullify at least some of these caches on
+exit. This is the closest analogue to what the Python parent process is doing
+itself with the other libraries, while maintaining the ability to run each test
+randomly to flatten any temporal biases. Additionally, this makes the entire
+benchmark run much faster since R process startup is expensive.
+
+### fireflow-specific read timings
+
+`fireflow` has timings built-in so no special flags were passed to enable this.
+
+All timings were obtained by calling `fireflow` with `fcs_read_std_dataset`
+which will parse *TEXT* and put it into a standardized data structure before
+reading *DATA*. Additionally, `compute_crc="always"` and `over_range_action =
+"warn"` were passed to force-enable CRC computation and range checking for all
+values. The scalpal preset was used as described above for the `fireflow_fix`
+category.
 
 ### Environment
 

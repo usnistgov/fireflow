@@ -26,9 +26,11 @@ library(microbenchmark)
 
 test_read <- function(is_text, path) {
   if (is_text) {
+    gc()
     t0 <- get_nanotime()
     fr <- read.FCSheader(path)
   } else {
+    gc()
     t0 <- get_nanotime()
     fr <- read.FCS(path, transformation = FALSE, truncate_max_range = FALSE)
   }
@@ -47,6 +49,7 @@ test_write <- function(is_text, inpath, outpath) {
   } else {
     fr
   }
+  gc()
   t0 <- get_nanotime()
   out <- write.FCS(fr, outpath, endian = "little")
   get_nanotime() - t0

@@ -140,6 +140,8 @@ READ_STD_TOTAL_NS = "read_std_total_ns"
 TOTAL_NS = "total_ns"
 PY_OVERHEAD_NS = "py_overhead_ns"
 
+here = Path(sys.argv[0]).parent
+
 
 class FFBenchKey(Enum):
     """Testing modes for fireflow.
@@ -382,23 +384,19 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
         return float(data.strip())
 
     def read_text(self, root: Path) -> float:
-        here = Path(sys.argv[0]).parent
         fcs_path = (root / self.fcs_name()).relative_to(here)
         return self.call_flowcore(f"read text {fcs_path}")
 
     def read_data(self, root: Path) -> float:
-        here = Path(sys.argv[0]).parent
         fcs_path = (root / self.fcs_name()).relative_to(here)
         return self.call_flowcore(f"read data {fcs_path}")
 
     def write_text(self, input_root: Path, scratch_root: Path) -> float:
-        here = Path(sys.argv[0]).parent
         in_path = (input_root / self.fcs_name()).relative_to(here)
         out_path = scratch_root / self.fcs_name("flowcore_write_text")
         return self.call_flowcore(f"write text {in_path} {out_path}")
 
     def write_data(self, input_root: Path, scratch_root: Path) -> float:
-        here = Path(sys.argv[0]).parent
         in_path = (input_root / self.fcs_name()).relative_to(here)
         out_path = scratch_root / self.fcs_name("flowcore_write_text")
         return self.call_flowcore(f"write data {in_path} {out_path}")
@@ -485,61 +483,6 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
         else:
             assert_never(self.key)
         return BenchResult(self.name, (self.key, self.scalpal), value)
-
-    def check_data(self, input_root: Path, scratch_root: Path) -> None:
-        """Ensure DATA didn't get screwed up during optimization.
-
-        DATA will be compared against a TSV file which was generated
-        in parallel to the FCS file directly from the polars dataframe.
-
-        Read test will be successful if reading the FCS file produces the same
-        dataframe as that in the TSV file. Note that the schema for the FCS file
-        needs to be used when reading the TSV file. We are implicitly testing
-        the initial write of the FCS input file, although this will likely not
-        match the current commit to the code being used to read. Obviously the
-        write has to be correct, although this is directly tested for the
-        current commit next.
-
-        Write test will succeed if an FCS file that is written and read again
-        produces the same dataframe.
-
-        Note that these tests only check the DATA segment. Everything else
-        is assumed to be correct given the rest of the test suite. DATA is
-        easier to test here where is more appropriate to produce large layouts
-        of different varieties.
-
-        This is important because when optimizing, often this entails
-        specializing code to different situations. In this case, the read/write
-        loops are tailored to each data layout. This means that when improving
-        any one of these loops we could produce a bug for a given data layout.
-        Since there are separate loops for both reading and writing, this means
-        that either loop might also be out of sync with the other.
-
-        The only way this test could produce a false positive is if the read and
-        write logic both have bugs that perfectly cancel each other out at the
-        file level; ie they have identical data to the dataframe/TSV file but
-        when written produce the wrong file. This is extremely unlucky and
-        unlikely.
-        """
-
-        # test that reading FCS file is the same as TSV file
-        core, _ = pf.api.fcs_read_std_dataset(
-            input_root / self.fcs_name(), time_meas_pattern=None
-        )
-        tsv = pl.read_csv(
-            input_root / self.tsv_name,
-            separator="\t",
-            schema=core.data.schema,
-        )
-        assert core.data.equals(tsv)
-
-        # test that writing FCS file produces same data as the input FCS file
-        core.write_dataset(scratch_root / self.fcs_name("ff_write_check"))
-        nu_core, _ = pf.api.fcs_read_std_dataset(
-            input_root / self.fcs_name(), time_meas_pattern=None
-        )
-
-        assert core.data.equals(nu_core.data)
 
 
 class FFInternalBenchRun(NamedTuple):
@@ -1200,15 +1143,6 @@ def make_bench_files(root: Path) -> None:
             w.writerow(row)
 
 
-def fmt_value(mean: str, ci: str, out: str, digits: int = 1) -> pl.Expr:
-    return pl.format(
-        "{} (±{}%)",
-        pl.col(mean).round(digits),
-        # 95% confidence interval as percentage of mean
-        (pl.col(ci) / pl.col(mean) * 100 * 1.96).round(1),
-    ).alias(out)
-
-
 def compute_read_df(
     bench_files: pl.DataFrame,
     read_text_df: pl.DataFrame,
@@ -1317,6 +1251,52 @@ def compute_write_df(
     return df
 
 
+def check_ff_data(input_fcs: Path, input_tsv: Path, scratch_root: Path) -> None:
+    """Ensure DATA didn't get screwed up during optimization.
+
+    DATA will be compared against a TSV file which was generated
+    in parallel to the FCS file directly from the polars dataframe.
+
+    The read test will be successful if reading the FCS file produces the
+    same dataframe as that in the TSV file. Note that the schema for the FCS
+    file needs to be used when reading the TSV file.
+
+    The write test will succeed if an FCS file that is written and read
+    again produces the same dataframe.
+
+    Note that these tests only check the DATA segment. Everything else
+    is assumed to be correct given the rest of the test suite. DATA is
+    easier to test here where is more appropriate to produce large layouts
+    of different varieties.
+
+    This is important because when optimizing, often this entails
+    specializing code to different situations. In this case, the read/write
+    loops are tailored to each data layout. This means that when improving
+    any one of these loops we could produce a bug for a given data layout.
+    Since there are separate loops for both reading and writing, this means
+    that either loop might also be out of sync with the other.
+
+    The only way this test could produce a false positive is if the read and
+    write logic both have bugs that perfectly cancel each other out at the
+    file level; ie they have identical data to the dataframe/TSV file but
+    when written produce the wrong file. This is extremely unlucky and
+    unlikely.
+
+    """
+
+    # test that reading FCS file is the same as TSV file
+    core, _ = pf.api.fcs_read_std_dataset(input_fcs, time_meas_pattern=None)
+    tsv = pl.read_csv(input_tsv, separator="\t", schema=core.data.schema)
+    assert core.data.equals(tsv)
+
+    # test that writing FCS file produces same data as the input FCS file
+    new_fcs = scratch_root / f"ff_write_check_{input_fcs.name}"
+    core.write_dataset(new_fcs)
+    nu_core, _ = pf.api.fcs_read_std_dataset(new_fcs, time_meas_pattern=None)
+
+    assert core.data.equals(nu_core.data)
+
+
 def read_bench_files(input_root: Path, names_filter: list[str]) -> pl.DataFrame:
     bench_files = pl.read_csv(input_root / BENCH_FILES_NAME, separator="\t")
     if len(names_filter) > 0:
@@ -1398,11 +1378,23 @@ def ff_runs(
         for _ in range(0, FF_TRIAL_NUMBER[k])
     ]
 
-    # loop through each name only once to check DATA integrity
-    for r in set(r for r in runs if r.key == FFBenchKey.READ_DATA):
-        r.check_data(input_root, scratch_root)
-
     return runs
+
+
+def read_ground_truth_dataframes(
+    bench_files: pl.DataFrame,
+    input_root: Path,
+) -> dict[str, pl.DataFrame]:
+    def go(n: str) -> pl.DataFrame:
+        p = input_root / f"{n}.tsv"
+        with open(p, "r") as f:
+            ncol = len(next(f).strip().split("\t"))
+        df = pl.read_csv(p, separator="\t", schema_overrides=[pl.Float64] * ncol)
+        df.columns = [f"X{i}" for i in range(0, ncol)]
+        return df
+
+    files = [n for n in bench_files[BENCH_NAME]]
+    return {k: go(k) for k in files}
 
 
 def read_ff_dataframes(
@@ -1457,7 +1449,6 @@ def read_flowcore_dataframes(
     r_to_py: Path,
 ) -> dict[str, pl.DataFrame]:
     def go(n: str) -> pl.DataFrame:
-        here = Path(sys.argv[0]).parent
         inpath = (input_root / f"{n}.fcs").relative_to(here)
         outpath = output_root / f"{n}.tsv"
         cmd = f"dump {inpath} {outpath}"
@@ -1513,10 +1504,24 @@ def with_flowcore_loop[X](f: Callable[[Path, Path, Path], X]) -> X:
                     r_proc.kill()
 
 
-def run_checks(input_root: Path, names_filter: list[str]) -> pl.DataFrame:
+def run_checks(
+    input_root: Path,
+    scratch_root: Path,
+    names_filter: list[str],
+) -> pl.DataFrame:
     bench_files = read_bench_files(input_root, names_filter)
 
+    # # First, check that ff read and write are inverses of each other
+
+    # for n in bench_files[BENCH_NAME]:
+    #     input_fcs = input_root / f"{n}.fcs"
+    #     input_tsv = input_root / f"{n}.tsv"
+    #     check_ff_data(input_fcs, input_tsv, scratch_root)
+
+    # # Next, check that each library produces the same data when parsing DATA
+
     def go(tmpdir: Path, py_to_r: Path, r_to_py: Path) -> pl.DataFrame:
+        gt_dfs = read_ground_truth_dataframes(bench_files, input_root)
         ff_dfs = read_ff_dataframes(bench_files, input_root)
         fp_dfs = read_fcsparser_dataframes(bench_files, input_root)
         fi_dfs = read_flowio_dataframes(bench_files, input_root)
@@ -1531,19 +1536,23 @@ def run_checks(input_root: Path, names_filter: list[str]) -> pl.DataFrame:
             except AssertionError:
                 return False
 
+        ff_checks = [
+            check(v, ff_dfs[k]) if k in ff_dfs else None for k, v in gt_dfs.items()
+        ]
         fp_checks = [
-            check(v, fp_dfs[k]) if k in fp_dfs else None for k, v in ff_dfs.items()
+            check(v, fp_dfs[k]) if k in fp_dfs else None for k, v in gt_dfs.items()
         ]
         fi_checks = [
-            check(v, fi_dfs[k]) if k in fi_dfs else None for k, v in ff_dfs.items()
+            check(v, fi_dfs[k]) if k in fi_dfs else None for k, v in gt_dfs.items()
         ]
         fc_checks = [
-            check(v, fc_dfs[k]) if k in fc_dfs else None for k, v in ff_dfs.items()
+            check(v, fc_dfs[k]) if k in fc_dfs else None for k, v in gt_dfs.items()
         ]
         return pl.DataFrame(
-            [list(ff_dfs.keys()), fp_checks, fi_checks, fc_checks],
+            [list(ff_dfs.keys()), ff_checks, fp_checks, fi_checks, fc_checks],
             schema={
                 BENCH_NAME: str,
+                FIREFLOW: bool,
                 FCSPARSER: bool,
                 FLOWIO: bool,
                 FLOWCORE: bool,
@@ -2570,8 +2579,9 @@ def main(args: list[str]) -> None:
     # run checks to ensure benchmarks are equivalent between libraries
     elif cmd == "check":
         output_path = None if args[3] == "-" else Path(args[3])
-        names_filter = args[4:]
-        df_all = run_checks(bench_path, names_filter)
+        scratch_root = Path(args[4])
+        names_filter = args[5:]
+        df_all = run_checks(bench_path, scratch_root, names_filter)
         if output_path is None:
             df_all.write_csv(sys.stdout, separator="\t")
         else:

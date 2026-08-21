@@ -90,7 +90,8 @@ pyreflow/$(bench_files): pyreflow/.venv \
 pyreflow/$(bench_checks): pyreflow/$(bench_files)
 	$(uv_at) run $(bench_script) check \
 		$(bench_inputs) \
-		$(bench_checks)
+		$(bench_checks) \
+		$(bench_scratch)
 
 pyreflow/$(bench_all_ff): pyreflow/$(bench_files) \
 	pyreflow/$(bench_script)

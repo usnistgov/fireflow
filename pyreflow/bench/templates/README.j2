@@ -293,7 +293,7 @@ itself with the other libraries, while maintaining the ability to run each test
 randomly to flatten any temporal biases. Additionally, this makes the entire
 benchmark run much faster since R process startup is expensive.
 
-### fireflow-specific read timings
+### fireflow-specific Read Timings
 
 `fireflow` has timings built-in so no special flags were passed to enable this.
 
@@ -303,6 +303,28 @@ reading *DATA*. Additionally, `compute_crc="always"` and `over_range_action =
 "warn"` were passed to force-enable CRC computation and range checking for all
 values. The scalpal preset was used as described above for the `fireflow_fix`
 category.
+
+### Benchmark Equivalence Check
+
+In order to ensure each benchmark was actually testing the same thing, each test
+file was run through each library and the resulting dataframes were compared.
+
+In all cases, the dataframe was converted to a `polars.DataFrame` entirely in
+64-bit floats since all libraries except `fireflow` return either 32- or 64-bit
+float matrices. For `flowCore`, the event matrix was saved to a temporary TSV
+file in R and read in python using `polars.read_csv`.
+
+Dataframes were compared using `polars.testing.assert_frame_equal` with default
+tolerances for floats.
+
+
+The following table shows the check results. `True` indicates the DATA segment
+from the given library was equivalent to that from `fireflow`. `None` indicates
+that a library could not parse the given FCS file due to its DATA format.
+
+Note that `fcsparser` has a bug which reads 24-bit files incorrectly.
+
+{{check_table}}
 
 ### Environment
 
@@ -321,6 +343,9 @@ category.
 * Build Is Debug: {{ff_build_info.is_debug}}
 * Optimization Level: {{ff_build_info.opt_level}}
 * Target Features: {{ff_build_info.target_features|replace(",", ", ")|upper}}
+
+NOTE: extensions only matter for range checks since these are vectorized and
+thus will benefit from larger register sizes.
 
 #### numpy
 

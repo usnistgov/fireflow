@@ -76,6 +76,7 @@ bench_script = bench/bench.py
 bench_inputs = bench/inputs
 bench_files = $(bench_inputs)/bench_files.tsv
 bench_all_ff = bench/outputs/bench_all_ff.tsv
+bench_checks = bench/outputs/checks.tsv
 bench_all = bench/outputs/bench_all.tsv
 bench_readme = bench/README.md
 bench_scratch = /tmp/fireflow_bench/scratch
@@ -85,6 +86,11 @@ bench_readme_template = bench/templates/README.j2
 pyreflow/$(bench_files): pyreflow/.venv \
 	pyreflow/$(bench_script)
 	$(uv_at) run $(bench_script) make $(bench_inputs)
+
+pyreflow/$(bench_checks): pyreflow/$(bench_files)
+	$(uv_at) run $(bench_script) check \
+		$(bench_inputs) \
+		$(bench_checks)
 
 pyreflow/$(bench_all_ff): pyreflow/$(bench_files) \
 	pyreflow/$(bench_script)
@@ -101,12 +107,14 @@ pyreflow/$(bench_all): pyreflow/$(bench_files) \
 		$(bench_scratch)
 
 pyreflow/$(bench_readme): pyreflow/$(bench_files) \
+	pyreflow/$(bench_checks) \
 	pyreflow/$(bench_all_ff) \
 	pyreflow/$(bench_all) \
 	pyreflow/$(bench_script) \
 	pyreflow/$(bench_readme_template)
 	$(uv_at) run $(bench_script) render \
 		$(bench_files) \
+		$(bench_checks) \
 		$(bench_all) \
 		$(bench_all_ff) \
 		$(bench_readme_template) \

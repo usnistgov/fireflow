@@ -24,6 +24,15 @@
 suppressPackageStartupMessages(library(flowCore))
 library(microbenchmark)
 
+# read an FCS file and dump its DATA segment as a tsv file
+dump_dataframe <- function(inpath, outpath) {
+  fr <- read.FCS(inpath, transformation = FALSE, truncate_max_range = FALSE)
+  # return dummy value to give something for python to read while it blocks
+  write.table(fr@exprs, outpath, sep = "\t", row.names = TRUE, col.names = FALSE)
+  "done"
+}
+
+# run FCS read tests
 test_read <- function(is_text, path) {
   if (is_text) {
     gc()
@@ -37,6 +46,7 @@ test_read <- function(is_text, path) {
   get_nanotime() - t0
 }
 
+# run FCS write tests
 test_write <- function(is_text, inpath, outpath) {
   fr <- read.FCS(inpath, transformation = FALSE, truncate_max_range = FALSE)
   to_write <- if (is_text) {
@@ -57,20 +67,26 @@ test_write <- function(is_text, inpath, outpath) {
 
 dispatch <- function(line_args) {
   cmd <- line_args[[1]]
-  mode <- line_args[[2]]
-  is_text <- if (mode == "text") {
-    TRUE
-  } else if(mode == "data") {
-    FALSE
+  if (cmd == "dump") {
+    inpath <- line_args[[2]]
+    outpath <- line_args[[3]]
+    dump_dataframe(inpath, outpath)
   } else {
-    stop("unknown mode")
-  }
-  if (cmd == "read") {
-    test_read(is_text, line_args[[3]])
-  } else if(cmd == "write") {
-    test_write(is_text, line_args[[3]], line_args[[4]])
-  } else {
-    stop("unknown command")
+    mode <- line_args[[2]]
+    is_text <- if (mode == "text") {
+      TRUE
+    } else if(mode == "data") {
+      FALSE
+    } else {
+      stop("unknown mode")
+    }
+    if (cmd == "read") {
+      test_read(is_text, line_args[[3]])
+    } else if(cmd == "write") {
+      test_write(is_text, line_args[[3]], line_args[[4]])
+    } else {
+      stop("unknown command")
+    }
   }
 }
 

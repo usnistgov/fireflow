@@ -12,7 +12,7 @@ import fcsparser as fp  # type: ignore
 import subprocess as sp
 from dataclasses import dataclass
 from datetime import datetime, UTC
-from typing import NamedTuple, assert_never, Literal
+from typing import NamedTuple, assert_never, Literal, Callable
 from pathlib import Path
 from decimal import Decimal
 from random import randrange, shuffle
@@ -33,6 +33,8 @@ from plotnine import (
 )
 
 import polars as pl
+import polars.selectors as cs
+from polars.testing import assert_frame_equal
 import numpy as np
 
 import pyreflow as pf
@@ -376,16 +378,7 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
     r_to_py: Path
 
     def call_flowcore(self, cmd: str) -> float:
-        with open(self.py_to_r, "w") as f:
-            f.write(cmd)
-        # Wait for R to finish running flowcore for 5 seconds; if we hear
-        # nothing assume something terrible happened and scream (loudly).
-        fd = os.open(self.r_to_py, os.O_RDONLY | os.O_NONBLOCK)
-        r, _, _ = select.select([fd], [], [], 5.0)
-        if len(r) == 0:
-            raise TimeoutError("Writer never showed up. Rude.")
-        data = os.read(fd, 4096)
-        os.close(fd)
+        data = call_flowcore_inner(self.py_to_r, self.r_to_py, cmd)
         return float(data.strip())
 
     def read_text(self, root: Path) -> float:
@@ -598,6 +591,20 @@ class FFInternalBenchRun(NamedTuple):
 
 
 type AnyBenchRun = FCSParserBenchRun | FlowIOBenchRun | FlowCoreBenchRun | FFBenchRun
+
+
+def call_flowcore_inner(py_to_r: Path, r_to_py: Path, cmd: str) -> bytes:
+    with open(py_to_r, "w") as f:
+        f.write(cmd)
+    # Wait for R to finish running flowcore for 5 seconds; if we hear
+    # nothing assume something terrible happened and scream (loudly).
+    fd = os.open(r_to_py, os.O_RDONLY | os.O_NONBLOCK)
+    r, _, _ = select.select([fd], [], [], 5.0)
+    if len(r) == 0:
+        raise TimeoutError("Writer never showed up. Rude.")
+    data = os.read(fd, 4096)
+    os.close(fd)
+    return data
 
 
 def get_runs(k: AnyBenchKey) -> int:
@@ -1317,14 +1324,42 @@ def read_bench_files(input_root: Path, names_filter: list[str]) -> pl.DataFrame:
     return bench_files
 
 
-def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
+def fcsparser_files(bench_files: pl.DataFrame) -> list[str]:
     return [
-        FlowIOBenchRun(n, k)
+        n
+        for n in bench_files.filter(
+            ~pl.col("version").eq("FCS3.2")
+            & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
+            & ~pl.col("datatypes").eq("U64")
+        )[BENCH_NAME]
+    ]
+
+
+def flowio_files(bench_files: pl.DataFrame) -> list[str]:
+    return [
+        n
         for n in bench_files.filter(
             ~pl.col("version").eq("FCS3.2")
             & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
             & ~pl.col("datatypes").is_in(["U24", "U64"])
         )[BENCH_NAME]
+    ]
+
+
+def flowcore_files(bench_files: pl.DataFrame) -> list[str]:
+    return [
+        n
+        for n in bench_files.filter(
+            ~pl.col("version").eq("FCS3.2")
+            & ~pl.col("datatypes").is_in(["U08,U16,U32", "U64"])
+        )[BENCH_NAME]
+    ]
+
+
+def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
+    return [
+        FlowIOBenchRun(n, k)
+        for n in flowio_files(bench_files)
         for k in FlowIOBenchKey
         for _ in range(0, FLOWIO_TRIAL_NUMBER[k])
     ]
@@ -1333,11 +1368,7 @@ def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
 def fcsparser_runs(bench_files: pl.DataFrame) -> list[FCSParserBenchRun]:
     return [
         FCSParserBenchRun(n, k)
-        for n in bench_files.filter(
-            ~pl.col("version").eq("FCS3.2")
-            & pl.col("byteord").is_in(["1,2,3,4", "4,3,2,1"])
-            & ~pl.col("datatypes").eq("U64")
-        )[BENCH_NAME]
+        for n in fcsparser_files(bench_files)
         for k in FCSParserBenchKey
         for _ in range(0, FCSPARSER_TRIAL_NUMBER[k])
     ]
@@ -1348,10 +1379,7 @@ def flowcore_runs(
 ) -> list[FlowCoreBenchRun]:
     return [
         FlowCoreBenchRun(n, k, py_to_r, r_to_py)
-        for n in bench_files.filter(
-            ~pl.col("version").eq("FCS3.2")
-            & ~pl.col("datatypes").is_in(["U08,U16,U32", "U64"])
-        )[BENCH_NAME]
+        for n in flowcore_files(bench_files)
         for k in FlowCoreBenchKey
         for _ in range(0, FLOWCORE_TRIAL_NUMBER[k])
     ]
@@ -1375,6 +1403,154 @@ def ff_runs(
         r.check_data(input_root, scratch_root)
 
     return runs
+
+
+def read_ff_dataframes(
+    bench_files: pl.DataFrame,
+    input_root: Path,
+) -> dict[str, pl.DataFrame]:
+    def go(n: str) -> pl.DataFrame:
+        p = input_root / f"{n}.fcs"
+        return pf.api.fcs_read_flat_dataset(p).dataset.data.cast(pl.Float64)
+
+    files = [n for n in bench_files[BENCH_NAME]]
+    return {k: go(k) for k in files}
+
+
+def read_fcsparser_dataframes(
+    bench_files: pl.DataFrame,
+    input_root: Path,
+) -> dict[str, pl.DataFrame]:
+    def go(n: str) -> pl.DataFrame:
+        p = input_root / f"{n}.fcs"
+        df = pl.from_pandas(fp.parse(p)[1]).cast(pl.Float64)
+        ncol = len(df.columns)
+        df.columns = [f"X{i}" for i in range(0, ncol)]
+        return df
+
+    # only read files that at least one python lib can understand
+    files = fcsparser_files(bench_files)
+    return {k: go(k) for k in files}
+
+
+def read_flowio_dataframes(
+    bench_files: pl.DataFrame,
+    input_root: Path,
+) -> dict[str, pl.DataFrame]:
+    def go(n: str) -> pl.DataFrame:
+        p = input_root / f"{n}.fcs"
+        df = pl.DataFrame(fi.FlowData(p).as_array(preprocess=False)).cast(pl.Float64)
+        ncol = len(df.columns)
+        df.columns = [f"X{i}" for i in range(0, ncol)]
+        return df
+
+    # only read files that at least one python lib can understand
+    files = flowio_files(bench_files)
+    return {k: go(k) for k in files}
+
+
+def read_flowcore_dataframes(
+    bench_files: pl.DataFrame,
+    input_root: Path,
+    output_root: Path,
+    py_to_r: Path,
+    r_to_py: Path,
+) -> dict[str, pl.DataFrame]:
+    def go(n: str) -> pl.DataFrame:
+        here = Path(sys.argv[0]).parent
+        inpath = (input_root / f"{n}.fcs").relative_to(here)
+        outpath = output_root / f"{n}.tsv"
+        cmd = f"dump {inpath} {outpath}"
+        _ = call_flowcore_inner(py_to_r, r_to_py, cmd)
+        with open(outpath, "r") as f:
+            ncol_orig = len(next(f).strip().split("\t"))
+        df = pl.read_csv(
+            outpath,
+            separator="\t",
+            schema_overrides=[pl.Float64] * ncol_orig,
+            has_header=False,
+        ).select(~cs.by_index(0))
+        ncol = len(df.columns)
+        df.columns = [f"X{i}" for i in range(0, ncol)]
+        return df
+
+    # only read files that at least one python lib can understand
+    files = flowcore_files(bench_files)
+    return {k: go(k) for k in files}
+
+
+def with_flowcore_loop[X](f: Callable[[Path, Path, Path], X]) -> X:
+    with tf.TemporaryDirectory() as td:
+        py_to_r = Path(td) / "py_to_r"
+        r_to_py = Path(td) / "r_to_py"
+        os.mkfifo(py_to_r)
+        os.mkfifo(r_to_py)
+
+        here = Path(sys.argv[0]).parent
+
+        # start R loop in subprocess
+        r_cmd = [
+            "Rscript",
+            "--no-save",
+            "--no-restore",
+            "R/run_flowcore_loop.R",
+            str(py_to_r),
+            str(r_to_py),
+        ]
+        with sp.Popen(r_cmd, cwd=here) as r_proc:
+            print("starting R deamon")
+
+            try:
+                return f(Path(td), py_to_r, r_to_py)
+            finally:
+                # This should fire on any exception, including KeyboardInterrupt
+                print("stopping R deamon (politely)")
+                r_proc.terminate()
+                try:
+                    r_proc.wait(timeout=5)
+                except sp.TimeoutExpired:
+                    print("killing R deamon (impolitely)")
+                    r_proc.kill()
+
+
+def run_checks(input_root: Path, names_filter: list[str]) -> pl.DataFrame:
+    bench_files = read_bench_files(input_root, names_filter)
+
+    def go(tmpdir: Path, py_to_r: Path, r_to_py: Path) -> pl.DataFrame:
+        ff_dfs = read_ff_dataframes(bench_files, input_root)
+        fp_dfs = read_fcsparser_dataframes(bench_files, input_root)
+        fi_dfs = read_flowio_dataframes(bench_files, input_root)
+        fc_dfs = read_flowcore_dataframes(
+            bench_files, input_root, tmpdir, py_to_r, r_to_py
+        )
+
+        def check(a: pl.DataFrame, b: pl.DataFrame) -> bool:
+            try:
+                assert_frame_equal(a, b)
+                return True
+            except AssertionError:
+                return False
+
+        fp_checks = [
+            check(v, fp_dfs[k]) if k in fp_dfs else None for k, v in ff_dfs.items()
+        ]
+        fi_checks = [
+            check(v, fi_dfs[k]) if k in fi_dfs else None for k, v in ff_dfs.items()
+        ]
+        fc_checks = [
+            check(v, fc_dfs[k]) if k in fc_dfs else None for k, v in ff_dfs.items()
+        ]
+        return pl.DataFrame(
+            [list(ff_dfs.keys()), fp_checks, fi_checks, fc_checks],
+            schema={
+                BENCH_NAME: str,
+                FCSPARSER: bool,
+                FLOWIO: bool,
+                FLOWCORE: bool,
+            },
+        )
+
+    return with_flowcore_loop(go)
 
 
 def run_all_bench(
@@ -1433,50 +1609,23 @@ def run_all_bench(
 
     bench_files = read_bench_files(input_root, names_filter)
 
-    with tf.TemporaryDirectory() as td:
-        py_to_r = Path(td) / "py_to_r"
-        r_to_py = Path(td) / "r_to_py"
-        os.mkfifo(py_to_r)
-        os.mkfifo(r_to_py)
-
-        here = Path(sys.argv[0]).parent
-
-        # start R loop in subprocess
-        r_cmd = [
-            "Rscript",
-            "--no-save",
-            "--no-restore",
-            "R/run_flowcore_loop.R",
-            str(py_to_r),
-            str(r_to_py),
+    def go(_tmpdir: Path, py_to_r: Path, r_to_py: Path) -> list[AnyBenchResult]:
+        runs: list[AnyBenchRun] = [
+            *fcsparser_runs(bench_files),
+            *flowio_runs(bench_files),
+            *flowcore_runs(bench_files, py_to_r, r_to_py),
+            *ff_runs(bench_files, input_root, scratch_root, True),
+            *ff_runs(bench_files, input_root, scratch_root, False),
         ]
-        with sp.Popen(r_cmd, cwd=here) as r_proc:
-            print("starting R deamon")
 
-            try:
-                runs: list[AnyBenchRun] = [
-                    *fcsparser_runs(bench_files),
-                    *flowio_runs(bench_files),
-                    *flowcore_runs(bench_files, py_to_r, r_to_py),
-                    *ff_runs(bench_files, input_root, scratch_root, True),
-                    *ff_runs(bench_files, input_root, scratch_root, False),
-                ]
+        # Warm up all code paths once; also load all files into page cache
+        _ = [r.run(input_root, scratch_root) for r in set(runs)]
 
-                # Warm up all code paths once; also load all files into page cache
-                _ = [r.run(input_root, scratch_root) for r in set(runs)]
+        # randomly shuffle runs to eliminate temporal bias
+        shuffle(runs)
+        return [r.run(input_root, scratch_root) for r in runs]
 
-                # randomly shuffle runs to eliminate temporal bias
-                shuffle(runs)
-                results = [r.run(input_root, scratch_root) for r in runs]
-            finally:
-                # This should fire on any exception, including KeyboardInterrupt
-                print("stopping R deamon (politely)")
-                r_proc.terminate()
-                try:
-                    r_proc.wait(timeout=5)
-                except sp.TimeoutExpired:
-                    print("killing R deamon (impolitely)")
-                    r_proc.kill()
+    results = with_flowcore_loop(go)
 
     def to_df(key: AnyBenchKey, name: str, runs_name: str) -> pl.DataFrame:
         runs = get_runs(key)
@@ -2242,6 +2391,7 @@ def get_flowcore_compilers(exec_dir: Path) -> list[str]:
 def render_all(
     bench_exec_dir: Path,
     files_path: Path,
+    check_path: Path,
     bench_path: Path,
     bench_ff_path: Path,
     template_path: Path,
@@ -2250,6 +2400,7 @@ def render_all(
 ) -> None:
     static_dir.mkdir(parents=True, exist_ok=True)
     df_files = pl.read_csv(files_path, separator="\t")
+    df_check = pl.read_csv(check_path, separator="\t")
     df_results = pl.read_csv(bench_path, separator="\t")
     df_ff_results = pl.read_csv(bench_ff_path, separator="\t")
 
@@ -2374,6 +2525,7 @@ def render_all(
                         readme_dir
                     ),
                     "test_file_table": dataframe_to_md(df_files.drop(["description"])),
+                    "check_table": dataframe_to_md(df_check),
                     "test_file_descriptions": file_descriptions,
                     "flowio_version": fi.__version__,
                     "fcsparser_version": fp.__version__,
@@ -2415,6 +2567,18 @@ def main(args: list[str]) -> None:
     if cmd == "make":
         make_bench_files(bench_path)
 
+    # run checks to ensure benchmarks are equivalent between libraries
+    elif cmd == "check":
+        output_path = None if args[3] == "-" else Path(args[3])
+        names_filter = args[4:]
+        df_all = run_checks(bench_path, names_filter)
+        if output_path is None:
+            df_all.write_csv(sys.stdout, separator="\t")
+        else:
+            output_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(output_path, "w") as f:
+                df_all.write_csv(f, separator="\t")
+
     # run all benchmarks against FCS files
     elif cmd == "run_all":
         output_path = None if args[3] == "-" else Path(args[3])
@@ -2438,14 +2602,16 @@ def main(args: list[str]) -> None:
     # render plots and benchmark summary
     elif cmd == "render":
         files_path = Path(args[2])
-        bench_path = Path(args[3])
-        bench_ff_path = Path(args[4])
-        template_path = Path(args[5])
-        static_dir = Path(args[6])
-        readme_path = Path(args[7])
+        check_path = Path(args[3])
+        bench_path = Path(args[4])
+        bench_ff_path = Path(args[5])
+        template_path = Path(args[6])
+        static_dir = Path(args[7])
+        readme_path = Path(args[8])
         render_all(
             this.parent,
             files_path,
+            check_path,
             bench_path,
             bench_ff_path,
             template_path,

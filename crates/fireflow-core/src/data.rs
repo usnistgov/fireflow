@@ -128,7 +128,7 @@ use crate::segment::read::{AnyDataOffsets, AnyNonEmptyDataOffsets, IsOffsetPair 
 use crate::text::byteord::{
     AnyByteOrder, ArgBytes, ArrayByteOrd, ArrayByteOrd_, BitsOrChars, ByteOrdToSizedError, Bytes,
     Endian, FixedWidthToBytesError, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBitsOrChars,
-    PrivBytes, VariableWidthError, VecToSizedError, WidthToFixedError,
+    VariableWidthError, VecToSizedError, WidthToFixedError,
 };
 use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
@@ -167,7 +167,7 @@ use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
-use fireflow_types::config::{OverBitmaskAction, OverLimitMode, OverRangeAction};
+use fireflow_types::config::{NumericByteWidth, OverBitmaskAction, OverLimitMode, OverRangeAction};
 use fireflow_types::nonempty_string::DisplayableNE as _;
 use nonempty_collections::{IntoNonEmptyIterator as _, NESlice};
 use type_families::{
@@ -938,7 +938,7 @@ pub enum SingleFixedWidthError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct WidthByteordMismatchError {
     byteord: ByteOrd2_0,
-    width: PrivBytes,
+    width: NumericByteWidth,
 }
 
 /// Error when more than one $PnB are present and $BYTEORD length is ambiguous (2.0/3.0 only)
@@ -1137,7 +1137,7 @@ impl<T> From<RangeToIntError<T>> for RangeToAsciiError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct WrongFloatWidth {
-    width: PrivBytes,
+    width: NumericByteWidth,
     expected: usize,
     index: MeasIndex,
 }
@@ -4071,7 +4071,7 @@ where
 
 /// A data layout which has binary types with known widths.
 trait HasBinaryColumns {
-    fn col_bytes(&self) -> Vec<PrivBytes>;
+    fn col_bytes(&self) -> Vec<NumericByteWidth>;
 }
 
 impl<C, F, I, L, M, const ORD: bool> HasBinaryColumns for Layout<C, F, I, L, M, ORD>
@@ -4080,7 +4080,7 @@ where
     C: AsRef<[I::Inner]>,
     I::Inner: ColumnIsBinary,
 {
-    fn col_bytes(&self) -> Vec<PrivBytes> {
+    fn col_bytes(&self) -> Vec<NumericByteWidth> {
         self.container
             .as_ref()
             .iter()
@@ -4101,7 +4101,7 @@ where
     C56: HasBinaryColumns,
     C64: HasBinaryColumns,
 {
-    fn col_bytes(&self) -> Vec<PrivBytes> {
+    fn col_bytes(&self) -> Vec<NumericByteWidth> {
         match_any_uint!(self, x, x.col_bytes())
     }
 }
@@ -5364,14 +5364,14 @@ where
                 if let Some((c0, cs)) = x.col_bytes().split_first() {
                     if cs.iter().all(|c| c0 == c) {
                         let new = match c0 {
-                            PrivBytes::B1 => AnyUint::Uint08(x.map_inner(ColInto::col_into)),
-                            PrivBytes::B2 => AnyUint::Uint16(x.map_inner(ColInto::col_into)),
-                            PrivBytes::B3 => AnyUint::Uint24(x.map_inner(ColInto::col_into)),
-                            PrivBytes::B4 => AnyUint::Uint32(x.map_inner(ColInto::col_into)),
-                            PrivBytes::B5 => AnyUint::Uint40(x.map_inner(ColInto::col_into)),
-                            PrivBytes::B6 => AnyUint::Uint48(x.map_inner(ColInto::col_into)),
-                            PrivBytes::B7 => AnyUint::Uint56(x.map_inner(ColInto::col_into)),
-                            PrivBytes::B8 => AnyUint::Uint64(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B1 => AnyUint::Uint08(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B2 => AnyUint::Uint16(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B3 => AnyUint::Uint24(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B4 => AnyUint::Uint32(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B5 => AnyUint::Uint40(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B6 => AnyUint::Uint48(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B7 => AnyUint::Uint56(x.map_inner(ColInto::col_into)),
+                            NumericByteWidth::B8 => AnyUint::Uint64(x.map_inner(ColInto::col_into)),
                         };
                         Self::Single(new)
                     } else {
@@ -5869,7 +5869,7 @@ impl SeriesAsColumnSchema for MixedSeries {
 /// A column type which has a binary (ie not ASCII) representation.
 #[delegatable_trait]
 pub(crate) trait ColumnIsBinary: Sized {
-    fn bytes(&self) -> PrivBytes;
+    fn bytes(&self) -> NumericByteWidth;
 }
 
 impl<T> ColumnIsBinary for Bitmask<T>
@@ -5877,7 +5877,7 @@ where
     Self: ColumnHasNativeType<Native = T>,
     T: FCSRepr,
 {
-    fn bytes(&self) -> PrivBytes {
+    fn bytes(&self) -> NumericByteWidth {
         T::FILE_BYTES.0
     }
 }
@@ -5887,19 +5887,19 @@ where
     Self: ColumnHasNativeType<Native = T>,
     T: FCSRepr,
 {
-    fn bytes(&self) -> PrivBytes {
+    fn bytes(&self) -> NumericByteWidth {
         T::FILE_BYTES.0
     }
 }
 
 impl<M: ColumnIsBinary, T, R> ColumnIsBinary for Series<M, T, R> {
-    fn bytes(&self) -> PrivBytes {
+    fn bytes(&self) -> NumericByteWidth {
         self.column_schema.bytes()
     }
 }
 
 impl<B: ColumnIsBinary, T> ColumnIsBinary for RangedVec<B, T> {
-    fn bytes(&self) -> PrivBytes {
+    fn bytes(&self) -> NumericByteWidth {
         self.range.bytes()
     }
 }
@@ -7816,14 +7816,14 @@ impl<D> AnySingleUintDataSchema<D> {
             }};
         }
         match byte_width.0 {
-            PrivBytes::B1 => go!(Uint08),
-            PrivBytes::B2 => go!(Uint16),
-            PrivBytes::B3 => go!(Uint24),
-            PrivBytes::B4 => go!(Uint32),
-            PrivBytes::B5 => go!(Uint40),
-            PrivBytes::B6 => go!(Uint48),
-            PrivBytes::B7 => go!(Uint56),
-            PrivBytes::B8 => go!(Uint64),
+            NumericByteWidth::B1 => go!(Uint08),
+            NumericByteWidth::B2 => go!(Uint16),
+            NumericByteWidth::B3 => go!(Uint24),
+            NumericByteWidth::B4 => go!(Uint32),
+            NumericByteWidth::B5 => go!(Uint40),
+            NumericByteWidth::B6 => go!(Uint48),
+            NumericByteWidth::B7 => go!(Uint56),
+            NumericByteWidth::B8 => go!(Uint64),
         }
     }
 
@@ -7856,14 +7856,14 @@ impl<T> AnyOrderedUintDataSchema<T> {
             }};
         }
         match byte_width.0 {
-            PrivBytes::B1 => go!(Uint08),
-            PrivBytes::B2 => go!(Uint16),
-            PrivBytes::B3 => go!(Uint24),
-            PrivBytes::B4 => go!(Uint32),
-            PrivBytes::B5 => go!(Uint40),
-            PrivBytes::B6 => go!(Uint48),
-            PrivBytes::B7 => go!(Uint56),
-            PrivBytes::B8 => go!(Uint64),
+            NumericByteWidth::B1 => go!(Uint08),
+            NumericByteWidth::B2 => go!(Uint16),
+            NumericByteWidth::B3 => go!(Uint24),
+            NumericByteWidth::B4 => go!(Uint32),
+            NumericByteWidth::B5 => go!(Uint40),
+            NumericByteWidth::B6 => go!(Uint48),
+            NumericByteWidth::B7 => go!(Uint56),
+            NumericByteWidth::B8 => go!(Uint64),
         }
     }
 
@@ -7928,7 +7928,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
             }
         };
 
-        let check_width_and_byteord = |bytes: PrivBytes, local_bo: ByteOrd2_0| {
+        let check_width_and_byteord = |bytes: NumericByteWidth, local_bo: ByteOrd2_0| {
             if local_bo.nbytes() == bytes {
                 LogResult::new_ok(bytes)
             } else {
@@ -7961,7 +7961,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
 
         let bytes_res = match conf.int_width_override {
             IntWidthOverride::Never => get_widths().and_then_commutative(|width| {
-                PrivBytes::try_from(width)
+                NumericByteWidth::try_from(width)
                     .map(|x| (x, None))
                     .map_err(SingleFixedWidthError::from)
                     .into_log()
@@ -7971,7 +7971,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
                     .next_byte()
                     .map_or_else(
                         || Err(FixedWidthToBytesError(width.into())),
-                        PrivBytes::try_from,
+                        NumericByteWidth::try_from,
                     )
                     .map(|x| {
                         let new_bits = u8::from(x).checked_mul(8).expect("lhs should be 1-8");
@@ -8553,16 +8553,16 @@ impl VariableUintSeries {
 // Implement misc methods for data schema ranges
 
 impl<C08, C16, C24, C32, C40, C48, C56, C64> AnyUint<C08, C16, C24, C32, C40, C48, C56, C64> {
-    pub(crate) fn as_bytes(&self) -> PrivBytes {
+    pub(crate) fn as_bytes(&self) -> NumericByteWidth {
         match self {
-            Self::Uint08(_) => PrivBytes::B1,
-            Self::Uint16(_) => PrivBytes::B2,
-            Self::Uint24(_) => PrivBytes::B3,
-            Self::Uint32(_) => PrivBytes::B4,
-            Self::Uint40(_) => PrivBytes::B5,
-            Self::Uint48(_) => PrivBytes::B6,
-            Self::Uint56(_) => PrivBytes::B7,
-            Self::Uint64(_) => PrivBytes::B8,
+            Self::Uint08(_) => NumericByteWidth::B1,
+            Self::Uint16(_) => NumericByteWidth::B2,
+            Self::Uint24(_) => NumericByteWidth::B3,
+            Self::Uint32(_) => NumericByteWidth::B4,
+            Self::Uint40(_) => NumericByteWidth::B5,
+            Self::Uint48(_) => NumericByteWidth::B6,
+            Self::Uint56(_) => NumericByteWidth::B7,
+            Self::Uint64(_) => NumericByteWidth::B8,
         }
     }
 }
@@ -8582,7 +8582,8 @@ impl<T> FloatRange<T> {
         FiniteFloat<T>: Bounded,
         T: FCSRepr,
     {
-        PrivBytes::try_from(width)
+        width
+            .to_byte_width()
             .map_err(|e| IndexedError::new(i, e))
             .map_err(IndexedWidthToBytesError)
             .into_log::<Vec<_>, Vec<_>, Nothing<_>>()
@@ -8656,15 +8657,15 @@ impl From<BitmaskValue<u64>> for VariableBitmask {
                 Self::$var(ret)
             }};
         }
-        match PrivBytes::from_u64(value.0) {
-            PrivBytes::B1 => go!(Uint08, value),
-            PrivBytes::B2 => go!(Uint16, value),
-            PrivBytes::B3 => go!(Uint24, value),
-            PrivBytes::B4 => go!(Uint32, value),
-            PrivBytes::B5 => go!(Uint40, value),
-            PrivBytes::B6 => go!(Uint48, value),
-            PrivBytes::B7 => go!(Uint56, value),
-            PrivBytes::B8 => go!(Uint64, value),
+        match NumericByteWidth::from_u64(value.0) {
+            NumericByteWidth::B1 => go!(Uint08, value),
+            NumericByteWidth::B2 => go!(Uint16, value),
+            NumericByteWidth::B3 => go!(Uint24, value),
+            NumericByteWidth::B4 => go!(Uint32, value),
+            NumericByteWidth::B5 => go!(Uint40, value),
+            NumericByteWidth::B6 => go!(Uint48, value),
+            NumericByteWidth::B7 => go!(Uint56, value),
+            NumericByteWidth::B8 => go!(Uint64, value),
         }
     }
 }
@@ -8696,7 +8697,7 @@ impl VariableBitmask {
     ) -> WarningsAndErrorResult<ConvertedRange<Self>, (), IndexedBitmaskError, NewUintTypeError>
     {
         width
-            .try_into()
+            .to_byte_width()
             .map_err(|e| IndexedError::new(i, e))
             .map_err(IndexedWidthToBytesError)
             .map_err(NewUintTypeError::from)
@@ -8712,7 +8713,7 @@ impl VariableBitmask {
 
     /// Make a new bitmask with a given width (in bytes) using a float/int.
     fn try_new(
-        width: PrivBytes,
+        width: NumericByteWidth,
         range: TextRange,
         i: MeasIndex,
         flag: DisallowRangeTrunc,
@@ -8724,14 +8725,14 @@ impl VariableBitmask {
             };
         }
         let ret = match width {
-            PrivBytes::B1 => go!(Bitmask08),
-            PrivBytes::B2 => go!(Bitmask16),
-            PrivBytes::B3 => go!(Bitmask24),
-            PrivBytes::B4 => go!(Bitmask32),
-            PrivBytes::B5 => go!(Bitmask40),
-            PrivBytes::B6 => go!(Bitmask48),
-            PrivBytes::B7 => go!(Bitmask56),
-            PrivBytes::B8 => go!(Bitmask64),
+            NumericByteWidth::B1 => go!(Bitmask08),
+            NumericByteWidth::B2 => go!(Bitmask16),
+            NumericByteWidth::B3 => go!(Bitmask24),
+            NumericByteWidth::B4 => go!(Bitmask32),
+            NumericByteWidth::B5 => go!(Bitmask40),
+            NumericByteWidth::B6 => go!(Bitmask48),
+            NumericByteWidth::B7 => go!(Bitmask56),
+            NumericByteWidth::B8 => go!(Bitmask64),
         };
         ret.map_switchable_errors(|e| IndexedError::new(i, e))
             .map_switchable_errors(IndexedBitmaskError)
@@ -8763,9 +8764,10 @@ mod private {
 mod python {
     use super::{AnyUint, FloatRange, MixedRange, VariableBitmask};
 
-    use crate::text::byteord::{ArgBytes, PrivBytes};
+    use crate::text::byteord::ArgBytes;
     use crate::validated::finite_float::FiniteFloat;
 
+    use fireflow_types::config::NumericByteWidth;
     use fireflow_types::python::ColumnType;
 
     use pyo3::prelude::*;
@@ -8786,14 +8788,14 @@ mod python {
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             let (width, value): (ArgBytes, Bound<'py, PyAny>) = obj.extract()?;
             let ret = match width.0 {
-                PrivBytes::B1 => Self::Uint08(value.extract()?),
-                PrivBytes::B2 => Self::Uint16(value.extract()?),
-                PrivBytes::B3 => Self::Uint24(value.extract()?),
-                PrivBytes::B4 => Self::Uint32(value.extract()?),
-                PrivBytes::B5 => Self::Uint40(value.extract()?),
-                PrivBytes::B6 => Self::Uint48(value.extract()?),
-                PrivBytes::B7 => Self::Uint56(value.extract()?),
-                PrivBytes::B8 => Self::Uint64(value.extract()?),
+                NumericByteWidth::B1 => Self::Uint08(value.extract()?),
+                NumericByteWidth::B2 => Self::Uint16(value.extract()?),
+                NumericByteWidth::B3 => Self::Uint24(value.extract()?),
+                NumericByteWidth::B4 => Self::Uint32(value.extract()?),
+                NumericByteWidth::B5 => Self::Uint40(value.extract()?),
+                NumericByteWidth::B6 => Self::Uint48(value.extract()?),
+                NumericByteWidth::B7 => Self::Uint56(value.extract()?),
+                NumericByteWidth::B8 => Self::Uint64(value.extract()?),
             };
             Ok(ret)
         }
@@ -8806,14 +8808,14 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
-                Self::Uint08(x) => (ArgBytes(PrivBytes::B1), x).into_pyobject(py),
-                Self::Uint16(x) => (ArgBytes(PrivBytes::B2), x).into_pyobject(py),
-                Self::Uint24(x) => (ArgBytes(PrivBytes::B3), x).into_pyobject(py),
-                Self::Uint32(x) => (ArgBytes(PrivBytes::B4), x).into_pyobject(py),
-                Self::Uint40(x) => (ArgBytes(PrivBytes::B5), x).into_pyobject(py),
-                Self::Uint48(x) => (ArgBytes(PrivBytes::B6), x).into_pyobject(py),
-                Self::Uint56(x) => (ArgBytes(PrivBytes::B7), x).into_pyobject(py),
-                Self::Uint64(x) => (ArgBytes(PrivBytes::B8), x).into_pyobject(py),
+                Self::Uint08(x) => (ArgBytes(NumericByteWidth::B1), x).into_pyobject(py),
+                Self::Uint16(x) => (ArgBytes(NumericByteWidth::B2), x).into_pyobject(py),
+                Self::Uint24(x) => (ArgBytes(NumericByteWidth::B3), x).into_pyobject(py),
+                Self::Uint32(x) => (ArgBytes(NumericByteWidth::B4), x).into_pyobject(py),
+                Self::Uint40(x) => (ArgBytes(NumericByteWidth::B5), x).into_pyobject(py),
+                Self::Uint48(x) => (ArgBytes(NumericByteWidth::B6), x).into_pyobject(py),
+                Self::Uint56(x) => (ArgBytes(NumericByteWidth::B7), x).into_pyobject(py),
+                Self::Uint64(x) => (ArgBytes(NumericByteWidth::B8), x).into_pyobject(py),
             }
         }
     }

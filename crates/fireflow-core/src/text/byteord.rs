@@ -3,6 +3,7 @@ use crate::text::keywords::{ByteOrd2_0, ByteOrd3_1, Width};
 use crate::text::lookup::ReqMetarootKey;
 use crate::validated::ascii_range::{Chars, CharsError};
 
+use fireflow_types::config::NumericByteWidth;
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{NEDelim, NEStr, ToDisplayNE};
 
@@ -11,7 +12,7 @@ use derive_new::new;
 use nonempty_collections::{
     FromNonEmptyIterator, IntoNonEmptyIterator, NEVec, NonEmptyIterator as _,
 };
-use num_enum::{IntoPrimitive, TryFromPrimitive, TryFromPrimitiveError};
+use num_enum::TryFromPrimitiveError;
 use thiserror::Error;
 
 use std::num::{NonZeroU8, ParseIntError};
@@ -135,21 +136,23 @@ where
 /// The number of bytes for a numeric measurement
 #[derive(Into, Debug, Display, Clone, Copy, PartialEq)]
 #[into(u8, NonZeroU8, PrivBitsOrChars)]
-pub struct Bytes(pub(crate) PrivBytes);
+pub struct Bytes(pub(crate) NumericByteWidth);
 
 impl FromStr for Bytes {
     type Err = ParseBytesError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         let x = s.parse::<u8>().map_err(|_| ParseBytesError)?;
-        Ok(Self(PrivBytes::try_from(x).map_err(|_| ParseBytesError)?))
+        Ok(Self(
+            NumericByteWidth::try_from(x).map_err(|_| ParseBytesError)?,
+        ))
     }
 }
 
 impl TryFrom<u8> for Bytes {
     type Error = NewArgBytesError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(Self(PrivBytes::try_from(value)?))
+        Ok(Self(NumericByteWidth::try_from(value)?))
     }
 }
 
@@ -159,18 +162,18 @@ impl TryFrom<u8> for Bytes {
 pub struct ParseBytesError;
 
 /// The number of bytes for a numeric measurement; used for method arguments.
-pub struct ArgBytes(pub(crate) PrivBytes);
+pub struct ArgBytes(pub(crate) NumericByteWidth);
 
 impl Default for ArgBytes {
     fn default() -> Self {
-        Self(PrivBytes::B4)
+        Self(NumericByteWidth::B4)
     }
 }
 
 impl TryFrom<u8> for ArgBytes {
     type Error = NewArgBytesError;
     fn try_from(value: u8) -> Result<Self, Self::Error> {
-        Ok(Self(PrivBytes::try_from(value)?))
+        Ok(Self(NumericByteWidth::try_from(value)?))
     }
 }
 
@@ -179,23 +182,7 @@ impl TryFrom<u8> for ArgBytes {
 #[error("must be integer 1-8")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct NewArgBytesError(TryFromPrimitiveError<PrivBytes>);
-
-/// Private version of `Bytes`
-#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[repr(u8)]
-#[display("{}", u8::from(*self))]
-pub(crate) enum PrivBytes {
-    B1 = 1,
-    B2,
-    B3,
-    B4,
-    B5,
-    B6,
-    B7,
-    B8,
-}
+pub struct NewArgBytesError(TryFromPrimitiveError<NumericByteWidth>);
 
 /// The value of $PnB if it is fixed.
 ///
@@ -245,19 +232,6 @@ impl HasByteOrd for NoByteOrd3_1 {
 
 impl HasByteOrd for Endian {
     type ByteOrd = ByteOrd3_1;
-}
-
-impl PrivBytes {
-    /// Return number of bytes needed to express the given u64.
-    pub(crate) fn from_u64(x: u64) -> Self {
-        // find position of most-significant non-zero byte
-        x.to_le_bytes()
-            .iter()
-            .rposition(|i| *i > 0)
-            .and_then(|i| u8::try_from(i + 1).ok())
-            .and_then(|i| Self::try_from(i).ok())
-            .unwrap_or(Self::B1)
-    }
 }
 
 impl<const LEN: usize> TryFrom<ArrayByteOrd<LEN>> for Endian {
@@ -444,10 +418,11 @@ impl TryFrom<Width> for Chars {
     }
 }
 
-impl TryFrom<Width> for PrivBytes {
-    type Error = WidthToFixedError<FixedWidthToBytesError>;
-    fn try_from(value: Width) -> Result<Self, Self::Error> {
-        let fixed = PrivBitsOrChars::try_from(value)?;
+impl Width {
+    pub(crate) fn to_byte_width(
+        self,
+    ) -> Result<NumericByteWidth, WidthToFixedError<FixedWidthToBytesError>> {
+        let fixed = PrivBitsOrChars::try_from(self)?;
         fixed.try_into().map_err(WidthToFixedError::Fixed)
     }
 }
@@ -470,7 +445,7 @@ impl TryFrom<PrivBitsOrChars> for Chars {
     }
 }
 
-impl TryFrom<PrivBitsOrChars> for PrivBytes {
+impl TryFrom<PrivBitsOrChars> for NumericByteWidth {
     type Error = FixedWidthToBytesError;
     /// Return number of bytes represented by this.
     ///
@@ -484,15 +459,8 @@ impl TryFrom<PrivBitsOrChars> for PrivBytes {
     }
 }
 
-impl From<PrivBytes> for NonZeroU8 {
-    fn from(value: PrivBytes) -> Self {
-        // ASSUME this will never fail because Bytes is 1-8
-        Self::new(u8::from(value)).unwrap()
-    }
-}
-
-impl From<PrivBytes> for PrivBitsOrChars {
-    fn from(value: PrivBytes) -> Self {
+impl From<NumericByteWidth> for PrivBitsOrChars {
+    fn from(value: NumericByteWidth) -> Self {
         // ASSUME this will never fail because Bytes is 1-8
         Self(NonZeroU8::new(u8::from(value) * 8).unwrap())
     }
@@ -595,7 +563,7 @@ pub struct OrderedToEndianError;
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct ByteOrdToSizedError {
-    bytes: PrivBytes,
+    bytes: NumericByteWidth,
     length: usize,
 }
 
@@ -654,23 +622,13 @@ mod tests {
 
     #[test]
     fn str_to_width_as_bytes() {
-        assert!(PrivBytes::try_from("8".parse::<Width>().unwrap()).is_ok());
-        assert!(PrivBytes::try_from("16".parse::<Width>().unwrap()).is_ok());
-        assert!(PrivBytes::try_from("64".parse::<Width>().unwrap()).is_ok());
-        assert!(PrivBytes::try_from("7".parse::<Width>().unwrap()).is_err());
-        assert!(PrivBytes::try_from("63".parse::<Width>().unwrap()).is_err());
-        assert!(PrivBytes::try_from("65".parse::<Width>().unwrap()).is_err());
-        assert!(PrivBytes::try_from("72".parse::<Width>().unwrap()).is_err(),);
-    }
-
-    #[test]
-    fn bytes_from_u64() {
-        assert_eq!(PrivBytes::B1, PrivBytes::from_u64(0));
-        assert_eq!(PrivBytes::B1, PrivBytes::from_u64(0x00FF));
-        assert_eq!(PrivBytes::B2, PrivBytes::from_u64(0x0100));
-        assert_eq!(PrivBytes::B2, PrivBytes::from_u64(0xFFFF));
-        assert_eq!(PrivBytes::B3, PrivBytes::from_u64(0x0001_0000));
-        assert_eq!(PrivBytes::B8, PrivBytes::from_u64(0xFFFF_FFFF_FFFF_FFFF));
+        assert!("8".parse::<Width>().unwrap().to_byte_width().is_ok());
+        assert!("16".parse::<Width>().unwrap().to_byte_width().is_ok());
+        assert!("64".parse::<Width>().unwrap().to_byte_width().is_ok());
+        assert!("7".parse::<Width>().unwrap().to_byte_width().is_err());
+        assert!("63".parse::<Width>().unwrap().to_byte_width().is_err());
+        assert!("65".parse::<Width>().unwrap().to_byte_width().is_err());
+        assert!("72".parse::<Width>().unwrap().to_byte_width().is_err(),);
     }
 
     #[test]

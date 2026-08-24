@@ -1,4 +1,6 @@
-use crate::text::byteord::{Bytes, PrivBytes};
+use crate::text::byteord::Bytes;
+
+use fireflow_types::config::NumericByteWidth;
 
 use bigdecimal::BigDecimal;
 use bytemuck::NoUninit;
@@ -198,7 +200,7 @@ pub trait FCSRepr {
 macro_rules! impl_file_bytes {
     ($t:ident, $prim:ident, $file_bytes:ident, $mem_bytes:ident, $file_len:expr, $mem_len:expr) => {
         impl FCSRepr for $t {
-            const FILE_BYTES: Bytes = Bytes(PrivBytes::$file_bytes);
+            const FILE_BYTES: Bytes = Bytes(NumericByteWidth::$file_bytes);
             type FileBuf = [u8; $file_len];
             type ByteOrd = Self::FileBuf;
             type Prim = $prim;

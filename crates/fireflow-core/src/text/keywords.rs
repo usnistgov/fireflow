@@ -7,9 +7,7 @@ use crate::logging::{
 };
 use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
-use crate::text::byteord::{
-    ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd, PrivBytes,
-};
+use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keyword_enum::AsStdKeywordPair as _;
@@ -45,7 +43,7 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
-use fireflow_types::config::{ForceLinearScale, OpticalOnlyKey};
+use fireflow_types::config::{ForceLinearScale, NumericByteWidth, OpticalOnlyKey};
 use fireflow_types::keywords::{
     self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
     VersionMembership,
@@ -877,16 +875,16 @@ impl From<NoByteOrd<true>> for ByteOrd2_0 {
 
 impl ByteOrd2_0 {
     #[must_use]
-    pub(crate) fn nbytes(&self) -> PrivBytes {
+    pub(crate) fn nbytes(&self) -> NumericByteWidth {
         match self {
-            Self::O1(_) => PrivBytes::B1,
-            Self::O2(_) => PrivBytes::B2,
-            Self::O3(_) => PrivBytes::B3,
-            Self::O4(_) => PrivBytes::B4,
-            Self::O5(_) => PrivBytes::B5,
-            Self::O6(_) => PrivBytes::B6,
-            Self::O7(_) => PrivBytes::B7,
-            Self::O8(_) => PrivBytes::B8,
+            Self::O1(_) => NumericByteWidth::B1,
+            Self::O2(_) => NumericByteWidth::B2,
+            Self::O3(_) => NumericByteWidth::B3,
+            Self::O4(_) => NumericByteWidth::B4,
+            Self::O5(_) => NumericByteWidth::B5,
+            Self::O6(_) => NumericByteWidth::B6,
+            Self::O7(_) => NumericByteWidth::B7,
+            Self::O8(_) => NumericByteWidth::B8,
         }
     }
 
@@ -904,16 +902,16 @@ impl ByteOrd2_0 {
         }
     }
 
-    pub(crate) fn from_endian(endian: Endian, bytes: PrivBytes) -> Self {
+    pub(crate) fn from_endian(endian: Endian, bytes: NumericByteWidth) -> Self {
         match bytes {
-            PrivBytes::B1 => Self::O1(endian.into()),
-            PrivBytes::B2 => Self::O2(endian.into()),
-            PrivBytes::B3 => Self::O3(endian.into()),
-            PrivBytes::B4 => Self::O4(endian.into()),
-            PrivBytes::B5 => Self::O5(endian.into()),
-            PrivBytes::B6 => Self::O6(endian.into()),
-            PrivBytes::B7 => Self::O7(endian.into()),
-            PrivBytes::B8 => Self::O8(endian.into()),
+            NumericByteWidth::B1 => Self::O1(endian.into()),
+            NumericByteWidth::B2 => Self::O2(endian.into()),
+            NumericByteWidth::B3 => Self::O3(endian.into()),
+            NumericByteWidth::B4 => Self::O4(endian.into()),
+            NumericByteWidth::B5 => Self::O5(endian.into()),
+            NumericByteWidth::B6 => Self::O6(endian.into()),
+            NumericByteWidth::B7 => Self::O7(endian.into()),
+            NumericByteWidth::B8 => Self::O8(endian.into()),
         }
     }
 
@@ -2558,7 +2556,7 @@ macro_rules! try_from_range_int {
             fn try_from(value: TextRange) -> Result<Self, Self::Error> {
                 let x = &value.0;
                 let err = |error_kind| RangeToIntError {
-                    dest_type: PrivBytes::$ut,
+                    dest_type: NumericByteWidth::$ut,
                     src_value: x.clone(),
                     error_kind,
                 };
@@ -2595,7 +2593,7 @@ try_from_range_int!(u64, to_u64, B8);
 /// external use.
 #[derive(Debug)]
 pub struct RangeToIntError<T> {
-    pub(crate) dest_type: PrivBytes,
+    pub(crate) dest_type: NumericByteWidth,
     pub(crate) src_value: BigDecimal,
     pub(crate) error_kind: RangeToIntErrorKind<T>,
 }

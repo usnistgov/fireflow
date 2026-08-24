@@ -3,15 +3,56 @@ use crate::nonempty_string::NEStr;
 
 use const_format::formatcp;
 use derive_more::{Display, FromStr, Into};
+use num_enum::{IntoPrimitive, TryFromPrimitive};
 use thiserror::Error;
 
+use std::num::NonZeroU8;
 use std::str::FromStr;
+
+#[cfg(feature = "serde")]
+use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString, TryFromPyObject},
     pyo3::prelude::*,
 };
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[repr(u8)]
+#[display("{}", u8::from(*self))]
+pub enum NumericByteWidth {
+    B1 = 1,
+    B2,
+    B3,
+    B4,
+    B5,
+    B6,
+    B7,
+    B8,
+}
+
+impl NumericByteWidth {
+    /// Return number of bytes needed to express the given u64.
+    #[must_use]
+    pub fn from_u64(x: u64) -> Self {
+        // find position of most-significant non-zero byte
+        x.to_le_bytes()
+            .iter()
+            .rposition(|i| *i > 0)
+            .and_then(|i| u8::try_from(i + 1).ok())
+            .and_then(|i| Self::try_from(i).ok())
+            .unwrap_or(Self::B1)
+    }
+}
+
+impl From<NumericByteWidth> for NonZeroU8 {
+    fn from(value: NumericByteWidth) -> Self {
+        // ASSUME this will never fail because Bytes is 1-8
+        Self::new(u8::from(value)).unwrap()
+    }
+}
 
 pub trait EnumStrIter<const LEN: usize>: Sized {
     const ITEMS: [Self; LEN];
@@ -811,3 +852,24 @@ pub const BASE60_SECOND_SPEC: &str = "%!";
 pub const BASE100_SECOND_SPEC: &str = "%@";
 
 pub const PATTERN_DELIMITER: char = '/';
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bytes_from_u64() {
+        assert_eq!(NumericByteWidth::B1, NumericByteWidth::from_u64(0));
+        assert_eq!(NumericByteWidth::B1, NumericByteWidth::from_u64(0x00FF));
+        assert_eq!(NumericByteWidth::B2, NumericByteWidth::from_u64(0x0100));
+        assert_eq!(NumericByteWidth::B2, NumericByteWidth::from_u64(0xFFFF));
+        assert_eq!(
+            NumericByteWidth::B3,
+            NumericByteWidth::from_u64(0x0001_0000)
+        );
+        assert_eq!(
+            NumericByteWidth::B8,
+            NumericByteWidth::from_u64(0xFFFF_FFFF_FFFF_FFFF)
+        );
+    }
+}

@@ -1,10 +1,11 @@
 //! Types to represent the $PnB and $PnR values for a uint column.
 
 use crate::convert::U32Ext as _;
-use crate::text::byteord::PrivBytes;
 use crate::text::keywords::TextRange;
 use crate::validated::unaligned::FCSRepr;
 use crate::validated::unaligned::{U24, U40, U48, U56};
+
+use fireflow_types::config::NumericByteWidth;
 
 use bigdecimal::BigDecimal;
 use derive_new::new;
@@ -160,7 +161,7 @@ impl<T> Bitmask<T> {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct NewBitmaskError {
-    bytes: PrivBytes,
+    bytes: NumericByteWidth,
     value: u64,
 }
 

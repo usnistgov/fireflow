@@ -21,6 +21,7 @@ fireflow-core-proc = { path = "../fireflow-core-proc", optional = true }
 serde = { workspace = true, features = ["derive"], optional = true }
 proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }
+num_enum = { workspace = true }
 
 [build-dependencies]
 phf = { version = "0.13.1", default-features = false, features = ["unicase"] }

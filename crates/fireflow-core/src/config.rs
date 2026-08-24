@@ -24,9 +24,10 @@ use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
-    AllKeyMatchers, KeyString, KeyStringsOrPatterns, LiteralOrPattern, NonStdKeywordsExt as _,
+    AllKeyMatchers, KeyStringsOrPatterns, LiteralOrPattern, NonStdKeywordsExt as _,
     NonUniqueKeyError, StdKey, ValidKeywords, checked_iter_to_hashmap,
 };
+use crate::validated::keystring::KeyString;
 use crate::validated::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
 use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;

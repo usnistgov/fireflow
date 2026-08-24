@@ -1,4 +1,4 @@
-use crate::validated::keys::KeyString;
+use crate::validated::keystring::KeyString;
 
 use derive_more::{AsRef, Display, From};
 use hashbrown::{HashMap, hash_map::IntoIter};
@@ -77,7 +77,7 @@ pub struct KeyStringNonUniqueError(NEVec<KeyString>);
 #[cfg(feature = "python")]
 mod python {
     use super::KeyStringPairs;
-    use crate::validated::keys::KeyString;
+    use crate::validated::keystring::KeyString;
 
     use hashbrown::HashMap;
     use pyo3::prelude::*;

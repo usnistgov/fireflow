@@ -3,9 +3,8 @@ use crate::{
     text::{keywords::Cyt, spillover::Spillover},
     validated::{
         datepattern::DatePattern,
-        keys::{
-            AnyKey, Key as _, KeyString, KeyStringOrPattern, KeyStringsOrPatterns, ValidKeywords,
-        },
+        keys::{AnyKey, Key as _, KeyStringOrPattern, KeyStringsOrPatterns, ValidKeywords},
+        keystring::KeyString,
         keystring_pairs::KeyStringPairs,
         timepattern::TimePattern,
     },

@@ -10,6 +10,7 @@ pub mod datepattern;
 pub mod finite_float;
 pub mod header_offsets;
 pub mod keys;
+pub mod keystring;
 pub mod keystring_pairs;
 pub mod read_state;
 pub mod row_buffer;

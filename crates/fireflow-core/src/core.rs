@@ -73,7 +73,6 @@ use crate::text::gating::{
     AppliedGates3_2, AppliedGatesDiagnostics, GatedMeasurements, LookupAppliedGates2_0Error,
     LookupAppliedGates3_0Error, LookupAppliedGates3_2Error,
 };
-use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
     AnyKeyword, AnyMetarootKeyLossError, AnyTemporalToOpticalKeyLossError, AsKeywordPair as _,
     HasMembership as _, Keyword0FromValue as _, Keyword1FromValue as _, NonStdKeyword, OptKeyword,
@@ -128,16 +127,18 @@ use crate::validated::read_state::{
     TEXTReadState, WriteFCSDigest,
 };
 use crate::validated::shortname::Shortname;
-use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
-use fireflow_types::config::{
-    IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
+use fireflow_types::{
+    config::{IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction},
+    index::{IndexFromOne, MeasIndex},
+    keywords::{
+        HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
+    },
+    nonempty_string::{NESliceExt as _, NEStr, NEString},
+    textdelim::TEXTDelim,
 };
-use fireflow_types::keywords::{
-    HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
-};
-use fireflow_types::nonempty_string::{NESliceExt as _, NEStr, NEString};
+
 use nonempty_collections::NESlice;
 use type_families::{ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, Pointed};
 

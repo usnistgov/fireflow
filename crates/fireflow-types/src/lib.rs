@@ -1,6 +1,13 @@
 pub mod byteord;
+pub mod case_ins_regex;
 pub mod config;
+pub mod index;
+pub mod keystring;
+pub mod keystring_pairs;
 pub mod keywords;
 pub mod nonempty_string;
 #[cfg(feature = "python")]
 pub mod python;
+pub mod ranged_float;
+pub mod sub_pattern;
+pub mod textdelim;

@@ -1,22 +1,23 @@
-use fireflow_core::api;
-use fireflow_core::config::{self as cfg, ByteordOverride, HasStrategy as _, IntWidthOverride};
-use fireflow_core::core::AnyCoreDataset;
-use fireflow_core::segment::read::OffsetsCorrection;
-use fireflow_core::selector::{AppendableSelector, Selector};
-use fireflow_core::text::byteord::Bytes;
-use fireflow_core::text::keywords::{AlphaNumType, Timestep};
-use fireflow_core::validated::ascii_range::OtherWidth;
-use fireflow_core::validated::datepattern::DatePattern;
-use fireflow_core::validated::keys::KeyStringOrPattern;
-use fireflow_core::validated::keystring::KeyString;
-use fireflow_core::validated::read_state::DatasetOffset;
-use fireflow_core::validated::sub_pattern::SubPattern;
-use fireflow_core::validated::textdelim::TEXTDelim;
-use fireflow_core::validated::timepattern::TimePattern;
-use fireflow_types::byteord::ConfigByteOrd;
-use fireflow_types::config as tc;
-use fireflow_types::keywords as tk;
-use fireflow_types::nonempty_string::NEString;
+use fireflow_core::{
+    api,
+    config::{self as cfg, ByteordOverride, HasStrategy as _, IntWidthOverride},
+    core::AnyCoreDataset,
+    segment::read::OffsetsCorrection,
+    selector::{AppendableSelector, Selector},
+    text::{
+        byteord::Bytes,
+        keywords::{AlphaNumType, Timestep},
+    },
+    validated::{
+        ascii_range::OtherWidth, datepattern::DatePattern, keys::KeyStringOrPattern,
+        read_state::DatasetOffset, timepattern::TimePattern,
+    },
+};
+
+use fireflow_types::{
+    byteord::ConfigByteOrd, config as tc, keystring::KeyString, keywords as tk,
+    nonempty_string::NEString, sub_pattern::SubPattern, textdelim::TEXTDelim,
+};
 
 use ansi_term::{ANSIString, Style};
 use clap::{
@@ -34,14 +35,16 @@ use serde::Serialize;
 use serde_json::{json, to_writer};
 use zmij::Buffer as FBuf;
 
-use std::collections::HashSet;
-use std::error::Error;
-use std::fmt::Display;
-use std::io::{self, Write};
-use std::iter::once;
-use std::path::PathBuf;
-use std::process::ExitCode;
-use std::str::FromStr;
+use std::{
+    collections::HashSet,
+    error::Error,
+    fmt::Display,
+    io::{self, Write},
+    iter::once,
+    path::PathBuf,
+    process::ExitCode,
+    str::FromStr,
+};
 
 /// Helper macro to keep args in sync with config fields
 macro_rules! cli_arg {

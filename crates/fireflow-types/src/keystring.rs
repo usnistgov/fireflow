@@ -1,4 +1,4 @@
-use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE};
+use crate::nonempty_string::{NEStr, NEString, ToDisplayNE};
 
 use derive_more::{AsRef, Display};
 use nonempty_collections::{IntoNonEmptyIterator as _, NESlice, iter::NonEmptyIterator as _};
@@ -13,8 +13,8 @@ use serde::Serialize;
 
 #[cfg(feature = "python")]
 use {
+    crate::python as py,
     fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
-    fireflow_types::python as py,
 };
 
 /// The internal string for a key (standard or nonstandard).
@@ -71,19 +71,22 @@ impl KeyString {
         Self(Ascii::new(s))
     }
 
-    pub(crate) fn disambiguate(&mut self) {
+    pub fn disambiguate(&mut self) {
         self.0.push('_');
     }
 
-    pub(crate) fn as_str(&self) -> &str {
+    #[must_use]
+    pub fn as_str(&self) -> &str {
         self.0.as_str()
     }
 
-    pub(crate) fn as_ne_str(&self) -> &NEStr {
+    #[must_use]
+    pub fn as_ne_str(&self) -> &NEStr {
         self.0.as_ne_str()
     }
 
-    pub(crate) fn from_bytes_maybe(xs: &NESlice<u8>, single_byte: bool) -> Option<Self> {
+    #[must_use]
+    pub fn from_bytes_maybe(xs: &NESlice<u8>, single_byte: bool) -> Option<Self> {
         if single_byte {
             let ne = xs.into_nonempty_iter().copied().map(char::from).collect();
             Some(Self::new_unchecked(ne))
@@ -95,7 +98,13 @@ impl KeyString {
         }
     }
 
-    pub(crate) unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
+    /// Make new keystring from slice of bytes known not to be empty.
+    ///
+    /// # Safety
+    ///
+    /// Caller must guarantee that bytes are valid UTF-8 characters.
+    #[must_use]
+    pub unsafe fn from_bytes(xs: &NESlice<u8>) -> Self {
         let ne = xs.nonempty_iter().copied().collect();
         // SAFETY: this function is marked unsafe since the caller must check
         Self::new_unchecked(unsafe { NEString::from_utf8_unchecked(ne) })

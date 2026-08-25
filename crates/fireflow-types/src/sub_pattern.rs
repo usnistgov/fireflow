@@ -75,7 +75,8 @@ impl SubPattern {
         Ok(Self { from, to, global })
     }
 
-    pub(crate) fn sub(&self, value: &str) -> String {
+    #[must_use]
+    pub fn sub(&self, value: &str) -> String {
         let s = if self.global {
             self.from.replace_all(value, &self.to)
         } else {
@@ -89,7 +90,7 @@ impl SubPattern {
 #[derive(Debug, Error)]
 #[error("References in '{to}' to not match capture patterns in '{from}'")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct SubPatternError {
     from: Regex,
     to: String,
@@ -151,7 +152,7 @@ mod tests {
 mod python {
     use super::SubPattern;
 
-    use fireflow_types::python::ConfigError;
+    use crate::python::ConfigError;
 
     use pyo3::prelude::*;
     use pyo3::types::PyTuple;

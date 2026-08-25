@@ -1,4 +1,4 @@
-use fireflow_types::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
+use crate::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
 
 use ambassador::Delegate;
 use derive_more::{Add, Into, Mul};
@@ -8,6 +8,9 @@ use thiserror::Error;
 use std::fmt;
 use std::num::ParseFloatError;
 use std::str::FromStr;
+
+#[cfg(feature = "testutil")]
+use proptest::prelude::*;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -73,10 +76,7 @@ impl_ranged_float!(NonNegFloat, <=, true);
 /// Error when parsing either [`NonNegFloat`] or [`PositiveFloat`] from string
 #[derive(Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(
-    feature = "python",
-    pyerr(fireflow_types::python::InvalidKeywordValueError)
-)]
+#[cfg_attr(feature = "python", pyerr(crate::python::InvalidKeywordValueError))]
 pub enum RangedFloatError {
     Parse(ParseFloatError),
     Range { x: f32, include_zero: bool },
@@ -98,32 +98,34 @@ impl fmt::Display for RangedFloatError {
     }
 }
 
+#[cfg(feature = "testutil")]
+impl Arbitrary for PositiveFloat {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
+        (0.0_f32..)
+            .prop_filter("0.0 is not allowed", |&x| x > 0.0)
+            .prop_map(|x| Self::try_from(x).unwrap())
+            .boxed()
+    }
+}
+
+#[cfg(feature = "testutil")]
+impl Arbitrary for NonNegFloat {
+    type Parameters = ();
+    type Strategy = BoxedStrategy<Self>;
+
+    fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
+        (0.0_f32..).prop_map(|x| Self::try_from(x).unwrap()).boxed()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    use proptest::{num::f32, prelude::*};
-
-    impl Arbitrary for PositiveFloat {
-        type Parameters = ();
-        type Strategy = BoxedStrategy<Self>;
-
-        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
-            (0.0_f32..)
-                .prop_filter("0.0 is not allowed", |&x| x > 0.0)
-                .prop_map(|x| Self::try_from(x).unwrap())
-                .boxed()
-        }
-    }
-
-    impl Arbitrary for NonNegFloat {
-        type Parameters = ();
-        type Strategy = BoxedStrategy<Self>;
-
-        fn arbitrary_with((): Self::Parameters) -> Self::Strategy {
-            (0.0_f32..).prop_map(|x| Self::try_from(x).unwrap()).boxed()
-        }
-    }
+    use proptest::num::f32;
 
     proptest! {
         #[test]

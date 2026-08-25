@@ -1,4 +1,4 @@
-use crate::text::index::MeasIndex;
+use fireflow_types::index::MeasIndex;
 
 use derive_more::AsRef;
 use ndarray::{Array2, s};

@@ -1,5 +1,4 @@
-use crate::text::index::MeasIndex;
-
+use fireflow_types::index::MeasIndex;
 use fireflow_types::ne_str;
 use fireflow_types::nonempty_string::{NEStr, NEString};
 use fireflow_types::{

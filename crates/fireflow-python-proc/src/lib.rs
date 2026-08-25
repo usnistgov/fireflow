@@ -7977,7 +7977,7 @@ impl<E: From<PyException>> PyInt<E> {
     }
 
     fn new_gate_index() -> Self {
-        let p = parse_quote!(fireflow_core::text::index::GateIndex);
+        let p = parse_quote!(fireflow_types::index::GateIndex);
         Self::new_nonzero_usize().rstype(p).no_exc()
     }
 
@@ -8904,7 +8904,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_meas_index() -> Self {
-        let path = parse_quote!(fireflow_core::text::index::MeasIndex);
+        let path = parse_quote!(fireflow_types::index::MeasIndex);
         Self::new_py(["typing"], "MeasIndex").rstype(path)
     }
 
@@ -8923,7 +8923,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_keystring_pairs() -> Self {
-        let path: Path = parse_quote!(fireflow_core::validated::keystring_pairs::KeyStringPairs);
+        let path: Path = parse_quote!(fireflow_types::keystring_pairs::KeyStringPairs);
         // TODO exception if dict keys are not unique
         Self::new_py(["typing"], "KeyStringPairs")
             .rstype(path)
@@ -9996,7 +9996,7 @@ impl DocArgParam {
     }
 
     fn new_textdelim_param() -> Self {
-        let path = parse_quote!(fireflow_core::validated::textdelim::TEXTDelim);
+        let path = parse_quote!(fireflow_types::textdelim::TEXTDelim);
         let d = format!("if {ARG_TOKEN} is not between 1 and 126");
         let exc = PyException::new_config().desc(d);
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);

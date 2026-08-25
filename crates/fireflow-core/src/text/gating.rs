@@ -7,7 +7,6 @@ use crate::logging::{
     ResultExt as _, SwitchableErrorsResult, WarningsAndErrorsResult,
 };
 use crate::nonempty::FcsNEVec;
-use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
     OptRootKeyword, RegionKeyword, SplitKeyword, SplitKeyword1,
@@ -29,7 +28,12 @@ use crate::validated::keys::{
     AsStdKey as _, DKey1, IndexedKey as _, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
     ValidKeywords,
 };
-use fireflow_types::nonempty_string::{DisplayNE as _, ToNE};
+
+use fireflow_types::{
+    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
+    nonempty_string::{DisplayNE as _, ToNE},
+};
+
 use type_families::{
     ApplyOnce as _, BifunctorOnce as _, Functor as _, FunctorOnce as _, impl_functor,
     impl_functor_once, impl_kind1,

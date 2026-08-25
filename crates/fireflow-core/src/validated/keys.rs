@@ -6,21 +6,23 @@ use crate::fixed_vec::OneOrTwo;
 use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningAndErrorResult};
 use crate::nonempty::FcsNEVec;
 use crate::segment::read::HeaderOffsetsOverflow;
-use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
 use crate::text::keywords as kws;
-use crate::validated::case_ins_regex::CaseInsRegex;
-use crate::validated::keystring::{AsciiStringError, KeyString};
-use crate::validated::sub_pattern::SubPattern;
 
-use fireflow_types::config::{Encoding, OpticalOnlyKey, PATTERN_DELIMITER};
-use fireflow_types::keywords::{Version, VersionMembership};
-use fireflow_types::ne_str;
-use fireflow_types::nonempty_string::{
-    DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr, NEString,
-    ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+use fireflow_types::{
+    case_ins_regex::{CaseInsRegex, CaseInsRegexError},
+    config::{Encoding, OpticalOnlyKey, PATTERN_DELIMITER},
+    index::{IndexFromOne, MeasIndex},
+    keystring::{AsciiStringError, KeyString},
+    keywords::{Version, VersionMembership},
+    ne_str,
+    nonempty_string::{
+        DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr,
+        NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+    },
+    sub_pattern::SubPattern,
 };
 
 use ambassador::{Delegate, delegatable_trait};
@@ -46,8 +48,6 @@ use std::sync::OnceLock;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::case_ins_regex::CaseInsRegexError;
 
 #[cfg(feature = "python")]
 use {
@@ -1715,7 +1715,7 @@ mod serialize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::validated::keystring::AsciiStringError;
+    use fireflow_types::keystring::AsciiStringError;
     use nonempty_collections::NESlice;
 
     use proptest::prelude::*;

@@ -8,13 +8,16 @@ use crate::validated::keys::{
     StdKey, StdKeywords, TruncatedNEString, ValidKeywords,
 };
 
-use super::index::{IndexFromOne, MeasIndex};
+use fireflow_types::{
+    index::{IndexFromOne, MeasIndex},
+    nonempty_string::{NEStr, NEString},
+};
+
+use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
 use derive_more::{Display, From};
 use derive_new::new;
-use fireflow_types::nonempty_string::{NEStr, NEString};
 use thiserror::Error;
-use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
 use std::convert::Infallible;
 use std::str::FromStr;

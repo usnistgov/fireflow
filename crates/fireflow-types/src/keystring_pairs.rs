@@ -1,4 +1,4 @@
-use crate::validated::keystring::KeyString;
+use crate::keystring::KeyString;
 
 use derive_more::{AsRef, Display, From};
 use hashbrown::{HashMap, hash_map::IntoIter};
@@ -64,20 +64,21 @@ pub enum KeyStringPairsError {
 #[derive(Error, Debug, PartialEq, Clone)]
 #[error("the following keys are paired with themselves: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct KeyStringMatchingKeyValueError(NEVec<KeyString>);
 
 /// Error when values in [`KeyStringPairs`] are not unique
 #[derive(Error, Debug, PartialEq, Clone)]
 #[error("the following value are not unique: {}", .0.iter().join(","))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct KeyStringNonUniqueError(NEVec<KeyString>);
 
 #[cfg(feature = "python")]
 mod python {
+    use crate::keystring::KeyString;
+
     use super::KeyStringPairs;
-    use crate::validated::keystring::KeyString;
 
     use hashbrown::HashMap;
     use pyo3::prelude::*;

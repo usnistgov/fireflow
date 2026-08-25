@@ -10,7 +10,7 @@ Simple types and constants used throughout other fireflow crates.
 derive_more = { workspace = true, features = ["from", "into", "display"] }
 thiserror = { workspace = true }
 const_format = { workspace = true }
-pyo3 = { workspace = true, optional = true, features = ["macros"] }
+pyo3 = { workspace = true, optional = true, features = ["macros", "hashbrown"] }
 phf = { workspace = true, features = ["macros", "unicase"] }
 unicase = { workspace = true }
 bigdecimal = { workspace = true }
@@ -22,7 +22,11 @@ serde = { workspace = true, features = ["derive"], optional = true }
 proptest = { workspace = true, optional = true }
 proptest-derive = { workspace = true, optional = true }
 num_enum = { workspace = true }
+num-derive = { workspace = true }
+num-traits = { workspace = true }
+regex = { workspace = true }
 itertools = { workspace = true }
+hashbrown = { workspace = true }
 
 [build-dependencies]
 phf = { version = "0.13.1", default-features = false, features = ["unicase"] }

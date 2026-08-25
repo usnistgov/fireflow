@@ -3,15 +3,15 @@ use crate::core::TrimmedKeyword;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::{DKey0, Key as _};
 use crate::validated::shortname::Shortname;
-use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 
-use super::index::MeasIndex;
 use super::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use fireflow_types::config::SpilloverMeasurementMode;
+use fireflow_types::index::MeasIndex;
 use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NEDelim, NEStr, ToDisplayNE, ToNE};
+use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

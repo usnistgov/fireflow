@@ -3,12 +3,13 @@ use crate::logging::{
     LogResult, ResultExt as _,
 };
 use crate::macros::def_summary;
-use crate::text::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 use crate::text::optional::MightHave;
 use crate::text::relational::{
     KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
 };
 use crate::validated::shortname::Shortname;
+
+use fireflow_types::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
 
 use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
 use type_families::{

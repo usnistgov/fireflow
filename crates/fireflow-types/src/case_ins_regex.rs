@@ -8,8 +8,8 @@ use std::str::FromStr;
 
 #[cfg(feature = "python")]
 use {
+    crate::python as py,
     fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
-    fireflow_types::python as py,
 };
 
 /// A regex which ignores case when matching

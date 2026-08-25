@@ -18,30 +18,32 @@ use crate::segment::{
 };
 use crate::selector::{AppendableSelector, Selector};
 use crate::text::byteord::Bytes;
-use crate::text::index::MeasIndex;
 use crate::text::keywords::Timestep;
-use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
     AllKeyMatchers, KeyStringsOrPatterns, LiteralOrPattern, NonStdKeywordsExt as _,
     NonUniqueKeyError, StdKey, ValidKeywords, checked_iter_to_hashmap,
 };
-use crate::validated::keystring::KeyString;
-use crate::validated::keystring_pairs::{KeyStringPairs, KeyStringPairsError};
-use crate::validated::sub_pattern::SubPattern;
-use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
-use fireflow_types::byteord::ConfigByteOrd;
-use fireflow_types::config::{
-    self as tc, AllowHeaderTEXTOffsetMismatch, ComputeCRC, DelimEscapeMode, ForceLinearScale,
-    GuessOtherWidth, OpticalOnlyKey, OverBitmaskAction, OverLimitAction, OverRangeAction,
-    ProcessKeywordFailure, ProcessOpticalOnlyKeys, ReadStrategy, RowBufferSize,
-    SpilloverMeasurementMode, TriFlag, TrimValueWhitespace, UseEncoding,
+use fireflow_types::{
+    byteord::ConfigByteOrd,
+    config::{
+        self as tc, AllowHeaderTEXTOffsetMismatch, ComputeCRC, DelimEscapeMode, ForceLinearScale,
+        GuessOtherWidth, OpticalOnlyKey, OverBitmaskAction, OverLimitAction, OverRangeAction,
+        ProcessKeywordFailure, ProcessOpticalOnlyKeys, ReadStrategy, RowBufferSize,
+        SpilloverMeasurementMode, TriFlag, TrimValueWhitespace, UseEncoding,
+    },
+    index::MeasIndex,
+    keystring::KeyString,
+    keystring_pairs::{KeyStringPairs, KeyStringPairsError},
+    keywords::Version,
+    nonempty_string::NEString,
+    ranged_float::PositiveFloat,
+    sub_pattern::SubPattern,
+    textdelim::TEXTDelim,
 };
-use fireflow_types::keywords::Version;
-use fireflow_types::nonempty_string::NEString;
 
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
@@ -1959,10 +1961,12 @@ mod python {
     };
 
     use crate::validated::keys::KeyStringOrPattern;
-    use crate::validated::sub_pattern::SubPattern;
 
-    use fireflow_types::python::ConfigError;
-    use fireflow_types::{byteord::ConfigByteOrd, config as tc};
+    use fireflow_types::{
+        python::ConfigError,
+        sub_pattern::SubPattern,
+        {byteord::ConfigByteOrd, config as tc},
+    };
 
     use hashbrown::HashMap;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyDict};

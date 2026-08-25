@@ -130,7 +130,6 @@ use crate::text::byteord::{
     Endian, FixedWidthToBytesError, HasByteOrd, NoByteOrd, OrderedToEndianError, PrivBitsOrChars,
     VariableWidthError, VecToSizedError, WidthToFixedError,
 };
-use crate::text::index::{IndexFromOne, MeasIndex};
 use crate::text::keyword_enum::{
     Keyword0FromValue as _, Keyword1FromValue as _, ReqMeasKeyword, ReqRootKeyword, SplitKeyword0,
     SplitKeyword1,
@@ -167,9 +166,13 @@ use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
 
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
-use fireflow_types::config::{NumericByteWidth, OverBitmaskAction, OverLimitMode, OverRangeAction};
-use fireflow_types::nonempty_string::DisplayableNE as _;
-use nonempty_collections::{IntoNonEmptyIterator as _, NESlice};
+
+use fireflow_types::{
+    config::{NumericByteWidth, OverBitmaskAction, OverLimitMode, OverRangeAction},
+    index::{IndexFromOne, MeasIndex},
+    nonempty_string::DisplayableNE as _,
+};
+
 use type_families::{
     Functor, FunctorOnce, Kind1, Sibling1, VecFamily, impl_functor_once, impl_kind1,
 };
@@ -180,7 +183,9 @@ use bytemuck::{cast_slice, cast_vec};
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
 use itertools::Itertools as _;
-use nonempty_collections::{IntoIteratorExt as _, NEVec, iter::NonEmptyIterator as _};
+use nonempty_collections::{
+    IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
+};
 use num_traits::{Bounded, ToPrimitive as _};
 use thiserror::Error;
 

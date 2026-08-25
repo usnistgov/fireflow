@@ -22,7 +22,6 @@ use crate::logging::{
 };
 use crate::macros::{assert_eq_msg, def_summary};
 use crate::segment::read::AnyDataOffsets;
-use crate::text::index::MeasIndex;
 use crate::text::keyword_enum::{
     AnyOpticalKeyLossError, AnyOpticalToTemporalKeyLossError, AnyTemporalKeyLossError,
     AnyTemporalToOpticalKeyLossError, HasMembership as _, Keyword1FromValue as _,
@@ -47,16 +46,18 @@ use crate::text::named_vec::{
     SetElementsError, SetKeysError, SetNamesError, SetValuesError,
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
-use crate::text::ranged_float::PositiveFloat;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::keys::{IndexedKey as _, Key1, StdKey, StdKeywords, ValidKeywords};
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::config::{OpticalOnlyKey, OverBitmaskAction, OverRangeAction};
-use fireflow_types::keywords::{
-    HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2,
+use fireflow_types::{
+    config::{OpticalOnlyKey, OverBitmaskAction, OverRangeAction},
+    index::MeasIndex,
+    keywords::{HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2},
+    nonempty_string::{DisplayableNE as _, NEString},
+    ranged_float::PositiveFloat,
 };
-use fireflow_types::nonempty_string::{DisplayableNE as _, NEString};
+
 use type_families::{ApplyOnce as _, BifunctorOnce as _};
 
 use derive_more::{AsMut, AsRef, Display, From};
@@ -4262,9 +4263,7 @@ mod test {
 mod python {
     use super::OpticalScale3_0;
 
-    use crate::text::ranged_float::PositiveFloat;
-
-    use fireflow_types::python::InvalidKeywordValueError;
+    use fireflow_types::{python::InvalidKeywordValueError, ranged_float::PositiveFloat};
 
     use pyo3::IntoPyObjectExt as _;
     use pyo3::prelude::*;

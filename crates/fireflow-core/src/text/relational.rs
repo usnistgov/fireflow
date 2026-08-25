@@ -31,7 +31,6 @@ use crate::fixed_vec::OneOrTwo;
 use crate::logging::ErrorGroup;
 use crate::macros::def_summary;
 use crate::text::gating::Region;
-use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, RefKeyword0, RegionKeyword,
     SplitKeyword1, SplitKeyword2,
@@ -46,9 +45,13 @@ use crate::validated::keys::{
 };
 use crate::validated::shortname::Shortname;
 
+use fireflow_types::{
+    index::{IndexFromOne, MeasIndex, RegionIndex},
+    nonempty_string::NEString,
+};
+
 use derive_more::{AsRef, Display, From};
 use derive_new::new;
-use fireflow_types::nonempty_string::NEString;
 use itertools::Itertools as _;
 use nonempty_collections::{
     IntoIteratorExt as _, NEVec,

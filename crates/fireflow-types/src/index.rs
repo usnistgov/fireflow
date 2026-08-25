@@ -1,7 +1,8 @@
+use crate::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
+
 use ambassador::Delegate;
 use derive_more::{Display, From, FromStr, Into};
 use derive_new::new;
-use fireflow_types::nonempty_string::{ToDisplayNE, ambassador_impl_ToDisplayNE};
 use std::num::NonZeroUsize;
 use thiserror::Error;
 
@@ -14,13 +15,13 @@ use {
     pyo3::prelude::*,
 };
 
-#[cfg(test)]
+#[cfg(feature = "testutil")]
 use proptest_derive::Arbitrary;
 
 /// An index starting at 1, used as the basis for keyword indices
 #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug, Display, FromStr, Hash, Delegate)]
 #[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(test, derive(Arbitrary))]
+#[cfg_attr(feature = "testutil", derive(Arbitrary))]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct IndexFromOne(NonZeroUsize);
 
@@ -41,7 +42,7 @@ macro_rules! newtype_index {
         $(#[$attr])*
         #[cfg_attr(feature = "serde", derive(Serialize))]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-        #[cfg_attr(test, derive(Arbitrary))]
+        #[cfg_attr(feature = "testutil", derive(Arbitrary))]
         #[derive(Clone, Copy, Eq, PartialEq, PartialOrd, Ord, Debug,
                  FromStr, Display, From, Into, Hash, Delegate)]
         #[from(IndexFromOne, usize)]
@@ -52,7 +53,7 @@ macro_rules! newtype_index {
 }
 
 impl IndexFromOne {
-    pub(crate) fn check_index(self, len: usize) -> Result<usize, IndexError> {
+    pub fn check_index(self, len: usize) -> Result<usize, IndexError> {
         let i = self.into();
         if i < len {
             Ok(i)
@@ -61,7 +62,7 @@ impl IndexFromOne {
         }
     }
 
-    pub(crate) fn check_boundary_index(self, len: usize) -> Result<(), BoundaryIndexError> {
+    pub fn check_boundary_index(self, len: usize) -> Result<(), BoundaryIndexError> {
         if usize::from(self) <= len {
             Ok(())
         } else {
@@ -89,7 +90,7 @@ newtype_index!(
 ///
 /// Used internally for creating more specific errors
 #[derive(Debug, new, PartialEq, Clone)]
-pub(crate) struct IndexError {
+pub struct IndexError {
     pub index: IndexFromOne, // refers to index of element
     pub len: usize,
 }

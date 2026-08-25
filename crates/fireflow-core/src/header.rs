@@ -35,11 +35,13 @@ use crate::validated::header_offsets::{
 };
 use crate::validated::keys::{DKey0, Key as _, StdKeywords};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
-use crate::validated::textdelim::{DelimCollisionError, HasDelim as _};
 
-use fireflow_types::config::EnumStrIter as _;
-use fireflow_types::keywords::{Version, VersionFormatError};
-use fireflow_types::nonempty_string::{NEStr, NEString};
+use fireflow_types::{
+    config::EnumStrIter as _,
+    keywords::{Version, VersionFormatError},
+    nonempty_string::{NEStr, NEString},
+    textdelim::{DelimCollisionError, HasDelim as _},
+};
 
 use derive_more::{Display, From};
 use derive_new::new;

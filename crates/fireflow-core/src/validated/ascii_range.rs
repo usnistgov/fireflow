@@ -6,9 +6,10 @@ use crate::data::{
 };
 use crate::logging::{ResultExt as _, WarningsAndErrorsResult};
 use crate::text::byteord::WidthToFixedError;
-use crate::text::index::MeasIndex;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
 use crate::validated::keys::IndexedKey as _;
+
+use fireflow_types::index::MeasIndex;
 
 use derive_more::{Display, From, Into};
 use derive_new::new;

@@ -5,7 +5,6 @@
 
 use crate::meas::GainLossError;
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::index::{IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
@@ -14,13 +13,12 @@ use crate::validated::keys::{
 };
 use crate::validated::keys::{AsStdKey, StdKey};
 use crate::validated::shortname::Shortname;
-use crate::validated::textdelim::{
-    DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim,
-};
 
-use fireflow_types::keywords::{Version, VersionMembership};
-use fireflow_types::nonempty_string::{
-    DisplayNE as _, DisplayableNE as _, NEStr, NEString, ToDisplayNE, ToNE,
+use fireflow_types::{
+    index::{IndexFromOne, MeasIndex, RegionIndex},
+    keywords::{Version, VersionMembership},
+    nonempty_string::{DisplayNE as _, DisplayableNE as _, NEStr, NEString, ToDisplayNE, ToNE},
+    textdelim::{DelimCollisionError, HasDelim, TEXTDelim, ambassador_impl_HasDelim},
 };
 
 use ambassador::{Delegate, delegatable_trait};

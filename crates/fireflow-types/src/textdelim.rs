@@ -1,13 +1,14 @@
+use crate::nonempty_string::{NEStr, NEString};
+
 use ambassador::delegatable_trait;
 use derive_more::{Display, FromStr, Into};
 use derive_new::new;
-use fireflow_types::nonempty_string::{NEStr, NEString};
 use thiserror::Error;
 
 #[cfg(feature = "python")]
 use {
+    crate::python as py,
     fireflow_core_proc::{DisplayAsPyErr, TryFromPyObject},
-    fireflow_types::python as py,
 };
 
 /// Valid chars that can be used for the TEXT delimiter when writing.
@@ -26,7 +27,7 @@ use {
 pub struct TEXTDelim(u8);
 
 #[delegatable_trait]
-pub(crate) trait HasDelim {
+pub trait HasDelim {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError>;
 }
 
@@ -88,7 +89,7 @@ impl TryFrom<u8> for TEXTDelim {
 #[derive(Debug, Error)]
 #[error("delimiter should be char between 1 and 31 inclusive, got {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TEXTDelimError(u8);
 
 #[cfg(test)]

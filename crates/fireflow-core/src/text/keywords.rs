@@ -9,7 +9,6 @@ use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex};
 use crate::text::keyword_enum::AsStdKeywordPair as _;
 use crate::text::lookup::{
     Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptIndexedKey, OptIndexedKeyError,
@@ -18,7 +17,6 @@ use crate::text::lookup::{
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
-use crate::text::ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError};
 use crate::text::relational::{
     BiIndexedKeyToIndexLinkError, ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError,
     LinkName, OpticalNamedLinkError, OpticalNamesToRemove, RemovedIndexLink, RemovedNamedLink,
@@ -38,22 +36,26 @@ use crate::validated::keys::{
 };
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
-use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use fireflow_types::byteord::ConfigByteOrd;
-use type_families::{BifunctorOnce, impl_functor, impl_kind1};
-
-use fireflow_types::config::{ForceLinearScale, NumericByteWidth, OpticalOnlyKey};
-use fireflow_types::keywords::{
-    self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version,
-    VersionMembership,
-};
-use fireflow_types::nonempty_string::{
-    DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr,
-    NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+use fireflow_types::{
+    byteord::ConfigByteOrd,
+    config::{ForceLinearScale, NumericByteWidth, OpticalOnlyKey},
+    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
+    keywords::{
+        self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass,
+        Version, VersionMembership,
+    },
+    nonempty_string::{
+        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr,
+        NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+    },
+    ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
+    textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
+
+use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use ambassador::Delegate;
 use bigdecimal::{BigDecimal, ParseBigDecimalError, Signed as _};
@@ -5173,7 +5175,6 @@ mod tests {
 #[cfg(feature = "python")]
 mod python {
     use crate::text::keywords::ScaleFix;
-    use crate::text::ranged_float::PositiveFloat;
     use crate::validated::shortname::Shortname;
 
     use super::{
@@ -5181,12 +5182,16 @@ mod python {
         TemporalScaleFix, Trigger, UniGate, Unicode, Vertex,
     };
 
-    use fireflow_types::keywords::{
-        SCALE_DIAGNOSTIC_FORCED, SCALE_DIAGNOSTIC_LOG, SCALE_DIAGNOSTIC_TRIMMED,
-        SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
-        TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
+    use fireflow_types::{
+        keywords::{
+            SCALE_DIAGNOSTIC_FORCED, SCALE_DIAGNOSTIC_LOG, SCALE_DIAGNOSTIC_TRIMMED,
+            SCALE_DIAGNOSTIC_TRIMMED_LOG, TEMPORAL_SCALE_DIAGNOSTIC_FORCED,
+            TEMPORAL_SCALE_DIAGNOSTIC_TRIMMED,
+        },
+        nonempty_string::{NEStr, NEString},
+        ranged_float::PositiveFloat,
     };
-    use fireflow_types::nonempty_string::{NEStr, NEString};
+
     use pyo3::conversion::IntoPyObjectExt as _;
     use pyo3::exceptions::PyValueError;
     use pyo3::prelude::*;

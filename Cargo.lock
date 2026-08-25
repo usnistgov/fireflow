@@ -922,6 +922,7 @@ dependencies = [
  "derive-new",
  "derive_more",
  "fireflow-core-proc",
+ "itertools 0.14.0",
  "nonempty-collections",
  "num_enum",
  "phf 0.13.1",

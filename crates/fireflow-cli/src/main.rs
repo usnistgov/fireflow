@@ -4,7 +4,7 @@ use fireflow_core::core::AnyCoreDataset;
 use fireflow_core::segment::read::OffsetsCorrection;
 use fireflow_core::selector::{AppendableSelector, Selector};
 use fireflow_core::text::byteord::Bytes;
-use fireflow_core::text::keywords::{AlphaNumType, ByteOrd2_0, Timestep};
+use fireflow_core::text::keywords::{AlphaNumType, Timestep};
 use fireflow_core::validated::ascii_range::OtherWidth;
 use fireflow_core::validated::datepattern::DatePattern;
 use fireflow_core::validated::keys::KeyStringOrPattern;
@@ -13,6 +13,7 @@ use fireflow_core::validated::read_state::DatasetOffset;
 use fireflow_core::validated::sub_pattern::SubPattern;
 use fireflow_core::validated::textdelim::TEXTDelim;
 use fireflow_core::validated::timepattern::TimePattern;
+use fireflow_types::byteord::ConfigByteOrd;
 use fireflow_types::config as tc;
 use fireflow_types::keywords as tk;
 use fireflow_types::nonempty_string::NEString;
@@ -1842,7 +1843,7 @@ fn parse_byteord_override(s: &str) -> StrResult<ByteordOverride> {
         return Ok(ByteordOverride::None);
     }
     Ok(ByteordOverride::Explicit(
-        s.parse::<ByteOrd2_0>().map_err(|e| e.to_string())?,
+        s.parse::<ConfigByteOrd>().map_err(|e| e.to_string())?,
     ))
 }
 

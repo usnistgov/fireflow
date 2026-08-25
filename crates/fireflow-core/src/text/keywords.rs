@@ -41,6 +41,7 @@ use crate::validated::shortname::Shortname;
 use crate::validated::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
+use fireflow_types::byteord::ConfigByteOrd;
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use fireflow_types::config::{ForceLinearScale, NumericByteWidth, OpticalOnlyKey};
@@ -886,6 +887,10 @@ impl ByteOrd2_0 {
             Self::O7(_) => NumericByteWidth::B7,
             Self::O8(_) => NumericByteWidth::B8,
         }
+    }
+
+    pub(crate) fn from_config_byteord(value: &ConfigByteOrd) -> Self {
+        Self::try_from(value.as_ref()).expect("config byte order should always be valid")
     }
 
     #[cfg(feature = "python")]
@@ -5188,13 +5193,11 @@ mod python {
     use pyo3::types::PyTuple;
     use std::num::NonZeroU8;
 
-    // TOOD this is not a well-defined conversion since "big" and "little"
-    // should be usable as well. This won't work for this because there is no
-    // way to know a priori what the length of byteord should be for big/little,
-    // but that means we should just use a different type altogether than
-    // specifying the byteord in config
-
     // $BYTEORD is a list of integers
+    //
+    // This is only used for returning byte order as output. Input is treated
+    // differently since it must conform to the length of the layout, might be
+    // big or little, etc
     impl<'py> FromPyObject<'_, 'py> for ByteOrd2_0 {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {

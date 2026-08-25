@@ -1,3 +1,4 @@
+pub mod byteord;
 pub mod config;
 pub mod keywords;
 pub mod nonempty_string;

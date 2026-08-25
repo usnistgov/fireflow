@@ -7885,9 +7885,9 @@ impl<T> AnyOrderedUintDataSchema<T> {
         // bail early if there are no columns; having one column makes it easier
         // downstream to test if the rest are the same
         let Some(ne_cs) = NEVec::try_from_vec(cs) else {
-            let real_bo = match conf.byteord_override {
+            let real_bo = match &conf.byteord_override {
                 ByteordOverride::Endian | ByteordOverride::None => bo,
-                ByteordOverride::Explicit(b) => b,
+                ByteordOverride::Explicit(b) => ByteOrd2_0::from_config_byteord(b),
             };
             let empty = match_many_to_one!(
                 real_bo,
@@ -7989,15 +7989,18 @@ impl<T> AnyOrderedUintDataSchema<T> {
             IntWidthOverride::Explicit(b) => LogResult::new_ok((b.0, None)),
         };
 
-        match conf.byteord_override {
-            ByteordOverride::Explicit(b) => bytes_res
-                .and_then_commutative(|(new_bytes, old_bytes)| {
-                    check_width_and_byteord(new_bytes, b).map_ok_value(|x| (x, old_bytes))
-                })
-                .map_errors(NewFixedIntLayoutError::from)
-                .and_then_commutative(|(_, old_bytes)| {
-                    new_from_byteord(ne_cs, b, old_bytes, (b != bo).then_some(bo))
-                }),
+        match &conf.byteord_override {
+            ByteordOverride::Explicit(cb) => {
+                let b = ByteOrd2_0::from_config_byteord(cb);
+                bytes_res
+                    .and_then_commutative(|(new_bytes, old_bytes)| {
+                        check_width_and_byteord(new_bytes, b).map_ok_value(|x| (x, old_bytes))
+                    })
+                    .map_errors(NewFixedIntLayoutError::from)
+                    .and_then_commutative(|(_, old_bytes)| {
+                        new_from_byteord(ne_cs, b, old_bytes, (b != bo).then_some(bo))
+                    })
+            }
             ByteordOverride::Endian => bytes_res
                 .map_ok_value(|(new_bytes, old_bytes)| {
                     let (new_byteord, old_byteord) = Endian::try_from(bo).map_or((bo, None), |e| {

@@ -19,7 +19,7 @@ use crate::segment::{
 use crate::selector::{AppendableSelector, Selector};
 use crate::text::byteord::Bytes;
 use crate::text::index::MeasIndex;
-use crate::text::keywords::{self as kws, Timestep};
+use crate::text::keywords::Timestep;
 use crate::text::ranged_float::PositiveFloat;
 use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
@@ -33,6 +33,7 @@ use crate::validated::sub_pattern::SubPattern;
 use crate::validated::textdelim::TEXTDelim;
 use crate::validated::timepattern::TimePattern;
 
+use fireflow_types::byteord::ConfigByteOrd;
 use fireflow_types::config::{
     self as tc, AllowHeaderTEXTOffsetMismatch, ComputeCRC, DelimEscapeMode, ForceLinearScale,
     GuessOtherWidth, OpticalOnlyKey, OverBitmaskAction, OverLimitAction, OverRangeAction,
@@ -842,7 +843,7 @@ impl ReadDataKeywordsConfig {
                         allow_missing_required_offsets: self.allow_missing_required_offsets,
                         process_optional_failure: self.process_optional_failure,
                         int_width_override: self.int_width_override,
-                        byteord_override: self.byteord_override,
+                        byteord_override: self.byteord_override.clone(),
                         disallow_range_truncation: self.disallow_range_truncation,
                     }
                 },
@@ -1319,7 +1320,7 @@ pub enum IntWidthOverride {
 }
 
 /// Override $BYTEORD for FCS 2.0/3.0.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub enum ByteordOverride {
     /// Do nothing
     #[default]
@@ -1328,7 +1329,7 @@ pub enum ByteordOverride {
     ///
     /// This will also set $PnB. It must match the constraints imposed by
     /// $DATATYPE.
-    Explicit(kws::ByteOrd2_0),
+    Explicit(ConfigByteOrd),
     /// Infer endian-ness from $BYTEORD, ignoring its length.
     ///
     /// Endian-ness is little if $BYTEORD is monotonic ascending, and big if
@@ -1957,12 +1958,11 @@ mod python {
         TimeMeasNamePattern,
     };
 
-    use crate::text::keywords::ByteOrd2_0;
     use crate::validated::keys::KeyStringOrPattern;
     use crate::validated::sub_pattern::SubPattern;
 
-    use fireflow_types::config as tc;
     use fireflow_types::python::ConfigError;
+    use fireflow_types::{byteord::ConfigByteOrd, config as tc};
 
     use hashbrown::HashMap;
     use pyo3::{IntoPyObjectExt as _, prelude::*, types::PyDict};
@@ -2153,7 +2153,7 @@ mod python {
     impl<'py> FromPyObject<'_, 'py> for ByteordOverride {
         type Error = PyErr;
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if let Ok(b) = obj.extract::<ByteOrd2_0>() {
+            if let Ok(b) = obj.extract::<ConfigByteOrd>() {
                 return Ok(Self::Explicit(b));
             } else if let Ok(s) = obj.extract::<String>() {
                 if s.as_str() == tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str() {

@@ -9,14 +9,15 @@ use fireflow_core::{
         keywords::{AlphaNumType, Timestep},
     },
     validated::{
-        ascii_range::OtherWidth, datepattern::DatePattern, keys::KeyStringOrPattern,
-        read_state::DatasetOffset, timepattern::TimePattern,
+        datepattern::DatePattern, keys::KeyStringOrPattern, read_state::DatasetOffset,
+        timepattern::TimePattern,
     },
 };
 
 use fireflow_types::{
     byteord::ConfigByteOrd, config as tc, keystring::KeyString, keywords as tk,
-    nonempty_string::NEString, sub_pattern::SubPattern, textdelim::TEXTDelim,
+    nonempty_string::NEString, other_width::OtherWidth, sub_pattern::SubPattern,
+    textdelim::TEXTDelim,
 };
 
 use ansi_term::{ANSIString, Style};

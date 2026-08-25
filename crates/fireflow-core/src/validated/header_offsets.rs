@@ -15,8 +15,9 @@ use crate::segment::{
         TextToHeaderOffsetsOverlap,
     },
 };
-use crate::validated::ascii_range::OtherWidth;
 use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReadState, TEXTReadState};
+
+use fireflow_types::other_width::OtherWidth;
 
 use type_families::BifunctorOnce as _;
 

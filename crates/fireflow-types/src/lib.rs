@@ -6,6 +6,7 @@ pub mod keystring;
 pub mod keystring_pairs;
 pub mod keywords;
 pub mod nonempty_string;
+pub mod other_width;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod ranged_float;

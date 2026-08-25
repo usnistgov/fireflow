@@ -7999,7 +7999,7 @@ impl<E: From<PyException>> PyInt<E> {
     }
 
     fn new_other_width() -> Self {
-        let path = parse_quote!(fireflow_core::validated::ascii_range::OtherWidth);
+        let path = parse_quote!(fireflow_types::other_width::OtherWidth);
         let d = format!(
             "if {ARG_TOKEN} is less than {min} and greater than {max}",
             min = code("8"),

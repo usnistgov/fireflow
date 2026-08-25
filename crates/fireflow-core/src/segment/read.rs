@@ -21,7 +21,6 @@ use crate::logging::{
 use crate::text::lookup::{
     MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
 };
-use crate::validated::ascii_range::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
@@ -36,6 +35,7 @@ use crate::validated::read_state::{
 use fireflow_types::config::ProcessKeywordFailure;
 use fireflow_types::keywords::Version;
 use fireflow_types::nonempty_string::NESliceExt as _;
+use fireflow_types::other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
 
 use nonempty_collections::IntoNonEmptyIterator as _;
 use type_families::{

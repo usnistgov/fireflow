@@ -9,14 +9,14 @@ use crate::text::byteord::WidthToFixedError;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
 use crate::validated::keys::IndexedKey as _;
 
-use fireflow_types::index::MeasIndex;
+use fireflow_types::{index::MeasIndex, other_width::MAX_CHARS};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;
 use thiserror::Error;
 
 use std::fmt;
-use std::num::{NonZero, NonZeroU8, NonZeroUsize};
+use std::num::{NonZero, NonZeroU8};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -63,15 +63,6 @@ pub struct DelimAsciiRange(pub AsciiRangeValue);
 #[cfg_attr(feature = "python", derive(FromInnerPyObject, IntoPyObject))]
 pub struct AsciiRangeValue(pub u64);
 
-/// Width to use when parsing OTHER segments.
-///
-/// Must be an integer between 8 and 20.
-#[derive(Clone, Copy, Into, PartialEq, Debug, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-#[into(NonZeroU8, u8, NonZeroUsize)]
-pub struct OtherWidth(NonZeroU8);
-
 /// The number of chars for an ASCII measurement
 ///
 /// Must be an integer between 1 and 20.
@@ -79,10 +70,6 @@ pub struct OtherWidth(NonZeroU8);
 #[cfg_attr(feature = "serde", derive(Serialize))]
 #[into(NonZeroU8, u8)]
 pub(crate) struct Chars(NonZeroU8);
-
-pub(crate) const MAX_CHARS: NonZeroU8 = NonZeroU8::new(20).unwrap();
-
-pub(crate) const MIN_OTHER_WIDTH: NonZeroU8 = NonZeroU8::new(8).unwrap();
 
 impl TryFrom<TextRange> for Chars {
     type Error = RangeToIntError<u64>;
@@ -271,27 +258,6 @@ impl TryFrom<NonZeroU8> for Chars {
     }
 }
 
-impl Default for OtherWidth {
-    fn default() -> Self {
-        const N: NonZeroU8 = NonZeroU8::new(8).unwrap();
-        Self(N)
-    }
-}
-
-impl TryFrom<u8> for OtherWidth {
-    type Error = OtherWidthError;
-
-    fn try_from(x: u8) -> Result<Self, Self::Error> {
-        if let Some(n) = NonZeroU8::new(x)
-            && (MIN_OTHER_WIDTH..=MAX_CHARS).contains(&n)
-        {
-            Ok(Self(n))
-        } else {
-            Err(OtherWidthError(x))
-        }
-    }
-}
-
 /// Error when creating [`FixedAsciiRange`] ($PnB and $PnR for one index)
 #[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -334,13 +300,6 @@ impl fmt::Display for IndexedWidthToCharsError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct IndexedNotEnoughCharsError(IndexedError<NotEnoughCharsError>);
 
-/// Error when creating [`OtherWidth`] for configuration struct
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("OTHER width should be integer b/t {MIN_OTHER_WIDTH} and {MAX_CHARS}, got {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-pub struct OtherWidthError(u8);
-
 /// Error when $PnR exceeds number of characters allowed by $PnB.
 ///
 /// This is not meant for external use since it is more useful when index is
@@ -373,20 +332,11 @@ mod tests {
 
 #[cfg(feature = "python")]
 mod python {
-    use super::{AsciiRangeValue, FixedAsciiRange, OtherWidth};
+    use super::{AsciiRangeValue, FixedAsciiRange};
 
     use pyo3::{prelude::*, types::PyInt};
 
     use std::convert::Infallible;
-
-    impl<'py> FromPyObject<'_, 'py> for OtherWidth {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let x: u8 = obj.extract()?;
-            let y = x.try_into()?;
-            Ok(y)
-        }
-    }
 
     impl<'py> FromPyObject<'_, 'py> for FixedAsciiRange {
         type Error = PyErr;

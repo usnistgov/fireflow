@@ -19,7 +19,6 @@ use crate::segment::{
 use crate::selector::{AppendableSelector, Selector};
 use crate::text::byteord::Bytes;
 use crate::text::keywords::Timestep;
-use crate::validated::ascii_range::OtherWidth;
 use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{
     AllKeyMatchers, KeyStringsOrPatterns, LiteralOrPattern, NonStdKeywordsExt as _,
@@ -40,6 +39,7 @@ use fireflow_types::{
     keystring_pairs::{KeyStringPairs, KeyStringPairsError},
     keywords::Version,
     nonempty_string::NEString,
+    other_width::OtherWidth,
     ranged_float::PositiveFloat,
     sub_pattern::SubPattern,
     textdelim::TEXTDelim,

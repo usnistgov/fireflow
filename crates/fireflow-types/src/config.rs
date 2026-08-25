@@ -1,13 +1,16 @@
 use crate::{
     byteord::ConfigByteOrd,
-    case_ins_regex::{CaseInsRegex, CaseInsRegexError},
     index::MeasIndex,
-    keystring::{AsciiStringError, KeyString},
+    keystring::KeyStringsOrPatterns,
     keywords::Version,
     ne_str,
-    nonempty_string::{NEStr, NEString},
+    nonempty_string::NEStr,
     other_width::OtherWidth,
     ranged_float::PositiveFloat,
+    segment::{
+        AnalysisSegmentId, DataSegmentId, HeaderCorrection, OtherSegmentId, PrimaryTextSegmentId,
+        SupplementalTextSegmentId, TEXTCorrection,
+    },
     sub_pattern::SubPattern,
     textdelim::TEXTDelim,
 };
@@ -15,9 +18,6 @@ use crate::{
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From, FromStr, FromStrError, Into};
 use derive_new::new;
-use hashbrown::HashMap;
-use itertools::Itertools as _;
-use nonempty_collections::NEVec;
 use num_enum::{IntoPrimitive, TryFromPrimitive};
 use num_traits::One as _;
 use regex::Regex;
@@ -28,7 +28,6 @@ use std::{
     fmt,
     fs::{File, OpenOptions},
     hash::Hash,
-    marker::PhantomData,
     num::NonZeroU8,
     str::FromStr,
 };
@@ -40,848 +39,10 @@ use serde::Serialize;
 use {
     crate::python as py,
     fireflow_core_proc::{
-        AllIntoPyErr, DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString,
-        TryFromPyObject,
+        DisplayAsPyErr, FromInnerPyObject, FromPyString, IntoPyString, TryFromPyObject,
     },
     pyo3::prelude::*,
 };
-
-#[derive(
-    Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display, FromStr,
-)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[repr(u8)]
-#[display("{}", u8::from(*self))]
-pub enum NumericByteWidth {
-    B1 = 1,
-    B2,
-    B3,
-    B4,
-    B5,
-    B6,
-    B7,
-    B8,
-}
-
-impl NumericByteWidth {
-    /// Return number of bytes needed to express the given u64.
-    #[must_use]
-    pub fn from_u64(x: u64) -> Self {
-        // find position of most-significant non-zero byte
-        x.to_le_bytes()
-            .iter()
-            .rposition(|i| *i > 0)
-            .and_then(|i| u8::try_from(i + 1).ok())
-            .and_then(|i| Self::try_from(i).ok())
-            .unwrap_or(Self::B1)
-    }
-}
-
-impl From<NumericByteWidth> for NonZeroU8 {
-    fn from(value: NumericByteWidth) -> Self {
-        // ASSUME this will never fail because Bytes is 1-8
-        Self::new(u8::from(value)).unwrap()
-    }
-}
-
-pub trait EnumStrIter<const LEN: usize>: Sized {
-    const ITEMS: [Self; LEN];
-
-    fn as_ne_str(&self) -> &'static NEStr;
-
-    fn as_str(&self) -> &'static str {
-        self.as_ne_str().as_ref()
-    }
-
-    fn first_ne_str() -> &'static NEStr {
-        assert!(LEN > 0, "enum str literal is empty");
-        Self::ITEMS[0].as_ne_str()
-    }
-
-    #[must_use]
-    fn first_str() -> &'static str {
-        Self::first_ne_str().as_str()
-    }
-
-    fn iter() -> impl Iterator<Item = Self> {
-        Self::ITEMS.into_iter()
-    }
-
-    #[must_use]
-    fn iter_str() -> impl Iterator<Item = &'static str> {
-        Self::iter().map(|x| Self::as_str(&x))
-    }
-}
-
-/// Implement a enum with variants that map to defined string literals.
-///
-/// This will make 4 things:
-/// 1. the enum itself (with docs as given)
-/// 2. a FromStr impl that maps each variant to a string literal
-/// 3. an error for FromStr that lists each string variant
-/// 4. an array that contains all string literals in the order given
-#[macro_export]
-macro_rules! impl_str_enum {
-    (@count) => { 0_usize };
-
-    (@count $head:expr $(, $tail:expr)*) => {
-        1_usize + impl_str_enum!(@count $($tail),*)
-    };
-
-    ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
-     $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
-     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
-    ) => {
-        $(#[$flag_meta])*
-        #[derive(Clone, Copy)]
-        $flag_vis enum $flag_name {
-            $(
-                $(#[$var_meta])*
-                $var,
-            )*
-        }
-
-        impl std::str::FromStr for $flag_name {
-            type Err = $error_name;
-
-            fn from_str(s: &str) -> Result<Self, Self::Err> {
-                $(
-                    if $strlit.as_ref() == s {
-                        return Ok(Self::$var);
-                    }
-                )*
-                    Err($error_name(s.to_owned()))
-            }
-        }
-
-        impl $crate::config::EnumStrIter<{ impl_str_enum!(@count $($var),*) }> for $flag_name {
-            const ITEMS: [Self; { impl_str_enum!(@count $($var),*) }] = [$(Self::$var),*];
-
-            fn as_ne_str(&self) -> &'static $crate::nonempty_string::NEStr {
-                match self {
-                    $(Self::$var => $strlit,)*
-                }
-            }
-        }
-
-        $(#[$error_meta])*
-        #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
-        $error_vis struct $error_name($error_vis String);
-
-        impl std::fmt::Display for $error_name {
-            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
-                // TODO what is this string is really really long?
-                let original = &self.0;
-                let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter<_>>::iter_str().collect();
-                let ne = nonempty_collections::NESlice::try_from_slice(&all[..])
-                    .expect("macro should require at least one flag so this should never fail");
-                let (last, rest) = $crate::nonempty_string::NESliceExt::split_last(&ne);
-                if rest.is_empty() {
-                    write!(f, "must be '{last}', got '{original}'")
-                } else {
-                    write!(f, "must be one of ")?;
-                    for r in rest {
-                        write!(f, "'{r}', ")?;
-                    }
-                    write!(f, "or '{last}', got '{original}'")
-                }
-            }
-        }
-    };
-}
-
-/// Make enum string enum literal to be used as a keyword value.
-///
-/// This will impl the enum literal and add a ToDisplayNE trait.
-#[macro_export]
-macro_rules! impl_str_enum_kw {
-    ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
-     $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
-     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
-    ) => {
-        impl_str_enum!(
-            $(#[$flag_meta])* $flag_vis $flag_name,
-            $(#[$error_meta])* $error_vis $error_name,
-            $($(#[$var_meta])* $var => $strlit),*
-        );
-
-        impl $crate::nonempty_string::ToDisplayNE<'_> for $flag_name {
-            type NE = &'static $crate::nonempty_string::NEStr;
-            fn to_ne(&self) -> Self::NE {
-                $crate::config::EnumStrIter::as_ne_str(self)
-            }
-        }
-    };
-}
-
-/// Make an enum string literal to be used as a configuration flag.
-///
-/// In addition to that described in [`impl_str_enum`], this will add:
-/// * Default trait for first variant
-/// * Display trait for enum
-/// * Python to/from traits for both enum and parse error
-#[macro_export]
-macro_rules! impl_config_flag {
-    ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
-     $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
-     $(#[$var_meta0:meta])* $var0:ident => $strlit0:expr,
-     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),*
-    ) => {
-        impl_str_enum!(
-            #[derive(Display, Default)]
-            #[display("{}", self.as_str())]
-            #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-            $(#[$flag_meta])* $flag_vis $flag_name,
-
-            #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-            #[cfg_attr(feature = "python", pyerr($crate::python::ConfigError))]
-            $(#[$error_meta])* $error_vis $error_name,
-
-            #[default]
-            $(#[$var_meta0])* $var0 => $strlit0,
-
-            $($(#[$var_meta])* $var => $strlit),*
-        );
-    }
-}
-
-pub const TRI_FALSE_LEVEL: &NEStr = FALSE_LEVEL;
-pub const TRI_TRUE_LEVEL: &NEStr = TRUE_LEVEL;
-pub const TRI_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
-
-impl_config_flag!(
-    /// Tri-state flag to throw warning, throw error, or do nothing
-    pub TriFlag,
-    /// Error when parsing [`TriFlag`] from [`String`]
-    pub TriFlagError,
-    False  => TRI_FALSE_LEVEL,
-    True   => TRI_TRUE_LEVEL,
-    Silent => TRI_SILENT_LEVEL
-);
-
-pub const ENCODING_UTF8_LEVEL: &NEStr = ne_str!("utf8");
-pub const ENCODING_SINGLE_LEVEL: &NEStr = ne_str!("single");
-pub const ENCODING_GUESS_LEVEL: &NEStr = ne_str!("guess");
-
-impl_config_flag!(
-    /// Choose how to interpret the characters in TEXT.
-    ///
-    /// If `utf8`, use UTF8. If `single`, use IANA ISO/IEC-8859-1), which will
-    /// map each byte to a character, including those outside ASCII. This is
-    /// useful if TEXT is encoded with non-UTF8 characters. If `guess`, assume
-    /// UTF8 and fall back to IANA ISO/IEC-8859-1 if a non-UTF8 character is
-    /// encountered.
-    pub UseEncoding,
-    /// Error when parsing [`UseEncoding`] from [`String`]
-    pub UseEncodingError,
-    Utf8   =>  ENCODING_UTF8_LEVEL,
-    Single =>  ENCODING_SINGLE_LEVEL,
-    Guess  => ENCODING_GUESS_LEVEL
-);
-
-/// The encoding to use when reading TEXT.
-#[derive(Clone, Copy, Default)]
-pub enum Encoding {
-    #[default]
-    Utf8,
-    Single,
-}
-
-impl UseEncoding {
-    /// Choose encoding to use to read `bytes`.
-    ///
-    /// Only read `bytes` if `Guess` is selected, in which case
-    /// [`Encoding::Single`] will be returned if any bytes have the most
-    /// significant bit set to 1.
-    #[must_use]
-    pub fn choose(&self, bytes: &[u8]) -> Encoding {
-        match self {
-            Self::Utf8 => Encoding::Utf8,
-            Self::Single => Encoding::Single,
-            Self::Guess => {
-                if str::from_utf8(bytes).is_ok() {
-                    Encoding::Utf8
-                } else {
-                    Encoding::Single
-                }
-            }
-        }
-    }
-}
-
-impl Encoding {
-    #[must_use]
-    pub fn is_multi(&self) -> bool {
-        matches!(self, Self::Utf8)
-    }
-}
-
-pub const OTHER_WIDTH_NONE_LEVEL: &NEStr = NONE_LEVEL;
-pub const OTHER_WIDTH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
-pub const OTHER_WIDTH_WARN_LEVEL: &NEStr = WARN_LEVEL;
-pub const OTHER_WIDTH_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
-
-impl_config_flag!(
-    /// Choose how to guess the width for OTHER segments.
-    pub GuessOtherWidth,
-    /// Error when parsing [`GuessOtherWidth`] from [`String`]
-    pub GuessOtherWidthError,
-    None   => OTHER_WIDTH_NONE_LEVEL,
-    Error  => OTHER_WIDTH_ERROR_LEVEL,
-    Warn   => OTHER_WIDTH_WARN_LEVEL,
-    Silent => OTHER_WIDTH_SILENT_LEVEL
-);
-
-pub const KW_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
-pub const KW_DEMOTE_WARN_LEVEL: &NEStr = DEMOTE_WARN_LEVEL;
-pub const KW_DEMOTE_SILENT_LEVEL: &NEStr = DEMOTE_SILENT_LEVEL;
-pub const KW_DROP_WARN_LEVEL: &NEStr = DROP_WARN_LEVEL;
-pub const KW_DROP_SILENT_LEVEL: &NEStr = DROP_SILENT_LEVEL;
-
-impl_config_flag!(
-    /// Configuration to deal with optional standard keywords that cause errors.
-    pub ProcessKeywordFailure,
-    /// Error when parsing [`ProcessKeywordFailure`] from [`String`]
-    pub ProcessKeywordFailureError,
-    Error        => KW_ERROR_LEVEL,
-    DemoteWarn   => KW_DEMOTE_WARN_LEVEL,
-    DemoteSilent => KW_DEMOTE_SILENT_LEVEL,
-    DropWarn     => KW_DROP_WARN_LEVEL,
-    DropSilent   => KW_DROP_SILENT_LEVEL
-);
-
-pub const DELIM_ESCAPED_LEVEL: &NEStr = ne_str!("escaped");
-pub const DELIM_UNESCAPED_LEVEL: &NEStr = ne_str!("unescaped");
-pub const DELIM_GUESS_ESCAPED_LEVEL: &NEStr = ne_str!("guess_escaped");
-pub const DELIM_GUESS_UNESCAPED_LEVEL: &NEStr = ne_str!("guess_unescaped");
-
-impl_config_flag!(
-    /// Choose how to escape delims in TEXT segment.
-    pub DelimEscapeMode,
-    /// Error when parsing [`DelimEscapeMode`] from [`String`]
-    pub DelimEscapeModeError,
-    /// Use escaped delimiters.
-    Escaped        => DELIM_ESCAPED_LEVEL,
-    /// Use unescaped delimiters.
-    Unescaped      => DELIM_UNESCAPED_LEVEL,
-    /// Guess      => falling back to escaped mode.
-    GuessEscaped   => DELIM_GUESS_ESCAPED_LEVEL,
-    /// Guess      => falling back to unescaped mode.
-    GuessUnescaped => DELIM_GUESS_UNESCAPED_LEVEL
-);
-
-pub const TRIM_NONE_LEVEL: &NEStr = ne_str!("notrim");
-pub const TRIM_ERROR_LEVEL: &NEStr = ne_str!("trim");
-pub const TRIM_BLANK_WARN_LEVEL: &NEStr = ne_str!("trim_blank_warn");
-pub const TRIM_BLANK_SILENT_LEVEL: &NEStr = ne_str!("trim_blank_silent");
-
-impl_config_flag!(
-    /// Choose how to trim values and deal with blanks that may result.
-    pub TrimValueWhitespace,
-    /// Error when parsing [`TrimValueWhitespace`] from [`String`]
-    pub TrimValueWhitespaceError,
-    /// Do not trim at all.
-    Notrim          => TRIM_NONE_LEVEL,
-    /// Trim whitespace and throw error if blank is created.
-    Trim            => TRIM_ERROR_LEVEL,
-    /// Trim whitespace and throw warning if blank is created.
-    TrimBlankWarn   => TRIM_BLANK_WARN_LEVEL,
-    /// Trim whitespace and do nothing if blank is created.
-    TrimBlankSilent => TRIM_BLANK_SILENT_LEVEL
-);
-
-pub const FORCE_LINEAR_NONE_LEVEL: &NEStr = NONE_LEVEL;
-pub const FORCE_LINEAR_TIME_LEVEL: &NEStr = ne_str!("time_only");
-pub const FORCE_LINEAR_NON_INT_LEVEL: &NEStr = ne_str!("all_non_int");
-pub const FORCE_LINEAR_ALL_LEVEL: &NEStr = ALL_LEVEL;
-
-impl_config_flag!(
-    /// Choose which $PnE to force as linear.
-    pub ForceLinearScale,
-    /// Error when parsing [`ForceLinearScale`] from [`String`]
-    pub ForceLinearScaleError,
-    /// Do not force.
-    None      => FORCE_LINEAR_NONE_LEVEL,
-    /// Only force the temporal measurement.
-    TimeOnly  => FORCE_LINEAR_TIME_LEVEL,
-    /// Force all non-integer measurements and temporal measurement.
-    AllNonInt => FORCE_LINEAR_NON_INT_LEVEL,
-    /// Force all measurements.
-    All       => FORCE_LINEAR_ALL_LEVEL
-);
-
-impl ForceLinearScale {
-    #[must_use]
-    pub fn time_selected(self) -> bool {
-        !matches!(self, Self::None)
-    }
-}
-
-pub const TMP_OPT_DEMOTE_WARN_LEVEL: &NEStr = DEMOTE_WARN_LEVEL;
-pub const TMP_OPT_DEMOTE_SILENT_LEVEL: &NEStr = DEMOTE_SILENT_LEVEL;
-pub const TMP_OPT_DROP_WARN_LEVEL: &NEStr = DROP_WARN_LEVEL;
-pub const TMP_OPT_DROP_SILENT_LEVEL: &NEStr = DROP_SILENT_LEVEL;
-
-impl_config_flag!(
-    /// Choose what to do with optical keys in time measurement when found.
-    pub ProcessOpticalOnlyKeys,
-    /// Error when parsing [`ForceLinearScale`] from [`String`]
-    pub ProcessOpticalOnlyKeysError,
-    /// Demote to nonstandard with warning
-    DemoteWarn   => TMP_OPT_DEMOTE_WARN_LEVEL,
-    /// Demote to nonstandard with no warning
-    DemoteSilent => TMP_OPT_DEMOTE_SILENT_LEVEL,
-    /// Drop with warning
-    DropWarn     => TMP_OPT_DROP_WARN_LEVEL,
-    /// Drop with no warning
-    DropSilent   => TMP_OPT_DROP_SILENT_LEVEL
-);
-
-pub const SPILLOVER_NAMED_LEVEL: &NEStr = ne_str!("named");
-pub const SPILLOVER_INDEXED_LEVEL: &NEStr = ne_str!("indexed");
-pub const SPILLOVER_GUESS_LEVEL: &NEStr = ne_str!("guess");
-
-impl_config_flag!(
-    /// Choose how to parse measurements for $SPILLOVER key
-    pub SpilloverMeasurementMode,
-    /// Error when parsing [`ForceLinearScale`] from [`String`]
-    pub SpilloverMeasurementModeError,
-    /// Interpret measurements as names which match $PnN.
-    Named   => SPILLOVER_NAMED_LEVEL,
-    /// Interpret measurements as 1-indices (numbers) which point to measurements.
-    Indexed => SPILLOVER_INDEXED_LEVEL,
-    /// Guess how measurements should be interpreted.
-    ///
-    /// If they are all numbers and all do not point to $PnN, interpret as
-    /// indices, otherwise names.
-    Guess   => SPILLOVER_GUESS_LEVEL
-);
-
-pub const OVER_LIMIT_ACTION_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
-pub const OVER_LIMIT_ACTION_WARN_LEVEL: &NEStr = WARN_LEVEL;
-pub const OVER_LIMIT_ACTION_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
-pub const OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL: &NEStr = ne_str!("trunc_silent");
-pub const OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL: &NEStr = ne_str!("trunc_warn");
-pub const OVER_LIMIT_ACTION_NONE_LEVEL: &NEStr = NONE_LEVEL;
-
-impl_str_enum!(
-    #[derive(Display)]
-    #[display("{}", self.as_str())]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-    pub OverLimitAction,
-    /// Error when parsing [`OverLimitAction`] from [`String`]
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-    pub OverLimitActionError,
-    /// Warn for values over limit
-    Warn => OVER_LIMIT_ACTION_WARN_LEVEL,
-    /// Error for values over limit.
-    Error => OVER_LIMIT_ACTION_ERROR_LEVEL,
-    /// Do not throw warning or error and do not truncate, report only in diagnostics.
-    Silent => OVER_LIMIT_ACTION_SILENT_LEVEL,
-    /// Truncate and throw warning.
-    TruncateSilent => OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
-    /// Truncate and throw warning.
-    TruncateWarn => OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
-    /// Do nothing. This will disable all scanning which will save CPU cycles.
-    None => OVER_LIMIT_ACTION_NONE_LEVEL
-
-);
-
-/// Choose what to do with values that exceed $PnR.
-#[derive(Display, FromStr, Clone, Copy)]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub struct OverRangeAction(pub OverLimitAction);
-
-impl Default for OverRangeAction {
-    fn default() -> Self {
-        Self(OverLimitAction::Warn)
-    }
-}
-
-/// Choose what to do with integer values that exceed their bitmask set by $PnR.
-#[derive(Display, FromStr, Clone, Copy)]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-pub struct OverBitmaskAction(pub OverLimitAction);
-
-impl Default for OverBitmaskAction {
-    fn default() -> Self {
-        Self(OverLimitAction::TruncateWarn)
-    }
-}
-
-/// The action that will be used to deal with values that exceed a range.
-#[derive(Debug, Clone, Copy)]
-pub enum OverLimitMode {
-    /// Do nothing.
-    None,
-    /// Truncate values that are over and emit warning or error
-    Truncate,
-    /// Scan for values that are over and emit warning or error.
-    ScanOnly,
-}
-
-impl OverLimitAction {
-    #[must_use]
-    pub fn mode(&self) -> OverLimitMode {
-        match self {
-            Self::Error | Self::Warn | Self::Silent => OverLimitMode::ScanOnly,
-            Self::TruncateSilent | Self::TruncateWarn => OverLimitMode::Truncate,
-            Self::None => OverLimitMode::None,
-        }
-    }
-}
-
-pub const MISMATCH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
-pub const MISMATCH_HEADER_WARN_LEVEL: &NEStr = ne_str!("header_warn");
-pub const MISMATCH_HEADER_SILENT_LEVEL: &NEStr = ne_str!("header_silent");
-pub const MISMATCH_TEXT_WARN_LEVEL: &NEStr = ne_str!("text_warn");
-pub const MISMATCH_TEXT_SILENT_LEVEL: &NEStr = ne_str!("text_silent");
-
-impl_config_flag!(
-    /// Choose which offsets to use between TEXT and HEADER if they mismatch.
-    ///
-    /// Only applies to DATA and ANALYSIS offsets in 3.0+
-    pub AllowHeaderTEXTOffsetMismatch,
-    /// Error when parsing [`AllowHeaderTEXTOffsetMismatch`] from [`String`]
-    pub AllowHeaderTEXTOffsetMismatchError,
-    /// Throw error on mismatch.
-    Error        => MISMATCH_ERROR_LEVEL,
-    /// Choose HEADER on mismatch and throw warning.
-    HeaderWarn   => MISMATCH_HEADER_WARN_LEVEL,
-    /// Choose HEADER on mismatch and do nothing.
-    HeaderSilent => MISMATCH_HEADER_SILENT_LEVEL,
-    /// Choose TEXT on mismatch and throw warning.
-    TextWarn     => MISMATCH_TEXT_WARN_LEVEL,
-    /// Choose TEXT on mismatch and do nothing.
-    TextSilent   => MISMATCH_TEXT_SILENT_LEVEL
-);
-
-impl AllowHeaderTEXTOffsetMismatch {
-    /// Return bool matrix representing chosen segment and warning.
-    ///
-    /// First bool is true if we want HEADER, otherwise TEXT. Second boolean
-    /// is true if we want a warning, false for no warning.
-    ///
-    /// None means throw an error and none of the above matters.
-    #[must_use]
-    pub fn is_warning(self) -> Option<(bool, bool)> {
-        match self {
-            Self::Error => None,
-            Self::HeaderWarn => Some((true, true)),
-            Self::HeaderSilent => Some((true, false)),
-            Self::TextWarn => Some((false, true)),
-            Self::TextSilent => Some((false, false)),
-        }
-    }
-}
-
-pub const COMPUTE_CRC_NEVER_LEVEL: &NEStr = ne_str!("never");
-pub const COMPUTE_CRC_TEST_LEVEL: &NEStr = ne_str!("test");
-pub const COMPUTE_CRC_ALWAYS_LEVEL: &NEStr = ne_str!("always");
-
-impl_config_flag!(
-    /// When to compute the CRC for a dataset
-    pub ComputeCRC,
-    /// Error when parsing [`ComputeCRC`] from [`String`]
-    pub ComputeCRCError,
-    /// Never compute CRC.
-    Never  => COMPUTE_CRC_NEVER_LEVEL,
-    /// Always compute CRC.
-    Always => COMPUTE_CRC_ALWAYS_LEVEL,
-    /// Compute CRC only when the CRC word at the end of the dataset can be read.
-    Test   => COMPUTE_CRC_TEST_LEVEL
-);
-
-const GAIN_LEVEL: &NEStr = ne_str!("G");
-const FILTER_LEVEL: &NEStr = ne_str!("F");
-const WAVELENGTH_LEVEL: &NEStr = ne_str!("L");
-const POWER_LEVEL: &NEStr = ne_str!("O");
-const DET_TYPE_LEVEL: &NEStr = ne_str!("T");
-const DET_VOLTAGE_LEVEL: &NEStr = ne_str!("V");
-const PCNT_EMIT_LEVEL: &NEStr = ne_str!("P");
-const CALIBRATION_LEVEL: &NEStr = ne_str!("CALIBRATION");
-const DET_NAME_LEVEL: &NEStr = ne_str!("DET");
-const TAG_LEVEL: &NEStr = ne_str!("TAG");
-const FEATURE_LEVEL: &NEStr = ne_str!("FEATURE");
-const ANALYTE_LEVEL: &NEStr = ne_str!("ANALYTE");
-
-impl_str_enum!(
-    /// Disallowed and ignorable optical keywords for temporal measurements.
-    #[derive(PartialEq, Eq, Debug, Hash, Display)]
-    #[display("{}", self.as_str())]
-    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-    pub OpticalOnlyKey,
-    /// Error when creating [`OpticalOnlyKey`] from [`String`]
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-    pub OpticalOnlyKeyError,
-    /// Ignore $PnG
-    Gain            => GAIN_LEVEL,
-    /// Ignore $PnF
-    Filter          => FILTER_LEVEL,
-    /// Ignore $PnL
-    Wavelength      => WAVELENGTH_LEVEL,
-    /// Ignore $PnO
-    Power           => POWER_LEVEL,
-    /// Ignore $PnT
-    DetectorType    => DET_TYPE_LEVEL,
-    /// Ignore $PnV
-    DetectorVoltage => DET_VOLTAGE_LEVEL,
-    /// Ignore $PnP
-    PercentEmitted  => PCNT_EMIT_LEVEL,
-    /// Ignore $PnCALIBRATION
-    Calibration     => CALIBRATION_LEVEL,
-    /// Ignore $PnDET
-    DetectorName    => DET_NAME_LEVEL,
-    /// Ignore $PnTAG
-    Tag             => TAG_LEVEL,
-    /// Ignore $PnFEATURE
-    Feature         => FEATURE_LEVEL,
-    /// Ignore $PnANALYTE
-    Analyte         => ANALYTE_LEVEL
-);
-
-impl OpticalOnlyKey {
-    pub const TARGETS_2_0: [Self; 6] = [
-        Self::DetectorType,
-        Self::DetectorVoltage,
-        Self::Filter,
-        Self::PercentEmitted,
-        Self::Power,
-        Self::Wavelength,
-    ];
-
-    pub const TARGETS_3_0: [Self; 7] = [
-        Self::Gain,
-        Self::DetectorType,
-        Self::DetectorVoltage,
-        Self::Filter,
-        Self::PercentEmitted,
-        Self::Power,
-        Self::Wavelength,
-    ];
-
-    pub const TARGETS_3_1: [Self; 8] = [
-        Self::Gain,
-        Self::Calibration,
-        Self::DetectorType,
-        Self::DetectorVoltage,
-        Self::Filter,
-        Self::PercentEmitted,
-        Self::Power,
-        Self::Wavelength,
-    ];
-
-    pub const TARGETS_3_2: [Self; 12] = [
-        Self::Gain,
-        Self::Analyte,
-        Self::Calibration,
-        Self::DetectorName,
-        Self::DetectorType,
-        Self::DetectorVoltage,
-        Self::Feature,
-        Self::Filter,
-        Self::PercentEmitted,
-        Self::Power,
-        Self::Tag,
-        Self::Wavelength,
-    ];
-}
-
-// version strategy strings, the enum itself isn't defined here because it
-// has more than these options and thus breaks the pattern
-
-pub const VERSION_LATEST_LEVEL: &str = "latest";
-pub const VERSION_EARLIEST_LEVEL: &str = "earliest";
-pub const VERSION_LOOSE_LEVEL: &str = "loose";
-pub const VERSION_STRICT_LEVEL: &str = "strict";
-pub const VERSION_CURRENT_OR_LATEST_LEVEL: &str = "current_or_latest";
-pub const VERSION_CURRENT_OR_EARLIEST_LEVEL: &str = "current_or_earliest";
-pub const VERSION_CURRENT_OR_LOOSE_LEVEL: &str = "current_or_loose";
-pub const VERSION_CURRENT_OR_STRICT_LEVEL: &str = "current_or_strict";
-
-pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 8] = [
-    VERSION_LATEST_LEVEL,
-    VERSION_EARLIEST_LEVEL,
-    VERSION_STRICT_LEVEL,
-    VERSION_LOOSE_LEVEL,
-    VERSION_CURRENT_OR_LATEST_LEVEL,
-    VERSION_CURRENT_OR_EARLIEST_LEVEL,
-    VERSION_CURRENT_OR_LOOSE_LEVEL,
-    VERSION_CURRENT_OR_STRICT_LEVEL,
-];
-
-// More enum strings that are used in the config with enums defined elsewhere
-
-pub const BYTEORD_OVERRIDE_NONE_LEVEL: &NEStr = NONE_LEVEL;
-pub const BYTEORD_OVERRIDE_ENDIAN_LEVEL: &NEStr = ne_str!("endian");
-
-pub const FIX_INT_WIDTH_NEVER_LEVEL: &NEStr = ne_str!("never");
-pub const FIX_INT_WIDTH_NEXT_BYTE_LEVEL: &NEStr = ne_str!("next_byte");
-
-pub const STD_KW_REQ_LEVEL: &NEStr = ne_str!("req_only");
-pub const STD_KW_OPT_LEVEL: &NEStr = ne_str!("opt_opt");
-pub const STD_KW_REQ_AND_OPT_LEVEL: &NEStr = ne_str!("both");
-
-impl_str_enum!(
-    /// Choose what kind of keywords to return (required vs optional).
-    #[cfg_attr(feature = "python", derive(FromPyString))]
-    pub IncludeReqOrOpt,
-    /// Error when parsing [`IncludeReqOrOpt`] from [`String`]
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-    pub IncludeReqOrOptError,
-    /// Return required.
-    Req_ => STD_KW_REQ_LEVEL,
-    /// Return optional.
-    Opt_ => STD_KW_OPT_LEVEL,
-    /// Return both.
-    Both => STD_KW_REQ_AND_OPT_LEVEL
-);
-
-pub const STD_KW_ROOT_LEVEL: &NEStr = ne_str!("req_only");
-pub const STD_KW_MEAS_LEVEL: &NEStr = ne_str!("opt_opt");
-pub const STD_KW_ROOT_AND_MEAS_LEVEL: &NEStr = ne_str!("both");
-
-impl_str_enum!(
-    /// Choose what kind of keywords to return (required vs optional).
-    #[cfg_attr(feature = "python", derive(FromPyString))]
-    pub IncludeRootOrMeas,
-    /// Error when parsing [`IncludeRootOrMeas`] from [`String`]
-    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-    pub IncludeRootOrMeasError,
-    /// Return root.
-    Root => STD_KW_ROOT_LEVEL,
-    /// Return meas.
-    Meas => STD_KW_MEAS_LEVEL,
-    /// Return both.
-    Both => STD_KW_ROOT_AND_MEAS_LEVEL
-);
-
-pub const READ_STRATEGY_STRICT_LEVEL: &NEStr = ne_str!("strict");
-pub const READ_STRATEGY_SCALPAL_LEVEL: &NEStr = ne_str!("scalpal");
-pub const READ_STRATEGY_SLEDGEHAMMER_LEVEL: &NEStr = ne_str!("sledgehammer");
-
-// TODO the docstrings here are a bit awkward since we refer to things in child
-// crates implicitly
-impl_str_enum!(
-    /// Overall strategy to read FCS files.
-    ///
-    /// This is a "metaflag" which will activate individual flags in each
-    /// configuration struct. The exact flags to be activated will depend on the
-    /// struct. In all cases, this will activate the flags which emit warnings
-    /// where applicable. If one does not desire warnings, they can be
-    /// suppressed elsewhere in the config.
-    ///
-    /// In general, the different levels for this are a tradeoff between the ability
-    /// to read events from DATA vs preserving metadata.
-    #[derive(Default)]
-    pub ReadStrategy,
-    /// Error when parsing [`ReadStrategy`] from [`String`]
-    pub ReadStrategyError,
-    /// Follow the standard fully (configuration is totally default).
-    ///
-    /// Many files will fail this, but it is useful for validation.
-    #[default]
-    Strict       => READ_STRATEGY_STRICT_LEVEL,
-    /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
-    ///
-    /// This is likely a good option for many files.
-    Scalpal      => READ_STRATEGY_SCALPAL_LEVEL,
-    /// Use "unsafe" non-compliant parsing.
-    ///
-    /// This is the best option when all one cares about is reading DATA.
-    /// Non-compliant metadata in TEXT will be skipped.
-    Sledgehammer => READ_STRATEGY_SLEDGEHAMMER_LEVEL
-);
-
-/// The size of the row buffer used to read DATA.
-///
-/// The minimum size is 4k.
-#[derive(Clone, Copy, Into, Display)]
-#[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
-pub struct RowBufferSize(usize);
-
-impl Default for RowBufferSize {
-    fn default() -> Self {
-        // 90% of the most common L1D cache size which is 32k
-        Self(28_000)
-    }
-}
-
-/// Error when making new [`RowBufferSize`].
-#[derive(Error, Debug)]
-#[error("Row buffer size must be greater than {MIN_ROW_BUFFER_SIZE} bytes")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
-pub struct RowBufferSizeError;
-
-impl FromStr for RowBufferSize {
-    type Err = RowBufferSizeError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Self::try_from(s.parse::<usize>().map_err(|_| RowBufferSizeError)?)
-    }
-}
-
-impl TryFrom<usize> for RowBufferSize {
-    type Error = RowBufferSizeError;
-    fn try_from(value: usize) -> Result<Self, Self::Error> {
-        if value < MIN_ROW_BUFFER_SIZE {
-            Err(RowBufferSizeError)
-        } else {
-            Ok(Self(value))
-        }
-    }
-}
-
-const MIN_ROW_BUFFER_SIZE: usize = 4096;
-
-// internal constants, many are shared between enums to keep the API simpler
-
-const NONE_LEVEL: &NEStr = ne_str!("none");
-const FALSE_LEVEL: &NEStr = ne_str!("false");
-const TRUE_LEVEL: &NEStr = ne_str!("true");
-const SILENT_LEVEL: &NEStr = ne_str!("silent");
-const ERROR_LEVEL: &NEStr = ne_str!("error");
-const WARN_LEVEL: &NEStr = ne_str!("warn");
-const ALL_LEVEL: &NEStr = ne_str!("all");
-const DEMOTE_WARN_LEVEL: &NEStr = ne_str!("demote_warn");
-const DEMOTE_SILENT_LEVEL: &NEStr = ne_str!("demote_silent");
-const DROP_WARN_LEVEL: &NEStr = ne_str!("drop_warn");
-const DROP_SILENT_LEVEL: &NEStr = ne_str!("drop_silent");
-
-// other config constants
-
-pub const TIME_MEAS_NAME_PATTERN_NONE: &str = "NoTime";
-
-pub const TIME_MEAS_NAME_PATTERN_DEFAULT: &str = "^(TIME|Time)$";
-
-pub const NON_STD_MEAS_INDEX_PAT: &str = "%n";
-
-pub const DEDUP_PNN_SEP: char = '~';
-
-// the "%b" format is case-insensitive so this should work for "Jan", "JAN",
-// "jan", "jaN", etc
-pub const DEFAULT_DATE_FORMAT: &str = "%d-%b-%Y";
-
-pub const DEFAULT_LAST_MODIFIED_FORMAT: &str = "%d-%b-%Y %H:%M:%S";
-
-pub const BASE_TIME_FORMAT: &str = "%H:%M:%S";
-
-pub const DEFAULT_TIME_FORMAT_2_0: &str = BASE_TIME_FORMAT;
-
-pub const DEFAULT_TIME_FORMAT_3_0: &str = formatcp!("{BASE_TIME_FORMAT}:{BASE60_SECOND_SPEC}");
-
-pub const DEFAULT_TIME_FORMAT_3_1: &str = formatcp!("{BASE_TIME_FORMAT}.{BASE100_SECOND_SPEC}");
-
-pub const BASE60_SECOND_SPEC: &str = "%!";
-
-pub const BASE100_SECOND_SPEC: &str = "%@";
-
-pub const PATTERN_DELIMITER: char = '/';
 
 /// Specific configuration for writing HEADER+TEXT
 #[derive(Clone, Copy, Default, new)]
@@ -1648,6 +809,204 @@ pub struct ReadSharedConfig {
     pub hide_warnings: bool,
 }
 
+// Declare configuration flags
+//
+// These are config values which can only be true or false. They are wrapped in
+// their own type to aid documentation and extracting by reference if necessary.
+
+pub trait ConfigFlag {
+    fn is_set(&self) -> bool;
+}
+
+macro_rules! impl_config_flag {
+    ($n:ident) => {
+        #[derive(From, Clone, Copy, Default)]
+        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        pub struct $n(pub bool);
+
+        impl ConfigFlag for $n {
+            fn is_set(&self) -> bool {
+                self.0
+            }
+        }
+    };
+}
+
+impl_config_flag!(SquishOffsets);
+impl_config_flag!(AllowPseudoempty);
+
+impl_config_flag!(IgnoreSuppTEXT);
+impl_config_flag!(TrimTEXTEnd);
+impl_config_flag!(IgnoreTEXTDataOffsets);
+impl_config_flag!(IgnoreTEXTAnalysisOffsets);
+
+impl_config_flag!(DedupMeasNames);
+impl_config_flag!(TrimIntraValueWhitespace);
+impl_config_flag!(AllowOtherFeature);
+impl_config_flag!(IntegerWidthsFromByteord);
+impl_config_flag!(TransferDroppedOptional);
+impl_config_flag!(FixLogScaleOffsets);
+impl_config_flag!(DisallowLocaltime);
+impl_config_flag!(ReadIntraSegmentDarkBytes);
+impl_config_flag!(ReadPostDatasetDarkBytes);
+
+impl_config_flag!(SkipConversionCheck);
+impl_config_flag!(BigOther);
+impl_config_flag!(OverrideFIL);
+impl_config_flag!(ComputeWriteCRC);
+impl_config_flag!(AppendableFlag);
+impl_config_flag!(AppendFlag);
+
+impl AppendFlag {
+    #[must_use]
+    pub fn file_options(self) -> OpenOptions {
+        let mut opts = File::options();
+        opts.create(true);
+        if self.is_set() {
+            opts.append(true)
+        } else {
+            opts.write(true).truncate(true)
+        };
+        opts
+    }
+}
+
+// Declare tri-state flags
+//
+// These are flags which may be true, false, or "silent" (noop).
+//
+// Additionally, the false or true levels may represent an error state
+// corresponding to "allow*" or "disallow*" flags.
+
+pub trait ErrorFlag {
+    fn is_error(&self) -> bool;
+}
+
+pub trait TriErrorFlag: From<TriFlag> + Into<TriFlag> + Copy {
+    const FALSE_IS_ERROR: bool;
+
+    fn is_error(&self) -> Option<bool> {
+        match (*self).into() {
+            TriFlag::Silent => None,
+            TriFlag::False => Some(Self::FALSE_IS_ERROR),
+            TriFlag::True => Some(!Self::FALSE_IS_ERROR),
+        }
+    }
+
+    fn from_partial_str(s: &str) -> Result<Self, PartialTriErrorFlagError> {
+        let res = match s {
+            "silent" => Ok(TriFlag::Silent),
+            "true" => Ok(TriFlag::True),
+            _ => Err(PartialTriErrorFlagError),
+        };
+        res.map(Self::from)
+    }
+}
+
+/// Error when parsing a [`fireflow_types::config::TriFlag`] from `"true"` or `"silent"`.
+#[derive(Error, Debug)]
+#[error("Must be one of 'silent' or 'true'")]
+pub struct PartialTriErrorFlagError;
+
+// TODO add docstrings
+macro_rules! impl_tri_error_flag {
+    (true_is_error $n:ident) => {
+        impl_tri_error_flag!(_common $n, false);
+    };
+
+    (false_is_error $n:ident) => {
+        impl_tri_error_flag!(_common $n, true);
+    };
+
+    (_common $n:ident, $false_is_err:expr) => {
+        #[derive(From, Into, Clone, Copy, FromStr, Display, Default)]
+        #[cfg_attr(feature = "python", derive(FromPyString))]
+        #[cfg_attr(feature = "python", derive(IntoPyString))]
+        pub struct $n(pub TriFlag);
+
+        impl TriErrorFlag for $n {
+            const FALSE_IS_ERROR: bool = $false_is_err;
+        }
+    };
+}
+
+impl_tri_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
+impl_tri_error_flag!(false_is_error AllowNonAsciiDelim);
+impl_tri_error_flag!(false_is_error AllowEvenDelims);
+impl_tri_error_flag!(false_is_error AllowNonunique);
+impl_tri_error_flag!(false_is_error AllowOddTokens);
+impl_tri_error_flag!(false_is_error AllowEmptyKeys);
+impl_tri_error_flag!(false_is_error AllowDelimAtBoundary);
+impl_tri_error_flag!(false_is_error AllowNonUtf8);
+impl_tri_error_flag!(false_is_error AllowNonAsciiKeywords);
+impl_tri_error_flag!(false_is_error AllowMissingSuppTEXT);
+impl_tri_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
+impl_tri_error_flag!(false_is_error AllowMissingNextdata);
+impl_tri_error_flag!(false_is_error AllowUnevenEventWidth);
+impl_tri_error_flag!(false_is_error AllowTotMismatch);
+impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
+impl_tri_error_flag!(false_is_error AllowMissingTime);
+impl_tri_error_flag!(false_is_error AllowRepairNonUnique);
+
+impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
+
+// flag for controlling imperfect downgrades and upgrades
+impl_tri_error_flag!(false_is_error AllowLoss);
+
+// flag or controlling how to deal with overrange values in read-only case
+impl_tri_error_flag!(true_is_error AllowOverBitmask);
+impl_tri_error_flag!(true_is_error DisallowOverRange);
+
+impl_tri_error_flag!(false_is_error AllowMissingCRC);
+impl_tri_error_flag!(false_is_error AllowMismatchCRC);
+
+/// Fake 3-way flag to use for non-public switchable errors
+#[derive(From, Into, Clone, Copy)]
+pub struct DummyTriFlag(pub(crate) TriFlag);
+
+impl DummyTriFlag {
+    /// Emit a flag for handling blank values after trimming.
+    ///
+    /// Will be `None` if trimming is not set.
+    pub fn from_trim_value_whitespace(x: TrimValueWhitespace) -> Option<Self> {
+        let f = match x {
+            TrimValueWhitespace::Notrim => None,
+            TrimValueWhitespace::Trim => Some(TriFlag::False),
+            TrimValueWhitespace::TrimBlankWarn => Some(TriFlag::True),
+            TrimValueWhitespace::TrimBlankSilent => Some(TriFlag::Silent),
+        };
+        f.map(Into::into)
+    }
+
+    pub fn from_guess_other_width(x: GuessOtherWidth) -> Option<Self> {
+        let r = match x {
+            GuessOtherWidth::None => None,
+            GuessOtherWidth::Error => Some(TriFlag::False),
+            GuessOtherWidth::Warn => Some(TriFlag::True),
+            GuessOtherWidth::Silent => Some(TriFlag::Silent),
+        };
+        r.map(Into::into)
+    }
+
+    #[must_use]
+    pub fn from_over_limit_action(x: OverLimitAction) -> Self {
+        let f = match x {
+            OverLimitAction::Error => TriFlag::False,
+            OverLimitAction::Warn | OverLimitAction::TruncateWarn => TriFlag::True,
+            OverLimitAction::Silent | OverLimitAction::TruncateSilent | OverLimitAction::None => {
+                TriFlag::Silent
+            }
+        };
+        f.into()
+    }
+}
+
+impl TriErrorFlag for DummyTriFlag {
+    const FALSE_IS_ERROR: bool = true;
+}
+
+// Declare misc configuration types
+
 /// Configuration to override/detect FCS version.
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
@@ -1771,6 +1130,237 @@ pub struct SelectVersionStrategyError;
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
 pub struct VersionOverrideError;
 
+pub const VERSION_STRATEGY_ALL_LEVELS: [&str; 8] = [
+    VERSION_LATEST_LEVEL,
+    VERSION_EARLIEST_LEVEL,
+    VERSION_STRICT_LEVEL,
+    VERSION_LOOSE_LEVEL,
+    VERSION_CURRENT_OR_LATEST_LEVEL,
+    VERSION_CURRENT_OR_EARLIEST_LEVEL,
+    VERSION_CURRENT_OR_LOOSE_LEVEL,
+    VERSION_CURRENT_OR_STRICT_LEVEL,
+];
+
+pub const VERSION_LATEST_LEVEL: &str = "latest";
+pub const VERSION_EARLIEST_LEVEL: &str = "earliest";
+pub const VERSION_LOOSE_LEVEL: &str = "loose";
+pub const VERSION_STRICT_LEVEL: &str = "strict";
+pub const VERSION_CURRENT_OR_LATEST_LEVEL: &str = "current_or_latest";
+pub const VERSION_CURRENT_OR_EARLIEST_LEVEL: &str = "current_or_earliest";
+pub const VERSION_CURRENT_OR_LOOSE_LEVEL: &str = "current_or_loose";
+pub const VERSION_CURRENT_OR_STRICT_LEVEL: &str = "current_or_strict";
+
+/// Fix $PnB for 2.0/3.0 integer layouts.
+///
+/// Some files set $PnB to the bits implied by $PnR (ie the bitmask). For
+/// instance, if $PnR is 1024, $PnB is set to 10, which is incorrect since $PnB
+/// must be a multiple of 8 (NOTE this is a restriction of this library; the
+/// standard allows such $PnB values though exceedingly rare and not advised).
+#[derive(Clone, Copy, Default)]
+pub enum IntWidthOverride {
+    /// Do nothing
+    #[default]
+    Never,
+    /// Override with an explicit value for all $PnB.
+    Explicit(NumericByteWidth),
+    /// Round $PnB up to the next multiple of 8.
+    NextByte,
+}
+
+/// Override $BYTEORD for FCS 2.0/3.0.
+#[derive(Clone, Default)]
+pub enum ByteordOverride {
+    /// Do nothing
+    #[default]
+    None,
+    /// Override with an explicit value for $BYTEORD.
+    ///
+    /// This will also set $PnB. It must match the constraints imposed by
+    /// $DATATYPE.
+    Explicit(ConfigByteOrd),
+    /// Infer endian-ness from $BYTEORD, ignoring its length.
+    ///
+    /// Endian-ness is little if $BYTEORD is monotonic ascending, and big if
+    /// monotonic descending. Length will be inferred from $PnB, which should
+    /// all be the same. If $PnB is not a multiple of 8, this will fail.
+    ///
+    /// This is option is ignored for mixed $BYTEORD.
+    Endian,
+}
+
+#[derive(
+    Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display, FromStr,
+)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[repr(u8)]
+#[display("{}", u8::from(*self))]
+pub enum NumericByteWidth {
+    B1 = 1,
+    B2,
+    B3,
+    B4,
+    B5,
+    B6,
+    B7,
+    B8,
+}
+
+impl NumericByteWidth {
+    /// Return number of bytes needed to express the given u64.
+    #[must_use]
+    pub fn from_u64(x: u64) -> Self {
+        // find position of most-significant non-zero byte
+        x.to_le_bytes()
+            .iter()
+            .rposition(|i| *i > 0)
+            .and_then(|i| u8::try_from(i + 1).ok())
+            .and_then(|i| Self::try_from(i).ok())
+            .unwrap_or(Self::B1)
+    }
+}
+
+impl From<NumericByteWidth> for NonZeroU8 {
+    fn from(value: NumericByteWidth) -> Self {
+        // ASSUME this will never fail because Bytes is 1-8
+        Self::new(u8::from(value)).unwrap()
+    }
+}
+
+/// The size of the row buffer used to read DATA.
+///
+/// The minimum size is 4k.
+#[derive(Clone, Copy, Into, Display)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
+pub struct RowBufferSize(usize);
+
+impl Default for RowBufferSize {
+    fn default() -> Self {
+        // 90% of the most common L1D cache size which is 32k
+        Self(28_000)
+    }
+}
+
+/// Error when making new [`RowBufferSize`].
+#[derive(Error, Debug)]
+#[error("Row buffer size must be greater than {MIN_ROW_BUFFER_SIZE} bytes")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+pub struct RowBufferSizeError;
+
+impl FromStr for RowBufferSize {
+    type Err = RowBufferSizeError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::try_from(s.parse::<usize>().map_err(|_| RowBufferSizeError)?)
+    }
+}
+
+impl TryFrom<usize> for RowBufferSize {
+    type Error = RowBufferSizeError;
+    fn try_from(value: usize) -> Result<Self, Self::Error> {
+        if value < MIN_ROW_BUFFER_SIZE {
+            Err(RowBufferSizeError)
+        } else {
+            Ok(Self(value))
+        }
+    }
+}
+
+const MIN_ROW_BUFFER_SIZE: usize = 4096;
+
+/// A pattern to match the $PnN for the time measurement.
+///
+/// Defaults to matching "TIME" or "Time".
+#[derive(Clone)]
+pub struct TimeMeasNamePattern(pub Option<Regex>);
+
+impl fmt::Display for TimeMeasNamePattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        if let Some(s) = self.0.as_ref() {
+            write!(f, "{s}")
+        } else {
+            f.write_str(TIME_MEAS_NAME_PATTERN_NONE)
+        }
+    }
+}
+
+impl FromStr for TimeMeasNamePattern {
+    type Err = regex::Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        if s == TIME_MEAS_NAME_PATTERN_NONE {
+            return Ok(Self(None));
+        }
+        s.parse::<Regex>().map(Some).map(Self)
+    }
+}
+
+impl Default for TimeMeasNamePattern {
+    fn default() -> Self {
+        Self(Some(Regex::new(TIME_MEAS_NAME_PATTERN_DEFAULT).unwrap()))
+    }
+}
+
+/// Error when optical keyword is present in temporal measurement.
+#[derive(Debug, Error, new, PartialEq, Clone)]
+#[error("optical key $P{index}{key} found in temporal measurement")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
+pub struct TemporalHasOpticalKeyError {
+    index: MeasIndex,
+    key: OpticalOnlyKey,
+}
+
+/// A list of patterns that match [`crate::validated::keys::StdKey`]s or
+/// [`crate::validated::keys::NonStdKey`]s.
+pub type KeyPatterns = KeyStringsOrPatterns<()>;
+
+pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
+
+/// The maximum number of bytes that an offset may be truncated if beyond EOF.
+#[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct DatasetOverflowLimit(pub u64);
+
+/// The maximum number of bytes an ending offset may be decreased to avoid overlap.
+#[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct OverlapCorrectionLimit(pub u64);
+
+/// The max length the DATA end offset may be decreased based on event width.
+#[derive(Default, Clone, Copy, From, Into, FromStr)]
+#[cfg_attr(feature = "python", derive(IntoPyObject))]
+pub struct DataRemainderLimit(pub u64);
+
+/// Set of temporal optical keys.
+#[derive(Clone, Default, From, Into)]
+pub struct OpticalOnlyKeys(pub HashSet<OpticalOnlyKey>);
+
+impl OpticalOnlyKeys {
+    fn all() -> Self {
+        let keys = [
+            OpticalOnlyKey::Gain,
+            OpticalOnlyKey::Analyte,
+            OpticalOnlyKey::Calibration,
+            OpticalOnlyKey::DetectorName,
+            OpticalOnlyKey::DetectorType,
+            OpticalOnlyKey::DetectorVoltage,
+            OpticalOnlyKey::Feature,
+            OpticalOnlyKey::Filter,
+            OpticalOnlyKey::PercentEmitted,
+            OpticalOnlyKey::Power,
+            OpticalOnlyKey::Tag,
+            OpticalOnlyKey::Wavelength,
+        ];
+        Self(keys.into_iter().collect())
+    }
+}
+
+// Declare flags which are used for processing keys
+//
+// These are not special except for the fact that multiple flags follow the same
+// pattern, hence macro.
+
 macro_rules! impl_proc_key_fail {
     ($t:ident) => {
         #[derive(Clone, Copy, Default, FromStr, Display, Into, From)]
@@ -1822,44 +1412,739 @@ impl_proc_key_fail!(ProcessHyperPar);
 impl_proc_key_fail!(ProcessPseudostandard);
 impl_proc_key_fail!(ProcessExtraTimestep);
 
-/// Fix $PnB for 2.0/3.0 integer layouts.
+// Declare config values which are non-empty string enums.
+
+/// An enum where each variant has a non-empty string value.
+pub trait EnumStrIter<const LEN: usize>: Sized {
+    const ITEMS: [Self; LEN];
+
+    fn as_ne_str(&self) -> &'static NEStr;
+
+    fn as_str(&self) -> &'static str {
+        self.as_ne_str().as_ref()
+    }
+
+    fn first_ne_str() -> &'static NEStr {
+        assert!(LEN > 0, "enum str literal is empty");
+        Self::ITEMS[0].as_ne_str()
+    }
+
+    #[must_use]
+    fn first_str() -> &'static str {
+        Self::first_ne_str().as_str()
+    }
+
+    fn iter() -> impl Iterator<Item = Self> {
+        Self::ITEMS.into_iter()
+    }
+
+    #[must_use]
+    fn iter_str() -> impl Iterator<Item = &'static str> {
+        Self::iter().map(|x| Self::as_str(&x))
+    }
+}
+
+/// Implement a enum with variants that map to defined string literals.
 ///
-/// Some files set $PnB to the bits implied by $PnR (ie the bitmask). For
-/// instance, if $PnR is 1024, $PnB is set to 10, which is incorrect since $PnB
-/// must be a multiple of 8 (NOTE this is a restriction of this library; the
-/// standard allows such $PnB values though exceedingly rare and not advised).
+/// This will make 4 things:
+/// 1. the enum itself (with docs as given)
+/// 2. a FromStr impl that maps each variant to a string literal
+/// 3. an error for FromStr that lists each string variant
+/// 4. an array that contains all string literals in the order given
+#[macro_export]
+macro_rules! impl_str_enum {
+    (@count) => { 0_usize };
+
+    (@count $head:expr $(, $tail:expr)*) => {
+        1_usize + impl_str_enum!(@count $($tail),*)
+    };
+
+    ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
+     $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
+     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
+    ) => {
+        $(#[$flag_meta])*
+        #[derive(Clone, Copy)]
+        $flag_vis enum $flag_name {
+            $(
+                $(#[$var_meta])*
+                $var,
+            )*
+        }
+
+        impl std::str::FromStr for $flag_name {
+            type Err = $error_name;
+
+            fn from_str(s: &str) -> Result<Self, Self::Err> {
+                $(
+                    if $strlit.as_ref() == s {
+                        return Ok(Self::$var);
+                    }
+                )*
+                    Err($error_name(s.to_owned()))
+            }
+        }
+
+        impl $crate::config::EnumStrIter<{ impl_str_enum!(@count $($var),*) }> for $flag_name {
+            const ITEMS: [Self; { impl_str_enum!(@count $($var),*) }] = [$(Self::$var),*];
+
+            fn as_ne_str(&self) -> &'static $crate::nonempty_string::NEStr {
+                match self {
+                    $(Self::$var => $strlit,)*
+                }
+            }
+        }
+
+        $(#[$error_meta])*
+        #[derive(thiserror::Error, Debug, PartialEq, Eq, Clone)]
+        $error_vis struct $error_name($error_vis String);
+
+        impl std::fmt::Display for $error_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> Result<(), std::fmt::Error> {
+                // TODO what is this string is really really long?
+                let original = &self.0;
+                let all: Vec<_> = <$flag_name as $crate::config::EnumStrIter<_>>::iter_str().collect();
+                let ne = nonempty_collections::NESlice::try_from_slice(&all[..])
+                    .expect("macro should require at least one flag so this should never fail");
+                let (last, rest) = $crate::nonempty_string::NESliceExt::split_last(&ne);
+                if rest.is_empty() {
+                    write!(f, "must be '{last}', got '{original}'")
+                } else {
+                    write!(f, "must be one of ")?;
+                    for r in rest {
+                        write!(f, "'{r}', ")?;
+                    }
+                    write!(f, "or '{last}', got '{original}'")
+                }
+            }
+        }
+    };
+}
+
+/// Make enum string enum literal to be used as a keyword value.
+///
+/// This will impl the enum literal and add a ToDisplayNE trait.
+#[macro_export]
+macro_rules! impl_str_enum_kw {
+    ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
+     $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
+     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
+    ) => {
+        impl_str_enum!(
+            $(#[$flag_meta])* $flag_vis $flag_name,
+            $(#[$error_meta])* $error_vis $error_name,
+            $($(#[$var_meta])* $var => $strlit),*
+        );
+
+        impl $crate::nonempty_string::ToDisplayNE<'_> for $flag_name {
+            type NE = &'static $crate::nonempty_string::NEStr;
+            fn to_ne(&self) -> Self::NE {
+                $crate::config::EnumStrIter::as_ne_str(self)
+            }
+        }
+    };
+}
+
+/// Make an enum string literal to be used as a configuration flag.
+///
+/// In addition to that described in [`impl_str_enum`], this will add:
+/// * Default trait for first variant
+/// * Display trait for enum
+/// * Python to/from traits for both enum and parse error
+#[macro_export]
+macro_rules! impl_config_flag {
+    ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
+     $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
+     $(#[$var_meta0:meta])* $var0:ident => $strlit0:expr,
+     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),*
+    ) => {
+        impl_str_enum!(
+            #[derive(Display, Default)]
+            #[display("{}", self.as_str())]
+            #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+            $(#[$flag_meta])* $flag_vis $flag_name,
+
+            #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+            #[cfg_attr(feature = "python", pyerr($crate::python::ConfigError))]
+            $(#[$error_meta])* $error_vis $error_name,
+
+            #[default]
+            $(#[$var_meta0])* $var0 => $strlit0,
+
+            $($(#[$var_meta])* $var => $strlit),*
+        );
+    }
+}
+
+pub const TRI_FALSE_LEVEL: &NEStr = FALSE_LEVEL;
+pub const TRI_TRUE_LEVEL: &NEStr = TRUE_LEVEL;
+pub const TRI_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
+
+impl_config_flag!(
+    /// Tri-state flag to throw warning, throw error, or do nothing
+    pub TriFlag,
+    /// Error when parsing [`TriFlag`] from [`String`]
+    pub TriFlagError,
+    False  => TRI_FALSE_LEVEL,
+    True   => TRI_TRUE_LEVEL,
+    Silent => TRI_SILENT_LEVEL
+);
+
+pub const ENCODING_UTF8_LEVEL: &NEStr = ne_str!("utf8");
+pub const ENCODING_SINGLE_LEVEL: &NEStr = ne_str!("single");
+pub const ENCODING_GUESS_LEVEL: &NEStr = ne_str!("guess");
+
+impl_config_flag!(
+    /// Choose how to interpret the characters in TEXT.
+    ///
+    /// If `utf8`, use UTF8. If `single`, use IANA ISO/IEC-8859-1), which will
+    /// map each byte to a character, including those outside ASCII. This is
+    /// useful if TEXT is encoded with non-UTF8 characters. If `guess`, assume
+    /// UTF8 and fall back to IANA ISO/IEC-8859-1 if a non-UTF8 character is
+    /// encountered.
+    pub UseEncoding,
+    /// Error when parsing [`UseEncoding`] from [`String`]
+    pub UseEncodingError,
+    Utf8   =>  ENCODING_UTF8_LEVEL,
+    Single =>  ENCODING_SINGLE_LEVEL,
+    Guess  => ENCODING_GUESS_LEVEL
+);
+
+/// The encoding to use when reading TEXT.
 #[derive(Clone, Copy, Default)]
-pub enum IntWidthOverride {
-    /// Do nothing
+pub enum Encoding {
     #[default]
-    Never,
-    /// Override with an explicit value for all $PnB.
-    Explicit(NumericByteWidth),
-    /// Round $PnB up to the next multiple of 8.
-    NextByte,
+    Utf8,
+    Single,
 }
 
-/// Override $BYTEORD for FCS 2.0/3.0.
-#[derive(Clone, Default)]
-pub enum ByteordOverride {
-    /// Do nothing
-    #[default]
+impl UseEncoding {
+    /// Choose encoding to use to read `bytes`.
+    ///
+    /// Only read `bytes` if `Guess` is selected, in which case
+    /// [`Encoding::Single`] will be returned if any bytes have the most
+    /// significant bit set to 1.
+    #[must_use]
+    pub fn choose(&self, bytes: &[u8]) -> Encoding {
+        match self {
+            Self::Utf8 => Encoding::Utf8,
+            Self::Single => Encoding::Single,
+            Self::Guess => {
+                if str::from_utf8(bytes).is_ok() {
+                    Encoding::Utf8
+                } else {
+                    Encoding::Single
+                }
+            }
+        }
+    }
+}
+
+impl Encoding {
+    #[must_use]
+    pub fn is_multi(&self) -> bool {
+        matches!(self, Self::Utf8)
+    }
+}
+
+pub const OTHER_WIDTH_NONE_LEVEL: &NEStr = NONE_LEVEL;
+pub const OTHER_WIDTH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
+pub const OTHER_WIDTH_WARN_LEVEL: &NEStr = WARN_LEVEL;
+pub const OTHER_WIDTH_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
+
+impl_config_flag!(
+    /// Choose how to guess the width for OTHER segments.
+    pub GuessOtherWidth,
+    /// Error when parsing [`GuessOtherWidth`] from [`String`]
+    pub GuessOtherWidthError,
+    None   => OTHER_WIDTH_NONE_LEVEL,
+    Error  => OTHER_WIDTH_ERROR_LEVEL,
+    Warn   => OTHER_WIDTH_WARN_LEVEL,
+    Silent => OTHER_WIDTH_SILENT_LEVEL
+);
+
+pub const KW_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
+pub const KW_DEMOTE_WARN_LEVEL: &NEStr = DEMOTE_WARN_LEVEL;
+pub const KW_DEMOTE_SILENT_LEVEL: &NEStr = DEMOTE_SILENT_LEVEL;
+pub const KW_DROP_WARN_LEVEL: &NEStr = DROP_WARN_LEVEL;
+pub const KW_DROP_SILENT_LEVEL: &NEStr = DROP_SILENT_LEVEL;
+
+impl_config_flag!(
+    /// Configuration to deal with optional standard keywords that cause errors.
+    pub ProcessKeywordFailure,
+    /// Error when parsing [`ProcessKeywordFailure`] from [`String`]
+    pub ProcessKeywordFailureError,
+    Error        => KW_ERROR_LEVEL,
+    DemoteWarn   => KW_DEMOTE_WARN_LEVEL,
+    DemoteSilent => KW_DEMOTE_SILENT_LEVEL,
+    DropWarn     => KW_DROP_WARN_LEVEL,
+    DropSilent   => KW_DROP_SILENT_LEVEL
+);
+
+pub const DELIM_ESCAPED_LEVEL: &NEStr = ne_str!("escaped");
+pub const DELIM_UNESCAPED_LEVEL: &NEStr = ne_str!("unescaped");
+pub const DELIM_GUESS_ESCAPED_LEVEL: &NEStr = ne_str!("guess_escaped");
+pub const DELIM_GUESS_UNESCAPED_LEVEL: &NEStr = ne_str!("guess_unescaped");
+
+impl_config_flag!(
+    /// Choose how to escape delims in TEXT segment.
+    pub DelimEscapeMode,
+    /// Error when parsing [`DelimEscapeMode`] from [`String`]
+    pub DelimEscapeModeError,
+    /// Use escaped delimiters.
+    Escaped        => DELIM_ESCAPED_LEVEL,
+    /// Use unescaped delimiters.
+    Unescaped      => DELIM_UNESCAPED_LEVEL,
+    /// Guess      => falling back to escaped mode.
+    GuessEscaped   => DELIM_GUESS_ESCAPED_LEVEL,
+    /// Guess      => falling back to unescaped mode.
+    GuessUnescaped => DELIM_GUESS_UNESCAPED_LEVEL
+);
+
+pub const TRIM_NONE_LEVEL: &NEStr = ne_str!("notrim");
+pub const TRIM_ERROR_LEVEL: &NEStr = ne_str!("trim");
+pub const TRIM_BLANK_WARN_LEVEL: &NEStr = ne_str!("trim_blank_warn");
+pub const TRIM_BLANK_SILENT_LEVEL: &NEStr = ne_str!("trim_blank_silent");
+
+impl_config_flag!(
+    /// Choose how to trim values and deal with blanks that may result.
+    pub TrimValueWhitespace,
+    /// Error when parsing [`TrimValueWhitespace`] from [`String`]
+    pub TrimValueWhitespaceError,
+    /// Do not trim at all.
+    Notrim          => TRIM_NONE_LEVEL,
+    /// Trim whitespace and throw error if blank is created.
+    Trim            => TRIM_ERROR_LEVEL,
+    /// Trim whitespace and throw warning if blank is created.
+    TrimBlankWarn   => TRIM_BLANK_WARN_LEVEL,
+    /// Trim whitespace and do nothing if blank is created.
+    TrimBlankSilent => TRIM_BLANK_SILENT_LEVEL
+);
+
+pub const FORCE_LINEAR_NONE_LEVEL: &NEStr = NONE_LEVEL;
+pub const FORCE_LINEAR_TIME_LEVEL: &NEStr = ne_str!("time_only");
+pub const FORCE_LINEAR_NON_INT_LEVEL: &NEStr = ne_str!("all_non_int");
+pub const FORCE_LINEAR_ALL_LEVEL: &NEStr = ALL_LEVEL;
+
+impl_config_flag!(
+    /// Choose which $PnE to force as linear.
+    pub ForceLinearScale,
+    /// Error when parsing [`ForceLinearScale`] from [`String`]
+    pub ForceLinearScaleError,
+    /// Do not force.
+    None      => FORCE_LINEAR_NONE_LEVEL,
+    /// Only force the temporal measurement.
+    TimeOnly  => FORCE_LINEAR_TIME_LEVEL,
+    /// Force all non-integer measurements and temporal measurement.
+    AllNonInt => FORCE_LINEAR_NON_INT_LEVEL,
+    /// Force all measurements.
+    All       => FORCE_LINEAR_ALL_LEVEL
+);
+
+impl ForceLinearScale {
+    #[must_use]
+    pub fn time_selected(self) -> bool {
+        !matches!(self, Self::None)
+    }
+}
+
+pub const TMP_OPT_DEMOTE_WARN_LEVEL: &NEStr = DEMOTE_WARN_LEVEL;
+pub const TMP_OPT_DEMOTE_SILENT_LEVEL: &NEStr = DEMOTE_SILENT_LEVEL;
+pub const TMP_OPT_DROP_WARN_LEVEL: &NEStr = DROP_WARN_LEVEL;
+pub const TMP_OPT_DROP_SILENT_LEVEL: &NEStr = DROP_SILENT_LEVEL;
+
+impl_config_flag!(
+    /// Choose what to do with optical keys in time measurement when found.
+    pub ProcessOpticalOnlyKeys,
+    /// Error when parsing [`ForceLinearScale`] from [`String`]
+    pub ProcessOpticalOnlyKeysError,
+    /// Demote to nonstandard with warning
+    DemoteWarn   => TMP_OPT_DEMOTE_WARN_LEVEL,
+    /// Demote to nonstandard with no warning
+    DemoteSilent => TMP_OPT_DEMOTE_SILENT_LEVEL,
+    /// Drop with warning
+    DropWarn     => TMP_OPT_DROP_WARN_LEVEL,
+    /// Drop with no warning
+    DropSilent   => TMP_OPT_DROP_SILENT_LEVEL
+);
+
+pub const SPILLOVER_NAMED_LEVEL: &NEStr = ne_str!("named");
+pub const SPILLOVER_INDEXED_LEVEL: &NEStr = ne_str!("indexed");
+pub const SPILLOVER_GUESS_LEVEL: &NEStr = ne_str!("guess");
+
+impl_config_flag!(
+    /// Choose how to parse measurements for $SPILLOVER key
+    pub SpilloverMeasurementMode,
+    /// Error when parsing [`ForceLinearScale`] from [`String`]
+    pub SpilloverMeasurementModeError,
+    /// Interpret measurements as names which match $PnN.
+    Named   => SPILLOVER_NAMED_LEVEL,
+    /// Interpret measurements as 1-indices (numbers) which point to measurements.
+    Indexed => SPILLOVER_INDEXED_LEVEL,
+    /// Guess how measurements should be interpreted.
+    ///
+    /// If they are all numbers and all do not point to $PnN, interpret as
+    /// indices, otherwise names.
+    Guess   => SPILLOVER_GUESS_LEVEL
+);
+
+pub const OVER_LIMIT_ACTION_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
+pub const OVER_LIMIT_ACTION_WARN_LEVEL: &NEStr = WARN_LEVEL;
+pub const OVER_LIMIT_ACTION_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
+pub const OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL: &NEStr = ne_str!("trunc_silent");
+pub const OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL: &NEStr = ne_str!("trunc_warn");
+pub const OVER_LIMIT_ACTION_NONE_LEVEL: &NEStr = NONE_LEVEL;
+
+impl_str_enum!(
+    #[derive(Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    pub OverLimitAction,
+    /// Error when parsing [`OverLimitAction`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub OverLimitActionError,
+    /// Warn for values over limit
+    Warn => OVER_LIMIT_ACTION_WARN_LEVEL,
+    /// Error for values over limit.
+    Error => OVER_LIMIT_ACTION_ERROR_LEVEL,
+    /// Do not throw warning or error and do not truncate, report only in diagnostics.
+    Silent => OVER_LIMIT_ACTION_SILENT_LEVEL,
+    /// Truncate and throw warning.
+    TruncateSilent => OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL,
+    /// Truncate and throw warning.
+    TruncateWarn => OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
+    /// Do nothing. This will disable all scanning which will save CPU cycles.
+    None => OVER_LIMIT_ACTION_NONE_LEVEL
+
+);
+
+/// Choose what to do with values that exceed $PnR.
+#[derive(Display, FromStr, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+pub struct OverRangeAction(pub OverLimitAction);
+
+impl Default for OverRangeAction {
+    fn default() -> Self {
+        Self(OverLimitAction::Warn)
+    }
+}
+
+/// Choose what to do with integer values that exceed their bitmask set by $PnR.
+#[derive(Display, FromStr, Clone, Copy)]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+pub struct OverBitmaskAction(pub OverLimitAction);
+
+impl Default for OverBitmaskAction {
+    fn default() -> Self {
+        Self(OverLimitAction::TruncateWarn)
+    }
+}
+
+/// The action that will be used to deal with values that exceed a range.
+#[derive(Debug, Clone, Copy)]
+pub enum OverLimitMode {
+    /// Do nothing.
     None,
-    /// Override with an explicit value for $BYTEORD.
-    ///
-    /// This will also set $PnB. It must match the constraints imposed by
-    /// $DATATYPE.
-    Explicit(ConfigByteOrd),
-    /// Infer endian-ness from $BYTEORD, ignoring its length.
-    ///
-    /// Endian-ness is little if $BYTEORD is monotonic ascending, and big if
-    /// monotonic descending. Length will be inferred from $PnB, which should
-    /// all be the same. If $PnB is not a multiple of 8, this will fail.
-    ///
-    /// This is option is ignored for mixed $BYTEORD.
-    Endian,
+    /// Truncate values that are over and emit warning or error
+    Truncate,
+    /// Scan for values that are over and emit warning or error.
+    ScanOnly,
 }
 
+impl OverLimitAction {
+    #[must_use]
+    pub fn mode(&self) -> OverLimitMode {
+        match self {
+            Self::Error | Self::Warn | Self::Silent => OverLimitMode::ScanOnly,
+            Self::TruncateSilent | Self::TruncateWarn => OverLimitMode::Truncate,
+            Self::None => OverLimitMode::None,
+        }
+    }
+}
+
+pub const MISMATCH_ERROR_LEVEL: &NEStr = ERROR_LEVEL;
+pub const MISMATCH_HEADER_WARN_LEVEL: &NEStr = ne_str!("header_warn");
+pub const MISMATCH_HEADER_SILENT_LEVEL: &NEStr = ne_str!("header_silent");
+pub const MISMATCH_TEXT_WARN_LEVEL: &NEStr = ne_str!("text_warn");
+pub const MISMATCH_TEXT_SILENT_LEVEL: &NEStr = ne_str!("text_silent");
+
+impl_config_flag!(
+    /// Choose which offsets to use between TEXT and HEADER if they mismatch.
+    ///
+    /// Only applies to DATA and ANALYSIS offsets in 3.0+
+    pub AllowHeaderTEXTOffsetMismatch,
+    /// Error when parsing [`AllowHeaderTEXTOffsetMismatch`] from [`String`]
+    pub AllowHeaderTEXTOffsetMismatchError,
+    /// Throw error on mismatch.
+    Error        => MISMATCH_ERROR_LEVEL,
+    /// Choose HEADER on mismatch and throw warning.
+    HeaderWarn   => MISMATCH_HEADER_WARN_LEVEL,
+    /// Choose HEADER on mismatch and do nothing.
+    HeaderSilent => MISMATCH_HEADER_SILENT_LEVEL,
+    /// Choose TEXT on mismatch and throw warning.
+    TextWarn     => MISMATCH_TEXT_WARN_LEVEL,
+    /// Choose TEXT on mismatch and do nothing.
+    TextSilent   => MISMATCH_TEXT_SILENT_LEVEL
+);
+
+impl AllowHeaderTEXTOffsetMismatch {
+    /// Return bool matrix representing chosen segment and warning.
+    ///
+    /// First bool is true if we want HEADER, otherwise TEXT. Second boolean
+    /// is true if we want a warning, false for no warning.
+    ///
+    /// None means throw an error and none of the above matters.
+    #[must_use]
+    pub fn is_warning(self) -> Option<(bool, bool)> {
+        match self {
+            Self::Error => None,
+            Self::HeaderWarn => Some((true, true)),
+            Self::HeaderSilent => Some((true, false)),
+            Self::TextWarn => Some((false, true)),
+            Self::TextSilent => Some((false, false)),
+        }
+    }
+}
+
+pub const COMPUTE_CRC_NEVER_LEVEL: &NEStr = ne_str!("never");
+pub const COMPUTE_CRC_TEST_LEVEL: &NEStr = ne_str!("test");
+pub const COMPUTE_CRC_ALWAYS_LEVEL: &NEStr = ne_str!("always");
+
+impl_config_flag!(
+    /// When to compute the CRC for a dataset
+    pub ComputeCRC,
+    /// Error when parsing [`ComputeCRC`] from [`String`]
+    pub ComputeCRCError,
+    /// Never compute CRC.
+    Never  => COMPUTE_CRC_NEVER_LEVEL,
+    /// Always compute CRC.
+    Always => COMPUTE_CRC_ALWAYS_LEVEL,
+    /// Compute CRC only when the CRC word at the end of the dataset can be read.
+    Test   => COMPUTE_CRC_TEST_LEVEL
+);
+
+const GAIN_LEVEL: &NEStr = ne_str!("G");
+const FILTER_LEVEL: &NEStr = ne_str!("F");
+const WAVELENGTH_LEVEL: &NEStr = ne_str!("L");
+const POWER_LEVEL: &NEStr = ne_str!("O");
+const DET_TYPE_LEVEL: &NEStr = ne_str!("T");
+const DET_VOLTAGE_LEVEL: &NEStr = ne_str!("V");
+const PCNT_EMIT_LEVEL: &NEStr = ne_str!("P");
+const CALIBRATION_LEVEL: &NEStr = ne_str!("CALIBRATION");
+const DET_NAME_LEVEL: &NEStr = ne_str!("DET");
+const TAG_LEVEL: &NEStr = ne_str!("TAG");
+const FEATURE_LEVEL: &NEStr = ne_str!("FEATURE");
+const ANALYTE_LEVEL: &NEStr = ne_str!("ANALYTE");
+
+impl_str_enum!(
+    /// Disallowed and ignorable optical keywords for temporal measurements.
+    #[derive(PartialEq, Eq, Debug, Hash, Display)]
+    #[display("{}", self.as_str())]
+    #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    pub OpticalOnlyKey,
+    /// Error when creating [`OpticalOnlyKey`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub OpticalOnlyKeyError,
+    /// Ignore $PnG
+    Gain            => GAIN_LEVEL,
+    /// Ignore $PnF
+    Filter          => FILTER_LEVEL,
+    /// Ignore $PnL
+    Wavelength      => WAVELENGTH_LEVEL,
+    /// Ignore $PnO
+    Power           => POWER_LEVEL,
+    /// Ignore $PnT
+    DetectorType    => DET_TYPE_LEVEL,
+    /// Ignore $PnV
+    DetectorVoltage => DET_VOLTAGE_LEVEL,
+    /// Ignore $PnP
+    PercentEmitted  => PCNT_EMIT_LEVEL,
+    /// Ignore $PnCALIBRATION
+    Calibration     => CALIBRATION_LEVEL,
+    /// Ignore $PnDET
+    DetectorName    => DET_NAME_LEVEL,
+    /// Ignore $PnTAG
+    Tag             => TAG_LEVEL,
+    /// Ignore $PnFEATURE
+    Feature         => FEATURE_LEVEL,
+    /// Ignore $PnANALYTE
+    Analyte         => ANALYTE_LEVEL
+);
+
+impl OpticalOnlyKey {
+    pub const TARGETS_2_0: [Self; 6] = [
+        Self::DetectorType,
+        Self::DetectorVoltage,
+        Self::Filter,
+        Self::PercentEmitted,
+        Self::Power,
+        Self::Wavelength,
+    ];
+
+    pub const TARGETS_3_0: [Self; 7] = [
+        Self::Gain,
+        Self::DetectorType,
+        Self::DetectorVoltage,
+        Self::Filter,
+        Self::PercentEmitted,
+        Self::Power,
+        Self::Wavelength,
+    ];
+
+    pub const TARGETS_3_1: [Self; 8] = [
+        Self::Gain,
+        Self::Calibration,
+        Self::DetectorType,
+        Self::DetectorVoltage,
+        Self::Filter,
+        Self::PercentEmitted,
+        Self::Power,
+        Self::Wavelength,
+    ];
+
+    pub const TARGETS_3_2: [Self; 12] = [
+        Self::Gain,
+        Self::Analyte,
+        Self::Calibration,
+        Self::DetectorName,
+        Self::DetectorType,
+        Self::DetectorVoltage,
+        Self::Feature,
+        Self::Filter,
+        Self::PercentEmitted,
+        Self::Power,
+        Self::Tag,
+        Self::Wavelength,
+    ];
+}
+
+pub const STD_KW_REQ_LEVEL: &NEStr = ne_str!("req_only");
+pub const STD_KW_OPT_LEVEL: &NEStr = ne_str!("opt_opt");
+pub const STD_KW_REQ_AND_OPT_LEVEL: &NEStr = ne_str!("both");
+
+impl_str_enum!(
+    /// Choose what kind of keywords to return (required vs optional).
+    #[cfg_attr(feature = "python", derive(FromPyString))]
+    pub IncludeReqOrOpt,
+    /// Error when parsing [`IncludeReqOrOpt`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub IncludeReqOrOptError,
+    /// Return required.
+    Req_ => STD_KW_REQ_LEVEL,
+    /// Return optional.
+    Opt_ => STD_KW_OPT_LEVEL,
+    /// Return both.
+    Both => STD_KW_REQ_AND_OPT_LEVEL
+);
+
+pub const STD_KW_ROOT_LEVEL: &NEStr = ne_str!("req_only");
+pub const STD_KW_MEAS_LEVEL: &NEStr = ne_str!("opt_opt");
+pub const STD_KW_ROOT_AND_MEAS_LEVEL: &NEStr = ne_str!("both");
+
+impl_str_enum!(
+    /// Choose what kind of keywords to return (required vs optional).
+    #[cfg_attr(feature = "python", derive(FromPyString))]
+    pub IncludeRootOrMeas,
+    /// Error when parsing [`IncludeRootOrMeas`] from [`String`]
+    #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+    #[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
+    pub IncludeRootOrMeasError,
+    /// Return root.
+    Root => STD_KW_ROOT_LEVEL,
+    /// Return meas.
+    Meas => STD_KW_MEAS_LEVEL,
+    /// Return both.
+    Both => STD_KW_ROOT_AND_MEAS_LEVEL
+);
+
+pub const READ_STRATEGY_STRICT_LEVEL: &NEStr = ne_str!("strict");
+pub const READ_STRATEGY_SCALPAL_LEVEL: &NEStr = ne_str!("scalpal");
+pub const READ_STRATEGY_SLEDGEHAMMER_LEVEL: &NEStr = ne_str!("sledgehammer");
+
+impl_str_enum!(
+    /// Overall strategy to read FCS files.
+    ///
+    /// This is a "metaflag" which will activate individual flags in each
+    /// configuration struct. The exact flags to be activated will depend on the
+    /// struct. In all cases, this will activate the flags which emit warnings
+    /// where applicable. If one does not desire warnings, they can be
+    /// suppressed elsewhere in the config.
+    ///
+    /// In general, the different levels for this are a tradeoff between the ability
+    /// to read events from DATA vs preserving metadata.
+    #[derive(Default)]
+    pub ReadStrategy,
+    /// Error when parsing [`ReadStrategy`] from [`String`]
+    pub ReadStrategyError,
+    /// Follow the standard fully (configuration is totally default).
+    ///
+    /// Many files will fail this, but it is useful for validation.
+    #[default]
+    Strict       => READ_STRATEGY_STRICT_LEVEL,
+    /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
+    ///
+    /// This is likely a good option for many files.
+    Scalpal      => READ_STRATEGY_SCALPAL_LEVEL,
+    /// Use "unsafe" non-compliant parsing.
+    ///
+    /// This is the best option when all one cares about is reading DATA.
+    /// Non-compliant metadata in TEXT will be skipped.
+    Sledgehammer => READ_STRATEGY_SLEDGEHAMMER_LEVEL
+);
+
+// Declare other useful constants used for configuration
+
+/// A string which is used to denote "no time measurement pattern".
+///
+/// This is only used in interfaces that require a string for
+/// [`ReadStdKeywordsConfig_::time_meas_pattern`] and an `Option` cannot be
+/// used.
+pub const TIME_MEAS_NAME_PATTERN_NONE: &str = "NoTime";
+
+/// The default value for [`ReadStdKeywordsConfig_::time_meas_pattern`].
+pub const TIME_MEAS_NAME_PATTERN_DEFAULT: &str = "^(TIME|Time)$";
+
+/// Used as a separator to disambiguate $PnN that were duplicated
+pub const DEDUP_PNN_SEP: char = '~';
+
+/// The default format for $DATE.
+///
+/// The "%b" format is case-insensitive so this should work for "Jan", "JAN",
+/// "jan", "jaN", etc.
+pub const DEFAULT_DATE_FORMAT: &str = "%d-%b-%Y";
+
+/// The default format for $LAST_MODIFIED.
+pub const DEFAULT_LAST_MODIFIED_FORMAT: &str = "%d-%b-%Y %H:%M:%S";
+
+/// The default format for $BTIM and $ETIM in FCS2.0
+pub const BASE_TIME_FORMAT: &str = "%H:%M:%S";
+
+/// The default format for $BTIM and $ETIM in FCS2.0
+pub const DEFAULT_TIME_FORMAT_2_0: &str = BASE_TIME_FORMAT;
+
+/// The default format for $BTIM and $ETIM in FCS3.0
+pub const DEFAULT_TIME_FORMAT_3_0: &str = formatcp!("{BASE_TIME_FORMAT}:{BASE60_SECOND_SPEC}");
+
+/// The default format for $BTIM and $ETIM in FCS3.1 (and up)
+pub const DEFAULT_TIME_FORMAT_3_1: &str = formatcp!("{BASE_TIME_FORMAT}.{BASE100_SECOND_SPEC}");
+
+/// A custom format specifier for base-60 seconds.
+pub const BASE60_SECOND_SPEC: &str = "%!";
+
+/// A custom format specifier for centiseconds.
+pub const BASE100_SECOND_SPEC: &str = "%@";
+
+// Implement presets for configuration structs
+//
+// These configuration structs are modestly intimidating, and only FCS
+// super-nerds have time to look at all these flags and admire their beauty.
+// Therefore, there are meta-flags which set lots of other flags to sane
+// defaults. This is what most people should use.
+
+/// A config struct which has presets (ie "strategies").
 pub trait HasStrategy {
     #[must_use]
     fn new_with_strategy(strat: ReadStrategy) -> Self
@@ -1885,413 +2170,6 @@ pub trait HasStrategy {
     fn with_scalpal(&mut self);
 
     fn with_sledgehammer(&mut self) {}
-}
-
-pub trait ConfigFlag {
-    fn is_set(&self) -> bool;
-}
-
-pub trait ErrorFlag {
-    fn is_error(&self) -> bool;
-}
-
-pub trait TriErrorFlag: From<TriFlag> + Into<TriFlag> + Copy {
-    const FALSE_IS_ERROR: bool;
-
-    fn is_error(&self) -> Option<bool> {
-        match (*self).into() {
-            TriFlag::Silent => None,
-            TriFlag::False => Some(Self::FALSE_IS_ERROR),
-            TriFlag::True => Some(!Self::FALSE_IS_ERROR),
-        }
-    }
-
-    fn from_partial_str(s: &str) -> Result<Self, PartialTriErrorFlagError> {
-        let res = match s {
-            "silent" => Ok(TriFlag::Silent),
-            "true" => Ok(TriFlag::True),
-            _ => Err(PartialTriErrorFlagError),
-        };
-        res.map(Self::from)
-    }
-}
-
-/// Error when parsing a [`fireflow_types::config::TriFlag`] from `"true"` or `"silent"`.
-#[derive(Error, Debug)]
-#[error("Must be one of 'silent' or 'true'")]
-pub struct PartialTriErrorFlagError;
-
-macro_rules! impl_config_flag {
-    ($n:ident) => {
-        #[derive(From, Clone, Copy, Default)]
-        #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
-        pub struct $n(pub bool);
-
-        impl ConfigFlag for $n {
-            fn is_set(&self) -> bool {
-                self.0
-            }
-        }
-    };
-}
-
-impl_config_flag!(SquishOffsets);
-impl_config_flag!(AllowPseudoempty);
-
-impl_config_flag!(IgnoreSuppTEXT);
-impl_config_flag!(TrimTEXTEnd);
-impl_config_flag!(IgnoreTEXTDataOffsets);
-impl_config_flag!(IgnoreTEXTAnalysisOffsets);
-
-impl_config_flag!(DedupMeasNames);
-impl_config_flag!(TrimIntraValueWhitespace);
-impl_config_flag!(AllowOtherFeature);
-impl_config_flag!(IntegerWidthsFromByteord);
-impl_config_flag!(TransferDroppedOptional);
-impl_config_flag!(FixLogScaleOffsets);
-impl_config_flag!(DisallowLocaltime);
-impl_config_flag!(ReadIntraSegmentDarkBytes);
-impl_config_flag!(ReadPostDatasetDarkBytes);
-
-impl_config_flag!(SkipConversionCheck);
-impl_config_flag!(BigOther);
-impl_config_flag!(OverrideFIL);
-impl_config_flag!(ComputeWriteCRC);
-impl_config_flag!(AppendableFlag);
-impl_config_flag!(AppendFlag);
-
-// TODO add docstrings
-macro_rules! impl_tri_error_flag {
-    (true_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n, false);
-    };
-
-    (false_is_error $n:ident) => {
-        impl_tri_error_flag!(_common $n, true);
-    };
-
-    (_common $n:ident, $false_is_err:expr) => {
-        #[derive(From, Into, Clone, Copy, FromStr, Display, Default)]
-        #[cfg_attr(feature = "python", derive(FromPyString))]
-        #[cfg_attr(feature = "python", derive(IntoPyString))]
-        pub struct $n(pub TriFlag);
-
-        impl TriErrorFlag for $n {
-            const FALSE_IS_ERROR: bool = $false_is_err;
-        }
-    };
-}
-
-impl_tri_error_flag!(false_is_error AllowDuplicatedSuppTEXT);
-impl_tri_error_flag!(false_is_error AllowNonAsciiDelim);
-impl_tri_error_flag!(false_is_error AllowEvenDelims);
-impl_tri_error_flag!(false_is_error AllowNonunique);
-impl_tri_error_flag!(false_is_error AllowOddTokens);
-impl_tri_error_flag!(false_is_error AllowEmptyKeys);
-impl_tri_error_flag!(false_is_error AllowDelimAtBoundary);
-impl_tri_error_flag!(false_is_error AllowNonUtf8);
-impl_tri_error_flag!(false_is_error AllowNonAsciiKeywords);
-impl_tri_error_flag!(false_is_error AllowMissingSuppTEXT);
-impl_tri_error_flag!(false_is_error AllowSuppTEXTOwnDelim);
-impl_tri_error_flag!(false_is_error AllowMissingNextdata);
-impl_tri_error_flag!(false_is_error AllowUnevenEventWidth);
-impl_tri_error_flag!(false_is_error AllowTotMismatch);
-impl_tri_error_flag!(false_is_error AllowMissingRequiredOffsets);
-impl_tri_error_flag!(false_is_error AllowMissingTime);
-impl_tri_error_flag!(false_is_error AllowRepairNonUnique);
-
-impl_tri_error_flag!(true_is_error DisallowRangeTrunc);
-
-// flag for controlling imperfect downgrades and upgrades
-impl_tri_error_flag!(false_is_error AllowLoss);
-
-// flag or controlling how to deal with overrange values in read-only case
-impl_tri_error_flag!(true_is_error AllowOverBitmask);
-impl_tri_error_flag!(true_is_error DisallowOverRange);
-
-impl_tri_error_flag!(false_is_error AllowMissingCRC);
-impl_tri_error_flag!(false_is_error AllowMismatchCRC);
-
-/// Fake 2-way flag to use for non-public switchable errors
-#[derive(From, Into, Clone, Copy)]
-pub(crate) struct DummyFlag(pub(crate) bool);
-
-impl ErrorFlag for DummyFlag {
-    fn is_error(&self) -> bool {
-        self.0
-    }
-}
-
-/// Fake 3-way flag to use for non-public switchable errors
-#[derive(From, Into, Clone, Copy)]
-pub struct DummyTriFlag(pub(crate) TriFlag);
-
-impl DummyTriFlag {
-    /// Emit a flag for handling blank values after trimming.
-    ///
-    /// Will be `None` if trimming is not set.
-    pub fn from_trim_value_whitespace(x: TrimValueWhitespace) -> Option<Self> {
-        let f = match x {
-            TrimValueWhitespace::Notrim => None,
-            TrimValueWhitespace::Trim => Some(TriFlag::False),
-            TrimValueWhitespace::TrimBlankWarn => Some(TriFlag::True),
-            TrimValueWhitespace::TrimBlankSilent => Some(TriFlag::Silent),
-        };
-        f.map(Into::into)
-    }
-
-    pub fn from_guess_other_width(x: GuessOtherWidth) -> Option<Self> {
-        let r = match x {
-            GuessOtherWidth::None => None,
-            GuessOtherWidth::Error => Some(TriFlag::False),
-            GuessOtherWidth::Warn => Some(TriFlag::True),
-            GuessOtherWidth::Silent => Some(TriFlag::Silent),
-        };
-        r.map(Into::into)
-    }
-
-    #[must_use]
-    pub fn from_over_limit_action(x: OverLimitAction) -> Self {
-        let f = match x {
-            OverLimitAction::Error => TriFlag::False,
-            OverLimitAction::Warn | OverLimitAction::TruncateWarn => TriFlag::True,
-            OverLimitAction::Silent | OverLimitAction::TruncateSilent | OverLimitAction::None => {
-                TriFlag::Silent
-            }
-        };
-        f.into()
-    }
-}
-
-impl TriErrorFlag for DummyTriFlag {
-    const FALSE_IS_ERROR: bool = true;
-}
-
-impl AppendFlag {
-    #[must_use]
-    pub fn file_options(self) -> OpenOptions {
-        let mut opts = File::options();
-        opts.create(true);
-        if self.is_set() {
-            opts.append(true)
-        } else {
-            opts.write(true).truncate(true)
-        };
-        opts
-    }
-}
-
-/// A pattern to match the $PnN for the time measurement.
-///
-/// Defaults to matching "TIME" or "Time".
-#[derive(Clone)]
-pub struct TimeMeasNamePattern(pub Option<Regex>);
-
-impl fmt::Display for TimeMeasNamePattern {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        if let Some(s) = self.0.as_ref() {
-            write!(f, "{s}")
-        } else {
-            f.write_str(TIME_MEAS_NAME_PATTERN_NONE)
-        }
-    }
-}
-
-impl FromStr for TimeMeasNamePattern {
-    type Err = regex::Error;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == TIME_MEAS_NAME_PATTERN_NONE {
-            return Ok(Self(None));
-        }
-        s.parse::<Regex>().map(Some).map(Self)
-    }
-}
-
-impl Default for TimeMeasNamePattern {
-    fn default() -> Self {
-        Self(Some(Regex::new(TIME_MEAS_NAME_PATTERN_DEFAULT).unwrap()))
-    }
-}
-
-/// Error when optical keyword is present in temporal measurement.
-#[derive(Debug, Error, new, PartialEq, Clone)]
-#[error("optical key $P{index}{key} found in temporal measurement")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct TemporalHasOpticalKeyError {
-    index: MeasIndex,
-    key: OpticalOnlyKey,
-}
-
-/// A map of [`KeyString`]/[`String`] pairs.
-///
-/// The main use case for this is to replace or add key values.
-pub type KeyStringValues = HashMap<KeyString, NEString>;
-
-/// A list of patterns that match [`crate::validated::keys::StdKey`]s or
-/// [`crate::validated::keys::NonStdKey`]s.
-pub type KeyPatterns = KeyStringsOrPatterns<()>;
-
-pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
-
-/// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
-#[derive(Clone, PartialEq)]
-pub struct KeyStringsOrPatterns<T>(pub HashMap<KeyStringOrPattern, T>);
-
-impl<T> Default for KeyStringsOrPatterns<T> {
-    fn default() -> Self {
-        Self(HashMap::default())
-    }
-}
-
-// Implement methods for literal strings or patterns types
-
-impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (KeyStringOrPattern, T)>,
-    {
-        Self(iter.into_iter().collect())
-    }
-}
-
-impl FromIterator<KeyStringOrPattern> for KeyStringsOrPatterns<()> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = KeyStringOrPattern>,
-    {
-        Self(iter.into_iter().map(|x| (x, ())).collect())
-    }
-}
-
-impl<T> KeyStringsOrPatterns<T> {
-    pub fn from_many(
-        xs: impl IntoIterator<Item = Self>,
-    ) -> Result<Self, NonUniqueKeyError<LiteralOrPattern<KeyString>>> {
-        checked_iter_to_hashmap(xs.into_iter().flat_map(|x| x.0.into_iter())).map(Self)
-    }
-}
-
-/// Error when creating a new hashtable with non-unique keys.
-#[derive(Debug, Error, Display, PartialEq, Clone)]
-#[display(
-    "the following keys were non-unique when creating new hash table: {}",
-    self.0.iter().join(","),
-)]
-#[display(bound(T: fmt::Display))]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-#[cfg_attr(feature = "python", bound(T: fmt::Display))]
-pub struct NonUniqueKeyError<T>(NEVec<T>);
-
-// TODO put me somewhere useful
-pub fn checked_iter_to_hashmap<K, V>(
-    xs: impl IntoIterator<Item = (K, V)>,
-) -> Result<HashMap<K, V>, NonUniqueKeyError<K>>
-where
-    K: Hash + Clone + Eq,
-{
-    let mut duplicated = HashSet::new();
-    let mut new = HashMap::new();
-    for (k, v) in xs {
-        if new.contains_key(&k) {
-            duplicated.insert(k);
-        } else {
-            new.insert(k, v);
-        }
-    }
-    let multi: Vec<_> = duplicated.into_iter().collect();
-    if let Some(ne) = NEVec::try_from_vec(multi) {
-        return Err(NonUniqueKeyError(ne));
-    }
-    Ok(new)
-}
-
-/// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
-pub type KeyStringOrPattern = LiteralOrPattern<KeyString>;
-
-/// Either a literal string or regexp.
-///
-/// This exists for performance and ergononic reasons; if the goal is simply to
-/// match lots of strings literally, it is faster and easier to use a hash
-/// table, otherwise we need to search linearly through an array of patterns.
-#[derive(Clone, PartialEq, Eq, Hash, Display, Debug)]
-pub enum LiteralOrPattern<L> {
-    #[display("{_0}")]
-    Literal(L),
-    #[display("{PATTERN_DELIMITER}{_0}{PATTERN_DELIMITER}")]
-    Pattern(CaseInsRegex),
-}
-
-impl<L: FromStr> FromStr for LiteralOrPattern<L> {
-    type Err = LiteralOrPatternError<<L as FromStr>::Err>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(inner) = s
-            .strip_prefix(PATTERN_DELIMITER)
-            .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
-        {
-            let ret = inner
-                .parse::<CaseInsRegex>()
-                .map_err(LiteralOrPatternError::Regexp)?;
-            Ok(Self::Pattern(ret))
-        } else {
-            let ret = s.parse::<L>().map_err(LiteralOrPatternError::Literal)?;
-            Ok(Self::Literal(ret))
-        }
-    }
-}
-
-/// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
-pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
-
-/// Error when parsing literal or pattern string.
-#[derive(Debug, Display, PartialEq, Error, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
-pub enum LiteralOrPatternError<E> {
-    Regexp(CaseInsRegexError),
-    Literal(E),
-}
-
-/// The maximum number of bytes that an offset may be truncated if beyond EOF.
-#[derive(Default, Clone, Copy, From, Into, FromStr)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct DatasetOverflowLimit(pub u64);
-
-/// The maximum number of bytes an ending offset may be decreased to avoid overlap.
-#[derive(Default, Clone, Copy, From, Into, FromStr)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct OverlapCorrectionLimit(pub u64);
-
-/// The max length the DATA end offset may be decreased based on event width.
-#[derive(Default, Clone, Copy, From, Into, FromStr)]
-#[cfg_attr(feature = "python", derive(IntoPyObject))]
-pub struct DataRemainderLimit(pub u64);
-
-/// Set of temporal optical keys.
-#[derive(Clone, Default, From, Into)]
-pub struct OpticalOnlyKeys(pub HashSet<OpticalOnlyKey>);
-
-impl OpticalOnlyKeys {
-    fn all() -> Self {
-        let keys = [
-            OpticalOnlyKey::Gain,
-            OpticalOnlyKey::Analyte,
-            OpticalOnlyKey::Calibration,
-            OpticalOnlyKey::DetectorName,
-            OpticalOnlyKey::DetectorType,
-            OpticalOnlyKey::DetectorVoltage,
-            OpticalOnlyKey::Feature,
-            OpticalOnlyKey::Filter,
-            OpticalOnlyKey::PercentEmitted,
-            OpticalOnlyKey::Power,
-            OpticalOnlyKey::Tag,
-            OpticalOnlyKey::Wavelength,
-        ];
-        Self(keys.into_iter().collect())
-    }
 }
 
 impl HasStrategy for ReadHeaderInnerConfig {
@@ -2411,71 +2289,19 @@ impl HasStrategy for ReadDatasetConfig {
     }
 }
 
-/// Denotes a correction for a segment offset pair
-#[derive(Default, Clone, Copy, new)]
-pub struct OffsetsCorrection<I, S> {
-    begin: i32,
-    end: i32,
-    _id: PhantomData<I>,
-    _src: PhantomData<S>,
-}
+// internal constants, many are shared between enums to keep the API simpler
 
-pub type HeaderCorrection<I> = OffsetsCorrection<I, OffsetsFromHeader>;
-pub type TEXTCorrection<I> = OffsetsCorrection<I, OffsetsFromTEXT>;
-
-// Implement methods for correction type
-
-impl<I, S> OffsetsCorrection<I, S> {
-    #[must_use]
-    pub fn begin(&self) -> i32 {
-        self.begin
-    }
-
-    #[must_use]
-    pub fn end(&self) -> i32 {
-        self.end
-    }
-}
-
-impl<I, S> From<(i32, i32)> for OffsetsCorrection<I, S> {
-    fn from(value: (i32, i32)) -> Self {
-        Self::new(value.0, value.1)
-    }
-}
-
-impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetsCorrection<I, S> {
-    fn from(value: (Option<i32>, Option<i32>)) -> Self {
-        Self::from((value.0.unwrap_or_default(), value.1.unwrap_or_default()))
-    }
-}
-
-/// Denotes segment offsets came from HEADER
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct OffsetsFromHeader;
-
-/// Denotes segment offsets came from TEXT
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct OffsetsFromTEXT;
-
-/// Denotes segment offsets pertains to primary TEXT
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct PrimaryTextSegmentId;
-
-/// Denotes segment offsets pertains to supplemental TEXT
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct SupplementalTextSegmentId;
-
-/// Denotes segment offsets pertains to DATA
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct DataSegmentId;
-
-/// Denotes segment offsets pertains to ANALYSIS
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct AnalysisSegmentId;
-
-/// Denotes segment offsets pertains to OTHER
-#[derive(Default, Debug, Clone, Copy, PartialEq)]
-pub struct OtherSegmentId;
+const NONE_LEVEL: &NEStr = ne_str!("none");
+const FALSE_LEVEL: &NEStr = ne_str!("false");
+const TRUE_LEVEL: &NEStr = ne_str!("true");
+const SILENT_LEVEL: &NEStr = ne_str!("silent");
+const ERROR_LEVEL: &NEStr = ne_str!("error");
+const WARN_LEVEL: &NEStr = ne_str!("warn");
+const ALL_LEVEL: &NEStr = ne_str!("all");
+const DEMOTE_WARN_LEVEL: &NEStr = ne_str!("demote_warn");
+const DEMOTE_SILENT_LEVEL: &NEStr = ne_str!("demote_silent");
+const DROP_WARN_LEVEL: &NEStr = ne_str!("drop_warn");
+const DROP_SILENT_LEVEL: &NEStr = ne_str!("drop_silent");
 
 #[cfg(test)]
 mod tests {
@@ -2499,50 +2325,39 @@ mod tests {
 }
 
 #[cfg(feature = "python")]
+pub use python::{
+    BYTEORD_OVERRIDE_ENDIAN_LEVEL, BYTEORD_OVERRIDE_NONE_LEVEL, FIX_INT_WIDTH_NEVER_LEVEL,
+    FIX_INT_WIDTH_NEXT_BYTE_LEVEL,
+};
+
+#[cfg(feature = "python")]
 mod python {
     use super::{
-        ByteordOverride, IntWidthOverride, KeyPatterns, KeyStringOrPattern, LiteralOrPattern,
-        LiteralOrPatternError, OffsetsCorrection, OpticalOnlyKeys, SubPatterns,
+        ByteordOverride, IntWidthOverride, KeyPatterns, NONE_LEVEL, OpticalOnlyKeys, SubPatterns,
         TimeMeasNamePattern,
     };
 
     use crate::{
+        byteord::ConfigByteOrd,
+        case_ins_regex::{LiteralOrPattern, LiteralOrPatternError},
+        keystring::KeyStringOrPattern,
+        ne_str,
         nonempty_string::NEStr,
         python::ConfigError,
         sub_pattern::SubPattern,
-        {byteord::ConfigByteOrd, config as tc},
     };
 
     use hashbrown::HashMap;
     use pyo3::{
         IntoPyObjectExt as _,
         prelude::*,
-        types::{PyDict, PyString, PyTuple},
+        types::{PyDict, PyString},
     };
     use regex::Regex;
 
     use std::convert::Infallible;
     use std::fmt;
     use std::str::FromStr;
-
-    // offset corrections will be tuples like (int, int)
-    impl<'py, I, S> FromPyObject<'_, 'py> for OffsetsCorrection<I, S> {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let t: (i32, i32) = obj.extract()?;
-            Ok(Self::from(t))
-        }
-    }
-
-    impl<'py, I, S> IntoPyObject<'py> for OffsetsCorrection<I, S> {
-        type Target = PyTuple;
-        type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (self.begin, self.end).into_pyobject(py)
-        }
-    }
 
     impl<'py> FromPyObject<'_, 'py> for OpticalOnlyKeys {
         type Error = PyErr;
@@ -2634,16 +2449,15 @@ mod python {
             {
                 return Ok(Self::Explicit(bw));
             } else if let Ok(s) = obj.extract::<&NEStr>() {
-                if s == tc::FIX_INT_WIDTH_NEVER_LEVEL {
+                if s == FIX_INT_WIDTH_NEVER_LEVEL {
                     return Ok(Self::Never);
-                } else if s == tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL {
+                } else if s == FIX_INT_WIDTH_NEXT_BYTE_LEVEL {
                     return Ok(Self::NextByte);
                 }
             }
             Err(ConfigError::new_err(format!(
-                "must be a an integer 1-8 or one of '{}' or '{}'",
-                tc::FIX_INT_WIDTH_NEVER_LEVEL,
-                tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL
+                "must be a an integer 1-8 or one of '{FIX_INT_WIDTH_NEVER_LEVEL}' \
+                 or '{FIX_INT_WIDTH_NEXT_BYTE_LEVEL}'",
             )))
         }
     }
@@ -2656,10 +2470,8 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
                 Self::Explicit(b) => u8::from(b).into_bound_py_any(py),
-                Self::NextByte => tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL
-                    .as_str()
-                    .into_bound_py_any(py),
-                Self::Never => tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str().into_bound_py_any(py),
+                Self::NextByte => FIX_INT_WIDTH_NEXT_BYTE_LEVEL.into_bound_py_any(py),
+                Self::Never => FIX_INT_WIDTH_NEVER_LEVEL.into_bound_py_any(py),
             }
         }
     }
@@ -2669,17 +2481,17 @@ mod python {
         fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
             if let Ok(b) = obj.extract::<ConfigByteOrd>() {
                 return Ok(Self::Explicit(b));
-            } else if let Ok(s) = obj.extract::<String>() {
-                if s.as_str() == tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str() {
+            } else if let Ok(s) = obj.extract::<&NEStr>() {
+                if s == BYTEORD_OVERRIDE_NONE_LEVEL {
                     return Ok(Self::None);
-                } else if s.as_str() == tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str() {
+                } else if s == BYTEORD_OVERRIDE_ENDIAN_LEVEL {
                     return Ok(Self::Endian);
                 }
             }
             Err(ConfigError::new_err(format!(
-                "must be a valid byte order or one of '{}' or '{}'",
-                tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL,
-                tc::BYTEORD_OVERRIDE_NONE_LEVEL,
+                "must be a valid byte order or one of \
+                 '{BYTEORD_OVERRIDE_ENDIAN_LEVEL}' or \
+                 '{BYTEORD_OVERRIDE_NONE_LEVEL}'",
             )))
         }
     }
@@ -2692,12 +2504,8 @@ mod python {
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             match self {
                 Self::Explicit(b) => b.into_pyobject(py),
-                Self::None => tc::BYTEORD_OVERRIDE_NONE_LEVEL
-                    .as_str()
-                    .into_bound_py_any(py),
-                Self::Endian => tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL
-                    .as_str()
-                    .into_bound_py_any(py),
+                Self::None => BYTEORD_OVERRIDE_NONE_LEVEL.into_bound_py_any(py),
+                Self::Endian => BYTEORD_OVERRIDE_ENDIAN_LEVEL.into_bound_py_any(py),
             }
         }
     }
@@ -2726,4 +2534,10 @@ mod python {
             self.to_string().into_pyobject(py)
         }
     }
+
+    pub const BYTEORD_OVERRIDE_NONE_LEVEL: &NEStr = NONE_LEVEL;
+    pub const BYTEORD_OVERRIDE_ENDIAN_LEVEL: &NEStr = ne_str!("endian");
+
+    pub const FIX_INT_WIDTH_NEVER_LEVEL: &NEStr = ne_str!("never");
+    pub const FIX_INT_WIDTH_NEXT_BYTE_LEVEL: &NEStr = ne_str!("next_byte");
 }

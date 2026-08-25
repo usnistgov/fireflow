@@ -14,12 +14,11 @@ use crate::text::keywords as kws;
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
-        DummyTriFlag, Encoding, KeyStringOrPattern, KeyStringsOrPatterns, OpticalOnlyKey,
-        OpticalOnlyKeys, ProcessOpticalOnlyKeys, ReadHeaderAndTEXTConfig,
-        TemporalHasOpticalKeyError, TriErrorFlag as _,
+        DummyTriFlag, Encoding, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
+        ReadHeaderAndTEXTConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
     },
     index::{IndexFromOne, MeasIndex},
-    keystring::{AsciiStringError, KeyString},
+    keystring::{AsciiStringError, KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
     keywords::{Version, VersionMembership},
     ne_str,
     nonempty_string::{

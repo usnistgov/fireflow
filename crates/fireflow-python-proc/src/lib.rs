@@ -8933,7 +8933,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_keystring_values() -> Self {
-        let path = types_config_path("KeyStringValues");
+        let path = config_path("KeyStringValues");
         // TODO exception if dict keys are not unique
         Self::new_py(["typing"], "KeyStringValues")
             .rstype(path)
@@ -12026,7 +12026,7 @@ impl AnySegment {
         };
         let s = format_ident!("{src}");
         let i = self.id();
-        let root = quote!(fireflow_types::config);
+        let root = quote!(fireflow_types::segment);
         // TODO non-obvious '::' in path before the parameters
         parse_quote! (#root::OffsetsCorrection::<#root::#i, #root::#s>)
     }

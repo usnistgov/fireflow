@@ -12,6 +12,7 @@ pub mod other_width;
 #[cfg(feature = "python")]
 pub mod python;
 pub mod ranged_float;
+pub mod segment;
 pub mod sub_pattern;
 pub mod textdelim;
 pub mod timepattern;

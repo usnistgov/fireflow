@@ -10,15 +10,14 @@ use fireflow_core::{
 use fireflow_types::{
     args::dash as ta,
     byteord::ConfigByteOrd,
-    config::{
-        self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, KeyStringOrPattern,
-        NumericByteWidth, OffsetsCorrection,
-    },
+    case_ins_regex::PATTERN_DELIMITER,
+    config::{self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, NumericByteWidth},
     datepattern::DatePattern,
-    keystring::KeyString,
+    keystring::{KeyString, KeyStringOrPattern},
     keywords as tk,
     nonempty_string::NEString,
     other_width::OtherWidth,
+    segment::OffsetsCorrection,
     sub_pattern::SubPattern,
     textdelim::TEXTDelim,
     timepattern::TimePattern,
@@ -449,7 +448,7 @@ fn run() -> AppResult<()> {
         let more = format!(
             "Values that start and end with {delim} will be \
              interpreted as regular expressions.",
-            delim = fmt_val(tc::PATTERN_DELIMITER)
+            delim = fmt_val(PATTERN_DELIMITER)
         );
         let more_help = format!("{help} {more}");
         Arg::new(name)

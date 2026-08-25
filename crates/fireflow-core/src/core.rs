@@ -124,11 +124,10 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::{
     config::{
-        AllowLoss, AnalysisSegmentId, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _,
-        DataSegmentId, DummyTriFlag, IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction,
-        OverRangeAction, OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-        ReadOffsetConfig, ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig,
-        WriteTEXTInnerConfig,
+        AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
+        IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
+        OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
+        ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
     index::{IndexFromOne, MeasIndex},
@@ -136,6 +135,7 @@ use fireflow_types::{
         HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
     },
     nonempty_string::{NESliceExt as _, NEStr, NEString},
+    segment::{AnalysisSegmentId, DataSegmentId},
     textdelim::TEXTDelim,
     timepattern::TimePattern,
 };

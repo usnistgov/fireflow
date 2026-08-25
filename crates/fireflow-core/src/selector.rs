@@ -4,9 +4,9 @@ use crate::{
 };
 
 use fireflow_types::{
-    config::{KeyPatterns, KeyStringOrPattern, KeyStringsOrPatterns, TimeMeasNamePattern},
+    config::{KeyPatterns, TimeMeasNamePattern},
     datepattern::DatePattern,
-    keystring::KeyString,
+    keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
     keystring_pairs::KeyStringPairs,
     ne_str,
     nonempty_string::{NEStr, NEString},

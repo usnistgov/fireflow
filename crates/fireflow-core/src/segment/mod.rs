@@ -5,7 +5,7 @@ use crate::text::keywords::{Beginanalysis, Begindata, Beginstext, Endanalysis, E
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::keys::Key;
 
-use fireflow_types::config::{AnalysisSegmentId, DataSegmentId, SupplementalTextSegmentId};
+use fireflow_types::segment::{AnalysisSegmentId, DataSegmentId, SupplementalTextSegmentId};
 
 use std::num::ParseIntError;
 use std::str::FromStr;

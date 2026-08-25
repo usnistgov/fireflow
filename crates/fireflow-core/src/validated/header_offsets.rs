@@ -13,11 +13,11 @@ use crate::segment::read::{
 use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReadState, TEXTReadState};
 
 use fireflow_types::{
-    config::{
-        AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId,
-        OverlapCorrectionLimit, PrimaryTextSegmentId, ReadOffsetConfig,
-    },
+    config::{OverlapCorrectionLimit, ReadOffsetConfig},
     other_width::OtherWidth,
+    segment::{
+        AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId, PrimaryTextSegmentId,
+    },
 };
 
 use type_families::BifunctorOnce as _;

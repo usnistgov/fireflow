@@ -27,15 +27,18 @@ use crate::validated::read_state::{
 
 use fireflow_types::{
     config::{
-        AllowPseudoempty, AnalysisSegmentId, ConfigFlag, DataSegmentId, DummyTriFlag,
-        HeaderCorrection, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, OffsetsCorrection,
-        OffsetsFromHeader, OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId,
-        ProcessKeywordFailure, ProcessOptionalFailure, ReadHeaderInnerConfig, ReadOffsetConfig,
-        SupplementalTextSegmentId, TEXTCorrection,
+        AllowPseudoempty, ConfigFlag, DummyTriFlag, IgnoreTEXTAnalysisOffsets,
+        IgnoreTEXTDataOffsets, ProcessKeywordFailure, ProcessOptionalFailure,
+        ReadHeaderInnerConfig, ReadOffsetConfig,
     },
     keywords::Version,
     nonempty_string::NESliceExt as _,
     other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth},
+    segment::{
+        AnalysisSegmentId, DataSegmentId, HeaderCorrection, OffsetsCorrection, OffsetsFromHeader,
+        OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
+        TEXTCorrection,
+    },
 };
 
 use nonempty_collections::IntoNonEmptyIterator as _;

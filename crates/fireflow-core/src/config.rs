@@ -15,16 +15,17 @@ use crate::selector::{AppendableSelector, Selector};
 use crate::validated::keys::ValidKeywords;
 
 use fireflow_types::{
+    case_ins_regex::LiteralOrPattern,
     config::{
-        HasStrategy, KeyPatterns, KeyStringValues, KeyStringsOrPatterns, LiteralOrPattern,
-        NonUniqueKeyError, ReadDataKeywordsConfig_, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-        ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig_,
-        SubPatterns, TimeMeasNamePattern, WriteDatasetInnerConfig, WriteMultiConfig,
-        WriteTEXTInnerConfig, checked_iter_to_hashmap,
+        HasStrategy, KeyPatterns, ReadDataKeywordsConfig_, ReadDatasetConfig,
+        ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig,
+        ReadStdKeywordsConfig_, SubPatterns, TimeMeasNamePattern, WriteDatasetInnerConfig,
+        WriteMultiConfig, WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
-    keystring::KeyString,
+    keystring::{KeyString, KeyStringsOrPatterns, NonUniqueKeyError, checked_iter_to_hashmap},
     keystring_pairs::{KeyStringPairs, KeyStringPairsError},
+    nonempty_string::NEString,
     timepattern::TimePattern,
 };
 
@@ -225,6 +226,11 @@ pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
     KeyStringValues,
     SubPatterns,
 >;
+
+/// A map of [`KeyString`]/[`String`] pairs.
+///
+/// The main use case for this is to replace or add key values.
+pub type KeyStringValues = HashMap<KeyString, NEString>;
 
 pub(crate) fn eval_std_conf(
     conf: &ReadStdKeywordsConfig,

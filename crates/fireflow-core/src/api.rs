@@ -53,13 +53,14 @@ use crate::validated::read_state::{
 
 use fireflow_types::{
     config::{
-        AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding, OffsetsFromTEXT,
+        AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding,
         OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
-        ReadOffsetConfig, ReadSharedConfig, SupplementalTextSegmentId, VersionOverride,
-        WriteDatasetInnerConfig, WriteMultiConfig,
+        ReadOffsetConfig, ReadSharedConfig, VersionOverride, WriteDatasetInnerConfig,
+        WriteMultiConfig,
     },
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty_string::NESliceExt as _,
+    segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
 };
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};

@@ -3,6 +3,7 @@
 use super::KeyedOffsets;
 
 use crate::api::HeaderAndSuppOffsets;
+use crate::config::EvaledReadDataKeywordsConfig;
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -27,10 +28,10 @@ use crate::validated::read_state::{
 use fireflow_types::{
     config::{
         AllowPseudoempty, AnalysisSegmentId, ConfigFlag, DataSegmentId, DummyTriFlag,
-        EvaledReadDataKeywordsConfig, HeaderCorrection, IgnoreTEXTAnalysisOffsets,
-        IgnoreTEXTDataOffsets, OffsetsCorrection, OffsetsFromHeader, OffsetsFromTEXT,
-        OtherSegmentId, PrimaryTextSegmentId, ProcessKeywordFailure, ProcessOptionalFailure,
-        ReadHeaderInnerConfig, ReadOffsetConfig, SupplementalTextSegmentId, TEXTCorrection,
+        HeaderCorrection, IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, OffsetsCorrection,
+        OffsetsFromHeader, OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId,
+        ProcessKeywordFailure, ProcessOptionalFailure, ReadHeaderInnerConfig, ReadOffsetConfig,
+        SupplementalTextSegmentId, TEXTCorrection,
     },
     keywords::Version,
     nonempty_string::NESliceExt as _,

@@ -1,3 +1,4 @@
+use crate::config::EvaledReadStdKeywordsConfig;
 use crate::core::TrimmedKeyword;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::{DKey0, Key as _};
@@ -8,10 +9,7 @@ use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
 use fireflow_types::{
-    config::{
-        ConfigFlag as _, EvaledReadStdKeywordsConfig, SpilloverMeasurementMode,
-        TrimIntraValueWhitespace,
-    },
+    config::{ConfigFlag as _, SpilloverMeasurementMode, TrimIntraValueWhitespace},
     index::MeasIndex,
     nonempty_string::{NEConcat, NEConcat5, NEDelim, NEStr, ToDisplayNE, ToNE},
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},

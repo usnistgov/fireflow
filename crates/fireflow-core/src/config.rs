@@ -16,12 +16,11 @@ use crate::validated::keys::ValidKeywords;
 
 use fireflow_types::{
     config::{
-        EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig, HasStrategy, KeyPatterns,
-        KeyStringValues, KeyStringsOrPatterns, LiteralOrPattern, NonUniqueKeyError,
-        ReadDataKeywordsConfig_, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
-        ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig_, SubPatterns,
-        TimeMeasNamePattern, WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
-        checked_iter_to_hashmap,
+        HasStrategy, KeyPatterns, KeyStringValues, KeyStringsOrPatterns, LiteralOrPattern,
+        NonUniqueKeyError, ReadDataKeywordsConfig_, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+        ReadHeaderInnerConfig, ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig_,
+        SubPatterns, TimeMeasNamePattern, WriteDatasetInnerConfig, WriteMultiConfig,
+        WriteTEXTInnerConfig, checked_iter_to_hashmap,
     },
     datepattern::DatePattern,
     keystring::KeyString,
@@ -207,6 +206,24 @@ pub type ReadDataKeywordsConfig = ReadDataKeywordsConfig_<
     AppendableSelector<KeyStringValues>,
     AppendableSelector<KeyStringValues>,
     AppendableSelector<SubPatterns>,
+>;
+
+pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
+    TimeMeasNamePattern,
+    Option<DatePattern>,
+    Option<TimePattern>,
+    Option<String>,
+    Option<String>,
+>;
+
+pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
+    KeyPatterns,
+    KeyStringPairs,
+    KeyPatterns,
+    KeyPatterns,
+    KeyStringValues,
+    KeyStringValues,
+    SubPatterns,
 >;
 
 pub(crate) fn eval_std_conf(

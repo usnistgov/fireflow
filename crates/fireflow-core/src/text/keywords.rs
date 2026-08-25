@@ -1,3 +1,4 @@
+use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
@@ -37,9 +38,9 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
-        ConfigFlag as _, DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
-        ForceLinearScale, NumericByteWidth, OpticalOnlyKey, ProcessOptionalFailure,
-        ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
+        ConfigFlag as _, DummyTriFlag, ForceLinearScale, NumericByteWidth, OpticalOnlyKey,
+        ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
+        TrimIntraValueWhitespace,
     },
     index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
     keywords::{

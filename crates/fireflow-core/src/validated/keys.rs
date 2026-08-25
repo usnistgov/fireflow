@@ -1,4 +1,5 @@
 use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
+use crate::config::EvaledReadDataKeywordsConfig;
 use crate::fixed_vec::OneOrTwo;
 use crate::logging::{
     DeferredWarningsAndErrors, LogResult, WarningAndErrorResult, WarningsAndErrorsResult,
@@ -13,9 +14,9 @@ use crate::text::keywords as kws;
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
-        DummyTriFlag, Encoding, EvaledReadDataKeywordsConfig, KeyStringOrPattern,
-        KeyStringsOrPatterns, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
-        ReadHeaderAndTEXTConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
+        DummyTriFlag, Encoding, KeyStringOrPattern, KeyStringsOrPatterns, OpticalOnlyKey,
+        OpticalOnlyKeys, ProcessOpticalOnlyKeys, ReadHeaderAndTEXTConfig,
+        TemporalHasOpticalKeyError, TriErrorFlag as _,
     },
     index::{IndexFromOne, MeasIndex},
     keystring::{AsciiStringError, KeyString},

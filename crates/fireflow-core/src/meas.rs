@@ -1,5 +1,6 @@
 //! The DATA segment and metadata for measurements.
 
+use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::core::{TrimmedKeywords, Versioned};
 use crate::data::{
     self, CastSeriesErrors, ConvertFromLayout, DataFrameAsDataSchema, DataFrameCheckRanges as _,
@@ -48,8 +49,8 @@ use crate::validated::shortname::Shortname;
 
 use fireflow_types::{
     config::{
-        AllowLoss, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig, OpticalOnlyKey,
-        OverBitmaskAction, OverRangeAction, ReadDatasetConfig, TemporalHasOpticalKeyError,
+        AllowLoss, OpticalOnlyKey, OverBitmaskAction, OverRangeAction, ReadDatasetConfig,
+        TemporalHasOpticalKeyError,
     },
     index::MeasIndex,
     keywords::{HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2},

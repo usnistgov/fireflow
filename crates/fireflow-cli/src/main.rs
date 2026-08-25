@@ -8,6 +8,7 @@ use fireflow_core::{
 };
 
 use fireflow_types::{
+    args as tf,
     byteord::ConfigByteOrd,
     config::{
         self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, KeyStringOrPattern,
@@ -30,7 +31,6 @@ use clap::{
     error::ErrorKind,
     value_parser,
 };
-use const_format::str_replace;
 use hashbrown::HashMap;
 use itertools::Itertools as _;
 use itoa::Buffer as IBuf;
@@ -49,15 +49,6 @@ use std::{
     process::ExitCode,
     str::FromStr,
 };
-
-/// Helper macro to keep args in sync with config fields
-macro_rules! cli_arg {
-    ($conf:ident :: $field:ident) => {{
-        // compile-time existence check; fails if field is renamed
-        const _: usize = std::mem::offset_of!(fireflow_types::config::$conf, $field);
-        str_replace!(stringify!($field), "_", "-")
-    }};
-}
 
 fn main() -> ExitCode {
     match run() {
@@ -154,8 +145,8 @@ fn run() -> AppResult<()> {
                 "The guessing algorithm is independent of {odd} and {final} \
                  which will trigger as normal if their respective violations \
                  are found.",
-                odd = fmt_arg(ALLOW_ODD_TOKENS),
-                final = fmt_arg(ALLOW_EVEN_DELIMS),
+                odd = fmt_arg(tf::ALLOW_ODD_TOKENS),
+                final = fmt_arg(tf::ALLOW_EVEN_DELIMS),
             ),
         ],
     );
@@ -170,7 +161,7 @@ fn run() -> AppResult<()> {
              and TO must follow the syntax outlined in {REGEXP_REF} and \
              {REGEXP_REP_REF} respectively, with the caveat that only bracketed \
              replacement syntax is allowed.",
-            pat = fmt_arg(SUB_STD_KEY_VALS),
+            pat = fmt_arg(tf::SUB_STD_KEY_VALS),
         )],
     );
 
@@ -182,7 +173,7 @@ fn run() -> AppResult<()> {
              day as outlined in {CHRONO_REF}. If not supplied, {date} will \
              be parsed according to the standard pattern which is \
              {fmt}.",
-            pat = fmt_arg(DATE_PATTERN),
+            pat = fmt_arg(tf::DATE_PATTERN),
             fmt = fmt_val(tc::DEFAULT_DATE_FORMAT),
         )],
     );
@@ -223,12 +214,12 @@ fn run() -> AppResult<()> {
 
     // header args
 
-    let text_correction = correction_arg(TEXT_CORR, true, &text_seg);
-    let data_correction = correction_arg(DATA_CORR, true, &data_seg);
-    let analysis_correction = correction_arg(ANALYSIS_CORR, true, &analysis_seg);
+    let text_correction = correction_arg(tf::TEXT_CORR, true, &text_seg);
+    let data_correction = correction_arg(tf::DATA_CORR, true, &data_seg);
+    let analysis_correction = correction_arg(tf::ANALYSIS_CORR, true, &analysis_seg);
 
-    let other_correction = Arg::new(OTHER_CORR)
-        .long(OTHER_CORR)
+    let other_correction = Arg::new(tf::OTHER_CORR)
+        .long(tf::OTHER_CORR)
         .value_name("BEGIN,END")
         .action(ArgAction::Append)
         .value_parser(ValueParser::new(parse_offsets))
@@ -238,19 +229,19 @@ fn run() -> AppResult<()> {
         ));
 
     let max_other = opt_arg::<usize>(
-        MAX_OTHER,
+        tf::MAX_OTHER,
         "BYTES",
         format!("Max number of {other_seg} segments to parse."),
     );
 
-    let other_width = Arg::new(OTHER_WIDTH)
-        .long(OTHER_WIDTH)
+    let other_width = Arg::new(tf::OTHER_WIDTH)
+        .long(tf::OTHER_WIDTH)
         .value_name("WIDTH")
         .help(format!("Width of {other_seg} segments."))
         .value_parser(ValueParser::new(parse_other_width));
 
-    let guess_other_width = Arg::new(GUESS_OTHER_WIDTH)
-        .long(GUESS_OTHER_WIDTH)
+    let guess_other_width = Arg::new(tf::GUESS_OTHER_WIDTH)
+        .long(tf::GUESS_OTHER_WIDTH)
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::GuessOtherWidth))
         .help(format!(
@@ -262,11 +253,11 @@ fn run() -> AppResult<()> {
             error = fmt_val(tc::OTHER_WIDTH_ERROR_LEVEL),
             warn = fmt_val(tc::OTHER_WIDTH_WARN_LEVEL),
             silent = fmt_val(tc::OTHER_WIDTH_SILENT_LEVEL),
-            arg = fmt_arg(OTHER_WIDTH),
+            arg = fmt_arg(tf::OTHER_WIDTH),
         ));
 
     let squish_offsets = override_flag_arg(
-        SQUISH_OFFSETS,
+        tf::SQUISH_OFFSETS,
         format!(
             "If {data_seg}/{analysis_seg} end in 0, use 0 for start as well. \
              Should not be used for FCS 2.0 files."
@@ -287,26 +278,26 @@ fn run() -> AppResult<()> {
     // offset args
 
     let allow_pseudoempty = override_flag_arg(
-        ALLOW_PSEUDOEMPTY,
+        tf::ALLOW_PSEUDOEMPTY,
         "Treat offsets like '0,-1' or '1000,999' as '0,0'.",
     );
 
-    let truncate_offset_limit = Arg::new(TRUNCATE_OFFSET_LIMIT)
-        .long(TRUNCATE_OFFSET_LIMIT)
+    let truncate_offset_limit = Arg::new(tf::TRUNCATE_OFFSET_LIMIT)
+        .long(tf::TRUNCATE_OFFSET_LIMIT)
         .value_name("LIMIT")
         .value_parser(value_parser!(tc::DatasetOverflowLimit))
         .help("Limit by which offsets can be truncated if they exceed end of file.");
 
-    let overlap_correction_limit = Arg::new(OVERLAP_CORRECTION_LIMIT)
-        .long(OVERLAP_CORRECTION_LIMIT)
+    let overlap_correction_limit = Arg::new(tf::OVERLAP_CORRECTION_LIMIT)
+        .long(tf::OVERLAP_CORRECTION_LIMIT)
         .value_name("LIMIT")
         .value_parser(value_parser!(tc::OverlapCorrectionLimit))
         .help(
             "Limit by which ending segment offset can be truncated if they overlap another offset.",
         );
 
-    let data_remainder_limit = Arg::new(DATA_REMAINDER_LIMIT)
-        .long(DATA_REMAINDER_LIMIT)
+    let data_remainder_limit = Arg::new(tf::DATA_REMAINDER_LIMIT)
+        .long(tf::DATA_REMAINDER_LIMIT)
         .value_name("LIMIT")
         .value_parser(value_parser!(tc::DataRemainderLimit))
         .help(format!(
@@ -324,7 +315,7 @@ fn run() -> AppResult<()> {
     // "flat" args
 
     let version_override = opt_arg::<tc::VersionOverride>(
-        VERSION_OVERRIDE,
+        tf::VERSION_OVERRIDE,
         "OVERRIDE",
         format!(
             "Override the FCS version from {header_seg}. Can be an FCS version \
@@ -341,16 +332,16 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let supp_text_correction = correction_arg(SUPP_TEXT_COR, false, &supp_text_seg);
+    let supp_text_correction = correction_arg(tf::SUPP_TEXT_COR, false, &supp_text_seg);
 
-    let nextdata_correction = Arg::new(NEXTDATA_COR)
-        .long(NEXTDATA_COR)
+    let nextdata_correction = Arg::new(tf::NEXTDATA_COR)
+        .long(tf::NEXTDATA_COR)
         .value_name("INT")
         .value_parser(value_parser!(i32))
         .help(format!("Correction for {nextdata}"));
 
     let allow_overlapping_supp_text = tri_flag_arg::<tc::AllowDuplicatedSuppTEXT>(
-        ALLOW_DUPLICATED_SUPP_TEXT,
+        tf::ALLOW_DUPLICATED_SUPP_TEXT,
         format!(
             "Allow {supp_text_seg} offsets to overlap those for \
              {prim_text_seg} or the boundaries of {header_seg}."
@@ -358,12 +349,12 @@ fn run() -> AppResult<()> {
     );
 
     let ignore_supp_text = override_flag_arg(
-        IGNORE_SUPP_TEXT,
+        tf::IGNORE_SUPP_TEXT,
         format!("Ignore {supp_text_seg} entirely."),
     );
 
-    let lit_delims = Arg::new(DELIM_ESCAPE_MODE)
-        .long(DELIM_ESCAPE_MODE)
+    let lit_delims = Arg::new(tf::DELIM_ESCAPE_MODE)
+        .long(tf::DELIM_ESCAPE_MODE)
         .value_name("MODE")
         .value_parser(value_parser!(tc::DelimEscapeMode))
         .help(format!(
@@ -372,35 +363,35 @@ fn run() -> AppResult<()> {
         ));
 
     let non_ascii_delim = tri_flag_arg::<tc::AllowNonAsciiDelim>(
-        ALLOW_NON_ASCII_DELIM,
+        tf::ALLOW_NON_ASCII_DELIM,
         format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
     let missing_final_delim = tri_flag_arg::<tc::AllowEvenDelims>(
-        ALLOW_EVEN_DELIMS,
+        tf::ALLOW_EVEN_DELIMS,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
 
     let allow_non_unique = tri_flag_arg::<tc::AllowNonunique>(
-        ALLOW_NONUNIQUE,
+        tf::ALLOW_NONUNIQUE,
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
     let allow_odd =
-        tri_flag_arg::<tc::AllowOddTokens>(ALLOW_ODD_TOKENS, "Allow odd number of tokens.");
+        tri_flag_arg::<tc::AllowOddTokens>(tf::ALLOW_ODD_TOKENS, "Allow odd number of tokens.");
 
     let allow_empty_keys = tri_flag_arg::<tc::AllowEmptyKeys>(
-        ALLOW_EMPTY_KEYS,
+        tf::ALLOW_EMPTY_KEYS,
         "Allow keys to be blank (relatively rare).",
     );
 
     let allow_delim_at_bound = tri_flag_arg::<tc::AllowDelimAtBoundary>(
-        ALLOW_DELIM_AT_BOUNDARY,
+        tf::ALLOW_DELIM_AT_BOUNDARY,
         format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
 
-    let use_encoding = Arg::new(USE_ENCODING)
-        .long(USE_ENCODING)
+    let use_encoding = Arg::new(tf::USE_ENCODING)
+        .long(tf::USE_ENCODING)
         .value_name("ENC")
         .value_parser(value_parser!(tc::UseEncoding))
         .help(format!(
@@ -414,32 +405,32 @@ fn run() -> AppResult<()> {
         ));
 
     let allow_non_ascii_keywords = tri_flag_arg::<tc::AllowNonAsciiKeywords>(
-        ALLOW_NON_ASCII_KEYS,
+        tf::ALLOW_NON_ASCII_KEYS,
         "Allow non-ASCII characters in keys.",
     );
 
     let allow_non_utf8 = tri_flag_arg::<tc::AllowNonUtf8>(
-        ALLOW_NON_UTF8_VALUES,
+        tf::ALLOW_NON_UTF8_VALUES,
         format!("Allow non-UTF8 characters in {text_seg} segment."),
     );
 
     let allow_missing_supp_text = tri_flag_arg::<tc::AllowMissingSuppTEXT>(
-        ALLOW_MISSING_SUPP_TEXT,
+        tf::ALLOW_MISSING_SUPP_TEXT,
         format!("Allow {supp_text_seg} offsets to be missing."),
     );
 
     let allow_supp_text_own_delim = tri_flag_arg::<tc::AllowSuppTEXTOwnDelim>(
-        ALLOW_SUPP_TEXT_OWN_DELIM,
+        tf::ALLOW_SUPP_TEXT_OWN_DELIM,
         format!("Allow delimiters in {prim_text_seg} and {supp_text_seg} to differ."),
     );
 
     let allow_missing_nextdata = tri_flag_arg::<tc::AllowMissingNextdata>(
-        ALLOW_MISSING_NEXTDATA,
+        tf::ALLOW_MISSING_NEXTDATA,
         format!("Allow {nextdata} to be missing."),
     );
 
-    let trim_value_whitespace = Arg::new(TRIM_VALUE_WHITESPACE)
-        .long(TRIM_VALUE_WHITESPACE)
+    let trim_value_whitespace = Arg::new(tf::TRIM_VALUE_WHITESPACE)
+        .long(tf::TRIM_VALUE_WHITESPACE)
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::TrimValueWhitespace))
         .help(format!(
@@ -494,7 +485,7 @@ fn run() -> AppResult<()> {
     // std args
 
     let dedup_meas_names = override_flag_arg(
-        DEDUP_MEAS_NAMES,
+        tf::DEDUP_MEAS_NAMES,
         format!(
             "Force all {pn_n} to be unique by appending {} \
              to each duplicate and appending 'X' (starting at 0)",
@@ -503,12 +494,12 @@ fn run() -> AppResult<()> {
     );
 
     let trim_intra_value_whitespace = override_flag_arg(
-        TRIM_INTRA_VALUE_WHITESPACE,
+        tf::TRIM_INTRA_VALUE_WHITESPACE,
         "Remove spaces between comma-separated values.",
     );
 
-    let time_meas_pattern = Arg::new(TIME_MEAS_PATTERN)
-        .long(TIME_MEAS_PATTERN)
+    let time_meas_pattern = Arg::new(tf::TIME_MEAS_PATTERN)
+        .long(tf::TIME_MEAS_PATTERN)
         .value_name("REGEXP")
         .help(format!(
             "Use REGEXP when matching time measurement (defaults to \
@@ -519,18 +510,18 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(tc::TimeMeasNamePattern));
 
     let allow_missing_time = tri_flag_arg::<tc::AllowMissingTime>(
-        ALLOW_MISSING_TIME,
+        tf::ALLOW_MISSING_TIME,
         "Allow time measurement to be missing.",
     );
 
     let add_missing_timestep = opt_arg::<Timestep>(
-        ADD_MISSING_TIMESTEP,
+        tf::ADD_MISSING_TIMESTEP,
         "TIMESTEP",
         "Add {timestep) if it is missing.",
     );
 
-    let force_linear_scale = Arg::new(FORCE_LINEAR_SCALE)
-        .long(FORCE_LINEAR_SCALE)
+    let force_linear_scale = Arg::new(tf::FORCE_LINEAR_SCALE)
+        .long(tf::FORCE_LINEAR_SCALE)
         .value_name("WHICH")
         .value_parser(value_parser!(tc::ForceLinearScale))
         .help(format!(
@@ -544,8 +535,8 @@ fn run() -> AppResult<()> {
             none = fmt_val(tc::FORCE_LINEAR_NONE_LEVEL),
         ));
 
-    let ignore_time_optical_keys = Arg::new(IGNORE_TIME_OPTICAL_KEYS)
-        .long(IGNORE_TIME_OPTICAL_KEYS)
+    let ignore_time_optical_keys = Arg::new(tf::IGNORE_TIME_OPTICAL_KEYS)
+        .long(tf::IGNORE_TIME_OPTICAL_KEYS)
         .action(ArgAction::Append)
         .value_name("SYMS")
         .help(format!(
@@ -555,8 +546,8 @@ fn run() -> AppResult<()> {
         .value_delimiter(',')
         .value_parser(value_parser!(tc::OpticalOnlyKey));
 
-    let process_time_optical_keys = Arg::new(PROCESS_TIME_OPTICAL_KEYS)
-        .long(PROCESS_TIME_OPTICAL_KEYS)
+    let process_time_optical_keys = Arg::new(tf::PROCESS_TIME_OPTICAL_KEYS)
+        .long(tf::PROCESS_TIME_OPTICAL_KEYS)
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::ProcessOpticalOnlyKeys))
         .help(format!(
@@ -565,15 +556,15 @@ fn run() -> AppResult<()> {
              {demote_warn}, {demote_silent}, {drop_warn}, or {drop_silent} to \
              demote found keys to nonstandard (with or without warning) or drop \
              keys entirely (with or without warning) respectively.",
-            arg = fmt_arg(IGNORE_TIME_OPTICAL_KEYS),
+            arg = fmt_arg(tf::IGNORE_TIME_OPTICAL_KEYS),
             demote_warn = fmt_val(tc::TMP_OPT_DEMOTE_WARN_LEVEL),
             demote_silent = fmt_val(tc::TMP_OPT_DEMOTE_SILENT_LEVEL),
             drop_warn = fmt_val(tc::TMP_OPT_DROP_WARN_LEVEL),
             drop_silent = fmt_val(tc::TMP_OPT_DROP_SILENT_LEVEL),
         ));
 
-    let spillover_measurement_mode = Arg::new(SPILLOVER_MEASUREMENT_MODE)
-        .long(SPILLOVER_MEASUREMENT_MODE)
+    let spillover_measurement_mode = Arg::new(tf::SPILLOVER_MEASUREMENT_MODE)
+        .long(tf::SPILLOVER_MEASUREMENT_MODE)
         .value_name("MODE")
         .value_parser(value_parser!(tc::SpilloverMeasurementMode))
         .help(format!(
@@ -587,30 +578,30 @@ fn run() -> AppResult<()> {
         ));
 
     let allow_other_feature = override_flag_arg(
-        ALLOW_OTHER_FEATURE,
+        tf::ALLOW_OTHER_FEATURE,
         format!("Allow {pnfeature} to be a value other than \"Area\", \"Width\", or \"Height\""),
     );
 
     let process_pseudostandard = proc_kw_fail_arg(
-        PROCESS_PSEUDOSTANDARD,
+        tf::PROCESS_PSEUDOSTANDARD,
         "Process non-standard keywords that start with a '$'.",
     )
     .value_parser(value_parser!(tc::ProcessPseudostandard));
 
     let process_hyper_par = proc_kw_fail_arg(
-        PROCESS_HYPER_PAR,
+        tf::PROCESS_HYPER_PAR,
         format!("Process measurement keywords whose index is greater than {par}."),
     )
     .value_parser(value_parser!(tc::ProcessHyperPar));
 
     let process_other_version = proc_kw_fail_arg(
-        PROCESS_OTHER_VERSION,
+        tf::PROCESS_OTHER_VERSION,
         "Process standard keywords from different FCS version.",
     )
     .value_parser(value_parser!(tc::ProcessOtherVersion));
 
     let process_extra_timestep = proc_kw_fail_arg(
-        PROCESS_EXTRA_TIMESTEP,
+        tf::PROCESS_EXTRA_TIMESTEP,
         format!(
             "Process unused {timestep}, which may indicate that a time measurement \
              is present but not identified.",
@@ -619,7 +610,7 @@ fn run() -> AppResult<()> {
     .value_parser(value_parser!(tc::ProcessExtraTimestep));
 
     let fix_log_scale_offset = override_flag_arg(
-        FIX_LOG_SCALE_OFFSETS,
+        tf::FIX_LOG_SCALE_OFFSETS,
         format!(
             "Fix {pn_e} keys that have log scaling with zero offset. \
              Specifically, this will replace values like 'X,0.0' with 'X,1.0' \
@@ -629,7 +620,7 @@ fn run() -> AppResult<()> {
     );
 
     let disallow_localtime = override_flag_arg(
-        DISALLOW_LOCALTIME,
+        tf::DISALLOW_LOCALTIME,
         format!(
             "Require that {begindatetime} and {enddatetime} have a timezone if \
              provided. This is not required by the standard, but not having a \
@@ -640,19 +631,19 @@ fn run() -> AppResult<()> {
     );
 
     let date_pattern = opt_arg::<DatePattern>(
-        DATE_PATTERN,
+        tf::DATE_PATTERN,
         "PATTERN",
         format!("Pattern to match {date} keyword. See {date_header}."),
     );
 
     let time_pattern = opt_arg::<TimePattern>(
-        TIME_PATTERN,
+        tf::TIME_PATTERN,
         "PATTERN",
         format!("Pattern to match {btim}/{etim} keywords. See {time_header}."),
     );
 
     let datetime_pattern = opt_arg::<String>(
-        DATETIME_PATTERN,
+        tf::DATETIME_PATTERN,
         "PATTERN",
         format!(
             "If supplied, will be used as an alternative pattern when parsing \
@@ -662,7 +653,7 @@ fn run() -> AppResult<()> {
     );
 
     let last_modified_pattern = opt_arg::<String>(
-        LAST_MODIFIED_PATTERN,
+        tf::LAST_MODIFIED_PATTERN,
         "PATTERN",
         format!(
             "If supplied, will be used as an alternative pattern when parsing \
@@ -696,29 +687,29 @@ fn run() -> AppResult<()> {
     // read dataset args
 
     let ignore_std_key = make_key_str_args(
-        IGNORE_STD_KEYS,
+        tf::IGNORE_STD_KEYS,
         "Ignore standard keys exactly matching KEY_OR_PAT. The leading '$' is implied.",
     );
 
     let promote_to_std = make_key_str_args(
-        PROMOTE_TO_STD,
+        tf::PROMOTE_TO_STD,
         "Promote non-standard keys matching KEY_OR_PAT to standard.",
     );
 
     let demote_from_std = make_key_str_args(
-        DEMOTE_FROM_STD,
+        tf::DEMOTE_FROM_STD,
         "Demote standard keys matching KEY_OR_PAT to non-standard. The leading '$' is implied.",
     );
 
-    let rename_standard_keys = Arg::new(RENAME_STD_KEYS)
-        .long(RENAME_STD_KEYS)
+    let rename_standard_keys = Arg::new(tf::RENAME_STD_KEYS)
+        .long(tf::RENAME_STD_KEYS)
         .action(ArgAction::Append)
         .value_name("OLD,NEW")
         .value_parser(ValueParser::new(parse_two_keystring_pair))
         .help("Rename standard keys from OLD to NEW. The leading '$' is implied.");
 
-    let replace_std_key_vals = Arg::new(REPLACE_STD_KEY_VALS)
-        .long(REPLACE_STD_KEY_VALS)
+    let replace_std_key_vals = Arg::new(tf::REPLACE_STD_KEY_VALS)
+        .long(tf::REPLACE_STD_KEY_VALS)
         .action(ArgAction::Append)
         .value_name("KEY,VAL")
         .help(
@@ -727,8 +718,8 @@ fn run() -> AppResult<()> {
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
 
-    let append_std_key_vals = Arg::new(APPEND_STD_KEY_VALS)
-        .long(APPEND_STD_KEY_VALS)
+    let append_std_key_vals = Arg::new(tf::APPEND_STD_KEY_VALS)
+        .long(tf::APPEND_STD_KEY_VALS)
         .action(ArgAction::Append)
         .value_name("KEY,VAL")
         .help(
@@ -737,8 +728,8 @@ fn run() -> AppResult<()> {
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
 
-    let sub_key_vals = Arg::new(SUB_STD_KEY_VALS)
-        .long(SUB_STD_KEY_VALS)
+    let sub_key_vals = Arg::new(tf::SUB_STD_KEY_VALS)
+        .long(tf::SUB_STD_KEY_VALS)
         .action(ArgAction::Append)
         .value_name("KEY,SUB")
         .help(format!(
@@ -748,27 +739,27 @@ fn run() -> AppResult<()> {
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
     let allow_repair_non_unique = tri_flag_arg::<tc::AllowRepairNonUnique>(
-        ALLOW_REPAIR_NON_UNIQUE,
+        tf::ALLOW_REPAIR_NON_UNIQUE,
         "Choose how to handle key collisions when repairing keywords. \
          Non-unique keywords will not be kept in the final FCS file since each \
          list of standard and non-standard keywords must be unique.",
     );
 
-    let text_data_correction = correction_arg(TEXT_DATA_COR, false, &data_seg);
-    let text_analysis_correction = correction_arg(TEXT_ANALYSIS_COR, false, &analysis_seg);
+    let text_data_correction = correction_arg(tf::TEXT_DATA_CORR, false, &data_seg);
+    let text_analysis_correction = correction_arg(tf::TEXT_ANALYSIS_CORR, false, &analysis_seg);
 
     let ignore_text_data_offsets = override_flag_arg(
-        IGNORE_TEXT_DATA_OFFSETS,
+        tf::IGNORE_TEXT_DATA_OFFSETS,
         format!("Ignore offsets for {data_seg} from {text_seg}."),
     );
 
     let ignore_text_analysis_offsets = override_flag_arg(
-        IGNORE_TEXT_ANALYSIS_OFFSETS,
+        tf::IGNORE_TEXT_ANALYSIS_OFFSETS,
         format!("Ignore offsets for {analysis_seg} from {text_seg}."),
     );
 
-    let allow_header_text_offset_mismatch = Arg::new(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
-        .long(ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
+    let allow_header_text_offset_mismatch = Arg::new(tf::ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
+        .long(tf::ALLOW_HEADER_TEXT_OFFSET_MISMATCH)
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::AllowHeaderTEXTOffsetMismatch))
         .help(format!(
@@ -784,7 +775,7 @@ fn run() -> AppResult<()> {
         ));
 
     let allow_missing_required_offsets = tri_flag_arg::<tc::AllowMissingRequiredOffsets>(
-        ALLOW_MISSING_REQUIRED_OFFSETS,
+        tf::ALLOW_MISSING_REQUIRED_OFFSETS,
         format!(
             "Allow required offsets to be missing from {text_seg}. \
              Only applies to FCS 3.0/3.1."
@@ -792,13 +783,13 @@ fn run() -> AppResult<()> {
     );
 
     let process_optional_failure = proc_kw_fail_arg(
-        PROCESS_OPTIONAL_FAILURE,
+        tf::PROCESS_OPTIONAL_FAILURE,
         "Process optional keys if they cause an error.",
     )
     .value_parser(value_parser!(tc::ProcessOptionalFailure));
 
-    let int_widths_from_byteord = Arg::new(INT_WIDTH_OVERRIDE)
-        .long(INT_WIDTH_OVERRIDE)
+    let int_widths_from_byteord = Arg::new(tf::INT_WIDTH_OVERRIDE)
+        .long(tf::INT_WIDTH_OVERRIDE)
         .value_name("INT_OR_FLAG")
         .value_parser(parse_fix_int_widths)
         .help(format!(
@@ -809,8 +800,8 @@ fn run() -> AppResult<()> {
             fmt_val(tc::FIX_INT_WIDTH_NEVER_LEVEL)
         ));
 
-    let int_byteord_override = Arg::new(BYTEORD_OVERRIDE)
-        .long(BYTEORD_OVERRIDE)
+    let int_byteord_override = Arg::new(tf::BYTEORD_OVERRIDE)
+        .long(tf::BYTEORD_OVERRIDE)
         .value_name("BYTEORD")
         .value_parser(parse_byteord_override)
         .help(format!(
@@ -823,7 +814,7 @@ fn run() -> AppResult<()> {
         ));
 
     let disallow_range_truncation = tri_flag_arg::<tc::DisallowRangeTrunc>(
-        DISALLOW_RANGE_TRUNCATION,
+        tf::DISALLOW_RANGE_TRUNCATION,
         format!(
             "Disallow {pn_r} values which need to be truncated to fit in type \
              dictated by {datatype} (and {pndatatype} for FCS 3.2) and {pn_b} \
@@ -855,17 +846,17 @@ fn run() -> AppResult<()> {
     // dataset args
 
     let allow_uneven_event_width = tri_flag_arg::<tc::AllowUnevenEventWidth>(
-        ALLOW_UNEVEN_EVENT_WIDTH,
+        tf::ALLOW_UNEVEN_EVENT_WIDTH,
         format!("Allow event width to not evenly divide length of {data_seg}."),
     );
 
     let allow_tot_mismatch = tri_flag_arg::<tc::AllowTotMismatch>(
-        ALLOW_TOT_MISMATCH,
+        tf::ALLOW_TOT_MISMATCH,
         format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
     );
 
-    let over_bitmask_action = Arg::new(OVER_BITMASK_ACTION)
-        .long(OVER_BITMASK_ACTION)
+    let over_bitmask_action = Arg::new(tf::OVER_BITMASK_ACTION)
+        .long(tf::OVER_BITMASK_ACTION)
         .value_name("WHICH")
         .value_parser(value_parser!(tc::OverBitmaskAction))
         .help(format!(
@@ -880,8 +871,8 @@ fn run() -> AppResult<()> {
             trunc_silent = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
-    let over_range_action = Arg::new(OVER_RANGE_ACTION)
-        .long(OVER_RANGE_ACTION)
+    let over_range_action = Arg::new(tf::OVER_RANGE_ACTION)
+        .long(tf::OVER_RANGE_ACTION)
         .value_name("ACTION")
         .value_parser(value_parser!(tc::OverLimitAction))
         .help(format!(
@@ -897,17 +888,17 @@ fn run() -> AppResult<()> {
         ));
 
     let allow_missing_crc = tri_flag_arg::<tc::AllowMissingCRC>(
-        ALLOW_MISSING_CRC,
+        tf::ALLOW_MISSING_CRC,
         "Allow CRC word at the end of the dataset to be missing.",
     );
 
     let allow_mismatch_crc = tri_flag_arg::<tc::AllowMismatchCRC>(
-        ALLOW_MISMATCH_CRC,
+        tf::ALLOW_MISMATCH_CRC,
         "Allow computed CRC to not match the CRC word at the end of the dataset.",
     );
 
-    let compute_crc = Arg::new(COMPUTE_CRC)
-        .long(COMPUTE_CRC)
+    let compute_crc = Arg::new(tf::COMPUTE_CRC)
+        .long(tf::COMPUTE_CRC)
         .value_name("LEVEL")
         .value_parser(value_parser!(tc::ComputeCRC))
         .help(format!(
@@ -919,8 +910,8 @@ fn run() -> AppResult<()> {
             tc::COMPUTE_CRC_TEST_LEVEL,
         ));
 
-    let row_buffer_size = Arg::new(ROW_BUFFER_SIZE)
-        .long(ROW_BUFFER_SIZE)
+    let row_buffer_size = Arg::new(tf::ROW_BUFFER_SIZE)
+        .long(tf::ROW_BUFFER_SIZE)
         .value_name("BYTES")
         .value_parser(value_parser!(tc::RowBufferSize))
         .help(format!(
@@ -944,9 +935,12 @@ fn run() -> AppResult<()> {
 
     // shared args
 
-    let warnings_are_errors = flag_arg(WARNINGS_ARE_ERRORS, "Treat all warnings as fatal errors.");
+    let warnings_are_errors = flag_arg(
+        tf::WARNINGS_ARE_ERRORS,
+        "Treat all warnings as fatal errors.",
+    );
 
-    let hide_warnings = flag_arg(HIDE_WARNINGS, "Hide all warnings.");
+    let hide_warnings = flag_arg(tf::HIDE_WARNINGS, "Hide all warnings.");
 
     let all_read_shared_args = [warnings_are_errors, hide_warnings];
 
@@ -1412,11 +1406,11 @@ fn get_header_inner_config(sargs: &ArgMatches) -> tc::ReadHeaderInnerConfig {
     let strat = get_strategy(sargs);
     let mut conf = tc::ReadHeaderInnerConfig::new_with_strategy(strat);
 
-    get_correction(sargs, TEXT_CORR, |x| conf.text_correction = x);
-    get_correction(sargs, DATA_CORR, |x| conf.data_correction = x);
-    get_correction(sargs, ANALYSIS_CORR, |x| conf.analysis_correction = x);
+    get_correction(sargs, tf::TEXT_CORR, |x| conf.text_correction = x);
+    get_correction(sargs, tf::DATA_CORR, |x| conf.data_correction = x);
+    get_correction(sargs, tf::ANALYSIS_CORR, |x| conf.analysis_correction = x);
 
-    if let Some(xs) = sargs.get_many::<(i32, i32)>(OTHER_CORR) {
+    if let Some(xs) = sargs.get_many::<(i32, i32)>(tf::OTHER_CORR) {
         conf.other_corrections = xs
             .into_iter()
             .copied()
@@ -1424,10 +1418,10 @@ fn get_header_inner_config(sargs: &ArgMatches) -> tc::ReadHeaderInnerConfig {
             .collect();
     }
 
-    get_opt(sargs, MAX_OTHER, |x| conf.max_other = x);
-    get_opt(sargs, OTHER_WIDTH, |x| conf.other_width = x);
-    get_opt(sargs, GUESS_OTHER_WIDTH, |x| conf.guess_other_width = x);
-    get_flag(sargs, SQUISH_OFFSETS, |x| conf.squish_offsets = x);
+    get_opt(sargs, tf::MAX_OTHER, |x| conf.max_other = x);
+    get_opt(sargs, tf::OTHER_WIDTH, |x| conf.other_width = x);
+    get_opt(sargs, tf::GUESS_OTHER_WIDTH, |x| conf.guess_other_width = x);
+    get_flag(sargs, tf::SQUISH_OFFSETS, |x| conf.squish_offsets = x);
 
     conf
 }
@@ -1436,9 +1430,11 @@ fn get_offsets_config(s: &ArgMatches) -> tc::ReadOffsetConfig {
     let strat = get_strategy(s);
     let mut c = tc::ReadOffsetConfig::new_with_strategy(strat);
 
-    get_flag(s, ALLOW_PSEUDOEMPTY, |x| c.allow_pseudoempty = x);
-    get_opt(s, TRUNCATE_OFFSET_LIMIT, |x| c.dataset_overflow_limit = x);
-    get_opt(s, OVERLAP_CORRECTION_LIMIT, |x| {
+    get_flag(s, tf::ALLOW_PSEUDOEMPTY, |x| c.allow_pseudoempty = x);
+    get_opt(s, tf::TRUNCATE_OFFSET_LIMIT, |x| {
+        c.dataset_overflow_limit = x;
+    });
+    get_opt(s, tf::OVERLAP_CORRECTION_LIMIT, |x| {
         c.overlap_correction_limit = x;
     });
 
@@ -1449,40 +1445,44 @@ fn get_header_and_text_config(s: &ArgMatches) -> tc::ReadHeaderAndTEXTConfig {
     let strat = get_strategy(s);
     let mut c = tc::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
 
-    get_opt(s, VERSION_OVERRIDE, |x| c.version_override = x);
-    get_correction(s, SUPP_TEXT_COR, |x| c.supp_text_correction = x);
-    get_opt(s, NEXTDATA_COR, |x| c.nextdata_correction = x);
+    get_opt(s, tf::VERSION_OVERRIDE, |x| c.version_override = x);
+    get_correction(s, tf::SUPP_TEXT_COR, |x| c.supp_text_correction = x);
+    get_opt(s, tf::NEXTDATA_COR, |x| c.nextdata_correction = x);
 
-    get_opt(s, ALLOW_DUPLICATED_SUPP_TEXT, |x| {
+    get_opt(s, tf::ALLOW_DUPLICATED_SUPP_TEXT, |x| {
         c.allow_duplicated_supp_text = x;
     });
-    get_flag(s, IGNORE_SUPP_TEXT, |x| c.ignore_supp_text = x);
-    get_opt(s, DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
-    get_opt(s, ALLOW_NON_ASCII_DELIM, |x| c.allow_non_ascii_delim = x);
-    get_opt(s, ALLOW_EVEN_DELIMS, |x| {
+    get_flag(s, tf::IGNORE_SUPP_TEXT, |x| c.ignore_supp_text = x);
+    get_opt(s, tf::DELIM_ESCAPE_MODE, |x| c.delim_escape_mode = x);
+    get_opt(s, tf::ALLOW_NON_ASCII_DELIM, |x| {
+        c.allow_non_ascii_delim = x;
+    });
+    get_opt(s, tf::ALLOW_EVEN_DELIMS, |x| {
         c.allow_even_delims = x;
     });
-    get_opt(s, ALLOW_NONUNIQUE, |x| c.allow_nonunique = x);
-    get_opt(s, ALLOW_ODD_TOKENS, |x| c.allow_odd_tokens = x);
-    get_opt(s, ALLOW_EMPTY_KEYS, |x| c.allow_empty_keys = x);
-    get_opt(s, ALLOW_DELIM_AT_BOUNDARY, |x| {
+    get_opt(s, tf::ALLOW_NONUNIQUE, |x| c.allow_nonunique = x);
+    get_opt(s, tf::ALLOW_ODD_TOKENS, |x| c.allow_odd_tokens = x);
+    get_opt(s, tf::ALLOW_EMPTY_KEYS, |x| c.allow_empty_keys = x);
+    get_opt(s, tf::ALLOW_DELIM_AT_BOUNDARY, |x| {
         c.allow_delim_at_boundary = x;
     });
-    get_opt(s, USE_ENCODING, |x| c.use_encoding = x);
-    get_opt(s, ALLOW_NON_ASCII_KEYS, |x| {
+    get_opt(s, tf::USE_ENCODING, |x| c.use_encoding = x);
+    get_opt(s, tf::ALLOW_NON_ASCII_KEYS, |x| {
         c.allow_non_ascii_keys = x;
     });
-    get_opt(s, ALLOW_NON_UTF8_VALUES, |x| c.allow_non_utf8_values = x);
-    get_opt(s, ALLOW_MISSING_SUPP_TEXT, |x| {
+    get_opt(s, tf::ALLOW_NON_UTF8_VALUES, |x| {
+        c.allow_non_utf8_values = x;
+    });
+    get_opt(s, tf::ALLOW_MISSING_SUPP_TEXT, |x| {
         c.allow_missing_supp_text = x;
     });
-    get_opt(s, ALLOW_SUPP_TEXT_OWN_DELIM, |x| {
+    get_opt(s, tf::ALLOW_SUPP_TEXT_OWN_DELIM, |x| {
         c.allow_supp_text_own_delim = x;
     });
-    get_opt(s, ALLOW_MISSING_NEXTDATA, |x| {
+    get_opt(s, tf::ALLOW_MISSING_NEXTDATA, |x| {
         c.allow_missing_nextdata = x;
     });
-    get_opt(s, TRIM_VALUE_WHITESPACE, |x| {
+    get_opt(s, tf::TRIM_VALUE_WHITESPACE, |x| {
         c.trim_value_whitespace = x;
     });
 
@@ -1494,43 +1494,51 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     let _vendor_heuristics = get_vendor_heuristics(s);
     let mut c = cfg::ReadStdKeywordsConfig::new_with_strategy(strat);
 
-    get_flag(s, DEDUP_MEAS_NAMES, |x| c.dedup_measurement_names = x);
-    get_flag(s, TRIM_INTRA_VALUE_WHITESPACE, |x| {
+    get_flag(s, tf::DEDUP_MEAS_NAMES, |x| c.dedup_measurement_names = x);
+    get_flag(s, tf::TRIM_INTRA_VALUE_WHITESPACE, |x| {
         c.trim_intra_value_whitespace = x;
     });
-    get_opt(s, TIME_MEAS_PATTERN, |x| {
+    get_opt(s, tf::TIME_MEAS_PATTERN, |x| {
         c.time_meas_pattern = Selector::Root(x);
     });
 
-    get_opt(s, FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
+    get_opt(s, tf::FORCE_LINEAR_SCALE, |x| c.force_linear_scale = x);
 
-    if let Some(xs) = s.get_many::<tc::OpticalOnlyKey>(IGNORE_TIME_OPTICAL_KEYS) {
+    if let Some(xs) = s.get_many::<tc::OpticalOnlyKey>(tf::IGNORE_TIME_OPTICAL_KEYS) {
         c.ignore_optical_only_keys = xs.copied().collect::<HashSet<_>>().into();
     }
 
-    get_opt(s, PROCESS_TIME_OPTICAL_KEYS, |x| {
+    get_opt(s, tf::PROCESS_TIME_OPTICAL_KEYS, |x| {
         c.process_optical_only_keys = x;
     });
-    get_opt(s, ALLOW_MISSING_TIME, |x| c.allow_missing_time = x);
-    get_opt(s, ADD_MISSING_TIMESTEP, |x| c.add_missing_timestep = x);
-    get_opt(s, SPILLOVER_MEASUREMENT_MODE, |x| {
+    get_opt(s, tf::ALLOW_MISSING_TIME, |x| c.allow_missing_time = x);
+    get_opt(s, tf::ADD_MISSING_TIMESTEP, |x| c.add_missing_timestep = x);
+    get_opt(s, tf::SPILLOVER_MEASUREMENT_MODE, |x| {
         c.spillover_measurement_mode = x;
     });
-    get_opt(s, DATE_PATTERN, |x| c.date_pattern = Selector::Root(x));
-    get_opt(s, TIME_PATTERN, |x| c.time_pattern = Selector::Root(x));
-    get_opt(s, DATETIME_PATTERN, |x| {
+    get_opt(s, tf::DATE_PATTERN, |x| c.date_pattern = Selector::Root(x));
+    get_opt(s, tf::TIME_PATTERN, |x| c.time_pattern = Selector::Root(x));
+    get_opt(s, tf::DATETIME_PATTERN, |x| {
         c.datetime_pattern = Selector::Root(x);
     });
-    get_opt(s, LAST_MODIFIED_PATTERN, |x| {
+    get_opt(s, tf::LAST_MODIFIED_PATTERN, |x| {
         c.last_modified_pattern = Selector::Root(x);
     });
-    get_flag(s, ALLOW_OTHER_FEATURE, |x| c.allow_other_feature = x);
-    get_opt(s, PROCESS_PSEUDOSTANDARD, |x| c.process_pseudostandard = x);
-    get_opt(s, PROCESS_HYPER_PAR, |x| c.process_hyper_par = x);
-    get_opt(s, PROCESS_OTHER_VERSION, |x| c.process_other_version = x);
-    get_opt(s, PROCESS_EXTRA_TIMESTEP, |x| c.process_extra_timestep = x);
-    get_flag(s, FIX_LOG_SCALE_OFFSETS, |x| c.fix_log_scale_offsets = x);
-    get_flag(s, DISALLOW_LOCALTIME, |x| c.disallow_localtime = x);
+    get_flag(s, tf::ALLOW_OTHER_FEATURE, |x| c.allow_other_feature = x);
+    get_opt(s, tf::PROCESS_PSEUDOSTANDARD, |x| {
+        c.process_pseudostandard = x;
+    });
+    get_opt(s, tf::PROCESS_HYPER_PAR, |x| c.process_hyper_par = x);
+    get_opt(s, tf::PROCESS_OTHER_VERSION, |x| {
+        c.process_other_version = x;
+    });
+    get_opt(s, tf::PROCESS_EXTRA_TIMESTEP, |x| {
+        c.process_extra_timestep = x;
+    });
+    get_flag(s, tf::FIX_LOG_SCALE_OFFSETS, |x| {
+        c.fix_log_scale_offsets = x;
+    });
+    get_flag(s, tf::DISALLOW_LOCALTIME, |x| c.disallow_localtime = x);
 
     c
 }
@@ -1539,22 +1547,22 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
     let strat = get_strategy(s);
     let mut c = cfg::ReadDataKeywordsConfig::new_with_strategy(strat);
 
-    get_many::<KeyStringOrPattern, _, _>(s, IGNORE_STD_KEYS, |xs| {
+    get_many::<KeyStringOrPattern, _, _>(s, tf::IGNORE_STD_KEYS, |xs| {
         c.ignore_standard_keys = AppendableSelector::root(xs);
     });
-    get_many::<KeyStringOrPattern, _, _>(s, PROMOTE_TO_STD, |xs| {
+    get_many::<KeyStringOrPattern, _, _>(s, tf::PROMOTE_TO_STD, |xs| {
         c.promote_to_standard = AppendableSelector::root(xs);
     });
-    get_many::<KeyStringOrPattern, _, _>(s, DEMOTE_FROM_STD, |xs| {
+    get_many::<KeyStringOrPattern, _, _>(s, tf::DEMOTE_FROM_STD, |xs| {
         c.demote_from_standard = AppendableSelector::root(xs);
     });
 
-    if let Some(xs) = s.get_many::<BiKeystringPair>(RENAME_STD_KEYS) {
+    if let Some(xs) = s.get_many::<BiKeystringPair>(tf::RENAME_STD_KEYS) {
         let Ok(ys) = xs
             .cloned()
             .collect::<HashMap<_, _>>()
             .try_into()
-            .map_err(|e| post_validation_error(cmd, RENAME_STD_KEYS, e).exit());
+            .map_err(|e| post_validation_error(cmd, tf::RENAME_STD_KEYS, e).exit());
         c.rename_standard_keys = AppendableSelector::root(ys);
     }
 
@@ -1563,39 +1571,41 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
             .map(|xs| xs.cloned().collect())
     };
 
-    let _ = parse_keystring_pair(REPLACE_STD_KEY_VALS)
+    let _ = parse_keystring_pair(tf::REPLACE_STD_KEY_VALS)
         .map(|x| c.replace_standard_key_values = AppendableSelector::root(x));
-    let _ = parse_keystring_pair(APPEND_STD_KEY_VALS)
+    let _ = parse_keystring_pair(tf::APPEND_STD_KEY_VALS)
         .map(|x| c.append_standard_keywords = AppendableSelector::root(x));
 
-    get_many(s, SUB_STD_KEY_VALS, |xs| {
+    get_many(s, tf::SUB_STD_KEY_VALS, |xs| {
         c.substitute_standard_key_values = AppendableSelector::root(xs);
     });
 
-    get_opt(s, ALLOW_REPAIR_NON_UNIQUE, |x| {
+    get_opt(s, tf::ALLOW_REPAIR_NON_UNIQUE, |x| {
         c.allow_repair_non_unique = x;
     });
 
-    get_correction(s, TEXT_DATA_COR, |x| c.text_data_correction = x);
-    get_correction(s, TEXT_ANALYSIS_COR, |x| c.text_analysis_correction = x);
-    get_flag(s, IGNORE_TEXT_DATA_OFFSETS, |x| {
+    get_correction(s, tf::TEXT_DATA_CORR, |x| c.text_data_correction = x);
+    get_correction(s, tf::TEXT_ANALYSIS_CORR, |x| {
+        c.text_analysis_correction = x;
+    });
+    get_flag(s, tf::IGNORE_TEXT_DATA_OFFSETS, |x| {
         c.ignore_text_data_offsets = x;
     });
-    get_flag(s, IGNORE_TEXT_ANALYSIS_OFFSETS, |x| {
+    get_flag(s, tf::IGNORE_TEXT_ANALYSIS_OFFSETS, |x| {
         c.ignore_text_analysis_offsets = x;
     });
-    get_opt(s, ALLOW_HEADER_TEXT_OFFSET_MISMATCH, |x| {
+    get_opt(s, tf::ALLOW_HEADER_TEXT_OFFSET_MISMATCH, |x| {
         c.allow_header_text_offset_mismatch = x;
     });
-    get_opt(s, ALLOW_MISSING_REQUIRED_OFFSETS, |x| {
+    get_opt(s, tf::ALLOW_MISSING_REQUIRED_OFFSETS, |x| {
         c.allow_missing_required_offsets = x;
     });
-    get_opt(s, PROCESS_OPTIONAL_FAILURE, |x| {
+    get_opt(s, tf::PROCESS_OPTIONAL_FAILURE, |x| {
         c.process_optional_failure = x;
     });
-    get_opt(s, INT_WIDTH_OVERRIDE, |x| c.int_width_override = x);
-    get_opt(s, BYTEORD_OVERRIDE, |x| c.byteord_override = x);
-    get_opt(s, DISALLOW_RANGE_TRUNCATION, |x| {
+    get_opt(s, tf::INT_WIDTH_OVERRIDE, |x| c.int_width_override = x);
+    get_opt(s, tf::BYTEORD_OVERRIDE, |x| c.byteord_override = x);
+    get_opt(s, tf::DISALLOW_RANGE_TRUNCATION, |x| {
         c.disallow_range_truncation = x;
     });
 
@@ -1606,27 +1616,27 @@ fn get_dataset_config(s: &ArgMatches) -> tc::ReadDatasetConfig {
     let strat = get_strategy(s);
     let mut c = tc::ReadDatasetConfig::new_with_strategy(strat);
 
-    get_opt(s, DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
-    get_opt(s, ALLOW_TOT_MISMATCH, |x| c.allow_tot_mismatch = x);
-    get_opt(s, ALLOW_UNEVEN_EVENT_WIDTH, |x| {
+    get_opt(s, tf::DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
+    get_opt(s, tf::ALLOW_TOT_MISMATCH, |x| c.allow_tot_mismatch = x);
+    get_opt(s, tf::ALLOW_UNEVEN_EVENT_WIDTH, |x| {
         c.allow_uneven_event_width = x;
     });
-    get_opt(s, OVER_BITMASK_ACTION, |x| {
+    get_opt(s, tf::OVER_BITMASK_ACTION, |x| {
         c.over_bitmask_action = x;
     });
-    get_opt(s, OVER_RANGE_ACTION, |x| c.over_range_action = x);
-    get_opt(s, ALLOW_MISSING_CRC, |x| c.allow_missing_crc = x);
-    get_opt(s, ALLOW_MISMATCH_CRC, |x| c.allow_mismatch_crc = x);
-    get_opt(s, COMPUTE_CRC, |x| c.compute_crc = x);
-    get_opt(s, ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
+    get_opt(s, tf::OVER_RANGE_ACTION, |x| c.over_range_action = x);
+    get_opt(s, tf::ALLOW_MISSING_CRC, |x| c.allow_missing_crc = x);
+    get_opt(s, tf::ALLOW_MISMATCH_CRC, |x| c.allow_mismatch_crc = x);
+    get_opt(s, tf::COMPUTE_CRC, |x| c.compute_crc = x);
+    get_opt(s, tf::ROW_BUFFER_SIZE, |x| c.row_buffer_size = x);
 
     c
 }
 
 fn get_read_shared_config(sargs: &ArgMatches) -> tc::ReadSharedConfig {
     tc::ReadSharedConfig {
-        warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
-        hide_warnings: sargs.get_flag(HIDE_WARNINGS),
+        warnings_are_errors: sargs.get_flag(tf::WARNINGS_ARE_ERRORS),
+        hide_warnings: sargs.get_flag(tf::HIDE_WARNINGS),
     }
 }
 
@@ -1978,175 +1988,6 @@ const SUBCMD_MEAS: &str = "measurements";
 const SUBCMD_SPILL: &str = "spillover";
 
 const SUBCMD_REPAIR: &str = "repair";
-
-// header config flags
-
-const TEXT_CORR: &str = cli_arg!(ReadHeaderInnerConfig::text_correction);
-const DATA_CORR: &str = cli_arg!(ReadHeaderInnerConfig::data_correction);
-const ANALYSIS_CORR: &str = cli_arg!(ReadHeaderInnerConfig::analysis_correction);
-const OTHER_CORR: &str = cli_arg!(ReadHeaderInnerConfig::other_corrections);
-const MAX_OTHER: &str = cli_arg!(ReadHeaderInnerConfig::max_other);
-const OTHER_WIDTH: &str = cli_arg!(ReadHeaderInnerConfig::other_width);
-const GUESS_OTHER_WIDTH: &str = cli_arg!(ReadHeaderInnerConfig::guess_other_width);
-const SQUISH_OFFSETS: &str = cli_arg!(ReadHeaderInnerConfig::squish_offsets);
-
-// offset config flags
-
-const ALLOW_PSEUDOEMPTY: &str = cli_arg!(ReadOffsetConfig::allow_pseudoempty);
-const TRUNCATE_OFFSET_LIMIT: &str = cli_arg!(ReadOffsetConfig::dataset_overflow_limit);
-const OVERLAP_CORRECTION_LIMIT: &str = cli_arg!(ReadOffsetConfig::overlap_correction_limit);
-
-// flat text config flags
-
-const VERSION_OVERRIDE: &str = cli_arg!(ReadHeaderAndTEXTConfig::version_override);
-
-const SUPP_TEXT_COR: &str = cli_arg!(ReadHeaderAndTEXTConfig::supp_text_correction);
-
-const NEXTDATA_COR: &str = cli_arg!(ReadHeaderAndTEXTConfig::nextdata_correction);
-
-const ALLOW_DUPLICATED_SUPP_TEXT: &str =
-    cli_arg!(ReadHeaderAndTEXTConfig::allow_duplicated_supp_text);
-
-const IGNORE_SUPP_TEXT: &str = cli_arg!(ReadHeaderAndTEXTConfig::ignore_supp_text);
-
-const DELIM_ESCAPE_MODE: &str = cli_arg!(ReadHeaderAndTEXTConfig::delim_escape_mode);
-
-const ALLOW_NON_ASCII_DELIM: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_non_ascii_delim);
-
-const ALLOW_EVEN_DELIMS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_even_delims);
-
-const ALLOW_NONUNIQUE: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_nonunique);
-
-const ALLOW_ODD_TOKENS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_odd_tokens);
-
-const ALLOW_EMPTY_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_empty_keys);
-
-const ALLOW_DELIM_AT_BOUNDARY: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_delim_at_boundary);
-
-const USE_ENCODING: &str = cli_arg!(ReadHeaderAndTEXTConfig::use_encoding);
-
-const ALLOW_NON_ASCII_KEYS: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_non_ascii_keys);
-
-const ALLOW_NON_UTF8_VALUES: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_non_utf8_values);
-
-const ALLOW_MISSING_SUPP_TEXT: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_missing_supp_text);
-
-const ALLOW_SUPP_TEXT_OWN_DELIM: &str =
-    cli_arg!(ReadHeaderAndTEXTConfig::allow_supp_text_own_delim);
-
-const ALLOW_MISSING_NEXTDATA: &str = cli_arg!(ReadHeaderAndTEXTConfig::allow_missing_nextdata);
-
-const TRIM_VALUE_WHITESPACE: &str = cli_arg!(ReadHeaderAndTEXTConfig::trim_value_whitespace);
-
-// std keyword config flags
-
-const DEDUP_MEAS_NAMES: &str = cli_arg!(EvaledReadStdKeywordsConfig::dedup_measurement_names);
-
-const TRIM_INTRA_VALUE_WHITESPACE: &str =
-    cli_arg!(EvaledReadStdKeywordsConfig::trim_intra_value_whitespace);
-
-const TIME_MEAS_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::time_meas_pattern);
-
-const ALLOW_MISSING_TIME: &str = cli_arg!(EvaledReadStdKeywordsConfig::allow_missing_time);
-
-const ADD_MISSING_TIMESTEP: &str = cli_arg!(EvaledReadStdKeywordsConfig::add_missing_timestep);
-
-const FORCE_LINEAR_SCALE: &str = cli_arg!(EvaledReadStdKeywordsConfig::force_linear_scale);
-
-const IGNORE_TIME_OPTICAL_KEYS: &str =
-    cli_arg!(EvaledReadStdKeywordsConfig::ignore_optical_only_keys);
-
-const PROCESS_TIME_OPTICAL_KEYS: &str =
-    cli_arg!(EvaledReadStdKeywordsConfig::process_optical_only_keys);
-
-const SPILLOVER_MEASUREMENT_MODE: &str =
-    cli_arg!(EvaledReadStdKeywordsConfig::spillover_measurement_mode);
-
-const DATE_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::date_pattern);
-
-const TIME_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::time_pattern);
-
-const DATETIME_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::datetime_pattern);
-
-const LAST_MODIFIED_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::last_modified_pattern);
-
-const ALLOW_OTHER_FEATURE: &str = cli_arg!(EvaledReadStdKeywordsConfig::allow_other_feature);
-
-const PROCESS_PSEUDOSTANDARD: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_pseudostandard);
-
-const PROCESS_HYPER_PAR: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_hyper_par);
-
-const PROCESS_OTHER_VERSION: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_other_version);
-
-const PROCESS_EXTRA_TIMESTEP: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_extra_timestep);
-
-const FIX_LOG_SCALE_OFFSETS: &str = cli_arg!(EvaledReadStdKeywordsConfig::fix_log_scale_offsets);
-
-const DISALLOW_LOCALTIME: &str = cli_arg!(EvaledReadStdKeywordsConfig::disallow_localtime);
-
-// data keyword config flags
-
-const IGNORE_STD_KEYS: &str = cli_arg!(EvaledReadDataKeywordsConfig::ignore_standard_keys);
-
-const PROMOTE_TO_STD: &str = cli_arg!(EvaledReadDataKeywordsConfig::promote_to_standard);
-
-const DEMOTE_FROM_STD: &str = cli_arg!(EvaledReadDataKeywordsConfig::demote_from_standard);
-
-const RENAME_STD_KEYS: &str = cli_arg!(EvaledReadDataKeywordsConfig::rename_standard_keys);
-
-const REPLACE_STD_KEY_VALS: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::replace_standard_key_values);
-
-const APPEND_STD_KEY_VALS: &str = cli_arg!(EvaledReadDataKeywordsConfig::append_standard_keywords);
-
-const SUB_STD_KEY_VALS: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::substitute_standard_key_values);
-
-const ALLOW_REPAIR_NON_UNIQUE: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::allow_repair_non_unique);
-
-const TEXT_DATA_COR: &str = cli_arg!(EvaledReadDataKeywordsConfig::text_data_correction);
-
-const TEXT_ANALYSIS_COR: &str = cli_arg!(EvaledReadDataKeywordsConfig::text_analysis_correction);
-
-const IGNORE_TEXT_DATA_OFFSETS: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::ignore_text_data_offsets);
-
-const IGNORE_TEXT_ANALYSIS_OFFSETS: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::ignore_text_analysis_offsets);
-
-const ALLOW_HEADER_TEXT_OFFSET_MISMATCH: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::allow_header_text_offset_mismatch);
-
-const ALLOW_MISSING_REQUIRED_OFFSETS: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::allow_missing_required_offsets);
-
-const PROCESS_OPTIONAL_FAILURE: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::process_optional_failure);
-
-const INT_WIDTH_OVERRIDE: &str = cli_arg!(EvaledReadDataKeywordsConfig::int_width_override);
-
-const BYTEORD_OVERRIDE: &str = cli_arg!(EvaledReadDataKeywordsConfig::byteord_override);
-
-const DISALLOW_RANGE_TRUNCATION: &str =
-    cli_arg!(EvaledReadDataKeywordsConfig::disallow_range_truncation);
-
-// read data config flags
-
-const DATA_REMAINDER_LIMIT: &str = cli_arg!(ReadDatasetConfig::data_remainder_limit);
-const ALLOW_UNEVEN_EVENT_WIDTH: &str = cli_arg!(ReadDatasetConfig::allow_uneven_event_width);
-const ALLOW_TOT_MISMATCH: &str = cli_arg!(ReadDatasetConfig::allow_tot_mismatch);
-const OVER_BITMASK_ACTION: &str = cli_arg!(ReadDatasetConfig::over_bitmask_action);
-const OVER_RANGE_ACTION: &str = cli_arg!(ReadDatasetConfig::over_range_action);
-const ALLOW_MISSING_CRC: &str = cli_arg!(ReadDatasetConfig::allow_missing_crc);
-const ALLOW_MISMATCH_CRC: &str = cli_arg!(ReadDatasetConfig::allow_mismatch_crc);
-const COMPUTE_CRC: &str = cli_arg!(ReadDatasetConfig::compute_crc);
-const ROW_BUFFER_SIZE: &str = cli_arg!(ReadDatasetConfig::row_buffer_size);
-
-// shared config flags
-
-const WARNINGS_ARE_ERRORS: &str = cli_arg!(ReadSharedConfig::warnings_are_errors);
-const HIDE_WARNINGS: &str = cli_arg!(ReadSharedConfig::hide_warnings);
 
 // other flags
 

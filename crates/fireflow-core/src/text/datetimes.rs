@@ -1,10 +1,11 @@
+use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
 use crate::text::lookup::{Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey as _};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
 
 use fireflow_types::{
-    config::{ConfigFlag as _, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig},
+    config::ConfigFlag as _,
     keywords::{
         ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
     },

@@ -106,6 +106,7 @@
 // * series: The data for a measurement.
 // * width: The value of $PnB
 
+use crate::config::EvaledReadDataKeywordsConfig;
 use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -165,9 +166,8 @@ use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 use fireflow_types::{
     config::{
         AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
-        DummyTriFlag, EvaledReadDataKeywordsConfig, IntWidthOverride, NumericByteWidth,
-        OverBitmaskAction, OverLimitMode, OverRangeAction, ReadDatasetConfig, TriErrorFlag as _,
-        WriteDatasetInnerConfig,
+        DummyTriFlag, IntWidthOverride, NumericByteWidth, OverBitmaskAction, OverLimitMode,
+        OverRangeAction, ReadDatasetConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
     },
     index::{IndexFromOne, MeasIndex},
     nonempty_string::DisplayableNE as _,

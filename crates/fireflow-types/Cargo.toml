@@ -38,6 +38,8 @@ unicase = { workspace = true }
 python = ["dep:pyo3", "dep:fireflow-core-proc"]
 serde = ["dep:serde"]
 testutil = ["dep:proptest", "dep:proptest-derive"]
+dash_args = []
+underscore_args = []
 
 [lints]
 workspace = true

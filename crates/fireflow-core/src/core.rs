@@ -2,8 +2,9 @@
 
 use crate::api::{FCSFileReader, HeaderAndSuppOffsets, next_dataset_boundary};
 use crate::config::{
-    AppendRepairFlagError, ReadDataKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig,
-    WriteMultiTEXTConfig, eval_data_conf, eval_std_conf,
+    AppendRepairFlagError, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
+    ReadDataKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig,
+    eval_data_conf, eval_std_conf,
 };
 use crate::convert::{InstantExt as _, UsizeExt as _};
 use crate::data::{
@@ -124,10 +125,10 @@ use crate::validated::shortname::Shortname;
 use fireflow_types::{
     config::{
         AllowLoss, AnalysisSegmentId, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _,
-        DataSegmentId, DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
-        IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
-        OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
-        ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
+        DataSegmentId, DummyTriFlag, IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction,
+        OverRangeAction, OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+        ReadOffsetConfig, ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig,
+        WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
     index::{IndexFromOne, MeasIndex},

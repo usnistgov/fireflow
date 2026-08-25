@@ -1211,24 +1211,6 @@ pub struct ReadHeaderAndTEXTConfig {
     pub trim_value_whitespace: TrimValueWhitespace,
 }
 
-pub type EvaledReadStdKeywordsConfig = ReadStdKeywordsConfig_<
-    TimeMeasNamePattern,
-    Option<DatePattern>,
-    Option<TimePattern>,
-    Option<String>,
-    Option<String>,
->;
-
-pub type EvaledReadDataKeywordsConfig = ReadDataKeywordsConfig_<
-    KeyPatterns,
-    KeyStringPairs,
-    KeyPatterns,
-    KeyPatterns,
-    KeyStringValues,
-    KeyStringValues,
-    SubPatterns,
->;
-
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]

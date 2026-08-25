@@ -1,5 +1,4 @@
 use crate::{
-    config::{ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},
     convert::InstantExt as _,
     core::CRCOutput,
     logging::{IOErrorGroup, LogResult, SwitchableErrorResult, WarningAndIOGroupResult, io_to_log},
@@ -7,7 +6,10 @@ use crate::{
     validated::keys::StringOrBytes,
 };
 
-use fireflow_types::{config::ComputeCRC, keywords::Version};
+use fireflow_types::{
+    config::{ComputeCRC, ComputeWriteCRC, ConfigFlag as _, ReadDatasetConfig},
+    keywords::Version,
+};
 use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
 use crc_fast::{CrcAlgorithm, Digest};

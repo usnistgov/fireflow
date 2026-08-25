@@ -1,11 +1,8 @@
 //! Top-level functions for parsing FCS files
 use crate::config::{
-    AppendFlag, AppendableFlag, ConfigFlag as _, OverlapCorrectionLimit, ReadDataKeywordsConfig,
-    ReadDatasetConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
-    ReadFlatTEXTConfig, ReadHeaderAndTEXTConfig, ReadHeaderConfig, ReadHeaderInnerConfig,
-    ReadOffsetConfig, ReadSharedConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig,
-    ReadStdTEXTConfig, VersionOverride, WriteDatasetInnerConfig, WriteMultiConfig,
-    WriteMultiDatasetConfig,
+    ReadDataKeywordsConfig, ReadFlatDatasetConfig, ReadFlatDatasetFromKeywordsConfig,
+    ReadFlatTEXTConfig, ReadHeaderConfig, ReadStdDatasetConfig, ReadStdKeywordsConfig,
+    ReadStdTEXTConfig, WriteMultiDatasetConfig,
 };
 use crate::convert::{InstantExt as _, UsizeExt as _};
 use crate::core::{
@@ -27,16 +24,13 @@ use crate::logging::{
     WarningsAndIOGroupResult, io_to_log, split_log,
 };
 use crate::macros::def_summary;
-use crate::segment::{
-    OffsetsFromTEXT, SupplementalTextSegmentId,
-    read::{
-        AnyRegion, AreNamedOffsets, DatasetOverflowError, GuessOtherWidthError, HasOneName as _,
-        HasRegion, HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
-        KeyedOptSegment as _, KeyedReqSegment as _, NonEmptyOffsets, OffsetPairsOverlapError,
-        OffsetsOverlap, OptOffsetsError, OriginalOffsets, PairResult, PrimaryTextOffsets,
-        ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
-        SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
-    },
+use crate::segment::read::{
+    AnyRegion, AreNamedOffsets, DatasetOverflowError, GuessOtherWidthError, HasOneName as _,
+    HasRegion, HeaderOffsetsName, HeaderOffsetsOverflow, IsDataOrAnalysis, IsOffsetPair as _,
+    KeyedOptSegment as _, KeyedReqSegment as _, NonEmptyOffsets, OffsetPairsOverlapError,
+    OffsetsOverlap, OptOffsetsError, OriginalOffsets, PairResult, PrimaryTextOffsets,
+    ReqOffsetsError, SuppOffsetsOverflow, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
+    SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOrSuppOffsetsOverlap,
 };
 use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, LookupNextdataError, Nextdata,
@@ -57,14 +51,22 @@ use crate::validated::read_state::{
     DatasetLen, DatasetOffset, DatasetOffsetError, FileLen, HeaderReadState, TEXTReadState,
 };
 
-use fireflow_types::config::{DelimEscapeMode, Encoding};
-use fireflow_types::keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2};
-use fireflow_types::nonempty_string::NESliceExt as _;
-use hashbrown::HashMap;
+use fireflow_types::{
+    config::{
+        AppendFlag, AppendableFlag, ConfigFlag as _, DelimEscapeMode, Encoding, OffsetsFromTEXT,
+        OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadHeaderInnerConfig,
+        ReadOffsetConfig, ReadSharedConfig, SupplementalTextSegmentId, VersionOverride,
+        WriteDatasetInnerConfig, WriteMultiConfig,
+    },
+    keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
+    nonempty_string::NESliceExt as _,
+};
+
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
 
 use derive_more::{Display, From};
 use derive_new::new;
+use hashbrown::HashMap;
 use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 use thiserror::Error;

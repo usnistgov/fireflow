@@ -1,4 +1,3 @@
-use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword0,
@@ -6,12 +5,17 @@ use crate::text::keyword_enum::{
 use crate::text::lookup::{
     Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
 };
-use crate::validated::datepattern::DatePattern;
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
-use crate::validated::timepattern::{ParseWithTimePatternError, TimePattern};
 
-use fireflow_types::config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0};
-use fireflow_types::nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE};
+use fireflow_types::{
+    config::{
+        BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0,
+        EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
+    },
+    datepattern::DatePattern,
+    nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
+    timepattern::{ParseWithTimePatternError, TimePattern},
+};
 
 use ambassador::Delegate;
 use chrono::{NaiveDate, NaiveTime, Timelike as _};
@@ -334,7 +338,7 @@ pub enum FCSDateError {
     Config(ConfigFCSDateError),
 }
 
-/// Error when parsing [`FCSDate`] from string using [`crate::validated::datepattern::DatePattern`]
+/// Error when parsing [`FCSDate`] from string using [`fireflow_types::datepattern::DatePattern`]
 #[derive(Debug, Error, PartialEq, Eq, Clone)]
 #[error("value is not like given pattern '{0}'")]
 pub struct ConfigFCSDateError(String);

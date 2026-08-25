@@ -1,7 +1,3 @@
-use crate::config::{
-    ConfigFlag as _, DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
-    ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
-};
 use crate::logging::{
     DeferredError, DeferredSwitchableErrors, LogResult, ResultExt as _, WarningAndErrorResult,
 };
@@ -40,7 +36,11 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 
 use fireflow_types::{
     byteord::ConfigByteOrd,
-    config::{ForceLinearScale, NumericByteWidth, OpticalOnlyKey},
+    config::{
+        ConfigFlag as _, DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
+        ForceLinearScale, NumericByteWidth, OpticalOnlyKey, ProcessOptionalFailure,
+        ReadHeaderAndTEXTConfig, TriErrorFlag as _, TrimIntraValueWhitespace,
+    },
     index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
     keywords::{
         self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass,
@@ -543,7 +543,7 @@ impl Timestep {
             Ok(x) => Ok(Diagnosed::new(x, false)),
             Err(e) => conf
                 .add_missing_timestep
-                .map_or(Err(e), |x| Ok(Diagnosed::new(x, true))),
+                .map_or(Err(e), |x| Ok(Diagnosed::new(Self(x), true))),
         }
     }
 }

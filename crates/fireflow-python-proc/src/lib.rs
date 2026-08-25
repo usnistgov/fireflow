@@ -655,13 +655,13 @@ pub fn def_fcs_write_datasets(input: TokenStream) -> TokenStream {
         #doc
         #[allow(clippy::too_many_arguments)]
         pub fn fcs_write_datasets(#fun_args) -> #ret_path {
-            let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+            let tconf = fireflow_types::config::WriteTEXTInnerConfig::new(
                 delim,
                 big_other.into(),
                 compute_crc.into(),
                 override_fil.into(),
             );
-            let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
+            let dconf = fireflow_types::config::WriteDatasetInnerConfig::new(
                 tconf,
                 allow_over_bitmask.into(),
                 disallow_over_range.into(),
@@ -682,7 +682,7 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
     let pyname = format_ident!("Py{name}");
 
     let strat: Path = parse_quote!(fireflow_types::config::ReadStrategy);
-    let has_strat: Path = parse_quote!(fireflow_core::config::HasStrategy);
+    let has_strat: Path = parse_quote!(fireflow_types::config::HasStrategy);
 
     let api_fun = |s| format!("`~pyreflow.{s}`");
 
@@ -3618,13 +3618,13 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
             #doc
             #[allow(clippy::too_many_arguments)]
             fn write_text(&self, #fun_args) -> #ret_path {
-                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+                let tconf = fireflow_types::config::WriteTEXTInnerConfig::new(
                     delim,
                     big_other.into(),
                     compute_crc.into(),
                     override_fil.into(),
                 );
-                let mconf = fireflow_core::config::WriteMultiConfig::new(
+                let mconf = fireflow_types::config::WriteMultiConfig::new(
                     appendable.into(),
                     append.into(),
                 );
@@ -3678,19 +3678,19 @@ pub fn impl_core_write_dataset(input: TokenStream) -> TokenStream {
             #doc
             #[allow(clippy::too_many_arguments)]
             fn write_dataset(&self, #fun_args) -> #ret_path {
-                let tconf = fireflow_core::config::WriteTEXTInnerConfig::new(
+                let tconf = fireflow_types::config::WriteTEXTInnerConfig::new(
                     delim,
                     big_other.into(),
                     compute_crc.into(),
                     override_fil.into(),
                 );
-                let dconf = fireflow_core::config::WriteDatasetInnerConfig::new(
+                let dconf = fireflow_types::config::WriteDatasetInnerConfig::new(
                     tconf,
                     allow_over_bitmask.into(),
                     disallow_over_range.into(),
                     row_buffer_size,
                 );
-                let mconf = fireflow_core::config::WriteMultiConfig::new(
+                let mconf = fireflow_types::config::WriteMultiConfig::new(
                     appendable.into(),
                     append.into(),
                 );
@@ -3928,7 +3928,7 @@ pub fn impl_core_unset_temporal(input: TokenStream) -> TokenStream {
         let ret = doc.ret_path();
         quote! {
             #doc
-            fn unset_temporal(&mut self, allow_loss: fireflow_core::config::AllowLoss) -> PyResult<#ret> {
+            fn unset_temporal(&mut self, allow_loss: fireflow_types::config::AllowLoss) -> PyResult<#ret> {
                 self.0.unset_temporal_lossy(allow_loss).py_resolve_non_commutative()
             }
         }
@@ -5759,7 +5759,7 @@ pub fn impl_core_to_version_x_y(input: TokenStream) -> TokenStream {
                 #doc
                 fn #fn_name(
                     &self,
-                    allow_loss: fireflow_core::config::AllowLoss
+                    allow_loss: fireflow_types::config::AllowLoss
                 ) -> PyResult<#target_pytype> {
                     self.0.clone().try_convert(allow_loss).py_resolve_commutative().map(Into::into)
                 }
@@ -8092,12 +8092,12 @@ impl<E: From<PyException>> PyStr<E> {
             b100 = code_str(tc::BASE100_SECOND_SPEC),
         );
         let exc = PyException::new_config().desc(exc_desc);
-        let path = parse_quote!(fireflow_core::validated::timepattern::TimePattern);
+        let path = parse_quote!(fireflow_types::timepattern::TimePattern);
         Self::default().rstype(path).exc(exc)
     }
 
     fn new_date_pattern() -> Self {
-        let path = parse_quote!(fireflow_core::validated::datepattern::DatePattern);
+        let path = parse_quote!(fireflow_types::datepattern::DatePattern);
         let desc = format!(
             "if {ARG_TOKEN} does not have year, month, and day specifiers \
              as outlined in {CHRONO_REF}"
@@ -8689,12 +8689,12 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_tri_flag(name: &str) -> Self {
-        let path = config_path(name);
+        let path = types_config_path(name);
         Self::new_py(["typing"], "TriFlag").rstype(path)
     }
 
     fn new_version_override() -> Self {
-        let path = config_path("VersionOverride");
+        let path = types_config_path("VersionOverride");
         Self::new_py(["typing"], "VersionOverride").rstype(path)
     }
 
@@ -8909,14 +8909,14 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_sub_patterns() -> Self {
-        let path = config_path("SubPatterns");
+        let path = types_config_path("SubPatterns");
         Self::new_py(["typing"], "SubPatterns")
             .rstype(path)
             .set_default(PyDict::new_dummy())
     }
 
     fn new_key_patterns() -> Self {
-        let path = config_path("KeyPatterns");
+        let path = types_config_path("KeyPatterns");
         Self::new_py(["typing"], "KeyPatterns")
             .rstype(path)
             .set_default(PyList::new_dummy())
@@ -8931,7 +8931,7 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_keystring_values() -> Self {
-        let path: Path = parse_quote!(fireflow_core::config::KeyStringValues);
+        let path = types_config_path("KeyStringValues");
         // TODO exception if dict keys are not unique
         Self::new_py(["typing"], "KeyStringValues")
             .rstype(path)
@@ -9811,7 +9811,7 @@ impl DocArgParam {
         ident_name: &str,
         desc: impl fmt::Display,
     ) -> Self {
-        let path = config_path(ident_name);
+        let path = types_config_path(ident_name);
         let pt = PyAlias::new_py(["typing"], "ProcessKeywordFailure").rstype(path);
         Self::new_param(name, pt, desc).def_str(tc::ProcessKeywordFailure::first_str())
     }
@@ -10164,7 +10164,7 @@ impl DocArgParam {
     }
 
     fn new_read_header_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("ReadHeaderInnerConfig");
+        let conf = types_config_path("ReadHeaderInnerConfig");
         let ps = vec![
             Self::new_text_correction_param(),
             Self::new_data_correction_param(),
@@ -10182,7 +10182,7 @@ impl DocArgParam {
     fn new_read_offset_config_params(
         version: Option<Version>,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("ReadOffsetConfig");
+        let conf = types_config_path("ReadOffsetConfig");
         // This switch will only be used for functions that don't deal with
         // HEADER so any offsets in that case are limited to TEXT which aren't
         // present in 2.0
@@ -10200,7 +10200,7 @@ impl DocArgParam {
     }
 
     fn new_read_flat_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("ReadHeaderAndTEXTConfig");
+        let conf = types_config_path("ReadHeaderAndTEXTConfig");
         let ps = vec![
             Self::new_version_override(),
             Self::new_supp_text_correction(),
@@ -10334,7 +10334,7 @@ impl DocArgParam {
     fn new_read_dataset_config_params(
         version: Option<Version>,
     ) -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("ReadDatasetConfig");
+        let conf = types_config_path("ReadDatasetConfig");
         let args0 = [
             Self::new_data_remainder_limit_param(),
             Self::new_allow_uneven_event_width_param(),
@@ -10366,14 +10366,14 @@ impl DocArgParam {
         let big_other = Self::new_big_other_param();
         let compute_crc = Self::new_compute_write_crc_param();
         let override_fil = Self::new_override_fil_param();
-        let conf = config_path("WriteTEXTInnerConfig");
+        let conf = types_config_path("WriteTEXTInnerConfig");
         let ps = vec![delim, big_other, compute_crc, override_fil];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
     }
 
     fn new_shared_config_params() -> (Path, Vec<Self>, Vec<TokenStream2>) {
-        let conf = config_path("ReadSharedConfig");
+        let conf = types_config_path("ReadSharedConfig");
         let warnings_are_errors = Self::new_warnings_are_errors_param();
         let hide_warnings = Self::new_hide_warnings_param();
         let ps = vec![warnings_are_errors, hide_warnings];
@@ -10402,7 +10402,7 @@ impl DocArgParam {
     }
 
     fn new_time_meas_pattern_param() -> Self {
-        let path: Path = parse_quote!(fireflow_core::config::TimeMeasNamePattern);
+        let path = types_config_path("TimeMeasNamePattern");
         let inner_pytype = PyOpt::new1(PyStr::new_regexp().rstype(path.clone()))
             .default_from_inner()
             .rstype(path);
@@ -10445,7 +10445,7 @@ impl DocArgParam {
     fn new_ignore_time_optical_keys_param() -> Self {
         let p = PyList::new(
             PyAlias::new_optical_only_key(),
-            Some(parse_quote!(fireflow_core::config::OpticalOnlyKeys)),
+            Some(types_config_path("OpticalOnlyKeys")),
             None,
         );
         let d = format!(
@@ -10618,14 +10618,14 @@ impl DocArgParam {
 
     fn new_int_width_override_param() -> Self {
         let d = format!("Override {PNB}. Only affects integer layouts in FCS 2.0/3.0.");
-        let path = config_path("IntWidthOverride");
+        let path = types_config_path("IntWidthOverride");
         let pt = PyAlias::new_py(["typing"], "IntWidthOverride").rstype(path);
         Self::new_param("int_width_override", pt, d).def_str(tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str())
     }
 
     fn new_byteord_override_param() -> Self {
         let d = format!("Override {BYTEORD}. Only affects integer layouts in FCS 2.0/3.0.");
-        let path = config_path("ByteordOverride");
+        let path = types_config_path("ByteordOverride");
         let pt = PyAlias::new_py(["typing"], "ByteordOverride").rstype(path);
         Self::new_param("byteord_override", pt, d).def_str(tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str())
     }
@@ -12025,9 +12025,9 @@ impl AnySegment {
         };
         let s = format_ident!("{src}");
         let i = self.id();
-        let root = quote!(fireflow_core::segment);
+        let root = quote!(fireflow_types::config);
         // TODO non-obvious '::' in path before the parameters
-        parse_quote! (#root::read::OffsetsCorrection::<#root::#i, #root::#s>)
+        parse_quote! (#root::OffsetsCorrection::<#root::#i, #root::#s>)
     }
 }
 

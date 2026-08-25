@@ -1,9 +1,5 @@
 //! The DATA segment and metadata for measurements.
 
-use crate::config::{
-    AllowLoss, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig, ReadDatasetConfig,
-    TemporalHasOpticalKeyError,
-};
 use crate::core::{TrimmedKeywords, Versioned};
 use crate::data::{
     self, CastSeriesErrors, ConvertFromLayout, DataFrameAsDataSchema, DataFrameCheckRanges as _,
@@ -51,7 +47,10 @@ use crate::validated::keys::{IndexedKey as _, Key1, StdKey, StdKeywords, ValidKe
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::{
-    config::{OpticalOnlyKey, OverBitmaskAction, OverRangeAction},
+    config::{
+        AllowLoss, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig, OpticalOnlyKey,
+        OverBitmaskAction, OverRangeAction, ReadDatasetConfig, TemporalHasOpticalKeyError,
+    },
     index::MeasIndex,
     keywords::{HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty_string::{DisplayableNE as _, NEString},
@@ -2054,8 +2053,8 @@ impl LookupTemporal for InnerTemporal2_0 {
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_2_0;
-        let tmp_opt_res = ignore
-            .remove(&tgts, kws, i, flag)
+        let tmp_opt_res = kws
+            .remove_optical_only(&tgts, ignore, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let scale = TemporalScale2_0::remove_or_drop_meas_opt_with(kws, dropped, i, (), conf)
             .map_switchable_errors(LookupTemporalWarning::from)
@@ -2089,8 +2088,8 @@ impl LookupTemporal for InnerTemporal3_0 {
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_3_0;
-        let tmp_opt = ignore
-            .remove(&tgts, kws, i, flag)
+        let tmp_opt = kws
+            .remove_optical_only(&tgts, ignore, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let gain = Gain::lookup_temporal_3_0(kws, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
@@ -2128,8 +2127,8 @@ impl LookupTemporal for InnerTemporal3_1 {
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_3_1;
-        let tmp_opt = ignore
-            .remove(&tgts, kws, i, flag)
+        let tmp_opt = kws
+            .remove_optical_only(&tgts, ignore, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let gain = Gain::lookup_temporal_3_0(kws, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)
@@ -2173,8 +2172,8 @@ impl LookupTemporal for InnerTemporal3_2 {
         // Order matters here, remove optical keys first if desired to trigger
         // the correct error messages and diagnostics
         let tgts = OpticalOnlyKey::TARGETS_3_2;
-        let tmp_opt = ignore
-            .remove(&tgts, kws, i, flag)
+        let tmp_opt = kws
+            .remove_optical_only(&tgts, ignore, i, flag)
             .map_warnings_and_errors(LookupTemporalWarning::from);
         let gain = Gain::lookup_temporal_3_0(kws, dropped, i, conf)
             .map_switchable_errors(LookupTemporalWarning::from)

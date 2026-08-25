@@ -49,7 +49,7 @@ impl FromStr for DatePattern {
      month (%m, %b, or %B), and day (%d or %e), got {0}"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct DatePatternError(String);
 
 #[cfg(test)]

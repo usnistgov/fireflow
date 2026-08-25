@@ -1,9 +1,8 @@
 use crate::api::{FlatTEXTDiagnostics, HeaderAndSuppOffsets, SplitTEXTDiagnostics};
-use crate::config::{
-    DummyTriFlag, EvaledReadDataKeywordsConfig, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
-};
 use crate::fixed_vec::OneOrTwo;
-use crate::logging::{DeferredWarningsAndErrors, LogResult, WarningAndErrorResult};
+use crate::logging::{
+    DeferredWarningsAndErrors, LogResult, WarningAndErrorResult, WarningsAndErrorsResult,
+};
 use crate::nonempty::FcsNEVec;
 use crate::segment::read::HeaderOffsetsOverflow;
 use crate::text::keyword_enum::{
@@ -12,8 +11,12 @@ use crate::text::keyword_enum::{
 use crate::text::keywords as kws;
 
 use fireflow_types::{
-    case_ins_regex::{CaseInsRegex, CaseInsRegexError},
-    config::{Encoding, OpticalOnlyKey, PATTERN_DELIMITER},
+    case_ins_regex::CaseInsRegex,
+    config::{
+        DummyTriFlag, Encoding, EvaledReadDataKeywordsConfig, KeyStringOrPattern,
+        KeyStringsOrPatterns, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
+        ReadHeaderAndTEXTConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
+    },
     index::{IndexFromOne, MeasIndex},
     keystring::{AsciiStringError, KeyString},
     keywords::{Version, VersionMembership},
@@ -28,8 +31,8 @@ use fireflow_types::{
 use ambassador::{Delegate, delegatable_trait};
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
+use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
-use hashbrown::{HashMap, HashSet};
 use itertools::Itertools as _;
 use nonempty_collections::{
     IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
@@ -85,51 +88,6 @@ impl<'a> ToDisplayNE<'a> for StdKey {
 #[as_ref(KeyString, str, NEStr)]
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct NonStdKey(KeyString);
-
-/// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
-#[derive(Clone, PartialEq)]
-pub struct KeyStringsOrPatterns<T>(pub HashMap<KeyStringOrPattern, T>);
-
-impl<T> Default for KeyStringsOrPatterns<T> {
-    fn default() -> Self {
-        Self(HashMap::default())
-    }
-}
-
-/// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
-pub type KeyStringOrPattern = LiteralOrPattern<KeyString>;
-
-/// Either a literal string or regexp.
-///
-/// This exists for performance and ergononic reasons; if the goal is simply to
-/// match lots of strings literally, it is faster and easier to use a hash
-/// table, otherwise we need to search linearly through an array of patterns.
-#[derive(Clone, PartialEq, Eq, Hash, Display, Debug)]
-pub enum LiteralOrPattern<L> {
-    #[display("{_0}")]
-    Literal(L),
-    #[display("{PATTERN_DELIMITER}{_0}{PATTERN_DELIMITER}")]
-    Pattern(CaseInsRegex),
-}
-
-impl<L: FromStr> FromStr for LiteralOrPattern<L> {
-    type Err = LiteralOrPatternError<<L as FromStr>::Err>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if let Some(inner) = s
-            .strip_prefix(PATTERN_DELIMITER)
-            .and_then(|x| x.strip_suffix(PATTERN_DELIMITER))
-        {
-            let ret = inner
-                .parse::<CaseInsRegex>()
-                .map_err(LiteralOrPatternError::Regexp)?;
-            Ok(Self::Pattern(ret))
-        } else {
-            let ret = s.parse::<L>().map_err(LiteralOrPatternError::Literal)?;
-            Ok(Self::Literal(ret))
-        }
-    }
-}
 
 /// A collection of [`StdKey`]s and [`NonStdKey`]s and key/values with errors.
 #[derive(Default)]
@@ -592,18 +550,6 @@ pub enum NonStdKeyError {
     Prefix(KeyString),
 }
 
-/// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
-pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
-
-/// Error when parsing literal or pattern string.
-#[derive(Debug, Display, PartialEq, Error, Clone)]
-#[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(E: Into<PyErr>))]
-pub enum LiteralOrPatternError<E> {
-    Regexp(CaseInsRegexError),
-    Literal(E),
-}
-
 /// Error when parsed keyword cannot be inserted into [`ParsedKeywords`]
 #[derive(Debug, Display, From, PartialEq, Error, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
@@ -697,22 +643,18 @@ pub struct NonUtf8ValueError {
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct RepairCollisionError(NEVec<AnyKey>);
 
-/// Error when creating a new hashtable with non-unique keys.
-#[derive(Debug, Error, Display, PartialEq, Clone)]
-#[display(
-    "the following keys were non-unique when creating new hash table: {}",
-    self.0.iter().join(","),
-)]
-#[display(bound(T: fmt::Display))]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
-#[cfg_attr(feature = "python", bound(T: fmt::Display))]
-pub struct NonUniqueKeyError<T>(NEVec<T>);
+// TODO sealme in mod
 
 /// A "compiled" object to match keys efficiently.
 pub(crate) struct KeyMatcher<'a, T> {
     literal: HashMap<&'a KeyString, &'a T>,
     pattern: Vec<(&'a CaseInsRegex, &'a T)>,
+}
+
+impl<'a, T> KeyMatcher<'a, T> {
+    pub(crate) fn from_keys(keys: &'a KeyStringsOrPatterns<T>) -> Self {
+        keys.0.iter().collect()
+    }
 }
 
 /// All compiled key matchers to prevent repeated allocations in loops
@@ -721,6 +663,17 @@ pub(crate) struct AllKeyMatchers<'a> {
     pub(crate) demote: KeyMatcher<'a, ()>,
     pub(crate) ignore: KeyMatcher<'a, ()>,
     pub(crate) subs: KeyMatcher<'a, SubPattern>,
+}
+
+impl<'a> AllKeyMatchers<'a> {
+    pub(crate) fn from_config(conf: &'a EvaledReadDataKeywordsConfig) -> Self {
+        Self {
+            promote: KeyMatcher::from_keys(&conf.promote_to_standard),
+            demote: KeyMatcher::from_keys(&conf.demote_from_standard),
+            ignore: KeyMatcher::from_keys(&conf.ignore_standard_keys),
+            subs: KeyMatcher::from_keys(&conf.substitute_standard_key_values),
+        }
+    }
 }
 
 #[derive(Default)]
@@ -1032,38 +985,6 @@ impl FromStr for NonStdKey {
     }
 }
 
-// Implement methods for literal strings or patterns types
-
-impl<T> FromIterator<(KeyStringOrPattern, T)> for KeyStringsOrPatterns<T> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = (KeyStringOrPattern, T)>,
-    {
-        Self(iter.into_iter().collect())
-    }
-}
-
-impl FromIterator<KeyStringOrPattern> for KeyStringsOrPatterns<()> {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = KeyStringOrPattern>,
-    {
-        Self(iter.into_iter().map(|x| (x, ())).collect())
-    }
-}
-
-impl<T> KeyStringsOrPatterns<T> {
-    pub(crate) fn as_matcher(&self) -> KeyMatcher<'_, T> {
-        self.0.iter().collect()
-    }
-
-    pub(crate) fn from_many(
-        xs: impl IntoIterator<Item = Self>,
-    ) -> Result<Self, NonUniqueKeyError<LiteralOrPattern<KeyString>>> {
-        checked_iter_to_hashmap(xs.into_iter().flat_map(|x| x.0.into_iter())).map(Self)
-    }
-}
-
 // Implement methods for key matcher
 
 impl KeyMatcher<'_, ()> {
@@ -1103,6 +1024,13 @@ impl<'a, X> FromIterator<(&'a KeyStringOrPattern, &'a X)> for KeyMatcher<'a, X> 
 }
 
 // Implement methods for misc types
+
+type OpticalOnlyResult = WarningsAndErrorsResult<
+    Vec<(StdKey, NEString)>,
+    (),
+    TemporalHasOpticalKeyError,
+    TemporalHasOpticalKeyError,
+>;
 
 /// Insert a key and value from buffer into appropriate hash table.
 ///
@@ -1447,7 +1375,7 @@ impl ValidKeywords {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
     {
-        let matchers = conf.as_matchers();
+        let matchers = AllKeyMatchers::from_config(conf);
         let mut ignored = vec![];
         let mut non_unique_std = vec![];
         let mut non_unique_nonstd = vec![];
@@ -1577,6 +1505,44 @@ impl ValidKeywords {
         };
         res.set_ok_value(ret)
     }
+
+    pub(crate) fn remove_optical_only(
+        &mut self,
+        targets: &[OpticalOnlyKey],
+        keys: &OpticalOnlyKeys,
+        i: MeasIndex,
+        flag: ProcessOpticalOnlyKeys,
+    ) -> OpticalOnlyResult {
+        let mut es = vec![];
+        let mut ws = vec![];
+        let mut pairs = vec![];
+        for t in targets {
+            let k = StdKey::from_temporal_optical_key(*t, i);
+            let (demote, warn) = match flag {
+                ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
+                ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
+                ProcessOpticalOnlyKeys::DropWarn => (false, true),
+                ProcessOpticalOnlyKeys::DropSilent => (false, false),
+            };
+            if let Some(v) = self.std.remove(&k) {
+                let err = || TemporalHasOpticalKeyError::new(i, *t);
+                if keys.0.contains(t) {
+                    if demote {
+                        self.nonstd.insert_demoted(k.clone(), v.clone());
+                    }
+                    if warn {
+                        ws.push(err());
+                    }
+                    pairs.push((k, v));
+                } else {
+                    es.push(err());
+                }
+            }
+        }
+        let mut res = LogResult::new_from_err_iter(es, pairs, ());
+        res.extend_commutative_warnings(ws);
+        res
+    }
 }
 
 // Declare misc free functions and constants
@@ -1662,28 +1628,6 @@ const fn is_alpha_underscore_str(s: &str) -> bool {
         i += 1;
     }
     true
-}
-
-pub(crate) fn checked_iter_to_hashmap<K, V>(
-    xs: impl IntoIterator<Item = (K, V)>,
-) -> Result<HashMap<K, V>, NonUniqueKeyError<K>>
-where
-    K: Hash + Clone + Eq,
-{
-    let mut duplicated = HashSet::new();
-    let mut new = HashMap::new();
-    for (k, v) in xs {
-        if new.contains_key(&k) {
-            duplicated.insert(k);
-        } else {
-            new.insert(k, v);
-        }
-    }
-    let multi: Vec<_> = duplicated.into_iter().collect();
-    if let Some(ne) = NEVec::try_from_vec(multi) {
-        return Err(NonUniqueKeyError(ne));
-    }
-    Ok(new)
 }
 
 pub(crate) const STD_PREFIX: u8 = 36; // '$'
@@ -1853,41 +1797,5 @@ mod tests {
         let s = "";
         let k = s.parse::<NonStdKey>();
         assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
-    }
-}
-
-#[cfg(feature = "python")]
-mod python {
-    use super::{LiteralOrPattern, LiteralOrPatternError};
-
-    use pyo3::{prelude::*, types::PyString};
-
-    use std::convert::Infallible;
-    use std::fmt;
-    use std::str::FromStr;
-
-    // TODO make FromStr and ToStr derive work for these, which will
-    // in turn require than the bounds attributes get cleaned up
-
-    impl<'py, L> FromPyObject<'_, 'py> for LiteralOrPattern<L>
-    where
-        PyErr: From<LiteralOrPatternError<L::Err>>,
-        L: FromStr,
-        Self: FromStr<Err = LiteralOrPatternError<L::Err>>,
-    {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            Ok(obj.extract::<String>()?.parse()?)
-        }
-    }
-
-    impl<'py, L: fmt::Display> IntoPyObject<'py> for LiteralOrPattern<L> {
-        type Target = PyString;
-        type Output = Bound<'py, Self::Target>;
-        type Error = Infallible;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.to_string().into_pyobject(py)
-        }
     }
 }

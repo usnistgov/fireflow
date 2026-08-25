@@ -1,6 +1,5 @@
 //! Types representing $PnR/$PnB keys for an Ascii column.
 
-use crate::config::DisallowRangeTrunc;
 use crate::data::{
     ColumnSchemaFromTextRange as _, ConvertedRange, IndexedError, IndexedRangeToAsciiError,
 };
@@ -9,7 +8,7 @@ use crate::text::byteord::WidthToFixedError;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
 use crate::validated::keys::IndexedKey as _;
 
-use fireflow_types::{index::MeasIndex, other_width::MAX_CHARS};
+use fireflow_types::{config::DisallowRangeTrunc, index::MeasIndex, other_width::MAX_CHARS};
 
 use derive_more::{Display, From, Into};
 use derive_new::new;

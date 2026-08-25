@@ -1,23 +1,26 @@
 use fireflow_core::{
     api,
-    config::{self as cfg, ByteordOverride, HasStrategy as _, IntWidthOverride},
+    config::{self as cfg},
     core::AnyCoreDataset,
-    segment::read::OffsetsCorrection,
     selector::{AppendableSelector, Selector},
-    text::{
-        byteord::Bytes,
-        keywords::{AlphaNumType, Timestep},
-    },
-    validated::{
-        datepattern::DatePattern, keys::KeyStringOrPattern, read_state::DatasetOffset,
-        timepattern::TimePattern,
-    },
+    text::keywords::{AlphaNumType, Timestep},
+    validated::read_state::DatasetOffset,
 };
 
 use fireflow_types::{
-    byteord::ConfigByteOrd, config as tc, keystring::KeyString, keywords as tk,
-    nonempty_string::NEString, other_width::OtherWidth, sub_pattern::SubPattern,
+    byteord::ConfigByteOrd,
+    config::{
+        self as tc, ByteordOverride, HasStrategy as _, IntWidthOverride, KeyStringOrPattern,
+        NumericByteWidth, OffsetsCorrection,
+    },
+    datepattern::DatePattern,
+    keystring::KeyString,
+    keywords as tk,
+    nonempty_string::NEString,
+    other_width::OtherWidth,
+    sub_pattern::SubPattern,
     textdelim::TEXTDelim,
+    timepattern::TimePattern,
 };
 
 use ansi_term::{ANSIString, Style};
@@ -51,7 +54,7 @@ use std::{
 macro_rules! cli_arg {
     ($conf:ident :: $field:ident) => {{
         // compile-time existence check; fails if field is renamed
-        const _: usize = std::mem::offset_of!(fireflow_core::config::$conf, $field);
+        const _: usize = std::mem::offset_of!(fireflow_types::config::$conf, $field);
         str_replace!(stringify!($field), "_", "-")
     }};
 }
@@ -291,13 +294,13 @@ fn run() -> AppResult<()> {
     let truncate_offset_limit = Arg::new(TRUNCATE_OFFSET_LIMIT)
         .long(TRUNCATE_OFFSET_LIMIT)
         .value_name("LIMIT")
-        .value_parser(value_parser!(cfg::DatasetOverflowLimit))
+        .value_parser(value_parser!(tc::DatasetOverflowLimit))
         .help("Limit by which offsets can be truncated if they exceed end of file.");
 
     let overlap_correction_limit = Arg::new(OVERLAP_CORRECTION_LIMIT)
         .long(OVERLAP_CORRECTION_LIMIT)
         .value_name("LIMIT")
-        .value_parser(value_parser!(cfg::OverlapCorrectionLimit))
+        .value_parser(value_parser!(tc::OverlapCorrectionLimit))
         .help(
             "Limit by which ending segment offset can be truncated if they overlap another offset.",
         );
@@ -305,7 +308,7 @@ fn run() -> AppResult<()> {
     let data_remainder_limit = Arg::new(DATA_REMAINDER_LIMIT)
         .long(DATA_REMAINDER_LIMIT)
         .value_name("LIMIT")
-        .value_parser(value_parser!(cfg::DataRemainderLimit))
+        .value_parser(value_parser!(tc::DataRemainderLimit))
         .help(format!(
             "Limit by which ending {data_seg} offset can be truncated if \
              its length modulo event width produces a remainder."
@@ -320,7 +323,7 @@ fn run() -> AppResult<()> {
 
     // "flat" args
 
-    let version_override = opt_arg::<cfg::VersionOverride>(
+    let version_override = opt_arg::<tc::VersionOverride>(
         VERSION_OVERRIDE,
         "OVERRIDE",
         format!(
@@ -346,7 +349,7 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(i32))
         .help(format!("Correction for {nextdata}"));
 
-    let allow_overlapping_supp_text = tri_flag_arg::<cfg::AllowDuplicatedSuppTEXT>(
+    let allow_overlapping_supp_text = tri_flag_arg::<tc::AllowDuplicatedSuppTEXT>(
         ALLOW_DUPLICATED_SUPP_TEXT,
         format!(
             "Allow {supp_text_seg} offsets to overlap those for \
@@ -368,30 +371,30 @@ fn run() -> AppResult<()> {
              See {delim_header} for details."
         ));
 
-    let non_ascii_delim = tri_flag_arg::<cfg::AllowNonAsciiDelim>(
+    let non_ascii_delim = tri_flag_arg::<tc::AllowNonAsciiDelim>(
         ALLOW_NON_ASCII_DELIM,
         format!("Allow {text_seg} delimiter to be non-ASCII character."),
     );
 
-    let missing_final_delim = tri_flag_arg::<cfg::AllowEvenDelims>(
+    let missing_final_delim = tri_flag_arg::<tc::AllowEvenDelims>(
         ALLOW_EVEN_DELIMS,
         format!("Allow final {text_seg} delimiter to be missing."),
     );
 
-    let allow_non_unique = tri_flag_arg::<cfg::AllowNonunique>(
+    let allow_non_unique = tri_flag_arg::<tc::AllowNonunique>(
         ALLOW_NONUNIQUE,
         format!("Allow non-unique keys to exist in {text_seg}."),
     );
 
     let allow_odd =
-        tri_flag_arg::<cfg::AllowOddTokens>(ALLOW_ODD_TOKENS, "Allow odd number of tokens.");
+        tri_flag_arg::<tc::AllowOddTokens>(ALLOW_ODD_TOKENS, "Allow odd number of tokens.");
 
-    let allow_empty_keys = tri_flag_arg::<cfg::AllowEmptyKeys>(
+    let allow_empty_keys = tri_flag_arg::<tc::AllowEmptyKeys>(
         ALLOW_EMPTY_KEYS,
         "Allow keys to be blank (relatively rare).",
     );
 
-    let allow_delim_at_bound = tri_flag_arg::<cfg::AllowDelimAtBoundary>(
+    let allow_delim_at_bound = tri_flag_arg::<tc::AllowDelimAtBoundary>(
         ALLOW_DELIM_AT_BOUNDARY,
         format!("Allow {text_seg} delimiter(s) to be at token boundaries."),
     );
@@ -410,27 +413,27 @@ fn run() -> AppResult<()> {
             guess = fmt_val(tc::ENCODING_GUESS_LEVEL)
         ));
 
-    let allow_non_ascii_keywords = tri_flag_arg::<cfg::AllowNonAsciiKeywords>(
+    let allow_non_ascii_keywords = tri_flag_arg::<tc::AllowNonAsciiKeywords>(
         ALLOW_NON_ASCII_KEYS,
         "Allow non-ASCII characters in keys.",
     );
 
-    let allow_non_utf8 = tri_flag_arg::<cfg::AllowNonUtf8>(
+    let allow_non_utf8 = tri_flag_arg::<tc::AllowNonUtf8>(
         ALLOW_NON_UTF8_VALUES,
         format!("Allow non-UTF8 characters in {text_seg} segment."),
     );
 
-    let allow_missing_supp_text = tri_flag_arg::<cfg::AllowMissingSuppTEXT>(
+    let allow_missing_supp_text = tri_flag_arg::<tc::AllowMissingSuppTEXT>(
         ALLOW_MISSING_SUPP_TEXT,
         format!("Allow {supp_text_seg} offsets to be missing."),
     );
 
-    let allow_supp_text_own_delim = tri_flag_arg::<cfg::AllowSuppTEXTOwnDelim>(
+    let allow_supp_text_own_delim = tri_flag_arg::<tc::AllowSuppTEXTOwnDelim>(
         ALLOW_SUPP_TEXT_OWN_DELIM,
         format!("Allow delimiters in {prim_text_seg} and {supp_text_seg} to differ."),
     );
 
-    let allow_missing_nextdata = tri_flag_arg::<cfg::AllowMissingNextdata>(
+    let allow_missing_nextdata = tri_flag_arg::<tc::AllowMissingNextdata>(
         ALLOW_MISSING_NEXTDATA,
         format!("Allow {nextdata} to be missing."),
     );
@@ -513,9 +516,9 @@ fn run() -> AppResult<()> {
             default = fmt_val(tc::TIME_MEAS_NAME_PATTERN_DEFAULT),
             none = fmt_val(tc::TIME_MEAS_NAME_PATTERN_NONE),
         ))
-        .value_parser(value_parser!(cfg::TimeMeasNamePattern));
+        .value_parser(value_parser!(tc::TimeMeasNamePattern));
 
-    let allow_missing_time = tri_flag_arg::<cfg::AllowMissingTime>(
+    let allow_missing_time = tri_flag_arg::<tc::AllowMissingTime>(
         ALLOW_MISSING_TIME,
         "Allow time measurement to be missing.",
     );
@@ -592,19 +595,19 @@ fn run() -> AppResult<()> {
         PROCESS_PSEUDOSTANDARD,
         "Process non-standard keywords that start with a '$'.",
     )
-    .value_parser(value_parser!(cfg::ProcessPseudostandard));
+    .value_parser(value_parser!(tc::ProcessPseudostandard));
 
     let process_hyper_par = proc_kw_fail_arg(
         PROCESS_HYPER_PAR,
         format!("Process measurement keywords whose index is greater than {par}."),
     )
-    .value_parser(value_parser!(cfg::ProcessHyperPar));
+    .value_parser(value_parser!(tc::ProcessHyperPar));
 
     let process_other_version = proc_kw_fail_arg(
         PROCESS_OTHER_VERSION,
         "Process standard keywords from different FCS version.",
     )
-    .value_parser(value_parser!(cfg::ProcessOtherVersion));
+    .value_parser(value_parser!(tc::ProcessOtherVersion));
 
     let process_extra_timestep = proc_kw_fail_arg(
         PROCESS_EXTRA_TIMESTEP,
@@ -613,7 +616,7 @@ fn run() -> AppResult<()> {
              is present but not identified.",
         ),
     )
-    .value_parser(value_parser!(cfg::ProcessExtraTimestep));
+    .value_parser(value_parser!(tc::ProcessExtraTimestep));
 
     let fix_log_scale_offset = override_flag_arg(
         FIX_LOG_SCALE_OFFSETS,
@@ -744,7 +747,7 @@ fn run() -> AppResult<()> {
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
-    let allow_repair_non_unique = tri_flag_arg::<cfg::AllowRepairNonUnique>(
+    let allow_repair_non_unique = tri_flag_arg::<tc::AllowRepairNonUnique>(
         ALLOW_REPAIR_NON_UNIQUE,
         "Choose how to handle key collisions when repairing keywords. \
          Non-unique keywords will not be kept in the final FCS file since each \
@@ -780,7 +783,7 @@ fn run() -> AppResult<()> {
             error = fmt_val(tc::MISMATCH_ERROR_LEVEL),
         ));
 
-    let allow_missing_required_offsets = tri_flag_arg::<cfg::AllowMissingRequiredOffsets>(
+    let allow_missing_required_offsets = tri_flag_arg::<tc::AllowMissingRequiredOffsets>(
         ALLOW_MISSING_REQUIRED_OFFSETS,
         format!(
             "Allow required offsets to be missing from {text_seg}. \
@@ -792,7 +795,7 @@ fn run() -> AppResult<()> {
         PROCESS_OPTIONAL_FAILURE,
         "Process optional keys if they cause an error.",
     )
-    .value_parser(value_parser!(cfg::ProcessOptionalFailure));
+    .value_parser(value_parser!(tc::ProcessOptionalFailure));
 
     let int_widths_from_byteord = Arg::new(INT_WIDTH_OVERRIDE)
         .long(INT_WIDTH_OVERRIDE)
@@ -819,7 +822,7 @@ fn run() -> AppResult<()> {
             fmt_val(tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL)
         ));
 
-    let disallow_range_truncation = tri_flag_arg::<cfg::DisallowRangeTrunc>(
+    let disallow_range_truncation = tri_flag_arg::<tc::DisallowRangeTrunc>(
         DISALLOW_RANGE_TRUNCATION,
         format!(
             "Disallow {pn_r} values which need to be truncated to fit in type \
@@ -851,12 +854,12 @@ fn run() -> AppResult<()> {
 
     // dataset args
 
-    let allow_uneven_event_width = tri_flag_arg::<cfg::AllowUnevenEventWidth>(
+    let allow_uneven_event_width = tri_flag_arg::<tc::AllowUnevenEventWidth>(
         ALLOW_UNEVEN_EVENT_WIDTH,
         format!("Allow event width to not evenly divide length of {data_seg}."),
     );
 
-    let allow_tot_mismatch = tri_flag_arg::<cfg::AllowTotMismatch>(
+    let allow_tot_mismatch = tri_flag_arg::<tc::AllowTotMismatch>(
         ALLOW_TOT_MISMATCH,
         format!("Allow {tot} to mismatch the number of events that are actually in {data_seg}."),
     );
@@ -893,12 +896,12 @@ fn run() -> AppResult<()> {
             trunc_silent = fmt_val(tc::OVER_LIMIT_ACTION_TRUNCATE_SILENT_LEVEL),
         ));
 
-    let allow_missing_crc = tri_flag_arg::<cfg::AllowMissingCRC>(
+    let allow_missing_crc = tri_flag_arg::<tc::AllowMissingCRC>(
         ALLOW_MISSING_CRC,
         "Allow CRC word at the end of the dataset to be missing.",
     );
 
-    let allow_mismatch_crc = tri_flag_arg::<cfg::AllowMismatchCRC>(
+    let allow_mismatch_crc = tri_flag_arg::<tc::AllowMismatchCRC>(
         ALLOW_MISMATCH_CRC,
         "Allow computed CRC to not match the CRC word at the end of the dataset.",
     );
@@ -1364,7 +1367,7 @@ fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
 
 fn tri_flag_arg<T>(long: &'static str, help_front: impl Display) -> Arg
 where
-    T: From<tc::TriFlag> + Clone + Send + Sync + 'static + cfg::TriErrorFlag,
+    T: From<tc::TriFlag> + Clone + Send + Sync + 'static + tc::TriErrorFlag,
 {
     let parser = ValueParser::new(T::from_partial_str);
     let (what_true, what_false) = if T::FALSE_IS_ERROR {
@@ -1405,9 +1408,9 @@ fn get_header_config(sargs: &ArgMatches) -> cfg::ReadHeaderConfig {
     }
 }
 
-fn get_header_inner_config(sargs: &ArgMatches) -> cfg::ReadHeaderInnerConfig {
+fn get_header_inner_config(sargs: &ArgMatches) -> tc::ReadHeaderInnerConfig {
     let strat = get_strategy(sargs);
-    let mut conf = cfg::ReadHeaderInnerConfig::new_with_strategy(strat);
+    let mut conf = tc::ReadHeaderInnerConfig::new_with_strategy(strat);
 
     get_correction(sargs, TEXT_CORR, |x| conf.text_correction = x);
     get_correction(sargs, DATA_CORR, |x| conf.data_correction = x);
@@ -1429,9 +1432,9 @@ fn get_header_inner_config(sargs: &ArgMatches) -> cfg::ReadHeaderInnerConfig {
     conf
 }
 
-fn get_offsets_config(s: &ArgMatches) -> cfg::ReadOffsetConfig {
+fn get_offsets_config(s: &ArgMatches) -> tc::ReadOffsetConfig {
     let strat = get_strategy(s);
-    let mut c = cfg::ReadOffsetConfig::new_with_strategy(strat);
+    let mut c = tc::ReadOffsetConfig::new_with_strategy(strat);
 
     get_flag(s, ALLOW_PSEUDOEMPTY, |x| c.allow_pseudoempty = x);
     get_opt(s, TRUNCATE_OFFSET_LIMIT, |x| c.dataset_overflow_limit = x);
@@ -1442,9 +1445,9 @@ fn get_offsets_config(s: &ArgMatches) -> cfg::ReadOffsetConfig {
     c
 }
 
-fn get_header_and_text_config(s: &ArgMatches) -> cfg::ReadHeaderAndTEXTConfig {
+fn get_header_and_text_config(s: &ArgMatches) -> tc::ReadHeaderAndTEXTConfig {
     let strat = get_strategy(s);
-    let mut c = cfg::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
+    let mut c = tc::ReadHeaderAndTEXTConfig::new_with_strategy(strat);
 
     get_opt(s, VERSION_OVERRIDE, |x| c.version_override = x);
     get_correction(s, SUPP_TEXT_COR, |x| c.supp_text_correction = x);
@@ -1599,9 +1602,9 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
     c
 }
 
-fn get_dataset_config(s: &ArgMatches) -> cfg::ReadDatasetConfig {
+fn get_dataset_config(s: &ArgMatches) -> tc::ReadDatasetConfig {
     let strat = get_strategy(s);
-    let mut c = cfg::ReadDatasetConfig::new_with_strategy(strat);
+    let mut c = tc::ReadDatasetConfig::new_with_strategy(strat);
 
     get_opt(s, DATA_REMAINDER_LIMIT, |x| c.data_remainder_limit = x);
     get_opt(s, ALLOW_TOT_MISMATCH, |x| c.allow_tot_mismatch = x);
@@ -1620,8 +1623,8 @@ fn get_dataset_config(s: &ArgMatches) -> cfg::ReadDatasetConfig {
     c
 }
 
-fn get_read_shared_config(sargs: &ArgMatches) -> cfg::ReadSharedConfig {
-    cfg::ReadSharedConfig {
+fn get_read_shared_config(sargs: &ArgMatches) -> tc::ReadSharedConfig {
+    tc::ReadSharedConfig {
         warnings_are_errors: sargs.get_flag(WARNINGS_ARE_ERRORS),
         hide_warnings: sargs.get_flag(HIDE_WARNINGS),
     }
@@ -1670,8 +1673,8 @@ fn get_read_std_dataset_config(cmd: &Command, sargs: &ArgMatches) -> cfg::ReadSt
     }
 }
 
-fn get_write_std_dataset_config(sargs: &ArgMatches) -> cfg::WriteDatasetInnerConfig {
-    let mut conf = cfg::WriteDatasetInnerConfig::default();
+fn get_write_std_dataset_config(sargs: &ArgMatches) -> tc::WriteDatasetInnerConfig {
+    let mut conf = tc::WriteDatasetInnerConfig::default();
 
     get_opt(sargs, WRITE_DELIM, |x| conf.text.delim = x);
     get_opt(sargs, BIG_OTHER, |x: bool| conf.text.big_other = x.into());
@@ -1836,7 +1839,7 @@ fn parse_fix_int_widths(s: &str) -> StrResult<IntWidthOverride> {
         return Ok(IntWidthOverride::NextByte);
     }
     Ok(IntWidthOverride::Explicit(
-        s.parse::<Bytes>().map_err(|e| e.to_string())?,
+        s.parse::<NumericByteWidth>().map_err(|e| e.to_string())?,
     ))
 }
 
@@ -2037,88 +2040,96 @@ const TRIM_VALUE_WHITESPACE: &str = cli_arg!(ReadHeaderAndTEXTConfig::trim_value
 
 // std keyword config flags
 
-const DEDUP_MEAS_NAMES: &str = cli_arg!(ReadStdKeywordsConfig::dedup_measurement_names);
+const DEDUP_MEAS_NAMES: &str = cli_arg!(EvaledReadStdKeywordsConfig::dedup_measurement_names);
 
 const TRIM_INTRA_VALUE_WHITESPACE: &str =
-    cli_arg!(ReadStdKeywordsConfig::trim_intra_value_whitespace);
+    cli_arg!(EvaledReadStdKeywordsConfig::trim_intra_value_whitespace);
 
-const TIME_MEAS_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::time_meas_pattern);
+const TIME_MEAS_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::time_meas_pattern);
 
-const ALLOW_MISSING_TIME: &str = cli_arg!(ReadStdKeywordsConfig::allow_missing_time);
+const ALLOW_MISSING_TIME: &str = cli_arg!(EvaledReadStdKeywordsConfig::allow_missing_time);
 
-const ADD_MISSING_TIMESTEP: &str = cli_arg!(ReadStdKeywordsConfig::add_missing_timestep);
+const ADD_MISSING_TIMESTEP: &str = cli_arg!(EvaledReadStdKeywordsConfig::add_missing_timestep);
 
-const FORCE_LINEAR_SCALE: &str = cli_arg!(ReadStdKeywordsConfig::force_linear_scale);
+const FORCE_LINEAR_SCALE: &str = cli_arg!(EvaledReadStdKeywordsConfig::force_linear_scale);
 
-const IGNORE_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::ignore_optical_only_keys);
+const IGNORE_TIME_OPTICAL_KEYS: &str =
+    cli_arg!(EvaledReadStdKeywordsConfig::ignore_optical_only_keys);
 
-const PROCESS_TIME_OPTICAL_KEYS: &str = cli_arg!(ReadStdKeywordsConfig::process_optical_only_keys);
+const PROCESS_TIME_OPTICAL_KEYS: &str =
+    cli_arg!(EvaledReadStdKeywordsConfig::process_optical_only_keys);
 
 const SPILLOVER_MEASUREMENT_MODE: &str =
-    cli_arg!(ReadStdKeywordsConfig::spillover_measurement_mode);
+    cli_arg!(EvaledReadStdKeywordsConfig::spillover_measurement_mode);
 
-const DATE_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::date_pattern);
+const DATE_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::date_pattern);
 
-const TIME_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::time_pattern);
+const TIME_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::time_pattern);
 
-const DATETIME_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::datetime_pattern);
+const DATETIME_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::datetime_pattern);
 
-const LAST_MODIFIED_PATTERN: &str = cli_arg!(ReadStdKeywordsConfig::last_modified_pattern);
+const LAST_MODIFIED_PATTERN: &str = cli_arg!(EvaledReadStdKeywordsConfig::last_modified_pattern);
 
-const ALLOW_OTHER_FEATURE: &str = cli_arg!(ReadStdKeywordsConfig::allow_other_feature);
+const ALLOW_OTHER_FEATURE: &str = cli_arg!(EvaledReadStdKeywordsConfig::allow_other_feature);
 
-const PROCESS_PSEUDOSTANDARD: &str = cli_arg!(ReadStdKeywordsConfig::process_pseudostandard);
+const PROCESS_PSEUDOSTANDARD: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_pseudostandard);
 
-const PROCESS_HYPER_PAR: &str = cli_arg!(ReadStdKeywordsConfig::process_hyper_par);
+const PROCESS_HYPER_PAR: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_hyper_par);
 
-const PROCESS_OTHER_VERSION: &str = cli_arg!(ReadStdKeywordsConfig::process_other_version);
+const PROCESS_OTHER_VERSION: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_other_version);
 
-const PROCESS_EXTRA_TIMESTEP: &str = cli_arg!(ReadStdKeywordsConfig::process_extra_timestep);
+const PROCESS_EXTRA_TIMESTEP: &str = cli_arg!(EvaledReadStdKeywordsConfig::process_extra_timestep);
 
-const FIX_LOG_SCALE_OFFSETS: &str = cli_arg!(ReadStdKeywordsConfig::fix_log_scale_offsets);
+const FIX_LOG_SCALE_OFFSETS: &str = cli_arg!(EvaledReadStdKeywordsConfig::fix_log_scale_offsets);
 
-const DISALLOW_LOCALTIME: &str = cli_arg!(ReadStdKeywordsConfig::disallow_localtime);
+const DISALLOW_LOCALTIME: &str = cli_arg!(EvaledReadStdKeywordsConfig::disallow_localtime);
 
 // data keyword config flags
 
-const IGNORE_STD_KEYS: &str = cli_arg!(ReadDataKeywordsConfig::ignore_standard_keys);
+const IGNORE_STD_KEYS: &str = cli_arg!(EvaledReadDataKeywordsConfig::ignore_standard_keys);
 
-const PROMOTE_TO_STD: &str = cli_arg!(ReadDataKeywordsConfig::promote_to_standard);
+const PROMOTE_TO_STD: &str = cli_arg!(EvaledReadDataKeywordsConfig::promote_to_standard);
 
-const DEMOTE_FROM_STD: &str = cli_arg!(ReadDataKeywordsConfig::demote_from_standard);
+const DEMOTE_FROM_STD: &str = cli_arg!(EvaledReadDataKeywordsConfig::demote_from_standard);
 
-const RENAME_STD_KEYS: &str = cli_arg!(ReadDataKeywordsConfig::rename_standard_keys);
+const RENAME_STD_KEYS: &str = cli_arg!(EvaledReadDataKeywordsConfig::rename_standard_keys);
 
-const REPLACE_STD_KEY_VALS: &str = cli_arg!(ReadDataKeywordsConfig::replace_standard_key_values);
+const REPLACE_STD_KEY_VALS: &str =
+    cli_arg!(EvaledReadDataKeywordsConfig::replace_standard_key_values);
 
-const APPEND_STD_KEY_VALS: &str = cli_arg!(ReadDataKeywordsConfig::append_standard_keywords);
+const APPEND_STD_KEY_VALS: &str = cli_arg!(EvaledReadDataKeywordsConfig::append_standard_keywords);
 
-const SUB_STD_KEY_VALS: &str = cli_arg!(ReadDataKeywordsConfig::substitute_standard_key_values);
+const SUB_STD_KEY_VALS: &str =
+    cli_arg!(EvaledReadDataKeywordsConfig::substitute_standard_key_values);
 
-const ALLOW_REPAIR_NON_UNIQUE: &str = cli_arg!(ReadDataKeywordsConfig::allow_repair_non_unique);
+const ALLOW_REPAIR_NON_UNIQUE: &str =
+    cli_arg!(EvaledReadDataKeywordsConfig::allow_repair_non_unique);
 
-const TEXT_DATA_COR: &str = cli_arg!(ReadDataKeywordsConfig::text_data_correction);
+const TEXT_DATA_COR: &str = cli_arg!(EvaledReadDataKeywordsConfig::text_data_correction);
 
-const TEXT_ANALYSIS_COR: &str = cli_arg!(ReadDataKeywordsConfig::text_analysis_correction);
+const TEXT_ANALYSIS_COR: &str = cli_arg!(EvaledReadDataKeywordsConfig::text_analysis_correction);
 
-const IGNORE_TEXT_DATA_OFFSETS: &str = cli_arg!(ReadDataKeywordsConfig::ignore_text_data_offsets);
+const IGNORE_TEXT_DATA_OFFSETS: &str =
+    cli_arg!(EvaledReadDataKeywordsConfig::ignore_text_data_offsets);
 
 const IGNORE_TEXT_ANALYSIS_OFFSETS: &str =
-    cli_arg!(ReadDataKeywordsConfig::ignore_text_analysis_offsets);
+    cli_arg!(EvaledReadDataKeywordsConfig::ignore_text_analysis_offsets);
 
 const ALLOW_HEADER_TEXT_OFFSET_MISMATCH: &str =
-    cli_arg!(ReadDataKeywordsConfig::allow_header_text_offset_mismatch);
+    cli_arg!(EvaledReadDataKeywordsConfig::allow_header_text_offset_mismatch);
 
 const ALLOW_MISSING_REQUIRED_OFFSETS: &str =
-    cli_arg!(ReadDataKeywordsConfig::allow_missing_required_offsets);
+    cli_arg!(EvaledReadDataKeywordsConfig::allow_missing_required_offsets);
 
-const PROCESS_OPTIONAL_FAILURE: &str = cli_arg!(ReadDataKeywordsConfig::process_optional_failure);
+const PROCESS_OPTIONAL_FAILURE: &str =
+    cli_arg!(EvaledReadDataKeywordsConfig::process_optional_failure);
 
-const INT_WIDTH_OVERRIDE: &str = cli_arg!(ReadDataKeywordsConfig::int_width_override);
+const INT_WIDTH_OVERRIDE: &str = cli_arg!(EvaledReadDataKeywordsConfig::int_width_override);
 
-const BYTEORD_OVERRIDE: &str = cli_arg!(ReadDataKeywordsConfig::byteord_override);
+const BYTEORD_OVERRIDE: &str = cli_arg!(EvaledReadDataKeywordsConfig::byteord_override);
 
-const DISALLOW_RANGE_TRUNCATION: &str = cli_arg!(ReadDataKeywordsConfig::disallow_range_truncation);
+const DISALLOW_RANGE_TRUNCATION: &str =
+    cli_arg!(EvaledReadDataKeywordsConfig::disallow_range_truncation);
 
 // read data config flags
 

@@ -1,9 +1,5 @@
 //! Reading and writing the HEADER segment
 
-use crate::config::{
-    AppendableFlag, ConfigFlag as _, ReadHeaderInnerConfig, ReadOffsetConfig,
-    SelectVersionStrategy, VersionOverride,
-};
 use crate::convert::InstantExt as _;
 use crate::core::{DarkBytes, Other, WriteHeaderAndTextConfig};
 use crate::logging::{
@@ -37,7 +33,10 @@ use crate::validated::keys::{DKey0, Key as _, StdKeywords};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
 use fireflow_types::{
-    config::EnumStrIter as _,
+    config::{
+        AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,
+        SelectVersionStrategy, VersionOverride,
+    },
     keywords::{Version, VersionFormatError},
     nonempty_string::{NEStr, NEString},
     textdelim::{DelimCollisionError, HasDelim as _},

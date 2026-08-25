@@ -3,15 +3,15 @@
 //! Here we only need to worry about 6 external types (u8-64, f32, f64) and 10
 //! internal types, (f32, f64, all unsigned int widths 1-8 bytes).
 
-use crate::config::{AllowOverBitmask, DisallowOverRange};
 use crate::data::{CheckRange, EventOverRangeError, TruncatedValueResult};
 use crate::match_many_to_one;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use ambassador::{Delegate, delegatable_trait};
-use fireflow_types::config::OverLimitMode;
+use fireflow_types::config::{AllowOverBitmask, DisallowOverRange, OverLimitMode};
+
 use type_families::{FunctorOnce as _, impl_functor, impl_functor_once, impl_kind1};
 
+use ambassador::{Delegate, delegatable_trait};
 use bytemuck::cast_vec;
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;

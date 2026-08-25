@@ -2,11 +2,8 @@
 
 use crate::api::{FCSFileReader, HeaderAndSuppOffsets, next_dataset_boundary};
 use crate::config::{
-    AllowLoss, AppendFlag, AppendRepairFlagError, AppendableFlag, ComputeWriteCRC, ConfigFlag as _,
-    DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
-    OverlapCorrectionLimit, ReadDataKeywordsConfig, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
-    ReadOffsetConfig, ReadSharedConfig, ReadStdKeywordsConfig, WriteDatasetInnerConfig,
-    WriteMultiConfig, WriteMultiDatasetConfig, WriteMultiTEXTConfig, WriteTEXTInnerConfig,
+    AppendRepairFlagError, ReadDataKeywordsConfig, ReadStdKeywordsConfig, WriteMultiDatasetConfig,
+    WriteMultiTEXTConfig, eval_data_conf, eval_std_conf,
 };
 use crate::convert::{InstantExt as _, UsizeExt as _};
 use crate::data::{
@@ -53,17 +50,14 @@ use crate::meas::{
     VPairedTemporalOrOpticalWithScale, VTemporalOrOpticalWithScale, VTemporalsAndOpticals,
     VersionMeasSet, impl_ref_specific_ro, impl_ref_specific_rw,
 };
-use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
-use crate::segment::{
-    AnalysisSegmentId, DataSegmentId,
-    read::{
-        AnyAnalysisOffsets, AnyDataOffsets, HeaderOrTextOffsets, IndexedOtherOffsets,
-        IsOffsetPair as _, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
-        OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning,
-        OriginalOffsets, ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName,
-        TextOffsetsOverflow, TextToHeaderOrSuppOffsetsOverlap,
-    },
+use crate::segment::read::{
+    AnyAnalysisOffsets, AnyDataOffsets, HeaderOrTextOffsets, IndexedOtherOffsets,
+    IsOffsetPair as _, KeyedOptSegmentWithDefault as _, KeyedReqSegmentWithDefault as _,
+    OffsetPairsOverlapError, OffsetsMismatchError, OptOffsetsWithDefaultWarning, OriginalOffsets,
+    ReqOffsetsWithDefaultError, ReqOffsetsWithDefaultWarning, TextOffsetsName, TextOffsetsOverflow,
+    TextToHeaderOrSuppOffsetsOverlap,
 };
+use crate::segment::read::{PrimaryTextOffsets, SupplementalTextOffsets};
 use crate::text::datetimes::{
     BeginDateTime, Datetimes, DatetimesDiagnostics, EndDateTime, LookupDatetimesError,
     ReversedDatetimesError,
@@ -116,7 +110,6 @@ use crate::validated::ascii_uint::{
 };
 use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
-use crate::validated::datepattern::DatePattern;
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NonStdKeywords, NonStdKeywordsExt as _,
@@ -127,16 +120,23 @@ use crate::validated::read_state::{
     TEXTReadState, WriteFCSDigest,
 };
 use crate::validated::shortname::Shortname;
-use crate::validated::timepattern::TimePattern;
 
 use fireflow_types::{
-    config::{IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction},
+    config::{
+        AllowLoss, AnalysisSegmentId, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _,
+        DataSegmentId, DummyTriFlag, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig,
+        IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
+        OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
+        ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
+    },
+    datepattern::DatePattern,
     index::{IndexFromOne, MeasIndex},
     keywords::{
         HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
     },
     nonempty_string::{NESliceExt as _, NEStr, NEString},
     textdelim::TEXTDelim,
+    timepattern::TimePattern,
 };
 
 use nonempty_collections::NESlice;
@@ -2152,8 +2152,7 @@ pub(crate) trait PrivVersionSet: VersionSet {
             offsets: ReadOffsetConfig,
         }
 
-        AsRef::<ReadDataKeywordsConfig>::as_ref(st.conf())
-            .eval(kws)
+        eval_data_conf(st.conf().as_ref(), kws)
             .map_ok_value(|data_kws| {
                 st.as_ref().first_once(|conf| LookupConfig {
                     data_kws,
@@ -5849,13 +5848,10 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
         }
 
         let start_time = Instant::now();
-        let sconf: &ReadStdKeywordsConfig = conf.as_ref();
-        let dconf: &ReadDataKeywordsConfig = conf.as_ref();
 
-        dconf
-            .eval(&kws)
+        eval_data_conf(conf.as_ref(), &kws)
             .map_ok_value(|data| LookupConf {
-                text: sconf.eval(&kws),
+                text: eval_std_conf(conf.as_ref(), &kws),
                 data,
             })
             .map_errors(StdTEXTFromKeywordsError::from)
@@ -6397,11 +6393,10 @@ impl<V: VersionSet> VersionedCoreDataset<V> {
             .map_err(IOErrorGroup::from)
             .into_log()
             .and_then_commutative(|(mut fr, txt_st)| {
-                AsRef::<ReadDataKeywordsConfig>::as_ref(txt_st.conf())
-                    .eval(&kws)
+                eval_data_conf(txt_st.conf().as_ref(), &kws)
                     .map_ok_value(|data| {
                         txt_st.first_once(|iconf| LookupConfig {
-                            std: AsRef::<ReadStdKeywordsConfig>::as_ref(&iconf).eval(&kws),
+                            std: eval_std_conf(iconf.as_ref(), &kws),
                             data,
                             offsets: *AsRef::<ReadOffsetConfig>::as_ref(&iconf),
                             dataset: *AsRef::<ReadDatasetConfig>::as_ref(&iconf),
@@ -7079,11 +7074,10 @@ impl AnyCoreTEXT {
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
 
-        AsRef::<ReadDataKeywordsConfig>::as_ref(st.conf())
-            .eval(&kws)
+        eval_data_conf(st.conf().as_ref(), &kws)
             .map_ok_value(|data| {
                 st.as_ref().first_once(|conf| LookupConfig {
-                    std: AsRef::<ReadStdKeywordsConfig>::as_ref(&conf).eval(&kws),
+                    std: eval_std_conf(conf.as_ref(), &kws),
                     data,
                     offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
                 })
@@ -7173,11 +7167,10 @@ impl AnyCoreDataset {
 
         let sconf: &ReadHeaderAndTEXTConfig = st.conf().as_ref();
 
-        AsRef::<ReadDataKeywordsConfig>::as_ref(st.conf())
-            .eval(&kws)
+        eval_data_conf(st.conf().as_ref(), &kws)
             .map_ok_value(|data| {
                 st.as_ref().first_once(|conf| LookupConfig {
-                    std: AsRef::<ReadStdKeywordsConfig>::as_ref(&conf).eval(&kws),
+                    std: eval_std_conf(conf.as_ref(), &kws),
                     data,
                     offsets: *AsRef::<ReadOffsetConfig>::as_ref(&conf),
                     dataset: *AsRef::<ReadDatasetConfig>::as_ref(&conf),

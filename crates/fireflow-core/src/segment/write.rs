@@ -1,11 +1,13 @@
 //! Types and methods to deal with offsets when writing FCS files.
 
-use super::{
-    AnalysisSegmentId, DataSegmentId, KeyedOffsets, OffsetsFromHeader, OffsetsFromTEXT,
-    OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
-};
+use super::KeyedOffsets;
 use crate::text::keyword_enum::{Keyword0FromValue as _, OffsetKeyword, SplitKeyword0};
 use crate::validated::ascii_uint::{UintSpacePad8, UintZeroPad20};
+
+use fireflow_types::config::{
+    AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OffsetsFromTEXT, OtherSegmentId,
+    PrimaryTextSegmentId, SupplementalTextSegmentId,
+};
 
 use derive_more::Display;
 use derive_new::new;

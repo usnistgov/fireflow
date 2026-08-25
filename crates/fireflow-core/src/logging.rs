@@ -27,8 +27,9 @@
 //! like a transformer stack where pure errors are handled on one layer and
 //! an IO error is handled on a different layer.
 
-use crate::config::{ErrorFlag, ReadSharedConfig, TriErrorFlag};
 use crate::text::optional::Nothing;
+
+use fireflow_types::config::{ErrorFlag, ReadSharedConfig, TriErrorFlag};
 
 use type_families::{
     ApplyOnce, Functor, FunctorOnce, IsKind1, IsKind2, Kind1, Kind2, Monoid, Pointed, Semigroup,

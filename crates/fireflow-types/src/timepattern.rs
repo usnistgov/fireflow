@@ -1,4 +1,4 @@
-use fireflow_types::config::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
+use crate::config::{BASE60_SECOND_SPEC, BASE100_SECOND_SPEC};
 
 use chrono::{NaiveTime, ParseError, Timelike as _};
 use derive_more::{AsRef, Display, From};
@@ -46,7 +46,7 @@ enum FractionType {
 }
 
 impl TimePattern {
-    pub(crate) fn parse_str(&self, s: &str) -> Result<NaiveTime, ParseWithTimePatternError> {
+    pub fn parse_str(&self, s: &str) -> Result<NaiveTime, ParseWithTimePatternError> {
         let go = || {
             let t = NaiveTime::parse_from_str(s, self.pat.as_str())?;
             match &self.fraction {
@@ -157,7 +157,7 @@ impl FromStr for TimePattern {
      centiseconds; got {0}"
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(fireflow_types::python::ConfigError))]
+#[cfg_attr(feature = "python", pyerr(crate::python::ConfigError))]
 pub struct TimePatternError(String);
 
 /// Error when parsing [`NaiveTime`] from string using [`TimePattern`]

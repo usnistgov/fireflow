@@ -1,4 +1,3 @@
-use crate::config::{ConfigFlag as _, EvaledReadStdKeywordsConfig, TrimIntraValueWhitespace};
 use crate::core::TrimmedKeyword;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
 use crate::validated::keys::{DKey0, Key as _};
@@ -8,10 +7,15 @@ use super::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
 use super::named_vec::{NameMapping, NamedSet};
 use super::relational::{ExistingNamedLinkError, KeyToNameLinkError, OpticalNamesToRemove};
 
-use fireflow_types::config::SpilloverMeasurementMode;
-use fireflow_types::index::MeasIndex;
-use fireflow_types::nonempty_string::{NEConcat, NEConcat5, NEDelim, NEStr, ToDisplayNE, ToNE};
-use fireflow_types::textdelim::{DelimCollisionError, HasDelim, TEXTDelim};
+use fireflow_types::{
+    config::{
+        ConfigFlag as _, EvaledReadStdKeywordsConfig, SpilloverMeasurementMode,
+        TrimIntraValueWhitespace,
+    },
+    index::MeasIndex,
+    nonempty_string::{NEConcat, NEConcat5, NEDelim, NEStr, ToDisplayNE, ToNE},
+    textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
+};
 
 use derive_more::{AsRef, Display, From};
 use derive_new::new;

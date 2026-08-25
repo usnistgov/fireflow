@@ -1,4 +1,3 @@
-use crate::config::{AllowLoss, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::core::TrimmedKeywords;
 use crate::data::IndexedError;
 use crate::fixed_vec::OneOrTwo;
@@ -30,6 +29,7 @@ use crate::validated::keys::{
 };
 
 use fireflow_types::{
+    config::{AllowLoss, EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig},
     index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
     nonempty_string::{DisplayNE as _, ToNE},
 };

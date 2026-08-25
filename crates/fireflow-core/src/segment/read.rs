@@ -1,16 +1,8 @@
 //! Types and methods to deal with offsets when reading FCS files.
 
-use super::{
-    AnalysisSegmentId, DataSegmentId, KeyedOffsets, OffsetsFromHeader, OffsetsFromTEXT,
-    OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
-};
+use super::KeyedOffsets;
 
 use crate::api::HeaderAndSuppOffsets;
-use crate::config::{
-    AllowPseudoempty, ConfigFlag, DummyTriFlag, EvaledReadDataKeywordsConfig,
-    IgnoreTEXTAnalysisOffsets, IgnoreTEXTDataOffsets, ProcessOptionalFailure,
-    ReadHeaderInnerConfig, ReadOffsetConfig,
-};
 use crate::convert::U64Ext as _;
 use crate::core::{DarkBytes, MismatchedTEXTOffsetOrigin, TEXTOffsetsOrigin};
 use crate::fixed_vec::OneOrTwo;
@@ -32,10 +24,18 @@ use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };
 
-use fireflow_types::config::ProcessKeywordFailure;
-use fireflow_types::keywords::Version;
-use fireflow_types::nonempty_string::NESliceExt as _;
-use fireflow_types::other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth};
+use fireflow_types::{
+    config::{
+        AllowPseudoempty, AnalysisSegmentId, ConfigFlag, DataSegmentId, DummyTriFlag,
+        EvaledReadDataKeywordsConfig, HeaderCorrection, IgnoreTEXTAnalysisOffsets,
+        IgnoreTEXTDataOffsets, OffsetsCorrection, OffsetsFromHeader, OffsetsFromTEXT,
+        OtherSegmentId, PrimaryTextSegmentId, ProcessKeywordFailure, ProcessOptionalFailure,
+        ReadHeaderInnerConfig, ReadOffsetConfig, SupplementalTextSegmentId, TEXTCorrection,
+    },
+    keywords::Version,
+    nonempty_string::NESliceExt as _,
+    other_width::{MAX_CHARS, MIN_OTHER_WIDTH, OtherWidth},
+};
 
 use nonempty_collections::IntoNonEmptyIterator as _;
 use type_families::{
@@ -67,15 +67,6 @@ use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
     fireflow_types::python as py,
 };
-
-/// Denotes a correction for a segment offset pair
-#[derive(Default, Clone, Copy, new)]
-pub struct OffsetsCorrection<I, S> {
-    begin: i32,
-    end: i32,
-    _id: PhantomData<I>,
-    _src: PhantomData<S>,
-}
 
 /// An offset pair that corresponds to a specific byte sequence in the file.
 #[derive(new, PartialEq, Debug)]
@@ -842,9 +833,6 @@ pub type TEXTAnalysisOffsets = AnalysisOffsets<OffsetsFromTEXT>;
 pub type HeaderOffsets<I> = Offsets<I, OffsetsFromHeader>;
 pub type TEXTOffsets<I> = Offsets<I, OffsetsFromTEXT>;
 pub type AnyOffsets<I> = Offsets<I, OffsetsFromAnywhere>;
-
-pub type HeaderCorrection<I> = OffsetsCorrection<I, OffsetsFromHeader>;
-pub type TEXTCorrection<I> = OffsetsCorrection<I, OffsetsFromTEXT>;
 
 pub type AnyDataOffsets = DataOffsets<OffsetsFromAnywhere>;
 pub type AnyAnalysisOffsets = AnalysisOffsets<OffsetsFromAnywhere>;
@@ -1832,8 +1820,8 @@ impl InnerOffsets {
         conf: &NewOffsetsConfig<I, S>,
     ) -> Result<Self, SegmentOffsetError> {
         let corr = &conf.corr;
-        let corrected_begin = begin + i128::from(corr.begin);
-        let corrected_end = end + i128::from(corr.end);
+        let corrected_begin = begin + i128::from(corr.begin());
+        let corrected_end = end + i128::from(corr.end());
 
         if corrected_begin == corrected_end + 1 && conf.allow_pseudoempty.is_set() {
             // Check if this offset is pseudoempty
@@ -1845,7 +1833,7 @@ impl InnerOffsets {
         } else if corrected_begin > corrected_end {
             // Return error if ending offset is greater than beginning offset
             let o = conf.dataset_offset;
-            let c = (corr.begin, corr.end);
+            let c = (corr.begin(), corr.end());
             let e = SegmentOffsetError::new((begin, end), c, o, I::REGION, S::SRC);
             return Err(e);
         }
@@ -2591,20 +2579,6 @@ impl CharType {
     }
 }
 
-// Implement methods for correction type
-
-impl<I, S> From<(i32, i32)> for OffsetsCorrection<I, S> {
-    fn from(value: (i32, i32)) -> Self {
-        Self::new(value.0, value.1)
-    }
-}
-
-impl<I, S> From<(Option<i32>, Option<i32>)> for OffsetsCorrection<I, S> {
-    fn from(value: (Option<i32>, Option<i32>)) -> Self {
-        Self::from((value.0.unwrap_or_default(), value.1.unwrap_or_default()))
-    }
-}
-
 // Implement methods for misc types
 
 impl<I> HeaderOrTextOffsets<I> {
@@ -2749,8 +2723,8 @@ mod serialize {
 mod python {
     use super::{
         HeaderOffsetsName, HeaderOrSuppOffsetsName, IndexedOtherOffsets, InnerOffsets,
-        NamedOffsets, NonEmptyOffsetsInner, Offsets, OffsetsCorrection, OriginalOffsets,
-        OtherOffsets20, SuppTextOffsetsName, TextOffsetsName,
+        NamedOffsets, NonEmptyOffsetsInner, Offsets, OriginalOffsets, OtherOffsets20,
+        SuppTextOffsetsName, TextOffsetsName,
     };
 
     use crate::validated::read_state::DatasetOffset;
@@ -2763,25 +2737,6 @@ mod python {
 
     use std::convert::Infallible;
     use std::num::NonZeroU64;
-
-    // offset corrections will be tuples like (int, int)
-    impl<'py, I, S> FromPyObject<'_, 'py> for OffsetsCorrection<I, S> {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            let t: (i32, i32) = obj.extract()?;
-            Ok(Self::from(t))
-        }
-    }
-
-    impl<'py, I, S> IntoPyObject<'py> for OffsetsCorrection<I, S> {
-        type Target = PyTuple;
-        type Output = Bound<'py, <(u64, u64) as IntoPyObject<'py>>::Target>;
-        type Error = PyErr;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            (self.begin, self.end).into_pyobject(py)
-        }
-    }
 
     // offsets will be tuples like (int, int) where first number is starting
     // offset and second is length (NOT the final byte as in FCS files)

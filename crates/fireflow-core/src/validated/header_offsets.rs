@@ -1,23 +1,24 @@
-use crate::config::{OverlapCorrectionLimit, ReadOffsetConfig};
 use crate::core::{DatasetOffsets, OthersReader, TEXTOffsetsOrigin};
 use crate::logging::{DeferredErrors, ErrorGroup, ErrorsResult, LogResult};
 use crate::macros::def_summary;
-use crate::segment::{
-    AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId, PrimaryTextSegmentId,
-    read::{
-        AreNamedOffsets, DatasetOverflowError, HasOneName, HasRegion, HasSource,
-        HeaderAnalysisOffsets, HeaderDataOffsets, HeaderOffsetPairOverlapOverlapError,
-        HeaderOffsetsName, HeaderOffsetsOverflow, HeaderOrSuppOffsetsName,
-        HeaderToHeaderOffsetsOverlap, InHeaderError, IndexedOtherOffsets, IsDataOrAnalysis,
-        IsOffsetPair, NonEmptyOffsetsMut, OffsetPairsOverlapError, Offsets, OffsetsOverflow,
-        OffsetsOverlap, OverflowResult, OverlapResult, PrimaryTextOffsets, SuppTextOffsetsName,
-        SuppToHeaderOffsetsOverlap, SupplementalTextOffsets, TEXTOffsets, TextOffsetsName,
-        TextToHeaderOffsetsOverlap,
-    },
+use crate::segment::read::{
+    AreNamedOffsets, DatasetOverflowError, HasOneName, HasRegion, HasSource, HeaderAnalysisOffsets,
+    HeaderDataOffsets, HeaderOffsetPairOverlapOverlapError, HeaderOffsetsName,
+    HeaderOffsetsOverflow, HeaderOrSuppOffsetsName, HeaderToHeaderOffsetsOverlap, InHeaderError,
+    IndexedOtherOffsets, IsDataOrAnalysis, IsOffsetPair, NonEmptyOffsetsMut,
+    OffsetPairsOverlapError, Offsets, OffsetsOverflow, OffsetsOverlap, OverflowResult,
+    OverlapResult, PrimaryTextOffsets, SuppTextOffsetsName, SuppToHeaderOffsetsOverlap,
+    SupplementalTextOffsets, TEXTOffsets, TextOffsetsName, TextToHeaderOffsetsOverlap,
 };
 use crate::validated::read_state::{DatasetOffset, FileLen, HeaderReadState, TEXTReadState};
 
-use fireflow_types::other_width::OtherWidth;
+use fireflow_types::{
+    config::{
+        AnalysisSegmentId, DataSegmentId, OffsetsFromHeader, OtherSegmentId,
+        OverlapCorrectionLimit, PrimaryTextSegmentId, ReadOffsetConfig,
+    },
+    other_width::OtherWidth,
+};
 
 use type_families::BifunctorOnce as _;
 

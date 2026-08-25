@@ -1,7 +1,3 @@
-use crate::config::{
-    ConfigFlag as _, DummyTriFlag, EvaledReadDataKeywordsConfig, ProcessOptionalFailure,
-    TrimIntraValueWhitespace,
-};
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
     AsStdKey, DollarKey, IndexedKey, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
@@ -9,6 +5,10 @@ use crate::validated::keys::{
 };
 
 use fireflow_types::{
+    config::{
+        ConfigFlag as _, DummyTriFlag, EvaledReadDataKeywordsConfig, ProcessOptionalFailure,
+        TrimIntraValueWhitespace,
+    },
     index::{IndexFromOne, MeasIndex},
     nonempty_string::{NEStr, NEString},
 };
@@ -247,12 +247,12 @@ macro_rules! impl_from_str_with_delim {
             type Err = $e;
             type Payload<'a> = ();
             type Diagnostic = Option<fireflow_types::nonempty_string::NEString>;
-            type Config = crate::config::EvaledReadStdKeywordsConfig;
+            type Config = fireflow_types::config::EvaledReadStdKeywordsConfig;
 
             fn from_str_with(
                 s: &fireflow_types::nonempty_string::NEStr,
                 (): (),
-                conf: &crate::config::EvaledReadStdKeywordsConfig,
+                conf: &fireflow_types::config::EvaledReadStdKeywordsConfig,
             ) -> Result<
                 crate::text::lookup::Diagnosed<
                     Self,

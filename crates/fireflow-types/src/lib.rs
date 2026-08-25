@@ -1,6 +1,7 @@
 pub mod byteord;
 pub mod case_ins_regex;
 pub mod config;
+pub mod datepattern;
 pub mod index;
 pub mod keystring;
 pub mod keystring_pairs;
@@ -12,3 +13,4 @@ pub mod python;
 pub mod ranged_float;
 pub mod sub_pattern;
 pub mod textdelim;
+pub mod timepattern;

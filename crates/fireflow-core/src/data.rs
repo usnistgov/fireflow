@@ -106,11 +106,6 @@
 // * series: The data for a measurement.
 // * width: The value of $PnB
 
-use crate::config::{
-    AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
-    DummyTriFlag, EvaledReadDataKeywordsConfig, IntWidthOverride, ReadDatasetConfig,
-    TriErrorFlag as _, WriteDatasetInnerConfig,
-};
 use crate::convert::{InstantExt as _, U64Ext as _, UsizeExt as _};
 use crate::logging::{
     CommutativeResultIter as _, DeferredError, DeferredIter as _, DeferredSwitchableError,
@@ -168,7 +163,12 @@ use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U5
 use fireflow_core_proc::{IntoInner, impl_generic_enum_from};
 
 use fireflow_types::{
-    config::{NumericByteWidth, OverBitmaskAction, OverLimitMode, OverRangeAction},
+    config::{
+        AllowOverBitmask, AllowTotMismatch, ByteordOverride, DisallowOverRange, DisallowRangeTrunc,
+        DummyTriFlag, EvaledReadDataKeywordsConfig, IntWidthOverride, NumericByteWidth,
+        OverBitmaskAction, OverLimitMode, OverRangeAction, ReadDatasetConfig, TriErrorFlag as _,
+        WriteDatasetInnerConfig,
+    },
     index::{IndexFromOne, MeasIndex},
     nonempty_string::DisplayableNE as _,
 };
@@ -7991,7 +7991,7 @@ impl<T> AnyOrderedUintDataSchema<T> {
             // "reason" why we return none for the original width is that we
             // are saving time and possible parse errors by not computing the
             // width.
-            IntWidthOverride::Explicit(b) => LogResult::new_ok((b.0, None)),
+            IntWidthOverride::Explicit(b) => LogResult::new_ok((b, None)),
         };
 
         match &conf.byteord_override {

@@ -1,8 +1,10 @@
 extern crate proc_macro;
 
-use fireflow_types::config::{self as tc, EnumStrIter as _};
-use fireflow_types::keywords as tk;
-use fireflow_types::python as tp;
+use fireflow_types::{
+    args::underscore as ta,
+    config::{self as tc, EnumStrIter as _},
+    keywords as tk, python as tp,
+};
 
 use const_format::formatcp;
 use derive_more::{AsRef, Display, From};
@@ -7715,7 +7717,7 @@ impl PyException {
         let d = format!(
             "If any {OTHER} end offsets are greater than \
              99,999,999 and {big_other} is {FALSE}",
-            big_other = arg!(BIG_OTHER)
+            big_other = arg!(ta::BIG_OTHER)
         );
         Self::new_overflow().desc(d)
     }
@@ -10001,17 +10003,17 @@ impl DocArgParam {
         let exc = PyException::new_config().desc(d);
         let pytype = PyInt::from(RsInt::U8).rstype(path).exc(exc);
         let desc = format!("Delimiter to use when writing {TEXT}.");
-        Self::new_param("delim", pytype, desc).def(DocDefault::Int(30))
+        Self::new_param(ta::DELIM, pytype, desc).def(DocDefault::Int(30))
     }
 
     fn new_big_other_param() -> Self {
         let desc = format!("If {TRUE} use 20 chars for {OTHER} segment offsets, and 8 otherwise.");
-        Self::new_bool_param(BIG_OTHER, desc)
+        Self::new_bool_param(ta::BIG_OTHER, desc)
     }
 
     fn new_compute_write_crc_param() -> Self {
         let desc = format!("If {TRUE} compute the CRC when writing.");
-        Self::new_bool_param("compute_crc", desc)
+        Self::new_bool_param(ta::W_COMPUTE_CRC, desc)
     }
 
     fn new_override_fil_param() -> Self {
@@ -10019,7 +10021,7 @@ impl DocArgParam {
             "If {TRUE}, replace {} with the name of the output path.",
             Kw::Fil.kw()
         );
-        Self::new_bool_param("override_fil", desc)
+        Self::new_bool_param(ta::OVERRIDE_FIL, desc)
     }
 
     fn new_appendable_param() -> Self {
@@ -10030,19 +10032,18 @@ impl DocArgParam {
              require another call to this method with {arg} set to {TRUE}.",
             arg = arg(APPENDABLE),
         );
-        Self::new_bool_param(APPENDABLE, d)
+        Self::new_bool_param(ta::APPENDABLE, d)
     }
 
     fn new_append_param() -> Self {
-        const APPEND: &str = "append";
         let d = format!(
             "If {TRUE}, append this dataset to the end of the file if it exists \
              and already has at least one dataset in it. This assumes that the \
              previous dataset was written with {arg} set to {TRUE} so \
              that {NEXTDATA} is properly set.",
-            arg = arg(APPEND)
+            arg = arg(ta::APPEND)
         );
-        Self::new_bool_param(APPEND, d)
+        Self::new_bool_param(ta::APPEND, d)
     }
 
     fn new_paired_measurements_param(version: Version) -> Self {
@@ -10125,12 +10126,6 @@ impl DocArgParam {
             ret.def(DocDefault::Float(1.0))
         }
     }
-
-    // fn new_notrunc_param() -> Self {
-    //     let d = "Disallow range to be truncated if required to fit in column's data type.";
-    //     let e = PyreflowError::InvalidKeywordValue;
-    //     Self::new_tri_flag_param("disallow_trunc", false, "DisallowRangeTrunc", d, e)
-    // }
 
     fn new_allow_loss_param(desc: impl fmt::Display) -> Self {
         let e = PyreflowError::Conversion;
@@ -10388,7 +10383,7 @@ impl DocArgParam {
             suffix = code_str(format!("{}X", tc::DEDUP_PNN_SEP)),
             x = code("X"),
         );
-        Self::new_bool_param("dedup_measurement_names", d)
+        Self::new_bool_param(ta::DEDUP_MEAS_NAMES, d)
     }
 
     fn new_trim_intra_value_whitespace_param() -> Self {
@@ -10398,7 +10393,7 @@ impl DocArgParam {
             comma = code_str(","),
             semicolon = code_str(";"),
         );
-        Self::new_bool_param("trim_intra_value_whitespace", d)
+        Self::new_bool_param(ta::TRIM_INTRA_VALUE_WHITESPACE, d)
     }
 
     fn new_time_meas_pattern_param() -> Self {
@@ -10412,14 +10407,14 @@ impl DocArgParam {
             none = code_str(tc::TIME_MEAS_NAME_PATTERN_NONE),
         );
         let pytype = PyAlias::new_selector(inner_pytype);
-        Self::new_param("time_meas_pattern", pytype, d)
+        Self::new_param(ta::TIME_MEAS_PATTERN, pytype, d)
             .def(DocDefault::Str(tc::TIME_MEAS_NAME_PATTERN_DEFAULT.into()))
     }
 
     fn new_allow_missing_time_param() -> Self {
         let d = "Choose what to do when time measurement is be missing.";
         let exc = PyreflowError::Relational;
-        Self::new_tri_flag_param("allow_missing_time", true, "AllowMissingTime", d, exc)
+        Self::new_tri_flag_param(ta::ALLOW_MISSING_TIME, true, "AllowMissingTime", d, exc)
     }
 
     fn new_add_missing_timestep_param() -> Self {
@@ -10429,7 +10424,7 @@ impl DocArgParam {
              does not specify {TIMESTEP}."
         );
         let pt = PyOpt::new1(PyAlias::new_timestep());
-        Self::new_param("add_missing_timestep", pt, d).def_auto()
+        Self::new_param(ta::ADD_MISSING_TIMESTEP, pt, d).def_auto()
     }
 
     fn new_force_linear_scale_param() -> Self {
@@ -10439,7 +10434,7 @@ impl DocArgParam {
             "Force {PNE} to be linear for certain measurements. \
              Affected measurements will never fail."
         );
-        Self::new_param("force_linear_scale", pt, d).def_str(tc::ForceLinearScale::first_str())
+        Self::new_param(ta::FORCE_LINEAR_SCALE, pt, d).def_str(tc::ForceLinearScale::first_str())
     }
 
     fn new_ignore_time_optical_keys_param() -> Self {
@@ -10461,18 +10456,18 @@ impl DocArgParam {
             pn = code_str("Pn"),
             pnx = code_str("PnX"),
         );
-        Self::new_param(IGNORE_OPTICAL_ONLY_KEYS, p, d).def_auto()
+        Self::new_param(ta::IGNORE_OPTICAL_ONLY_KEYS, p, d).def_auto()
     }
 
     fn new_process_time_optical_keys_param() -> Self {
         let d = format!(
             "Choose how to handle optical keys found in temporal measurements. \
              Does nothing unless keys are specified in {other_arg}.",
-            other_arg = arg(IGNORE_OPTICAL_ONLY_KEYS),
+            other_arg = arg(ta::IGNORE_OPTICAL_ONLY_KEYS),
         );
         let path = types_config_path("ProcessOpticalOnlyKeys");
         let pt = PyAlias::new_py(["typing"], "ProcessOpticalOnlyKeys").rstype(path);
-        Self::new_param("process_optical_only_keys", pt, d)
+        Self::new_param(ta::PROCESS_OPTICAL_ONLY_KEYS, pt, d)
             .def_str(tc::ProcessOpticalOnlyKeys::first_str())
     }
 
@@ -10483,7 +10478,7 @@ impl DocArgParam {
         );
         let path = types_config_path("SpilloverMeasurementMode");
         let pt = PyAlias::new_py(["typing"], "SpilloverMeasurementMode").rstype(path);
-        Self::new_param("spillover_measurement_mode", pt, d)
+        Self::new_param(ta::SPILLOVER_MEASUREMENT_MODE, pt, d)
             .def_str(tc::SpilloverMeasurementMode::first_str())
     }
 
@@ -10496,7 +10491,7 @@ impl DocArgParam {
         );
 
         let pt = PyAlias::new_selector(PyOpt::new1(PyStr::new_date_pattern()));
-        Self::new_param("date_pattern", pt, d).def_auto()
+        Self::new_param(ta::DATE_PATTERN, pt, d).def_auto()
     }
 
     fn new_datetime_pattern_param() -> Self {
@@ -10507,7 +10502,7 @@ impl DocArgParam {
              be parsed as ISO timestamps with optional timezone."
         );
         let pt = PyAlias::new_selector(PyOpt::new1(PyStr::default()));
-        Self::new_param("datetime_pattern", pt, d).def_auto()
+        Self::new_param(ta::DATETIME_PATTERN, pt, d).def_auto()
     }
 
     fn new_last_modified_pattern_param() -> Self {
@@ -10520,7 +10515,7 @@ impl DocArgParam {
             last_mod = fcs_kw(tk::LAST_MODIFIED),
         );
         let pt = PyAlias::new_selector(PyOpt::new1(PyStr::default()));
-        Self::new_param("last_modified_pattern", pt, d).def_auto()
+        Self::new_param(ta::LAST_MODIFIED_PATTERN, pt, d).def_auto()
     }
 
     fn new_allow_other_feature_param() -> Self {
@@ -10528,7 +10523,7 @@ impl DocArgParam {
             "If {TRUE}, allow {PNFEATURE} to be a value other than \
              {FEATURE_AREA_STR}, {FEATURE_WIDTH_STR}, or {FEATURE_HEIGHT_STR}."
         );
-        Self::new_bool_param("allow_other_feature", d)
+        Self::new_bool_param(ta::ALLOW_OTHER_FEATURE, d)
     }
 
     fn new_time_pattern_param(version: Option<Version>) -> Self {
@@ -10560,7 +10555,7 @@ impl DocArgParam {
         let arg_desc = [line1, line2, line3].into_iter().join(" ");
 
         let pt = PyAlias::new_selector(PyOpt::new1(PyStr::new_time_pattern()));
-        Self::new_param("time_pattern", pt, arg_desc).def_auto()
+        Self::new_param(ta::TIME_PATTERN, pt, arg_desc).def_auto()
     }
 
     fn new_process_pseudostandard_param() -> Self {
@@ -10569,17 +10564,17 @@ impl DocArgParam {
              presence of such keywords often means the version in {HEADER} \
              is incorrect."
         );
-        Self::new_proc_kw_fail("process_pseudostandard", "ProcessPseudostandard", d)
+        Self::new_proc_kw_fail(ta::PROCESS_PSEUDOSTANDARD, "ProcessPseudostandard", d)
     }
 
     fn new_process_hyper_par_param() -> Self {
         let d = format!("Process measurement keywords whose index is greater than {PAR}.");
-        Self::new_proc_kw_fail("process_hyper_par", "ProcessHyperPar", d)
+        Self::new_proc_kw_fail(ta::PROCESS_HYPER_PAR, "ProcessHyperPar", d)
     }
 
     fn new_process_other_version_param() -> Self {
         let d = "Process standard keywords from different FCS versions.";
-        Self::new_proc_kw_fail("process_other_version", "ProcessOtherVersion", d)
+        Self::new_proc_kw_fail(ta::PROCESS_OTHER_VERSION, "ProcessOtherVersion", d)
     }
 
     fn new_process_extra_timestep_param() -> Self {
@@ -10587,12 +10582,12 @@ impl DocArgParam {
             "Process {TIMESTEP} to be present which may indicate \
              a time measurement is present but not identified."
         );
-        Self::new_proc_kw_fail("process_extra_timestep", "ProcessExtraTimestep", d)
+        Self::new_proc_kw_fail(ta::PROCESS_EXTRA_TIMESTEP, "ProcessExtraTimestep", d)
     }
 
     fn new_process_optional_failure() -> Self {
         let d = "Process optional keys which cause an error.";
-        Self::new_proc_kw_fail("process_optional_failure", "ProcessOptionalFailure", d)
+        Self::new_proc_kw_fail(ta::PROCESS_OPTIONAL_FAILURE, "ProcessOptionalFailure", d)
     }
 
     fn new_fix_log_scale_offsets_param() -> Self {
@@ -10602,7 +10597,7 @@ impl DocArgParam {
             x_zero = code("<X>,0.0"),
             x = code("X"),
         );
-        Self::new_bool_param("fix_log_scale_offsets", d)
+        Self::new_bool_param(ta::FIX_LOG_SCALE_OFFSETS, d)
     }
 
     fn new_disallow_localtime_param() -> Self {
@@ -10613,25 +10608,27 @@ impl DocArgParam {
              absolute value of the timestamp is dependent on localtime and \
              therefore is location-dependent. Only affects FCS 3.2."
         );
-        Self::new_bool_param("disallow_localtime", d)
+        Self::new_bool_param(ta::DISALLOW_LOCALTIME, d)
     }
 
     fn new_int_width_override_param() -> Self {
         let d = format!("Override {PNB}. Only affects integer layouts in FCS 2.0/3.0.");
         let path = types_config_path("IntWidthOverride");
         let pt = PyAlias::new_py(["typing"], "IntWidthOverride").rstype(path);
-        Self::new_param("int_width_override", pt, d).def_str(tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str())
+        Self::new_param(ta::INT_WIDTH_OVERRIDE, pt, d)
+            .def_str(tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str())
     }
 
     fn new_byteord_override_param() -> Self {
         let d = format!("Override {BYTEORD}. Only affects integer layouts in FCS 2.0/3.0.");
         let path = types_config_path("ByteordOverride");
         let pt = PyAlias::new_py(["typing"], "ByteordOverride").rstype(path);
-        Self::new_param("byteord_override", pt, d).def_str(tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str())
+        Self::new_param(ta::BYTEORD_OVERRIDE, pt, d)
+            .def_str(tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str())
     }
 
     fn new_disallow_range_truncation_param() -> Self {
-        let n = "disallow_range_truncation";
+        let n = ta::DISALLOW_RANGE_TRUNCATION;
         let d = format!(
             "Choose how to handle {PNR} values that need to be truncated \
              to match the number of bytes specified by {PNB} and {DATATYPE}."
@@ -10647,20 +10644,20 @@ impl DocArgParam {
     }
 
     fn new_text_correction_param() -> Self {
-        Self::new_config_correction_arg("text_correction", AnySegment::PrimaryTEXT, true)
+        Self::new_config_correction_arg(ta::TEXT_CORR, AnySegment::PrimaryTEXT, true)
     }
 
     fn new_data_correction_param() -> Self {
-        Self::new_config_correction_arg("data_correction", AnySegment::Data, true)
+        Self::new_config_correction_arg(ta::DATA_CORR, AnySegment::Data, true)
     }
 
     fn new_analysis_correction_param() -> Self {
-        Self::new_config_correction_arg("analysis_correction", AnySegment::Analysis, true)
+        Self::new_config_correction_arg(ta::ANALYSIS_CORR, AnySegment::Analysis, true)
     }
 
     fn new_other_corrections_param() -> Self {
         Self::new_param(
-            "other_corrections",
+            ta::OTHER_CORR,
             PyList::new1(PyAlias::new_correction(AnySegment::Other, true)),
             format!(
                 "Corrections for {OTHER} offsets if they exist. Each correction will \
@@ -10668,7 +10665,7 @@ impl DocArgParam {
                  use {zero_zero}. This will not affect the number of {OTHER} segments \
                  that are read; this is controlled by {max_other}.",
                 zero_zero = code("(0,0)"),
-                max_other = arg(MAX_OTHER),
+                max_other = arg(ta::MAX_OTHER),
             ),
         )
         .def_auto()
@@ -10679,13 +10676,13 @@ impl DocArgParam {
             "Maximum number of {OTHER} segments that can be parsed. \
              {NONE} means limitless."
         );
-        Self::new_opt_param(MAX_OTHER, RsInt::Usize, desc)
+        Self::new_opt_param(ta::MAX_OTHER, RsInt::Usize, desc)
     }
 
     fn new_other_width_param() -> Self {
         let pt = PyInt::new_other_width();
         let desc = format!("Width (in bytes) to use when parsing {OTHER} offsets.");
-        Self::new_param(OTHER_WIDTH, pt, desc).def(DocDefault::Int(8))
+        Self::new_param(ta::OTHER_WIDTH, pt, desc).def(DocDefault::Int(8))
     }
 
     fn new_guess_other_width_param() -> Self {
@@ -10694,9 +10691,9 @@ impl DocArgParam {
         let d = format!(
             "Guess the width of {OTHER} segments. Non-fatal failure to guess \
              width will fall back to ``8`` or whatever was given in {other_arg}",
-            other_arg = arg(OTHER_WIDTH),
+            other_arg = arg(ta::OTHER_WIDTH),
         );
-        Self::new_param("guess_other_width", pt, d).def_str(tc::GuessOtherWidth::first_str())
+        Self::new_param(ta::GUESS_OTHER_WIDTH, pt, d).def_str(tc::GuessOtherWidth::first_str())
     }
 
     // this only matters for 3.0+ files
@@ -10711,7 +10708,7 @@ impl DocArgParam {
              happen in FCS 3.0 files and above.",
             empty = code("0,0"),
         );
-        Self::new_bool_param("squish_offsets", d)
+        Self::new_bool_param(ta::SQUISH_OFFSETS, d)
     }
 
     fn new_allow_pseudoempty_param() -> Self {
@@ -10726,20 +10723,20 @@ impl DocArgParam {
             fake_empty1000 = code("1000,999"),
             empty = code("0,0"),
         );
-        Self::new_bool_param("allow_pseudoempty", d)
+        Self::new_bool_param(ta::ALLOW_PSEUDOEMPTY, d)
     }
 
     fn new_dataset_overflow_limit_param() -> Self {
         let d = format!(
             "Limit by which offsets can be truncated if they exceed end of file or {NEXTDATA}."
         );
-        Self::new_param("dataset_overflow_limit", RsInt::U64, d).def_auto()
+        Self::new_param(ta::DATASET_OVERFLOW_LIMIT, RsInt::U64, d).def_auto()
     }
 
     fn new_overlap_correction_limit_param() -> Self {
         let d = "Limit by which ending segment offset can be truncated if \
                  they overlap another offset.";
-        Self::new_param("overlap_correction_limit", RsInt::U64, d).def_auto()
+        Self::new_param(ta::OVERLAP_CORRECTION_LIMIT, RsInt::U64, d).def_auto()
     }
 
     fn new_data_remainder_limit_param() -> Self {
@@ -10747,25 +10744,25 @@ impl DocArgParam {
             "Limit by which ending {DATA} offset can be truncated if \
              its length modulo event width produces a remainder."
         );
-        Self::new_param("data_remainder_limit", RsInt::U64, d).def_auto()
+        Self::new_param(ta::DATA_REMAINDER_LIMIT, RsInt::U64, d).def_auto()
     }
 
     fn new_version_override() -> Self {
         let d = format!("Override the FCS version as seen in {HEADER}.");
-        Self::new_opt_param("version_override", PyAlias::new_version_override(), d)
+        Self::new_opt_param(ta::VERSION_OVERRIDE, PyAlias::new_version_override(), d)
     }
 
     fn new_supp_text_correction() -> Self {
-        Self::new_config_correction_arg("supp_text_correction", AnySegment::SuppTEXT, false)
+        Self::new_config_correction_arg(ta::SUPP_TEXT_COR, AnySegment::SuppTEXT, false)
     }
 
     fn new_nextdata_correction() -> Self {
         let d = format!("Correction for {NEXTDATA}.");
-        Self::new_param("nextdata_correction", PyInt::new_int(RsInt::I32), d).def_auto()
+        Self::new_param(ta::NEXTDATA_COR, PyInt::new_int(RsInt::I32), d).def_auto()
     }
 
     fn new_allow_duplicate_supp_text() -> Self {
-        let n = "allow_duplicated_supp_text";
+        let n = ta::ALLOW_DUPLICATED_SUPP_TEXT;
         let d = format!(
             "Choose what happens if supplemental {TEXT} offsets overlap the \
              primary {TEXT} offsets from {HEADER} or {HEADER}. The offsets \
@@ -10777,25 +10774,25 @@ impl DocArgParam {
 
     fn new_ignore_supp_text() -> Self {
         let d = format!("If {TRUE}, ignore supplemental {TEXT} entirely.");
-        Self::new_bool_param("ignore_supp_text", d)
+        Self::new_bool_param(ta::IGNORE_SUPP_TEXT, d)
     }
 
     fn new_delim_escape_mode() -> Self {
         let path = types_config_path("DelimEscapeMode");
         let d = format!("Determine how to escape delims in {TEXT}.");
         let pt = PyAlias::new_py(["typing"], "DelimEscapeMode").rstype(path);
-        Self::new_param("delim_escape_mode", pt, d).def_str(tc::DelimEscapeMode::first_str())
+        Self::new_param(ta::DELIM_ESCAPE_MODE, pt, d).def_str(tc::DelimEscapeMode::first_str())
     }
 
     fn new_allow_non_ascii_delim() -> Self {
-        let n = "allow_non_ascii_delim";
+        let n = ta::ALLOW_NON_ASCII_DELIM;
         let d = "Choose how to handle non-ASCII delimiters (outside 1-126).";
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowNonAsciiDelim", d, e)
     }
 
     fn new_allow_even_delims() -> Self {
-        let n = "allow_even_delims";
+        let n = ta::ALLOW_EVEN_DELIMS;
         let d = format!("Choose what happens if {TEXT} has an even number of delimiters.");
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowEvenDelims", d, e)
@@ -10807,7 +10804,7 @@ impl DocArgParam {
              only the first will be used regardless of this setting."
         );
         let e = PyreflowError::ParseKey;
-        Self::new_tri_flag_param("allow_nonunique", true, "AllowNonunique", d, e)
+        Self::new_tri_flag_param(ta::ALLOW_NONUNIQUE, true, "AllowNonunique", d, e)
     }
 
     fn new_allow_odd_tokens() -> Self {
@@ -10816,18 +10813,18 @@ impl DocArgParam {
              The last 'dangling' token will be dropped regardless."
         );
         let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param("allow_odd_tokens", true, "AllowOddTokens", d, e)
+        Self::new_tri_flag_param(ta::ALLOW_ODD_TOKENS, true, "AllowOddTokens", d, e)
     }
 
     fn new_allow_empty_keys() -> Self {
         let d = "Choose what happens if any keys are blank. Only relevant if \
                  if delimiters are unescaped.";
         let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param("allow_empty_keys", true, "AllowEmptyKeys", d, e)
+        Self::new_tri_flag_param(ta::ALLOW_EMPTY_KEYS, true, "AllowEmptyKeys", d, e)
     }
 
     fn new_allow_delim_at_boundary() -> Self {
-        let n = "allow_delim_at_boundary";
+        let n = ta::ALLOW_DELIM_AT_BOUNDARY;
         let d = "Choose what happens if there are delimiters at token boundaries. \
                  The FCS standard forbids this because it is impossible to tell \
                  if such delimiters belong to the previous or the next token. \
@@ -10841,11 +10838,11 @@ impl DocArgParam {
         let d = format!("Choose how to interpret characters in {TEXT}.");
         let path = types_config_path("UseEncoding");
         let pt = PyAlias::new_py(["typing"], "UseEncoding").rstype(path);
-        Self::new_param("use_encoding", pt, d).def_str(tc::UseEncoding::first_str())
+        Self::new_param(ta::USE_ENCODING, pt, d).def_str(tc::UseEncoding::first_str())
     }
 
     fn new_allow_non_ascii_keys() -> Self {
-        let n = "allow_non_ascii_keys";
+        let n = ta::ALLOW_NON_ASCII_KEYS;
         let d = format!(
             "Choose how to handle non-ASCII keys. This only applies to \
              non-standard keywords, as all standardized keywords may only \
@@ -10866,7 +10863,7 @@ impl DocArgParam {
     }
 
     fn new_allow_missing_supp_text() -> Self {
-        let n = "allow_missing_supp_text";
+        let n = ta::ALLOW_MISSING_SUPP_TEXT;
         let d = format!(
             "Choose how to handle supplemental missing {TEXT} offsets in \
              primary {TEXT}."
@@ -10876,7 +10873,7 @@ impl DocArgParam {
     }
 
     fn new_allow_supp_text_own_delim() -> Self {
-        let n = "allow_supp_text_own_delim";
+        let n = ta::ALLOW_SUPP_TEXT_OWN_DELIM;
         let d = format!(
             "Choose what happens if supplemental {TEXT} has a different \
              delimiter compared to primary {TEXT}."
@@ -10886,7 +10883,7 @@ impl DocArgParam {
     }
 
     fn new_allow_missing_nextdata() -> Self {
-        let n = "allow_missing_nextdata";
+        let n = ta::ALLOW_MISSING_NEXTDATA;
         let d = format!(
             "Choose how to handle missing {NEXTDATA}. This is a required \
              keyword in all versions. However, most files only have one dataset \
@@ -10901,7 +10898,7 @@ impl DocArgParam {
                  create blank values if the starting string is entirely whitespace.";
         let path = types_config_path("TrimValueWhitespace");
         let pt = PyAlias::new_py(["typing"], "TrimValueWhitespace").rstype(path);
-        Self::new_param("trim_value_whitespace", pt, d)
+        Self::new_param(ta::TRIM_VALUE_WHITESPACE, pt, d)
             .def_str(tc::TrimValueWhitespace::first_str())
     }
 
@@ -10910,17 +10907,17 @@ impl DocArgParam {
             "Remove standard keys from {TEXT}. The leading {DOLLAR_STR} \
              is implied so do not include it."
         );
-        Self::new_key_patterns_param("ignore_standard_keys", d)
+        Self::new_key_patterns_param(ta::IGNORE_STD_KEYS, d)
     }
 
     fn new_promote_to_standard() -> Self {
         let d = format!("Promote nonstandard keys to standard keys in {TEXT}.");
-        Self::new_key_patterns_param("promote_to_standard", d)
+        Self::new_key_patterns_param(ta::PROMOTE_TO_STD, d)
     }
 
     fn new_demote_from_standard() -> Self {
         let d = format!("Demote nonstandard keys from standard keys in {TEXT}.");
-        Self::new_key_patterns_param("demote_from_standard", d)
+        Self::new_key_patterns_param(ta::DEMOTE_FROM_STD, d)
     }
 
     fn new_key_patterns_param(argname: &str, desc: impl fmt::Display) -> Self {
@@ -10937,13 +10934,13 @@ impl DocArgParam {
              the pair will be replaced by the second. Comparisons are case \
              insensitive. The leading {DOLLAR_STR} is implied so do not include it."
         );
-        Self::new_param("rename_standard_keys", pt, d).def_auto()
+        Self::new_param(ta::RENAME_STD_KEYS, pt, d).def_auto()
     }
 
     fn new_replace_standard_key_values() -> Self {
         let inner = PyAlias::new_keystring_values();
         Self::new_param(
-            "replace_standard_key_values",
+            ta::REPLACE_STD_KEY_VALS,
             PyAlias::new_appendable_selector(inner),
             format!(
                 "Replace values for standard keys in {TEXT}. Comparisons are case \
@@ -10959,13 +10956,13 @@ impl DocArgParam {
              The leading {DOLLAR_STR} is implied when matching keys.",
         );
         let p = PyAlias::new_appendable_selector(PyAlias::new_sub_patterns());
-        Self::new_param("substitute_standard_key_values", p, d).def_auto()
+        Self::new_param(ta::SUB_STD_KEY_VALS, p, d).def_auto()
     }
 
     fn new_append_standard_keywords() -> Self {
         let inner = PyAlias::new_keystring_values();
         Self::new_param(
-            "append_standard_keywords",
+            ta::APPEND_STD_KEYWORDS,
             PyAlias::new_appendable_selector(inner),
             format!(
                 "Append standard key/value pairs to {TEXT}. All keys and values \
@@ -10977,7 +10974,7 @@ impl DocArgParam {
     }
 
     fn new_allow_repair_non_unique_param() -> Self {
-        let n = "allow_repair_non_unique";
+        let n = ta::ALLOW_REPAIR_NON_UNIQUE;
         let d = "Choose how to handle key collisions when repairing keywords. \
                  Non-unique keywords will not be kept in the final FCS file since \
                  each list of standard and non-standard keywords must be unique.";
@@ -10986,26 +10983,26 @@ impl DocArgParam {
     }
 
     fn new_text_data_correction_param() -> Self {
-        Self::new_config_correction_arg("text_data_correction", AnySegment::Data, false)
+        Self::new_config_correction_arg(ta::TEXT_DATA_CORR, AnySegment::Data, false)
     }
 
     fn new_text_analysis_correction_param() -> Self {
-        Self::new_config_correction_arg("text_analysis_correction", AnySegment::Analysis, false)
+        Self::new_config_correction_arg(ta::TEXT_ANALYSIS_CORR, AnySegment::Analysis, false)
     }
 
     fn new_ignore_text_data_offsets_param() -> Self {
         let d = format!("If {TRUE} ignore {DATA} offsets in {TEXT}");
-        Self::new_bool_param("ignore_text_data_offsets", d)
+        Self::new_bool_param(ta::IGNORE_TEXT_DATA_OFFSETS, d)
     }
 
     fn new_ignore_text_analysis_offsets_param() -> Self {
         let d = format!("If {TRUE} ignore {ANALYSIS} offsets in {TEXT}");
-        Self::new_bool_param("ignore_text_analysis_offsets", d)
+        Self::new_bool_param(ta::IGNORE_TEXT_ANALYSIS_OFFSETS, d)
     }
 
     fn new_allow_header_text_offset_mismatch_param() -> Self {
         let exc = PyreflowError::FileLayout.fmt_ref();
-        let n = "allow_header_text_offset_mismatch";
+        let n = ta::ALLOW_HEADER_TEXT_OFFSET_MISMATCH;
         let d = format!(
             "Choose what to do if {HEADER} and {TEXT} offsets are different. \
              Exception will be {exc} if emitted.",
@@ -11016,7 +11013,7 @@ impl DocArgParam {
     }
 
     fn new_allow_missing_required_offsets_param(version: Option<Version>) -> Self {
-        let n = "allow_missing_required_offsets";
+        let n = ta::ALLOW_MISSING_REQUIRED_OFFSETS;
         let s = match version {
             Some(Version::FCS3_2) => DATA.into(),
             Some(_) => format!("{DATA} and {ANALYSIS}"),
@@ -11031,7 +11028,7 @@ impl DocArgParam {
     }
 
     fn new_allow_uneven_event_width_param() -> Self {
-        let n = "allow_uneven_event_width";
+        let n = ta::ALLOW_UNEVEN_EVENT_WIDTH;
         let d = format!(
             "Choose what to do when event width does not perfectly divide length \
              of {DATA}. Does not apply to delimited ASCII data schema."
@@ -11047,11 +11044,11 @@ impl DocArgParam {
              Does not apply to delimited ASCII data schema."
         );
         let e = PyreflowError::FileLayout;
-        Self::new_tri_flag_param("allow_tot_mismatch", true, "AllowTotMismatch", d, e)
+        Self::new_tri_flag_param(ta::ALLOW_TOT_MISMATCH, true, "AllowTotMismatch", d, e)
     }
 
     fn new_over_bitmask_action() -> Self {
-        let n = "over_bitmask_action";
+        let n = ta::OVER_BITMASK_ACTION;
         let d =
             format!("Choose what to do with event integer values in {DATA} which exceed bitmask.");
         let path = types_config_path("OverBitmaskAction");
@@ -11060,7 +11057,7 @@ impl DocArgParam {
     }
 
     fn new_allow_over_bitmask() -> Self {
-        let n = "allow_over_bitmask";
+        let n = ta::ALLOW_OVER_BITMASK;
         let d =
             format!("Choose how to report integer event values in {DATA} which exceed bitmask.");
         let e = PyreflowError::EventData;
@@ -11068,14 +11065,14 @@ impl DocArgParam {
     }
 
     fn new_disallow_over_range() -> Self {
-        let n = "disallow_over_range";
+        let n = ta::DISALLOW_OVER_RANGE;
         let d = format!("Choose how to report event values in {DATA} which exceed {PNR}.");
         let e = PyreflowError::EventData;
         Self::new_tri_flag_param(n, false, "DisallowOverRange", d, e)
     }
 
     fn new_over_range_action() -> Self {
-        let n = "over_range_action";
+        let n = ta::OVER_RANGE_ACTION;
         let d = format!("Choose what to do with event values in {DATA} which exceed {PNR}.");
         let path = types_config_path("OverRangeAction");
         let pt = PyAlias::new_py(["typing"], "OverLimitAction").rstype(path);
@@ -11084,17 +11081,21 @@ impl DocArgParam {
 
     fn new_read_intra_segment_dark_bytes_param() -> Self {
         let d = format!("If {TRUE} read bytes which are between segments.");
-        Self::new_bool_param("read_intra_segment_dark_bytes", d)
+        Self::new_bool_param(ta::READ_INTRA_SEGMENT_DARK_BYTES, d)
     }
 
     fn new_read_post_dataset_dark_bytes_param() -> Self {
         let d =
             format!("If {TRUE} read bytes between the end of the current dataset and the next.");
-        Self::new_bool_param("read_post_dataset_dark_bytes", d)
+        Self::new_bool_param(ta::READ_POST_DATASET_DARK_BYTES, d)
     }
 
     fn new_row_buffer_size_param(is_reader: bool) -> Self {
-        let act = if is_reader { "read" } else { "write" };
+        let (act, n) = if is_reader {
+            ("read", ta::ROW_BUFFER_SIZE)
+        } else {
+            ("write", ta::W_ROW_BUFFER_SIZE)
+        };
         let d = format!(
             "Set the size in bytes for the internal buffer used to {act} {DATA}. \
              This is a performance parameter that balances read syscalls (too low) \
@@ -11104,18 +11105,18 @@ impl DocArgParam {
         let path = parse_quote!(fireflow_types::config::RowBufferSize);
         let pt = PyInt::new_int(RsInt::Usize).rstype(path);
         let def = tc::RowBufferSize::default().into();
-        Self::new_param("row_buffer_size", pt, d).def(DocDefault::Int(def))
+        Self::new_param(n, pt, d).def(DocDefault::Int(def))
     }
 
     fn new_allow_missing_crc_param() -> Self {
-        let n = "allow_missing_crc";
+        let n = ta::ALLOW_MISSING_CRC;
         let d = "Choose what to do when CRC is missing from the end of a dataset.";
         let e = PyreflowError::FileLayout;
         Self::new_tri_flag_param(n, true, "AllowMissingCRC", d, e)
     }
 
     fn new_allow_mismatch_crc_param() -> Self {
-        let n = "allow_mismatch_crc";
+        let n = ta::ALLOW_MISMATCH_CRC;
         let d = "Choose what to do when computed CRC and CRC at the end of a \
                  dataset do not match.";
         let e = PyreflowError::FileLayout;
@@ -11123,7 +11124,7 @@ impl DocArgParam {
     }
 
     fn new_compute_crc_param() -> Self {
-        let n = "compute_crc";
+        let n = ta::COMPUTE_CRC;
         let d = "Choose when to compute the CRC for a dataset.";
         let path = types_config_path("ComputeCRC");
         let pt = PyAlias::new_py(["typing"], "ComputeCRC").rstype(path);
@@ -11132,11 +11133,11 @@ impl DocArgParam {
 
     fn new_warnings_are_errors_param() -> Self {
         let d = format!("If {TRUE} all warnings will be regarded as errors.");
-        Self::new_bool_param("warnings_are_errors", d)
+        Self::new_bool_param(ta::WARNINGS_ARE_ERRORS, d)
     }
 
     fn new_hide_warnings_param() -> Self {
-        Self::new_bool_param("hide_warnings", format!("If {TRUE} hide all warnings."))
+        Self::new_bool_param(ta::HIDE_WARNINGS, format!("If {TRUE} hide all warnings."))
     }
 }
 
@@ -12359,11 +12360,7 @@ const BYTEORD_BIG_STR: &str = code_str!(tk::BYTEORD_BIG.as_str());
 
 // argument names that are referenced in doc strings
 
-const BIG_OTHER: &str = "big_other";
 const MEASUREMENTS: &str = "measurements";
-const MAX_OTHER: &str = "max_other";
-const IGNORE_OPTICAL_ONLY_KEYS: &str = "ignore_optical_only_keys";
-const OTHER_WIDTH: &str = "other_width";
 const UINT_RANGES: &str = "ranges";
 
 // formatted segment names

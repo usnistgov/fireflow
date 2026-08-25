@@ -1,10 +1,8 @@
 use crate::{
     byteord::ConfigByteOrd,
     case_ins_regex::{CaseInsRegex, CaseInsRegexError},
-    datepattern::DatePattern,
     index::MeasIndex,
     keystring::{AsciiStringError, KeyString},
-    keystring_pairs::KeyStringPairs,
     keywords::Version,
     ne_str,
     nonempty_string::{NEStr, NEString},
@@ -12,7 +10,6 @@ use crate::{
     ranged_float::PositiveFloat,
     sub_pattern::SubPattern,
     textdelim::TEXTDelim,
-    timepattern::TimePattern,
 };
 
 use const_format::formatcp;

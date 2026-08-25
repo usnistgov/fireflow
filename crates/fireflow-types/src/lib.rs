@@ -1,4 +1,3 @@
-#[cfg(any(feature = "dash_args", feature = "underscore_args"))]
 pub mod args;
 pub mod byteord;
 pub mod case_ins_regex;

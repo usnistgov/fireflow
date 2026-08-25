@@ -1,12 +1,16 @@
-use crate::config::EnumStrIter as _;
-use crate::nonempty_string::NEStr;
-use crate::{impl_str_enum, ne_str};
+use crate::{
+    config::EnumStrIter as _,
+    nonempty_string::NEStr,
+    {impl_str_enum, ne_str},
+};
 
 use fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString};
 
 use derive_more::Display;
-use pyo3::create_exception;
-use pyo3::exceptions::{PyException, PyWarning};
+use pyo3::{
+    create_exception,
+    exceptions::{PyException, PyWarning},
+};
 
 // Each of these docstrings needs to conform to PEP8 (72 chars or less) and
 // follow sphinx formatting. They also refer to stuff in the .rst docs

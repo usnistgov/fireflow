@@ -2,8 +2,10 @@ use derive_more::{AsRef, Display};
 use nonempty_collections::NEVec;
 use thiserror::Error;
 
-use std::num::{NonZeroU8, ParseIntError};
-use std::str::FromStr;
+use std::{
+    num::{NonZeroU8, ParseIntError},
+    str::FromStr,
+};
 
 #[cfg(feature = "python")]
 use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};

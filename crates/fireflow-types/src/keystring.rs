@@ -10,10 +10,7 @@ use nonempty_collections::{
 use thiserror::Error;
 use unicase::Ascii;
 
-use std::collections::HashSet;
-use std::fmt;
-use std::hash::Hash;
-use std::str::FromStr;
+use std::{collections::HashSet, fmt, hash::Hash, str::FromStr};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;

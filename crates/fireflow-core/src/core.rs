@@ -30,8 +30,7 @@ use crate::logging::{
     WarningOrErrorResult, WarningsAndErrorsResult, WarningsAndGroupResult,
     WarningsAndIOGroupResult, io_to_log,
 };
-use crate::macros::{assert_eq_msg, def_summary};
-use crate::match_many_to_one;
+use crate::macros::{assert_eq_msg, def_summary, match_many_to_one};
 use crate::meas::{
     ConvertFromOptical, ConvertFromScale, ConvertFromShortname, ConvertFromTemporal,
     CoreMeasurements, DatasetSetDataSchemaError, DatasetSetUnnamedMeasAndDataSchemaError,

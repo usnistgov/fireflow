@@ -72,14 +72,15 @@ use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NESlice, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
 
-use core::fmt;
-use std::fs;
-use std::fs::File;
-use std::io::{self, BufReader, Read, Seek};
-use std::iter;
-use std::num::NonZeroUsize;
-use std::path::PathBuf;
-use std::time::Instant;
+use std::{
+    fmt, fs,
+    fs::File,
+    io::{self, BufReader, Read, Seek},
+    iter,
+    num::NonZeroUsize,
+    path::PathBuf,
+    time::Instant,
+};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;

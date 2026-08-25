@@ -19,6 +19,8 @@ macro_rules! match_many_to_one {
     };
 }
 
+pub(crate) use match_many_to_one;
+
 macro_rules! impl_newtype_try_from {
     ($outer:ident, $inter:ident, $inner:ident, $err:ident) => {
         impl TryFrom<$inner> for $outer {

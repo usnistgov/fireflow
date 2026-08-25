@@ -10,13 +10,15 @@ use nonempty_collections::{
 };
 use thiserror::Error;
 
-use std::fmt;
-use std::hash::Hash;
-use std::num::{NonZeroU8, NonZeroU32};
-use std::ptr::from_ref;
-use std::slice;
-use std::str::{FromStr, Utf8Error};
-use std::{borrow::Borrow, num::NonZeroUsize};
+use std::{
+    fmt,
+    hash::Hash,
+    num::{NonZeroU8, NonZeroU32},
+    ptr::from_ref,
+    slice,
+    str::{FromStr, Utf8Error},
+    {borrow::Borrow, num::NonZeroUsize},
+};
 
 use sealed::DisplayNEInner;
 

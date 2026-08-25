@@ -5,9 +5,7 @@ use derive_more::{Add, Into, Mul};
 use num_derive::{One, Zero};
 use thiserror::Error;
 
-use std::fmt;
-use std::num::ParseFloatError;
-use std::str::FromStr;
+use std::{fmt, num::ParseFloatError, str::FromStr};
 
 #[cfg(feature = "testutil")]
 use proptest::prelude::*;

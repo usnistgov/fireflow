@@ -43,7 +43,7 @@ html_theme_options = {
     "icon_links": [
         {
             "name": "GitHub",
-            "url": "https://github.com/usinstgov/fireflow",
+            "url": "https://github.com/usnistgov/fireflow",
             "icon": "fa-brands fa-github",
             "type": "fontawesome",
         }

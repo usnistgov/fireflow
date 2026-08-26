@@ -1,4 +1,6 @@
 from docutils import nodes  # type: ignore
+import pyreflow as pf
+
 
 #
 # Project information
@@ -6,14 +8,17 @@ from docutils import nodes  # type: ignore
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = "pyreflow"
-copyright = "2025, Nate Dwarshuis"
+copyright = "2026, Nate Dwarshuis"
 author = "Nate Dwarshuis"
-release = "0.1.0"
+version = pf.__version__
+release = version
+html_title = "pyreflow"
 
 #
 # General configuration
 #
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
+
 
 extensions = [
     "sphinx.ext.intersphinx",
@@ -32,11 +37,6 @@ exclude_patterns = []
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
 html_theme = "pydata_sphinx_theme"
-html_sidebars = {
-    "**": [
-        "globaltoc.html",
-    ]
-}
 html_theme_options = {
     "globaltoc_maxdepth": 2,
     "back_to_top_button": True,
@@ -48,9 +48,14 @@ html_theme_options = {
             "type": "fontawesome",
         }
     ],
+    "navbar_start": ["navbar-logo", "version-switcher"],
+    "switcher": {
+        "json_url": "_static/switcher.json",
+        "version_match": version,
+    },
 }
 
-# html_static_path = ["_static"]
+html_static_path = ["_static"]
 html_show_sourcelink = False
 
 autodoc_typehints = "description"

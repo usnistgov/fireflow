@@ -21,35 +21,35 @@ These are summarized below:
    * - :func:`~pyreflow.api.fcs_read_flat_text`
      - flat
      - no
-     - singular
+     - one
    * - :func:`~pyreflow.api.fcs_read_std_text`
      - standard
      - no
-     - singular
+     - one
    * - :func:`~pyreflow.api.fcs_read_flat_dataset`
      - flat
      - yes
-     - singular
+     - one
    * - :func:`~pyreflow.api.fcs_read_std_dataset`
      - standard
      - yes
-     - singular
+     - one
    * - :func:`~pyreflow.api.fcs_read_flat_texts`
      - flat
      - no
-     - plural
+     - many
    * - :func:`~pyreflow.api.fcs_read_std_texts`
      - standard
      - no
-     - plural
+     - many
    * - :func:`~pyreflow.api.fcs_read_flat_datasets`
      - flat
      - yes
-     - plural
+     - many
    * - :func:`~pyreflow.api.fcs_read_std_datasets`
      - standard
      - yes
-     - plural
+     - many
 
 Each column denotes the category to which each function belongs and its intended
 purpose:

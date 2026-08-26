@@ -822,7 +822,7 @@ checksum = "5baebc0774151f905a1a2cc41989300b1e6fbb29aff0ceffa1064fdd3088d582"
 
 [[package]]
 name = "fireflow-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ansi_term",
  "clap",
@@ -839,7 +839,7 @@ dependencies = [
 
 [[package]]
 name = "fireflow-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ambassador",
  "assert_matches",
@@ -873,7 +873,7 @@ dependencies = [
 
 [[package]]
 name = "fireflow-core-proc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "quote",
  "syn",
@@ -881,7 +881,7 @@ dependencies = [
 
 [[package]]
 name = "fireflow-python"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "chrono",
  "derive_more",
@@ -898,7 +898,7 @@ dependencies = [
 
 [[package]]
 name = "fireflow-python-proc"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "const_format",
  "derive-new",
@@ -913,7 +913,7 @@ dependencies = [
 
 [[package]]
 name = "fireflow-types"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ambassador",
  "bigdecimal",
@@ -2734,7 +2734,7 @@ dependencies = [
 
 [[package]]
 name = "pyreflow"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "fireflow-core",
  "fireflow-python",
@@ -3735,7 +3735,7 @@ checksum = "e421abadd41a4225275504ea4d6566923418b7f05506fbc9c0fe86ba7396114b"
 
 [[package]]
 name = "type_families"
-version = "0.1.0"
+version = "0.1.1"
 
 [[package]]
 name = "typenum"

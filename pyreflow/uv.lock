@@ -14,6 +14,18 @@ resolution-markers = [
 ]
 
 [[package]]
+name = "accessible-pygments"
+version = "0.0.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pygments" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bc/c1/bbac6a50d02774f91572938964c582fff4270eee73ab822a4aeea4d8b11b/accessible_pygments-0.0.5.tar.gz", hash = "sha256:40918d3e6a2b619ad424cb91e556bd3bd8865443d9f22f1dcdf79e33c8046872", size = 1377899, upload-time = "2024-05-10T11:23:10.216Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/8d/3f/95338030883d8c8b91223b4e21744b04d11b161a3ef117295d8241f50ab4/accessible_pygments-0.0.5-py3-none-any.whl", hash = "sha256:88ae3211e68a1d0b011504b2ffc1691feafce124b845bd072ab6f9f66f34d4b7", size = 1395903, upload-time = "2024-05-10T11:23:08.421Z" },
+]
+
+[[package]]
 name = "alabaster"
 version = "1.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1290,6 +1302,25 @@ wheels = [
 ]
 
 [[package]]
+name = "pydata-sphinx-theme"
+version = "0.21.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "accessible-pygments" },
+    { name = "babel" },
+    { name = "beautifulsoup4" },
+    { name = "docutils" },
+    { name = "jinja2" },
+    { name = "pygments" },
+    { name = "requests" },
+    { name = "sphinx" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/bd/ac/692035c97b732b26ee269fb14ec790046b21c7383a46bedfb3d40c3a4884/pydata_sphinx_theme-0.21.0.tar.gz", hash = "sha256:dc3f71216ea34725ddad68e505497eab4ba134a88abfb971a7df6b28a35c1997", size = 5010490, upload-time = "2026-08-25T14:16:47.949Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/b5/8d/fb90c2ada1a938ba55f1730139f4d43736aee22d5f82f927c64cd858256f/pydata_sphinx_theme-0.21.0-py3-none-any.whl", hash = "sha256:d36a754bf9580b01789efa8a01869f2d7c87fa6c543ecbcafb14b6bdd4364f90", size = 6208465, upload-time = "2026-08-25T14:16:46.223Z" },
+]
+
+[[package]]
 name = "pygments"
 version = "2.19.2"
 source = { registry = "https://pypi.org/simple" }
@@ -1329,6 +1360,7 @@ all = [
     { name = "maturin" },
     { name = "mypy", extra = ["faster-cache"] },
     { name = "plotnine" },
+    { name = "pydata-sphinx-theme" },
     { name = "pytest" },
     { name = "ruff" },
     { name = "sphinx" },
@@ -1345,6 +1377,7 @@ dev = [
     { name = "maturin" },
 ]
 docs = [
+    { name = "pydata-sphinx-theme" },
     { name = "sphinx" },
     { name = "sphinx-toolbox" },
 ]
@@ -1375,6 +1408,7 @@ all = [
     { name = "maturin", specifier = ">=1,<2" },
     { name = "mypy", extras = ["faster-cache"], specifier = ">=1.19,<2" },
     { name = "plotnine", specifier = ">=0.15" },
+    { name = "pydata-sphinx-theme", specifier = "==0.21.0" },
     { name = "pytest", specifier = ">=8.4,<9" },
     { name = "ruff", specifier = ">=0.14,<1" },
     { name = "sphinx", specifier = "==9.1.0" },
@@ -1389,6 +1423,7 @@ bench = [
 ]
 dev = [{ name = "maturin", specifier = ">=1,<2" }]
 docs = [
+    { name = "pydata-sphinx-theme", specifier = "==0.21.0" },
     { name = "sphinx", specifier = "==9.1.0" },
     { name = "sphinx-toolbox", specifier = "==4.2.0" },
 ]

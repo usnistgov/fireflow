@@ -31,19 +31,25 @@ exclude_patterns = []
 #
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_theme = "alabaster"
+html_theme = "pydata_sphinx_theme"
 html_sidebars = {
     "**": [
-        "about.html",
-        "searchbox.html",
         "globaltoc.html",
     ]
 }
 html_theme_options = {
-    "github_button": "true",
-    "github_user": "usnistgov",
-    "github_repo": "fireflow",
+    "globaltoc_maxdepth": 2,
+    "back_to_top_button": True,
+    "icon_links": [
+        {
+            "name": "GitHub",
+            "url": "https://github.com/usinstgov/fireflow",
+            "icon": "fa-brands fa-github",
+            "type": "fontawesome",
+        }
+    ],
 }
+
 # html_static_path = ["_static"]
 html_show_sourcelink = False
 

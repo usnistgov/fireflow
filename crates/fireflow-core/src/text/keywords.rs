@@ -54,7 +54,7 @@ use fireflow_types::{
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
-use fireflow_types::{impl_str_enum, impl_str_enum_kw, ne_str};
+use fireflow_types::{impl_str_enum_kw, ne_str};
 
 use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 

@@ -1377,6 +1377,7 @@ dev = [
     { name = "maturin" },
 ]
 docs = [
+    { name = "maturin" },
     { name = "pydata-sphinx-theme" },
     { name = "sphinx" },
     { name = "sphinx-toolbox" },
@@ -1423,6 +1424,7 @@ bench = [
 ]
 dev = [{ name = "maturin", specifier = ">=1,<2" }]
 docs = [
+    { name = "maturin", specifier = ">=1,<2" },
     { name = "pydata-sphinx-theme", specifier = "==0.21.0" },
     { name = "sphinx", specifier = "==9.1.0" },
     { name = "sphinx-toolbox", specifier = "==4.2.0" },

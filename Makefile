@@ -1,16 +1,18 @@
 VENV=.venv
 
 uv_at = uv --directory pyreflow
-build_dev = $(uv_at) run maturin develop --uv
+# don't sync every time we call run, allows for better build control
+uv_run = $(uv_at) run --no-sync
+build_dev = $(uv_run) maturin develop --uv
 build_rel = $(build_dev) --release
-check_py = $(uv_at) run python -c "import sys; print(sys.executable, sys.version)"
+check_py = $(uv_run) python -c "import sys; print(sys.executable, sys.version)"
 
 .PHONY: .uv
 .uv:
 	@uv -V || echo 'uv must be installed'
 
 pyreflow/.venv: .uv
-	$(uv_at) sync --locked --group all --all-extras
+	$(uv_at) sync --locked --group all --all-extras --no-install-project --inexact
 
 .PHONY: rs-lint
 rs-lint:
@@ -30,14 +32,14 @@ rs-docs:
 
 .PHONY: py-lint
 py-lint: pyreflow/.venv
-	$(uv_at) run ruff format --check
-	$(uv_at) run python -m mypy.stubtest pyreflow._pyreflow
-	$(uv_at) run mypy --no-incremental --cache-dir=/dev/null python
-	$(uv_at) run mypy --no-incremental --cache-dir=/dev/null tests
+	$(uv_run) ruff format --check
+	$(uv_run) python -m mypy.stubtest pyreflow._pyreflow
+	$(uv_run) mypy --no-incremental --cache-dir=/dev/null python
+	$(uv_run) mypy --no-incremental --cache-dir=/dev/null tests
 
 .PHONY: py-test
 py-test: pyreflow/.venv
-	$(uv_at) run pytest
+	$(uv_run) pytest
 
 .PHONY: py-check-env
 py-check-env: pyreflow/.venv
@@ -58,7 +60,7 @@ all-dev: rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 
 .PHONY: docs
 docs: build-dev
-	$(uv_at) run sphinx-build -M html docs/source/ docs/build/ --fresh-env -W --nitpicky
+	$(uv_run) docs/build.sh docs/source/ docs/build/
 
 .PHONY: clean
 clean:  
@@ -85,24 +87,24 @@ bench_readme_template = bench/templates/README.j2
 
 pyreflow/$(bench_files): pyreflow/.venv \
 	pyreflow/$(bench_script)
-	$(uv_at) run $(bench_script) make $(bench_inputs)
+	$(uv_run) $(bench_script) make $(bench_inputs)
 
 pyreflow/$(bench_checks): pyreflow/$(bench_files)
-	$(uv_at) run $(bench_script) check \
+	$(uv_run) $(bench_script) check \
 		$(bench_inputs) \
 		$(bench_checks) \
 		$(bench_scratch)
 
 pyreflow/$(bench_all_ff): pyreflow/$(bench_files) \
 	pyreflow/$(bench_script)
-	$(uv_at) run $(bench_script) run_ff \
+	$(uv_run) $(bench_script) run_ff \
 		$(bench_inputs) \
 		$(bench_all_ff) \
 		$(bench_scratch)
 
 pyreflow/$(bench_all): pyreflow/$(bench_files) \
 	pyreflow/$(bench_script)
-	$(uv_at) run $(bench_script) run_all \
+	$(uv_run) $(bench_script) run_all \
 		$(bench_inputs) \
 		$(bench_all) \
 		$(bench_scratch)
@@ -113,7 +115,7 @@ pyreflow/$(bench_readme): pyreflow/$(bench_files) \
 	pyreflow/$(bench_all) \
 	pyreflow/$(bench_script) \
 	pyreflow/$(bench_readme_template)
-	$(uv_at) run $(bench_script) render \
+	$(uv_run) $(bench_script) render \
 		$(bench_files) \
 		$(bench_checks) \
 		$(bench_all) \

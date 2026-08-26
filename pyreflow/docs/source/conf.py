@@ -50,12 +50,13 @@ html_theme_options = {
     ],
     "navbar_start": ["navbar-logo", "version-switcher"],
     "switcher": {
-        "json_url": "_static/switcher.json",
+        # "json_url": "https://pages.nist.gov/fireflow/en/latest/_static/switcher.json",
+        "json_url": "/en/latest/_static/switcher.json",
         "version_match": version,
     },
 }
 
-# html_static_path = ["_static"]
+html_static_path = ["_static"]
 html_show_sourcelink = False
 
 autodoc_typehints = "description"

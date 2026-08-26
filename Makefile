@@ -85,6 +85,9 @@ bench_scratch = /tmp/fireflow_bench/scratch
 bench_static = bench/static
 bench_readme_template = bench/templates/README.j2
 
+# NOTE these depend on pyreflow being built but some of these also need R which
+# is sometimes provided via a conda env. Conda clashes with uv, so split them.
+
 pyreflow/$(bench_files): pyreflow/.venv \
 	pyreflow/$(bench_script)
 	$(uv_run) $(bench_script) make $(bench_inputs)
@@ -125,7 +128,7 @@ pyreflow/$(bench_readme): pyreflow/$(bench_files) \
 		$(bench_readme)
 
 .PHONY: bench
-bench: pyreflow/bench/README.md
+bench: pyreflow/$(bench_readme)
 
 .PHONY: clean-bench
 clean-bench:  

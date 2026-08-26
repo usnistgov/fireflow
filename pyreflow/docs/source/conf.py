@@ -50,8 +50,11 @@ html_theme_options = {
     ],
     "navbar_start": ["navbar-logo", "version-switcher"],
     "switcher": {
-        # "json_url": "https://pages.nist.gov/fireflow/en/latest/_static/switcher.json",
-        "json_url": "/en/latest/_static/switcher.json",
+        "json_url": "https://pages.nist.gov/fireflow/en/latest/_static/switcher.json",
+        # use this for testing, technically hacking a root-relative path like
+        # this is not supported
+        #
+        # "json_url": "/en/latest/_static/switcher.json",
         "version_match": version,
     },
 }

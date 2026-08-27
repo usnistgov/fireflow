@@ -16,7 +16,7 @@ jobs:
         os:
           - ubuntu-24.04
           - macos-15
-          - windows-2025-VS2026
+          - windows-2025
         py-ver:
           - "3.12"
           - "3.13"
@@ -41,12 +41,19 @@ jobs:
           make all-dev
         env:
           CARGO_INCREMENTAL: "0"
-          CARGO_PROFILE_DEV_DEBUG: "line-tables-only"
-          RUSTFLAGS: |-
-            ${{ case(
-              contains(matrix.os, 'windows'), '-Clinker=lld-link.exe',
-              ''
-            ) }}
+          # don't use debug symbols, they take up lots of space, crash builds in
+          # some cases, and also have no use in a CI/CD pipeline
+          CARGO_PROFILE_DEV_DEBUG: "0"
+          # RUSTFLAGS: |-
+          #   ${{ case(
+          #     contains(matrix.os, 'windows'), '-Clinker=lld-link.exe',
+          #     ''
+          #   ) }}
+
+      - name: test load
+        run: |
+          uv --directory pyreflow run --no-sync python -X faulthandler -c "import pyreflow._pyreflow"
+        
 
   test-msrv:
     name: test minimum supported rust version

@@ -25,7 +25,7 @@ jobs:
         run: sudo apt install -y graphviz
 
       - name: Build docs
-        run: make docs
+        run: make all-docs
 
       - name: Checkout docs branch
         uses: actions/checkout@v4
@@ -36,13 +36,11 @@ jobs:
 
       - name: Remove old docs
         run: |
-          rm -rf _images _sources _static
-          rm -f *.html *.js *.inv .buildinfo .nojekyll
+          rm -rf en
 
       - name: Move html docs to root
         run: |
-          mv pyreflow/docs/build/html/* ./
-          mv pyreflow/docs/build/html/.* ./
+          mv pyreflow/docs/build_all/* ./
 
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v7

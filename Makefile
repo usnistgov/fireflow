@@ -30,6 +30,7 @@ rs-test:
 rs-docs:
 	RUSTDOCFLAGS="-D warnings" cargo doc -p fireflow-core --no-deps
 
+# TODO make these depend on debug build
 .PHONY: py-lint
 py-lint: pyreflow/.venv
 	$(uv_run) ruff format --check
@@ -61,6 +62,10 @@ all-dev: rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 .PHONY: docs
 docs: build-dev
 	$(uv_run) docs/build.sh docs/source/ docs/build/
+
+.PHONY: all-docs
+all-docs: build-dev
+	$(uv_run) docs/build_multi.sh docs/build_all/ /tmp/pyreflow-docs docs/refs.txt
 
 .PHONY: clean
 clean:  

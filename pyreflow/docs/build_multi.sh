@@ -17,6 +17,7 @@ src=$here/source
 mkdir -p $out/en
 
 first=1
+rustdir=$builddir/target
 
 for ref in $refs;
 do
@@ -25,10 +26,12 @@ do
         target=$builddir/wt-$ref
         uvdir=$target/pyreflow
         git worktree add --force $target $ref
-        # sync the venv and build pyreflow, split across two commands to prevent
-        # uv from building twice (once during syncing, which we don't need)
+        # Sync the venv and build pyreflow, split across two commands to prevent
+        # uv from building twice (once during syncing, which we don't need).
+        # Also use only one target directory to cache most of rust's output
+        # between versions.
         uv --directory=$uvdir sync --group docs --all-extras --no-install-project
-        (exit) && uv --directory=$uvdir run --no-sync maturin develop
+        (exit) && CARGO_TARGET_DIR=$rustdir uv --directory=$uvdir run --no-sync maturin develop
         # run sphinx
         (exit) && uv --directory=$uvdir run --no-sync $here/build.sh $src _site_tmp
         # copy the html to the output dir

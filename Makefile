@@ -59,13 +59,22 @@ build-prod: pyreflow/.venv
 .PHONY: all-dev
 all-dev: rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 
+docs_out_current=docs/build/
+docs_out_all=docs/build_all/
+docs_tmp=docs/build_tmp/
+
 .PHONY: docs
 docs: build-dev
-	$(uv_run) docs/build.sh docs/source/ docs/build/
+	$(uv_run) docs/build.sh docs/source/ $(docs_out_current)
 
 .PHONY: all-docs
 all-docs: build-dev
-	$(uv_run) docs/build_multi.sh docs/build_all/ /tmp/pyreflow-docs docs/refs.txt
+	$(uv_run) docs/build_multi.sh $(docs_out_all) $(docs_tmp) docs/refs.txt
+
+.PHONY: clean-all-docs
+clean-all-docs:
+	rm -rf pyreflow/$(docs_out_all)
+	rm -rf pyreflow/$(docs_tmp)
 
 .PHONY: clean
 clean:  

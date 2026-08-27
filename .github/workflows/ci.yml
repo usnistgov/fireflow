@@ -41,6 +41,11 @@ jobs:
           make all-dev
         env:
           CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: |-
+            ${{ case(
+              contains(matrix.os, 'windows'), '-Clinker=lld-link.exe',
+              ''
+            ) }}
 
   test-msrv:
     name: test minimum supported rust version

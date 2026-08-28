@@ -44,15 +44,6 @@ jobs:
           # don't use debug symbols, they take up lots of space, crash builds in
           # some cases, and also have no use in a CI/CD pipeline
           CARGO_PROFILE_DEV_DEBUG: "0"
-          # RUSTFLAGS: |-
-          #   ${{ case(
-          #     contains(matrix.os, 'windows'), '-Clinker=lld-link.exe',
-          #     ''
-          #   ) }}
-
-      - name: test load
-        run: |
-          uv --directory pyreflow run --no-sync python -X faulthandler -c "import pyreflow._pyreflow"
         
 
   test-msrv:

@@ -3,10 +3,10 @@ name: "Documentation"
 on:
   push:
     branches:
-      - main
+      - master
   pull_request:
     branches:
-      - main
+      - master
 
 jobs:
   docs:
@@ -15,7 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.95.0
 
       - uses: Swatinem/rust-cache@v2
 
@@ -41,6 +41,7 @@ jobs:
       - name: Move html docs to root
         run: |
           mv pyreflow/docs/build_all/* ./
+          touch en/.nojekyll
 
       - name: Commit and push changes
         uses: stefanzweifel/git-auto-commit-action@v7

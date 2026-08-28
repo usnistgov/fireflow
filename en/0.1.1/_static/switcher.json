@@ -1,0 +1,16 @@
+[
+    {
+        "name": "latest",
+        "url": "https://pages.nist.gov/fireflow/en/latest"
+    },
+    {
+        "name": "v0.1.1 (alpha)",
+        "version": "0.1.1",
+        "url": "https://pages.nist.gov/fireflow/en/0.1.1"
+    },
+    {
+        "name": "v0.1.0 (alpha)",
+        "version": "0.1.0",
+        "url": "https://pages.nist.gov/fireflow/en/0.1.0"
+    }
+]

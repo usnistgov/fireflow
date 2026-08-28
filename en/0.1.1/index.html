@@ -1,0 +1,635 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" /><meta name="viewport" content="width=device-width, initial-scale=1" />
+
+    <title>Welcome to pyreflow &#8212; pyreflow</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
+
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'index';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://pages.nist.gov/fireflow/en/latest/_static/switcher.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.1.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" />
+    <link rel="next" title="Installation" href="install.html" /><link rel="stylesheet" href="https://pages.nist.gov/nist-header-footer/css/nist-combined.css">
+  <script src="https://code.jquery.com/jquery-1.12.4.min.js" type="text/javascript"></script>
+  <script src="https://pages.nist.gov/nist-header-footer/js/nist-header-footer.js" type="text/javascript" defer="defer"></script>
+
+<script type="text/javascript" src="https://pages.nist.gov/leaveNotice/js/jquery.leaveNotice-nist.min.js"></script>
+<script>
+$(document).ready(function(){
+  // Mark external (non-nist.gov) A tags with class "external"
+  //If the adress start with https and ends with nist.gov
+  var re_nist = new RegExp('^https?:\/\/((^\/)*\.)*nist\\.gov(\/|$)');
+  //Regex to find address that start with https
+  var re_absolute_address = new RegExp('^((https?:)?\/\/)');
+  $("a").each(function(){
+    var url=$(this).attr('href');
+    if(re_nist.test(url) || !re_absolute_address.test(url)){
+      $(this).addClass('local');
+    }else{
+      //This a href appears to be external, so tag it
+      $(this).addClass('external');
+    }
+  });
+  // Add leaveNotice to external A elements
+  $('a.external').leaveNotice();
+});
+</script>
+<link rel="stylesheet" type="text/css" href="https://pages.nist.gov/leaveNotice/css/jquery.leaveNotice.css" />
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="#">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">pyreflow</p>
+  
+</a></div>
+    
+      <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="install.html">
+    Installation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quickstart.html">
+    Quickstart
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="workflow.html">
+    Workflow
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="terminology.html">
+    Terminology
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/usnistgov/fireflow" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+    <button class="pst-navbar-icon sidebar-toggle secondary-toggle" aria-label="On this page">
+      <span class="fa-solid fa-outdent"></span>
+    </button>
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="install.html">
+    Installation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quickstart.html">
+    Quickstart
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="workflow.html">
+    Workflow
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="terminology.html">
+    Terminology
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/usnistgov/fireflow" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none"></div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+  <section id="welcome-to-pyreflow">
+<h1>Welcome to pyreflow<a class="headerlink" href="#welcome-to-pyreflow" title="Link to this heading">#</a></h1>
+<p><code class="docutils literal notranslate"><span class="pre">pyreflow</span></code> is a library aiming to provide a standards-compliant Python API for
+Flow Cytometry Standards (FCS) files. It is a wrapper around the Rust
+<a class="reference external" href="https://github.com/usnistgov/fireflow">fireflow</a> library.</p>
+<p>It supports the following FCS versions:</p>
+<ul class="simple">
+<li><p>2.0</p></li>
+<li><p>3.0</p></li>
+<li><p>3.1</p></li>
+<li><p>3.2</p></li>
+</ul>
+<p>Key features:</p>
+<ul class="simple">
+<li><p>Effectively-complete support of FCS standards (with minor <a class="reference external" href="https://github.com/usnistgov/fireflow/blob/master/STANDARD.md">caveats</a>)</p></li>
+<li><p>Reading/writing files from disk to/from memory</p></li>
+<li><p>API to manipulate metadata using validated classes and methods</p></li>
+<li><p>Support for manipulating data using <a class="reference external" href="https://docs.pola.rs/api/python/stable/reference/dataframe/index.html">polars</a> dataframes</p></li>
+<li><p>Upgrading and downgrading versions</p></li>
+<li><p>Numerous tools for reparing non-compliant files</p></li>
+</ul>
+<p><code class="docutils literal notranslate"><span class="pre">pyreflow</span></code> is <strong>not</strong> an “analysis” library. Its main goal is to parse and
+manipulate FCS files. It provides no methods to transform data (compensation,
+scaling), gate populations, compute statistics, etc. These are the purview of
+other tools such as <a class="reference external" href="https://github.com/RGLab/flowCore">flowCore</a> (R) and <a class="reference external" href="https://github.com/whitews/FlowKit">flowkit</a> (Python).</p>
+<p>To understand the intended use-cases, a good analogy is that <a class="reference external" href="https://github.com/usnistgov/fireflow">fireflow</a> is
+analogous to other “file-format libraries” such as <a class="reference external" href="https://github.com/yaml/libyaml">libyaml</a>, <a class="reference external" href="https://github.com/pnggroup/libpng">libpng</a>, and
+<a class="reference external" href="https://github.com/winlibs/libjpeg">libjpeg</a>. Each of these provide an interface to a given file type and are
+written in a “fast” language. Their intention is to be at the bottom of a
+software stack. Many of these have wrappers in “nice” languages such as Python,
+and this is what <code class="docutils literal notranslate"><span class="pre">pyreflow</span></code> aims to be.</p>
+<section id="user-guide">
+<h2>User Guide<a class="headerlink" href="#user-guide" title="Link to this heading">#</a></h2>
+<div class="toctree-wrapper compound">
+<ul>
+<li class="toctree-l1"><a class="reference internal" href="install.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="quickstart.html">Quickstart</a></li>
+<li class="toctree-l1"><a class="reference internal" href="workflow.html">Workflow</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="workflow.html#flat-vs-standardized-mode">Flat vs standardized mode</a></li>
+<li class="toctree-l2"><a class="reference internal" href="workflow.html#repairing-files">Repairing Files</a></li>
+</ul>
+</li>
+<li class="toctree-l1"><a class="reference internal" href="terminology.html">Terminology</a></li>
+<li class="toctree-l1"><a class="reference internal" href="api.html">API Reference</a><ul>
+<li class="toctree-l2"><a class="reference internal" href="reader.html">Reader Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#dataset-parsing">Dataset parsing</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#header-parsing"><em>HEADER</em> parsing</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#summarization">Summarization</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#offline-keyword-repair">Offline keyword repair</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#all-functions">All functions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#outputs">Outputs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#diagnostic-outputs">Diagnostic outputs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#offset-outputs">Offset Outputs</a></li>
+<li class="toctree-l3"><a class="reference internal" href="reader.html#misc-outputs">Misc outputs</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="writer.html">Writer Functions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="writer.html#pyreflow.api.fcs_write_datasets"><code class="docutils literal notranslate"><span class="pre">fcs_write_datasets()</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="core.html">Core* Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="core.html#coretext">CoreTEXT*</a></li>
+<li class="toctree-l3"><a class="reference internal" href="core.html#coredataset">CoreDataset*</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="measurement.html">Measurement Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="measurement.html#optical">Optical</a></li>
+<li class="toctree-l3"><a class="reference internal" href="measurement.html#temporal">Temporal</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="gating.html">Gating Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="gating.html#univariate-regions">Univariate Regions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="gating.html#bivariate-regions">Bivariate Regions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="gating.html#gated-measurements">Gated Measurements</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="data_schema.html">Data Schema Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="data_schema.html#concrete-data-schema-classes">Concrete Data Schema Classes</a></li>
+<li class="toctree-l3"><a class="reference internal" href="data_schema.html#abstract-superclasses">Abstract Superclasses</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="misc.html">Misc Classes</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="misc.html#pyreflow.BuildInfo"><code class="docutils literal notranslate"><span class="pre">BuildInfo</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="aliases.html">Type Aliases</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="aliases.html#configuration-flags">Configuration Flags</a></li>
+<li class="toctree-l3"><a class="reference internal" href="aliases.html#keyword-types">Keyword types</a></li>
+<li class="toctree-l3"><a class="reference internal" href="aliases.html#standardized-keyword-values">Standardized keyword values</a></li>
+<li class="toctree-l3"><a class="reference internal" href="aliases.html#aggregates-and-unions">Aggregates and Unions</a></li>
+<li class="toctree-l3"><a class="reference internal" href="aliases.html#output-values">Output Values</a></li>
+<li class="toctree-l3"><a class="reference internal" href="aliases.html#misc-types">Misc Types</a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="exceptions.html">Exceptions</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.PyreflowError"><code class="docutils literal notranslate"><span class="pre">PyreflowError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.FileLayoutError"><code class="docutils literal notranslate"><span class="pre">FileLayoutError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.ParseKeyError"><code class="docutils literal notranslate"><span class="pre">ParseKeyError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.ParseKeywordValueError"><code class="docutils literal notranslate"><span class="pre">ParseKeywordValueError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.InvalidKeywordValueError"><code class="docutils literal notranslate"><span class="pre">InvalidKeywordValueError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.ExtraKeywordError"><code class="docutils literal notranslate"><span class="pre">ExtraKeywordError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.ConversionError"><code class="docutils literal notranslate"><span class="pre">ConversionError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.RelationalError"><code class="docutils literal notranslate"><span class="pre">RelationalError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.EventDataError"><code class="docutils literal notranslate"><span class="pre">EventDataError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.DataLossError"><code class="docutils literal notranslate"><span class="pre">DataLossError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.ConfigError"><code class="docutils literal notranslate"><span class="pre">ConfigError</span></code></a></li>
+<li class="toctree-l3"><a class="reference internal" href="exceptions.html#pyreflow.PyreflowWarning"><code class="docutils literal notranslate"><span class="pre">PyreflowWarning</span></code></a></li>
+</ul>
+</li>
+<li class="toctree-l2"><a class="reference internal" href="pydantic.html">Configuration Interface</a><ul>
+<li class="toctree-l3"><a class="reference internal" href="pydantic.html#overview">Overview</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pydantic.html#dictionary-configuration">Dictionary Configuration</a></li>
+<li class="toctree-l3"><a class="reference internal" href="pydantic.html#pydantic">Pydantic</a></li>
+</ul>
+</li>
+</ul>
+</li>
+</ul>
+</div>
+</section>
+</section>
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+    <a class="right-next"
+       href="install.html"
+       title="next page">
+      <div class="prev-next-info">
+        <p class="prev-next-subtitle">next</p>
+        <p class="prev-next-title">Installation</p>
+      </div>
+      <i class="fa-solid fa-angle-right"></i>
+    </a>
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+                <dialog id="pst-secondary-sidebar-modal"></dialog>
+                <div id="pst-secondary-sidebar" class="bd-sidebar-secondary bd-toc"><div class="sidebar-secondary-items sidebar-secondary__inner">
+
+
+  <div class="sidebar-secondary-item">
+<div
+    id="pst-page-navigation-heading-2"
+    class="page-toc tocsection onthispage">
+    <i class="fa-solid fa-list"></i> On this page
+  </div>
+  <nav id="pst-page-toc-nav" class="page-toc" aria-labelledby="pst-page-navigation-heading-2">
+    <ul class="pst-show_toc_level nav section-nav flex-column">
+<li class="toc-h2 nav-item toc-entry"><a class="reference internal nav-link" href="#user-guide">User Guide</a></li>
+</ul>
+  </nav></div>
+
+</div></div>
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Nate Dwarshuis.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.0.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.21.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

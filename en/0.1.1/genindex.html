@@ -1,0 +1,2229 @@
+
+<!DOCTYPE html>
+
+
+<html lang="en" data-content_root="./" >
+
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Index &#8212; pyreflow</title>
+  
+  
+  
+  <script data-cfasync="false">
+    document.documentElement.dataset.mode = localStorage.getItem("mode") || "";
+    document.documentElement.dataset.theme = localStorage.getItem("theme") || "";
+  </script>
+  <!--
+    this give us a css class that will be invisible only if js is disabled
+  -->
+  <noscript>
+    <style>
+      .pst-js-only { display: none !important; }
+
+    </style>
+  </noscript>
+  
+  <!-- Loaded before other Sphinx assets -->
+  <link href="_static/styles/theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+<link href="_static/styles/pydata-sphinx-theme.css?digest=cb8930eaaf36d9849b67" rel="stylesheet" />
+
+    <link rel="stylesheet" type="text/css" href="_static/pygments.css?v=8f2a1f02" />
+    <link rel="stylesheet" type="text/css" href="_static/graphviz.css?v=4ae1632d" />
+  
+  <!-- So that users can add custom icons -->
+  <script defer src="_static/scripts/fontawesome.js?digest=cb8930eaaf36d9849b67"></script>
+  <!-- Pre-loaded scripts that we'll load fully later -->
+  <link rel="preload" as="script" href="_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67" />
+<link rel="preload" as="script" href="_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67" />
+
+    <script src="_static/documentation_options.js?v=01f34227"></script>
+    <script src="_static/doctools.js?v=fd6eb6e6"></script>
+    <script src="_static/sphinx_highlight.js?v=6ffebe34"></script>
+    <script>DOCUMENTATION_OPTIONS.pagename = 'genindex';</script>
+    <script>
+        DOCUMENTATION_OPTIONS.theme_version = '0.21.0';
+        DOCUMENTATION_OPTIONS.theme_switcher_json_url = 'https://pages.nist.gov/fireflow/en/latest/_static/switcher.json';
+        DOCUMENTATION_OPTIONS.theme_switcher_version_match = '0.1.0';
+        DOCUMENTATION_OPTIONS.show_version_warning_banner =
+            false;
+        </script>
+    <script>DOCUMENTATION_OPTIONS.search_as_you_type = false;</script>
+    <link rel="index" title="Index" href="#" />
+    <link rel="search" title="Search" href="search.html" /><link rel="stylesheet" href="https://pages.nist.gov/nist-header-footer/css/nist-combined.css">
+  <script src="https://code.jquery.com/jquery-1.12.4.min.js" type="text/javascript"></script>
+  <script src="https://pages.nist.gov/nist-header-footer/js/nist-header-footer.js" type="text/javascript" defer="defer"></script>
+
+<script type="text/javascript" src="https://pages.nist.gov/leaveNotice/js/jquery.leaveNotice-nist.min.js"></script>
+<script>
+$(document).ready(function(){
+  // Mark external (non-nist.gov) A tags with class "external"
+  //If the adress start with https and ends with nist.gov
+  var re_nist = new RegExp('^https?:\/\/((^\/)*\.)*nist\\.gov(\/|$)');
+  //Regex to find address that start with https
+  var re_absolute_address = new RegExp('^((https?:)?\/\/)');
+  $("a").each(function(){
+    var url=$(this).attr('href');
+    if(re_nist.test(url) || !re_absolute_address.test(url)){
+      $(this).addClass('local');
+    }else{
+      //This a href appears to be external, so tag it
+      $(this).addClass('external');
+    }
+  });
+  // Add leaveNotice to external A elements
+  $('a.external').leaveNotice();
+});
+</script>
+<link rel="stylesheet" type="text/css" href="https://pages.nist.gov/leaveNotice/css/jquery.leaveNotice.css" />
+  </head>
+  <body data-default-mode="">
+  
+  
+  <div id="pst-skip-link" class="skip-link d-print-none"><a href="#main-content">Skip to main content</a></div>
+
+  
+  <div id="pst-scroll-pixel-helper"></div>
+  
+  <button type="button" class="btn rounded-pill" id="pst-back-to-top">
+    <i class="fa-solid fa-arrow-up"></i>Back to top</button>
+  
+  
+  
+  
+  <dialog id="pst-search-dialog">
+    
+<form class="bd-search d-flex align-items-center"
+      action="search.html"
+      method="get">
+  <i class="fa-solid fa-magnifying-glass"></i>
+  <input type="search"
+         class="form-control"
+         name="q"
+         placeholder="Search the docs ..."
+         aria-label="Search the docs ..."
+         autocomplete="off"
+         autocorrect="off"
+         autocapitalize="off"
+         spellcheck="false"/>
+  <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd>K</kbd></span>
+</form>
+  </dialog>
+
+  <div class="pst-async-banner-revealer d-none">
+  <aside id="bd-header-version-warning" class="d-none d-print-none" aria-label="Version warning"></aside>
+</div>
+
+  
+    <header id="pst-header" class="bd-header navbar navbar-expand-lg bd-navbar d-print-none">
+<div class="bd-header__inner bd-page-width">
+  <button class="pst-navbar-icon sidebar-toggle primary-toggle" aria-label="Site navigation">
+    <span class="fa-solid fa-bars"></span>
+  </button>
+  
+  
+  <div class="col-lg-3 navbar-header-items__start">
+    
+      <div class="navbar-item">
+
+  
+    
+  
+
+<a class="navbar-brand logo" href="index.html">
+  
+  
+  
+  
+  
+  
+    <p class="title logo__title">pyreflow</p>
+  
+</a></div>
+    
+      <div class="navbar-item">
+<div class="version-switcher__container dropdown pst-js-only">
+  <button id="pst-version-switcher-button-2"
+    type="button"
+    class="version-switcher__button btn btn-sm dropdown-toggle"
+    data-bs-toggle="dropdown"
+    aria-haspopup="listbox"
+    aria-controls="pst-version-switcher-list-2"
+    aria-label="Version switcher list"
+  >
+    Choose version  <!-- this text may get changed later by javascript -->
+    <span class="caret"></span>
+  </button>
+  <div id="pst-version-switcher-list-2"
+    class="version-switcher__menu dropdown-menu list-group-flush py-0"
+    role="listbox" aria-labelledby="pst-version-switcher-button-2">
+    <!-- dropdown will be populated by javascript on page load -->
+  </div>
+</div></div>
+    
+  </div>
+  
+  <div class="col-lg-9 navbar-header-items">
+    
+    <div class="me-auto navbar-header-items__center">
+      
+        <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="install.html">
+    Installation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quickstart.html">
+    Quickstart
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="workflow.html">
+    Workflow
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="terminology.html">
+    Terminology
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+      
+    </div>
+    
+    
+    <div class="navbar-header-items__end">
+      
+        <div class="navbar-item navbar-persistent--container">
+          
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+        </div>
+      
+      
+        <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+      
+        <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/usnistgov/fireflow" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+      
+    </div>
+    
+  </div>
+  
+  
+    <div class="navbar-persistent--mobile">
+
+<button class="btn search-button-field search-button__button pst-js-only" title="Search" aria-label="Search" data-bs-placement="bottom" data-bs-toggle="tooltip">
+ <i class="fa-solid fa-magnifying-glass"></i>
+ <span class="search-button__default-text">Search</span>
+ <span class="search-button__kbd-shortcut"><kbd class="kbd-shortcut__modifier">Ctrl</kbd>+<kbd class="kbd-shortcut__modifier">K</kbd></span>
+</button>
+    </div>
+  
+
+  
+</div>
+
+    </header>
+  
+
+  <div class="bd-container">
+    <div class="bd-container__inner bd-page-width">
+      
+      
+      
+        
+      
+      <dialog id="pst-primary-sidebar-modal"></dialog>
+      <div id="pst-primary-sidebar" class="bd-sidebar-primary bd-sidebar hide-on-wide">
+        
+
+  
+  <div class="sidebar-header-items sidebar-primary__section">
+    
+    
+      <div class="sidebar-header-items__center">
+        
+          
+          
+            <div class="navbar-item">
+<nav>
+  <ul class="bd-navbar-elements navbar-nav">
+    
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="install.html">
+    Installation
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="quickstart.html">
+    Quickstart
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="workflow.html">
+    Workflow
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="terminology.html">
+    Terminology
+  </a>
+</li>
+
+
+<li class="nav-item ">
+  <a class="nav-link nav-internal" href="api.html">
+    API Reference
+  </a>
+</li>
+
+  </ul>
+</nav></div>
+          
+        
+      </div>
+    
+    
+    
+      <div class="sidebar-header-items__end">
+        
+          <div class="navbar-item">
+
+<div class="theme-switch-container dropdown pst-js-only" data-bs-toggle="tooltip" data-bs-placement="bottom" title="Color mode">
+  <button class="btn btn-sm nav-link pst-navbar-icon theme-switch-button dropdown-toggle" aria-label="Color mode" data-bs-toggle="dropdown">
+    <i class="theme-switch fa-solid fa-sun fa-lg fa-fw" data-mode="light" title="Light"></i>
+    <i class="theme-switch fa-solid fa-moon fa-lg fa-fw" data-mode="dark" title="Dark"></i>
+    <i class="theme-switch fa-solid fa-circle-half-stroke fa-lg fa-fw" data-mode="auto" title="System Settings"></i>
+  </button>
+  <ul class="dropdown-menu dropdown-menu-end">
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="auto"><i class="fa-solid fa-circle-half-stroke fa-lg fa-fw me-1"></i>System Settings</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="light"><i class="fa-solid fa-sun fa-lg fa-fw me-1"></i>Light</button></li>
+    <li><button class="dropdown-item d-flex align-items-center theme-change-button" data-mode="dark"><i class="fa-solid fa-moon fa-lg fa-fw me-1"></i>Dark</button></li>
+  </ul>
+</div></div>
+        
+          <div class="navbar-item"><ul class="navbar-icon-links"
+    aria-label="Icon Links">
+        <li class="nav-item">
+          
+          
+          
+          
+          
+          
+          
+          
+          <a href="https://github.com/usnistgov/fireflow" title="GitHub" class="nav-link pst-navbar-icon" rel="noopener" target="_blank" data-bs-toggle="tooltip" data-bs-placement="bottom"><i class="fa-brands fa-github fa-lg" aria-hidden="true"></i><span class="visually-hidden">GitHub</span></a>
+        </li>
+</ul></div>
+        
+      </div>
+    
+  </div>
+  
+  
+  <div class="sidebar-primary-items__end sidebar-primary__section">
+      <div class="sidebar-primary-item">
+<div id="ethical-ad-placement"
+      class="flat"
+      data-ea-publisher="readthedocs"
+      data-ea-type="readthedocs-sidebar"
+      data-ea-manual="true">
+</div></div>
+  </div>
+
+
+      </div>
+      
+      <main id="main-content" class="bd-main" role="main">
+        
+        
+          <div class="bd-content">
+            <div class="bd-article-container">
+              
+              <div class="bd-header-article d-print-none"></div>
+              
+              
+              
+                
+<div id="searchbox"></div>
+                <article class="bd-article">
+                  
+
+<h1 id="index">Index</h1>
+
+<div class="genindex-jumpbox">
+ <a href="#A"><strong>A</strong></a>
+ | <a href="#B"><strong>B</strong></a>
+ | <a href="#C"><strong>C</strong></a>
+ | <a href="#D"><strong>D</strong></a>
+ | <a href="#E"><strong>E</strong></a>
+ | <a href="#F"><strong>F</strong></a>
+ | <a href="#G"><strong>G</strong></a>
+ | <a href="#H"><strong>H</strong></a>
+ | <a href="#I"><strong>I</strong></a>
+ | <a href="#K"><strong>K</strong></a>
+ | <a href="#M"><strong>M</strong></a>
+ | <a href="#N"><strong>N</strong></a>
+ | <a href="#O"><strong>O</strong></a>
+ | <a href="#P"><strong>P</strong></a>
+ | <a href="#R"><strong>R</strong></a>
+ | <a href="#S"><strong>S</strong></a>
+ | <a href="#T"><strong>T</strong></a>
+ | <a href="#U"><strong>U</strong></a>
+ | <a href="#V"><strong>V</strong></a>
+ | <a href="#W"><strong>W</strong></a>
+ 
+</div>
+<h2 id="A">A</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset3_2.all_analytes">all_analytes (pyreflow.CoreDataset3_2 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_analytes">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_2.all_awh_features">all_awh_features (pyreflow.CoreDataset3_2 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_awh_features">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_1.all_calibrations">all_calibrations (pyreflow.CoreDataset3_1 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_calibrations">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_calibrations">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_calibrations">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_2.all_detector_names">all_detector_names (pyreflow.CoreDataset3_2 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_detector_names">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_detector_types">all_detector_types (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_detector_types">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_detector_types">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_detector_types">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_detector_types">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_detector_types">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_detector_types">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_detector_types">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_detector_voltages">all_detector_voltages (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_detector_voltages">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_detector_voltages">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_detector_voltages">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_detector_voltages">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_detector_voltages">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_detector_voltages">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_detector_voltages">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_1.all_displays">all_displays (pyreflow.CoreDataset3_1 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_displays">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_displays">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_displays">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_2.all_features">all_features (pyreflow.CoreDataset3_2 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_features">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_filters">all_filters (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_filters">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_filters">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_filters">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_filters">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_filters">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_filters">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_filters">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_longnames">all_longnames (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_longnames">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_longnames">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_longnames">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_longnames">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_longnames">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_longnames">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_longnames">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_2.all_measurement_types">all_measurement_types (pyreflow.CoreDataset3_2 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_measurement_types">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_2.all_other_features">all_other_features (pyreflow.CoreDataset3_2 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_other_features">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_peak_bins">all_peak_bins (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_peak_bins">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_peak_bins">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_peak_bins">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_peak_bins">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_peak_bins">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_peak_sizes">all_peak_sizes (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_peak_sizes">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_peak_sizes">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_peak_sizes">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_peak_sizes">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_peak_sizes">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_percents_emitted">all_percents_emitted (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_percents_emitted">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_percents_emitted">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_percents_emitted">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_percents_emitted">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_percents_emitted">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_percents_emitted">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_percents_emitted">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_powers">all_powers (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_powers">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_powers">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_powers">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_powers">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_powers">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_powers">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_powers">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_scales">all_scales (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_scales">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_scales">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_scales">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_scales">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_scales">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_scales">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_scales">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_shortnames">all_shortnames (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_shortnames">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_shortnames">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_shortnames">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_shortnames">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_shortnames">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_shortnames">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_shortnames">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_shortnames_maybe">all_shortnames_maybe (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_shortnames_maybe">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_shortnames_maybe">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_shortnames_maybe">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset3_2.all_tags">all_tags (pyreflow.CoreDataset3_2 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_tags">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.all_wavelengths">all_wavelengths (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.all_wavelengths">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.all_wavelengths">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.all_wavelengths">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.all_wavelengths">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.all_wavelengths">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.all_wavelengths">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.all_wavelengths">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.AllowHeaderTextOffsetMismatch">AllowHeaderTextOffsetMismatch (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnalysisBytes">AnalysisBytes (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyCore">AnyCore (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyCoreDataset">AnyCoreDataset (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyCoreTEXT">AnyCoreTEXT (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyDataSchema3_2">AnyDataSchema3_2 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyFloatType">AnyFloatType (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyIntegerType">AnyIntegerType (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyMeas">AnyMeas (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyOptical">AnyOptical (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyTemporal">AnyTemporal (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AnyType">AnyType (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.typing.AppendableSelector">AppendableSelector (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AppliedGates2_0">AppliedGates2_0 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AppliedGates3_0">AppliedGates3_0 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AppliedGates3_2">AppliedGates3_2 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.typing.AsciiDataSchema">AsciiDataSchema (class in pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.AsciiType">AsciiType (in module pyreflow.typing)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Optical3_2.awh_feature">awh_feature (pyreflow.Optical3_2 attribute)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="B">B</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="data_schema.html#pyreflow.typing.BigLittleDataSchema">BigLittleDataSchema (class in pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.BigLittleF32DataSchema">BigLittleF32DataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.BigLittleF64DataSchema">BigLittleF64DataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="gating.html#pyreflow.BivariateRegion2_0">BivariateRegion2_0 (class in pyreflow)</a>
+</li>
+      <li><a href="gating.html#pyreflow.BivariateRegion3_0">BivariateRegion3_0 (class in pyreflow)</a>
+</li>
+      <li><a href="gating.html#pyreflow.BivariateRegion3_2">BivariateRegion3_2 (class in pyreflow)</a>
+</li>
+      <li><a href="misc.html#pyreflow.BuildInfo">BuildInfo (class in pyreflow)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.BigLittleF32DataSchema.byte_width">byte_width (pyreflow.BigLittleF32DataSchema attribute)</a>
+
+      <ul>
+        <li><a href="data_schema.html#pyreflow.BigLittleF64DataSchema.byte_width">(pyreflow.BigLittleF64DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedF32DataSchema.byte_width">(pyreflow.OrderedF32DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedF64DataSchema.byte_width">(pyreflow.OrderedF64DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.typing.MatrixDataSchema.byte_width">(pyreflow.typing.MatrixDataSchema property)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="data_schema.html#pyreflow.MixedDataSchema.byte_widths">byte_widths (pyreflow.MixedDataSchema attribute)</a>
+
+      <ul>
+        <li><a href="data_schema.html#pyreflow.VariableUintDataSchema.byte_widths">(pyreflow.VariableUintDataSchema attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.ByteOrd">ByteOrd (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.typing.OrderedDataSchema.byteord">byteord (pyreflow.typing.OrderedDataSchema property)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.ByteordOverride">ByteordOverride (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.ByteWidth">ByteWidth (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="C">C</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.Calibration3_1">Calibration3_1 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Calibration3_2">Calibration3_2 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.FixedAsciiDataSchema.char_widths">char_widths (pyreflow.FixedAsciiDataSchema attribute)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.check_ranges">check_ranges() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.check_ranges">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.check_ranges">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.check_ranges">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.Compensation">Compensation (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.ComputeCRC">ComputeCRC (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.typing.Condition">Condition (in module pyreflow.typing)</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.ConfigError">ConfigError</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="exceptions.html#pyreflow.ConversionError">ConversionError</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0">CoreDataset2_0 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset3_0">CoreDataset3_0 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset3_1">CoreDataset3_1 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset3_2">CoreDataset3_2 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreTEXT2_0">CoreTEXT2_0 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreTEXT3_0">CoreTEXT3_0 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreTEXT3_1">CoreTEXT3_1 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreTEXT3_2">CoreTEXT3_2 (class in pyreflow)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.CRCOutput">CRCOutput (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.CsvFlags">CsvFlags (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="D">D</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.DarkBytes">DarkBytes (in module pyreflow.typing)</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.DataLossError">DataLossError</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.DataSchemaDiagnostics">DataSchemaDiagnostics (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.DatasetDiagnostics">DatasetDiagnostics (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.DatasetOffsets">DatasetOffsets (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.DatasetSummary">DatasetSummary (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Datatype">Datatype (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.BigLittleF32DataSchema.datatype">datatype (pyreflow.BigLittleF32DataSchema attribute)</a>
+
+      <ul>
+        <li><a href="data_schema.html#pyreflow.BigLittleF64DataSchema.datatype">(pyreflow.BigLittleF64DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.DelimAsciiDataSchema.datatype">(pyreflow.DelimAsciiDataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.FixedAsciiDataSchema.datatype">(pyreflow.FixedAsciiDataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedF32DataSchema.datatype">(pyreflow.OrderedF32DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedF64DataSchema.datatype">(pyreflow.OrderedF64DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedUintDataSchema.datatype">(pyreflow.OrderedUintDataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.SingleUintDataSchema.datatype">(pyreflow.SingleUintDataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.typing.SingleTypedDataSchema.datatype">(pyreflow.typing.SingleTypedDataSchema property)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.VariableUintDataSchema.datatype">(pyreflow.VariableUintDataSchema attribute)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="data_schema.html#pyreflow.DelimAsciiDataSchema">DelimAsciiDataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.DelimEscapeMode">DelimEscapeMode (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Display">Display (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="E">E</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.Endian">Endian (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.typing.BigLittleDataSchema.endian">endian (pyreflow.typing.BigLittleDataSchema property)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="exceptions.html#pyreflow.EventDataError">EventDataError</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.ExtraKeywordError">ExtraKeywordError</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="F">F</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reader.html#pyreflow.api.fcs_read_flat_dataset">fcs_read_flat_dataset() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_flat_dataset_with_keywords">fcs_read_flat_dataset_with_keywords() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_flat_datasets">fcs_read_flat_datasets() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_flat_text">fcs_read_flat_text() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_flat_texts">fcs_read_flat_texts() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_header">fcs_read_header() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_std_dataset">fcs_read_std_dataset() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_std_datasets">fcs_read_std_datasets() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_std_text">fcs_read_std_text() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_read_std_texts">fcs_read_std_texts() (in module pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.fcs_summarize">fcs_summarize() (in module pyreflow.api)</a>
+</li>
+      <li><a href="writer.html#pyreflow.api.fcs_write_datasets">fcs_write_datasets() (in module pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.FCSVersion">FCSVersion (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Feature">Feature (in module pyreflow.typing)</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.FileLayoutError">FileLayoutError</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.FinalHeaderOffsets">FinalHeaderOffsets (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.FinalOffsets">FinalOffsets (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.FinalOtherOffsets">FinalOtherOffsets (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.FixedAsciiDataSchema">FixedAsciiDataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.FlankingSegmentName">FlankingSegmentName (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.FlatDatasetFromKwsOutput">FlatDatasetFromKwsOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.FlatDatasetOutput">FlatDatasetOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.FlatTEXTDiagnostics">FlatTEXTDiagnostics (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.FlatTEXTOutput">FlatTEXTOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.FloatRange">FloatRange (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.ForceLinearScale">ForceLinearScale (in module pyreflow.typing)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.from_kws">from_kws() (pyreflow.CoreDataset2_0 class method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.from_kws">(pyreflow.CoreDataset3_0 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.from_kws">(pyreflow.CoreDataset3_1 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.from_kws">(pyreflow.CoreDataset3_2 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.from_kws">(pyreflow.CoreTEXT2_0 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.from_kws">(pyreflow.CoreTEXT3_0 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.from_kws">(pyreflow.CoreTEXT3_1 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.from_kws">(pyreflow.CoreTEXT3_2 class method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="G">G</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="gating.html#pyreflow.GatedMeasurement">GatedMeasurement (class in pyreflow)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.GateScaleDiagnostic">GateScaleDiagnostic (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.GuessOtherWidth">GuessOtherWidth (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="H">H</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reader.html#pyreflow.api.Header">Header (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.HeaderAndSuppOffsets">HeaderAndSuppOffsets (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.HeaderNamedOffsets">HeaderNamedOffsets (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.HeaderOffsetsName">HeaderOffsetsName (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reader.html#pyreflow.api.HeaderOffsetsOverflow">HeaderOffsetsOverflow (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.HeaderOrSuppNamedOffsets">HeaderOrSuppNamedOffsets (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.HeaderOrSuppOffsetsName">HeaderOrSuppOffsetsName (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.HeaderToHeaderOffsetsOverlap">HeaderToHeaderOffsetsOverlap (class in pyreflow.api)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="I">I</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.insert_optical">insert_optical() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.insert_optical">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.insert_optical">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.insert_optical">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.insert_optical">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.insert_optical">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.insert_optical">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.insert_optical">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.insert_temporal">insert_temporal() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.insert_temporal">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.insert_temporal">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.insert_temporal">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.insert_temporal">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.insert_temporal">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.insert_temporal">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.insert_temporal">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.IntRange">IntRange (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.IntraSegmentDarkBytes">IntraSegmentDarkBytes (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.IntWidthOverride">IntWidthOverride (in module pyreflow.typing)</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.InvalidKeywordValueError">InvalidKeywordValueError</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.BigLittleF32DataSchema.is_float">is_float (pyreflow.BigLittleF32DataSchema attribute)</a>
+
+      <ul>
+        <li><a href="data_schema.html#pyreflow.BigLittleF64DataSchema.is_float">(pyreflow.BigLittleF64DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedF32DataSchema.is_float">(pyreflow.OrderedF32DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedF64DataSchema.is_float">(pyreflow.OrderedF64DataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.OrderedUintDataSchema.is_float">(pyreflow.OrderedUintDataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.SingleUintDataSchema.is_float">(pyreflow.SingleUintDataSchema attribute)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.typing.NumericDataSchema.is_float">(pyreflow.typing.NumericDataSchema property)</a>
+</li>
+        <li><a href="data_schema.html#pyreflow.VariableUintDataSchema.is_float">(pyreflow.VariableUintDataSchema attribute)</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+<h2 id="K">K</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.KeyOrBytes">KeyOrBytes (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.KeyPattern">KeyPattern (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.KeyPatterns">KeyPatterns (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.KeyString">KeyString (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.KeyStringPairs">KeyStringPairs (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.KeyStringValues">KeyStringValues (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.typing.KeyTest">KeyTest (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.KeywordVersionScore">KeywordVersionScore (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.KeywordVersionScores">KeywordVersionScores (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="M">M</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="data_schema.html#pyreflow.typing.MatrixDataSchema">MatrixDataSchema (class in pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.MaybeTypedMixedRange">MaybeTypedMixedRange (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.MaybeTypedVariableBitmask">MaybeTypedVariableBitmask (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.MeasIndex">MeasIndex (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.MeasScaleDiagnostic">MeasScaleDiagnostic (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurement">Measurement (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurement2_0">Measurement2_0 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurement3_0">Measurement3_0 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurement3_1">Measurement3_1 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurement3_2">Measurement3_2 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.measurement_at">measurement_at() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.measurement_at">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.measurement_at">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.measurement_at">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.measurement_at">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.measurement_at">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.measurement_at">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.measurement_at">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.measurement_named">measurement_named() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.measurement_named">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.measurement_named">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.measurement_named">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.measurement_named">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.measurement_named">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.measurement_named">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.measurement_named">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.Measurements">Measurements (in module pyreflow.typing)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.measurements">measurements (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.measurements">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.measurements">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.measurements">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.measurements">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.measurements">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.measurements">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.measurements">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.Measurements2_0">Measurements2_0 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurements3_0">Measurements3_0 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurements3_1">Measurements3_1 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Measurements3_2">Measurements3_2 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.MixedDataSchema">MixedDataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.MixedRange">MixedRange (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Mode">Mode (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Mode3_2">Mode3_2 (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="N">N</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.NamedOffsets">NamedOffsets (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.NEStr">NEStr (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.NEStrOrBytes">NEStrOrBytes (in module pyreflow.typing)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig.new_scalpal">new_scalpal() (pyreflow.pydantic.PyreflowReadFlatDatasetConfig class method)</a>
+
+      <ul>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig.new_scalpal">(pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatTEXTConfig.new_scalpal">(pyreflow.pydantic.PyreflowReadFlatTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadHeaderConfig.new_scalpal">(pyreflow.pydantic.PyreflowReadHeaderConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.new_scalpal">(pyreflow.pydantic.PyreflowReadStdDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdTEXTConfig.new_scalpal">(pyreflow.pydantic.PyreflowReadStdTEXTConfig class method)</a>
+</li>
+      </ul></li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig.new_sledgehammer">new_sledgehammer() (pyreflow.pydantic.PyreflowReadFlatDatasetConfig class method)</a>
+
+      <ul>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig.new_sledgehammer">(pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatTEXTConfig.new_sledgehammer">(pyreflow.pydantic.PyreflowReadFlatTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadHeaderConfig.new_sledgehammer">(pyreflow.pydantic.PyreflowReadHeaderConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.new_sledgehammer">(pyreflow.pydantic.PyreflowReadStdDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdTEXTConfig.new_sledgehammer">(pyreflow.pydantic.PyreflowReadStdTEXTConfig class method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pydantic.html#pyreflow.api.NewCoreDatasetConfig">NewCoreDatasetConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.NewCoreTEXTConfig">NewCoreTEXTConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.NewFlatDatasetFromKwsOutput">NewFlatDatasetFromKwsOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.NewStdDatasetFromKwsOutput">NewStdDatasetFromKwsOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.NonStdKey">NonStdKey (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.NonStdKeywords">NonStdKeywords (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.typing.NumericDataSchema">NumericDataSchema (class in pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="O">O</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.OffsetCorrection">OffsetCorrection (in module pyreflow.typing)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Optical2_0">Optical2_0 (class in pyreflow)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Optical3_0">Optical3_0 (class in pyreflow)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Optical3_1">Optical3_1 (class in pyreflow)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Optical3_2">Optical3_2 (class in pyreflow)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.OpticalKeyVals">OpticalKeyVals (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.OpticalOnlyKey">OpticalOnlyKey (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.OpticalScale2_0">OpticalScale2_0 (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.OpticalScale3_0">OpticalScale3_0 (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="data_schema.html#pyreflow.typing.OrderedDataSchema">OrderedDataSchema (class in pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.OrderedF32DataSchema">OrderedF32DataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.OrderedF64DataSchema">OrderedF64DataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.OrderedUintDataSchema">OrderedUintDataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.OriginalHeaderOffsets">OriginalHeaderOffsets (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Originality">Originality (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.OriginalOffsets">OriginalOffsets (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.OtherBytes">OtherBytes (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.OverLimitAction">OverLimitAction (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="P">P</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.par">par (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.par">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.par">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.par">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.par">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.par">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.par">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.par">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="exceptions.html#pyreflow.ParseKeyError">ParseKeyError</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.ParseKeywordValueError">ParseKeywordValueError</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.ProcessKeywordFailure">ProcessKeywordFailure (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.ProcessOpticalOnlyKeys">ProcessOpticalOnlyKeys (in module pyreflow.typing)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.push_optical">push_optical() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.push_optical">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.push_optical">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.push_optical">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.push_optical">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.push_optical">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.push_optical">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.push_optical">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.push_temporal">push_temporal() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.push_temporal">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.push_temporal">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.push_temporal">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.push_temporal">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.push_temporal">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.push_temporal">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.push_temporal">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="exceptions.html#pyreflow.PyreflowError">PyreflowError</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig">PyreflowReadFlatDatasetConfig (class in pyreflow.pydantic)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig">PyreflowReadFlatDatasetFromKeywordsConfig (class in pyreflow.pydantic)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatTEXTConfig">PyreflowReadFlatTEXTConfig (class in pyreflow.pydantic)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadHeaderConfig">PyreflowReadHeaderConfig (class in pyreflow.pydantic)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig">PyreflowReadStdDatasetConfig (class in pyreflow.pydantic)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdTEXTConfig">PyreflowReadStdTEXTConfig (class in pyreflow.pydantic)</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.PyreflowWarning">PyreflowWarning</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="R">R</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.Range">Range (in module pyreflow.typing)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig.read_flat_dataset">read_flat_dataset() (pyreflow.pydantic.PyreflowReadFlatDatasetConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig.read_flat_dataset_with_keywords">read_flat_dataset_with_keywords() (pyreflow.pydantic.PyreflowReadFlatDatasetFromKeywordsConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig.read_flat_datasets">read_flat_datasets() (pyreflow.pydantic.PyreflowReadFlatDatasetConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatTEXTConfig.read_flat_text">read_flat_text() (pyreflow.pydantic.PyreflowReadFlatTEXTConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatTEXTConfig.read_flat_texts">read_flat_texts() (pyreflow.pydantic.PyreflowReadFlatTEXTConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadHeaderConfig.read_header">read_header() (pyreflow.pydantic.PyreflowReadHeaderConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.read_std_dataset">read_std_dataset() (pyreflow.pydantic.PyreflowReadStdDatasetConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.read_std_datasets">read_std_datasets() (pyreflow.pydantic.PyreflowReadStdDatasetConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdTEXTConfig.read_std_text">read_std_text() (pyreflow.pydantic.PyreflowReadStdTEXTConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdTEXTConfig.read_std_texts">read_std_texts() (pyreflow.pydantic.PyreflowReadStdTEXTConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetConfig">ReadFlatDatasetConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetFromKeywordsConfig">ReadFlatDatasetFromKeywordsConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.ReadFlatTEXTConfig">ReadFlatTEXTConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.ReadHeaderConfig">ReadHeaderConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.ReadStdDatasetConfig">ReadStdDatasetConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.ReadStdTEXTConfig">ReadStdTEXTConfig (class in pyreflow.api)</a>
+</li>
+      <li><a href="exceptions.html#pyreflow.RelationalError">RelationalError</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.remove_measurement_by_index">remove_measurement_by_index() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.remove_measurement_by_index">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.remove_measurement_by_index">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.remove_measurement_by_index">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.remove_measurement_by_index">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.remove_measurement_by_index">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.remove_measurement_by_index">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.remove_measurement_by_index">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.remove_measurement_by_name">remove_measurement_by_name() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.remove_measurement_by_name">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.remove_measurement_by_name">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.remove_measurement_by_name">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.remove_measurement_by_name">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.remove_measurement_by_name">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.remove_measurement_by_name">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.remove_measurement_by_name">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.rename_temporal">rename_temporal() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.rename_temporal">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.rename_temporal">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.rename_temporal">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.rename_temporal">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.rename_temporal">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.rename_temporal">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.rename_temporal">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reader.html#pyreflow.api.RepairDiagnostics">RepairDiagnostics (class in pyreflow.api)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.replace_optical_at">replace_optical_at() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.replace_optical_at">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.replace_optical_at">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.replace_optical_at">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.replace_optical_at">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.replace_optical_at">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.replace_optical_at">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.replace_optical_at">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.replace_optical_named">replace_optical_named() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.replace_optical_named">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.replace_optical_named">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.replace_optical_named">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.replace_optical_named">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.replace_optical_named">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.replace_optical_named">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.replace_optical_named">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.replace_temporal_at">replace_temporal_at() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.replace_temporal_at">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.replace_temporal_at">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.replace_temporal_at">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.replace_temporal_at">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.replace_temporal_at">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.replace_temporal_at">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.replace_temporal_at">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.replace_temporal_named">replace_temporal_named() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.replace_temporal_named">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.replace_temporal_named">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.replace_temporal_named">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.replace_temporal_named">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.replace_temporal_named">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.replace_temporal_named">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.replace_temporal_named">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.ReqOrOpt">ReqOrOpt (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.RootOrMeas">RootOrMeas (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="S">S</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pydantic.html#pyreflow.api.NewCoreDatasetConfig.scalpal">scalpal() (pyreflow.api.NewCoreDatasetConfig class method)</a>
+
+      <ul>
+        <li><a href="pydantic.html#pyreflow.api.NewCoreTEXTConfig.scalpal">(pyreflow.api.NewCoreTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetConfig.scalpal">(pyreflow.api.ReadFlatDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetFromKeywordsConfig.scalpal">(pyreflow.api.ReadFlatDatasetFromKeywordsConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatTEXTConfig.scalpal">(pyreflow.api.ReadFlatTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadHeaderConfig.scalpal">(pyreflow.api.ReadHeaderConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadStdDatasetConfig.scalpal">(pyreflow.api.ReadStdDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadStdTEXTConfig.scalpal">(pyreflow.api.ReadStdTEXTConfig class method)</a>
+</li>
+      </ul></li>
+      <li><a href="reader.html#pyreflow.typing.Selector">Selector (in module pyreflow.typing)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_measurements_and_data">set_measurements_and_data() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_measurements_and_data">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_measurements_and_data">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_measurements_and_data">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_measurements_and_data_schema">set_measurements_and_data_schema() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_measurements_and_data_schema">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_measurements_and_data_schema">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_measurements_and_data_schema">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.set_measurements_and_data_schema">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.set_measurements_and_data_schema">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.set_measurements_and_data_schema">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.set_measurements_and_data_schema">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_measurements_data_schema_and_data">set_measurements_data_schema_and_data() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_measurements_data_schema_and_data">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_measurements_data_schema_and_data">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_measurements_data_schema_and_data">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_named_measurements">set_named_measurements() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_named_measurements">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_named_measurements">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_named_measurements">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.set_named_measurements">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.set_named_measurements">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.set_named_measurements">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.set_named_measurements">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_named_measurements_and_data">set_named_measurements_and_data() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_named_measurements_and_data">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_named_measurements_and_data">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_named_measurements_and_data">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_named_measurements_and_data_schema">set_named_measurements_and_data_schema() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_named_measurements_and_data_schema">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_named_measurements_and_data_schema">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_named_measurements_and_data_schema">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.set_named_measurements_and_data_schema">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.set_named_measurements_and_data_schema">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.set_named_measurements_and_data_schema">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.set_named_measurements_and_data_schema">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_temporal">set_temporal() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_temporal">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_temporal">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_temporal">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.set_temporal">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.set_temporal">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.set_temporal">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.set_temporal">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_temporal_at">set_temporal_at() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_temporal_at">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_temporal_at">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_temporal_at">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.set_temporal_at">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.set_temporal_at">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.set_temporal_at">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.set_temporal_at">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset3_0.set_timestep">set_timestep() (pyreflow.CoreDataset3_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_timestep">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_timestep">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.set_timestep">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.set_timestep">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.set_timestep">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.set_trigger_threshold">set_trigger_threshold() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.set_trigger_threshold">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.set_trigger_threshold">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.set_trigger_threshold">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.set_trigger_threshold">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.set_trigger_threshold">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.set_trigger_threshold">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.set_trigger_threshold">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.Shortname">Shortname (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.typing.SingleTypedDataSchema">SingleTypedDataSchema (class in pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.SingleUintDataSchema">SingleUintDataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.NewCoreDatasetConfig.sledgehammer">sledgehammer() (pyreflow.api.NewCoreDatasetConfig class method)</a>
+
+      <ul>
+        <li><a href="pydantic.html#pyreflow.api.NewCoreTEXTConfig.sledgehammer">(pyreflow.api.NewCoreTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetConfig.sledgehammer">(pyreflow.api.ReadFlatDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetFromKeywordsConfig.sledgehammer">(pyreflow.api.ReadFlatDatasetFromKeywordsConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatTEXTConfig.sledgehammer">(pyreflow.api.ReadFlatTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadHeaderConfig.sledgehammer">(pyreflow.api.ReadHeaderConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadStdDatasetConfig.sledgehammer">(pyreflow.api.ReadStdDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadStdTEXTConfig.sledgehammer">(pyreflow.api.ReadStdTEXTConfig class method)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.Spillover">Spillover (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.SpilloverMeasurementMode">SpilloverMeasurementMode (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.SplitTEXTDiagnostics">SplitTEXTDiagnostics (class in pyreflow.api)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.standard_keywords">standard_keywords() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.standard_keywords">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.standard_keywords">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.standard_keywords">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.standard_keywords">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.standard_keywords">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.standard_keywords">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.standard_keywords">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="reader.html#pyreflow.api.StdDatasetFromKwsOutput">StdDatasetFromKwsOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.StdDatasetOutput">StdDatasetOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.StdKey">StdKey (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.StdKeywords">StdKeywords (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.StdTEXTDiagnostics">StdTEXTDiagnostics (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.StdTEXTOutput">StdTEXTOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.api.NewCoreDatasetConfig.strict">strict() (pyreflow.api.NewCoreDatasetConfig class method)</a>
+
+      <ul>
+        <li><a href="pydantic.html#pyreflow.api.NewCoreTEXTConfig.strict">(pyreflow.api.NewCoreTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetConfig.strict">(pyreflow.api.ReadFlatDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatDatasetFromKeywordsConfig.strict">(pyreflow.api.ReadFlatDatasetFromKeywordsConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadFlatTEXTConfig.strict">(pyreflow.api.ReadFlatTEXTConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadHeaderConfig.strict">(pyreflow.api.ReadHeaderConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadStdDatasetConfig.strict">(pyreflow.api.ReadStdDatasetConfig class method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.api.ReadStdTEXTConfig.strict">(pyreflow.api.ReadStdTEXTConfig class method)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.SubPattern">SubPattern (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.SubPatterns">SubPatterns (in module pyreflow.typing)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig.summarize">summarize() (pyreflow.pydantic.PyreflowReadFlatDatasetConfig method)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.SuppOffsetsOverflow">SuppOffsetsOverflow (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.SuppTEXTNamedOffsets">SuppTEXTNamedOffsets (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.SuppTextOffsetsName">SuppTextOffsetsName (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.SuppTEXTOffsetsOriginType">SuppTEXTOffsetsOriginType (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.SuppTEXTOffsetsOutput">SuppTEXTOffsetsOutput (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.SuppToHeaderOffsetsOverlap">SuppToHeaderOffsetsOverlap (class in pyreflow.api)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="T">T</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.temporal">temporal (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.temporal">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.temporal">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.temporal">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.temporal">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.temporal">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.temporal">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.temporal">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="measurement.html#pyreflow.Temporal2_0">Temporal2_0 (class in pyreflow)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Temporal3_0">Temporal3_0 (class in pyreflow)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Temporal3_1">Temporal3_1 (class in pyreflow)</a>
+</li>
+      <li><a href="measurement.html#pyreflow.Temporal3_2">Temporal3_2 (class in pyreflow)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.TextNamedOffsets">TextNamedOffsets (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.TextOffsetsName">TextOffsetsName (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.TEXTOffsetsOrigin">TEXTOffsetsOrigin (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.TEXTOffsetsOriginType">TEXTOffsetsOriginType (in module pyreflow.typing)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.TextOffsetsOverflow">TextOffsetsOverflow (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.TextToHeaderOffsetsOverlap">TextToHeaderOffsetsOverlap (class in pyreflow.api)</a>
+</li>
+      <li><a href="reader.html#pyreflow.api.TextToHeaderOrSuppOffsetsOverlap">TextToHeaderOrSuppOffsetsOverlap (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Timestep">Timestep (in module pyreflow.typing)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset3_0.timestep">timestep (pyreflow.CoreDataset3_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.timestep">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.timestep">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.timestep">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.timestep">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.timestep">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreTEXT2_0.to_dataset">to_dataset() (pyreflow.CoreTEXT2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.to_dataset">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.to_dataset">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.to_dataset">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.to_flat_dataset_config">to_flat_dataset_config() (pyreflow.pydantic.PyreflowReadStdDatasetConfig method)</a>
+</li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig.to_flat_text_config">to_flat_text_config() (pyreflow.pydantic.PyreflowReadFlatDatasetConfig method)</a>
+
+      <ul>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.to_flat_text_config">(pyreflow.pydantic.PyreflowReadStdDatasetConfig method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdTEXTConfig.to_flat_text_config">(pyreflow.pydantic.PyreflowReadStdTEXTConfig method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatDatasetConfig.to_header_config">to_header_config() (pyreflow.pydantic.PyreflowReadFlatDatasetConfig method)</a>
+
+      <ul>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadFlatTEXTConfig.to_header_config">(pyreflow.pydantic.PyreflowReadFlatTEXTConfig method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.to_header_config">(pyreflow.pydantic.PyreflowReadStdDatasetConfig method)</a>
+</li>
+        <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdTEXTConfig.to_header_config">(pyreflow.pydantic.PyreflowReadStdTEXTConfig method)</a>
+</li>
+      </ul></li>
+      <li><a href="pydantic.html#pyreflow.pydantic.PyreflowReadStdDatasetConfig.to_std_text_config">to_std_text_config() (pyreflow.pydantic.PyreflowReadStdDatasetConfig method)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset3_0.to_version_2_0">to_version_2_0() (pyreflow.CoreDataset3_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.to_version_2_0">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.to_version_2_0">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.to_version_2_0">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.to_version_2_0">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.to_version_2_0">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.to_version_3_0">to_version_3_0() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.to_version_3_0">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.to_version_3_0">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.to_version_3_0">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.to_version_3_0">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.to_version_3_0">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.to_version_3_1">to_version_3_1() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.to_version_3_1">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.to_version_3_1">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.to_version_3_1">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.to_version_3_1">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.to_version_3_1">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.to_version_3_2">to_version_3_2() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.to_version_3_2">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.to_version_3_2">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.to_version_3_2">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.to_version_3_2">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.to_version_3_2">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.TriFlag">TriFlag (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.Trigger">Trigger (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.TrimValueWhitespace">TrimValueWhitespace (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="U">U</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.Unicode">Unicode (in module pyreflow.typing)</a>
+</li>
+      <li><a href="gating.html#pyreflow.UnivariateRegion2_0">UnivariateRegion2_0 (class in pyreflow)</a>
+</li>
+      <li><a href="gating.html#pyreflow.UnivariateRegion3_0">UnivariateRegion3_0 (class in pyreflow)</a>
+</li>
+      <li><a href="gating.html#pyreflow.UnivariateRegion3_2">UnivariateRegion3_2 (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.unset_data">unset_data() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.unset_data">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.unset_data">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.unset_data">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreTEXT2_0.unset_measurements">unset_measurements() (pyreflow.CoreTEXT2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.unset_measurements">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.unset_measurements">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.unset_measurements">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.unset_temporal">unset_temporal() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.unset_temporal">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.unset_temporal">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.unset_temporal">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.unset_temporal">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.unset_temporal">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.unset_temporal">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.unset_temporal">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="aliases.html#pyreflow.typing.UnstainedCenters">UnstainedCenters (in module pyreflow.typing)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.UseEncoding">UseEncoding (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="V">V</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="reader.html#pyreflow.api.ValidKeywords">ValidKeywords (class in pyreflow.api)</a>
+</li>
+      <li><a href="aliases.html#pyreflow.typing.VariableBitmask">VariableBitmask (in module pyreflow.typing)</a>
+</li>
+      <li><a href="data_schema.html#pyreflow.VariableUintDataSchema">VariableUintDataSchema (class in pyreflow)</a>
+</li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.version">version (pyreflow.CoreDataset2_0 attribute)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.version">(pyreflow.CoreDataset3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.version">(pyreflow.CoreDataset3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.version">(pyreflow.CoreDataset3_2 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.version">(pyreflow.CoreTEXT2_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.version">(pyreflow.CoreTEXT3_0 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.version">(pyreflow.CoreTEXT3_1 attribute)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.version">(pyreflow.CoreTEXT3_2 attribute)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="aliases.html#pyreflow.typing.VersionOverride">VersionOverride (in module pyreflow.typing)</a>
+</li>
+  </ul></td>
+</tr></table>
+
+<h2 id="W">W</h2>
+<table style="width: 100%" class="indextable genindextable"><tr>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.write_dataset">write_dataset() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.write_dataset">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.write_dataset">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.write_dataset">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+      </ul></li>
+      <li><a href="core.html#pyreflow.CoreDataset2_0.write_text">write_text() (pyreflow.CoreDataset2_0 method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreDataset3_0.write_text">(pyreflow.CoreDataset3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_1.write_text">(pyreflow.CoreDataset3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreDataset3_2.write_text">(pyreflow.CoreDataset3_2 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT2_0.write_text">(pyreflow.CoreTEXT2_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.write_text">(pyreflow.CoreTEXT3_0 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.write_text">(pyreflow.CoreTEXT3_1 method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.write_text">(pyreflow.CoreTEXT3_2 method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+  <td style="width: 33%; vertical-align: top;"><ul>
+      <li><a href="core.html#pyreflow.CoreTEXT2_0.write_texts">write_texts() (pyreflow.CoreTEXT2_0 class method)</a>
+
+      <ul>
+        <li><a href="core.html#pyreflow.CoreTEXT3_0.write_texts">(pyreflow.CoreTEXT3_0 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_1.write_texts">(pyreflow.CoreTEXT3_1 class method)</a>
+</li>
+        <li><a href="core.html#pyreflow.CoreTEXT3_2.write_texts">(pyreflow.CoreTEXT3_2 class method)</a>
+</li>
+      </ul></li>
+  </ul></td>
+</tr></table>
+
+
+
+                </article>
+              
+              
+              
+              
+              
+                <footer class="prev-next-footer d-print-none">
+                  
+<div class="prev-next-area">
+</div>
+                </footer>
+              
+            </div>
+            
+            
+              
+            
+          </div>
+          <footer class="bd-footer-content">
+            
+          </footer>
+        
+      </main>
+    </div>
+  </div>
+  
+  <!-- Scripts loaded after <body> so the DOM is not blocked -->
+  <script defer src="_static/scripts/bootstrap.js?digest=cb8930eaaf36d9849b67"></script>
+<script defer src="_static/scripts/pydata-sphinx-theme.js?digest=cb8930eaaf36d9849b67"></script>
+
+  <footer class="bd-footer">
+<div class="bd-footer__inner bd-page-width">
+  
+    <div class="footer-items__start">
+      
+        <div class="footer-item">
+
+  <p class="copyright">
+    
+      © Copyright 2026, Nate Dwarshuis.
+      <br/>
+    
+  </p>
+</div>
+      
+        <div class="footer-item">
+
+  <p class="sphinx-version">
+    Created using <a href="https://www.sphinx-doc.org/">Sphinx</a> 9.1.0.
+    <br/>
+  </p>
+</div>
+      
+    </div>
+  
+  
+  
+    <div class="footer-items__end">
+      
+        <div class="footer-item">
+<p class="theme-version">
+  <!-- # L10n: Setting the PST URL as an argument as this does not need to be localized -->
+  Built with the <a href="https://pydata-sphinx-theme.readthedocs.io/en/stable/index.html">PyData Sphinx Theme</a> 0.21.0.
+</p></div>
+      
+    </div>
+  
+</div>
+
+  </footer>
+  </body>
+</html>

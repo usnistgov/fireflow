@@ -1,0 +1,309 @@
+Reader Functions
+================
+
+The following are functions which read various components of FCS files.
+
+Dataset parsing
+---------------
+
+The majority of the functions in this section are intended to read *TEXT*,
+possibly with accompanying data, possibly from multiple datasets in an FCS file.
+
+These are summarized below:
+
+.. list-table::
+   :header-rows: 1
+
+   * - Function
+     - Parse Mode
+     - Includes Data
+     - Dataset Number
+   * - :func:`~pyreflow.api.fcs_read_flat_text`
+     - flat
+     - no
+     - one
+   * - :func:`~pyreflow.api.fcs_read_std_text`
+     - standard
+     - no
+     - one
+   * - :func:`~pyreflow.api.fcs_read_flat_dataset`
+     - flat
+     - yes
+     - one
+   * - :func:`~pyreflow.api.fcs_read_std_dataset`
+     - standard
+     - yes
+     - one
+   * - :func:`~pyreflow.api.fcs_read_flat_texts`
+     - flat
+     - no
+     - many
+   * - :func:`~pyreflow.api.fcs_read_std_texts`
+     - standard
+     - no
+     - many
+   * - :func:`~pyreflow.api.fcs_read_flat_datasets`
+     - flat
+     - yes
+     - many
+   * - :func:`~pyreflow.api.fcs_read_std_datasets`
+     - standard
+     - yes
+     - many
+
+Each column denotes the category to which each function belongs and its intended
+purpose:
+
+*Parse Mode:*
+
+This refers to the method used to parse *TEXT*. "Flat" mode treats *TEXT* as a
+flat list of keywords and does not further processing. "Standard" mode attempts
+to collect this flat list into a well-defined data structure which in
+``pyreflow`` is a version-specific python class (see :ref:`coretext` and
+:ref:`coredataset`).
+
+"Standard" mode requires that *TEXT* first be parsed in "flat" mode, which
+implies the latter is more lenient with regard to deviations from the FCS
+standard.
+
+*Includes Data:*
+
+If "yes", the function will include *DATA*, *ANALYSIS*, and *OTHER* segments in
+the returned object. Otherwise it will just include the *TEXT* segment.
+
+*Dataset Number:*
+
+This refers to the number of datasets in an FCS file that can be parsed by the
+function. If a function is "singular", it can only parse the first dataset.
+Otherwise it can parse multiple datasets from a file, and returns these in a
+list rather than a single object.
+
+The vast majority of FCS files only have one dataset, so the singular functions
+are simpler to use for many cases since they do not require any flags to be set
+to read one dataset.
+
+Singular functions optionally take an ``dataset_offset`` argument which can be
+used to "jump" to any dataset in a file (assuming obviously one knows where it
+is).
+
+Plural functions take ``skip`` and ``limit`` arguments. The former will skip the
+first ``n`` datasets when returning the final list (although the *TEXT* for all
+datasets will still be read to get *$NEXTDATA*). ``limit`` will stop the parser
+after ``n`` datasets have been parsed. The defaults for these are both ``None``
+which will tell the parser to exhaustively read all datasets.
+
+*HEADER* parsing
+----------------
+
+:func:`~pyreflow.api.fcs_read_header` merely reads the first *HEADER* in an FSC
+file.
+
+There is no plural (multi-dataset) version of this function since reading
+multiple datasets requires *TEXT* to be parsed to obtain *NEXTDATA*
+
+This function also takes a ``dataset_offset`` argument, so one can theoretically
+read any *HEADER* in the file if one knows its offset.
+
+Summarization
+-------------
+
+:func:`~pyreflow.api.fcs_summarize` will provide a high-level summary of an
+FCS file.
+
+Offline keyword repair
+----------------------
+
+:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords` can be used to parse
+a flat list of keyword pairs into a dataset.
+
+Sometimes, the flags provided by :func:`~pyreflow.api.fcs_read_flat_dataset` are
+not enough to repair any issues in *TEXT* that might make a file unreadable.
+
+In these cases, one can read *TEXT* in flat mode using
+:func:`~pyreflow.api.fcs_read_flat_text`, repair the keywords and/or offsets
+out-of-band, and then feed these into
+:func:`~pyreflow.api.fcs_read_flat_dataset_with_keywords`.
+
+This only applies to flat mode. For the standardized analogue, see the
+``from_kws`` methods in :ref:`coretext` and :ref:`coredataset`.
+
+
+All functions
+-------------
+
+.. autofunction:: pyreflow.api.fcs_read_flat_text
+
+.. autofunction:: pyreflow.api.fcs_read_std_text
+
+.. autofunction:: pyreflow.api.fcs_read_flat_dataset
+
+.. autofunction:: pyreflow.api.fcs_read_std_dataset
+
+.. autofunction:: pyreflow.api.fcs_read_flat_texts
+
+.. autofunction:: pyreflow.api.fcs_read_std_texts
+
+.. autofunction:: pyreflow.api.fcs_read_flat_datasets
+
+.. autofunction:: pyreflow.api.fcs_read_std_datasets
+
+.. autofunction:: pyreflow.api.fcs_read_header
+
+.. autofunction:: pyreflow.api.fcs_read_flat_dataset_with_keywords
+
+.. autofunction:: pyreflow.api.fcs_summarize
+
+Outputs
+-------
+
+These are neatly bundled classes of data returned by each of the functions
+above.
+
+.. autoclass:: pyreflow.api.Header
+   :members:
+
+.. autoclass:: pyreflow.api.FlatTEXTOutput
+   :members:
+  
+.. autoclass:: pyreflow.api.StdTEXTOutput
+   :members:
+
+.. autoclass:: pyreflow.api.FlatDatasetOutput
+   :members:
+
+.. autoclass:: pyreflow.api.StdDatasetOutput
+   :members:
+
+.. autoclass:: pyreflow.api.NewFlatDatasetFromKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.NewStdDatasetFromKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.DatasetSummary
+   :members:
+
+Diagnostic outputs
+------------------
+
+These are clusters of output data specifically meant to "diagnose" problems that
+were identified with FCS files (example, keywords that were dropped because
+they could not be parsed). Use these to reverse-engineer what problems an
+FCS file may have.
+
+.. autoclass:: pyreflow.api.FlatTEXTDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.SplitTEXTDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.StdTEXTDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.RepairDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.DataSchemaDiagnostics
+   :members:
+
+.. autoclass:: pyreflow.api.DatasetDiagnostics
+   :members:
+  
+Offset Outputs
+--------------
+
+Data corresponding to the offsets that were used to parse an FCS file.
+
+.. autoclass:: pyreflow.api.OriginalHeaderOffsets
+   :members:
+
+.. autoclass:: pyreflow.api.FinalHeaderOffsets
+   :members:
+
+.. autoclass:: pyreflow.api.HeaderAndSuppOffsets
+   :members:
+
+.. autoclass:: pyreflow.api.DatasetOffsets
+   :members:
+
+.. autoclass:: pyreflow.api.SuppTEXTOffsetsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.TEXTOffsetsOrigin
+   :members:
+
+Offset Overflow Outputs
++++++++++++++++++++++++
+
+These classes are produced when an offset pair exceeds *$NEXTDATA* or EOF (end
+of file)
+
+.. autoclass:: pyreflow.api.HeaderOffsetsOverflow
+   :members:
+
+.. autoclass:: pyreflow.api.TextOffsetsOverflow
+   :members:
+
+.. autoclass:: pyreflow.api.SuppOffsetsOverflow
+   :members:
+
+Offset-Offset Overlap Outputs
++++++++++++++++++++++++++++++
+
+These classes are produced when two offsets overlap each other.
+
+.. autoclass:: pyreflow.api.HeaderToHeaderOffsetsOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.TextToHeaderOffsetsOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.SuppToHeaderOffsetsOverlap
+   :members:
+
+.. autoclass:: pyreflow.api.TextToHeaderOrSuppOffsetsOverlap
+   :members:
+
+Misc outputs
+--------------
+
+.. autoclass:: pyreflow.api.ValidKeywords
+   :members:
+
+.. autoclass:: pyreflow.api.IntraSegmentDarkBytes
+   :members:
+
+.. autoclass:: pyreflow.api.FlatDatasetFromKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.StdDatasetFromKwsOutput
+   :members:
+
+.. autoclass:: pyreflow.api.KeywordVersionScore
+   :members:
+
+
+Dynamic value selectors based on keywords
++++++++++++++++++++++++++++++++++++++++++
+
+Some options can be selectively chosen based on the value of keywords present in
+the FCS dataset. For instance, some files name the time measurement as
+``"HDR-T"`` rather than the compliant ``"TIME"`` or ``"Time"``, so the value of
+``time_meas_pattern`` must be set accordingly depending on the machine in use
+(which often be found with the *$CYT* keyword).
+
+These type aliases look complicated but are actually Lisp-like expressions for
+the functions ``if`` and ``cond`` with specialized identifiers which evaluated
+to true or false depending on if a keyword is present and/or a certain value.
+
+The above case for ``"HDR-T"`` (with a new AI-powered cytometer from Cytodyne
+Sytems named ``"T-1000"``) can be written as
+``("if", ("key_is", "$CYT", "T-1000"), "HDR-T")``.
+
+.. autotype:: pyreflow.typing.Selector
+
+.. autotype:: pyreflow.typing.AppendableSelector
+
+.. autotype:: pyreflow.typing.Condition
+
+.. autotype:: pyreflow.typing.KeyTest

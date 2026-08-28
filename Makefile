@@ -67,21 +67,10 @@ build-prod: pyreflow/.venv
 all-dev: rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 
 docs_out_current=docs/build/
-docs_out_all=docs/build_all/
-docs_tmp=docs/build_tmp/
 
 .PHONY: docs
 docs: build-dev
 	$(uv_run) docs/build.sh docs/source/ $(docs_out_current)
-
-.PHONY: all-docs
-all-docs: build-dev
-	$(uv_run) docs/build_multi.sh $(docs_out_all) $(docs_tmp) docs/refs.txt
-
-.PHONY: clean-all-docs
-clean-all-docs:
-	rm -rf pyreflow/$(docs_out_all)
-	rm -rf pyreflow/$(docs_tmp)
 
 .PHONY: clean
 clean:  
@@ -91,6 +80,25 @@ clean:
 	rm -rf pyreflow/.pytest_cache
 	rm -rf pyreflow/.ruff_cache
 	cargo clean
+
+docs_out_all=pyreflow/docs/build_all/
+docs_tmp=pyreflow/docs/build_tmp/
+
+version_file    = pyreflow/docs/refs.txt
+versions       := $(file < $(version_file))
+version_outputs = $(patsubst %,$(docs_out_all)/%,$(versions)) 
+rs_target := $(shell realpath target)
+
+$(version_outputs): $(docs_out_all)/%:
+	pyreflow/docs/build_version.sh $(docs_out_all) $(docs_tmp) $(rs_target) $*
+
+.PHONY: all-docs
+all-docs: $(version_outputs)
+
+.PHONY: clean-all-docs
+clean-all-docs:
+	rm -rf pyreflow/$(docs_out_all)
+	rm -rf pyreflow/$(docs_tmp)
 
 #
 # Benchmarking pipeline

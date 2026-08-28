@@ -15,7 +15,7 @@ chrono = { workspace = true }
 derive_more = { workspace = true, features = ["from", "into"] }
 polars-arrow = { workspace = true }
 polars = { workspace = true, default-features = false }
-pyo3 = { workspace = true }
+pyo3 = { workspace = true, features = ["abi3-py312"] }
 pyo3-polars = { workspace = true }
 type_families = { path = "../type_families" }
 

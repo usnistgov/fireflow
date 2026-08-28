@@ -3,7 +3,7 @@
 The following are benchmarking results for the `fireflow` library, including
 comparisons with existing FCS parsing tools.
 
-This benchmark was created on Aug 28 2026 20:10 (UTC).
+This benchmark was created on Aug 28 2026 20:12 (UTC).
 
 ## Comparison Results
 
@@ -22,7 +22,7 @@ intervals assuming normal sampling distribution.
 ### *TEXT* + *DATA* Read Speed
 
 `flowCore` is many times slower than the other libaries, so it is not shown
-here. See [Appendix A](a-text--data-read-speed-with-flowcore) for full plot.
+here. See [Appendix A](#a-text--data-read-speed-with-flowcore) for full plot.
 
 ![read_data_noflowcore](static/read_data_no_flowcore.svg)
 
@@ -252,10 +252,10 @@ number was used across all test FCS files.
 | library | read_text_runs | read_data_runs | write_text_runs | write_data_runs |
 | --- | --- | --- | --- | --- |
 | flowio | 10 | 10 | 10 | 10 |
-| flowCore | 3 | 3 | 3 | 3 |
-| fcsparser | 10 | 10 | None | None |
-| fireflow | 100 | 30 | 100 | 10 |
 | fireflow_fix | 100 | 30 | 100 | 10 |
+| fireflow | 100 | 30 | 100 | 10 |
+| fcsparser | 10 | 10 | None | None |
+| flowCore | 3 | 3 | 3 | 3 |
 
 A given experiment consisted of all combinations of test FCS file, library, and
 target metric repeated N times as given in the above table. Prior to performing
@@ -508,7 +508,7 @@ The execution times in this benchmark will only reflect a real user's experience
 tight loop. This means that the files are loaded in the page cache which
 eliminates disk IO overhead. This will not be the case when many FCS files are
 read cold from disk and processed once. For many files, disk access will
-bottleneck before parsing (see [Appendix B](b-comparison-to-disk-throughput) for
+bottleneck before parsing (see [Appendix B](#b-comparison-to-disk-throughput) for
 discussion on this).
 
 This limitation exists because the alternative would require evicting the page

@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 import pyreflow._pyreflow as pf
 from typing import Literal
 import numpy as np
-import numpy.typing as npt
 
 #
 # Config flags and values
@@ -509,10 +508,12 @@ list corresponds to $CSMODE.
 
 """
 
-type Compensation = npt.NDArray[np.float32]
+type Compensation = np.ndarray[tuple[int, int], np.dtype[np.float32]]
 """The value of the compensation matrix."""
 
-type Spillover = tuple[list[Shortname], npt.NDArray[np.float32]]
+type Spillover = tuple[
+    list[Shortname], np.ndarray[tuple[int, int], np.dtype[np.float32]]
+]
 """The value of *$SPILLOVER* for FCS 3.1/3.2.
 
 The first element of the tuple corresponds to the row and column

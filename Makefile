@@ -1,3 +1,10 @@
+#
+# Testing/Docs Pipeline
+#
+# Technically the docs and tests can be run separately but they reuse many of
+# the same components. Namely, they all use the same python venv to run the
+# python tests and also share the same rust target.
+
 VENV=.venv
 
 uv_at = uv --directory pyreflow
@@ -85,54 +92,76 @@ clean:
 	rm -rf pyreflow/.ruff_cache
 	cargo clean
 
-# NOTE: all benchmark paths are relative to the uv runtime directory (which is
-# pyreflow)
+#
+# Benchmarking pipeline
+#
+# This is separate from the above pipeline because it relies on a conda env
+# rather than a python venv. This is necessary because flowCore is R-based (venv
+# is automatically out) and the python libraries we wish to test in parallel
+# (flowio et al) to fireflow have dependency trees that should not pollute the
+# testing pipeline (namely fcsparser requires numpy 1.x).
 
-bench_script = bench/bench.py
-bench_inputs = bench/inputs
+bench_root = pyreflow/bench
+bench_script = $(bench_root)/bench.py
+bench_inputs = $(bench_root)/inputs
+bench_outputs = $(bench_root)/outputs
 bench_files = $(bench_inputs)/bench_files.tsv
-bench_all_ff = bench/outputs/bench_all_ff.tsv
-bench_checks = bench/outputs/checks.tsv
-bench_all = bench/outputs/bench_all.tsv
-bench_readme = bench/README.md
+bench_all_ff = $(bench_outputs)/bench_all_ff.tsv
+bench_checks = $(bench_outputs)/checks.tsv
+bench_all = $(bench_outputs)/bench_all.tsv
+bench_readme = $(bench_root)/README.md
+bench_static = $(bench_root)/static
+bench_readme_template = $(bench_root)/templates/README.j2
+bench_env = $(bench_root)/conda_env
+
 bench_scratch = /tmp/fireflow_bench/scratch
-bench_static = bench/static
-bench_readme_template = bench/templates/README.j2
+bench_env_spec = env.yml
 
-# NOTE these depend on pyreflow being built but some of these also need R which
-# is sometimes provided via a conda env. Conda clashes with uv, so split them.
+# This assumes $CONDA_EXE is in the environment. This is necessary because conda
+# has a zillion ways it could be installed depending on where this runs and using
+# a dedicated variable allows us not to clobber $PATH. The alternative is to run
+# the entire make pipeline in a conda env.
+conda_setup = eval "$$($$CONDA_EXE shell.bash hook)"
+conda_run = $(conda_setup) && conda activate pyreflow-bench
 
-pyreflow/$(bench_files): pyreflow/.venv \
-	pyreflow/$(bench_script)
-	$(uv_run) $(bench_script) make $(bench_inputs)
+$(bench_env):
+	$(conda_setup) && conda env create -f $(bench_env_spec) -p $(bench_env)
 
-pyreflow/$(bench_checks): pyreflow/$(bench_files)
-	$(uv_run) $(bench_script) check \
+$(bench_files): $(bench_script) \
+	$(bench_env)
+	$(conda_run) && $(bench_script) make $(bench_inputs)
+
+$(bench_checks): $(bench_files) \
+	$(bench_env)
+	$(conda_run) && $(bench_script) check \
 		$(bench_inputs) \
 		$(bench_checks) \
 		$(bench_scratch)
 
-pyreflow/$(bench_all_ff): pyreflow/$(bench_files) \
-	pyreflow/$(bench_script)
-	$(uv_run) $(bench_script) run_ff \
+$(bench_all_ff): $(bench_files) \
+	$(bench_script) \
+	$(bench_env)
+	$(conda_run) && $(bench_script) run_ff \
 		$(bench_inputs) \
 		$(bench_all_ff) \
 		$(bench_scratch)
 
-pyreflow/$(bench_all): pyreflow/$(bench_files) \
-	pyreflow/$(bench_script)
-	$(uv_run) $(bench_script) run_all \
+$(bench_all): $(bench_files) \
+	$(bench_script) \
+	$(bench_env)
+	$(conda_run) && $(bench_script) run_all \
 		$(bench_inputs) \
 		$(bench_all) \
 		$(bench_scratch)
 
-pyreflow/$(bench_readme): pyreflow/$(bench_files) \
-	pyreflow/$(bench_checks) \
-	pyreflow/$(bench_all_ff) \
-	pyreflow/$(bench_all) \
-	pyreflow/$(bench_script) \
-	pyreflow/$(bench_readme_template)
-	$(uv_run) $(bench_script) render \
+$(bench_readme): $(bench_files) \
+	$(bench_checks) \
+	$(bench_all_ff) \
+	$(bench_all) \
+	$(bench_script) \
+	$(bench_readme_template) \
+	$(bench_env)
+	$(conda_run) && $(bench_script) render \
 		$(bench_files) \
 		$(bench_checks) \
 		$(bench_all) \
@@ -142,10 +171,13 @@ pyreflow/$(bench_readme): pyreflow/$(bench_files) \
 		$(bench_readme)
 
 .PHONY: bench
-bench: pyreflow/$(bench_readme)
+bench: $(bench_readme)
 
 .PHONY: clean-bench
 clean-bench:  
-	rm -rf pyreflow/bench/inputs
-	rm -rf pyreflow/bench/outputs
-	rm -rf pyreflow/bench/scratch
+	rm -rf $(bench_inputs)
+	rm -rf $(bench_outputs)
+	rm -rf $(bench_scratch)
+	rm -rf $(bench_readme)
+	rm -rf $(bench_static)
+	rm -rf $(bench_env)

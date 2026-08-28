@@ -1,3 +1,5 @@
+#! /usr/bin/env python3
+
 import csv
 import os
 import select
@@ -12,7 +14,8 @@ import fcsparser as fp  # type: ignore
 import subprocess as sp
 from dataclasses import dataclass
 from datetime import datetime, UTC
-from typing import NamedTuple, assert_never, Literal, Callable
+from collections.abc import Callable
+from typing import NamedTuple, assert_never, Literal
 from pathlib import Path
 from decimal import Decimal
 from random import randrange, shuffle
@@ -222,9 +225,9 @@ FLOWCORE_TRIAL_NUMBER = {
 }
 
 
-type UintDType = type[pl.UInt8] | type[pl.UInt16] | type[pl.UInt32] | type[pl.UInt64]
+type UintDType = type[pl.UInt8 | pl.UInt16 | pl.UInt32 | pl.UInt64]
 
-type DType = UintDType | type[pl.Float32] | type[pl.Float64]
+type DType = UintDType | type[pl.Float32 | pl.Float64]
 
 type Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 
@@ -357,7 +360,7 @@ class FCSParserBenchRun(BenchRun[FCSParserBenchKey, FCSParserBenchResult]):
         start = perf_counter_ns()
         # set reformat to false to do less work and get a cleaner measurement of
         # how fast the DATA parser really is
-        meta, data = fp.parse(root / self.fcs_name(), reformat_meta=False)
+        _, _ = fp.parse(root / self.fcs_name(), reformat_meta=False)
         end = perf_counter_ns()
         return end - start
 
@@ -575,7 +578,7 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
 
     lt = core.data_schema
 
-    if isinstance(lt, pf.MixedDataSchema) or isinstance(lt, pf.VariableUintDataSchema):
+    if isinstance(lt, pf.MixedDataSchema | pf.VariableUintDataSchema):
         data_nbytes = sum(lt.byte_widths) * n_rows
     elif isinstance(lt, pft.MatrixDataSchema):
         data_nbytes = lt.byte_width * n_values
@@ -585,13 +588,13 @@ def core_to_benchfile(name: str, core: pft.AnyCoreDataset, desc: str) -> BenchFi
     datatypes: str
 
     if isinstance(lt, pf.MixedDataSchema):
-        datatypes = ",".join(sorted(set(t for (t, _) in lt.typed_ranges)))
+        datatypes = ",".join(sorted({t for (t, _) in lt.typed_ranges}))
     elif isinstance(lt, pft.MatrixDataSchema) and isinstance(lt, pft.NumericDataSchema):
         prefix = "F" if lt.is_float else "U"
         val_width = lt.byte_width * 8
         datatypes = f"{prefix}{val_width}"
     elif isinstance(lt, pf.VariableUintDataSchema):
-        datatypes = ",".join(sorted(set(f"U{w * 8:02}" for w in lt.byte_widths)))
+        datatypes = ",".join(sorted({f"U{w * 8:02}" for w in lt.byte_widths}))
     else:
         assert False, "invalid layout"
 
@@ -680,7 +683,7 @@ def meas_3_1(i: int) -> pft.Measurement3_1:
         pf.Optical3_1(
             longname=f"Column{i + 1}",
             wavelengths=[randrange(500, 700)],
-            display=(False, randrange(0, 10), randrange(11, 20)),
+            display=(False, randrange(10), randrange(11, 20)),
             power=randrange(1, 1000),
             detector_voltage=randrange(1, 1000),
         ),
@@ -694,7 +697,7 @@ def meas_3_2(i: int) -> pft.Measurement3_2:
         pf.Optical3_2(
             longname=f"Column{i + 1}",
             wavelengths=[randrange(500, 700)],
-            display=(False, randrange(0, 10), randrange(11, 20)),
+            display=(False, randrange(10), randrange(11, 20)),
             power=randrange(1, 1000),
             detector_voltage=randrange(1, 1000),
             measurement_type="phy",
@@ -711,7 +714,7 @@ def core_2_0(
     | pf.OrderedF64DataSchema,
     data: pl.DataFrame,
 ) -> pf.CoreDataset2_0:
-    ms: pft.Measurements2_0 = [meas_2_0(i) for i in range(0, width)]
+    ms: pft.Measurements2_0 = [meas_2_0(i) for i in range(width)]
     core = pf.CoreDataset2_0(ms, layout, data)
     return core
 
@@ -723,7 +726,7 @@ def core_3_0(
     | pf.OrderedF64DataSchema,
     data: pl.DataFrame,
 ) -> pf.CoreDataset3_0:
-    ms: pft.Measurements3_0 = [meas_3_0(i) for i in range(0, width)]
+    ms: pft.Measurements3_0 = [meas_3_0(i) for i in range(width)]
     core = pf.CoreDataset3_0(ms, layout, data)
     return core
 
@@ -736,7 +739,7 @@ def core_3_1(
     | pf.BigLittleF64DataSchema,
     data: pl.DataFrame,
 ) -> pf.CoreDataset3_1:
-    ms: pft.Measurements3_1 = [meas_3_1(i) for i in range(0, width)]
+    ms: pft.Measurements3_1 = [meas_3_1(i) for i in range(width)]
     core = pf.CoreDataset3_1(ms, layout, data)
     return core
 
@@ -745,7 +748,7 @@ def core_3_0_pdp11(
     height: int,
     width: int,
 ) -> pf.CoreDataset3_0:
-    rs = [2**32 - 1 for _ in range(0, width)]
+    rs = [2**32 - 1 for _ in range(width)]
     # wonky byteord...
     layout = pf.OrderedUintDataSchema(rs, byteord=[3, 4, 1, 2])
     data = pl.DataFrame(
@@ -754,7 +757,7 @@ def core_3_0_pdp11(
                 np.random.uniform(low=0, high=2**32 - 1, size=height),
                 dtype=pl.UInt32,
             )
-            for _ in range(0, width)
+            for _ in range(width)
         ]
     )
     return core_3_0(width, layout, data)
@@ -775,7 +778,7 @@ def core_2_0_int(
     height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset2_0:
     upper = 2 ** (8 * byte_width) - 1
-    rs = [upper for _ in range(0, width)]
+    rs = [upper for _ in range(width)]
     layout = pf.OrderedUintDataSchema(
         rs,
         byte_width=byte_width,
@@ -787,7 +790,7 @@ def core_2_0_int(
                 np.random.uniform(low=0, high=upper, size=height),
                 dtype=width_to_uint_type(byte_width),
             )
-            for _ in range(0, width)
+            for _ in range(width)
         ]
     )
     return core_2_0(width, layout, data)
@@ -797,7 +800,7 @@ def core_3_0_int(
     height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_0:
     upper = 2 ** (8 * byte_width) - 1
-    rs = [upper for _ in range(0, width)]
+    rs = [upper for _ in range(width)]
     layout = pf.OrderedUintDataSchema(
         rs,
         byte_width=byte_width,
@@ -809,7 +812,7 @@ def core_3_0_int(
                 np.random.uniform(low=0, high=upper, size=height),
                 dtype=width_to_uint_type(byte_width),
             )
-            for _ in range(0, width)
+            for _ in range(width)
         ]
     )
     return core_3_0(width, layout, data)
@@ -819,7 +822,7 @@ def core_3_2_int(
     height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_0:
     upper = 2 ** (8 * byte_width) - 1
-    rs = [upper for _ in range(0, width)]
+    rs = [upper for _ in range(width)]
     layout = pf.OrderedUintDataSchema(
         rs,
         byte_width=byte_width,
@@ -831,7 +834,7 @@ def core_3_2_int(
                 np.random.uniform(low=0, high=upper, size=height),
                 dtype=width_to_uint_type(byte_width),
             )
-            for _ in range(0, width)
+            for _ in range(width)
         ]
     )
     return core_3_0(width, layout, data)
@@ -841,7 +844,7 @@ def core_3_1_int(
     height: int, width: int, byte_width: pft.ByteWidth, big_endian: bool
 ) -> pf.CoreDataset3_1:
     upper = 2 ** (8 * byte_width) - 1
-    rs = [upper for _ in range(0, width)]
+    rs = [upper for _ in range(width)]
     layout = pf.SingleUintDataSchema(
         rs,
         byte_width=byte_width,
@@ -853,7 +856,7 @@ def core_3_1_int(
                 np.random.uniform(low=0, high=upper, size=height),
                 dtype=width_to_uint_type(byte_width),
             )
-            for _ in range(0, width)
+            for _ in range(width)
         ]
     )
     return core_3_1(width, layout, data)
@@ -861,7 +864,7 @@ def core_3_1_int(
 
 def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
     upper = 1e10
-    rs = [upper for _ in range(0, width)]
+    rs = [upper for _ in range(width)]
     layout = pf.BigLittleF64DataSchema(rs) if is64 else pf.BigLittleF32DataSchema(rs)
     data = pl.DataFrame(
         [
@@ -869,7 +872,7 @@ def core_3_1_float(height: int, width: int, is64: bool) -> pf.CoreDataset3_1:
                 np.random.uniform(low=0, high=upper, size=height),
                 dtype=pl.Float64 if is64 else pl.Float32,
             )
-            for _ in range(0, width)
+            for _ in range(width)
         ]
     )
     return core_3_1(width, layout, data)
@@ -889,7 +892,7 @@ def core_3_1_cube(height: int, big_endian: bool) -> pf.CoreDataset3_1:
             pl.Series(
                 np.random.uniform(low=0, high=2**16 - 1, size=height), dtype=pl.UInt16
             )
-            for _ in range(0, N_OPTICAL)
+            for _ in range(N_OPTICAL)
         ]
         + [
             pl.Series(
@@ -930,7 +933,7 @@ def core_3_2_a8(height: int, big_endian: bool) -> pf.CoreDataset3_2:
         pl.Series(np.random.uniform(low=0, high=u, size=height), dtype=t)
         for (u, t) in data_parts
     )
-    ms = [meas_3_2(i) for i in range(0, len(rs))]
+    ms = [meas_3_2(i) for i in range(len(rs))]
     core = pf.CoreDataset3_2(ms, layout, data, cyt="WALL-E")
     return core
 
@@ -956,7 +959,7 @@ def core_3_2_random_mixed(height: int, big_endian: bool) -> pf.CoreDataset3_2:
         pl.Series(np.random.uniform(low=0, high=u, size=height), dtype=t)
         for (u, t) in data_parts
     )
-    ms = [meas_3_2(i) for i in range(0, len(rs))]
+    ms = [meas_3_2(i) for i in range(len(rs))]
     core = pf.CoreDataset3_2(ms, layout, data, cyt="GLaDOS")
     return core
 
@@ -1341,7 +1344,7 @@ def flowio_runs(bench_files: pl.DataFrame) -> list[FlowIOBenchRun]:
         FlowIOBenchRun(n, k)
         for n in flowio_files(bench_files)
         for k in FlowIOBenchKey
-        for _ in range(0, FLOWIO_TRIAL_NUMBER[k])
+        for _ in range(FLOWIO_TRIAL_NUMBER[k])
     ]
 
 
@@ -1350,7 +1353,7 @@ def fcsparser_runs(bench_files: pl.DataFrame) -> list[FCSParserBenchRun]:
         FCSParserBenchRun(n, k)
         for n in fcsparser_files(bench_files)
         for k in FCSParserBenchKey
-        for _ in range(0, FCSPARSER_TRIAL_NUMBER[k])
+        for _ in range(FCSPARSER_TRIAL_NUMBER[k])
     ]
 
 
@@ -1361,7 +1364,7 @@ def flowcore_runs(
         FlowCoreBenchRun(n, k, py_to_r, r_to_py)
         for n in flowcore_files(bench_files)
         for k in FlowCoreBenchKey
-        for _ in range(0, FLOWCORE_TRIAL_NUMBER[k])
+        for _ in range(FLOWCORE_TRIAL_NUMBER[k])
     ]
 
 
@@ -1375,7 +1378,7 @@ def ff_runs(
         FFBenchRun(n, k, scalpal)
         for n in bench_files[BENCH_NAME]
         for k in FFBenchKey
-        for _ in range(0, FF_TRIAL_NUMBER[k])
+        for _ in range(FF_TRIAL_NUMBER[k])
     ]
 
     return runs
@@ -1390,7 +1393,7 @@ def read_ground_truth_dataframes(
         with open(p, "r") as f:
             ncol = len(next(f).strip().split("\t"))
         df = pl.read_csv(p, separator="\t", schema_overrides=[pl.Float64] * ncol)
-        df.columns = [f"X{i}" for i in range(0, ncol)]
+        df.columns = [f"X{i}" for i in range(ncol)]
         return df
 
     files = [n for n in bench_files[BENCH_NAME]]
@@ -1417,7 +1420,7 @@ def read_fcsparser_dataframes(
         p = input_root / f"{n}.fcs"
         df = pl.from_pandas(fp.parse(p)[1]).cast(pl.Float64)
         ncol = len(df.columns)
-        df.columns = [f"X{i}" for i in range(0, ncol)]
+        df.columns = [f"X{i}" for i in range(ncol)]
         return df
 
     # only read files that at least one python lib can understand
@@ -1433,7 +1436,7 @@ def read_flowio_dataframes(
         p = input_root / f"{n}.fcs"
         df = pl.DataFrame(fi.FlowData(p).as_array(preprocess=False)).cast(pl.Float64)
         ncol = len(df.columns)
-        df.columns = [f"X{i}" for i in range(0, ncol)]
+        df.columns = [f"X{i}" for i in range(ncol)]
         return df
 
     # only read files that at least one python lib can understand
@@ -1462,7 +1465,7 @@ def read_flowcore_dataframes(
             has_header=False,
         ).select(~cs.by_index(0))
         ncol = len(df.columns)
-        df.columns = [f"X{i}" for i in range(0, ncol)]
+        df.columns = [f"X{i}" for i in range(ncol)]
         return df
 
     # only read files that at least one python lib can understand
@@ -1731,7 +1734,7 @@ def run_ff_bench(
     runs = [
         FFInternalBenchRun(n, s)
         for n in bench_files[BENCH_NAME]
-        for _ in range(0, 20)
+        for _ in range(20)
         for s in [True, False]
     ]
 
@@ -1792,9 +1795,7 @@ def print_ff_df(df: pl.DataFrame, output_path: Path | None) -> None:
             df.write_csv(f, separator="\t")
 
 
-def fill_cartesian[X](
-    df: pl.DataFrame, col: str, fill: int | float | None
-) -> pl.DataFrame:
+def fill_cartesian[X](df: pl.DataFrame, col: str, fill: float | None) -> pl.DataFrame:
     wide = df.select([BENCH_NAME, col, LIBRARY]).pivot(LIBRARY, index=BENCH_NAME)
     return (wide.fill_null(fill) if fill is not None else wide).unpivot(
         None,
@@ -1906,7 +1907,7 @@ def plot_read_data(
         )
         + labs(y="DATA read time (ns/value)", x="FCS File", fill="Library")
         + coord_flip(ylim=(None, 10))
-        + scale_fill_discrete(limits=[t for t in LIBRARIES if not t == FLOWCORE])
+        + scale_fill_discrete(limits=[t for t in LIBRARIES if t != FLOWCORE])
     )
     read_text_plt.save(out_path_no_flowcore)
 
@@ -2301,11 +2302,9 @@ def cpu_model() -> str:
 
 
 def total_memory() -> float:
-    meminfo = dict(
-        (i.split()[0].rstrip(":"), int(i.split()[1]))
-        for i in open("/proc/meminfo").readlines()
-    )
-    return int(meminfo["MemTotal"] / 1024 / 1024)
+    with open("/proc/meminfo") as f:
+        meminfo = {i.split()[0].rstrip(":"): int(i.split()[1]) for i in f}
+        return int(meminfo["MemTotal"] / 1024 / 1024)
 
 
 def get_flowcore_version(exec_dir: Path) -> str:
@@ -2321,6 +2320,7 @@ def get_flowcore_version(exec_dir: Path) -> str:
         capture_output=True,
         text=True,
         cwd=exec_dir,
+        check=False,
     )
     if ret.returncode == 0:
         if m := re.match('^\\[1\\] "(.+)"$', ret.stdout):
@@ -2337,6 +2337,7 @@ def get_r_version(exec_dir: Path) -> str:
         capture_output=True,
         text=True,
         cwd=exec_dir,
+        check=False,
     )
     if ret.returncode == 0:
         if (
@@ -2357,6 +2358,7 @@ def get_flowcore_bytecompiled(exec_dir: Path) -> bool:
         capture_output=True,
         text=True,
         cwd=exec_dir,
+        check=False,
     )
     if ret.returncode == 0:
         return re.search("<bytecode: [^ ]+>", ret.stdout) is not None
@@ -2377,6 +2379,7 @@ def get_flowcore_compilers(exec_dir: Path) -> list[str]:
         capture_output=True,
         text=True,
         cwd=exec_dir,
+        check=False,
     )
     if ret_r.returncode == 0:
         libpath = Path(ret_r.stdout.strip()) / "flowCore.so"
@@ -2385,6 +2388,7 @@ def get_flowcore_compilers(exec_dir: Path) -> list[str]:
             capture_output=True,
             text=True,
             cwd=exec_dir,
+            check=False,
         )
         if ret_elf.returncode == 0:
             elf_lines = ret_elf.stdout.strip().split("\n")
@@ -2495,6 +2499,7 @@ def render_all(
     ]
 
     np_cfg = np.show_config("dicts")  # type: ignore
+    assert np_cfg is not None
     np_xs = np_cfg["SIMD Extensions"]
     np_xs_used = np_xs["baseline"] + np_xs["found"]
     np_compilers = [
@@ -2632,7 +2637,7 @@ def main(args: list[str]) -> None:
     # woopsie
     else:
         print(f"invalid command: {cmd}")
-        exit(1)
+        sys.exit(1)
 
 
 main(sys.argv)

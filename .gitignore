@@ -14,5 +14,4 @@
 
 *pyreflow/bench/inputs
 *pyreflow/bench/outputs
-*pyreflow/bench/scratch*
-*pyreflow/bench/renv
+*pyreflow/bench/conda_env

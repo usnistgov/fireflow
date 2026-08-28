@@ -64,6 +64,11 @@ proptest = "1.11.0"
 proptest-derive = "0.8.0"
 assert_matches = "1.5" # TODO this is now in rust 1.96, wait a while to make this MSRV
 
+# debug info is not very useful for this package, disabling it saves lots of
+# space and time
+[profile.dev]
+debug = false
+
 # [profile.dev.build-override]
 # opt-level = 3
 

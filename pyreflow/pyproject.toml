@@ -2,8 +2,6 @@
 name = "pyreflow"
 description = "Fully-compliant Flow Cytometry Standard (FCS) read/write library"
 readme = "README.md"
-# TODO 3.11 is the lower bound for now since this is the first version to
-# support exception groups
 requires-python = ">=3.12"
 classifiers = [
     "Development Status :: 2 - Pre-Alpha",

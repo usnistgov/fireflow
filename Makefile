@@ -95,11 +95,16 @@ clean:
 #
 # Benchmarking pipeline
 #
-# This is separate from the above pipeline because it relies on a conda env
-# rather than a python venv. This is necessary because flowCore is R-based (venv
-# is automatically out) and the python libraries we wish to test in parallel
-# (flowio et al) to fireflow have dependency trees that should not pollute the
-# testing pipeline (namely fcsparser requires numpy 1.x).
+# This is (almost) separate from the above pipeline because it relies on a conda
+# env rather than a python venv. This is necessary because flowCore is R-based
+# (venv is automatically out) and the python libraries we wish to test in
+# parallel (flowio et al) to fireflow have dependency trees that should not
+# pollute the testing pipeline (namely fcsparser requires numpy 1.x).
+#
+# NOTE: this is not totally separate from the above pipeline because the conda
+# env uses PYTHONPATH to point to the rust build for fireflow. This is not
+# explicitly run (for now) so it must be built manually before calling any of
+# these targets
 
 bench_root = pyreflow/bench
 bench_script = $(bench_root)/bench.py
@@ -117,15 +122,28 @@ bench_env = $(bench_root)/conda_env
 bench_scratch = /tmp/fireflow_bench/scratch
 bench_env_spec = env.yml
 
+pyreflow_abs_path=$$(realpath pyreflow/python)
+
 # This assumes $CONDA_EXE is in the environment. This is necessary because conda
 # has a zillion ways it could be installed depending on where this runs and using
 # a dedicated variable allows us not to clobber $PATH. The alternative is to run
 # the entire make pipeline in a conda env.
 conda_setup = eval "$$($$CONDA_EXE shell.bash hook)"
-conda_run = $(conda_setup) && conda activate pyreflow-bench
+conda_create = conda env create -f $(bench_env_spec)
+conda_activate = conda activate $(bench_env)
+conda_link = conda env config vars set PYTHONPATH=$(pyreflow_abs_path)
+conda_run = $(conda_setup) && $(conda_activate)
+
+.PHONY: create-bench-env
+create-bench-env:
+	$(conda_setup) && \
+	$(conda_create) && \
+	$(conda_link) -n pyreflow-bench
 
 $(bench_env):
-	$(conda_setup) && conda env create -f $(bench_env_spec) -p $(bench_env)
+	$(conda_setup) && \
+	$(conda_create) -p $(bench_env) && \
+	$(conda_link) -p $(bench_env)
 
 $(bench_files): $(bench_script) \
 	$(bench_env)

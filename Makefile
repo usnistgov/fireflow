@@ -81,19 +81,23 @@ clean:
 	rm -rf pyreflow/.ruff_cache
 	cargo clean
 
-docs_out_all=pyreflow/docs/build_all/
-docs_tmp=pyreflow/docs/build_tmp/
+docs_out_all=pyreflow/docs/build_all
+docs_tmp=pyreflow/docs/build_tmp
 
 version_file    = pyreflow/docs/refs.txt
 versions       := $(file < $(version_file))
 version_outputs = $(patsubst %,$(docs_out_all)/%,$(versions)) 
 rs_target := $(shell realpath target)
+latest := $(firstword $(version_outputs))
 
 $(version_outputs): $(docs_out_all)/%:
 	pyreflow/docs/build_version.sh $(docs_out_all) $(docs_tmp) $(rs_target) $*
 
+$(docs_out_all)/latest:
+	ln -s $$(basename $(latest)) $(docs_out_all)/en/latest
+
 .PHONY: all-docs
-all-docs: $(version_outputs)
+all-docs: $(version_outputs) $(docs_out_all)/latest
 
 .PHONY: clean-all-docs
 clean-all-docs:

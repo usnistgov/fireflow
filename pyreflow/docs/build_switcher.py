@@ -32,12 +32,7 @@ with open(template_file, "r") as f:
 
 with open(switcher_out, "w") as f:
     latest_version = versions[0]
-    latest = {
-        "name": "latest",
-        "version": latest_version,
-        "url": make_url(latest_version),
-    }
-    switcher = [latest] + [{"version": v, "url": make_url(v)} for v in versions]
+    switcher = [{"version": v, "url": make_url(v)} for v in versions]
     json.dump(switcher, f)
 
 with open(index_out, "w") as f:

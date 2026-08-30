@@ -59,7 +59,7 @@ html_theme_options = {
     },
 }
 
-html_static_path = ["_static"]
+# html_static_path = ["_static"]
 html_show_sourcelink = False
 
 autodoc_typehints = "description"

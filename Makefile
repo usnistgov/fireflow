@@ -84,25 +84,38 @@ clean:
 docs_out_all=pyreflow/docs/build_all
 docs_tmp=pyreflow/docs/build_tmp
 
-version_file    = pyreflow/docs/refs.txt
+version_file    = pyreflow/docs/versions.txt
 versions       := $(file < $(version_file))
 version_outputs = $(patsubst %,$(docs_out_all)/%,$(versions)) 
 rs_target := $(shell realpath target)
 latest := $(firstword $(version_outputs))
+latest_dir = $(docs_out_all)/en/latest
+switcher = $(latest_dir)/_static/switcher.json
+switcher_base_url = https://pages.nist.gov/fireflow/en/
+version_template = pyreflow/docs/version_index.html
+version_index = $(docs_out_all)/en/index.html
 
 $(version_outputs): $(docs_out_all)/%:
 	pyreflow/docs/build_version.sh $(docs_out_all) $(docs_tmp) $(rs_target) $*
 
-$(docs_out_all)/latest:
-	ln -s $$(basename $(latest)) $(docs_out_all)/en/latest
+$(latest_dir):
+	ln -s $$(basename $(latest)) $(latest_dir)
+
+$(switcher) $(version_index): $(latest_dir) pyreflow/docs/build_switcher.py
+	pyreflow/docs/build_switcher.py \
+	$(version_file) \
+	$(switcher_base_url) \
+	$(version_template) \
+	$(switcher) \
+	$(version_index)
 
 .PHONY: all-docs
-all-docs: $(version_outputs) $(docs_out_all)/latest
+all-docs: $(version_outputs) $(switcher) $(version_index)
 
 .PHONY: clean-all-docs
 clean-all-docs:
-	rm -rf pyreflow/$(docs_out_all)
-	rm -rf pyreflow/$(docs_tmp)
+	rm -rf $(docs_out_all)
+	rm -rf $(docs_tmp)
 
 #
 # Benchmarking pipeline

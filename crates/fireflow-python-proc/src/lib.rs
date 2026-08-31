@@ -754,8 +754,8 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
             ///
             /// :rtype: :py:class:`dict`\ [:py:class:`str`, :obj:`~typing.Any`]
             #[classmethod]
-            fn scalpal(_: &Bound<'_, pyo3::types::PyType>) -> #path {
-                #has_strat::new_with_strategy(#strat::Scalpal)
+            fn scalpel(_: &Bound<'_, pyo3::types::PyType>) -> #path {
+                #has_strat::new_with_strategy(#strat::Scalpel)
             }
 
             /// Return non-compliant configuration optimized to read data.
@@ -9871,7 +9871,7 @@ impl DocArgParam {
             "If {TRUE}, scan through file to find next dataset based on version \
              tags rather than relying on {NEXTDATA}."
         );
-        Self::new_param("scan", PyBool::default(), desc).def_auto()
+        Self::new_param(ta::SCAN, PyBool::default(), desc).def_auto()
     }
 
     fn new_path_param(read: bool) -> Self {

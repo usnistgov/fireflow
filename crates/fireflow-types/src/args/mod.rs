@@ -199,6 +199,16 @@ macro_rules! make_args {
 
         pub const APPENDABLE: &str = write_multi_arg!(appendable);
         pub const APPEND: &str = write_multi_arg!(append);
+
+        // misc args
+
+        macro_rules! write_misc_arg {
+            ($field:expr) => {
+                const_format::str_replace!($field, "_", $replace)
+            };
+        }
+
+        pub const SCAN: &str = write_misc_arg!("scan");
     };
 }
 

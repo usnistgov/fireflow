@@ -336,9 +336,9 @@ pub enum AppendRepairFlagError {
 }
 
 impl HasStrategy for ReadHeaderConfig {
-    fn with_scalpal(&mut self) {
-        self.header.with_scalpal();
-        self.offset.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.header.with_scalpel();
+        self.offset.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -348,10 +348,10 @@ impl HasStrategy for ReadHeaderConfig {
 }
 
 impl HasStrategy for ReadFlatTEXTConfig {
-    fn with_scalpal(&mut self) {
-        self.header.with_scalpal();
-        self.flat.with_scalpal();
-        self.offset.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.header.with_scalpel();
+        self.flat.with_scalpel();
+        self.offset.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -362,12 +362,12 @@ impl HasStrategy for ReadFlatTEXTConfig {
 }
 
 impl HasStrategy for ReadStdTEXTConfig {
-    fn with_scalpal(&mut self) {
-        self.header.with_scalpal();
-        self.flat.with_scalpal();
-        self.offset.with_scalpal();
-        self.standard.with_scalpal();
-        self.layout.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.header.with_scalpel();
+        self.flat.with_scalpel();
+        self.offset.with_scalpel();
+        self.standard.with_scalpel();
+        self.layout.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -380,12 +380,12 @@ impl HasStrategy for ReadStdTEXTConfig {
 }
 
 impl HasStrategy for ReadFlatDatasetConfig {
-    fn with_scalpal(&mut self) {
-        self.header.with_scalpal();
-        self.flat.with_scalpal();
-        self.offset.with_scalpal();
-        self.layout.with_scalpal();
-        self.data.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.header.with_scalpel();
+        self.flat.with_scalpel();
+        self.offset.with_scalpel();
+        self.layout.with_scalpel();
+        self.data.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -398,13 +398,13 @@ impl HasStrategy for ReadFlatDatasetConfig {
 }
 
 impl HasStrategy for ReadStdDatasetConfig {
-    fn with_scalpal(&mut self) {
-        self.header.with_scalpal();
-        self.flat.with_scalpal();
-        self.offset.with_scalpal();
-        self.standard.with_scalpal();
-        self.layout.with_scalpal();
-        self.data.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.header.with_scalpel();
+        self.flat.with_scalpel();
+        self.offset.with_scalpel();
+        self.standard.with_scalpel();
+        self.layout.with_scalpel();
+        self.data.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -418,10 +418,10 @@ impl HasStrategy for ReadStdDatasetConfig {
 }
 
 impl HasStrategy for ReadFlatDatasetFromKeywordsConfig {
-    fn with_scalpal(&mut self) {
-        self.offset.with_scalpal();
-        self.layout.with_scalpal();
-        self.data.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.offset.with_scalpel();
+        self.layout.with_scalpel();
+        self.data.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -432,9 +432,9 @@ impl HasStrategy for ReadFlatDatasetFromKeywordsConfig {
 }
 
 impl HasStrategy for NewCoreTEXTConfig {
-    fn with_scalpal(&mut self) {
-        self.standard.with_scalpal();
-        self.layout.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.standard.with_scalpel();
+        self.layout.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {
@@ -444,11 +444,11 @@ impl HasStrategy for NewCoreTEXTConfig {
 }
 
 impl HasStrategy for NewCoreDatasetConfig {
-    fn with_scalpal(&mut self) {
-        self.offset.with_scalpal();
-        self.standard.with_scalpal();
-        self.layout.with_scalpal();
-        self.data.with_scalpal();
+    fn with_scalpel(&mut self) {
+        self.offset.with_scalpel();
+        self.standard.with_scalpel();
+        self.layout.with_scalpel();
+        self.data.with_scalpel();
     }
 
     fn with_sledgehammer(&mut self) {

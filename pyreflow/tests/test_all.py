@@ -6825,7 +6825,7 @@ class TestPydantic:
             pfp.PyreflowReadFlatDatasetFromKeywordsConfig,
         ],
     )
-    @pytest.mark.parametrize("method", ["new_scalpal", "new_sledgehammer"])
+    @pytest.mark.parametrize("method", ["new_scalpel", "new_sledgehammer"])
     def test_alt_configs(self, pydantic_class: type, method: str) -> None:
         """Test that each pydantic class has alternative config methods."""
         getattr(pydantic_class, method)()

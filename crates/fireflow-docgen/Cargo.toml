@@ -1,0 +1,19 @@
+[package]
+name = "fireflow-docgen"
+version = { workspace = true }
+edition = { workspace = true }
+description = """
+Docomentation-generation build tool for fireflow
+"""
+
+[[bin]]
+bench = false
+path = "src/main.rs"
+name = "fireflow-docgen"
+
+[build-dependencies]
+minijinja = "2.24.0"
+fireflow-types = { path = "../fireflow-types", features = ["underscore_args"] }
+
+[lints]
+workspace = true

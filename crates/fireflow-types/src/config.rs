@@ -837,7 +837,6 @@ _impl_config_flag!(SquishOffsets);
 _impl_config_flag!(AllowPseudoempty);
 
 _impl_config_flag!(IgnoreSuppTEXT);
-_impl_config_flag!(TrimTEXTEnd);
 _impl_config_flag!(IgnoreTEXTDataOffsets);
 _impl_config_flag!(IgnoreTEXTAnalysisOffsets);
 
@@ -1929,7 +1928,7 @@ impl_str_enum!(
 );
 
 pub const READ_STRATEGY_STRICT_LEVEL: &NEStr = ne_str!("strict");
-pub const READ_STRATEGY_SCALPAL_LEVEL: &NEStr = ne_str!("scalpal");
+pub const READ_STRATEGY_SCALPEL_LEVEL: &NEStr = ne_str!("scalpel");
 pub const READ_STRATEGY_SLEDGEHAMMER_LEVEL: &NEStr = ne_str!("sledgehammer");
 
 impl_str_enum!(
@@ -1955,7 +1954,7 @@ impl_str_enum!(
     /// Use "safe" non-compliant parsing that is unlikely to result in data loss.
     ///
     /// This is likely a good option for many files.
-    Scalpal      => READ_STRATEGY_SCALPAL_LEVEL,
+    Scalpel      => READ_STRATEGY_SCALPEL_LEVEL,
     /// Use "unsafe" non-compliant parsing.
     ///
     /// This is the best option when all one cares about is reading DATA.
@@ -2027,21 +2026,21 @@ pub trait HasStrategy {
     fn with_strategy(&mut self, strat: ReadStrategy) {
         match strat {
             ReadStrategy::Strict => (),
-            ReadStrategy::Scalpal => self.with_scalpal(),
+            ReadStrategy::Scalpel => self.with_scalpel(),
             ReadStrategy::Sledgehammer => {
-                self.with_scalpal();
+                self.with_scalpel();
                 self.with_sledgehammer();
             }
         }
     }
 
-    fn with_scalpal(&mut self);
+    fn with_scalpel(&mut self);
 
     fn with_sledgehammer(&mut self) {}
 }
 
 impl HasStrategy for ReadHeaderInnerConfig {
-    fn with_scalpal(&mut self) {
+    fn with_scalpel(&mut self) {
         self.guess_other_width = GuessOtherWidth::Warn;
         self.squish_offsets = true.into();
     }
@@ -2052,7 +2051,7 @@ impl HasStrategy for ReadHeaderInnerConfig {
 }
 
 impl HasStrategy for ReadOffsetConfig {
-    fn with_scalpal(&mut self) {
+    fn with_scalpel(&mut self) {
         self.allow_pseudoempty = true.into();
         // Allow automatic correction of off-by-one offset errors. This won't
         // always work but will likely take care of 80% of cases.
@@ -2062,7 +2061,7 @@ impl HasStrategy for ReadOffsetConfig {
 }
 
 impl HasStrategy for ReadHeaderAndTEXTConfig {
-    fn with_scalpal(&mut self) {
+    fn with_scalpel(&mut self) {
         let strat = VersionOverride::AutoDetect {
             strategy: SelectVersionStrategy::Loose,
             prioritize_current: true,
@@ -2092,7 +2091,7 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
 }
 
 impl<TMP, DP, TP, DTP, LMP> HasStrategy for ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
-    fn with_scalpal(&mut self) {
+    fn with_scalpel(&mut self) {
         self.dedup_measurement_names = true.into();
         self.add_missing_timestep = Some(PositiveFloat::one());
         self.force_linear_scale = ForceLinearScale::AllNonInt;
@@ -2123,7 +2122,7 @@ impl<TMP, DP, TP, DTP, LMP> HasStrategy for ReadStdKeywordsConfig_<TMP, DP, TP, 
 impl<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> HasStrategy
     for ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV>
 {
-    fn with_scalpal(&mut self) {
+    fn with_scalpel(&mut self) {
         // Enable SPILL/SPILLOVER/$SPILL->$SPILLOVER mapping, which should be
         // fine for most/all files without doing any vendor-specific pattern
         // matching.
@@ -2149,7 +2148,7 @@ impl<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> HasStrategy
 }
 
 impl HasStrategy for ReadDatasetConfig {
-    fn with_scalpal(&mut self) {
+    fn with_scalpel(&mut self) {
         self.data_remainder_limit = 1.into();
         self.allow_uneven_event_width = TriFlag::True.into();
         self.allow_tot_mismatch = TriFlag::True.into();

@@ -234,7 +234,7 @@ type Range = tuple[Literal["I", "A"], int] | tuple[Literal["F", "D"], Decimal]
 
 class FFInternalResult(NamedTuple):
     name: str
-    scalpal: bool
+    scalpel: bool
     total_ns: int
     read_header_ns: int
     read_text_ns: int
@@ -423,7 +423,7 @@ class FlowCoreBenchRun(BenchRun[FlowCoreBenchKey, FlowCoreBenchResult]):
 class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
     """A benchmark run for fireflow."""
 
-    scalpal: bool
+    scalpel: bool
 
     @property
     def tsv_name(self) -> Path:
@@ -431,8 +431,8 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
 
     def read_flat(self, root: Path) -> float:
         conf = pfp.PyreflowReadFlatTEXTConfig()
-        if self.scalpal:
-            conf = conf.new_scalpal()
+        if self.scalpel:
+            conf = conf.new_scalpel()
         start = perf_counter_ns()
         conf.read_flat_text(root / self.fcs_name())
         return perf_counter_ns() - start
@@ -444,8 +444,8 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
         compute_crc: bool,
     ) -> float:
         conf = pfp.PyreflowReadFlatDatasetConfig()
-        if self.scalpal:
-            conf = conf.new_scalpal()
+        if self.scalpel:
+            conf = conf.new_scalpel()
         conf.over_range_action = "warn" if check_range else "none"
         conf.compute_crc = "always" if compute_crc else "never"
 
@@ -459,7 +459,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             input_root / self.fcs_name(), time_meas_pattern=None
         )
         start = perf_counter_ns()
-        mode = "scalpal" if self.scalpal else "clean"
+        mode = "scalpel" if self.scalpel else "clean"
         core.write_text(scratch_root / self.fcs_name(f"ff_write_text_{mode}"))
         end = perf_counter_ns()
         return end - start
@@ -469,7 +469,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             input_root / self.fcs_name(), time_meas_pattern=None
         )
         start = perf_counter_ns()
-        mode = "scalpal" if self.scalpal else "clean"
+        mode = "scalpel" if self.scalpel else "clean"
         core.write_dataset(scratch_root / self.fcs_name(f"ff_write_data_{mode}"))
         end = perf_counter_ns()
         return end - start
@@ -485,14 +485,14 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
             value = self.write_data(input_root, scratch_root)
         else:
             assert_never(self.key)
-        return BenchResult(self.name, (self.key, self.scalpal), value)
+        return BenchResult(self.name, (self.key, self.scalpel), value)
 
 
 class FFInternalBenchRun(NamedTuple):
     """A benchmark run for fireflow (internal testing)."""
 
     name: str
-    scalpal: bool
+    scalpel: bool
 
     def fcs_name(self, suffix: str | None = None) -> Path:
         if suffix is not None:
@@ -501,8 +501,8 @@ class FFInternalBenchRun(NamedTuple):
 
     def read_std_data(self, root: Path) -> FFInternalResult:
         conf = pfp.PyreflowReadStdDatasetConfig()
-        if self.scalpal:
-            conf = conf.new_scalpal()
+        if self.scalpel:
+            conf = conf.new_scalpel()
         conf.over_range_action = "warn"
         conf.compute_crc = "always"
         conf.time_meas_pattern = None
@@ -523,7 +523,7 @@ class FFInternalBenchRun(NamedTuple):
 
         ret = FFInternalResult(
             self.name,
-            self.scalpal,
+            self.scalpel,
             total,
             fd.header_supp.header.read_header_ns,
             fd.read_text_ns,
@@ -1372,10 +1372,10 @@ def ff_runs(
     bench_files: pl.DataFrame,
     input_root: Path,
     scratch_root: Path,
-    scalpal: bool,
+    scalpel: bool,
 ) -> list[FFBenchRun]:
     runs = [
-        FFBenchRun(n, k, scalpal)
+        FFBenchRun(n, k, scalpel)
         for n in bench_files[BENCH_NAME]
         for k in FFBenchKey
         for _ in range(FF_TRIAL_NUMBER[k])
@@ -1774,12 +1774,12 @@ def run_ff_bench(
             ),
         )
         .with_columns(
-            pl.when(pl.col("scalpal"))
+            pl.when(pl.col("scalpel"))
             .then(pl.lit(FIREFLOW_FIX))
             .otherwise(pl.lit(FIREFLOW))
             .alias(LIBRARY)
         )
-        .drop("scalpal")
+        .drop("scalpel")
         .join(bench_files, on=BENCH_NAME)
     )
 

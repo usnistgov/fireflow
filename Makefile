@@ -63,8 +63,12 @@ build-dev: pyreflow/.venv
 build-prod: pyreflow/.venv
 	$(build_rel)
 
+.PHONY: gen-docs
+gen-docs: pyreflow/.venv
+	cargo run --bin fireflow-docgen > COMMON_ISSUES.md
+
 .PHONY: all-dev
-all-dev: rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
+all-dev: gen-docs rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 
 docs_out_current=docs/build/
 

@@ -990,8 +990,8 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(usize))
         .help("Number of datasets to return");
 
-    let scan_arg = Arg::new(SCAN)
-        .long(SCAN)
+    let scan_arg = Arg::new(ta::SCAN)
+        .long(ta::SCAN)
         .action(ArgAction::SetTrue)
         .help(format!(
             "If given, scan for the next dataset by looking for version \
@@ -1021,12 +1021,12 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(tc::ReadStrategy))
         .help(format!(
             "Overall strategy to use when parsing file. This will enable many \
-             options by default which can be overridden. Set to {scalpal} to \
+             options by default which can be overridden. Set to {scalpel} to \
              parse non-compliant files while attempting to preserve metadata. \
              Set to {sledge} to parse non-compliant files while dropping \
              non-compliant metadata that cannot be fixed. Set to {strict} to \
              enforce the standard (default).",
-            scalpal = fmt_val(tc::READ_STRATEGY_SCALPAL_LEVEL),
+            scalpel = fmt_val(tc::READ_STRATEGY_SCALPEL_LEVEL),
             sledge = fmt_val(tc::READ_STRATEGY_SLEDGEHAMMER_LEVEL),
             strict = fmt_val(tc::READ_STRATEGY_STRICT_LEVEL),
         ));
@@ -1715,7 +1715,7 @@ fn get_limit(sargs: &ArgMatches) -> Option<usize> {
 }
 
 fn get_scan(sargs: &ArgMatches) -> bool {
-    sargs.get_flag(SCAN)
+    sargs.get_flag(ta::SCAN)
 }
 
 fn get_delim(sargs: &ArgMatches) -> u8 {
@@ -2001,8 +2001,6 @@ const BIG_OTHER: &str = "skip-conversion-check";
 const SKIP: &str = "skip";
 
 const LIMIT: &str = "limit";
-
-const SCAN: &str = "scan";
 
 const INPUT_PATH: &str = "input-path";
 

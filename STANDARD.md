@@ -203,14 +203,14 @@ Additionally, `fireflow` restricts *$PnL* to positive floats and *PnV* and
 
 Everything that applies to *$PnV* above also applies to *$GnV* where applicable.
 
-### *PnFEATURE*
+### *$PnFEATURE*
 
 `fireflow` restricts these to be one of `Area`, `Width` or `Height` by default.
 It is not clear if FCS 3.2 (§3.3.45) allows other values to be used; however,
 these make sense when specifying measurements that are optical in nature which
 have a signal vs time curve.
 
-### *PnTYPE*
+### *$PnTYPE*
 
 `fireflow` allows any string to be used for this keyword. It is not clear
 if only the values given in FCS 3.2 (§3.3.55) are allowed. However, it can be

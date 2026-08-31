@@ -278,7 +278,7 @@ All possible data schemas in `fireflow` (in terms of their keywords) are:
 | Int56 (mixed)     | `I`             | {1..7}   | `56`   | x<2^56 | n/a         | 2.0/3.0  |
 | Int64 (mixed)     | `I`             | {1..8}   | `64`   | x<2^64 | n/a         | 2.0/3.0  |
 | F32 (mixed)       | `F`             | {1..4}   | `32`   | f32    | n/a         | 2.0/3.0  |
-| F64 (mixed)       | `D`             | {1..8}   | `32`   | f64    | n/a         | 2.0/3.0  |
+| F64 (mixed)       | `D`             | {1..8}   | `64`   | f64    | n/a         | 2.0/3.0  |
 | F32               | `F`             | endian   | `32`   | f32    | n/a         | 3.1/3.2  |
 | F64               | `D`             | endian   | `64`   | f64    | n/a         | 3.1/3.2  |
 | Int (any width)   | `I`             | endian   | octet  | Note 2 | n/a         | 3.1/3.2  |

@@ -74,7 +74,7 @@ Repairing Files
 Many FCS files do not conform to the standards they claim to follow.
 ``pyreflow`` offers several ways to deal with these.
 
-First, see the arguments for the functions in :doc:`reader`; most of these
+First, see the arguments for the functions in :doc:`read/functions`; most of these
 are flags or other options to control parsing, alter keywords, fix offsets, etc.
 These should address most needs.
 

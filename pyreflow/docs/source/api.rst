@@ -2,15 +2,10 @@ API Reference
 =============
 
 .. toctree::
-   :maxdepth: 2
+   :maxdepth: 1
 
-   reader
-   writer
-   core
-   measurement
-   gating
-   data_schema
-   misc
+   read/toc
+   data_struct/toc
+   write
    aliases
    exceptions
-   pydantic

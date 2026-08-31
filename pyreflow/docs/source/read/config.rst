@@ -1,39 +1,24 @@
-Configuration Interface
-=======================
+.. _config_interfaces:
 
-.. _overview:
+Configuration
+=============
 
-Overview
-++++++++
+All functions and methods for reading FCS files have a wide range of options to
+control their behavior.
 
-``pyreflow`` by default will only read fully standards compliant FCS files.
+Some users may find it easier to handle these options using the following
+interfaces, which handle these options in bulk. They also offer a conveneint way
+to use strategies (see :ref:`strategies`), including overriding values as needed.
 
-However, since most files are not standards compliant, ``pyreflow`` offers
-several general configuration strategies in order to deal with the real world.
+Dictionary Arguments
+++++++++++++++++++++
 
-These are summarized as follows:
+This interface provides dictionaries of options and their values which may be
+splatted into functions using ``**``. Different methods are provided for each
+read strategy (see :ref:`strategies`).
 
-* **Scalpal strategy**: This will attempt to fix as many mistakes as possible in
-  an FCS file while preserving non-trivial metadata. Trivial metadata includes,
-  whitespace, keys with blank values, and repeated keys. If non-trivial data
-  cannot be preserved, this strategy will fail.
-
-* **Sledgehammer strategy**: This is optimized to read *DATA* at the expense of
-  metadata. Non standard keywords (unless they are required for parsing *DATA*)
-  will be dropped. Segments such as *ANALYSIS* and *OTHER* may not be read.
-
-These strategies only apply to reading FCS files. ``pyreflow`` will only write
-compliant files so in this case these strategies are irrelevent.
-
-Dictionary Configuration
-++++++++++++++++++++++++
-
-Each of these strategies is implemented in ``pyreflow`` via default
-configuration dictionaries which can be splatted as function arguments using
-``**``.
-
-Since these are just dictionaries, they can be modified after creating to
-fine-tune the options in a given strategy.
+Since these are just dictionaries, they can be modified after creation to
+fine-tune.
 
 .. autoclass:: pyreflow.api.ReadHeaderConfig
    :members:
@@ -68,8 +53,8 @@ for configuration options. Configurations may be parsed from a yaml or JSON file
 and validated using these classes. Using this requires ``pydantic`` to be
 installed, which is not the case by default.
 
-Methods on these classes are wrappers for functions defined in :doc:`reader`.
-For any method, the corresponding function in :doc:`reader` is
+Methods on these classes are wrappers for functions defined in :doc:`functions`.
+For any method, the corresponding function in :doc:`functions` is
 ``fcs_<method_name>``. See there for in-depth explanation for every argument,
 parameter, and exception.
 
@@ -77,7 +62,7 @@ This may be useful in large pipelines where one has many files with different
 configurations that one wishes to process in a type-safe manner.
 
 Each class also has methods corresponding to the different read strategies as
-outlined in ref:`overview`. These can be used to initialize a class with the
+outlined in :ref:`strategies`. These can be used to initialize a class with the
 default configuration for a given strategy and then modified as needed.
 
 .. autoclass:: pyreflow.pydantic.PyreflowReadHeaderConfig

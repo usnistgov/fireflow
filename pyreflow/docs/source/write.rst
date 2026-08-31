@@ -1,5 +1,5 @@
-Writer Functions
-================
+Write Interface
+===============
 
 The following are functions which write FCS files.
 

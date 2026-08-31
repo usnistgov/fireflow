@@ -1,5 +1,11 @@
 from docutils import nodes  # type: ignore
+from pathlib import Path
+from jinja2 import Environment, FileSystemLoader, StrictUndefined
+from typing import Any
 import pyreflow as pf
+
+_HERE = Path(__file__).parent
+_GENERATED = _HERE / "_generated"
 
 
 #
@@ -154,7 +160,7 @@ def process_bases(app, name, obj, options, bases):
 
     pft = getattr(importlib.import_module("pyreflow"), "typing")
     this_name = getattr(obj, "__name__")
-    extra = next(
+    extra: list[str] = next(
         (v for k, v in pft._ABC_MAP.items() if k.__name__ == this_name),
         [],
     )
@@ -165,6 +171,48 @@ def process_bases(app, name, obj, options, bases):
         bases[:] = [b for b in bases if b.__name__ != "object"]
 
 
+#
+# Dynamic Templates
+#
+
+
+def _strategy_args() -> list[tuple[str, str, str, str]]:
+    from pyreflow.pydantic import PyreflowReadStdDatasetConfig
+
+    default = PyreflowReadStdDatasetConfig().model_dump()
+    scalpel = PyreflowReadStdDatasetConfig.new_scalpel().model_dump()
+    sledgehammer = PyreflowReadStdDatasetConfig.new_sledgehammer().model_dump()
+
+    def fmt(x: Any) -> str:
+        return f'"{x}"' if isinstance(x, str) else str(x)
+
+    return [
+        (k, fmt(default[k]), fmt(scalpel[k]), fmt(sledgehammer[k]))
+        for k in default.keys()
+    ]
+
+
+def render_generated_rst(app):
+    env = Environment(
+        loader=FileSystemLoader(_HERE / "_templates"),
+        trim_blocks=True,
+        lstrip_blocks=True,
+        keep_trailing_newline=True,
+        undefined=StrictUndefined,
+    )
+    _GENERATED.mkdir(exist_ok=True)
+    tmpl = env.get_template("strategies.rst.jinja")
+    (_GENERATED / "strategies.rst").write_text(
+        tmpl.render(preset_args=_strategy_args())
+    )
+
+
+#
+# Route custom config to app
+#
+
+
 def setup(app):
+    app.connect("builder-inited", render_generated_rst)
     app.connect("missing-reference", resolve_missing_xref)
     app.connect("autodoc-process-bases", process_bases)

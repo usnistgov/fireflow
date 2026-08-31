@@ -20,19 +20,33 @@ and any exceptions outlined here. Any deviation from this is a bug.
 
 ## HEADER
 
-The first 58 bytes of *HEADER* are supported as-is. *OTHER* segments are also
-supported.
+The first 58 bytes of *HEADER* are supported as-is.
 
-FCS 3.2 is the only version that specifies that the *OTHER* segment offsets must
-be 8 bytes long (§3.2). By default, `fireflow` will use 8 bytes for the width of
-each *OTHER* offset when reading and writing (both are configurable).
+### OTHER Offset Pairs
+
+*OTHER* offsets are also supported with minor caveats.
+
+The standards are ambiguous in that it does not directly specify the width
+(except 3.2, see next) nor the number of *OTHER* offset pairs. Consequently, it
+is not clear how much of the space between byte 58 (end of *HEADER*) and the
+first byte of the first known segment (usually *TEXT*) is supposed to be
+dedicated to *OTHER* segment offset pairs. It is theoretically possible to have
+*DATA* / *ANALYSIS* (if empty in *HEADER* and set in *TEXT*), any number of
+*OTHER* segments, or vendor-specific payloads in this space.
+
+The number of offset pairs can either be guessed based on heuristics or specified by
+the user.
+
+The width of each offset is set to 8 by default for both reading and writing
+(this is also configurable). This convention was taken from FCS 3.2 (§3.2);
+earlier versions do not specify a width.
 
 ## TEXT
 
 All standard keywords (those that start with *$*) for each FCS version are
-generally supported in `fireflow`. For many keywords this means that that key
-and value will be read exactly as specified in each standard. There are some
-important exceptions outlined below.
+supported. For many keywords this means that that key and value will be read
+exactly as specified in each standard. There are some important exceptions
+outlined below.
 
 ### Offsets
 
@@ -50,7 +64,7 @@ which in turn allows computing the value of each offset.
 FCS 2.0 and 3.0 only allow ASCII (vs UTF-8) characters in *TEXT*. For 3.0, this
 can be overridden by *$UNICODE* which will permit UTF-8 on a keyword-basis.
 
-`fireflow` is written in a (decenly modern) language that supports UTF-8 out of
+`fireflow` is written in a (decently modern) language that supports UTF-8 out of
 the box. As such there is little reason to penalize 2.0/3.0 files for having
 UTF-8 but non-ASCII characters. Standard keys (in all versions) are ASCII-only,
 so this restriction in theory only ever applies to keyword values and to
@@ -59,8 +73,8 @@ string values produced by `fireflow` will also likely have UTF-8 support.
 Finally, any standardized values (ie strings parsed to an integer) will fail if
 the characters cannot be interpreted (UTF-8 or not).
 
-Therefore, there is almost nothing to
-gain by enforcing this.
+Therefore, there is almost nothing to gain by enforcing ASCII in 2.0 and 3.0.
+Consequently, the *$UNICODE* value is totally ignored.
 
 ### *$TR*
 
@@ -114,8 +128,7 @@ provided imply the restrictions imposed in FCS 3.1, and in practice most pre-3.1
 files follow these anyways.
 
 `fireflow` enforces unique *$PnN* without commas for all versions, and further
-requires that *$TR* refers to a valid *$PnN* for all versions (along with
-*$SPILLOVER* and *$UNSTAINEDCENTERS*).
+requires that *$PnN* exist when other keywords refer to them.
 
 ### *$PnB*
 
@@ -130,12 +143,8 @@ anything otherwise is deprecated.
 In reality, non-multiples of 8 are rarely seen (if ever) and implementing
 support for these would make the internal logic of `fireflow` much more complex.
 
-Furthermore, the *$BYTEORD* keyword in FCS 2.0 and 3.0 effectively forbids
-*$PnB* to be anything other than a multiple of 8 since its length is measured in
-bytes rather than bits. Even when *$BYTEORD* was changed to merely describe
-endianness in FCS 3.1, it is still not clear how one would interpret a binary
-string that is anything other than a multiple of 8 bits long since "endianness"
-refers to the order of bytes rather than bits.
+Non-multiple of 8 values also clash with the meaning of *$BYTEORD* and *ENDIAN*
+(both of which refer to bytes and not bits).
 
 ### *$PnR*
 
@@ -149,11 +158,8 @@ This also applies to *$GnR*.
 
 `fireflow` implements this by parsing each *$PnR* as a decimal (ie an integer
 with precision describing the decimal point, **not** a float to avoid rounding
-errors). For cases where *$PnR* is needed to process data, it will be converted
-to the appropriate type (and the user will be alerted if this fails). As of FCS
-version 3.2, the only case where this is done is for unsigned integer
-measurements (*$DATATYPE* or *$PnDATATYPE* are `I`) where *$PnR* is used to
-make the bitmask that will be applied to data when read/written.
+errors). *$PnR* will be converted to the appropriate type when returned to the
+user or when processing data (ie when performing range checks).
 
 In any user-facing API, the "range" of the value is taken to be its maximum
 possible value. This means that for integers, the range (in the API) will be one
@@ -170,16 +176,14 @@ equates to a no-op, and thus no harm should come from this while also allowing
 many machines that "erroneously" set *$PnG* to `1.0`.
 
 In all other cases, the standard is enforced as written, including the
-restriction of log scaling to integer data only. Note that ASCII values are not
-counted as integer values here despite being processed as 64-bit integers in
-`fireflow`.
+restriction of log scaling to integer data only. ASCII values are not counted as
+integer values despite being processed as 64-bit integers.
 
 ### *$PnD*
 
 For linear displays, the lower bound should be less than the upper bound. For
-logarithmic displays, both decades and offsets should be positive floats. The
-standards do not enforce this (although these restrictions are implied);
-however, `fireflow` will enforce these.
+logarithmic displays, both decades and offsets should be positive floats.
+`fireflow` enforces these despite the standards not explicitly doing so.
 
 ### *$PnL*, *$PnO*, and *$PnV*
 
@@ -189,23 +193,22 @@ not be a problem unless users wish to use gigantic integers that will lose
 precision if stored in a 32-bit float (which is probably inappropriate for these
 keywords anyways).
 
-Additionally, *$PnL* and *$PnV* may only use positive floats and *$PnO* may only
-use non-negative floats.
+Specifically, *$PnL* is supposed to be an integer (or list of integers) in all
+versions, *PnO* was specified as an integer through FCS 3.1, and *$PnV* was
+specified to be an integer through FCS 3.0. FCS 2.0 does not list the
+type of these but integer is implied via the examples given.
 
-Specifically, *$PnL* is supposed to be an integer in all versions (although FCS
-3.1 allowed this to include multiple wavelengths), *PnO* was specified as an
-integer through FCS 3.1, and *$PnV* was specified to be an integer through FCS
-3.0. Note that FCS 2.0 does not list the type of these but integer is implied
-via the examples given.
+Additionally, `fireflow` restricts *$PnL* to positive floats and *PnV* and
+*$PnO* to non-negative floats given that these ranges make sense physically.
 
 Everything that applies to *$PnV* above also applies to *$GnV* where applicable.
 
 ### *PnFEATURE*
 
-`fireflow` restricts these to be one of `Area`, `Width` or `Height`. It is not
-clear if FCS 3.2 (§3.3.45) allows other other values to be used; however, these
-make sense when specifying measurements that are optical in nature which have a
-signal vs time curve.
+`fireflow` restricts these to be one of `Area`, `Width` or `Height` by default.
+It is not clear if FCS 3.2 (§3.3.45) allows other values to be used; however,
+these make sense when specifying measurements that are optical in nature which
+have a signal vs time curve.
 
 ### *PnTYPE*
 
@@ -258,9 +261,9 @@ The internal encoding of the *DATA* segment is controlled by *$DATATYPE*,
 only), and *$TOT* (delimited ASCII only). Only certain combinations of these
 keywords are allowed and their implications are clarified here.
 
-### Layout summary
+### Data Schema Summary
 
-All possible data layouts in `fireflow` (in terms of their keywords) are:
+All possible data schemas in `fireflow` (in terms of their keywords) are:
 
 | Name              | $DATATYPE       | $BYTEORD | $PnB   | $PnR   | $PnDATATYPE | Versions |
 |-------------------|-----------------|----------|--------|--------|-------------|----------|
@@ -291,16 +294,16 @@ Legend:
 
 Notes:
 1. For ASCII, *$BYTEORD* does not matter. `fireflow` will still read it to
-   ensure validity; beyond this its value has no impact on the layout.
+   ensure validity; beyond this its value has no impact on the data schema.
 2. These must be less than 2^`$PnB`.
 3. Must match whatever is specified by *$DATATYPE* and *$PnDATATYPE*. *$PnR*
    must be within [1, 20] and can never be `*` if *$DATATYPE* is `A` and
    *$PnDATATYPE* is not set (the only way to specify an ASCII column in this
-   layout). If the measurement is an integer, *$PnR* must be less than 2^*$PnB*.
-   If measurement is a float, *$PnR* must be a valid representation of a float
-   (either 32 or 64 bit depending on datatype).
+   data schema). If the measurement is an integer, *$PnR* must be less than
+   2^*$PnB*. If measurement is a float, *$PnR* must be a valid representation of
+   a float (either 32 or 64 bit depending on datatype).
    
-### Fixed layouts and *$TOT*
+### Fixed Data Schemas and *$TOT*
 
 For all but delimited ASCII, the *$TOT* keyword is overspecified since the
 number of events can be computed using the length of *DATA* and the sum of all
@@ -311,37 +314,35 @@ For delimited ASCII, *$TOT* is necessary since there is no fixed event width.
 For FCS 2.0, *$TOT* is optional, and if not given `fireflow` will simply read
 until the end of *DATA*.
 
-### Variable-width Integer layouts
+### Variable-width Integer Data Schemas
 
 One of the implications of changing *$BYTEORD* to only mean "big or little
 endian" in FCS 3.1 was that it became possible to make *$PnB* different across
-measurements; this is because previously *$PnB* was implied in *$BYTEORD*.
+measurements; previously *$PnB* was implied in *$BYTEORD*.
 
-As a consequence, integer layouts can express any width from 8 to 64 bits (in
-multiples of 8) starting in FCS 3.1. It wasn't clear if this was intended, but
-`fireflow` nonetheless supports this layout.
+As a consequence, integer data schemas can express any width from 8 to 64 bits
+(in multiples of 8) starting in FCS 3.1. It wasn't clear if this was intended,
+but `fireflow` nonetheless supports this data schema.
 
-In practice, many vendors still seem to use a single width for integer data
-in FCS 3.1+ despite the added flexibility.
+In practice, a few machines use this data schema in the wild.
 
-### ASCII integers
+### ASCII Integers
 
 `fireflow` treats ASCII values as unsigned 64-bit integers. It isn't clear from
-FCS 3.2 §3.3.14 if signed integers are allowed).
+FCS 3.2 §3.3.14 if signed integers are allowed.
 
 ## ANALYSIS and OTHER
 
-`fireflow` will read *ANALYSIS* and *OTHER* segments as an unprocessed
-bytestream. Nothing else will be done. It is up to the user to process these
-as needed.
+`fireflow` will read *ANALYSIS* and *OTHER* segments as raw bytestreams. Nothing
+else will be done. It is up to the user to process these as needed.
 
 FCS 3.0 and 3.1 provide guidance for parsing *ANALYSIS* in §3.4 but this is not
 implemented in `fireflow`. Furthermore, the *$CS\** keywords are available from
 `fireflow`'s *TEXT* API which may be used in this process as required.
 
-## Additional checks
+## Additional Checks
 
-### Non-overlapping offsets
+### Non-overlapping Offsets
 
 Each segment as specified in *HEADER* and/or *TEXT* should not overlap with any
 other segment. Additionally, each offset must be contained within the file.
@@ -356,7 +357,7 @@ When writing, `fireflow` will arrange segments in the following order:
 * *HEADER*
 * *TEXT*
 * *OTHER* (if they exist, in the order listed in *HEADER*)
-* supplemental *TEXT*
+* supplemental *TEXT* (3.0+ only)
 * *DATA*
 * *ANALYSIS*
 
@@ -375,23 +376,23 @@ this is substantial). The presence of the 8-byte CRC word at the end of a
 dataset is checked by default for versions 3.0 and up.
 
 When reading, the CRC will be computed against all bytes in the dataset,
-incuding those from "dead spaces" which are not part of a segment. In order to
-make this work, the entire dataset with these dead spaces must be read once to
-compute the CRC. This is in addition to the IO performed to read the real data
-from *TEXT*, *DATA*, etc. Thus in the case of reading, computing the CRC will
-read most of the file twice. In the future, this may be optimized.
+including "dark bytes" which are not part of a segment. In order to make this
+work, the entire dataset must be read serially to compute the CRC. This is in
+addition to reading *TEXT*, *DATA*, etc to parse their contents. Thus in the
+case of reading, computing the CRC will read most of the file twice. In the
+future, this may be optimized.
 
 When writing, the CRC will be computed on-the-fly as bytes are being written,
 which is much faster than the case for reading.
 
-## White space/dark bytes
+## Whitespace/dark bytes
 
 Bytes which are not part of a segment or the CRC are referred to here as "dark
 bytes".
 
 As of FCS 3.2, all dark bytes should be filled with space characters,
-effectively restricting their only use to padding if desired. (section
-3.8). Previous versions made no mention of this.
+effectively restricting their only use to padding if desired. (§3.8). Previous
+versions made no mention of this.
 
 Plenty of files do simply fill dark bytes with spaces. A few others do the same
 but with null characters. Unfortunately, plenty of other files store what
@@ -404,5 +405,4 @@ They can also be large (MBs). Given this, reading dark bytes is disabled by
 default. Second, the standards were never clear on how these should (or should
 not be) used up to 3.2.
 
-However, `fireflow` does provide a mechanism to read dark bytes if desired,
-which will allow one to validate them for their own application.
+However, `fireflow` does provide a mechanism to read dark bytes if desired.

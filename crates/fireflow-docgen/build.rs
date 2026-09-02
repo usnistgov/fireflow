@@ -23,7 +23,7 @@ fn render_common_issues(tmpl_env: &Environment, outdir: &Path) -> Result<(), Box
         text_correction => fa::TEXT_CORR,
         data_correction => fa::DATA_CORR,
         analysis_correction => fa::ANALYSIS_CORR,
-        other_corrections => fa::OTHER_CORR,
+        other_corrections => fa::OTHER_CORRS,
         text_data_correction => fa::TEXT_DATA_CORR,
         text_analysis_correction => fa::TEXT_ANALYSIS_CORR,
         supp_text_correction => fa::SUPP_TEXT_COR,

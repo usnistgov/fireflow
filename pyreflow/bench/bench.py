@@ -456,7 +456,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
 
     def write_text(self, input_root: Path, scratch_root: Path) -> float:
         core, _ = pf.api.fcs_read_std_text(
-            input_root / self.fcs_name(), time_meas_pattern=None
+            input_root / self.fcs_name(), time_meas_pattern=""
         )
         start = perf_counter_ns()
         mode = "scalpel" if self.scalpel else "clean"
@@ -466,7 +466,7 @@ class FFBenchRun(BenchRun[FFBenchKey, FFBenchResult]):
 
     def write_data(self, input_root: Path, scratch_root: Path) -> float:
         core, _ = pf.api.fcs_read_std_dataset(
-            input_root / self.fcs_name(), time_meas_pattern=None
+            input_root / self.fcs_name(), time_meas_pattern=""
         )
         start = perf_counter_ns()
         mode = "scalpel" if self.scalpel else "clean"
@@ -505,7 +505,7 @@ class FFInternalBenchRun(NamedTuple):
             conf = conf.new_scalpel()
         conf.over_range_action = "warn"
         conf.compute_crc = "always"
-        conf.time_meas_pattern = None
+        conf.time_meas_pattern = ""
 
         target = root / self.fcs_name()
 
@@ -1288,14 +1288,14 @@ def check_ff_data(input_fcs: Path, input_tsv: Path, scratch_root: Path) -> None:
     """
 
     # test that reading FCS file is the same as TSV file
-    core, _ = pf.api.fcs_read_std_dataset(input_fcs, time_meas_pattern=None)
+    core, _ = pf.api.fcs_read_std_dataset(input_fcs, time_meas_pattern="")
     tsv = pl.read_csv(input_tsv, separator="\t", schema=core.data.schema)
     assert core.data.equals(tsv)
 
     # test that writing FCS file produces same data as the input FCS file
     new_fcs = scratch_root / f"ff_write_check_{input_fcs.name}"
     core.write_dataset(new_fcs)
-    nu_core, _ = pf.api.fcs_read_std_dataset(new_fcs, time_meas_pattern=None)
+    nu_core, _ = pf.api.fcs_read_std_dataset(new_fcs, time_meas_pattern="")
 
     assert core.data.equals(nu_core.data)
 

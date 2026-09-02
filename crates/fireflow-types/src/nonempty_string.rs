@@ -437,6 +437,18 @@ impl NEStr {
         // SAFETY: NEStr and str have same layout
         unsafe { &*(p as *const Self) }
     }
+
+    /// Return first character of string.
+    #[must_use]
+    pub fn first(&self) -> char {
+        self.0.chars().next().unwrap()
+    }
+
+    /// Return last character of string.
+    #[must_use]
+    pub fn last(&self) -> char {
+        self.0.chars().next_back().unwrap()
+    }
 }
 
 impl FromNEUtf8Error {

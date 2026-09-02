@@ -76,7 +76,7 @@ class _ReadFlatTEXTConfig(BaseModel):
 class _ReadStdKeywordsConfig(BaseModel):
     dedup_measurement_names: bool = False
     trim_intra_value_whitespace: bool = False
-    time_meas_pattern: pft.Selector[str | None] = "^(TIME|Time)$"
+    time_meas_pattern: pft.Selector[str] = "^(TIME|Time)$"
     allow_missing_time: pft.TriFlag = _DEFAULT_TRIFLAG
     add_missing_timestep: float | None = None
     force_linear_scale: pft.ForceLinearScale = "none"
@@ -100,8 +100,10 @@ class _ReadDataKeywordsConfig(BaseModel):
     ignore_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
         _DEFAULT_KEY_PATTERNS
     )
-    promote_to_standard: pft.AppendableSelector[pft.KeyPatterns] = _DEFAULT_KEY_PATTERNS
-    demote_from_standard: pft.AppendableSelector[pft.KeyPatterns] = (
+    promote_nonstandard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
+        _DEFAULT_KEY_PATTERNS
+    )
+    demote_standard_keys: pft.AppendableSelector[pft.KeyPatterns] = (
         _DEFAULT_KEY_PATTERNS
     )
     rename_standard_keys: pft.AppendableSelector[pft.KeyStringPairs] = {}
@@ -388,5 +390,4 @@ class PyreflowReadFlatDatasetFromKeywordsConfig(
     @classmethod
     def new_sledgehammer(cls) -> Self:
         """Init to read non-compliant files maybe with possible metadata loss."""
-        print(pfa.ReadFlatDatasetFromKeywordsConfig.scalpel()["promote_to_standard"])
         return cls(**pfa.ReadFlatDatasetFromKeywordsConfig.sledgehammer())

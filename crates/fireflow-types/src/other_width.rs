@@ -1,7 +1,8 @@
-use derive_more::{Display, Into};
+use derive_more::{Display, From, Into};
 use thiserror::Error;
 
-use std::num::{NonZeroU8, NonZeroUsize};
+use std::num::{NonZeroU8, NonZeroUsize, ParseIntError};
+use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -37,6 +38,22 @@ impl TryFrom<u8> for OtherWidth {
             Err(OtherWidthError(x))
         }
     }
+}
+
+impl FromStr for OtherWidth {
+    type Err = ParseOtherWidthError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let x = s.parse::<u8>()?;
+        Ok(Self::try_from(x)?)
+    }
+}
+
+/// Error when parsing [`OtherWidth`] from [`String`]
+#[derive(From, Debug, Display, Error, PartialEq, Clone)]
+pub enum ParseOtherWidthError {
+    Int(ParseIntError),
+    Width(OtherWidthError),
 }
 
 /// Error when creating [`OtherWidth`] for configuration struct

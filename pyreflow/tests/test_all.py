@@ -4357,7 +4357,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 path,
                 allow_header_text_offset_mismatch=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             if is_analysis:
                 return uncore.dataset_offsets.final_analysis_offsets
@@ -5074,7 +5074,7 @@ class TestConfig:
 
         out = pf.api.fcs_read_flat_dataset(
             p,
-            promote_to_standard=["PLUTO"],
+            promote_nonstandard_keys=["PLUTO"],
             allow_missing_crc="silent",
         )
         assert out.keywords.std["$PLUTO"] == "planet"
@@ -5087,7 +5087,7 @@ class TestConfig:
 
         out = pf.api.fcs_read_flat_dataset(
             p,
-            demote_from_standard=["BLUETOOTH"],
+            demote_standard_keys=["BLUETOOTH"],
             allow_missing_crc="silent",
         )
         assert out.keywords.nonstd["BLUETOOTH"] == "reliable"
@@ -5151,7 +5151,7 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 dedup_measurement_names=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return core.all_shortnames
 
@@ -5170,7 +5170,7 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 trim_intra_value_whitespace=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
 
         self._test_config_flag(go, None, [pf.ParseKeywordValueError])
@@ -5184,7 +5184,7 @@ class TestConfig:
         p = tmp_path / "thing.fcs"
         self.mock_header_std_text(p, version, kws=kws, par=1, tot=0)
 
-        def go(f: str | None) -> str | None:
+        def go(f: str) -> str | None:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 time_meas_pattern=f,
@@ -5195,7 +5195,7 @@ class TestConfig:
 
         with pytest.RaisesGroup(pf.RelationalError):
             assert go("TIME") == "TIME"
-        assert go(None) is None
+        assert go("") is None
         assert go("T!ME") == "T!ME"
 
     @all_versions
@@ -5439,7 +5439,7 @@ class TestConfig:
             _, _ = pf.api.fcs_read_std_text(
                 p,
                 spillover_measurement_mode=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
 
         if version in ["FCS2.0", "FCS3.0"]:
@@ -5479,7 +5479,7 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 date_pattern=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return core.date is not None
 
@@ -5504,7 +5504,7 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 time_pattern=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return core.btim is not None
 
@@ -5529,7 +5529,7 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 datetime_pattern=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             if isinstance(core, pf.CoreTEXT3_2):
                 return core.begindatetime is not None
@@ -5565,7 +5565,7 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 last_modified_pattern=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             if isinstance(core, pf.CoreTEXT3_2 | pf.CoreTEXT3_1):
                 return core.last_modified is not None
@@ -5601,7 +5601,7 @@ class TestConfig:
             core, _ = pf.api.fcs_read_std_text(
                 p,
                 allow_other_feature=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             if isinstance(core, pf.CoreTEXT3_2):
                 return (core.all_awh_features[0], core.all_features[0])
@@ -5637,7 +5637,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_pseudostandard=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.pseudostandard)
 
@@ -5668,7 +5668,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_hyper_par=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.hyper_par)
 
@@ -5699,7 +5699,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_other_version=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.other_version)
 
@@ -5737,7 +5737,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_extra_timestep=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return (core.nonstandard_keywords, uncore.std_diagnostics.timestep)
 
@@ -5778,7 +5778,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 fix_log_scale_offsets=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return True
 
@@ -5801,7 +5801,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 disallow_localtime=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return True
 
@@ -5825,7 +5825,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_data_correction=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return uncore.dataset_offsets.final_data_offsets
 
@@ -5849,7 +5849,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 text_analysis_correction=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return uncore.dataset_offsets.final_analysis_offsets
 
@@ -5878,7 +5878,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_data_offsets=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return uncore.dataset_offsets.final_data_offsets
 
@@ -5899,7 +5899,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 ignore_text_analysis_offsets=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return uncore.dataset_offsets.final_analysis_offsets
 
@@ -5943,7 +5943,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return uncore.dataset_offsets.final_data_offsets
 
@@ -5976,7 +5976,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 allow_missing_required_offsets=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return uncore.dataset_offsets.final_analysis_offsets
 
@@ -6011,7 +6011,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 process_optional_failure=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             return core.nonstandard_keywords
 
@@ -6030,7 +6030,7 @@ class TestConfig:
 
         def go(f: pt.IntWidthOverride) -> int:
             core, uncore = pf.api.fcs_read_std_text(
-                p, int_width_override=f, time_meas_pattern=None
+                p, int_width_override=f, time_meas_pattern=""
             )
             lt = core.data_schema
             if isinstance(lt, pt.MatrixDataSchema):
@@ -6060,7 +6060,7 @@ class TestConfig:
 
         def go(f: pt.IntWidthOverride) -> int:
             core, uncore = pf.api.fcs_read_std_text(
-                p, int_width_override=f, time_meas_pattern=None
+                p, int_width_override=f, time_meas_pattern=""
             )
             lt = core.data_schema
             if isinstance(lt, pt.MatrixDataSchema):
@@ -6084,7 +6084,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 byteord_override=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             lt = core.data_schema
             if isinstance(lt, pf.OrderedUintDataSchema):
@@ -6122,7 +6122,7 @@ class TestConfig:
             core, uncore = pf.api.fcs_read_std_text(
                 p,
                 disallow_range_truncation=f,
-                time_meas_pattern=None,
+                time_meas_pattern="",
             )
             # TODO return diagnostics for ranges that were trimmed
             return True
@@ -6438,7 +6438,7 @@ class TestReadWrite:
         d.mkdir(exist_ok=True)
         p = d / "text1.fcs"
         core.write_text(p)
-        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern=None)
+        nu_core, un_core = pf.api.fcs_read_std_text(p, time_meas_pattern="")
         self._assert_uncore_text_empty(un_core)
         assert core == nu_core
 
@@ -6481,7 +6481,7 @@ class TestReadWrite:
         p = d / "dataset1.fcs"
         core.write_dataset(p)
         nu_core, un_core = pf.api.fcs_read_std_dataset(
-            p, time_meas_pattern=None, warnings_are_errors=True
+            p, time_meas_pattern="", warnings_are_errors=True
         )
         self._assert_uncore_dataset_empty(un_core)
         assert core == nu_core

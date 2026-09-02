@@ -288,8 +288,8 @@ pub(crate) fn eval_data_conf(
 
     let sub_res = go_keystr!(substitute_standard_key_values);
     let ignore_res = go_keystr!(ignore_standard_keys);
-    let promote_res = go_keystr!(promote_to_standard);
-    let demote_res = go_keystr!(demote_from_standard);
+    let promote_res = go_keystr!(promote_nonstandard_keys);
+    let demote_res = go_keystr!(demote_standard_keys);
 
     let replace_res = conf
         .replace_standard_key_values
@@ -307,8 +307,8 @@ pub(crate) fn eval_data_conf(
             |((rename, sub, ignore, promote), demote, replace, append)| ReadDataKeywordsConfig_ {
                 ignore_standard_keys: ignore,
                 rename_standard_keys: rename,
-                promote_to_standard: promote,
-                demote_from_standard: demote,
+                promote_nonstandard_keys: promote,
+                demote_standard_keys: demote,
                 replace_standard_key_values: replace,
                 append_standard_keywords: append,
                 substitute_standard_key_values: sub,

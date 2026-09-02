@@ -577,7 +577,7 @@ pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// All matching keywords will be prefixed with a "$" and added to the pool
     /// of standard keywords to be processed downstream when deriving data
     /// layouts, measurement metadata, etc. Matching will be case-insensitive.
-    pub promote_to_standard: PTS,
+    pub promote_nonstandard_keys: PTS,
 
     /// A list of standard keywords to be "demoted" to non-standard.
     ///
@@ -592,7 +592,7 @@ pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// Useful for surgically correcting "pseudostandard" keywords without using
     /// [`ReadStdKeywordsConfig::process_pseudostandard`], which is a crude
     /// sledgehammer.
-    pub demote_from_standard: DFS,
+    pub demote_standard_keys: DFS,
 
     /// Replace values of standard keys.
     ///
@@ -1270,27 +1270,47 @@ const MIN_ROW_BUFFER_SIZE: usize = 4096;
 /// A pattern to match the $PnN for the time measurement.
 ///
 /// Defaults to matching "TIME" or "Time".
+///
+/// Blank string maps to "no pattern".
 #[derive(Clone)]
-pub struct TimeMeasNamePattern(pub Option<Regex>);
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+pub struct TimeMeasNamePattern(Option<Regex>);
 
-impl fmt::Display for TimeMeasNamePattern {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        if let Some(s) = self.0.as_ref() {
-            write!(f, "{s}")
-        } else {
-            f.write_str(TIME_MEAS_NAME_PATTERN_NONE)
-        }
+/// Error when parsing [`CaseInsRegex`] from [`String`].
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error("error when parsing time measurement name pattern: {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ConfigError))]
+pub struct TimeMeasNamePatternError(regex::Error);
+
+impl TimeMeasNamePattern {
+    #[must_use]
+    pub fn none() -> Self {
+        Self(None)
+    }
+
+    #[must_use]
+    pub fn pattern(&self) -> Option<&Regex> {
+        self.0.as_ref()
     }
 }
 
 impl FromStr for TimeMeasNamePattern {
-    type Err = regex::Error;
+    type Err = TimeMeasNamePatternError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        if s == TIME_MEAS_NAME_PATTERN_NONE {
-            return Ok(Self(None));
-        }
-        s.parse::<Regex>().map(Some).map(Self)
+        let regex = if s.is_empty() {
+            None
+        } else {
+            Some(s.parse::<Regex>().map_err(TimeMeasNamePatternError)?)
+        };
+        Ok(Self(regex))
+    }
+}
+
+impl fmt::Display for TimeMeasNamePattern {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        f.write_str(self.0.as_ref().map_or("", |x| x.as_str()))
     }
 }
 
@@ -1964,13 +1984,6 @@ impl_str_enum!(
 
 // Declare other useful constants used for configuration
 
-/// A string which is used to denote "no time measurement pattern".
-///
-/// This is only used in interfaces that require a string for
-/// [`ReadStdKeywordsConfig_::time_meas_pattern`] and an `Option` cannot be
-/// used.
-pub const TIME_MEAS_NAME_PATTERN_NONE: &str = "NoTime";
-
 /// The default value for [`ReadStdKeywordsConfig_::time_meas_pattern`].
 pub const TIME_MEAS_NAME_PATTERN_DEFAULT: &str = "^(TIME|Time)$";
 
@@ -2156,6 +2169,12 @@ impl HasStrategy for ReadDatasetConfig {
     }
 }
 
+pub const BYTEORD_OVERRIDE_NONE_LEVEL: &NEStr = NONE_LEVEL;
+pub const BYTEORD_OVERRIDE_ENDIAN_LEVEL: &NEStr = ne_str!("endian");
+
+pub const FIX_INT_WIDTH_NEVER_LEVEL: &NEStr = ne_str!("never");
+pub const FIX_INT_WIDTH_NEXT_BYTE_LEVEL: &NEStr = ne_str!("next_byte");
+
 // internal constants, many are shared between enums to keep the API simpler
 
 const NONE_LEVEL: &NEStr = ne_str!("none");
@@ -2192,23 +2211,17 @@ mod tests {
 }
 
 #[cfg(feature = "python")]
-pub use python::{
-    BYTEORD_OVERRIDE_ENDIAN_LEVEL, BYTEORD_OVERRIDE_NONE_LEVEL, FIX_INT_WIDTH_NEVER_LEVEL,
-    FIX_INT_WIDTH_NEXT_BYTE_LEVEL,
-};
-
-#[cfg(feature = "python")]
 mod python {
     use super::{
-        ByteordOverride, IntWidthOverride, KeyPatterns, NONE_LEVEL, OpticalOnlyKeys, SubPatterns,
-        TimeMeasNamePattern,
+        BYTEORD_OVERRIDE_ENDIAN_LEVEL, BYTEORD_OVERRIDE_NONE_LEVEL, ByteordOverride,
+        FIX_INT_WIDTH_NEVER_LEVEL, FIX_INT_WIDTH_NEXT_BYTE_LEVEL, IntWidthOverride, KeyPatterns,
+        OpticalOnlyKeys, SubPatterns,
     };
 
     use crate::{
         byteord::ConfigByteOrd,
         case_ins_regex::{LiteralOrPattern, LiteralOrPatternError},
         keystring::KeyStringOrPattern,
-        ne_str,
         nonempty_string::NEStr,
         python::ConfigError,
         sub_pattern::SubPattern,
@@ -2220,7 +2233,6 @@ mod python {
         prelude::*,
         types::{PyDict, PyString},
     };
-    use regex::Regex;
 
     use std::convert::Infallible;
     use std::fmt;
@@ -2241,33 +2253,6 @@ mod python {
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
             self.0.into_iter().collect::<Vec<_>>().into_pyobject(py)
-        }
-    }
-
-    // Don't use FromStr for this because it is more natural in Python to use
-    // None for "not set"; FromStr maps None to "NoTime"
-    impl<'py> FromPyObject<'_, 'py> for TimeMeasNamePattern {
-        type Error = PyErr;
-        fn extract(obj: Borrowed<'_, 'py, PyAny>) -> PyResult<Self> {
-            if obj.is_none() {
-                Ok(Self(None))
-            } else {
-                let s: String = obj.extract()?;
-                let r = s
-                    .parse::<Regex>()
-                    .map_err(|e| ConfigError::new_err(e.to_string()))?;
-                Ok(Self(Some(r)))
-            }
-        }
-    }
-
-    impl<'py> IntoPyObject<'py> for TimeMeasNamePattern {
-        type Target = PyAny;
-        type Output = Bound<'py, Self::Target>;
-        type Error = Infallible;
-
-        fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            self.0.map(|r| r.as_str().to_owned()).into_pyobject(py)
         }
     }
 
@@ -2401,10 +2386,4 @@ mod python {
             self.to_string().into_pyobject(py)
         }
     }
-
-    pub const BYTEORD_OVERRIDE_NONE_LEVEL: &NEStr = NONE_LEVEL;
-    pub const BYTEORD_OVERRIDE_ENDIAN_LEVEL: &NEStr = ne_str!("endian");
-
-    pub const FIX_INT_WIDTH_NEVER_LEVEL: &NEStr = ne_str!("never");
-    pub const FIX_INT_WIDTH_NEXT_BYTE_LEVEL: &NEStr = ne_str!("next_byte");
 }

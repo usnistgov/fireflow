@@ -5689,7 +5689,7 @@ where
         let mut match_time_pattern = |i, wrapped| {
             let res = match V::Name::unwrap(wrapped) {
                 Ok(name) => {
-                    if let Some(tp) = sconf.time_meas_pattern.0.as_ref()
+                    if let Some(tp) = sconf.time_meas_pattern.pattern()
                         && tp.is_match(name.as_ref())
                     {
                         if found_time {

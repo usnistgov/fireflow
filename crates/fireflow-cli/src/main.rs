@@ -15,7 +15,7 @@ use fireflow_types::{
     datepattern::DatePattern,
     keystring::{KeyString, KeyStringOrPattern},
     keywords as tk,
-    nonempty_string::NEString,
+    nonempty_string::{NEStr, NEString},
     other_width::OtherWidth,
     segment::OffsetsCorrection,
     sub_pattern::SubPattern,
@@ -208,7 +208,7 @@ fn run() -> AppResult<()> {
             .long(long)
             .value_name("BEGIN,END")
             .help(h)
-            .value_parser(ValueParser::new(parse_offsets))
+            .value_parser(ValueParser::new(parse_offset_pair))
     };
 
     // header args
@@ -217,27 +217,30 @@ fn run() -> AppResult<()> {
     let data_correction = correction_arg(ta::DATA_CORR, true, &data_seg);
     let analysis_correction = correction_arg(ta::ANALYSIS_CORR, true, &analysis_seg);
 
-    let other_correction = Arg::new(ta::OTHER_CORR)
-        .long(ta::OTHER_CORR)
-        .value_name("BEGIN,END")
+    let other_correction = Arg::new(ta::OTHER_CORRS)
+        .long(ta::OTHER_CORRS)
+        .value_name("BEGIN,END[/..]")
         .action(ArgAction::Append)
         .value_parser(ValueParser::new(parse_offsets))
         .help(format!(
-            "Correction for {other_seg} offsets. This can be given multiple \
-             times and will be applied to offsets in the order given."
+            "Correction for {other_seg} offsets. \
+             Pairs are separated by a comma. \
+             Multiple pairs are separated by a {slash}. \
+             An empty string represents an empty list.",
+            slash = fmt_val("\\"),
         ));
 
-    let max_other = opt_arg::<usize>(
+    let max_other = opt_arg_nonstr::<usize>(
         ta::MAX_OTHER,
         "BYTES",
         format!("Max number of {other_seg} segments to parse."),
     );
 
-    let other_width = Arg::new(ta::OTHER_WIDTH)
-        .long(ta::OTHER_WIDTH)
-        .value_name("WIDTH")
-        .help(format!("Width of {other_seg} segments."))
-        .value_parser(ValueParser::new(parse_other_width));
+    let other_width = opt_arg_nonstr::<OtherWidth>(
+        ta::OTHER_WIDTH,
+        "WIDTH",
+        format!("Width of {other_seg} segments."),
+    );
 
     let guess_other_width = Arg::new(ta::GUESS_OTHER_WIDTH)
         .long(ta::GUESS_OTHER_WIDTH)
@@ -313,7 +316,7 @@ fn run() -> AppResult<()> {
 
     // "flat" args
 
-    let version_override = opt_arg::<tc::VersionOverride>(
+    let version_override = opt_arg_nonstr::<tc::VersionOverride>(
         ta::VERSION_OVERRIDE,
         "OVERRIDE",
         format!(
@@ -446,17 +449,23 @@ fn run() -> AppResult<()> {
 
     let make_key_str_args = |name, help| {
         let more = format!(
-            "Values that start and end with {delim} will be \
-             interpreted as regular expressions.",
+            "If first and last character are the same, they are treated as \
+             delimiters (<#> which can be used to \
+             separate multiple values. If a single value starts and ends with \
+             the same value, encapsulate this with two delimiters. \
+             Values that start and end with {delim} will be \
+             interpreted as a single regular expressions; in such cases {delim} \
+             is not interpreted as a delimiter. \
+             An empty string encodes an empty list of values.",
             delim = fmt_val(PATTERN_DELIMITER)
         );
         let more_help = format!("{help} {more}");
         Arg::new(name)
             .long(name)
             .action(ArgAction::Append)
-            .value_name("KEY_OR_PAT")
+            .value_name("<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")
             .help(more_help)
-            .value_parser(value_parser!(KeyStringOrPattern))
+            .value_parser(ValueParser::new(parse_key_string_pattern_list))
     };
 
     let all_read_flat_args = vec![
@@ -501,10 +510,9 @@ fn run() -> AppResult<()> {
         .long(ta::TIME_MEAS_PATTERN)
         .value_name("REGEXP")
         .help(format!(
-            "Use REGEXP when matching time measurement (defaults to \
-             {default}, pass {none} to not look for a time channel).",
+            "Use REGEXP when matching time measurement (defaults to {default}). \
+             Set to blank string to not look for a time measurement.",
             default = fmt_val(tc::TIME_MEAS_NAME_PATTERN_DEFAULT),
-            none = fmt_val(tc::TIME_MEAS_NAME_PATTERN_NONE),
         ))
         .value_parser(value_parser!(tc::TimeMeasNamePattern));
 
@@ -513,7 +521,7 @@ fn run() -> AppResult<()> {
         "Allow time measurement to be missing.",
     );
 
-    let add_missing_timestep = opt_arg::<Timestep>(
+    let add_missing_timestep = opt_arg_nonstr::<Timestep>(
         ta::ADD_MISSING_TIMESTEP,
         "TIMESTEP",
         "Add {timestep) if it is missing.",
@@ -539,7 +547,7 @@ fn run() -> AppResult<()> {
         .action(ArgAction::Append)
         .value_name("SYMS")
         .help(format!(
-            "Ignore optical keywords for temporal measurement. Must be a \
+            "Ignore optical keyword for temporal measurement. Must be a \
              comma-separated list of strings like the X in {pn_any}.",
         ))
         .value_delimiter(',')
@@ -551,7 +559,7 @@ fn run() -> AppResult<()> {
         .value_parser(value_parser!(tc::ProcessOpticalOnlyKeys))
         .help(format!(
             "Choose how to handle optical keys found in temporal measurements. \
-             Does nothing unless keys are specified in {arg}. Pass \
+             Does nothing unless keys are specified with {arg}. Pass \
              {demote_warn}, {demote_silent}, {drop_warn}, or {drop_silent} to \
              demote found keys to nonstandard (with or without warning) or drop \
              keys entirely (with or without warning) respectively.",
@@ -629,19 +637,19 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let date_pattern = opt_arg::<DatePattern>(
+    let date_pattern = opt_arg_ne_str::<DatePattern>(
         ta::DATE_PATTERN,
         "PATTERN",
         format!("Pattern to match {date} keyword. See {date_header}."),
     );
 
-    let time_pattern = opt_arg::<TimePattern>(
+    let time_pattern = opt_arg_ne_str::<TimePattern>(
         ta::TIME_PATTERN,
         "PATTERN",
         format!("Pattern to match {btim}/{etim} keywords. See {time_header}."),
     );
 
-    let datetime_pattern = opt_arg::<String>(
+    let datetime_pattern = opt_arg_ne_str::<String>(
         ta::DATETIME_PATTERN,
         "PATTERN",
         format!(
@@ -651,7 +659,7 @@ fn run() -> AppResult<()> {
         ),
     );
 
-    let last_modified_pattern = opt_arg::<String>(
+    let last_modified_pattern = opt_arg_ne_str::<String>(
         ta::LAST_MODIFIED_PATTERN,
         "PATTERN",
         format!(
@@ -703,37 +711,52 @@ fn run() -> AppResult<()> {
     let rename_standard_keys = Arg::new(ta::RENAME_STD_KEYS)
         .long(ta::RENAME_STD_KEYS)
         .action(ArgAction::Append)
-        .value_name("OLD,NEW")
+        .value_name("<#>OLD<#>NEW[<#>OLD<#>NEW]<#>")
         .value_parser(ValueParser::new(parse_two_keystring_pair))
-        .help("Rename standard keys from OLD to NEW. The leading '$' is implied.");
+        .help(
+            "Rename standard keys from OLD to NEW. \
+             The leading '$' is implied. \
+             First character is considered to be the delimiter (<#>) for \
+             separating OLD and NEW as well as multiple pairs of OLD/NEW. \
+             An empty list or single delimiter encodes an empty list.",
+        );
 
     let replace_std_key_vals = Arg::new(ta::REPLACE_STD_KEY_VALS)
         .long(ta::REPLACE_STD_KEY_VALS)
         .action(ArgAction::Append)
-        .value_name("KEY,VAL")
+        .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
         .help(
             "Replace values of standard keys matching KEY with VAl. \
-             The leading '$' is implied for the key.",
+             The leading '$' is implied for the key. \
+             First character is considered to be the delimiter (<#>) for \
+             separating KEY and VAL as well as multiple pairs of KEY/VAL. \
+             An empty list or single delimiter encodes an empty list.",
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
 
     let append_std_key_vals = Arg::new(ta::APPEND_STD_KEYWORDS)
         .long(ta::APPEND_STD_KEYWORDS)
         .action(ArgAction::Append)
-        .value_name("KEY,VAL")
+        .value_name("<#>KEY<#>VAL[<#>KEY<#>VAL..]<#>")
         .help(
             "Append standard keys with KEY and VAL to list of existing standard \
-             keys. The leading '$' is implied for KEY.",
+             keys. The leading '$' is implied for KEY. \
+             First character is considered to be the delimiter (<#>) for \
+             separating KEY and VAL as well as multiple pairs of KEY/VAL. \
+             An empty list or single delimiter encodes an empty list.",
         )
         .value_parser(ValueParser::new(parse_keystring_string_pair));
 
     let sub_key_vals = Arg::new(ta::SUB_STD_KEY_VALS)
         .long(ta::SUB_STD_KEY_VALS)
         .action(ArgAction::Append)
-        .value_name("KEY,SUB")
+        .value_name("<#>KEY<#>SUB[<#>KEY<#>SUB..]<#>")
         .help(format!(
             "Edit standard key values using KEY and SUB. The leading '$' \
-             is implied for KEY. See {sub_header} for details."
+             is implied for KEY. See {sub_header} for details. \
+             First character is considered to be the delimiter (<#>) for \
+             separating KEY and SUB as well as multiple pairs of KEY/SUB. \
+             An empty list or single delimiter encodes an empty list.",
         ))
         .value_parser(ValueParser::new(parse_sub_pattern_pair));
 
@@ -790,7 +813,7 @@ fn run() -> AppResult<()> {
     let int_widths_from_byteord = Arg::new(ta::INT_WIDTH_OVERRIDE)
         .long(ta::INT_WIDTH_OVERRIDE)
         .value_name("INT_OR_FLAG")
-        .value_parser(parse_fix_int_widths)
+        .value_parser(parse_int_width_override)
         .help(format!(
             "Fix {pn_b}. Only has effect on integer layouts in FCS 2.0/3.0. \
              Set to {} or {} to round up to next multiple of 8 or do nothing. \
@@ -1321,7 +1344,7 @@ fn flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
 
 fn override_flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -> Arg {
     // unlike the default flags in clap, this can be overridden by passing true
-    // or false. The flat without any value is true, and no flag is false.
+    // or false. The flag without any value is true, and no flag is false.
     Arg::new(long)
         .long(long)
         .help(help)
@@ -1332,7 +1355,11 @@ fn override_flag_arg(long: &'static str, help: impl IntoResettable<StyledStr>) -
         .num_args(0..=1)
 }
 
-fn opt_arg<T>(long: &'static str, name: &'static str, help: impl Display) -> Arg
+/// Create an optional argument (non-string)
+///
+/// This should not be used for arguments that may be optional strings since
+/// 'none' maps to `None`.
+fn opt_arg_nonstr<T>(long: &'static str, name: &'static str, help: impl Display) -> Arg
 where
     T: FromStr + Clone + Send + Sync + 'static,
     T::Err: Error + 'static,
@@ -1340,8 +1367,26 @@ where
     Arg::new(long)
         .long(long)
         .value_name(name)
-        .value_parser(ValueParser::new(parse_opt::<T>))
-        .help(format!("{help} Set to 'none' to supply no value."))
+        .value_parser(ValueParser::new(parse_opt_nonstr::<T>))
+        .help(format!(
+            "{help} Set to {none} to supply no value.",
+            none = fmt_val("none")
+        ))
+}
+
+/// Create an optional argument (non-empty string)
+///
+/// An empty string will be mapped to `None`.
+fn opt_arg_ne_str<T>(long: &'static str, name: &'static str, help: impl Display) -> Arg
+where
+    T: FromStr + Clone + Send + Sync + 'static,
+    T::Err: Error + 'static,
+{
+    Arg::new(long)
+        .long(long)
+        .value_name(name)
+        .value_parser(ValueParser::new(parse_opt_ne_str::<T>))
+        .help(format!("{help} Set to blank string to supply no value."))
 }
 
 fn proc_kw_fail_arg(long: &'static str, help_front: impl Display) -> Arg {
@@ -1409,12 +1454,8 @@ fn get_header_inner_config(sargs: &ArgMatches) -> tc::ReadHeaderInnerConfig {
     get_correction(sargs, ta::DATA_CORR, |x| conf.data_correction = x);
     get_correction(sargs, ta::ANALYSIS_CORR, |x| conf.analysis_correction = x);
 
-    if let Some(xs) = sargs.get_many::<(i32, i32)>(ta::OTHER_CORR) {
-        conf.other_corrections = xs
-            .into_iter()
-            .copied()
-            .map(OffsetsCorrection::from)
-            .collect();
+    if let Some(xs) = sargs.get_one::<Vec<(i32, i32)>>(ta::OTHER_CORRS) {
+        conf.other_corrections = xs.iter().copied().map(OffsetsCorrection::from).collect();
     }
 
     get_opt(sargs, ta::MAX_OTHER, |x| conf.max_other = x);
@@ -1497,6 +1538,9 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
     get_flag(s, ta::TRIM_INTRA_VALUE_WHITESPACE, |x| {
         c.trim_intra_value_whitespace = x;
     });
+
+    // These two flags work together to allow all possible values to be
+    // overridden (including nil)
     get_opt(s, ta::TIME_MEAS_PATTERN, |x| {
         c.time_meas_pattern = Selector::Root(x);
     });
@@ -1550,14 +1594,15 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
         c.ignore_standard_keys = AppendableSelector::root(xs);
     });
     get_many::<KeyStringOrPattern, _, _>(s, ta::PROMOTE_TO_STD, |xs| {
-        c.promote_to_standard = AppendableSelector::root(xs);
+        c.promote_nonstandard_keys = AppendableSelector::root(xs);
     });
     get_many::<KeyStringOrPattern, _, _>(s, ta::DEMOTE_FROM_STD, |xs| {
-        c.demote_from_standard = AppendableSelector::root(xs);
+        c.demote_standard_keys = AppendableSelector::root(xs);
     });
 
-    if let Some(xs) = s.get_many::<BiKeystringPair>(ta::RENAME_STD_KEYS) {
+    if let Some(xs) = s.get_one::<Vec<BiKeystringPair>>(ta::RENAME_STD_KEYS) {
         let Ok(ys) = xs
+            .iter()
             .cloned()
             .collect::<HashMap<_, _>>()
             .try_into()
@@ -1566,8 +1611,8 @@ fn get_data_kws_config(cmd: &Command, s: &ArgMatches) -> cfg::ReadDataKeywordsCo
     }
 
     let parse_keystring_pair = |name: &str| {
-        s.get_many::<KeystringStringPair>(name)
-            .map(|xs| xs.cloned().collect())
+        s.get_one::<Vec<KeystringStringPair>>(name)
+            .map(|xs| xs.iter().cloned().collect())
     };
 
     let _ = parse_keystring_pair(ta::REPLACE_STD_KEY_VALS)
@@ -1736,7 +1781,9 @@ where
     F: FnMut(X),
     T: Clone + Sync + Send + 'static,
 {
-    let _ = sargs.get_many::<T>(name).map(|xs| f(xs.cloned().collect()));
+    let _ = sargs
+        .get_one::<Vec<T>>(name)
+        .map(|xs| f(xs.iter().cloned().collect()));
 }
 
 fn get_flag<T, F>(sargs: &ArgMatches, name: &str, f: F)
@@ -1758,12 +1805,23 @@ where
         .map(f);
 }
 
-fn parse_opt<T>(s: &str) -> StrResult<Option<T>>
+fn parse_opt_nonstr<T>(s: &str) -> StrResult<Option<T>>
 where
     T: FromStr,
     T::Err: Error + 'static,
 {
     if s == "none" {
+        return Ok(None);
+    }
+    Ok(Some(s.parse::<T>().map_err(|e| e.to_string())?))
+}
+
+fn parse_opt_ne_str<T>(s: &str) -> StrResult<Option<T>>
+where
+    T: FromStr,
+    T::Err: Error + 'static,
+{
+    if s.is_empty() {
         return Ok(None);
     }
     Ok(Some(s.parse::<T>().map_err(|e| e.to_string())?))
@@ -1775,9 +1833,17 @@ fn parse_delim(s: &str) -> StrResult<u8> {
         .map_err(|_| "must be a single ASCII character".into())
 }
 
-fn parse_offsets(s: &str) -> StrResult<(i32, i32)> {
-    let ss = s.split(',').collect::<Vec<_>>();
-    match &ss[..] {
+fn parse_offsets(s: &str) -> StrResult<Vec<(i32, i32)>> {
+    if s.is_empty() {
+        Ok(vec![])
+    } else {
+        s.split('/').map(parse_offset_pair).collect()
+    }
+}
+
+fn parse_offset_pair(s: &str) -> StrResult<(i32, i32)> {
+    let xs = s.split(',').collect::<Vec<_>>();
+    match &xs[..] {
         [a, b] => {
             let aa = a.parse::<i32>().map_err(|e| e.to_string())?;
             let bb = b.parse::<i32>().map_err(|e| e.to_string())?;
@@ -1787,30 +1853,77 @@ fn parse_offsets(s: &str) -> StrResult<(i32, i32)> {
     }
 }
 
-fn parse_other_width(s: &str) -> StrResult<OtherWidth> {
-    let x = s.parse::<u8>().map_err(|e| e.to_string())?;
-    OtherWidth::try_from(x).map_err(|e| e.to_string())
+fn parse_key_string_pattern_list(s: &str) -> StrResult<Vec<KeyStringOrPattern>> {
+    let go = |ss: &str| ss.parse::<KeyStringOrPattern>().map_err(|e| e.to_string());
+    let single = || Ok(vec![go(s)?]);
+    if let Some(ne) = NEStr::try_new(s) {
+        if ne.first() == ne.last() && ne.len().get() > 2 {
+            let delim = ne.first();
+            if delim == PATTERN_DELIMITER {
+                // String starts and ends with delimiter but delimiter is the
+                // same as the regex pattern specifier; treat as a single
+                // pattern.
+                single()
+            } else {
+                // Otherwise delimiters should be treated as real delimiters,
+                // strip off the start and end delimiter and split on whatever
+                // other delimiters we find.
+                let mid = s.strip_prefix(delim).unwrap().strip_suffix(delim).unwrap();
+                mid.split(delim).map(go).collect()
+            }
+        } else {
+            // String is either a single character or does not start/end with
+            // the same character, interpret as a single value.
+            single()
+        }
+    } else {
+        Ok(vec![])
+    }
 }
 
-fn parse_two_keystring_pair(s: &str) -> StrResult<BiKeystringPair> {
-    let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
-    let kf = k.parse::<KeyString>().map_err(|e| e.to_string())?;
-    let vf = v.parse::<KeyString>().map_err(|e| e.to_string())?;
-    Ok((kf, vf))
+fn parse_two_keystring_pair(s: &str) -> StrResult<Vec<BiKeystringPair>> {
+    let go_k = |x: &str| x.parse::<KeyString>().map_err(|e| e.to_string());
+    let go_v = |x: &str| x.parse::<KeyString>().map_err(|e| e.to_string());
+    parse_pairs(s, go_k, go_v)
 }
 
-fn parse_keystring_string_pair(s: &str) -> StrResult<KeystringStringPair> {
-    let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
-    let kf = k.parse::<KeyString>().map_err(|e| e.to_string())?;
-    let vf = v.parse::<NEString>().map_err(|e| e.to_string())?;
-    Ok((kf, vf))
+fn parse_keystring_string_pair(s: &str) -> StrResult<Vec<KeystringStringPair>> {
+    let go_k = |x: &str| x.parse::<KeyString>().map_err(|e| e.to_string());
+    let go_v = |x: &str| x.parse::<NEString>().map_err(|e| e.to_string());
+    parse_pairs(s, go_k, go_v)
 }
 
-fn parse_sub_pattern_pair(s: &str) -> StrResult<SubPatternPair> {
-    let (k, v) = s.split_once(',').ok_or("must be a comma separated pair")?;
-    let kf = k.parse::<KeyStringOrPattern>().map_err(|e| e.to_string())?;
-    let vf = parse_sub_pattern_inner(v).map_err(|e| e.to_string())?;
-    Ok((kf, vf))
+fn parse_sub_pattern_pair(s: &str) -> StrResult<Vec<SubPatternPair>> {
+    let go_k = |x: &str| x.parse::<KeyStringOrPattern>().map_err(|e| e.to_string());
+    let go_v = |x: &str| parse_sub_pattern_inner(x).map_err(|e| e.to_string());
+    parse_pairs(s, go_k, go_v)
+}
+
+fn parse_pairs<K, V, Fk, Fv>(s: &str, fk: Fk, fv: Fv) -> StrResult<Vec<(K, V)>>
+where
+    Fk: Fn(&str) -> StrResult<K>,
+    Fv: Fn(&str) -> StrResult<V>,
+{
+    if let Some(ne) = NEStr::try_new(s)
+        && ne.len().get() > 1
+    {
+        if ne.first() == ne.last() {
+            let go = |a: &str, b: &str| Ok((fk(a)?, fv(b)?));
+            let delim = ne.first();
+            let mid = s.strip_prefix(delim).unwrap().strip_suffix(delim).unwrap();
+            let mut it = mid.split(delim).tuples();
+            let out = it.by_ref().map(|(a, b)| go(a, b)).collect();
+            if it.into_buffer().next().is_some() {
+                Err("number of delimited values must be even".into())
+            } else {
+                out
+            }
+        } else {
+            Err("First and last character must be the same".into())
+        }
+    } else {
+        Ok(vec![])
+    }
 }
 
 fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
@@ -1841,26 +1954,28 @@ fn parse_sub_pattern_inner(s: &str) -> AppResult<SubPattern> {
     Ok(SubPattern::try_new(r, to.to_owned(), global)?)
 }
 
-fn parse_fix_int_widths(s: &str) -> StrResult<IntWidthOverride> {
-    if s == tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str() {
-        return Ok(IntWidthOverride::Never);
+fn parse_int_width_override(s: &str) -> StrResult<IntWidthOverride> {
+    let out = if s == tc::FIX_INT_WIDTH_NEVER_LEVEL.as_str() {
+        IntWidthOverride::Never
     } else if s == tc::FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str() {
-        return Ok(IntWidthOverride::NextByte);
-    }
-    Ok(IntWidthOverride::Explicit(
-        s.parse::<NumericByteWidth>().map_err(|e| e.to_string())?,
-    ))
+        IntWidthOverride::NextByte
+    } else {
+        let x = s.parse::<NumericByteWidth>().map_err(|e| e.to_string())?;
+        IntWidthOverride::Explicit(x)
+    };
+    Ok(out)
 }
 
 fn parse_byteord_override(s: &str) -> StrResult<ByteordOverride> {
-    if s == tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str() {
-        return Ok(ByteordOverride::Endian);
+    let out = if s == tc::BYTEORD_OVERRIDE_ENDIAN_LEVEL.as_str() {
+        ByteordOverride::Endian
     } else if s == tc::BYTEORD_OVERRIDE_NONE_LEVEL.as_str() {
-        return Ok(ByteordOverride::None);
-    }
-    Ok(ByteordOverride::Explicit(
-        s.parse::<ConfigByteOrd>().map_err(|e| e.to_string())?,
-    ))
+        ByteordOverride::None
+    } else {
+        let x = s.parse::<ConfigByteOrd>().map_err(|e| e.to_string())?;
+        ByteordOverride::Explicit(x)
+    };
+    Ok(out)
 }
 
 pub fn print_parsed_data<W: Write>(w: &mut W, core: &AnyCoreDataset, delim: u8) -> io::Result<()> {

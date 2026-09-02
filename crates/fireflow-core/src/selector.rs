@@ -143,7 +143,7 @@ impl Selector<TimeMeasNamePattern> {
     /// * `/HDR-T(M)/` - common on Miltenyi MACSQuant Analyzers (all models?)
     #[must_use]
     pub fn new_time_meas_pattern() -> Self {
-        let hdr_tm_regex = TimeMeasNamePattern(Some(Regex::new("^HDR-T(M)$").unwrap()));
+        let hdr_tm_regex = "^HDR-T(M)$".parse::<TimeMeasNamePattern>().unwrap();
         let is_macsquant = KeyTest::KeyIs(Cyt::std().into(), ne_str!("MACSQuant").to_owned());
         let cond = Condition::Root(is_macsquant);
         Self::if_then(cond, Self::root(hdr_tm_regex))

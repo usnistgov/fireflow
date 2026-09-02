@@ -668,8 +668,8 @@ pub(crate) struct AllKeyMatchers<'a> {
 impl<'a> AllKeyMatchers<'a> {
     pub(crate) fn from_config(conf: &'a EvaledReadDataKeywordsConfig) -> Self {
         Self {
-            promote: KeyMatcher::from_keys(&conf.promote_to_standard),
-            demote: KeyMatcher::from_keys(&conf.demote_from_standard),
+            promote: KeyMatcher::from_keys(&conf.promote_nonstandard_keys),
+            demote: KeyMatcher::from_keys(&conf.demote_standard_keys),
             ignore: KeyMatcher::from_keys(&conf.ignore_standard_keys),
             subs: KeyMatcher::from_keys(&conf.substitute_standard_key_values),
         }

@@ -3840,7 +3840,7 @@ where
             "data schema"
         );
         let go = |ms: &NamedVec<_, _, _>| {
-            if let Some(pat) = conf.time_meas_pattern.0.as_ref()
+            if let Some(pat) = conf.time_meas_pattern.pattern()
                 && ms.as_center().is_none()
                 && !ms.is_empty()
             {

@@ -23,7 +23,7 @@ macro_rules! make_args {
         pub const TEXT_CORR: &str = header_arg!(text_correction);
         pub const DATA_CORR: &str = header_arg!(data_correction);
         pub const ANALYSIS_CORR: &str = header_arg!(analysis_correction);
-        pub const OTHER_CORR: &str = header_arg!(other_corrections);
+        pub const OTHER_CORRS: &str = header_arg!(other_corrections);
         pub const MAX_OTHER: &str = header_arg!(max_other);
         pub const OTHER_WIDTH: &str = header_arg!(other_width);
         pub const GUESS_OTHER_WIDTH: &str = header_arg!(guess_other_width);
@@ -113,8 +113,8 @@ macro_rules! make_args {
         }
 
         pub const IGNORE_STD_KEYS: &str = data_kw_arg!(ignore_standard_keys);
-        pub const PROMOTE_TO_STD: &str = data_kw_arg!(promote_to_standard);
-        pub const DEMOTE_FROM_STD: &str = data_kw_arg!(demote_from_standard);
+        pub const PROMOTE_TO_STD: &str = data_kw_arg!(promote_nonstandard_keys);
+        pub const DEMOTE_FROM_STD: &str = data_kw_arg!(demote_standard_keys);
         pub const RENAME_STD_KEYS: &str = data_kw_arg!(rename_standard_keys);
         pub const REPLACE_STD_KEY_VALS: &str = data_kw_arg!(replace_standard_key_values);
         pub const APPEND_STD_KEYWORDS: &str = data_kw_arg!(append_standard_keywords);

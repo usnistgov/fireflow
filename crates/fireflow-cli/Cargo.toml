@@ -24,6 +24,5 @@ itoa = { workspace = true }
 zmij = { workspace = true }
 hashbrown = { workspace = true }
 
-
 [lints]
 workspace = true

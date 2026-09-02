@@ -185,14 +185,14 @@ force a different version of the user's choice.
 ## Ignoring or Demoting Extra Keys
 
 In the case where extra keys are given, use `ignore_standard_keys` or
-`demote_from_standard` to "remove" these keys from the standard key list.
+`demote_standard_keys` to "remove" these keys from the standard key list.
 The former will drop these keys entirely, and the latter will remove the `$`
 from the front.
 
 ## Adding Additional Keys
 
 If a non-standard key should actually be a standard key, it can be "promoted"
-using `promote_to_standard`, which will add `$` to the front of the key.
+using `promote_nonstandard_keys`, which will add `$` to the front of the key.
 
 Entirely missing keys can be given with `append_standard_keywords`.
 

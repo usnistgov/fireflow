@@ -10398,13 +10398,10 @@ impl DocArgParam {
 
     fn new_time_meas_pattern_param() -> Self {
         let path = types_config_path("TimeMeasNamePattern");
-        let inner_pytype = PyOpt::new1(PyStr::new_regexp().rstype(path.clone()))
-            .default_from_inner()
-            .rstype(path);
+        let inner_pytype = PyStr::new_regexp().rstype(path);
         let d = format!(
             "A pattern to match the {PNN} of the time measurement. \
-             If {none}, do not try to find a time measurement.",
-            none = code_str(tc::TIME_MEAS_NAME_PATTERN_NONE),
+             A blank string will be interpreted as 'no pattern'."
         );
         let pytype = PyAlias::new_selector(inner_pytype);
         Self::new_param(ta::TIME_MEAS_PATTERN, pytype, d)
@@ -10657,7 +10654,7 @@ impl DocArgParam {
 
     fn new_other_corrections_param() -> Self {
         Self::new_param(
-            ta::OTHER_CORR,
+            ta::OTHER_CORRS,
             PyList::new1(PyAlias::new_correction(AnySegment::Other, true)),
             format!(
                 "Corrections for {OTHER} offsets if they exist. Each correction will \

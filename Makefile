@@ -71,9 +71,14 @@ gen-docs: pyreflow/.venv
 all-dev: gen-docs rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 
 docs_out_current=docs/build/
+docs_out_test=docs/build_test/
+
+.PHONY: docs-test
+docs-test: build-dev
+	$(uv_run) sphinx-build -b doctest docs/source/ $(docs_out_test)
 
 .PHONY: docs
-docs: build-dev
+docs: build-dev docs-test
 	$(uv_run) docs/build.sh docs/source/ $(docs_out_current)
 
 .PHONY: clean

@@ -29,6 +29,7 @@ html_title = "pyreflow"
 extensions = [
     "sphinx.ext.intersphinx",
     "sphinx.ext.autodoc",
+    "sphinx.ext.doctest",
     "sphinx.ext.graphviz",
     "sphinx.ext.githubpages",
     "sphinx_toolbox.more_autodoc.genericalias",

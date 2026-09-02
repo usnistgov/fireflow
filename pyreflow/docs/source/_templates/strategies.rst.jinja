@@ -5,8 +5,10 @@ Strategies
 
 `pyreflow` has many options controlling its behavior when reading FCS files.
 
-Since most users likely will not care about these options, an additional flag
-called ``strategy`` may be used to set many flags in bulk.
+Since most users likely will not care about these options, flags may may be set
+in buld according to several "strategies" (see :ref:`config_interfaces` for
+details of how to set these).
+
 
 Available strategies are:
 
@@ -18,11 +20,8 @@ Available strategies are:
   possibly ignore/throw away metadata and non-*DATA* segments if their format
   cannot be determined.
 
-Most users will likely want the ``scalpal`` strategy.
-
-Those wishing for more control can fine-tune options after setting a strategy
-(the easiest way to do this is via the pydantic interface, see
-:ref:`config_interfaces`).
+**Most users will likely want the scalpal strategy.** Those wishing for more
+control can fine-tune options after setting a strategy.
 
 Scope and Limitations
 +++++++++++++++++++++

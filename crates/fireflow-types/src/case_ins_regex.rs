@@ -6,6 +6,9 @@ use thiserror::Error;
 
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use serde::{Serialize, Serializer};
+
 #[cfg(feature = "python")]
 use {
     crate::python as py,
@@ -16,7 +19,19 @@ use {
 /// A regex which ignores case when matching
 #[derive(Clone, AsRef, Display, Debug)]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
-pub struct CaseInsRegex(Regex);
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct CaseInsRegex {
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_regex"))]
+    inner: Regex,
+}
+
+#[cfg(feature = "serde")]
+pub fn serialize_regex<S>(this: &Regex, serializer: S) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    this.as_str().serialize(serializer)
+}
 
 /// Either a literal string or regexp.
 ///
@@ -24,6 +39,7 @@ pub struct CaseInsRegex(Regex);
 /// match lots of strings literally, it is faster and easier to use a hash
 /// table, otherwise we need to search linearly through an array of patterns.
 #[derive(Clone, PartialEq, Eq, Hash, Display, Debug)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum LiteralOrPattern<L> {
     #[display("{_0}")]
     Literal(L),
@@ -49,7 +65,7 @@ pub enum LiteralOrPatternError<E> {
 
 impl PartialEq<Self> for CaseInsRegex {
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_str() == other.0.as_str()
+        self.inner.as_str() == other.inner.as_str()
     }
 }
 
@@ -60,7 +76,7 @@ impl Hash for CaseInsRegex {
     where
         H: Hasher,
     {
-        self.0.as_str().hash(state);
+        self.inner.as_str().hash(state);
     }
 }
 impl FromStr for CaseInsRegex {
@@ -70,7 +86,7 @@ impl FromStr for CaseInsRegex {
         regex::RegexBuilder::new(s)
             .case_insensitive(true)
             .build()
-            .map(Self)
+            .map(|inner| Self { inner })
             .map_err(CaseInsRegexError)
     }
 }

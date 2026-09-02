@@ -5,10 +5,15 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::DisplayAsPyErr;
 
+#[cfg(feature = "serde")]
+use {crate::case_ins_regex::serialize_regex, serde::Serialize};
+
 /// Pattern to match a string and apply a sed-like substitution operation.
 #[derive(Clone, Debug, Display)]
 #[display("s/{from}/{to}{g}", g = if self.global { "/g" } else { "" })]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct SubPattern {
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_regex"))]
     from: Regex,
     to: String,
     global: bool,

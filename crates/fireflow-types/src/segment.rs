@@ -2,12 +2,18 @@ use derive_new::new;
 
 use std::marker::PhantomData;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// Denotes a correction for a segment offset pair
 #[derive(Default, Clone, Copy, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OffsetsCorrection<I, S> {
     begin: i32,
     end: i32,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _id: PhantomData<I>,
+    #[cfg_attr(feature = "serde", serde(skip))]
     _src: PhantomData<S>,
 }
 

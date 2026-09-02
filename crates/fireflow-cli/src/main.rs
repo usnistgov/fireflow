@@ -1159,6 +1159,10 @@ fn run() -> AppResult<()> {
         .arg(&scan_arg)
         .after_long_help(&std_long_help);
 
+    let strategies_cmd = Command::new(SUBCMD_STRATEGIES)
+        .about("Show configuration arguments for a given strategy.")
+        .arg(&strategy_arg);
+
     let summarize_cmd = Command::new(SUBCMD_SUMMARIZE)
         .about("Summarize datasets in FCS file")
         .arg(&input_arg)
@@ -1190,6 +1194,7 @@ fn run() -> AppResult<()> {
         .subcommand(spill_cmd)
         .subcommand(data_cmd)
         .subcommand(repair_cmd)
+        .subcommand(strategies_cmd)
         .subcommand(summarize_cmd)
         .subcommand(scan_cmd);
 
@@ -1328,6 +1333,13 @@ fn run() -> AppResult<()> {
                 .map(|(version, offset)| Bounds { version, offset })
                 .collect();
             to_writer(stdout, &arr)?;
+            Ok(())
+        }
+
+        Some((SUBCMD_STRATEGIES, sargs)) => {
+            let strat = get_strategy(sargs);
+            let conf = cfg::ReadStdDatasetConfig::new_with_strategy(strat);
+            to_writer(stdout, &conf)?;
             Ok(())
         }
 
@@ -2102,6 +2114,8 @@ const SUBCMD_MEAS: &str = "measurements";
 const SUBCMD_SPILL: &str = "spillover";
 
 const SUBCMD_REPAIR: &str = "repair";
+
+const SUBCMD_STRATEGIES: &str = "strategies";
 
 // other flags
 

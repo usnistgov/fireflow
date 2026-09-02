@@ -72,6 +72,13 @@ macro_rules! impl_str_enum {
                 }
             }
         }
+
+        impl From<$flag_name> for &'static str {
+            fn from(s: $flag_name) -> Self {
+                $crate::config::EnumStrIter::as_ne_str(&s).as_str()
+            }
+        }
+
     };
 }
 

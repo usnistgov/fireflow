@@ -24,6 +24,9 @@ use std::iter::once;
 use std::mem;
 use std::str::FromStr;
 
+#[cfg(feature = "serde")]
+use {fireflow_types::case_ins_regex::serialize_regex, serde::Serialize};
+
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
@@ -31,24 +34,32 @@ use {
 };
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(bound = "T: Clone + Serialize"))]
 pub enum Selector<T> {
     Root(T),
     Branch(Branch<T>),
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(bound = "T: Clone + Serialize"))]
 pub enum AppendableSelector<T> {
     One(Selector<T>),
     Many(NEVec<Selector<T>>),
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(bound = "T: Clone + Serialize"))]
 pub enum Branch<T> {
     If(Box<If<T>>),
     Cond(Cond<T>),
 }
 
 #[derive(Clone, PartialEq, new)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(bound = "T: Clone + Serialize"))]
 pub struct If<T> {
     pub condition: Condition,
     pub consequent: Selector<T>,
@@ -56,11 +67,14 @@ pub struct If<T> {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(bound = "T: Clone + Serialize"))]
 pub struct Cond<T> {
     pub forms: NEVec<(Condition, Selector<T>)>,
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum Condition {
     Root(KeyTest),
     And(Box<Self>, Box<Self>),
@@ -69,6 +83,7 @@ pub enum Condition {
 }
 
 #[derive(Clone, PartialEq)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum KeyTest {
     HasKey(AnyKey),
     KeyIs(AnyKey, NEString),
@@ -78,11 +93,15 @@ pub enum KeyTest {
 /// A wrapper around [`regex::Regex`] to make impls cleaner.
 #[derive(Clone, Display)]
 #[cfg_attr(feature = "python", derive(IntoPyString, FromPyString))]
-pub struct ValueRegex(Regex);
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub struct ValueRegex {
+    #[cfg_attr(feature = "serde", serde(serialize_with = "serialize_regex"))]
+    inner: Regex,
+}
 
 impl PartialEq for ValueRegex {
     fn eq(&self, other: &Self) -> bool {
-        self.0.as_str() == other.0.as_str()
+        self.inner.as_str() == other.inner.as_str()
     }
 }
 
@@ -353,7 +372,7 @@ impl KeyTest {
         match self {
             Self::HasKey(k) => kws.get_any(k).is_some(),
             Self::KeyIs(k, p) => kws.get_any(k).is_some_and(|v| v == p),
-            Self::KeyMatches(k, p) => kws.get_any(k).is_some_and(|v| p.0.is_match(v.as_str())),
+            Self::KeyMatches(k, p) => kws.get_any(k).is_some_and(|v| p.inner.is_match(v.as_str())),
         }
     }
 }
@@ -371,7 +390,7 @@ impl FromStr for ValueRegex {
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         regex::RegexBuilder::new(s)
             .build()
-            .map(Self)
+            .map(|inner| Self { inner })
             .map_err(ValueRegexError)
     }
 }

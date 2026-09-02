@@ -6,6 +6,9 @@ use itertools::Itertools as _;
 use nonempty_collections::{IntoIteratorExt as _, NEVec, NonEmptyIterator as _};
 use thiserror::Error;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 #[cfg(feature = "python")]
 use {
     fireflow_core_proc::{AllIntoPyErr, DisplayAsPyErr},
@@ -20,6 +23,7 @@ use {
 /// destination.
 #[derive(Clone, Debug, Default, AsRef, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct KeyStringPairs(HashMap<KeyString, KeyString>);
 
 impl IntoIterator for KeyStringPairs {

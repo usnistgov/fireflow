@@ -43,6 +43,7 @@ macro_rules! ne_str {
 
 /// A string slice which can never be empty.
 #[derive(AsRef, Display, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[repr(transparent)]
 pub struct NEStr(str);
 

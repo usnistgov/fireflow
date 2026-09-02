@@ -38,6 +38,9 @@ use thiserror::Error;
 #[cfg(feature = "python")]
 use fireflow_core_proc::AllIntoPyErr;
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 /// Instructions for reading the HEADER segment.
 #[derive(Default, Clone, AsRef, From)]
 pub struct ReadHeaderConfig {
@@ -106,6 +109,7 @@ pub struct ReadFlatDatasetConfig {
 
 /// Instructions for reading a dataset in standard mode.
 #[derive(Default, Clone, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadStdDatasetConfig {
     #[as_ref(ReadHeaderInnerConfig)]
     pub header: ReadHeaderInnerConfig,

@@ -104,6 +104,7 @@ pub struct WriteMultiConfig {
 /// Specific instructions for reading HEADER
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadHeaderInnerConfig {
     /// Corrections for primary TEXT offsets
     pub text_correction: HeaderCorrection<PrimaryTextSegmentId>,
@@ -163,6 +164,7 @@ pub struct ReadHeaderInnerConfig {
 /// Specific instructions for reading offsets
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadOffsetConfig {
     /// Allow offsets that are like `X,X-1`.
     ///
@@ -210,6 +212,7 @@ pub struct ReadOffsetConfig {
 /// Specific instructions for reading the TEXT segment as flat key/value pairs.
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadHeaderAndTEXTConfig {
     // NOTE the only reason this is here and not in the Keywords configs is
     // because this is needed to read the supplemental TEXT offsets
@@ -373,6 +376,7 @@ pub struct ReadHeaderAndTEXTConfig {
 /// Specific instructions for standardizing keywords from TEXT
 #[derive(Clone, Default)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
     /// If `true`, force all $PnN to be unique if they are not already.
     ///
@@ -552,6 +556,7 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
 /// thing they have in common.
 #[derive(Default, Clone, AsRef)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
     /// Remove standard keys from TEXT.
     ///
@@ -710,6 +715,7 @@ pub struct ReadDataKeywordsConfig_<ISK, RSK, PTS, DFS, RSKV, ASK, SSKV> {
 /// Specific instructions for reading entire dataset in addition to TEXT.
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadDatasetConfig {
     /// The maximum number of bytes to correct DATA based on event width.
     ///
@@ -802,6 +808,7 @@ pub struct ReadDatasetConfig {
 /// Configuration options for across all reading functions
 #[derive(Default, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ReadSharedConfig {
     /// If `true`, all warnings are considered to be fatal errors.
     pub warnings_are_errors: bool,
@@ -823,6 +830,7 @@ macro_rules! _impl_config_flag {
     ($n:ident) => {
         #[derive(From, Clone, Copy, Default)]
         #[cfg_attr(feature = "python", derive(IntoPyObject, FromInnerPyObject))]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $n(pub bool);
 
         impl ConfigFlag for $n {
@@ -921,6 +929,7 @@ macro_rules! impl_tri_error_flag {
         #[derive(From, Into, Clone, Copy, FromStr, Display, Default)]
         #[cfg_attr(feature = "python", derive(FromPyString))]
         #[cfg_attr(feature = "python", derive(IntoPyString))]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $n(pub TriFlag);
 
         impl TriErrorFlag for $n {
@@ -1010,6 +1019,8 @@ impl TriErrorFlag for DummyTriFlag {
 #[derive(Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString))]
 #[cfg_attr(feature = "python", derive(IntoPyString))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(into = "&'static str"))]
 pub enum VersionOverride {
     /// Force the version to one chosen by the user.
     Force(Version),
@@ -1063,27 +1074,31 @@ impl FromStr for VersionOverride {
     }
 }
 
-impl fmt::Display for VersionOverride {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        match self {
-            Self::Force(x) => x.fmt(f),
-            Self::AutoDetect {
+impl From<VersionOverride> for &'static str {
+    fn from(value: VersionOverride) -> Self {
+        match value {
+            VersionOverride::Force(x) => x.as_str(),
+            VersionOverride::AutoDetect {
                 strategy,
                 prioritize_current,
-            } => {
-                let s = match (strategy, prioritize_current) {
-                    (SelectVersionStrategy::Earliest, false) => VERSION_EARLIEST_LEVEL,
-                    (SelectVersionStrategy::Latest, false) => VERSION_LATEST_LEVEL,
-                    (SelectVersionStrategy::Loose, false) => VERSION_LOOSE_LEVEL,
-                    (SelectVersionStrategy::Strict, false) => VERSION_STRICT_LEVEL,
-                    (SelectVersionStrategy::Earliest, true) => VERSION_CURRENT_OR_EARLIEST_LEVEL,
-                    (SelectVersionStrategy::Latest, true) => VERSION_CURRENT_OR_LATEST_LEVEL,
-                    (SelectVersionStrategy::Loose, true) => VERSION_CURRENT_OR_LOOSE_LEVEL,
-                    (SelectVersionStrategy::Strict, true) => VERSION_CURRENT_OR_STRICT_LEVEL,
-                };
-                write!(f, "{s}")
-            }
+            } => match (strategy, prioritize_current) {
+                (SelectVersionStrategy::Earliest, false) => VERSION_EARLIEST_LEVEL,
+                (SelectVersionStrategy::Latest, false) => VERSION_LATEST_LEVEL,
+                (SelectVersionStrategy::Loose, false) => VERSION_LOOSE_LEVEL,
+                (SelectVersionStrategy::Strict, false) => VERSION_STRICT_LEVEL,
+                (SelectVersionStrategy::Earliest, true) => VERSION_CURRENT_OR_EARLIEST_LEVEL,
+                (SelectVersionStrategy::Latest, true) => VERSION_CURRENT_OR_LATEST_LEVEL,
+                (SelectVersionStrategy::Loose, true) => VERSION_CURRENT_OR_LOOSE_LEVEL,
+                (SelectVersionStrategy::Strict, true) => VERSION_CURRENT_OR_STRICT_LEVEL,
+            },
         }
+    }
+}
+
+impl fmt::Display for VersionOverride {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        let s: &'static str = (*self).into();
+        f.write_str(s)
     }
 }
 
@@ -1156,6 +1171,8 @@ pub const VERSION_CURRENT_OR_STRICT_LEVEL: &str = "current_or_strict";
 /// must be a multiple of 8 (NOTE this is a restriction of this library; the
 /// standard allows such $PnB values though exceedingly rare and not advised).
 #[derive(Clone, Copy, Default)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+#[cfg_attr(feature = "serde", serde(into = "&'static str"))]
 pub enum IntWidthOverride {
     /// Do nothing
     #[default]
@@ -1164,6 +1181,16 @@ pub enum IntWidthOverride {
     Explicit(NumericByteWidth),
     /// Round $PnB up to the next multiple of 8.
     NextByte,
+}
+
+impl From<IntWidthOverride> for &'static str {
+    fn from(value: IntWidthOverride) -> Self {
+        match value {
+            IntWidthOverride::Explicit(b) => b.into(),
+            IntWidthOverride::NextByte => FIX_INT_WIDTH_NEXT_BYTE_LEVEL.as_str(),
+            IntWidthOverride::Never => FIX_INT_WIDTH_NEVER_LEVEL.as_str(),
+        }
+    }
 }
 
 /// Override $BYTEORD for FCS 2.0/3.0.
@@ -1187,6 +1214,20 @@ pub enum ByteordOverride {
     Endian,
 }
 
+#[cfg(feature = "serde")]
+impl Serialize for ByteordOverride {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        match self {
+            Self::None => BYTEORD_OVERRIDE_NONE_LEVEL.serialize(serializer),
+            Self::Explicit(xs) => xs.serialize(serializer),
+            Self::Endian => BYTEORD_OVERRIDE_ENDIAN_LEVEL.serialize(serializer),
+        }
+    }
+}
+
 #[derive(
     Clone, Copy, PartialEq, Eq, Hash, TryFromPrimitive, IntoPrimitive, Debug, Display, FromStr,
 )]
@@ -1202,6 +1243,21 @@ pub enum NumericByteWidth {
     B6,
     B7,
     B8,
+}
+
+impl From<NumericByteWidth> for &'static str {
+    fn from(value: NumericByteWidth) -> Self {
+        match value {
+            NumericByteWidth::B1 => "1",
+            NumericByteWidth::B2 => "2",
+            NumericByteWidth::B3 => "3",
+            NumericByteWidth::B4 => "4",
+            NumericByteWidth::B5 => "5",
+            NumericByteWidth::B6 => "6",
+            NumericByteWidth::B7 => "7",
+            NumericByteWidth::B8 => "8",
+        }
+    }
 }
 
 impl NumericByteWidth {
@@ -1230,6 +1286,7 @@ impl From<NumericByteWidth> for NonZeroU8 {
 /// The minimum size is 4k.
 #[derive(Clone, Copy, Into, Display)]
 #[cfg_attr(feature = "python", derive(IntoPyObject, TryFromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct RowBufferSize(usize);
 
 impl Default for RowBufferSize {
@@ -1320,6 +1377,20 @@ impl Default for TimeMeasNamePattern {
     }
 }
 
+#[cfg(feature = "serde")]
+impl Serialize for TimeMeasNamePattern {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        if let Some(i) = self.0.as_ref() {
+            i.as_str().serialize(serializer)
+        } else {
+            "".serialize(serializer)
+        }
+    }
+}
+
 /// Error when optical keyword is present in temporal measurement.
 #[derive(Debug, Error, new, PartialEq, Clone)]
 #[error("optical key $P{index}{key} found in temporal measurement")]
@@ -1334,25 +1405,50 @@ pub struct TemporalHasOpticalKeyError {
 /// [`crate::validated::keys::NonStdKey`]s.
 pub type KeyPatterns = KeyStringsOrPatterns<()>;
 
+#[cfg(feature = "serde")]
+impl Serialize for KeyPatterns {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let inner: Vec<_> = self.0.iter().map(|(x, ())| x).collect();
+        inner.serialize(serializer)
+    }
+}
+
 pub type SubPatterns = KeyStringsOrPatterns<SubPattern>;
+
+#[cfg(feature = "serde")]
+impl Serialize for SubPatterns {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
 
 /// The maximum number of bytes that an offset may be truncated if beyond EOF.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DatasetOverflowLimit(pub u64);
 
 /// The maximum number of bytes an ending offset may be decreased to avoid overlap.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OverlapCorrectionLimit(pub u64);
 
 /// The max length the DATA end offset may be decreased based on event width.
 #[derive(Default, Clone, Copy, From, Into, FromStr)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct DataRemainderLimit(pub u64);
 
 /// Set of temporal optical keys.
 #[derive(Clone, Default, From, Into)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OpticalOnlyKeys(pub HashSet<OpticalOnlyKey>);
 
 impl OpticalOnlyKeys {
@@ -1384,6 +1480,7 @@ macro_rules! impl_proc_key_fail {
     ($t:ident) => {
         #[derive(Clone, Copy, Default, FromStr, Display, Into, From)]
         #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+        #[cfg_attr(feature = "serde", derive(Serialize))]
         pub struct $t(pub ProcessKeywordFailure);
 
         impl ErrorFlag for $t {
@@ -1469,6 +1566,8 @@ pub const TRI_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
 
 impl_config_flag!(
     /// Tri-state flag to throw warning, throw error, or do nothing
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub TriFlag,
     /// Error when parsing [`TriFlag`] from [`String`]
     pub TriFlagError,
@@ -1489,6 +1588,8 @@ impl_config_flag!(
     /// useful if TEXT is encoded with non-UTF8 characters. If `guess`, assume
     /// UTF8 and fall back to IANA ISO/IEC-8859-1 if a non-UTF8 character is
     /// encountered.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub UseEncoding,
     /// Error when parsing [`UseEncoding`] from [`String`]
     pub UseEncodingError,
@@ -1541,6 +1642,8 @@ pub const OTHER_WIDTH_SILENT_LEVEL: &NEStr = SILENT_LEVEL;
 
 impl_config_flag!(
     /// Choose how to guess the width for OTHER segments.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub GuessOtherWidth,
     /// Error when parsing [`GuessOtherWidth`] from [`String`]
     pub GuessOtherWidthError,
@@ -1558,6 +1661,8 @@ pub const KW_DROP_SILENT_LEVEL: &NEStr = DROP_SILENT_LEVEL;
 
 impl_config_flag!(
     /// Configuration to deal with optional standard keywords that cause errors.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub ProcessKeywordFailure,
     /// Error when parsing [`ProcessKeywordFailure`] from [`String`]
     pub ProcessKeywordFailureError,
@@ -1575,6 +1680,8 @@ pub const DELIM_GUESS_UNESCAPED_LEVEL: &NEStr = ne_str!("guess_unescaped");
 
 impl_config_flag!(
     /// Choose how to escape delims in TEXT segment.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub DelimEscapeMode,
     /// Error when parsing [`DelimEscapeMode`] from [`String`]
     pub DelimEscapeModeError,
@@ -1595,6 +1702,8 @@ pub const TRIM_BLANK_SILENT_LEVEL: &NEStr = ne_str!("trim_blank_silent");
 
 impl_config_flag!(
     /// Choose how to trim values and deal with blanks that may result.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub TrimValueWhitespace,
     /// Error when parsing [`TrimValueWhitespace`] from [`String`]
     pub TrimValueWhitespaceError,
@@ -1615,6 +1724,8 @@ pub const FORCE_LINEAR_ALL_LEVEL: &NEStr = ALL_LEVEL;
 
 impl_config_flag!(
     /// Choose which $PnE to force as linear.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub ForceLinearScale,
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     pub ForceLinearScaleError,
@@ -1642,6 +1753,8 @@ pub const TMP_OPT_DROP_SILENT_LEVEL: &NEStr = DROP_SILENT_LEVEL;
 
 impl_config_flag!(
     /// Choose what to do with optical keys in time measurement when found.
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub ProcessOpticalOnlyKeys,
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     pub ProcessOpticalOnlyKeysError,
@@ -1661,6 +1774,8 @@ pub const SPILLOVER_GUESS_LEVEL: &NEStr = ne_str!("guess");
 
 impl_config_flag!(
     /// Choose how to parse measurements for $SPILLOVER key
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub SpilloverMeasurementMode,
     /// Error when parsing [`ForceLinearScale`] from [`String`]
     pub SpilloverMeasurementModeError,
@@ -1686,6 +1801,8 @@ impl_str_enum!(
     #[derive(Display)]
     #[display("{}", self.as_str())]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub OverLimitAction,
     /// Error when parsing [`OverLimitAction`] from [`String`]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1709,6 +1826,7 @@ impl_str_enum!(
 /// Choose what to do with values that exceed $PnR.
 #[derive(Display, FromStr, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OverRangeAction(pub OverLimitAction);
 
 impl Default for OverRangeAction {
@@ -1720,6 +1838,7 @@ impl Default for OverRangeAction {
 /// Choose what to do with integer values that exceed their bitmask set by $PnR.
 #[derive(Display, FromStr, Clone, Copy)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct OverBitmaskAction(pub OverLimitAction);
 
 impl Default for OverBitmaskAction {
@@ -1760,6 +1879,8 @@ impl_config_flag!(
     /// Choose which offsets to use between TEXT and HEADER if they mismatch.
     ///
     /// Only applies to DATA and ANALYSIS offsets in 3.0+
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub AllowHeaderTEXTOffsetMismatch,
     /// Error when parsing [`AllowHeaderTEXTOffsetMismatch`] from [`String`]
     pub AllowHeaderTEXTOffsetMismatchError,
@@ -1800,6 +1921,8 @@ pub const COMPUTE_CRC_ALWAYS_LEVEL: &NEStr = ne_str!("always");
 
 impl_config_flag!(
     /// When to compute the CRC for a dataset
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub ComputeCRC,
     /// Error when parsing [`ComputeCRC`] from [`String`]
     pub ComputeCRCError,
@@ -1829,6 +1952,8 @@ impl_str_enum!(
     #[derive(PartialEq, Eq, Debug, Hash, Display)]
     #[display("{}", self.as_str())]
     #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+    #[cfg_attr(feature = "serde", derive(Serialize))]
+    #[cfg_attr(feature = "serde", serde(into = "&'static str"))]
     pub OpticalOnlyKey,
     /// Error when creating [`OpticalOnlyKey`] from [`String`]
     #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -2320,11 +2445,7 @@ mod python {
         type Error = PyErr;
 
         fn into_pyobject(self, py: Python<'py>) -> Result<Self::Output, Self::Error> {
-            match self {
-                Self::Explicit(b) => u8::from(b).into_bound_py_any(py),
-                Self::NextByte => FIX_INT_WIDTH_NEXT_BYTE_LEVEL.into_bound_py_any(py),
-                Self::Never => FIX_INT_WIDTH_NEVER_LEVEL.into_bound_py_any(py),
-            }
+            <&'static str>::from(self).into_bound_py_any(py)
         }
     }
 

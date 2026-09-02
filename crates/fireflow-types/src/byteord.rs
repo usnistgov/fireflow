@@ -7,6 +7,9 @@ use std::{
     str::FromStr,
 };
 
+#[cfg(feature = "serde")]
+use serde::Serialize;
+
 #[cfg(feature = "python")]
 use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
 
@@ -17,6 +20,7 @@ use {crate::python as py, fireflow_core_proc::DisplayAsPyErr};
 /// This is only needed for the user-facing configuration. This value has
 /// other types elsewhere for different purposes internally.
 #[derive(Clone, AsRef)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 pub struct ConfigByteOrd(NEVec<NonZeroU8>);
 
 impl AsRef<[NonZeroU8]> for ConfigByteOrd {

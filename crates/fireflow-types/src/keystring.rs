@@ -26,8 +26,8 @@ use {
 /// Must be non-empty and contain only ASCII characters. Comparisons will be
 /// case-insensitive.
 #[derive(Clone, Debug, AsRef, Display, PartialEq, Eq, Hash, PartialOrd, Ord)]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[as_ref(str)]
+#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct KeyString(Ascii<NEString>);
 
 /// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].

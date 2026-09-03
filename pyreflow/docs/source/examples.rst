@@ -1,7 +1,7 @@
 Examples
 ========
 
-The following are high-level toy examples to show how `pyreflow` can be used.
+The following are high-level toy examples to show how ``pyreflow`` can be used.
 
 Reading FCS Files
 +++++++++++++++++
@@ -272,7 +272,7 @@ Thus far we have only tried to parse files which are perfectly valid FCS files.
 
 In reality, most FCS files are not perfect and will need to be repaired.
 
-`pyreflow` will only read perfect files by default. However, it has the
+``pyreflow`` will only read perfect files by default. However, it has the
 capability to repair non-standard FCS files on-the-fly if configured properly.
 The easiest way to do this is to use the
 :py:class:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig` class (part of
@@ -282,13 +282,13 @@ call the
 :py:func:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig.new_scalpel()`
 method followed by a call to the desired reader method (in this case
 :py:func:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig.read_std_dataset()`).
-This will configure `pyreflow` to use a set of heuristics that are likely to
+This will configure ``pyreflow`` to use a set of heuristics that are likely to
 work on most files and preserve as much metadata as possible. **Most users will
 likely want this.** This can also be set to ``strategy="sledgehammer"`` to
 prioritize reading *DATA* at the expense of metadata. Usually this is not
 necessary.
 
-The details of how `pyreflow` repairs FCS files are extremely complex. Without
+The details of how ``pyreflow`` repairs FCS files are extremely complex. Without
 using the ``strategy`` argument, all heuristics and repair flags need to be
 manually specified, which will be tedious for many users and will become
 annoying when parsing many files in bulk. Those wishing to know more should
@@ -304,6 +304,10 @@ these flags apply to a given FCS error modality.
    from tempfile import NamedTemporaryFile
 
    # Create data for FCS file
+   #
+   # This file has two errors:
+   # - $BYTEORD should be "1,2,3,4"
+   # - $TOT should not be repeated
    text0 = b"/$PAR/1/$MODE/L/$DATATYPE/I/$BYTEORD/1,2,3/$TOT/3/$TOT/4/$NEXTDATA/0/$CYT/Kerby/"
    text1 = b"$P1N/Time/$P1B/32/$P1R/4294967296/"
    text = text0 + text1
@@ -340,8 +344,8 @@ these flags apply to a given FCS error modality.
 Writing FCS Files
 +++++++++++++++++
 
-Writing FCS files with `pyreflow` is much simpler than reading. It is only
-possible to write a standards-compliant FCS file with `pyreflow`. The API for
+Writing FCS files with ``pyreflow`` is much simpler than reading. It is only
+possible to write a standards-compliant FCS file with ``pyreflow``. The API for
 reading is complex due to the number of options available for repairing FCS
 errors; these are not necessary for writing due.
 
@@ -377,9 +381,52 @@ errors; these are not necessary for writing due.
        core0, _ = pf.api.fcs_read_std_dataset(f.name)
        assert core == core0
 
-   # We can also just write HEADER and TEXT. Just like above, we should be
+   # We can also only write HEADER and TEXT. Just like above, we should be
    # able to read this back and equate it with the original.
    with NamedTemporaryFile(mode = "wb") as f:
        core.write_text(f.name)
        core0, _ = pf.api.fcs_read_std_text(f.name)
        assert core.to_text() == core0
+
+Repairing FCS Files
++++++++++++++++++++
+
+Reading and writing from the examples above can be combined to "repair" a file.
+
+.. testcode:: python
+
+   import pyreflow as pf
+   from tempfile import NamedTemporaryFile
+
+   # Create data for FCS file
+   #
+   # This file has two errors:
+   # - $BYTEORD should be "1,2,3,4"
+   # - $TOT should not be repeated
+   text0 = b"/$PAR/1/$MODE/L/$DATATYPE/I/$BYTEORD/1,2,3/$TOT/3/$TOT/4/$NEXTDATA/0/$CYT/Kerby/"
+   text1 = b"$P1N/Time/$P1B/32/$P1R/4294967296/"
+   text = text0 + text1
+   data = b"\x00\x00\x00\x00\x01\x00\x00\x00\x02\x00\x00\x00" # 0,1,2 as LE u32
+   text_end = len(text) + 58 - 1
+   data_begin = text_end + 1
+   data_end = data_begin + len(data) - 1
+   header = f"FCS2.0          58{text_end:>8}{data_begin:>8}{data_end:>8}       0       0"
+
+   with NamedTemporaryFile(mode = "wb") as f:
+       # Write file
+       f.write(header.encode() + text + data)
+       f.flush()
+
+       # Read dataset and fix it on-the-fly
+       conf = pf.pydantic.PyreflowReadStdDatasetConfig.new_scalpel()
+       core, _ = conf.read_std_dataset(f.name)
+
+       # Save file back to disk.
+       core.write_dataset(f.name)
+
+       # We can now read back this file without any special configuration since
+       # it is perfectly compliant. It should be the same as what we just wrote.
+       core1, _ = pf.api.fcs_read_std_dataset(f.name)
+
+       assert core == core1
+

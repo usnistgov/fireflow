@@ -5481,6 +5481,7 @@ where
         let common = [
             INDEX.into(),
             Shortname::std_blank(),
+            kws::Longname::std_blank(),
             kws::Width::std_blank(),
             kws::TextRange::std_blank(),
             kws::Scale::std_blank(),

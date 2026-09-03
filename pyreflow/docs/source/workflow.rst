@@ -23,6 +23,7 @@ Workflow
 
        CoreTEXT -> CoreTEXT [label = "12"];
        CoreDataset -> CoreDataset [label = "13"];
+       CoreDataset -> CoreTEXT [label = "14"];
 
        "HEADER+TEXT\n(flat keywords)" -> "offline\nmanipulation";
        "offline\nmanipulation" -> "HEADER+TEXT\n(flat keywords)";
@@ -43,6 +44,7 @@ Legend:
 11. ``CoreDataset*.write_dataset()`` (see :ref:`coredataset`)
 12. ``CoreTEXT*.version_*()`` (see :ref:`coretext`)
 13. ``CoreDataset*.version_*()`` (see :ref:`coredataset`)
+14. ``CoreDataset*.to_text()`` (see :ref:`coredataset`)
 
 Flat vs standardized mode
 -------------------------

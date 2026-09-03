@@ -10,8 +10,9 @@ Reading an FCS file can be done in stages, starting with *HEADER*, proceeding to
 *TEXT*, optionally standardizing *TEXT* into a Python class, then finally
 reading *DATA*, *ANALYSIS* and *OTHER* segments.
 
-Each of the functions in these examples corresponds to those described in
-:doc:`read/functions`.
+.. seealso::
+
+   :doc:`read/functions` for full list of functions used for reading
 
 Read *HEADER*
 -------------
@@ -176,7 +177,7 @@ previous sections (:py:class:`~pyreflow.api.Header`, malformed keywords, etc).
 Read entire dataset (flat mode)
 -------------------------------
 
-This will read *HEADER* + *TEXT* as described in :ref:`read_flat_text` and
+This will read *HEADER* + *TEXT* as shown :ref:`previously <read_flat_text>` and
 additionally parse *DATA*, *ANALYSIS*, and *OTHER* segments. Only the keywords
 needed to parse these additional segments will be parsed and interpreted. This
 will return a :py:class:`~pyreflow.api.FlatDatasetOutput` which also contains
@@ -221,11 +222,11 @@ will return a :py:class:`~pyreflow.api.FlatDatasetOutput` which also contains
 Read entire dataset (standardized mode)
 ---------------------------------------
 
-This is the standardized analogue to :ref:`read_flat_text`.
+This is the standardized analogue to :ref:`reading a dataset in flat mode <read_flat_text>`.
 
 Before reading, *DATA*, *ANALYSIS*, and *OTHER* segments, the *TEXT* segment
-will also be standardized as described in :ref:`read_std_text`. Will return a
-:py:type:`pyreflow.typing.AnyCoreDataset` and
+will also be standardized as described :ref:`previously <read_std_text>`. Will
+return a :py:type:`pyreflow.typing.AnyCoreDataset` and
 :py:class:`~pyreflow.api.StdDatasetOutput` which have analogous meanings.
 
 .. testcode:: python
@@ -265,38 +266,48 @@ will also be standardized as described in :ref:`read_std_text`. Will return a
        # Show OTHER segments (none for this file)
        assert core.others == []
 
-Read malformed FCS file
+
+.. _read_malformed:
+
+Read Malformed FCS File
 -----------------------
 
 Thus far we have only tried to parse files which are perfectly valid FCS files.
 
 In reality, most FCS files are not perfect and will need to be repaired.
 
-``pyreflow`` will only read perfect files by default. However, it has the
-capability to repair non-standard FCS files on-the-fly if configured properly.
-The easiest way to do this is to use the
-:py:class:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig` class (part of
-`pyreflow`'s `Pydantic
+``pyreflow`` will only read perfect files by default. However, it can repair
+non-standard FCS files on-the-fly if configured properly. The easiest way to do
+this is to use the :py:class:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig`
+class (part of `pyreflow`'s `Pydantic
 <https://pydantic.dev/docs/validation/latest/get-started/>`__ interface) and
 call the
-:py:func:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig.new_scalpel()`
-method followed by a call to the desired reader method (in this case
+:py:func:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig.new_scalpel()` method
+followed by a call to the desired reader method (in this case
 :py:func:`~pyreflow.pydantic.PyreflowReadStdDatasetConfig.read_std_dataset()`).
 This will configure ``pyreflow`` to use a set of heuristics that are likely to
 work on most files and preserve as much metadata as possible. **Most users will
-likely want this.** This can also be set to ``strategy="sledgehammer"`` to
-prioritize reading *DATA* at the expense of metadata. Usually this is not
-necessary.
+likely want this.**
+
+.. note::
+
+   The Pydantic interface requires that ``pydantic`` is installed. If this
+   is not possible, one can use :ref:`dictionary configurations <config_dict>`
+   as a simpler, less ergonomic alternative.
 
 The details of how ``pyreflow`` repairs FCS files are extremely complex. Without
-using the ``strategy`` argument, all heuristics and repair flags need to be
-manually specified, which will be tedious for many users and will become
-annoying when parsing many files in bulk. Those wishing to know more should
-consult the full argument list for :py:func:`~pyreflow.api.fcs_read_std_dataset`
-as well as :doc:`_generated/strategies` which explains how each strategy sets
-these arguments. See also `common issues
-<https://github.com/usnistgov/fireflow/blob/master/COMMON_ISSUES.md>`__ for how
-these flags apply to a given FCS error modality.
+specifying the strategy, all heuristics and repair flags need to be manually
+specified, which will be tedious, especially when parsing many files in bulk.
+Those wishing to know more should consult the full argument list for
+:py:func:`~pyreflow.api.fcs_read_std_dataset`.
+
+.. seealso::
+
+  :doc:`_generated/strategies`
+       Overview of each strategy available in ``pyreflow``
+
+  `Common Issues <issues>`_
+      Overview of all FCS error modalities that ``pyreflow`` can fix
 
 .. testcode:: python
 
@@ -345,9 +356,9 @@ Writing FCS Files
 +++++++++++++++++
 
 Writing FCS files with ``pyreflow`` is much simpler than reading. It is only
-possible to write a standards-compliant FCS file with ``pyreflow``. The API for
-reading is complex due to the number of options available for repairing FCS
-errors; these are not necessary for writing due.
+possible to write a standards-compliant FCS file with ``pyreflow``; many of the
+arguments necessary for reading (possibly non-compliant) files therefore does
+not existing for writing.
 
 .. testcode:: python
 
@@ -430,3 +441,4 @@ Reading and writing from the examples above can be combined to "repair" a file.
 
        assert core == core1
 
+.. _issues: https://github.com/usnistgov/fireflow/blob/master/COMMON_ISSUES.md

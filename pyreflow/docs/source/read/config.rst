@@ -10,6 +10,8 @@ Some users may find it easier to handle these options using the following
 interfaces, which handle these options in bulk. They also offer a conveneint way
 to use strategies (see :ref:`strategies`), including overriding values as needed.
 
+.. _config_dict:
+
 Dictionary Arguments
 ++++++++++++++++++++
 

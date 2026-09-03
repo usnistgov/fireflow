@@ -22,6 +22,6 @@ Example `env.yml`:
     channels:
       - conda-forge
     dependencies:
-      - maturin=1.8.7
+      - maturin
       - pip:
         - git+https://github.com/usnistgov/fireflow.git#subdirectory=pyreflow

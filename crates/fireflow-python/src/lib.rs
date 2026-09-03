@@ -327,6 +327,7 @@ macro_rules! impl_coredataset_common {
         fpp::impl_coredataset_set_named_measurements_and_data!($pytype);
         fpp::impl_coredataset_set_measurements_data_schema_and_data!($pytype);
         fpp::impl_core_write_dataset!($pytype);
+        fpp::impl_coredataset_to_text!($pytype);
         fpp::impl_coredataset_unset_data!($pytype);
         fpp::impl_coredataset_check_ranges!($pytype);
     };

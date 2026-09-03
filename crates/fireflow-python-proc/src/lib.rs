@@ -3598,10 +3598,7 @@ pub fn impl_core_write_text(input: TokenStream) -> TokenStream {
         .exc([exc0, exc1])
         .desc(format!("the value of {NEXTDATA} as written to the dataset"));
 
-    let doc = DocString::new_method("Write data to path.")
-        .para(format!(
-            "Resulting FCS file will include {HEADER} and {TEXT}."
-        ))
+    let doc = DocString::new_method(format!("Write {HEADER} and {TEXT} to path."))
         .arg(DocArg::new_path_param(false))
         .arg(DocArg::new_textdelim_param())
         .arg(DocArg::new_big_other_param())
@@ -4937,14 +4934,13 @@ pub fn impl_coretext_write_multi(input: TokenStream) -> TokenStream {
         ))
         .exc(xs);
 
-    let doc = DocString::new_fun("Write multiple datasets to path.")
-        .para(format!(
-            "The resulting file will have {HEADER} and {TEXT} from each object"
-        ))
-        .arg(path_arg)
-        .arg(cores_arg)
-        .args(args)
-        .returns(ret);
+    let doc = DocString::new_fun(format!(
+        "Write {HEADER} and {TEXT} from multiple objects to path."
+    ))
+    .arg(path_arg)
+    .arg(cores_arg)
+    .args(args)
+    .returns(ret);
 
     let fun_args = doc.fun_args();
     let ret_path = doc.ret_path();
@@ -5257,6 +5253,31 @@ pub fn impl_coretext_to_dataset(input: TokenStream) -> TokenStream {
             fn to_dataset(&self, #fun_args) -> PyResult<#ret_path> {
                 let ret = self.0.clone().into_coredataset(data.into(), analysis, others)?;
                 Ok(ret.into())
+            }
+        }
+    }
+    .into()
+}
+
+#[proc_macro]
+pub fn impl_coredataset_to_text(input: TokenStream) -> TokenStream {
+    let i: Ident = syn::parse(input).unwrap();
+    let version = split_ident_version_checked("PyCoreDataset", &i);
+
+    let doc = DocString::new_method(format!(
+        "Remove {DATA}, {ANALYSIS}, and {OTHER} segment data."
+    ))
+    .returns(DocReturn::new(PyClass::new_coretext(version)));
+
+    let fun_args = doc.fun_args();
+    let ret_path = doc.ret_path();
+
+    quote! {
+        #[pymethods]
+        impl #i {
+            #doc
+            fn to_text(&self, #fun_args) -> #ret_path {
+                self.0.clone().into_coretext().into()
             }
         }
     }

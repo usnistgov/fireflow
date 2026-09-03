@@ -1066,6 +1066,9 @@ class _CoreToDataset[
         others: list[pft.OtherBytes] = [],
     ) -> X: ...
 
+class _CoreToTEXT[X: CoreTEXT2_0 | CoreTEXT3_0 | CoreTEXT3_1 | CoreTEXT3_2]:
+    def to_text(self) -> X: ...
+
 class _CoreTo2_0[X]:
     def to_version_2_0(self, allow_loss: pft.TriFlag = "false") -> X: ...
 
@@ -1552,6 +1555,7 @@ class CoreDataset2_0(
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
     _CoreDatasetCommon,
+    _CoreToTEXT[CoreTEXT2_0],
 ):
     def __new__(
         cls,
@@ -1665,6 +1669,7 @@ class CoreDataset3_0(
     _CoreTo3_1[CoreDataset3_1],
     _CoreTo3_2[CoreDataset3_2],
     _CoreDatasetCommon,
+    _CoreToTEXT[CoreTEXT3_0],
 ):
     def __new__(
         cls,
@@ -1808,6 +1813,7 @@ class CoreDataset3_1(
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_2[CoreDataset3_2],
     _CoreDatasetCommon,
+    _CoreToTEXT[CoreTEXT3_1],
 ):
     def __new__(
         cls,
@@ -1952,6 +1958,7 @@ class CoreDataset3_2(
     _CoreTo3_0[CoreDataset3_0],
     _CoreTo3_1[CoreDataset3_1],
     _CoreDatasetCommon,
+    _CoreToTEXT[CoreTEXT3_2],
 ):
     def __new__(
         cls,

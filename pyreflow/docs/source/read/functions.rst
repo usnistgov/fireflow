@@ -56,15 +56,7 @@ purpose:
 
 *Parse Mode:*
 
-This refers to the method used to parse *TEXT*. "Flat" mode treats *TEXT* as a
-flat list of keywords and does not further processing. "Standard" mode attempts
-to collect this flat list into a well-defined data structure which in
-``pyreflow`` is a version-specific python class (see :ref:`coretext` and
-:ref:`coredataset`).
-
-"Standard" mode requires that *TEXT* first be parsed in "flat" mode, which
-implies the latter is more lenient with regard to deviations from the FCS
-standard.
+This refers to the method used to parse *TEXT*. See :ref:`flat_vs_standard`.
 
 *Includes Data:*
 
@@ -74,23 +66,24 @@ the returned object. Otherwise it will just include the *TEXT* segment.
 *Dataset Number:*
 
 This refers to the number of datasets in an FCS file that can be parsed by the
-function. If a function is "singular", it can only parse the first dataset.
-Otherwise it can parse multiple datasets from a file, and returns these in a
-list rather than a single object.
+function.
 
-The vast majority of FCS files only have one dataset, so the singular functions
-are simpler to use for many cases since they do not require any flags to be set
-to read one dataset.
+If `one`, it can only parse the first dataset. These functions optionally take
+an ``dataset_offset`` argument which can be used to "jump" to any dataset in a
+file (assuming one knows where it is).
 
-Singular functions optionally take an ``dataset_offset`` argument which can be
-used to "jump" to any dataset in a file (assuming obviously one knows where it
-is).
+If `many`, it can parse multiple datasets from a file, and returns these in a
+list rather than a single object. These functions take ``skip`` and ``limit``
+arguments. The former will skip the first ``n`` datasets when returning the
+final list (although the *TEXT* for all datasets will still be read to get
+*$NEXTDATA*). ``limit`` will stop the parser after ``n`` datasets have been
+parsed. The defaults for these are both ``None`` which will tell the parser to
+exhaustively read all datasets.
 
-Plural functions take ``skip`` and ``limit`` arguments. The former will skip the
-first ``n`` datasets when returning the final list (although the *TEXT* for all
-datasets will still be read to get *$NEXTDATA*). ``limit`` will stop the parser
-after ``n`` datasets have been parsed. The defaults for these are both ``None``
-which will tell the parser to exhaustively read all datasets.
+.. tip::
+
+   The vast majority of FCS files only have one dataset, so the single-dataset
+   functions are simpler to use in many cases.
 
 *HEADER* parsing
 ----------------
@@ -126,6 +119,12 @@ out-of-band, and then feed these into
 
 This only applies to flat mode. For the standardized analogue, see the
 ``from_kws`` methods in :ref:`coretext` and :ref:`coredataset`.
+
+.. note::
+
+   ``pyreflow`` error-handling is quite good at fixing the vast majority of FCS
+   files. This function should only be necessary in the most extreme
+   non-compliance cases.
 
 
 All functions

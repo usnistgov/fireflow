@@ -10,22 +10,6 @@ them. The `fireflow` flags specified under each issue are written in terms of
 the configuration as defined in [config.rs](crates/fireflow-core/src/config.rs)
 but have identical or near-identical analogues in `fireflow`'s various APIs.
 
-# TLDR
-
-Since this can get complicated quite quickly, `fireflow` has several built-in
-modes to handle these issues automatically for *most* files. The way these are
-invoked is API-specific, but the names of these two modes which can be search in
-the appropriate docs are:
-
-* scalpel: parse file carefully, trying to preserve as much as possible without
-  destroying metadata
-* sledgehammer: parse file with the aim of reading *DATA* and skip reading
-  metadata as necessary
-
-These two options will set many of the flags outlined below. This is probably
-what most users want. It is quite fast, but the fastest performance may be
-achieved by manually specifying these flags using a priori knowledge.
-
 # Offset Issues
 
 Offsets denote where data is located in an FCS file. Unfortunately these are

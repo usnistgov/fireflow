@@ -3,12 +3,10 @@
 Strategies
 ==========
 
-`pyreflow` has many options controlling its behavior when reading FCS files.
+``pyreflow`` has many options controlling its behavior when reading FCS files.
 
 Since most users likely will not care about these options, flags may may be set
-in buld according to several "strategies" (see :ref:`config_interfaces` for
-details of how to set these).
-
+in buld according to several "strategies".
 
 Available strategies are:
 
@@ -20,8 +18,15 @@ Available strategies are:
   possibly ignore/throw away metadata and non-*DATA* segments if their format
   cannot be determined.
 
-**Most users will likely want the scalpal strategy.** Those wishing for more
-control can fine-tune options after setting a strategy.
+.. tip::
+
+    **Most users will likely want the scalpal strategy.** Those wishing for more
+    control can fine-tune options after setting a strategy.
+
+.. seealso::
+
+   :ref:`Dictionary and Pydantic Configuration <config_interfaces>`
+   for details of how to set strategies
 
 Scope and Limitations
 +++++++++++++++++++++
@@ -32,13 +37,14 @@ machine are not taken into account.
 One place this matters is the treatment of the time measurement. The standard
 dictates that the name of the time channel is ``"Time"`` (case-insensitive
 matching recommended). However, some machines call this measurement ``"HDR-T"``
-or ``"T1"``. `pyreflow` currently has no mechanism to determine what this value
-should be; therefore, the user must supply the value themselves as necessary.
+or ``"T1"``. ``pyreflow`` currently has no mechanism to determine what this
+value should be; therefore, the user must supply the value themselves as
+necessary.
 
 Argument Reference
 ++++++++++++++++++
 
-The following is a list of all read-specific arguments in `pyreflow` and their
+The following is a list of all read-specific arguments in ``pyreflow`` and their
 values for each strategy. Arguments are only used when relevent for a given
 method or function. Some values are the same across all strategies since they
 have no obvious default to be chosen.

@@ -110,15 +110,15 @@ These can be created by:
 * calling ``from_kws`` (described below)
 * calling ``__new__``
 
-In addition to all the minipulations offered by ``CoreTEXT*``, these
+In addition to all the manipulations offered by ``CoreTEXT*``, these
 additionally allow:
 
 * modifying the ``DataFrame`` corresponding to *DATA*
 * modifying the byte segments corresponding to *ANALYSIS and/or *OTHER*
 * removing all data by converting to :ref:`coretext`
 
-When written, these will result in an FCS file a single dataset reflecting its
-contents.
+When written, these will result in an FCS file with a single dataset reflecting
+its contents.
 
 .. autoclass:: pyreflow.CoreDataset2_0
    :members:

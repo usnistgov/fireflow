@@ -1,8 +1,7 @@
 Exceptions
 ==========
 
-These are unique exeption classes raised within `pyreflow`.
-
+These are unique exeption classes raised within ``pyreflow``.
 
 .. autoexception:: pyreflow.PyreflowError
    :members:

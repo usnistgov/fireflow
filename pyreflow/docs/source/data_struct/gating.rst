@@ -4,8 +4,7 @@ Gating Classes
 The following classes encode the gating keywords (*$Gn\**, *$Rn\**, *$GATING*,
 and *$GATE*).
 
-These apply to each FCS version as follows (note that ``3_0`` is reused for
-both FCS 3.0 and FCS 3.1):
+These apply to each FCS version as follows:
 
 .. list-table::
    :header-rows: 1
@@ -25,6 +24,11 @@ both FCS 3.0 and FCS 3.1):
    * - FCS3.2
      - :py:class:`~pyreflow.UnivariateRegion3_2`
      - :py:class:`~pyreflow.BivariateRegion3_2`
+
+.. note::
+
+   ``*variateRegion3_0`` is reused for both FCS 3.0 and FCS 3.1 since these
+   keywords are the same in both versions.
 
 Univariate Regions
 ------------------

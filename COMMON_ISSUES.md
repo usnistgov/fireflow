@@ -316,7 +316,7 @@ Values for standard keys can be totally overriden with
 are more specific to the error which are more robust. 
 
 Individual values can be edited directly using
-`substitute_standard_key_values` which uses sed-like grammer to substitute
+`substitute_standard_key_values` which uses sed-like grammar to substitute
 patterns in matching keys.
 
 These options are intended as a last resort since they require manually
@@ -501,7 +501,7 @@ However, some files store "extra" data in these higher bits. Truncation to
 
 In contrast, values can be truncated to the literal range of *$PnR* for any
 datatype (not just integers) using `{over_range_action}`. By default this is not
-set to trigger an error if an overrange value is encountered since it is not
+set to trigger an error if an over-range value is encountered since it is not
 clear what *$PnR* means if the data is unmixed or compensated.
 
 # Misc Issues
@@ -518,7 +518,7 @@ this error.
 
 ### Mismatch
 
-CRC is not computed by default since it is non-trival to compute and most files
+CRC is not computed by default since it is non-trivial to compute and most files
 do not include non-zero CRC values at the end of the dataset. This can be
 controlled with `compute_crc`.
 

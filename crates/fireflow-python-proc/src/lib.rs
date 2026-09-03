@@ -686,7 +686,7 @@ pub fn impl_config_defaults(input: TokenStream) -> TokenStream {
     let strat: Path = parse_quote!(fireflow_types::config::ReadStrategy);
     let has_strat: Path = parse_quote!(fireflow_types::config::HasStrategy);
 
-    let api_fun = |s| format!("`~pyreflow.{s}`");
+    let api_fun = |s| format!(":py:func:`~pyreflow.api.{s}`");
 
     let predoc = match name_str.as_str() {
         "ReadHeaderConfig" => {

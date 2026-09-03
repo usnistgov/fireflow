@@ -70,17 +70,6 @@ gen-docs: pyreflow/.venv
 .PHONY: all-dev
 all-dev: gen-docs rs-fmt rs-docs rs-test rs-lint build-dev py-lint py-test
 
-docs_out_current=docs/build/
-docs_out_test=docs/build_test/
-
-.PHONY: docs-test
-docs-test: build-dev
-	$(uv_run) sphinx-build -b doctest docs/source/ $(docs_out_test)
-
-.PHONY: docs
-docs: build-dev docs-test
-	$(uv_run) docs/build.sh docs/source/ $(docs_out_current)
-
 .PHONY: clean
 clean:  
 	rm -rf `find pyreflow -name __pycache__`
@@ -89,6 +78,32 @@ clean:
 	rm -rf pyreflow/.pytest_cache
 	rm -rf pyreflow/.ruff_cache
 	cargo clean
+
+docs_out_current=docs/build/
+docs_out_testcode=docs/build_testcode/
+docs_out_testlink=docs/build_testlink/
+
+.PHONY: docs-testcode
+docs-testcode: build-dev
+	$(uv_run) sphinx-build -b doctest docs/source/ $(docs_out_testcode)
+
+.PHONY: docs-testlinks
+docs-testlinks: build-dev
+	$(uv_run) sphinx-build -b linkcheck docs/source/ $(docs_out_testlink)
+
+.PHONY: docs-build
+docs-build: build-dev
+	$(uv_run) docs/build.sh docs/source/ $(docs_out_current)
+
+.PHONY: docs
+docs: docs-build docs-testcode docs-testlinks
+	$(uv_run) docs/build.sh docs/source/ $(docs_out_current)
+
+.PHONY: clean-docs
+clean-docs:  
+	rm -rf $(docs_out_testcode)
+	rm -rf $(docs_out_testlink)
+	rm -rf $(docs_out_current)
 
 docs_out_all=pyreflow/docs/build_all
 docs_tmp=pyreflow/docs/build_tmp

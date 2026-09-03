@@ -306,7 +306,7 @@ Those wishing to know more should consult the full argument list for
   :doc:`_generated/strategies`
        Overview of each strategy available in ``pyreflow``
 
-  `Common Issues <issues>`_
+  `Common Issues <https://github.com/usnistgov/fireflow/blob/master/COMMON_ISSUES.md>`_
       Overview of all FCS error modalities that ``pyreflow`` can fix
 
 .. testcode:: python
@@ -440,5 +440,3 @@ Reading and writing from the examples above can be combined to "repair" a file.
        core1, _ = pf.api.fcs_read_std_dataset(f.name)
 
        assert core == core1
-
-.. _issues: https://github.com/usnistgov/fireflow/blob/master/COMMON_ISSUES.md

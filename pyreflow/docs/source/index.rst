@@ -7,16 +7,20 @@ Standards (FCS) files. It is a wrapper around the Rust `fireflow`_ library.
 Key Features
 ------------
 
-* **FCS Standards Support**: Complete support for FCS2.0 through FCS3.2
+* **FCS Standards Support**: Complete support for FCS 2.0 through FCS 3.2
   (with minor `caveats`_).
 * **Read/Write Support**: Parse FCS files and write back to disk.
-* **Metadata API**: View and edit FCS keywords and data with type-safe API.
+* **Multiple Datasets**: Read/write FCS files which have multiple datasets (ie
+  .LMD and others).
+* **Metadata API**: View and edit FCS keywords in an organized hierarchy (see
+  :doc:`data_struct/core`).
 * **High-Performance**: Faster than other FCS libraries for many operations
   (see `benchmark`_).
 * **Modern DataFrames**: Manipulate *DATA* using `polars`_ dataframes.
 * **Upgrade/Downgrade Support**: Convert FCS files to a different FCS version.
-* **Fixing FCS Errors**: Support for fixing common FCS formatting errors
-  (see :ref:`example <read_malformed>`).
+* **Error Correction**: Support for fixing FCS formatting errors
+  (see :ref:`example <read_malformed>` and `common issues
+  <https://github.com/usnistgov/fireflow/blob/master/COMMON_ISSUES.md>`_).
 
 .. note::
 
@@ -39,3 +43,4 @@ User Guide
 .. _caveats: https://github.com/usnistgov/fireflow/blob/master/STANDARD.md
 .. _polars: https://docs.pola.rs/api/python/stable/reference/dataframe/index.html
 .. _benchmark: https://github.com/usnistgov/fireflow/blob/master/pyreflow/bench/README.md
+.. _issues: 

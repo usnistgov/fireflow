@@ -336,3 +336,50 @@ these flags apply to a given FCS error modality.
        # For this file, the order was interpreted as little endian and then
        # proper length was inferred from $PnB (32)
        assert uncore.dataset.std_diagnostics.schema_diagnostics.original_byteord == [1, 2, 3]
+
+Writing FCS Files
++++++++++++++++++
+
+Writing FCS files with `pyreflow` is much simpler than reading. It is only
+possible to write a standards-compliant FCS file with `pyreflow`. The API for
+reading is complex due to the number of options available for repairing FCS
+errors; these are not necessary for writing due.
+
+.. testcode:: python
+
+   import pyreflow as pf
+   import polars as pl
+   from tempfile import NamedTemporaryFile
+
+   # DATA will be one column with three rows. The name of the column need not
+   # match the $PnN defined below.
+   data = pl.DataFrame([1, 2, 3], schema = {"X1": pl.UInt32})
+
+   # Add one measurement, in this case for time. The first part of the tuple is
+   # the $PnN ("Time") and the second is the object representing the other
+   # keywords. We can also set $PnS (longname) and other keywords from here.
+   meas = [("Time", pf.Temporal3_1(timestep = 1.0, longname = "Run Time"))]
+
+   # Make the data schema, in this case an integer layout. 32-bit little endian
+   # is the default. This needs to match the schema in the dataframe defined
+   # above.
+   schema = pf.SingleUintDataSchema(ranges = [4294967295])
+
+   # Combine the above into a a complete dataset. We can also set
+   # non-measurement keywords here (in this case $CYT and $INST).
+   core = pf.CoreDataset3_1(meas, schema, data, cyt = "Kerby", inst = "Cyberdyne")
+
+   # We can now write this object to a file. If we read it back, it should be
+   # the same as the original. We don't need anything special for reading since
+   # the file on disk should be standards-compliant.
+   with NamedTemporaryFile(mode = "wb") as f:
+       core.write_dataset(f.name)
+       core0, _ = pf.api.fcs_read_std_dataset(f.name)
+       assert core == core0
+
+   # We can also just write HEADER and TEXT. Just like above, we should be
+   # able to read this back and equate it with the original.
+   with NamedTemporaryFile(mode = "wb") as f:
+       core.write_text(f.name)
+       core0, _ = pf.api.fcs_read_std_text(f.name)
+       assert core.to_text() == core0

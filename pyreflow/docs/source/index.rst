@@ -49,7 +49,7 @@ User Guide
    :maxdepth: 3
 
    install
-   quickstart
+   examples
    workflow
    terminology
    api

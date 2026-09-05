@@ -371,6 +371,15 @@ pub struct ReadHeaderAndTEXTConfig {
     /// are needed. If anything, it may improve performance since values that
     /// are entirely whitespace will become empty and thus be dropped.
     pub trim_value_whitespace: TrimValueWhitespace,
+
+    /// Process non-standard keywords starting with `"$"`.
+    ///
+    /// The `"$`" prefix is reserved for standard keywords only. While little
+    /// harm may come from violating this, having these keywords might signify
+    /// that the version in the HEADER is wrong and that the file actually
+    /// follows a different FCS standard (usually higher) in which these
+    /// keywords are standard.
+    pub process_pseudostandard: ProcessPseudostandard,
 }
 
 /// Specific instructions for standardizing keywords from TEXT
@@ -490,15 +499,6 @@ pub struct ReadStdKeywordsConfig_<TMP, DP, TP, DTP, LMP> {
     /// separate from area/width/height and will be accessible using a different
     /// keyword.
     pub allow_other_feature: AllowOtherFeature,
-
-    /// Process non-standard keywords starting with `"$"`.
-    ///
-    /// The `"$`" prefix is reserved for standard keywords only. While little
-    /// harm may come from violating this, having these keywords might signify
-    /// that the version in the HEADER is wrong and that the file actually
-    /// follows a different FCS standard (usually higher) in which these
-    /// keywords are standard.
-    pub process_pseudostandard: ProcessPseudostandard,
 
     /// If `true`, allow keywords that have indices greater than $PAR.
     ///
@@ -2220,10 +2220,12 @@ impl HasStrategy for ReadHeaderAndTEXTConfig {
         self.allow_supp_text_own_delim = TriFlag::True.into();
         self.allow_missing_nextdata = TriFlag::True.into();
         self.trim_value_whitespace = TrimValueWhitespace::TrimBlankWarn;
+        self.process_pseudostandard = ProcessKeywordFailure::DemoteWarn.into();
     }
 
     fn with_sledgehammer(&mut self) {
         self.ignore_supp_text = true.into();
+        self.process_pseudostandard = ProcessKeywordFailure::DropWarn.into();
     }
 }
 
@@ -2240,7 +2242,6 @@ impl<TMP, DP, TP, DTP, LMP> HasStrategy for ReadStdKeywordsConfig_<TMP, DP, TP, 
         // The next flag tells what to do with them (in this case, demote)
         self.ignore_optical_only_keys = OpticalOnlyKeys::all();
         self.process_optical_only_keys = ProcessOpticalOnlyKeys::DemoteWarn;
-        self.process_pseudostandard = ProcessKeywordFailure::DemoteWarn.into();
         self.process_hyper_par = ProcessKeywordFailure::DemoteWarn.into();
         self.process_other_version = ProcessKeywordFailure::DemoteWarn.into();
         self.process_extra_timestep = ProcessKeywordFailure::DemoteWarn.into();
@@ -2248,7 +2249,6 @@ impl<TMP, DP, TP, DTP, LMP> HasStrategy for ReadStdKeywordsConfig_<TMP, DP, TP, 
 
     fn with_sledgehammer(&mut self) {
         self.process_optical_only_keys = ProcessOpticalOnlyKeys::DropWarn;
-        self.process_pseudostandard = ProcessKeywordFailure::DropWarn.into();
         self.process_hyper_par = ProcessKeywordFailure::DropWarn.into();
         self.process_other_version = ProcessKeywordFailure::DropWarn.into();
         self.process_extra_timestep = ProcessKeywordFailure::DropWarn.into();

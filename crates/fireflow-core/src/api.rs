@@ -1005,6 +1005,13 @@ pub enum ParseKeywordsIssue {
     Leading(LeadingDelimError),
 }
 
+/// Error denoting that pseudostandard keyword was found.
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error("pseudostandard keyword found: {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
+pub struct PseudostandardError(pub StdKey);
+
 /// Error when TEXT delimiter is not ASCII
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error("delimiter must be ASCII character 1-126 inclusive, got {0}")]
@@ -1874,9 +1881,8 @@ impl FlatTEXTOutput {
                         .nowarn_into_warn()
                         .map_errors(ParseFlatTEXTError::from);
 
-                    // let hconf: &ReadHeaderAndTEXTConfig = txt_st.conf().as_ref();
-
-                    let vkws = ValidKeywords::new(kws.std, kws.nonstd);
+                    // TODO process pseudostandard here
+                    let vkws = ValidKeywords::new(kws.std, kws.pstd, kws.nonstd);
 
                     let text_read_end = Instant::now();
 
@@ -2028,12 +2034,16 @@ impl SplitTEXTDiagnostics {
         // roughly equal. This probably varies quite a bit but it is hard to
         // know without scanning each token first which is also costly.
         //
+        // Also assume there are relatively few pseudostandard keywords; don't
+        // allocate this hash table more than default.
+        //
         // Finally, assume the STEXT is almost never present and therefore not
         // worth considering. This makes the estimation much simpler since we
         // can't read STEXT without TEXT first.
         let cap = raw_tokens.len().get() / 2;
         let mut kws = ParsedKeywords {
             std: HashMap::with_capacity(cap / 2),
+            pstd: HashMap::new(),
             nonstd: HashMap::with_capacity(cap / 2),
             diag: ParsedKeywordsDiagnostic::default(),
         };

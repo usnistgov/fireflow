@@ -2,19 +2,20 @@ use crate::{
     config::OpticalOnlyKey,
     index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
     keystring::{CowKeyString, KeyString},
+    keywords::{Version, VersionMembership},
     ne_str,
     nonempty_string::{
-        DisplayNE as _, DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESliceExt as _,
-        NEStr, ToDisplayNE, ToNE,
+        DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat4, NESliceExt as _, NEStr,
+        ToDisplayNE, ToNE,
     },
 };
 
-use derive_more::{Display, From};
+use derive_more::{AsRef, Display, From};
 use derive_new::new;
 use nonempty_collections::NESlice;
 use thiserror::Error;
 
-use std::{borrow::Cow, str::FromStr};
+use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -23,16 +24,22 @@ use serde::Serialize;
 use {
     crate::python as py,
     fireflow_core_proc::{DisplayAsPyErr, FromPyString, IntoPyString},
+    pyo3::prelude::*,
 };
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
-pub enum AnyStdKey {
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum RealOrPseudoStdKey {
     Real(StdKey),
     Pseudo(PseudoStdKey),
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display)]
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, AsRef)]
+#[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
+#[cfg_attr(feature = "serde", derive(Serialize))]
 #[display("${_0}")]
+#[as_ref(KeyString)]
 pub struct PseudoStdKey(pub KeyString);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
@@ -40,12 +47,17 @@ pub struct PseudoStdKey(pub KeyString);
 #[display("${}", self.as_displayable())]
 pub enum StdKey {
     Root(RootKey),
-    Meas(MeasKey),
-    Peak(PeakKey),
+    Meas(AnyMeasKey),
     Gate(GateKey),
     Region(RegionKey),
     CsvFlag(CsvFlag),
     Dfc(DfcKey),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
+pub enum AnyMeasKey {
+    Meas(MeasKey),
+    Peak(PeakKey),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -136,10 +148,16 @@ pub type PeakKey = IndexedKey<MeasIndex, PeakKeyPrefix>;
 pub type GateKey = IndexedKey<GateIndex, GateKeySuffix>;
 pub type RegionKey = IndexedKey<RegionIndex, RegionKeySuffix>;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub enum MeasKeySuffix {
-    #[from(ParamKeySuffix)]
-    Param(ParamKeySuffix),
+    N,
+    R,
+    E,
+    S,
+    F,
+    T,
+    P,
+    V,
     B,
     L,
     O,
@@ -160,10 +178,8 @@ pub enum PeakKeyPrefix {
     Pkn,
 }
 
-pub type GateKeySuffix = ParamKeySuffix;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum ParamKeySuffix {
+pub enum GateKeySuffix {
     N,
     R,
     E,
@@ -197,6 +213,17 @@ pub enum StdKeyError {
     Empty,
 }
 
+macro_rules! match_bytes {
+    ($src:expr, $($bytes:expr => $var:path),*) => {{
+        $(
+            if $src.eq_ignore_ascii_case($bytes.as_str().as_bytes()) {
+                return Some($var)
+            }
+        )*
+        None
+    }};
+}
+
 impl FromStr for StdKey {
     type Err = StdKeyError;
 
@@ -208,10 +235,10 @@ impl FromStr for StdKey {
                 Err(StdKeyError::Prefix((*b0).into()))
             } else if let Some(ne) = NESlice::try_from_slice(bs) {
                 // SAFETY: we checked that bytes are ASCII above
-                let k = unsafe { AnyStdKey::from_ascii_bytes(&ne) };
+                let k = unsafe { RealOrPseudoStdKey::from_ascii_bytes(&ne) };
                 match k {
-                    AnyStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(x)),
-                    AnyStdKey::Real(x) => Ok(x),
+                    RealOrPseudoStdKey::Pseudo(x) => Err(StdKeyError::Pseudo(x)),
+                    RealOrPseudoStdKey::Real(x) => Ok(x),
                 }
             } else {
                 Err(StdKeyError::Dollar)
@@ -221,6 +248,16 @@ impl FromStr for StdKey {
         }
     }
 }
+
+// impl AnyStdKey {
+//     #[must_use]
+//     pub fn into_keystring(self) -> KeyString {
+//         match self {
+//             Self::Real(x) => x.as_keystring(),
+//             Self::Pseudo(x) => x.0,
+//         }
+//     }
+// }
 
 impl StdKey {
     #[must_use]
@@ -234,7 +271,6 @@ impl StdKey {
             Self::Root(k) => k.as_ne_str().try_into(),
             Self::Meas(k) => k.as_ne_string().try_into(),
             Self::Gate(k) => k.as_ne_string().try_into(),
-            Self::Peak(k) => k.as_ne_string().try_into(),
             Self::Region(k) => k.as_ne_string().try_into(),
             Self::Dfc(k) => k.as_ne_string().try_into(),
             Self::CsvFlag(k) => k.as_ne_string().try_into(),
@@ -244,26 +280,37 @@ impl StdKey {
 
     #[must_use]
     pub fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
-        Self::Meas(MeasKey::from_optical_only_key(k, i))
+        Self::Meas(AnyMeasKey::Meas(MeasKey::from_optical_only_key(k, i)))
+    }
+
+    #[must_use]
+    pub const fn membership(&self) -> VersionMembership {
+        match self {
+            Self::Root(k) => k.membership(),
+            Self::Meas(k) => k.membership(),
+            Self::Gate(k) => k.id.membership(),
+            Self::Region(k) => k.id.membership(),
+            Self::Dfc(k) => k.membership(),
+            Self::CsvFlag(k) => k.membership(),
+        }
     }
 }
 
 type NEStdKey = NEAlt<
-    NEAlt<NEAlt<ToNE<RootKey>, ToNE<MeasKey>>, NEAlt<ToNE<PeakKey>, ToNE<GateKey>>>,
-    NEAlt<NEAlt<ToNE<RegionKey>, ToNE<CsvFlag>>, ToNE<DfcKey>>,
+    NEAlt<ToNE<RootKey>, NEAlt<ToNE<AnyMeasKey>, ToNE<GateKey>>>,
+    NEAlt<ToNE<RegionKey>, NEAlt<ToNE<CsvFlag>, ToNE<DfcKey>>>,
 >;
 
 impl<'a> ToDisplayNE<'a> for StdKey {
     type NE = NEConcat<char, NEStdKey>;
     fn to_ne(&'a self) -> Self::NE {
         let inner = match self {
-            Self::Root(x) => NEAlt::Left(NEAlt::Left(NEAlt::Left(ToNE(*x)))),
-            Self::Meas(x) => NEAlt::Left(NEAlt::Left(NEAlt::Right(ToNE(*x)))),
-            Self::Peak(x) => NEAlt::Left(NEAlt::Right(NEAlt::Left(ToNE(*x)))),
+            Self::Root(x) => NEAlt::Left(NEAlt::Left(ToNE(*x))),
+            Self::Meas(x) => NEAlt::Left(NEAlt::Right(NEAlt::Left(ToNE(*x)))),
             Self::Gate(x) => NEAlt::Left(NEAlt::Right(NEAlt::Right(ToNE(*x)))),
-            Self::Region(x) => NEAlt::Right(NEAlt::Left(NEAlt::Left(ToNE(*x)))),
-            Self::CsvFlag(x) => NEAlt::Right(NEAlt::Left(NEAlt::Right(ToNE(*x)))),
-            Self::Dfc(x) => NEAlt::Right(NEAlt::Right(ToNE(*x))),
+            Self::Region(x) => NEAlt::Right(NEAlt::Left(ToNE(*x))),
+            Self::CsvFlag(x) => NEAlt::Right(NEAlt::Right(NEAlt::Left(ToNE(*x)))),
+            Self::Dfc(x) => NEAlt::Right(NEAlt::Right(NEAlt::Right(ToNE(*x)))),
         };
         NEConcat::new('$', inner)
     }
@@ -273,6 +320,16 @@ impl<'a> ToDisplayNE<'a> for RootKey {
     type NE = &'static NEStr;
     fn to_ne(&'a self) -> Self::NE {
         <&'static NEStr>::from(*self)
+    }
+}
+
+impl<'a> ToDisplayNE<'a> for AnyMeasKey {
+    type NE = NEAlt<ToNE<MeasKey>, ToNE<PeakKey>>;
+    fn to_ne(&'a self) -> Self::NE {
+        match self {
+            Self::Meas(x) => NEAlt::Left(ToNE(*x)),
+            Self::Peak(x) => NEAlt::Right(ToNE(*x)),
+        }
     }
 }
 
@@ -345,8 +402,8 @@ impl From<PeakKeyPrefix> for &'static NEStr {
     }
 }
 
-impl From<ParamKeySuffix> for &'static NEStr {
-    fn from(value: ParamKeySuffix) -> Self {
+impl From<GateKeySuffix> for &'static NEStr {
+    fn from(value: GateKeySuffix) -> Self {
         value.as_ne_str()
     }
 }
@@ -357,7 +414,7 @@ impl From<RegionKeySuffix> for &'static NEStr {
     }
 }
 
-impl AnyStdKey {
+impl RealOrPseudoStdKey {
     #[must_use]
     pub fn from_bytes_maybe(bytes: &NESlice<'_, u8>) -> Option<Self> {
         is_printable_ascii(bytes.as_ref()).then(|| {
@@ -387,13 +444,13 @@ impl AnyStdKey {
                     {
                         // $PKNn
                         let k = PeakKey::new(i.into(), PeakKeyPrefix::Pkn);
-                        Self::Real(StdKey::Peak(k))
+                        Self::Real(StdKey::Meas(AnyMeasKey::Peak(k)))
                     } else if let Some((i, rest)) = split_index_and_suffix(bs1)
                         && rest.is_empty()
                     {
                         // $PKn
                         let k = PeakKey::new(i.into(), PeakKeyPrefix::Pk);
-                        Self::Real(StdKey::Peak(k))
+                        Self::Real(StdKey::Meas(AnyMeasKey::Peak(k)))
                     } else {
                         // something else
                         //
@@ -406,7 +463,7 @@ impl AnyStdKey {
                 {
                     // $Pn*
                     let k = MeasKey::new(i.into(), mid);
-                    Self::Real(StdKey::Meas(k))
+                    Self::Real(StdKey::Meas(AnyMeasKey::Meas(k)))
                 } else {
                     // something else
                     //
@@ -471,153 +528,200 @@ impl RootKey {
     #[must_use]
     pub const fn as_ne_str(&self) -> &'static NEStr {
         match self {
-            Self::Byteord => ne_str!("BYTEORD"),
-            Self::Datatype => ne_str!("DATETYPE"),
-            Self::Mode => ne_str!("MODE"),
-            Self::Par => ne_str!("PAR"),
-            Self::Tot => ne_str!("TOT"),
-            Self::Cyt => ne_str!("CYT"),
-            Self::Abrt => ne_str!("ABRT"),
-            Self::Cells => ne_str!("CELLS"),
-            Self::Com => ne_str!("COM"),
-            Self::Exp => ne_str!("EXP"),
-            Self::Fil => ne_str!("FIL"),
-            Self::Inst => ne_str!("INST"),
-            Self::Lost => ne_str!("LOST"),
-            Self::Op => ne_str!("OP"),
-            Self::Proj => ne_str!("PROJ"),
-            Self::Smno => ne_str!("SMNO"),
-            Self::Src => ne_str!("SRC"),
-            Self::Sys => ne_str!("SYS"),
-            Self::Tr => ne_str!("TR"),
-            Self::Cytsn => ne_str!("CYTSN"),
-            Self::Timestep => ne_str!("TIMESTEP"),
-            Self::Vol => ne_str!("VOL"),
-            Self::Unicode => ne_str!("UNICODE"),
-            Self::Flowrate => ne_str!("FLOWRATE"),
-            Self::Begindata => ne_str!("BEGINDATA"),
-            Self::Beginanalysis => ne_str!("BEGINANALYSIS"),
-            Self::Beginstext => ne_str!("BEGINSTEXT"),
-            Self::Enddata => ne_str!("ENDDATA"),
-            Self::Endanalysis => ne_str!("ENDANALYSIS"),
-            Self::Endstext => ne_str!("ENDSTEXT"),
-            Self::Nextdata => ne_str!("NEXTDATA"),
-            Self::Btim => ne_str!("BTIM"),
-            Self::Etim => ne_str!("ETIM"),
-            Self::Date => ne_str!("DATE"),
-            Self::Begindatetime => ne_str!("BEGINDATETIME"),
-            Self::Enddatetime => ne_str!("ENDDATETIME"),
-            Self::Comp => ne_str!("COMP"),
-            Self::Spillover => ne_str!("SPILLOVER"),
-            Self::LastModified => ne_str!("LASTMODIFIED"),
-            Self::LastModifier => ne_str!("LASTMODIFIER"),
-            Self::Originality => ne_str!("ORIGINALITY"),
-            Self::Plateid => ne_str!("PLATEID"),
-            Self::Platename => ne_str!("PLATENAME"),
-            Self::Wellid => ne_str!("WELLID"),
-            Self::UnstainedCenters => ne_str!("UNSTAINEDCENTERS"),
-            Self::UnstainedInfo => ne_str!("UNSTAINEDINFO"),
-            Self::CarrierId => ne_str!("CARRIERID"),
-            Self::CarrierType => ne_str!("CARRIERTYPE"),
-            Self::LocationId => ne_str!("LOCATIONID"),
-            Self::Csmode => ne_str!("CSMODE"),
-            Self::Csvbits => ne_str!("CSVBITS"),
-            Self::Cstot => ne_str!("CSTOT"),
-            Self::Gating => ne_str!("GATING"),
-            Self::Gate => ne_str!("GATE"),
+            Self::Byteord => BYTEORD,
+            Self::Datatype => DATATYPE,
+            Self::Mode => MODE,
+            Self::Par => PAR,
+            Self::Tot => TOT,
+            Self::Cyt => CYT,
+            Self::Abrt => ABRT,
+            Self::Cells => CELLS,
+            Self::Com => COM,
+            Self::Exp => EXP,
+            Self::Fil => FIL,
+            Self::Inst => INST,
+            Self::Lost => LOST,
+            Self::Op => OP,
+            Self::Proj => PROJ,
+            Self::Smno => SMNO,
+            Self::Src => SRC,
+            Self::Sys => SYS,
+            Self::Tr => TR,
+            Self::Cytsn => CYTSN,
+            Self::Timestep => TIMESTEP,
+            Self::Vol => VOL,
+            Self::Unicode => UNICODE,
+            Self::Flowrate => FLOWRATE,
+            Self::Begindata => BEGINDATA,
+            Self::Beginanalysis => BEGINANALYSIS,
+            Self::Beginstext => BEGINSTEXT,
+            Self::Enddata => ENDDATA,
+            Self::Endanalysis => ENDANALYSIS,
+            Self::Endstext => ENDSTEXT,
+            Self::Nextdata => NEXTDATA,
+            Self::Btim => BTIM,
+            Self::Etim => ETIM,
+            Self::Date => DATE,
+            Self::Begindatetime => BEGINDATETIME,
+            Self::Enddatetime => ENDDATETIME,
+            Self::Comp => COMP,
+            Self::Spillover => SPILLOVER,
+            Self::LastModified => LAST_MODIFIED,
+            Self::LastModifier => LAST_MODIFIER,
+            Self::Originality => ORIGINALITY,
+            Self::Plateid => PLATEID,
+            Self::Platename => PLATENAME,
+            Self::Wellid => WELLID,
+            Self::UnstainedCenters => UNSTAINEDCENTERS,
+            Self::UnstainedInfo => UNSTAINEDINFO,
+            Self::CarrierId => CARRIERID,
+            Self::CarrierType => CARRIERTYPE,
+            Self::LocationId => LOCATIONID,
+            Self::Csmode => CSMODE,
+            Self::Csvbits => CSVBITS,
+            Self::Cstot => CSTOT,
+            Self::Gating => GATING,
+            Self::Gate => GATE,
         }
     }
 
     const fn from_bytes(bytes: &[u8]) -> Option<Self> {
-        macro_rules! match_bytes {
-            ($($bytes:expr => $var:ident),*) => {{
-                $(
-                    if bytes.eq_ignore_ascii_case($bytes) {
-                        return Some(Self::$var)
-                    }
-                )*
-                None
-            }};
-        }
         match bytes.len() {
             2 => match_bytes!(
-                b"OP" => Op,
-                b"TR" => Tr
+                bytes,
+                OP => Self::Op,
+                TR => Self::Tr
             ),
             3 => match_bytes!(
-                b"COM" => Com,
-                b"CYT" => Cyt,
-                b"EXP" => Exp,
-                b"FIL" => Fil,
-                b"PAR" => Par,
-                b"TOT" => Tot,
-                b"SRC" => Src,
-                b"SYS" => Sys,
-                b"VOL" => Vol
+                bytes,
+                COM => Self::Com,
+                CYT => Self::Cyt,
+                EXP => Self::Exp,
+                FIL => Self::Fil,
+                PAR => Self::Par,
+                TOT => Self::Tot,
+                SRC => Self::Src,
+                SYS => Self::Sys,
+                VOL => Self::Vol
             ),
             4 => match_bytes!(
-                b"ABRT" => Abrt,
-                b"BTIM" => Btim,
-                b"COMP" => Comp,
-                b"DATE" => Date,
-                b"ETIM" => Etim,
-                b"GATE" => Gate,
-                b"INST" => Inst,
-                b"LOST" => Lost,
-                b"MODE" => Mode,
-                b"PROJ" => Proj,
-                b"SMNO" => Smno
+                bytes,
+                ABRT => Self::Abrt,
+                BTIM => Self::Btim,
+                COMP => Self::Comp,
+                DATE => Self::Date,
+                ETIM => Self::Etim,
+                GATE => Self::Gate,
+                INST => Self::Inst,
+                LOST => Self::Lost,
+                MODE => Self::Mode,
+                PROJ => Self::Proj,
+                SMNO => Self::Smno
             ),
             5 => match_bytes!(
-                b"CELLS" => Cells,
-                b"CYTSN" => Cytsn,
-                b"CSTOT" => Cstot
+                bytes,
+                CELLS => Self::Cells,
+                CYTSN => Self::Cytsn,
+                CSTOT => Self::Cstot
             ),
             6 => match_bytes!(
-                b"CSMODE" => Csmode,
-                b"GATING" => Gating,
-                b"WELLID" => Wellid
+                bytes,
+                CSMODE => Self::Csmode,
+                GATING => Self::Gating,
+                WELLID => Self::Wellid
             ),
             7 => match_bytes!(
-                b"BYTEORD" => Byteord,
-                b"CSVBITS" => Csvbits,
-                b"ENDDATA" => Enddata,
-                b"PLATEID" => Plateid,
-                b"UNICODE" => Unicode
+                bytes,
+                BYTEORD => Self::Byteord,
+                CSVBITS => Self::Csvbits,
+                ENDDATA => Self::Enddata,
+                PLATEID => Self::Plateid,
+                UNICODE => Self::Unicode
             ),
             8 => match_bytes!(
-                b"DATETYPE" => Datatype,
-                b"ENDSTEXT" => Endstext,
-                b"FLOWRATE" => Flowrate,
-                b"NEXTDATA" => Nextdata,
-                b"TIMESTEP" => Timestep
+                bytes,
+                DATATYPE => Self::Datatype,
+                ENDSTEXT => Self::Endstext,
+                FLOWRATE => Self::Flowrate,
+                NEXTDATA => Self::Nextdata,
+                TIMESTEP => Self::Timestep
             ),
             9 => match_bytes!(
-                b"BEGINDATA" => Begindata,
-                b"CARRIERID" => CarrierId,
-                b"PLATENAME" => Platename,
-                b"SPILLOVER" => Spillover
+                bytes,
+                BEGINDATA => Self::Begindata,
+                CARRIERID => Self::CarrierId,
+                PLATENAME => Self::Platename,
+                SPILLOVER => Self::Spillover
             ),
             10 => match_bytes!(
-                b"BEGINSTEXT" => Beginstext,
-                b"LOCATIONID" => LocationId
+                bytes,
+                BEGINSTEXT => Self::Beginstext,
+                LOCATIONID => Self::LocationId
             ),
             11 => match_bytes!(
-                b"CARRIERTYPE" => CarrierType,
-                b"ENDANALYSIS" => Endanalysis,
-                b"ENDDATETIME" => Enddatetime,
-                b"ORIGINALITY" => Originality
-            ),
-            12 => match_bytes!(
-                b"LASTMODIFIED" => LastModified,
-                b"LASTMODIFIER" => LastModifier
+                bytes,
+                CARRIERTYPE => Self::CarrierType,
+                ENDANALYSIS => Self::Endanalysis,
+                ENDDATETIME => Self::Enddatetime,
+                ORIGINALITY => Self::Originality
             ),
             13 => match_bytes!(
-                b"BEGINANALYSIS" => Beginanalysis,
-                b"BEGINDATETIME" => Begindatetime,
-                b"UNSTAINEDINFO" => UnstainedInfo
+                bytes,
+                BEGINANALYSIS => Self::Beginanalysis,
+                BEGINDATETIME => Self::Begindatetime,
+                LAST_MODIFIED => Self::LastModified,
+                LAST_MODIFIER => Self::LastModifier,
+                UNSTAINEDINFO => Self::UnstainedInfo
             ),
-            _ => match_bytes!(b"UNSTAINEDCENTERS" => UnstainedCenters),
+            _ => match_bytes!(bytes, UNSTAINEDCENTERS => Self::UnstainedCenters),
+        }
+    }
+
+    const fn membership(self) -> VersionMembership {
+        match self {
+            Self::Begindata
+            | Self::Beginanalysis
+            | Self::Beginstext
+            | Self::Enddata
+            | Self::Endanalysis
+            | Self::Endstext
+            | Self::Cytsn
+            | Self::Timestep => {
+                VersionMembership::Three([Version::FCS3_0, Version::FCS3_1, Version::FCS3_2])
+            }
+            Self::Gate => {
+                VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
+            }
+            Self::Unicode | Self::Comp => VersionMembership::One(Version::FCS3_0),
+            Self::Vol
+            | Self::Spillover
+            | Self::LastModified
+            | Self::LastModifier
+            | Self::Originality
+            | Self::Plateid
+            | Self::Platename
+            | Self::Wellid => VersionMembership::Two([Version::FCS3_1, Version::FCS3_2]),
+            Self::Begindatetime
+            | Self::Enddatetime
+            | Self::UnstainedCenters
+            | Self::UnstainedInfo
+            | Self::CarrierId
+            | Self::CarrierType
+            | Self::LocationId
+            | Self::Flowrate => VersionMembership::One(Version::FCS3_2),
+            Self::Csmode | Self::Csvbits | Self::Cstot => {
+                VersionMembership::Two([Version::FCS3_0, Version::FCS3_1])
+            }
+            _ => VersionMembership::All,
+        }
+    }
+}
+
+impl AnyMeasKey {
+    const fn membership(&self) -> VersionMembership {
+        match self {
+            Self::Meas(k) => k.id.membership(),
+            Self::Peak(k) => k.id.membership(),
         }
     }
 }
@@ -631,60 +735,106 @@ impl MeasKey {
 impl MeasKeySuffix {
     const fn as_ne_str(self) -> &'static NEStr {
         match self {
-            Self::Param(p) => p.as_ne_str(),
-            Self::B => ne_str!("B"),
-            Self::L => ne_str!("L"),
-            Self::O => ne_str!("O"),
-            Self::G => ne_str!("G"),
-            Self::D => ne_str!("D"),
-            Self::Det => ne_str!("DET"),
-            Self::Tag => ne_str!("TAG"),
-            Self::Type => ne_str!("TYPE"),
-            Self::Feature => ne_str!("FEATURE"),
-            Self::Analyte => ne_str!("ANALYTE"),
-            Self::Datatype => ne_str!("DATATYPE"),
-            Self::Calibration => ne_str!("CALIBRATION"),
+            Self::N => N_KW_SUFFIX,
+            Self::R => R_KW_SUFFIX,
+            Self::E => E_KW_SUFFIX,
+            Self::S => S_KW_SUFFIX,
+            Self::F => F_KW_SUFFIX,
+            Self::T => T_KW_SUFFIX,
+            Self::P => P_KW_SUFFIX,
+            Self::V => V_KW_SUFFIX,
+            Self::B => B_KW_SUFFIX,
+            Self::L => L_KW_SUFFIX,
+            Self::O => O_KW_SUFFIX,
+            Self::G => G_KW_SUFFIX,
+            Self::D => D_KW_SUFFIX,
+            Self::Det => DET_KW_SUFFIX,
+            Self::Tag => TAG_KW_SUFFIX,
+            Self::Type => TYPE_KW_SUFFIX,
+            Self::Feature => FEATURE_KW_SUFFIX,
+            Self::Analyte => ANALYTE_KW_SUFFIX,
+            Self::Datatype => DATATYPE_KW_SUFFIX,
+            Self::Calibration => CALIBRATION_KW_SUFFIX,
+        }
+    }
+
+    #[must_use]
+    pub const fn blank(self) -> &'static NEStr {
+        match self {
+            Self::N => PNN,
+            Self::R => PNR,
+            Self::E => PNE,
+            Self::S => PNS,
+            Self::F => PNF,
+            Self::T => PNT,
+            Self::P => PNP,
+            Self::V => PNV,
+            Self::B => PNB,
+            Self::L => PNL,
+            Self::O => PNO,
+            Self::G => PNG,
+            Self::D => PND,
+            Self::Det => PNDET,
+            Self::Tag => PNTAG,
+            Self::Type => PNTYPE,
+            Self::Feature => PNFEATURE,
+            Self::Analyte => PNANALYTE,
+            Self::Datatype => PNDATATYPE,
+            Self::Calibration => PNCALIBRATION,
+        }
+    }
+
+    const fn membership(self) -> VersionMembership {
+        match self {
+            Self::G => {
+                VersionMembership::Three([Version::FCS3_0, Version::FCS3_1, Version::FCS3_2])
+            }
+            Self::D | Self::Calibration => {
+                VersionMembership::Two([Version::FCS3_1, Version::FCS3_2])
+            }
+            Self::Det | Self::Tag | Self::Type | Self::Feature | Self::Analyte | Self::Datatype => {
+                VersionMembership::One(Version::FCS3_2)
+            }
+            _ => VersionMembership::All,
         }
     }
 
     fn from_suffix(bytes: &NESlice<'_, u8>) -> Option<Self> {
-        macro_rules! match_bytes {
-            ($($bytes:expr => $var:ident),*) => {{
-                $(
-                    if bytes.as_ref().eq_ignore_ascii_case($bytes) {
-                        return Some(Self::$var)
-                    }
-                )*
-                None
-            }};
-        }
-
         let sn = bytes.len().get();
         match sn {
             1 => {
-                let s0 = bytes.first();
-                if let Some(pid) = ParamKeySuffix::from_byte(*s0) {
-                    Some(Self::Param(pid))
-                } else {
-                    match s0.to_ascii_uppercase() {
-                        b'B' => Some(Self::B),
-                        b'L' => Some(Self::L),
-                        b'O' => Some(Self::O),
-                        b'G' => Some(Self::G),
-                        b'D' => Some(Self::D),
-                        _ => None,
-                    }
-                }
+                match_bytes!(
+                    [*bytes.first()],
+                    N_KW_SUFFIX => Self::N,
+                    R_KW_SUFFIX => Self::R,
+                    E_KW_SUFFIX => Self::E,
+                    S_KW_SUFFIX => Self::S,
+                    F_KW_SUFFIX => Self::F,
+                    T_KW_SUFFIX => Self::T,
+                    P_KW_SUFFIX => Self::P,
+                    V_KW_SUFFIX => Self::V,
+                    B_KW_SUFFIX => Self::B,
+                    L_KW_SUFFIX => Self::L,
+                    O_KW_SUFFIX => Self::O,
+                    G_KW_SUFFIX => Self::G,
+                    D_KW_SUFFIX => Self::D
+                )
             }
-            3 => match_bytes!(b"DET" => Det, b"TAG" => Tag),
+            3 => match_bytes!(
+                bytes.as_ref(),
+                DET_KW_SUFFIX => Self::Det,
+                TAG_KW_SUFFIX => Self::Tag
+            ),
             7 => match_bytes!(
-                b"FEATURE" => Feature,
-                b"ANALYTE" => Analyte
+                bytes.as_ref(),
+                FEATURE_KW_SUFFIX => Self::Feature,
+                ANALYTE_KW_SUFFIX => Self::Analyte
             ),
             _ => match_bytes!(
-                b"TYPE" => Type,
-                b"DATATYPE" => Datatype,
-                b"CALIBRATION" => Calibration
+                bytes.as_ref(),
+                TYPE_KW_SUFFIX => Self::Type,
+                DATATYPE_KW_SUFFIX => Self::Datatype,
+                CALIBRATION_KW_SUFFIX => Self::Calibration
             ),
         }
     }
@@ -692,12 +842,12 @@ impl MeasKeySuffix {
     fn from_optical_only_key(k: OpticalOnlyKey) -> Self {
         match k {
             OpticalOnlyKey::Gain => Self::G,
-            OpticalOnlyKey::Filter => Self::Param(ParamKeySuffix::F),
+            OpticalOnlyKey::Filter => Self::F,
             OpticalOnlyKey::Wavelength => Self::L,
             OpticalOnlyKey::Power => Self::O,
-            OpticalOnlyKey::DetectorType => Self::Param(ParamKeySuffix::T),
-            OpticalOnlyKey::DetectorVoltage => Self::Param(ParamKeySuffix::V),
-            OpticalOnlyKey::PercentEmitted => Self::Param(ParamKeySuffix::P),
+            OpticalOnlyKey::DetectorType => Self::T,
+            OpticalOnlyKey::DetectorVoltage => Self::V,
+            OpticalOnlyKey::PercentEmitted => Self::P,
             OpticalOnlyKey::Calibration => Self::Calibration,
             OpticalOnlyKey::DetectorName => Self::Det,
             OpticalOnlyKey::Tag => Self::Tag,
@@ -710,55 +860,97 @@ impl MeasKeySuffix {
 impl PeakKeyPrefix {
     const fn as_ne_str(self) -> &'static NEStr {
         match self {
-            Self::Pk => ne_str!("PK"),
-            Self::Pkn => ne_str!("PKN"),
+            Self::Pk => PK_KW_PREFIX,
+            Self::Pkn => PKN_KW_PREFIX,
         }
+    }
+
+    #[must_use]
+    pub const fn blank(self) -> &'static NEStr {
+        match self {
+            Self::Pk => PKN,
+            Self::Pkn => PKNN,
+        }
+    }
+
+    const fn membership(self) -> VersionMembership {
+        VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
     }
 }
 
-impl ParamKeySuffix {
+impl GateKeySuffix {
     const fn as_ne_str(self) -> &'static NEStr {
         match self {
-            Self::N => ne_str!("N"),
-            Self::R => ne_str!("R"),
-            Self::E => ne_str!("E"),
-            Self::S => ne_str!("S"),
-            Self::F => ne_str!("F"),
-            Self::T => ne_str!("T"),
-            Self::P => ne_str!("P"),
-            Self::V => ne_str!("V"),
+            Self::N => N_KW_SUFFIX,
+            Self::R => R_KW_SUFFIX,
+            Self::E => E_KW_SUFFIX,
+            Self::S => S_KW_SUFFIX,
+            Self::F => F_KW_SUFFIX,
+            Self::T => T_KW_SUFFIX,
+            Self::P => P_KW_SUFFIX,
+            Self::V => V_KW_SUFFIX,
         }
     }
 
-    fn from_byte(b: u8) -> Option<Self> {
-        match b.to_ascii_uppercase() {
-            b'N' => Some(Self::N),
-            b'R' => Some(Self::R),
-            b'E' => Some(Self::E),
-            b'S' => Some(Self::S),
-            b'F' => Some(Self::F),
-            b'T' => Some(Self::T),
-            b'P' => Some(Self::P),
-            b'V' => Some(Self::V),
-            _ => None,
+    #[must_use]
+    pub const fn blank(self) -> &'static NEStr {
+        match self {
+            Self::N => PNN,
+            Self::R => PNR,
+            Self::E => PNE,
+            Self::S => PNS,
+            Self::F => PNF,
+            Self::T => PNT,
+            Self::P => PNP,
+            Self::V => PNV,
         }
+    }
+
+    const fn membership(self) -> VersionMembership {
+        VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
+    }
+
+    fn from_byte(b: u8) -> Option<Self> {
+        match_bytes!(
+            [b],
+            N_KW_SUFFIX => Self::N,
+            R_KW_SUFFIX => Self::R,
+            E_KW_SUFFIX => Self::E,
+            S_KW_SUFFIX => Self::S,
+            F_KW_SUFFIX => Self::F,
+            T_KW_SUFFIX => Self::T,
+            P_KW_SUFFIX => Self::P,
+            V_KW_SUFFIX => Self::V
+        )
     }
 }
 
 impl RegionKeySuffix {
     const fn to_ne_str(self) -> &'static NEStr {
         match self {
-            Self::I => ne_str!("I"),
-            Self::W => ne_str!("W"),
+            Self::I => REGION_I_KW_PREFIX,
+            Self::W => REGION_W_KW_PREFIX,
+        }
+    }
+
+    #[must_use]
+    pub const fn blank(self) -> &'static NEStr {
+        match self {
+            Self::I => RNI,
+            Self::W => RNW,
         }
     }
 
     const fn from_byte(b: u8) -> Option<Self> {
-        match b.to_ascii_uppercase() {
-            b'I' => Some(Self::I),
-            b'W' => Some(Self::W),
-            _ => None,
-        }
+        match_bytes!(
+            [b],
+            REGION_I_KW_PREFIX => Self::I,
+            REGION_W_KW_PREFIX => Self::W
+        )
+    }
+
+    const fn membership(self) -> VersionMembership {
+        VersionMembership::All
     }
 }
 
@@ -780,9 +972,15 @@ impl DfcKey {
             None
         }
     }
+
+    const fn membership(self) -> VersionMembership {
+        VersionMembership::One(Version::FCS2_0)
+    }
 }
 
 impl CsvFlag {
+    pub const BLANK: &NEStr = ne_str!("CSVnFLAG");
+
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() >= 9
             && bytes[0..3].eq_ignore_ascii_case(b"CSV")
@@ -793,6 +991,10 @@ impl CsvFlag {
         } else {
             None
         }
+    }
+
+    const fn membership(self) -> VersionMembership {
+        VersionMembership::Two([Version::FCS3_0, Version::FCS3_1])
     }
 }
 
@@ -836,3 +1038,19 @@ impl Serialize for StdKey {
 }
 
 pub const STD_PREFIX: u8 = 36; // '$'
+
+// Load list of all keyword constants from build script
+include!(concat!(env!("OUT_DIR"), "/kw_strs.rs"));
+
+// other keywords not in build script
+pub const PKN: &NEStr = ne_str!("$PKn");
+pub const PKNN: &NEStr = ne_str!("$PKNn");
+
+pub const PK_KW_PREFIX: &NEStr = ne_str!("PK");
+pub const PKN_KW_PREFIX: &NEStr = ne_str!("PKN");
+
+pub const RNI: &NEStr = ne_str!("$RNI");
+pub const RNW: &NEStr = ne_str!("$RNW");
+
+pub const REGION_I_KW_PREFIX: &NEStr = ne_str!("I");
+pub const REGION_W_KW_PREFIX: &NEStr = ne_str!("W");

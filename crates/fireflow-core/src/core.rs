@@ -79,9 +79,8 @@ use crate::text::keywords::{
     Feature, Fil, Flowrate, Gate, HyperGateError, HyperParError, Inst, KeywordOtherVersionError,
     LastModified, LastModifier, Locationid, LookupComp2_0Error, Lost, MeasOrGateIndex, Mode,
     Mode3_2, ModeUpgradeError, Nextdata, NoCytError, Op, Originality, Par, Plateid, Platename,
-    PrefixedMeasIndex, Proj, PseudostandardError, ScaleFix, Smno, Src, Sys, Timestep,
-    TimestepAdded, TimestepFoundError, Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol,
-    Wellid,
+    PrefixedMeasIndex, Proj, ScaleFix, Smno, Src, Sys, Timestep, TimestepAdded, TimestepFoundError,
+    Tot, Trigger, Unicode, UnstainedCenters, UnstainedInfo, Vol, Wellid,
 };
 use crate::text::lookup::{
     Diagnosed, OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError,
@@ -169,6 +168,7 @@ use {
         RefKeyword1,
     },
     crate::text::keywords as kws,
+    fireflow_types::ne_str,
     ndarray::Array2,
     serde::Serialize,
     std::string::ToString as _,
@@ -1106,9 +1106,6 @@ pub struct StdTEXTDiagnostics {
     /// Optional keys which could not be parsed
     pub optional: StdKeywords,
 
-    /// Keys which start with `"$"` but are not part of the standard.
-    pub pseudostandard: StdKeywords,
-
     /// Standard $Pn* keys where `n` is higher than $PAR
     pub hyper_par: StdKeywords,
 
@@ -1201,7 +1198,6 @@ impl StdTEXTDiagnostics {
         let read_std_ns = (post + pre).as_nanos();
         let ret = Self {
             optional,
-            pseudostandard: extra.pseudostandard,
             hyper_par: extra.hyper_par,
             hyper_gate: extra.hyper_gate,
             other_version: extra.other_version,
@@ -1385,7 +1381,6 @@ pub enum StdTEXTFromFlatTEXTErrorInner {
     DataSchema(LookupDataSchemaError),
     Offsets(LookupTEXTOffsetsError),
     Timestep(TimestepFoundError),
-    Pseudo(PseudostandardError),
     HyperPar(HyperParError),
     HyperGate(HyperGateError),
     OtherVersion(KeywordOtherVersionError),
@@ -1404,7 +1399,6 @@ pub enum StdTEXTFromFlatTEXTWarning {
     DataSchema(LookupDataSchemaWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Timestep(TimestepFoundError),
-    Pseudo(PseudostandardError),
     HyperPar(HyperParError),
     HyperGate(HyperGateError),
     OtherVersion(KeywordOtherVersionError),
@@ -5435,7 +5429,7 @@ where
         V::Optical: OpticalFromTemporal<V::Temporal> + Clone,
         L: LayoutKeywords + LayoutOptMeasKeywords,
     {
-        const INDEX: &str = "index";
+        const INDEX: &NEStr = ne_str!("index");
 
         #[derive(From, Clone)]
         enum MeasKeyword<'a> {
@@ -5447,9 +5441,9 @@ where
         }
 
         impl<'a> MeasKeyword<'a> {
-            fn key(&'a self) -> String {
+            fn key(&'a self) -> &'static NEStr {
                 match self {
-                    MeasKeyword::Index(_) => INDEX.into(),
+                    MeasKeyword::Index(_) => INDEX,
                     MeasKeyword::Req(x) => x.std_blank(),
                     MeasKeyword::Optical(x) => x.std_blank(),
                     MeasKeyword::Temporal(x) => x.std_blank(),
@@ -5467,7 +5461,7 @@ where
                 }
             }
 
-            fn assign(self, header: &[String], row: &mut [Option<String>]) {
+            fn assign(self, header: &[&'static NEStr], row: &mut [Option<String>]) {
                 let key = self.key();
                 if let Some(i) = header.iter().position(|x| x == &key) {
                     row[i] = Some(self.value());
@@ -5480,7 +5474,7 @@ where
         let version = V::as_version();
 
         let common = [
-            INDEX.into(),
+            INDEX,
             Shortname::std_blank(),
             kws::Longname::std_blank(),
             kws::Width::std_blank(),
@@ -6022,7 +6016,6 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                 };
             }
 
-            go_extra!(process_pseudostandard, pseudostandard, pseudo);
             go_extra!(process_hyper_par, hyper_par, hyper_par);
             go_extra!(process_hyper_par, hyper_gate, hyper_gate);
             go_extra!(process_other_version, other_version, other_version);

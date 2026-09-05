@@ -12,8 +12,8 @@ use crate::text::keyword_enum::{
 use crate::text::keywords as kws;
 
 use fireflow_types::std_key::{
-    AnyStdKey, CsvFlag, GateKey, GateKeySuffix, MeasKey, MeasKeySuffix, PeakKey, PeakKeyPrefix,
-    RegionKey, RegionKeySuffix, RootKey, STD_PREFIX,
+    AnyMeasKey, CsvFlag, GateKey, GateKeySuffix, MeasKey, MeasKeySuffix, PeakKey, PeakKeyPrefix,
+    PseudoStdKey, RealOrPseudoStdKey, RegionKey, RegionKeySuffix, RootKey, STD_PREFIX,
 };
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
@@ -98,7 +98,10 @@ pub struct NonStdKey(KeyString);
 #[derive(Default)]
 pub struct ParsedKeywords {
     /// Standard keywords (with '$')
-    pub(crate) std: StdKeywords,
+    pub(crate) std: HashMap<StdKey, NEString>,
+
+    /// Pseudostandard keywords (with '$' but not part of standard)
+    pub(crate) pstd: HashMap<PseudoStdKey, NEString>,
 
     /// Non-standard keywords (without '$')
     pub(crate) nonstd: NonStdKeywords,
@@ -151,11 +154,19 @@ pub struct RepairDiagnostics {
 #[cfg_attr(feature = "python", derive(IntoPyObject, FromPyObject))]
 #[cfg_attr(feature = "serde", derive(Serialize))]
 pub enum AnyKey {
+    Std(RealOrPseudoStdKey),
+    NonStd(NonStdKey),
+}
+
+/// A standard (non-pseudostandard) key or non-standard key.
+#[derive(Clone, PartialEq, From)]
+#[cfg_attr(feature = "serde", derive(Serialize))]
+pub enum WritableKey {
     Std(StdKey),
     NonStd(NonStdKey),
 }
 
-impl<'a> ToDisplayNE<'a> for AnyKey {
+impl<'a> ToDisplayNE<'a> for WritableKey {
     type NE = NEAlt<ToNE<&'a StdKey>, ToNE<&'a NonStdKey>>;
     fn to_ne(&'a self) -> Self::NE {
         match self {
@@ -176,10 +187,147 @@ pub type StdKeywords = HashMap<StdKey, NEString>;
     pyo3(from_item_all)
 )]
 pub struct ValidKeywords {
+    // TODO turn this into an abstraction over the real/pseudo-std split, it
+    // would be good to avoid using a hash table as much as possible, different
+    // classes of keywords can be put into different slots to avoid hashing and
+    // also make it easier later when we standardize
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub std: StdKeywords,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub nonstd: NonStdKeywords,
+}
+
+#[derive(Default)]
+pub(crate) struct ParsedRootKeywords {
+    byteord: RootKeyValue,
+    datatype: RootKeyValue,
+    mode: RootKeyValue,
+    par: RootKeyValue,
+    tot: RootKeyValue,
+    cyt: RootKeyValue,
+    abrt: RootKeyValue,
+    cells: RootKeyValue,
+    com: RootKeyValue,
+    exp: RootKeyValue,
+    fil: RootKeyValue,
+    inst: RootKeyValue,
+    lost: RootKeyValue,
+    op: RootKeyValue,
+    proj: RootKeyValue,
+    smno: RootKeyValue,
+    src: RootKeyValue,
+    sys: RootKeyValue,
+    tr: RootKeyValue,
+    cytsn: RootKeyValue,
+    timestep: RootKeyValue,
+    vol: RootKeyValue,
+    unicode: RootKeyValue,
+    flowrate: RootKeyValue,
+    begindata: RootKeyValue,
+    beginanalysis: RootKeyValue,
+    beginstext: RootKeyValue,
+    enddata: RootKeyValue,
+    endanalysis: RootKeyValue,
+    endstext: RootKeyValue,
+    nextdata: RootKeyValue,
+    btim: RootKeyValue,
+    etim: RootKeyValue,
+    date: RootKeyValue,
+    begindatetime: RootKeyValue,
+    enddatetime: RootKeyValue,
+    comp: RootKeyValue,
+    spillover: RootKeyValue,
+    lastmodified: RootKeyValue,
+    lastmodifier: RootKeyValue,
+    originality: RootKeyValue,
+    plateid: RootKeyValue,
+    platename: RootKeyValue,
+    wellid: RootKeyValue,
+    unstainedcenters: RootKeyValue,
+    unstainedinfo: RootKeyValue,
+    carrierid: RootKeyValue,
+    carriertype: RootKeyValue,
+    locationid: RootKeyValue,
+    csmode: RootKeyValue,
+    csvbits: RootKeyValue,
+    cstot: RootKeyValue,
+    gating: RootKeyValue,
+    gate: RootKeyValue,
+}
+
+#[derive(Default)]
+pub(crate) struct RootKeyValue(String);
+
+impl RootKeyValue {
+    fn put(&mut self, value: NEString) -> Option<NEString> {
+        if self.0.is_empty() {
+            self.0 = value.into();
+            None
+        } else {
+            Some(value)
+        }
+    }
+}
+
+impl ParsedRootKeywords {
+    fn insert(&mut self, key: RootKey, value: NEString) -> Option<NEString> {
+        match key {
+            RootKey::Byteord => self.byteord.put(value),
+            RootKey::Datatype => self.datatype.put(value),
+            RootKey::Mode => self.mode.put(value),
+            RootKey::Par => self.par.put(value),
+            RootKey::Tot => self.tot.put(value),
+            RootKey::Cyt => self.cyt.put(value),
+            RootKey::Abrt => self.abrt.put(value),
+            RootKey::Cells => self.cells.put(value),
+            RootKey::Com => self.com.put(value),
+            RootKey::Exp => self.exp.put(value),
+            RootKey::Fil => self.fil.put(value),
+            RootKey::Inst => self.inst.put(value),
+            RootKey::Lost => self.lost.put(value),
+            RootKey::Op => self.op.put(value),
+            RootKey::Proj => self.proj.put(value),
+            RootKey::Smno => self.smno.put(value),
+            RootKey::Src => self.src.put(value),
+            RootKey::Sys => self.sys.put(value),
+            RootKey::Tr => self.tr.put(value),
+            RootKey::Cytsn => self.cytsn.put(value),
+            RootKey::Timestep => self.timestep.put(value),
+            RootKey::Vol => self.vol.put(value),
+            RootKey::Unicode => self.unicode.put(value),
+            RootKey::Flowrate => self.flowrate.put(value),
+            RootKey::Begindata => self.begindata.put(value),
+            RootKey::Beginanalysis => self.beginanalysis.put(value),
+            RootKey::Beginstext => self.beginstext.put(value),
+            RootKey::Enddata => self.enddata.put(value),
+            RootKey::Endanalysis => self.endanalysis.put(value),
+            RootKey::Endstext => self.endstext.put(value),
+            RootKey::Nextdata => self.nextdata.put(value),
+            RootKey::Btim => self.btim.put(value),
+            RootKey::Etim => self.etim.put(value),
+            RootKey::Date => self.date.put(value),
+            RootKey::Begindatetime => self.begindatetime.put(value),
+            RootKey::Enddatetime => self.enddatetime.put(value),
+            RootKey::Comp => self.comp.put(value),
+            RootKey::Spillover => self.spillover.put(value),
+            RootKey::LastModified => self.lastmodified.put(value),
+            RootKey::LastModifier => self.lastmodifier.put(value),
+            RootKey::Originality => self.originality.put(value),
+            RootKey::Plateid => self.plateid.put(value),
+            RootKey::Platename => self.platename.put(value),
+            RootKey::Wellid => self.wellid.put(value),
+            RootKey::UnstainedCenters => self.unstainedcenters.put(value),
+            RootKey::UnstainedInfo => self.unstainedinfo.put(value),
+            RootKey::CarrierId => self.carrierid.put(value),
+            RootKey::CarrierType => self.carriertype.put(value),
+            RootKey::LocationId => self.locationid.put(value),
+            RootKey::Csmode => self.csmode.put(value),
+            RootKey::Csvbits => self.csvbits.put(value),
+            RootKey::Cstot => self.cstot.put(value),
+            RootKey::Gating => self.gating.put(value),
+            RootKey::Gate => self.gate.put(value),
+        }
+    }
 }
 
 /// A string that should be used as the header in the measurement table.
@@ -355,16 +503,9 @@ impl<T> Default for Key0<T> {
     }
 }
 
-impl<T: Key> ToDisplayNE<'_> for Key0<T> {
-    type NE = ToNE<StdKey>;
-    fn to_ne(&self) -> Self::NE {
-        ToNE(StdKey::Root(T::STD))
-    }
-}
-
-impl<T: Key> fmt::Display for Key0<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", T::STD.as_ne_str())
+impl<T: Key> From<Key0<T>> for StdKey {
+    fn from(_: Key0<T>) -> Self {
+        T::std()
     }
 }
 
@@ -377,16 +518,9 @@ impl<T> Key1<T> {
     }
 }
 
-impl<T: IndexedKey> ToDisplayNE<'_> for Key1<T> {
-    type NE = ToNE<StdKey>;
-    fn to_ne(&self) -> Self::NE {
-        ToNE(T::std(self.index))
-    }
-}
-
-impl<T: IndexedKey> fmt::Display for Key1<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.as_displayable())
+impl<T: IndexedKey> From<Key1<T>> for StdKey {
+    fn from(value: Key1<T>) -> Self {
+        T::std(value.index)
     }
 }
 
@@ -399,16 +533,9 @@ impl<T> Key2<T> {
     }
 }
 
-impl<T: BiIndexedKey> ToDisplayNE<'_> for Key2<T> {
-    type NE = ToNE<StdKey>;
-    fn to_ne(&self) -> Self::NE {
-        ToNE(T::std(self.index.i0, self.index.i1))
-    }
-}
-
-impl<T: BiIndexedKey> fmt::Display for Key2<T> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", self.as_displayable())
+impl<T: BiIndexedKey> From<Key2<T>> for StdKey {
+    fn from(value: Key2<T>) -> Self {
+        T::std(value.index.i0, value.index.i1)
     }
 }
 
@@ -477,6 +604,25 @@ impl<T, I: Eq> Eq for SpecificKey<T, I> {}
 
 impl<T, I: Copy> Copy for SpecificKey<T, I> {}
 
+impl<T, I> ToDisplayNE<'_> for SpecificKey<T, I>
+where
+    Self: Into<StdKey> + Copy,
+{
+    type NE = ToNE<StdKey>;
+    fn to_ne(&self) -> Self::NE {
+        ToNE((*self).into())
+    }
+}
+
+impl<T, I> fmt::Display for SpecificKey<T, I>
+where
+    Self: Into<StdKey> + Copy,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        write!(f, "{}", (*self).into())
+    }
+}
+
 /// A [`SpecificKey`] which is prefixed with '$' when displayed.
 #[derive(Display, From, Delegate, Debug)]
 #[display("${_0}")]
@@ -541,11 +687,13 @@ pub enum NonStdKeyError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum KeywordInsertError {
     StdPresent(StdPresent),
+    PseudoStdPresent(PseudoStdPresent),
     NonStdPresent(NonStdPresent),
     Blank(BlankValueError),
 }
 
 pub type StdPresent = KeyPresent<StdKey>;
+pub type PseudoStdPresent = KeyPresent<PseudoStdKey>;
 pub type NonStdPresent = KeyPresent<NonStdKey>;
 
 // /// Error when applying a [`SubPattern`] resulted in an empty string.
@@ -676,6 +824,9 @@ pub(crate) struct ParsedKeywordsDiagnostic {
     /// Standard keys which appear more than once with their values.
     pub(crate) non_unique_std_keywords: Vec<(StdKey, TruncatedNEString)>,
 
+    /// Pseudostandard keys which appear more than once with their values.
+    pub(crate) non_unique_pstd_keywords: Vec<(PseudoStdKey, TruncatedNEString)>,
+
     /// Non-standard keys which appear more than once with their values.
     pub(crate) non_unique_nonstd_keywords: Vec<(NonStdKey, TruncatedNEString)>,
 
@@ -693,16 +844,10 @@ pub(crate) struct ParsedKeywordsDiagnostic {
 
 // Declare traits which map rust values to standardized keywords.
 
-/// An FCS key with a specific version;
-// TODO const_trait_impl will be able to clean this up once stable
-pub trait VersionedKey: Sized {
-    const VERS: VersionMembership;
-}
-
 /// A [`StdKey`] without an index
 ///
 /// The constant traits is validated to only contain ASCII characters.
-pub trait Key: VersionedKey {
+pub trait Key {
     const STD: RootKey;
 
     #[must_use]
@@ -718,7 +863,7 @@ pub trait Key: VersionedKey {
 /// A [`StdKey`] with one index
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait IndexedKey: VersionedKey {
+pub trait IndexedKey {
     const STD: PrefixSuffix;
 
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
@@ -726,9 +871,9 @@ pub trait IndexedKey: VersionedKey {
         match Self::STD {
             PrefixSuffix::CsvFlag => StdKey::CsvFlag(CsvFlag { index: j }),
             PrefixSuffix::Gate(s) => StdKey::Gate(GateKey::new(j.into(), s)),
-            PrefixSuffix::Meas(s) => StdKey::Meas(MeasKey::new(j.into(), s)),
+            PrefixSuffix::Meas(s) => StdKey::Meas(AnyMeasKey::Meas(MeasKey::new(j.into(), s))),
             PrefixSuffix::Region(s) => StdKey::Region(RegionKey::new(j.into(), s)),
-            PrefixSuffix::Peak(p) => StdKey::Peak(PeakKey::new(j.into(), p)),
+            PrefixSuffix::Peak(p) => StdKey::Meas(AnyMeasKey::Peak(PeakKey::new(j.into(), p))),
         }
     }
 
@@ -738,10 +883,14 @@ pub trait IndexedKey: VersionedKey {
 
     #[cfg(feature = "serde")]
     #[must_use]
-    fn std_blank() -> String {
-        unimplemented!()
-        // let (s0, s1) = Self::STD.as_str();
-        // format!("${s0}n{s1}")
+    fn std_blank() -> &'static NEStr {
+        match Self::STD {
+            PrefixSuffix::CsvFlag => CsvFlag::BLANK,
+            PrefixSuffix::Gate(s) => s.blank(),
+            PrefixSuffix::Meas(s) => s.blank(),
+            PrefixSuffix::Region(s) => s.blank(),
+            PrefixSuffix::Peak(s) => s.blank(),
+        }
     }
 
     // #[cfg(feature = "serde")]
@@ -773,7 +922,7 @@ pub trait IndexedKey: VersionedKey {
 /// A [`StdKey`] with two indices
 ///
 /// The constant traits are validated to only contain ASCII characters.
-pub trait BiIndexedKey: VersionedKey {
+pub trait BiIndexedKey {
     type Std: Into<StdKey>;
 
     fn std_inner(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self::Std;
@@ -892,12 +1041,11 @@ impl FromStr for NonStdKey {
 
 impl KeyMatcher<'_, ()> {
     fn is_match(&self, other: &KeyString) -> bool {
-        unimplemented!()
-        // self.literal.contains_key(other)
-        //     || self
-        //         .pattern
-        //         .iter()
-        //         .any(|p| p.0.as_ref().is_match(other.as_ref()))
+        self.literal.contains_key(other)
+            || self
+                .pattern
+                .iter()
+                .any(|p| p.0.as_ref().is_match(other.as_ref()))
     }
 }
 
@@ -962,22 +1110,17 @@ impl ParsedKeywords {
             BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
         }
 
-        enum ParsedKey {
-            Std(AnyStdKey),
-            NonStd(KeyString),
-        }
-
         let parse_key = |s: &NESlice<u8>| {
             let single_byte = matches!(encoding, Encoding::Single);
             if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first() {
                 // TODO we may wish to distinguish an error between non-ASCII
                 // and only a '$' keyword
                 let ne = NESlice::try_from_slice(rest)?;
-                let k = AnyStdKey::from_bytes_maybe(&ne)?;
-                Some(ParsedKey::Std(k))
+                let k = RealOrPseudoStdKey::from_bytes_maybe(&ne)?;
+                Some(AnyKey::Std(k))
             } else {
                 let k = KeyString::from_bytes_maybe(s, single_byte)?;
-                Some(ParsedKey::NonStd(k))
+                Some(AnyKey::NonStd(NonStdKey(k)))
             }
         };
 
@@ -1027,31 +1170,33 @@ impl ParsedKeywords {
 
         let kv_res = if let Some(parsed) = parse_key(key) {
             match parsed {
-                ParsedKey::Std(k) => {
-                    let ak = AnyKey::Std(k);
+                AnyKey::Std(k) => {
                     if let Some(trim_res) = parse_value() {
                         match trim_res {
-                            TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
+                            TrimResult::Empty(flag) => {
+                                KeyValueResult::Empty(AnyKey::Std(k).into(), flag)
+                            }
                             TrimResult::Trimmed(value, was_trimmed) => {
-                                KeyValueResult::NonEmpty(ak, value, was_trimmed)
+                                KeyValueResult::NonEmpty(k.into(), value, was_trimmed)
                             }
                         }
                     } else {
-                        KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
+                        KeyValueResult::NonUtf8Value(k.into(), TruncatedNEBytes::from(val))
                     }
                 }
-                ParsedKey::NonStd(kstr) => {
+                AnyKey::NonStd(k) => {
                     // Non-standard key: does not start with '$' and is ASCII
-                    let ak = AnyKey::NonStd(NonStdKey(kstr));
                     if let Some(trim_res) = parse_value() {
                         match trim_res {
-                            TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
+                            TrimResult::Empty(flag) => {
+                                KeyValueResult::Empty(AnyKey::NonStd(k).into(), flag)
+                            }
                             TrimResult::Trimmed(value, was_trimmed) => {
-                                KeyValueResult::NonEmpty(ak, value, was_trimmed)
+                                KeyValueResult::NonEmpty(k.into(), value, was_trimmed)
                             }
                         }
                     } else {
-                        KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
+                        KeyValueResult::NonUtf8Value(AnyKey::NonStd(k), TruncatedNEBytes::from(val))
                     }
                 }
             }
@@ -1082,8 +1227,18 @@ impl ParsedKeywords {
                 }
                 let vo = v.into_owned();
                 match k {
-                    AnyKey::Std(sk) => self.insert_nonunique_std(sk, vo, conf),
-                    AnyKey::NonStd(NonStdKey(kstr)) => self.insert_nonunique_nonstd(kstr, vo, conf),
+                    AnyKey::Std(k) => {
+                        match k {
+                            RealOrPseudoStdKey::Pseudo(p) => {
+                                self.insert_nonunique_pstd(p, vo, conf);
+                            }
+                            RealOrPseudoStdKey::Real(p) => {
+                                self.insert_nonunique_std(p, vo, conf);
+                            }
+                        }
+                        None
+                    }
+                    AnyKey::NonStd(k) => self.insert_nonunique_nonstd(k, vo, conf),
                 }
             }
             KeyValueResult::Empty(k, flag) => {
@@ -1112,46 +1267,44 @@ impl ParsedKeywords {
 
     fn insert_nonunique_std(
         &mut self,
-        k: AnyStdKey,
+        k: StdKey,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Option<(KeywordInsertError, bool)> {
-        // Self::insert_nonunique(
-        //     &mut self.std,
-        //     &mut self.diag.non_unique_std_keywords,
-        //     k,
-        //     value,
-        //     conf,
-        // )
+        Self::insert_nonunique(
+            &mut self.std,
+            &mut self.diag.non_unique_std_keywords,
+            k,
+            value,
+            conf,
+        )
+    }
 
-        let flag = conf.allow_nonunique;
-        match self.std.entry(k) {
-            Entry::Occupied(ent) => {
-                let key = ent.key().clone();
-                let err = KeyPresent {
-                    key: key.clone(),
-                    value: value.clone(),
-                };
-                nonunique.push((key, TruncatedNEString(value)));
-                flag.is_error().map(|is_err| (err.into(), is_err))
-            }
-            Entry::Vacant(ent) => {
-                ent.insert(value);
-                None
-            }
-        }
+    fn insert_nonunique_pstd(
+        &mut self,
+        k: PseudoStdKey,
+        value: NEString,
+        conf: &ReadHeaderAndTEXTConfig,
+    ) -> Option<(KeywordInsertError, bool)> {
+        Self::insert_nonunique(
+            &mut self.pstd,
+            &mut self.diag.non_unique_pstd_keywords,
+            k,
+            value,
+            conf,
+        )
     }
 
     fn insert_nonunique_nonstd(
         &mut self,
-        k: KeyString,
+        k: NonStdKey,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Option<(KeywordInsertError, bool)> {
         Self::insert_nonunique(
             &mut self.nonstd,
             &mut self.diag.non_unique_nonstd_keywords,
-            NonStdKey(k),
+            k,
             value,
             conf,
         )
@@ -1165,7 +1318,7 @@ impl ParsedKeywords {
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Option<(KeywordInsertError, bool)>
     where
-        K: Hash + Eq + Clone + AsRef<KeyString>,
+        K: Hash + Eq + Clone,
         KeywordInsertError: From<KeyPresent<K>>,
     {
         let flag = conf.allow_nonunique;
@@ -1282,13 +1435,20 @@ impl ParsedKeywordsDiagnostic {
 impl ValidKeywords {
     pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEString> {
         match k {
-            AnyKey::Std(kk) => self.get_std(kk),
-            AnyKey::NonStd(kk) => self.get_nonstd(kk),
+            AnyKey::Std(k0) => match k0 {
+                RealOrPseudoStdKey::Real(k1) => self.get_std(k1),
+                RealOrPseudoStdKey::Pseudo(k1) => self.get_pstd(k1),
+            },
+            AnyKey::NonStd(k0) => self.get_nonstd(k0),
         }
     }
 
     pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEString> {
         self.std.get(k)
+    }
+
+    pub(crate) fn get_pstd(&self, k: &PseudoStdKey) -> Option<&NEString> {
+        self.pseudostd.get(k)
     }
 
     pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
@@ -1307,137 +1467,139 @@ impl ValidKeywords {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
     {
-        unimplemented!()
-        // let matchers = AllKeyMatchers::from_config(conf);
-        // let mut ignored = vec![];
-        // let mut non_unique_std = vec![];
-        // let mut non_unique_nonstd = vec![];
-        // let mut removed = vec![];
-        // let mut replaced = vec![];
-        // let mut renamed = vec![];
-        // let mut subbed = vec![];
-        // let mut demoted = vec![];
-        // let mut promoted = vec![];
+        let matchers = AllKeyMatchers::from_config(conf);
+        let mut ignored = vec![];
+        let mut non_unique_std = vec![];
+        let mut non_unique_nonstd = vec![];
+        let mut removed = vec![];
+        let mut replaced = vec![];
+        let mut renamed = vec![];
+        let mut subbed = vec![];
+        let mut demoted = vec![];
+        let mut promoted = vec![];
 
-        // // Update standard keys
-        // self.std = mem::take(&mut self.std)
-        //     .into_iter()
-        //     .filter_map(|(k, v)| {
-        //         let ks = k.as_cow_keystring();
-        //         if matchers.ignore.is_match(k.as_cow_ne_str().as_ref()) {
-        //             // First remove keys that should be flat-out ignored
-        //             ignored.push((k, TruncatedNEString(v)));
-        //             None
-        //         } else if matchers.demote.is_match(k.as_ref()) {
-        //             // Next remove keys that should be demoted and put them
-        //             // in non-std.
-        //             let nsk = NonStdKey(k.0);
-        //             if self.nonstd.contains_key(&nsk) {
-        //                 non_unique_nonstd.push((nsk, TruncatedNEString(v)));
-        //             } else {
-        //                 demoted.push(StdKey(nsk.0.clone()));
-        //                 let _ = self.nonstd.insert(nsk, v);
-        //             }
-        //             None
-        //         } else if let Some(s) = matchers.subs.get(k.as_ref()) {
-        //             // Next try to sub the value of keys with matches; this
-        //             // might produce a blank key which will effectively remove
-        //             // it.
-        //             if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
-        //                 subbed.push((k.clone(), TruncatedNEString(v)));
-        //                 Some((k, vf))
-        //             } else {
-        //                 removed.push((k, TruncatedNEString(v)));
-        //                 None
-        //             }
-        //         } else {
-        //             Some((k, v))
-        //         }
-        //     })
-        //     .map(|(k, v)| {
-        //         // After removing everything we can, update values as needed.
-        //         let replace = &conf.replace_standard_key_values;
-        //         let kr: &KeyString = k.as_ref();
-        //         if let Some(vf) = replace.get(kr).cloned() {
-        //             replaced.push((k.clone(), TruncatedNEString(v)));
-        //             (k, vf)
-        //         } else {
-        //             (k, v)
-        //         }
-        //     })
-        //     .map(|(k, v)| {
-        //         // Finally, rename keys. Assume that this name mapping is
-        //         // validated such that we will never get a name collision.
-        //         let to_rename = conf.rename_standard_keys.as_ref();
-        //         let ks: &KeyString = k.as_ref();
-        //         if let Some(kf) = to_rename.get(ks).cloned().map(StdKey) {
-        //             renamed.push((k, kf.clone()));
-        //             (kf, v)
-        //         } else {
-        //             (k, v)
-        //         }
-        //     })
-        //     .collect();
+        // Update standard keys
+        self.std = mem::take(&mut self.std)
+            .into_iter()
+            .filter_map(|(k, v)| {
+                // TODO this seem inefficient; every std key needs to be
+                // converted to a string to make this work, which doesn't seem
+                // right
+                let ks = k.as_keystring();
+                if matchers.ignore.is_match(&ks) {
+                    // First remove keys that should be flat-out ignored
+                    ignored.push((k, TruncatedNEString(v)));
+                    None
+                } else if matchers.demote.is_match(&ks) {
+                    // Next remove keys that should be demoted and put them
+                    // in non-std.
+                    let nsk = NonStdKey(ks);
+                    if self.nonstd.contains_key(&nsk) {
+                        non_unique_nonstd.push((nsk, TruncatedNEString(v)));
+                    } else {
+                        demoted.push(k);
+                        let _ = self.nonstd.insert(nsk, v);
+                    }
+                    None
+                } else if let Some(s) = matchers.subs.get(&ks) {
+                    // Next try to sub the value of keys with matches; this
+                    // might produce a blank key which will effectively remove
+                    // it.
+                    if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
+                        subbed.push((k.clone(), TruncatedNEString(v)));
+                        Some((k, vf))
+                    } else {
+                        removed.push((k, TruncatedNEString(v)));
+                        None
+                    }
+                } else {
+                    Some((k, v))
+                }
+            })
+            .map(|(k, v)| {
+                // After removing everything we can, update values as needed.
+                let replace = &conf.replace_standard_key_values;
+                let ks = k.as_keystring();
+                if let Some(vf) = replace.get(&ks).cloned() {
+                    replaced.push((k.clone(), TruncatedNEString(v)));
+                    (k, vf)
+                } else {
+                    (k, v)
+                }
+            })
+            .map(|(k, v)| {
+                // Finally, rename keys. Assume that this name mapping is
+                // validated such that we will never get a name collision.
+                let to_rename = conf.rename_standard_keys.as_ref();
+                let ks = k.as_keystring();
+                if let Some(kf) = to_rename.get(&ks).cloned().map(StdKey) {
+                    renamed.push((k, kf.clone()));
+                    (kf, v)
+                } else {
+                    (k, v)
+                }
+            })
+            .collect();
 
-        // // Update non-standard keys
-        // let nonstd_removed = self
-        //     .nonstd
-        //     .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
+        // Update non-standard keys
+        let nonstd_removed = self
+            .nonstd
+            .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
 
-        // for (k, v) in nonstd_removed {
-        //     let sk = StdKey(k.0);
-        //     if self.std.contains_key(&sk) {
-        //         non_unique_std.push((sk, TruncatedNEString(v)));
-        //     } else {
-        //         promoted.push(NonStdKey(sk.0.clone()));
-        //         let _ = self.std.insert(sk, v);
-        //     }
-        // }
+        for (k, v) in nonstd_removed {
+            let sk = StdKey(k.0);
+            if self.std.contains_key(&sk) {
+                non_unique_std.push((sk, TruncatedNEString(v)));
+            } else {
+                promoted.push(NonStdKey(sk.0.clone()));
+                let _ = self.std.insert(sk, v);
+            }
+        }
 
-        // let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
-        //     match self.std.entry(StdKey(k.clone())) {
-        //         Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
-        //         Entry::Vacant(e) => {
-        //             e.insert(v.clone());
-        //             None
-        //         }
-        //     }
-        // });
-        // non_unique_std.extend(non_unique_appended);
-        // let res = match conf.allow_repair_non_unique.is_error() {
-        //     Some(is_err) => {
-        //         let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
-        //         let ns = non_unique_nonstd
-        //             .iter()
-        //             .cloned()
-        //             .map(|(k, _)| AnyKey::NonStd(k));
-        //         let xs = ss.chain(ns).collect();
-        //         if let Some(ne) = NEVec::try_from_vec(xs) {
-        //             let e = RepairCollisionError(ne);
-        //             if is_err {
-        //                 LogResult::new_err(e)
-        //             } else {
-        //                 LogResult::new_ok(()).set_commutative_warnings(Some(e))
-        //             }
-        //         } else {
-        //             LogResult::new_ok(())
-        //         }
-        //     }
-        //     None => LogResult::new_ok(()),
-        // };
+        let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
+            match self.std.entry(StdKey(k.clone())) {
+                Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
+                Entry::Vacant(e) => {
+                    e.insert(v.clone());
+                    None
+                }
+            }
+        });
+        non_unique_std.extend(non_unique_appended);
+        let res = match conf.allow_repair_non_unique.is_error() {
+            Some(is_err) => {
+                let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
+                let ns = non_unique_nonstd
+                    .iter()
+                    .cloned()
+                    .map(|(k, _)| AnyKey::NonStd(k));
+                let xs = ss.chain(ns).collect();
+                if let Some(ne) = NEVec::try_from_vec(xs) {
+                    let e = RepairCollisionError(ne);
+                    if is_err {
+                        LogResult::new_err(e)
+                    } else {
+                        LogResult::new_ok(()).set_commutative_warnings(Some(e))
+                    }
+                } else {
+                    LogResult::new_ok(())
+                }
+            }
+            None => LogResult::new_ok(()),
+        };
 
-        // let ret = RepairDiagnostics {
-        //     non_unique_std,
-        //     non_unique_nonstd,
-        //     demoted,
-        //     promoted,
-        //     subbed,
-        //     replaced,
-        //     renamed,
-        //     ignored,
-        //     removed,
-        // };
-        // res.set_ok_value(ret)
+        let ret = RepairDiagnostics {
+            non_unique_std,
+            non_unique_nonstd,
+            demoted,
+            promoted,
+            subbed,
+            replaced,
+            renamed,
+            ignored,
+            removed,
+        };
+        res.set_ok_value(ret)
     }
 
     pub(crate) fn remove_optical_only(

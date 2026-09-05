@@ -3,7 +3,9 @@ extern crate proc_macro;
 use fireflow_types::{
     args::underscore as ta,
     config::{self as tc, EnumStrIter as _},
-    keywords as tk, python as tp,
+    keywords as tk,
+    nonempty_string::NEStr,
+    python as tp, std_key as sk,
 };
 
 use const_format::formatcp;
@@ -866,17 +868,19 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let std = DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.std.clone().into()));
+    let pstd =
+        DocArg::new_pstd_keywords_param().into_ro(|_, _| quote!(self.0.pseudostd.clone().into()));
     let nonstd =
         DocArg::new_nonstd_keywords_param().into_ro(|_, _| quote!(self.0.nonstd.clone().into()));
 
-    let args = [std, nonstd];
+    let args = [std, pstd, nonstd];
 
     let doc = DocString::new_class("Standard and non-standard keywords.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(std, nonstd).into()
+                #path::new(std, pseudostd, nonstd).into()
             }
 
             // /// Dump this class as a dictionary.
@@ -2145,13 +2149,6 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.optional.clone()),
     );
 
-    let pseudostandard = DocArgROIvar::new_ivar_ro(
-        "pseudostandard",
-        PyAlias::new_std_keywords(),
-        format!("Keywords which start with {DOLLAR_STR} but are not part of the standard."),
-        |_, _| quote!(self.0.pseudostandard.clone()),
-    );
-
     let hyper_par = DocArgROIvar::new_ivar_ro(
         "hyper_par",
         PyAlias::new_std_keywords(),
@@ -2306,7 +2303,6 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let doc =
         DocString::new_class(format!("Diagnostic output from {TEXT} standardization.")).args([
             optional,
-            pseudostandard,
             hyper_par,
             hyper_gate,
             other_version,
@@ -4766,7 +4762,11 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
             #[allow(clippy::too_many_arguments)]
             #doc
             fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
-                let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
+                let kws = fireflow_core::validated::keys::ValidKeywords {
+                    std,
+                    pseudostd: hashbrown::HashMap::new(),
+                    nonstd
+                };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
                     #(#std_recs,)*
@@ -4865,7 +4865,11 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
             #[allow(clippy::too_many_arguments)]
             #doc
             fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
-                let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
+                let kws = fireflow_core::validated::keys::ValidKeywords {
+                    std,
+                    pseudostd: hashbrown::HashMap::new(),
+                    nonstd
+                };
                 #[allow(clippy::needless_update)]
                 let offset = #offset_conf {
                     #(#offset_recs,)*
@@ -8878,9 +8882,17 @@ impl<E: From<PyException>> PyAlias<E> {
     }
 
     fn new_std_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_core::validated::keys::StdKey);
+        let keypath: Path = parse_quote!(fireflow_types::std_key::StdKey);
         let valpath: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
         Self::new_py(["typing"], "StdKeywords")
+            .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
+            .set_default(PyDict::new_dummy())
+    }
+
+    fn new_pstd_keywords() -> Self {
+        let keypath: Path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
+        let valpath: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
+        Self::new_py(["typing"], "PseudoStdKeywords")
             .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
             .set_default(PyDict::new_dummy())
     }
@@ -8907,7 +8919,7 @@ impl<E: From<PyException>> PyAlias<E> {
     // }
 
     fn new_std_keyword() -> Self {
-        let path = parse_quote!(fireflow_core::validated::keys::StdKey);
+        let path = parse_quote!(fireflow_types::std_key::StdKey);
         Self::new_py(["typing"], "StdKey").rstype(path)
         // let d = format!(
         //     "if {ARG_TOKEN} is empty, does not start with {DOLLAR_STR}, \
@@ -9916,6 +9928,14 @@ impl DocArgParam {
         Self::new_param("std", PyAlias::new_std_keywords(), "Standard keywords.")
     }
 
+    fn new_pstd_keywords_param() -> Self {
+        Self::new_param(
+            "pseudostd",
+            PyAlias::new_pstd_keywords(),
+            "Standard keywords.",
+        )
+    }
+
     fn new_nonstd_keywords_param() -> Self {
         let desc = "Non-standard keywords.";
         Self::new_param("nonstd", PyAlias::new_nonstd_keywords(), desc)
@@ -10237,6 +10257,7 @@ impl DocArgParam {
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
+            Self::new_process_pseudostandard_param(),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
@@ -10262,7 +10283,6 @@ impl DocArgParam {
             Self::new_datetime_pattern_param(),
             Self::new_last_modified_pattern_param(),
             Self::new_allow_other_feature_param(),
-            Self::new_process_pseudostandard_param(),
             Self::new_process_hyper_par_param(),
             Self::new_process_other_version_param(),
             Self::new_process_extra_timestep_param(),
@@ -10469,7 +10489,7 @@ impl DocArgParam {
              explicitly forbidden in the the standard (such as {pnl}). \
              Provided keys are the string after the {pn} in the {pnx} \
              keywords.",
-            pnl = fcs_kw(tk::PNL),
+            pnl = fcs_kw(sk::PNL),
             noop = code("1.0"),
             pn = code_str("Pn"),
             pnx = code_str("PnX"),
@@ -10530,7 +10550,7 @@ impl DocArgParam {
              {CHRONO_REF}. If not supplied, these will be parsed according to \
              the default pattern which is {pat} possibly with centiseconds after.",
             pat = code_str(tc::DEFAULT_LAST_MODIFIED_FORMAT),
-            last_mod = fcs_kw(tk::LAST_MODIFIED),
+            last_mod = fcs_kw(sk::LAST_MODIFIED),
         );
         let pt = PyAlias::new_selector(PyOpt::new1(PyStr::default()));
         Self::new_param(ta::LAST_MODIFIED_PATTERN, pt, d).def_auto()
@@ -12052,7 +12072,7 @@ impl AnySegment {
 
 impl Kw {
     fn fun_name(self) -> String {
-        self.base_name().to_lowercase().replace('$', "")
+        self.base_name().as_str().to_lowercase().replace('$', "")
     }
 
     fn kw(self) -> String {
@@ -12100,41 +12120,41 @@ impl Kw {
         keyword_path(n)
     }
 
-    const fn base_name(self) -> &'static str {
+    const fn base_name(self) -> &'static NEStr {
         match self {
-            Self::Mode | Self::Mode3_2 => tk::MODE,
-            Self::Cyt | Self::Cyt3_2 => tk::CYT,
-            Self::Abrt => tk::ABRT,
-            Self::Com => tk::COM,
-            Self::Cells => tk::CELLS,
-            Self::Exp => tk::EXP,
-            Self::Fil => tk::FIL,
-            Self::Inst => tk::INST,
-            Self::Lost => tk::LOST,
-            Self::Op => tk::OP,
-            Self::Proj => tk::PROJ,
-            Self::Smno => tk::SMNO,
-            Self::Src => tk::SRC,
-            Self::Sys => tk::SYS,
-            Self::Cytsn => tk::CYTSN,
-            Self::Unicode => tk::UNICODE,
-            Self::CSVBits => tk::CSVBITS,
-            Self::CSTot => tk::CSTOT,
-            Self::LastModifier => tk::LAST_MODIFIER,
-            Self::LastModified => tk::LAST_MODIFIED,
-            Self::Originality => tk::ORIGINALITY,
-            Self::Plateid => tk::PLATEID,
-            Self::Platename => tk::PLATENAME,
-            Self::Wellid => tk::WELLID,
-            Self::Vol => tk::VOL,
-            Self::Flowrate => tk::FLOWRATE,
-            Self::Carrierid => tk::CARRIERID,
-            Self::Carriertype => tk::CARRIERTYPE,
-            Self::Locationid => tk::LOCATIONID,
-            Self::UnstainedInfo => tk::UNSTAINEDINFO,
-            Self::Spillover => tk::SPILLOVER,
-            Self::UnstainedCenters => tk::UNSTAINEDCENTERS,
-            Self::Tr => tk::TR,
+            Self::Mode | Self::Mode3_2 => sk::MODE,
+            Self::Cyt | Self::Cyt3_2 => sk::CYT,
+            Self::Abrt => sk::ABRT,
+            Self::Com => sk::COM,
+            Self::Cells => sk::CELLS,
+            Self::Exp => sk::EXP,
+            Self::Fil => sk::FIL,
+            Self::Inst => sk::INST,
+            Self::Lost => sk::LOST,
+            Self::Op => sk::OP,
+            Self::Proj => sk::PROJ,
+            Self::Smno => sk::SMNO,
+            Self::Src => sk::SRC,
+            Self::Sys => sk::SYS,
+            Self::Cytsn => sk::CYTSN,
+            Self::Unicode => sk::UNICODE,
+            Self::CSVBits => sk::CSVBITS,
+            Self::CSTot => sk::CSTOT,
+            Self::LastModifier => sk::LAST_MODIFIER,
+            Self::LastModified => sk::LAST_MODIFIED,
+            Self::Originality => sk::ORIGINALITY,
+            Self::Plateid => sk::PLATEID,
+            Self::Platename => sk::PLATENAME,
+            Self::Wellid => sk::WELLID,
+            Self::Vol => sk::VOL,
+            Self::Flowrate => sk::FLOWRATE,
+            Self::Carrierid => sk::CARRIERID,
+            Self::Carriertype => sk::CARRIERTYPE,
+            Self::Locationid => sk::LOCATIONID,
+            Self::UnstainedInfo => sk::UNSTAINEDINFO,
+            Self::Spillover => sk::SPILLOVER,
+            Self::UnstainedCenters => sk::UNSTAINEDCENTERS,
+            Self::Tr => sk::TR,
         }
     }
 
@@ -12252,22 +12272,22 @@ impl MeasKw {
     const fn kw(self) -> &'static str {
         match self {
             // Self::PnETemporal => PNE,
-            Self::PnS => fcs_kw!(tk::PNS),
-            Self::PnF => fcs_kw!(tk::PNF),
-            Self::PnL2_0 | Self::PnL3_1 => fcs_kw!(tk::PNL),
-            Self::PnO => fcs_kw!(tk::PNO),
-            Self::PnT => fcs_kw!(tk::PNT),
-            Self::PnP => fcs_kw!(tk::PNP),
-            Self::PnV => fcs_kw!(tk::PNV),
-            Self::PnCALIBRATION3_1 | Self::PnCALIBRATION3_2 => fcs_kw!(tk::PNCALIBRATION),
-            Self::PnD => fcs_kw!(tk::PND),
-            Self::PnDET => fcs_kw!(tk::PNDET),
-            Self::PnTAG => fcs_kw!(tk::PNTAG),
+            Self::PnS => fcs_kw!(sk::PNS.as_str()),
+            Self::PnF => fcs_kw!(sk::PNF.as_str()),
+            Self::PnL2_0 | Self::PnL3_1 => fcs_kw!(sk::PNL.as_str()),
+            Self::PnO => fcs_kw!(sk::PNO.as_str()),
+            Self::PnT => fcs_kw!(sk::PNT.as_str()),
+            Self::PnP => fcs_kw!(sk::PNP.as_str()),
+            Self::PnV => fcs_kw!(sk::PNV.as_str()),
+            Self::PnCALIBRATION3_1 | Self::PnCALIBRATION3_2 => fcs_kw!(sk::PNCALIBRATION.as_str()),
+            Self::PnD => fcs_kw!(sk::PND.as_str()),
+            Self::PnDET => fcs_kw!(sk::PNDET.as_str()),
+            Self::PnTAG => fcs_kw!(sk::PNTAG.as_str()),
             Self::PnTYPETemporal | Self::PnTYPEOptical => PNTYPE,
             Self::PnFEATURE => PNFEATURE,
-            Self::PnANALYTE => fcs_kw!(tk::PNANALYTE),
-            Self::PKn => fcs_kw!(tk::PKN),
-            Self::PKNn => fcs_kw!(tk::PKNN),
+            Self::PnANALYTE => fcs_kw!(sk::PNANALYTE.as_str()),
+            Self::PKn => fcs_kw!(sk::PKN.as_str()),
+            Self::PKNn => fcs_kw!(sk::PKNN.as_str()),
         }
     }
 
@@ -12395,28 +12415,28 @@ const PN_ANY: &str = fcs_kw!("$Pn\\*");
 const GM_ANY: &str = fcs_kw!("$Gm\\*");
 const RN_ANY: &str = fcs_kw!("$Rn\\*");
 
-const NEXTDATA: &str = fcs_kw!(tk::NEXTDATA);
-const DATATYPE: &str = fcs_kw!(tk::DATATYPE);
-const BYTEORD: &str = fcs_kw!(tk::BYTEORD);
-const TOT: &str = fcs_kw!(tk::TOT);
-const TIMESTEP: &str = fcs_kw!(tk::TIMESTEP);
-const DATE: &str = fcs_kw!(tk::DATE);
-const BTIM: &str = fcs_kw!(tk::BTIM);
-const ETIM: &str = fcs_kw!(tk::ETIM);
-const BEGINDATETIME: &str = fcs_kw!(tk::BEGINDATETIME);
-const ENDDATETIME: &str = fcs_kw!(tk::ENDDATETIME);
-const PAR: &str = fcs_kw!(tk::PAR);
-const GATE: &str = fcs_kw!(tk::GATE);
-const GATING: &str = fcs_kw!(tk::GATING);
-const PNR: &str = fcs_kw!(tk::PNR);
-const PNB: &str = fcs_kw!(tk::PNB);
-const PNN: &str = fcs_kw!(tk::PNN);
-const PNE: &str = fcs_kw!(tk::PNE);
-const GME: &str = fcs_kw!(tk::GME);
-const PNG: &str = fcs_kw!(tk::PNG);
-const PNDATATYPE: &str = fcs_kw!(tk::PNDATATYPE);
-const PNFEATURE: &str = fcs_kw!(tk::PNFEATURE);
-const PNTYPE: &str = fcs_kw!(tk::PNTYPE);
+const NEXTDATA: &str = fcs_kw!(sk::NEXTDATA.as_str());
+const DATATYPE: &str = fcs_kw!(sk::DATATYPE.as_str());
+const BYTEORD: &str = fcs_kw!(sk::BYTEORD.as_str());
+const TOT: &str = fcs_kw!(sk::TOT.as_str());
+const TIMESTEP: &str = fcs_kw!(sk::TIMESTEP.as_str());
+const DATE: &str = fcs_kw!(sk::DATE.as_str());
+const BTIM: &str = fcs_kw!(sk::BTIM.as_str());
+const ETIM: &str = fcs_kw!(sk::ETIM.as_str());
+const BEGINDATETIME: &str = fcs_kw!(sk::BEGINDATETIME.as_str());
+const ENDDATETIME: &str = fcs_kw!(sk::ENDDATETIME.as_str());
+const PAR: &str = fcs_kw!(sk::PAR.as_str());
+const GATE: &str = fcs_kw!(sk::GATE.as_str());
+const GATING: &str = fcs_kw!(sk::GATING.as_str());
+const PNR: &str = fcs_kw!(sk::PNR.as_str());
+const PNB: &str = fcs_kw!(sk::PNB.as_str());
+const PNN: &str = fcs_kw!(sk::PNN.as_str());
+const PNE: &str = fcs_kw!(sk::PNE.as_str());
+const GME: &str = fcs_kw!(sk::GME.as_str());
+const PNG: &str = fcs_kw!(sk::PNG.as_str());
+const PNDATATYPE: &str = fcs_kw!(sk::PNDATATYPE.as_str());
+const PNFEATURE: &str = fcs_kw!(sk::PNFEATURE.as_str());
+const PNTYPE: &str = fcs_kw!(sk::PNTYPE.as_str());
 
 // misc
 

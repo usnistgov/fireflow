@@ -18,6 +18,7 @@ use fireflow_types::{
     nonempty_string::{NEStr, NEString},
     other_width::OtherWidth,
     segment::OffsetsCorrection,
+    std_key as sk,
     sub_pattern::SubPattern,
     textdelim::TEXTDelim,
     timepattern::TimePattern,
@@ -78,25 +79,27 @@ fn run() -> AppResult<()> {
 
     let fmt_arg = |arg| arg_style.paint(format!("--{arg}"));
 
-    let par = kw_style.paint(tk::PAR);
-    let tot = kw_style.paint(tk::TOT);
-    let byteord = kw_style.paint(tk::BYTEORD);
-    let datatype = kw_style.paint(tk::DATATYPE);
-    let timestep = kw_style.paint(tk::TIMESTEP);
-    let date = kw_style.paint(tk::DATE);
-    let btim = kw_style.paint(tk::BTIM);
-    let etim = kw_style.paint(tk::ETIM);
-    let last_modified = kw_style.paint(tk::LAST_MODIFIED);
-    let begindatetime = kw_style.paint(tk::BEGINDATETIME);
-    let enddatetime = kw_style.paint(tk::ENDDATETIME);
-    let nextdata = kw_style.paint(tk::NEXTDATA);
-    let spillover = kw_style.paint(tk::SPILLOVER);
-    let pnfeature = kw_style.paint(tk::PNFEATURE);
-    let pn_b = kw_style.paint(tk::PNB);
-    let pn_r = kw_style.paint(tk::PNR);
-    let pn_n = kw_style.paint(tk::PNN);
-    let pn_e = kw_style.paint(tk::PNE);
-    let pndatatype = kw_style.paint(tk::PNDATATYPE);
+    let paint = |s: &'static NEStr| kw_style.paint(s.as_str());
+
+    let par = paint(sk::PAR);
+    let tot = paint(sk::TOT);
+    let byteord = paint(sk::BYTEORD);
+    let datatype = paint(sk::DATATYPE);
+    let timestep = paint(sk::TIMESTEP);
+    let date = paint(sk::DATE);
+    let btim = paint(sk::BTIM);
+    let etim = paint(sk::ETIM);
+    let last_modified = paint(sk::LAST_MODIFIED);
+    let begindatetime = paint(sk::BEGINDATETIME);
+    let enddatetime = paint(sk::ENDDATETIME);
+    let nextdata = paint(sk::NEXTDATA);
+    let spillover = paint(sk::SPILLOVER);
+    let pnfeature = paint(sk::PNFEATURE);
+    let pn_b = paint(sk::PNB);
+    let pn_r = paint(sk::PNR);
+    let pn_n = paint(sk::PNN);
+    let pn_e = paint(sk::PNE);
+    let pndatatype = paint(sk::PNDATATYPE);
 
     let pn_any = kw_style.paint("$PnX");
 
@@ -447,26 +450,11 @@ fn run() -> AppResult<()> {
             silent = fmt_val(tc::TRIM_BLANK_SILENT_LEVEL),
         ));
 
-    let make_key_str_args = |name, help| {
-        let more = format!(
-            "If first and last character are the same, they are treated as \
-             delimiters (<#> which can be used to \
-             separate multiple values. If a single value starts and ends with \
-             the same value, encapsulate this with two delimiters. \
-             Values that start and end with {delim} will be \
-             interpreted as a single regular expressions; in such cases {delim} \
-             is not interpreted as a delimiter. \
-             An empty string encodes an empty list of values.",
-            delim = fmt_val(PATTERN_DELIMITER)
-        );
-        let more_help = format!("{help} {more}");
-        Arg::new(name)
-            .long(name)
-            .action(ArgAction::Append)
-            .value_name("<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")
-            .help(more_help)
-            .value_parser(ValueParser::new(parse_key_string_pattern_list))
-    };
+    let process_pseudostandard = proc_kw_fail_arg(
+        ta::PROCESS_PSEUDOSTANDARD,
+        "Process non-standard keywords that start with a '$'.",
+    )
+    .value_parser(value_parser!(tc::ProcessPseudostandard));
 
     let all_read_flat_args = vec![
         version_override,
@@ -488,9 +476,31 @@ fn run() -> AppResult<()> {
         allow_supp_text_own_delim,
         allow_missing_nextdata,
         trim_value_whitespace,
+        process_pseudostandard,
     ];
 
     // std args
+
+    let make_key_str_args = |name, help| {
+        let more = format!(
+            "If first and last character are the same, they are treated as \
+             delimiters (<#> which can be used to \
+             separate multiple values. If a single value starts and ends with \
+             the same value, encapsulate this with two delimiters. \
+             Values that start and end with {delim} will be \
+             interpreted as a single regular expressions; in such cases {delim} \
+             is not interpreted as a delimiter. \
+             An empty string encodes an empty list of values.",
+            delim = fmt_val(PATTERN_DELIMITER)
+        );
+        let more_help = format!("{help} {more}");
+        Arg::new(name)
+            .long(name)
+            .action(ArgAction::Append)
+            .value_name("<#>KEY_OR_PAT[<#>KEY_OR_PAT..]<#>")
+            .help(more_help)
+            .value_parser(ValueParser::new(parse_key_string_pattern_list))
+    };
 
     let dedup_meas_names = override_flag_arg(
         ta::DEDUP_MEAS_NAMES,
@@ -589,12 +599,6 @@ fn run() -> AppResult<()> {
         format!("Allow {pnfeature} to be a value other than \"Area\", \"Width\", or \"Height\""),
     );
 
-    let process_pseudostandard = proc_kw_fail_arg(
-        ta::PROCESS_PSEUDOSTANDARD,
-        "Process non-standard keywords that start with a '$'.",
-    )
-    .value_parser(value_parser!(tc::ProcessPseudostandard));
-
     let process_hyper_par = proc_kw_fail_arg(
         ta::PROCESS_HYPER_PAR,
         format!("Process measurement keywords whose index is greater than {par}."),
@@ -683,7 +687,6 @@ fn run() -> AppResult<()> {
         datetime_pattern,
         last_modified_pattern,
         allow_other_feature,
-        process_pseudostandard,
         process_hyper_par,
         process_other_version,
         process_extra_timestep,
@@ -1537,6 +1540,9 @@ fn get_header_and_text_config(s: &ArgMatches) -> tc::ReadHeaderAndTEXTConfig {
     get_opt(s, ta::TRIM_VALUE_WHITESPACE, |x| {
         c.trim_value_whitespace = x;
     });
+    get_opt(s, ta::PROCESS_PSEUDOSTANDARD, |x| {
+        c.process_pseudostandard = x;
+    });
 
     c
 }
@@ -1580,9 +1586,6 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
         c.last_modified_pattern = Selector::Root(x);
     });
     get_flag(s, ta::ALLOW_OTHER_FEATURE, |x| c.allow_other_feature = x);
-    get_opt(s, ta::PROCESS_PSEUDOSTANDARD, |x| {
-        c.process_pseudostandard = x;
-    });
     get_opt(s, ta::PROCESS_HYPER_PAR, |x| c.process_hyper_par = x);
     get_opt(s, ta::PROCESS_OTHER_VERSION, |x| {
         c.process_other_version = x;

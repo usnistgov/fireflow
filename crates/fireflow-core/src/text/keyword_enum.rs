@@ -8,9 +8,8 @@ use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
-use crate::validated::keys::AsStdKey;
 use crate::validated::keys::{
-    AnyKey, DKey0, DKey1, DKey2, DollarKey, NonStdKey, StdKeywords, VersionedKey,
+    AsStdKey, DKey0, DKey1, DKey2, DollarKey, NonStdKey, SpecificKey, StdKeywords, WritableKey,
 };
 use crate::validated::shortname::Shortname;
 
@@ -579,7 +578,7 @@ pub(crate) trait HasMembership {
 #[cfg(feature = "serde")]
 #[delegatable_trait]
 pub(crate) trait AsHeader {
-    fn std_blank(&self) -> String;
+    fn std_blank(&self) -> &'static NEStr;
 }
 
 #[delegatable_trait]
@@ -595,7 +594,7 @@ pub(crate) trait AsStdKeywordPair: Sized {
 
 #[delegatable_trait]
 pub(crate) trait AsKeywordPair {
-    fn as_key_pair(&self) -> (AnyKey, NEString);
+    fn as_key_pair(&self) -> (WritableKey, NEString);
 
     fn as_str_pair(&self) -> (NEString, NEString) {
         let (k, v) = self.as_key_pair();
@@ -707,27 +706,30 @@ where
 }
 
 impl<T: AsStdKeywordPair> AsKeywordPair for T {
-    fn as_key_pair(&self) -> (AnyKey, NEString) {
+    fn as_key_pair(&self) -> (WritableKey, NEString) {
         let (k, v) = self.as_std_key_pair();
         (k.into(), v)
     }
 }
 
 impl AsKeywordPair for NonStdKeyword<'_> {
-    fn as_key_pair(&self) -> (AnyKey, NEString) {
+    fn as_key_pair(&self) -> (WritableKey, NEString) {
         (self.key.clone().into(), ToNE(&self.value).to_ne_string())
     }
 }
 
-impl<I, V: VersionedKey, X> HasMembership for SplitKeyword<DollarKey<V, I>, X> {
+impl<I, V, X> HasMembership for SplitKeyword<DollarKey<V, I>, X>
+where
+    SpecificKey<V, I>: Into<StdKey> + Copy,
+{
     fn membership(&self) -> VersionMembership {
-        V::VERS
+        self.key.0.into().membership()
     }
 }
 
 #[cfg(feature = "serde")]
 impl<I, V: IndexedKey, X> AsHeader for SplitKeyword<DollarKey<V, I>, X> {
-    fn std_blank(&self) -> String {
+    fn std_blank(&self) -> &'static NEStr {
         V::std_blank()
     }
 }

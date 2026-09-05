@@ -255,7 +255,6 @@ pub(crate) fn eval_std_conf(
         datetime_pattern: conf.datetime_pattern.eval(kws),
         last_modified_pattern: conf.last_modified_pattern.eval(kws),
         allow_other_feature: conf.allow_other_feature,
-        process_pseudostandard: conf.process_pseudostandard,
         process_hyper_par: conf.process_hyper_par,
         process_other_version: conf.process_other_version,
         process_extra_timestep: conf.process_extra_timestep,

@@ -10,7 +10,7 @@ use fireflow_types::{
     keystring_pairs::KeyStringPairs,
     ne_str,
     nonempty_string::{NEStr, NEString},
-    std_key::StdKey,
+    std_key::{RealOrPseudoStdKey, StdKey},
     timepattern::TimePattern,
 };
 use hashbrown::HashMap;
@@ -129,7 +129,9 @@ impl AppendableSelector<KeyPatterns> {
             once("/SPILL(?:OVER)?/".parse::<KeyStringOrPattern>().unwrap())
                 .map(|x| (x, ()))
                 .collect();
-        let kw_test = KeyTest::HasKey(AnyKey::Std(StdKey::Root(Spillover::STD)));
+        let kw_test = KeyTest::HasKey(AnyKey::Std(RealOrPseudoStdKey::Real(StdKey::Root(
+            Spillover::STD,
+        ))));
         let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pats));
         self.push(new);
@@ -148,7 +150,7 @@ impl AppendableSelector<KeyStringPairs> {
         let to = "SPILLOVER".parse::<KeyString>().unwrap();
         hm.insert(from, to);
         let pairs = KeyStringPairs::try_from(hm).unwrap();
-        let kw_test = KeyTest::HasKey(Spillover::std().into());
+        let kw_test = KeyTest::HasKey(RealOrPseudoStdKey::Real(Spillover::std()).into());
         let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pairs));
         self.push(new);
@@ -164,7 +166,10 @@ impl Selector<TimeMeasNamePattern> {
     #[must_use]
     pub fn new_time_meas_pattern() -> Self {
         let hdr_tm_regex = "^HDR-T(M)$".parse::<TimeMeasNamePattern>().unwrap();
-        let is_macsquant = KeyTest::KeyIs(Cyt::std().into(), ne_str!("MACSQuant").to_owned());
+        let is_macsquant = KeyTest::KeyIs(
+            RealOrPseudoStdKey::Real(Cyt::std()).into(),
+            ne_str!("MACSQuant").to_owned(),
+        );
         let cond = Condition::Root(is_macsquant);
         Self::if_then(cond, Self::root(hdr_tm_regex))
     }
@@ -362,11 +367,14 @@ impl Condition {
 impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
-        Self::KeyIs(Cyt::std().into(), cyt.to_owned())
+        Self::KeyIs(RealOrPseudoStdKey::Real(Cyt::std()).into(), cyt.to_owned())
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
-        Ok(Self::KeyMatches(Cyt::std().into(), pat.parse()?))
+        Ok(Self::KeyMatches(
+            RealOrPseudoStdKey::Real(Cyt::std()).into(),
+            pat.parse()?,
+        ))
     }
 
     fn eval(&self, kws: &ValidKeywords) -> bool {

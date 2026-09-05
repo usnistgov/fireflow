@@ -19,24 +19,6 @@ use serde::Serialize;
 #[cfg(feature = "testutil")]
 use proptest_derive::Arbitrary;
 
-// The string primitives for almost all keywords are compiled in a build script
-// as string constants and included here. This is done in order to put these
-// strings into a pre-compiled hash table which will be used for version
-// autodetection and sorting through unused keywords efficiently.
-//
-// This will also instantiate constants for all keywords and their components:
-// - root keyword base strings will be like <NAME>_KW
-// - root keywords (with $) will be named just like the base string
-// - meas suffixes will be like <NAME>_KW_SUFFIX
-// - meas keywords with $ and "n" will be like PN<SUFFIX>
-include!(concat!(env!("OUT_DIR"), "/kw_map.rs"));
-
-// other keywords not in build script
-pub const PKN: &str = "$PKn";
-pub const PKNN: &str = "$PKNn";
-pub const RNI: &str = "$RNI";
-pub const RNW: &str = "$RNW";
-
 impl_str_enum!(
     /// All FCS versions this library supports.
     ///
@@ -102,6 +84,7 @@ impl Version {
 /// and 3.2
 #[derive(Clone, Copy)]
 pub enum RootKeywordClass {
+    Generic,
     OptAny,
     OptGE3_1,
     OptGE3_2,
@@ -121,33 +104,6 @@ pub enum RootKeywordClass {
     Endstext,
 }
 
-impl RootKeywordClass {
-    #[must_use]
-    pub const fn membership(&self) -> VersionMembership {
-        match self {
-            Self::OptAny | Self::Mode | Self::Cyt | Self::Tot | Self::Byteord => {
-                VersionMembership::All
-            }
-            Self::OptGE3_1 => VersionMembership::Two([Version::FCS3_1, Version::FCS3_2]),
-            Self::OptGE3_2 => VersionMembership::One(Version::FCS3_2),
-            Self::OptEQ3_0or3_1 => VersionMembership::Two([Version::FCS3_0, Version::FCS3_1]),
-            Self::OptEQ3_0 => VersionMembership::One(Version::FCS3_0),
-            Self::OptLE3_1 => {
-                VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
-            }
-            Self::Timestep
-            | Self::Begindata
-            | Self::Enddata
-            | Self::Beginanalysis
-            | Self::Endanalysis
-            | Self::Beginstext
-            | Self::Endstext => {
-                VersionMembership::Three([Version::FCS3_0, Version::FCS3_1, Version::FCS3_2])
-            }
-        }
-    }
-}
-
 #[derive(Clone, Copy)]
 pub enum MeasKeywordClass {
     OptAny,
@@ -158,22 +114,6 @@ pub enum MeasKeywordClass {
     Scale,
     Shortname,
     Wavelength,
-}
-
-impl MeasKeywordClass {
-    #[must_use]
-    pub const fn membership(&self) -> VersionMembership {
-        match self {
-            Self::OptAny | Self::Scale | Self::Shortname | Self::Wavelength | Self::Width => {
-                VersionMembership::All
-            }
-            Self::OptGE3_0 => {
-                VersionMembership::Three([Version::FCS3_0, Version::FCS3_1, Version::FCS3_2])
-            }
-            Self::OptGE3_1 => VersionMembership::Two([Version::FCS3_1, Version::FCS3_2]),
-            Self::OptGE3_2 => VersionMembership::One(Version::FCS3_2),
-        }
-    }
 }
 
 #[derive(Clone, Copy)]

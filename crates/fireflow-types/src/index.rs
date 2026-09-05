@@ -72,18 +72,23 @@ impl IndexFromOne {
 }
 
 newtype_index!(
-    /// The 'n' in $Pn* keywords
+    /// The 'n' in *$Pn* keywords
     MeasIndex
 );
 
 newtype_index!(
-    /// The 'n' in $Gn* keywords
+    /// The 'n' in *$Gn* keywords
     GateIndex
 );
 
 newtype_index!(
-    /// The 'n' in $Rn* keywords
+    /// The 'n' in *$Rn* keywords
     RegionIndex
+);
+
+newtype_index!(
+    /// The 'n' in *$CSVnFLAG*
+    SubsetIndex
 );
 
 /// Error when index referring to position of elements is out of range.

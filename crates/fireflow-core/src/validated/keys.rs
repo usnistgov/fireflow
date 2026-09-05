@@ -12,7 +12,7 @@ use crate::text::keyword_enum::{
 use crate::text::keywords as kws;
 
 use fireflow_types::std_key::{
-    AnyMeasKey, CsvFlag, GateKey, GateKeySuffix, MeasKey, MeasKeySuffix, PeakKey, PeakKeyPrefix,
+    CsvFlag, GateKey, GateKeySuffix, MeasKey, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
     PseudoStdKey, RealOrPseudoStdKey, RegionKey, RegionKeySuffix, RootKey, STD_PREFIX,
 };
 use fireflow_types::{
@@ -478,8 +478,7 @@ impl From<TruncatedNEString> for TruncatedString {
 ///
 /// Used to implement the const term for [`IndexedKey`].
 pub enum PrefixSuffix {
-    Peak(PeakKeyPrefix),
-    Meas(MeasKeySuffix),
+    Meas(MeasKeyBase),
     Gate(GateKeySuffix),
     Region(RegionKeySuffix),
     CsvFlag,
@@ -869,11 +868,10 @@ pub trait IndexedKey {
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
         let j = i.into();
         match Self::STD {
-            PrefixSuffix::CsvFlag => StdKey::CsvFlag(CsvFlag { index: j }),
+            PrefixSuffix::CsvFlag => StdKey::CsvFlag(CsvFlag { index: j.into() }),
             PrefixSuffix::Gate(s) => StdKey::Gate(GateKey::new(j.into(), s)),
-            PrefixSuffix::Meas(s) => StdKey::Meas(AnyMeasKey::Meas(MeasKey::new(j.into(), s))),
+            PrefixSuffix::Meas(s) => StdKey::Meas(MeasKey::new(j.into(), s)),
             PrefixSuffix::Region(s) => StdKey::Region(RegionKey::new(j.into(), s)),
-            PrefixSuffix::Peak(p) => StdKey::Meas(AnyMeasKey::Peak(PeakKey::new(j.into(), p))),
         }
     }
 
@@ -889,7 +887,6 @@ pub trait IndexedKey {
             PrefixSuffix::Gate(s) => s.blank(),
             PrefixSuffix::Meas(s) => s.blank(),
             PrefixSuffix::Region(s) => s.blank(),
-            PrefixSuffix::Peak(s) => s.blank(),
         }
     }
 

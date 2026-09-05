@@ -1,6 +1,6 @@
 use crate::{
     config::OpticalOnlyKey,
-    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
+    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keystring::{CowKeyString, KeyString},
     keywords::{Version, VersionMembership},
     ne_str,
@@ -47,17 +47,11 @@ pub struct PseudoStdKey(pub KeyString);
 #[display("${}", self.as_displayable())]
 pub enum StdKey {
     Root(RootKey),
-    Meas(AnyMeasKey),
+    Meas(MeasKey),
     Gate(GateKey),
     Region(RegionKey),
     CsvFlag(CsvFlag),
     Dfc(DfcKey),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
-pub enum AnyMeasKey {
-    Meas(MeasKey),
-    Peak(PeakKey),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
@@ -140,16 +134,21 @@ pub struct DfcKey {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CsvFlag {
-    pub index: IndexFromOne,
+    pub index: SubsetIndex,
 }
 
-pub type MeasKey = IndexedKey<MeasIndex, MeasKeySuffix>;
-pub type PeakKey = IndexedKey<MeasIndex, PeakKeyPrefix>;
+pub type MeasKey = IndexedKey<MeasIndex, MeasKeyBase>;
 pub type GateKey = IndexedKey<GateIndex, GateKeySuffix>;
 pub type RegionKey = IndexedKey<RegionIndex, RegionKeySuffix>;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
+pub enum MeasKeyBase {
+    Param(ParamKeySuffix),
+    Peak(PeakKeyPrefix),
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub enum MeasKeySuffix {
+pub enum ParamKeySuffix {
     N,
     R,
     E,
@@ -280,7 +279,7 @@ impl StdKey {
 
     #[must_use]
     pub fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
-        Self::Meas(AnyMeasKey::Meas(MeasKey::from_optical_only_key(k, i)))
+        Self::Meas(MeasKey::from_optical_only_key(k, i))
     }
 
     #[must_use]
@@ -297,7 +296,7 @@ impl StdKey {
 }
 
 type NEStdKey = NEAlt<
-    NEAlt<ToNE<RootKey>, NEAlt<ToNE<AnyMeasKey>, ToNE<GateKey>>>,
+    NEAlt<ToNE<RootKey>, NEAlt<ToNE<MeasKey>, ToNE<GateKey>>>,
     NEAlt<ToNE<RegionKey>, NEAlt<ToNE<CsvFlag>, ToNE<DfcKey>>>,
 >;
 
@@ -323,27 +322,17 @@ impl<'a> ToDisplayNE<'a> for RootKey {
     }
 }
 
-impl<'a> ToDisplayNE<'a> for AnyMeasKey {
-    type NE = NEAlt<ToNE<MeasKey>, ToNE<PeakKey>>;
-    fn to_ne(&'a self) -> Self::NE {
-        match self {
-            Self::Meas(x) => NEAlt::Left(ToNE(*x)),
-            Self::Peak(x) => NEAlt::Right(ToNE(*x)),
-        }
-    }
-}
-
 impl<'a> ToDisplayNE<'a> for MeasKey {
-    type NE = NEConcat3<char, ToNE<MeasIndex>, &'static NEStr>;
+    type NE = NEAlt<
+        NEConcat3<char, ToNE<MeasIndex>, &'static NEStr>,
+        NEConcat<&'static NEStr, ToNE<MeasIndex>>,
+    >;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(NEConcat::new('P', ToNE(self.index)), self.id.into())
-    }
-}
-
-impl<'a> ToDisplayNE<'a> for PeakKey {
-    type NE = NEConcat<&'static NEStr, ToNE<MeasIndex>>;
-    fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(self.id.into(), ToNE(self.index))
+        let i = self.index;
+        match self.id {
+            MeasKeyBase::Param(x) => NEAlt::Left(NEConcat::new('P', ToNE(i)).append(x.into())),
+            MeasKeyBase::Peak(x) => NEAlt::Right(NEConcat::new(x.into(), ToNE(self.index))),
+        }
     }
 }
 
@@ -362,7 +351,7 @@ impl<'a> ToDisplayNE<'a> for RegionKey {
 }
 
 impl<'a> ToDisplayNE<'a> for CsvFlag {
-    type NE = NEConcat3<&'static NEStr, ToNE<IndexFromOne>, &'static NEStr>;
+    type NE = NEConcat3<&'static NEStr, ToNE<SubsetIndex>, &'static NEStr>;
     fn to_ne(&'a self) -> Self::NE {
         NEConcat::new(
             NEConcat::new(ne_str!("CSV"), ToNE(self.index)),
@@ -390,8 +379,8 @@ impl From<RootKey> for &'static NEStr {
     }
 }
 
-impl From<MeasKeySuffix> for &'static NEStr {
-    fn from(value: MeasKeySuffix) -> Self {
+impl From<ParamKeySuffix> for &'static NEStr {
+    fn from(value: ParamKeySuffix) -> Self {
         value.as_ne_str()
     }
 }
@@ -443,14 +432,14 @@ impl RealOrPseudoStdKey {
                         && rest.is_empty()
                     {
                         // $PKNn
-                        let k = PeakKey::new(i.into(), PeakKeyPrefix::Pkn);
-                        Self::Real(StdKey::Meas(AnyMeasKey::Peak(k)))
+                        let k = MeasKey::new(i.into(), PeakKeyPrefix::Pkn.into());
+                        Self::Real(StdKey::Meas(k))
                     } else if let Some((i, rest)) = split_index_and_suffix(bs1)
                         && rest.is_empty()
                     {
                         // $PKn
-                        let k = PeakKey::new(i.into(), PeakKeyPrefix::Pk);
-                        Self::Real(StdKey::Meas(AnyMeasKey::Peak(k)))
+                        let k = MeasKey::new(i.into(), PeakKeyPrefix::Pk.into());
+                        Self::Real(StdKey::Meas(k))
                     } else {
                         // something else
                         //
@@ -459,11 +448,11 @@ impl RealOrPseudoStdKey {
                     }
                 } else if let Some((i, rest)) = split_index_and_suffix(bs)
                     && let Some(mid) = NESlice::try_from_slice(rest)
-                        .and_then(|suffix| MeasKeySuffix::from_suffix(&suffix))
+                        .and_then(|suffix| ParamKeySuffix::from_suffix(&suffix))
                 {
                     // $Pn*
-                    let k = MeasKey::new(i.into(), mid);
-                    Self::Real(StdKey::Meas(AnyMeasKey::Meas(k)))
+                    let k = MeasKey::new(i.into(), mid.into());
+                    Self::Real(StdKey::Meas(k))
                 } else {
                     // something else
                     //
@@ -717,22 +706,32 @@ impl RootKey {
     }
 }
 
-impl AnyMeasKey {
+impl MeasKey {
     const fn membership(&self) -> VersionMembership {
-        match self {
-            Self::Meas(k) => k.id.membership(),
-            Self::Peak(k) => k.id.membership(),
+        match self.id {
+            MeasKeyBase::Param(k) => k.membership(),
+            MeasKeyBase::Peak(k) => k.membership(),
         }
     }
 }
 
 impl MeasKey {
     fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
-        Self::new(i, MeasKeySuffix::from_optical_only_key(k))
+        Self::new(i, ParamKeySuffix::from_optical_only_key(k).into())
     }
 }
 
-impl MeasKeySuffix {
+impl MeasKeyBase {
+    #[must_use]
+    pub const fn blank(self) -> &'static NEStr {
+        match self {
+            Self::Param(x) => x.blank(),
+            Self::Peak(x) => x.blank(),
+        }
+    }
+}
+
+impl ParamKeySuffix {
     const fn as_ne_str(self) -> &'static NEStr {
         match self {
             Self::N => N_KW_SUFFIX,

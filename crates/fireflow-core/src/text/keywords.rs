@@ -35,7 +35,8 @@ use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use fireflow_types::std_key::DfcKey;
+use fireflow_types::index::SubsetIndex;
+use fireflow_types::std_key::{DfcKey, MeasKeyBase};
 use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
@@ -44,18 +45,13 @@ use fireflow_types::{
         TrimIntraValueWhitespace,
     },
     index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
-    keywords::{
-        self as tk, MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass,
-        Version, VersionMembership,
-    },
+    keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
     nonempty_string::{
         DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr,
         NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
-    std_key::{
-        AnyMeasKey, GateKeySuffix, MeasKeySuffix, PeakKeyPrefix, RegionKeySuffix, RootKey, StdKey,
-    },
+    std_key::{GateKeySuffix, ParamKeySuffix, PeakKeyPrefix, RegionKeySuffix, RootKey, StdKey},
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 use fireflow_types::{impl_str_enum_kw, ne_str};
@@ -76,7 +72,6 @@ use nonempty_collections::{
 };
 use num_traits::{Bounded, One as _, ToPrimitive as _, Zero as _};
 use thiserror::Error;
-use unicase::Ascii;
 
 use std::collections::HashSet;
 use std::mem::take;
@@ -2926,7 +2921,7 @@ impl ExtraStdKeywords {
     /// get called if $PAR is not parsed properly. Will also not match
     /// $NEXTDATA, $BEGINSTEXT, or $ENDSTEXT since these should have already
     /// been processed when parsing TEXT itself.
-    fn classify_kws(
+    fn partition_extra_keywords(
         key: &StdKey,
         current_version: Version,
         par: Par,
@@ -2954,9 +2949,10 @@ impl ExtraStdKeywords {
                     Some(ExtraKeywordClass::Version(m.versions()))
                 }
             }
-            AnyKeywordClass::Meas(i, c) => if_hyperpar(i.into()),
-            AnyKeywordClass::Peak(i) => if_hyperpar(i.into()),
-            AnyKeywordClass::CSVFlag(i) => if_hyperpar(i.into()),
+            AnyKeywordClass::Meas(i, _) | AnyKeywordClass::Peak(i) => if_hyperpar(i.into()),
+            // TODO we could also flag these as outside of $CSTOT but hardly
+            // anyone uses these so probably not worth it
+            AnyKeywordClass::CSVFlag(_) => if_invalid_version(),
             AnyKeywordClass::Dfc(x, y) => {
                 if usize::from(x) >= par.0 || usize::from(y) >= par.0 {
                     Some(ExtraKeywordClass::HyperPar)
@@ -2987,7 +2983,7 @@ impl ExtraStdKeywords {
         let mut other_version_es = vec![];
         let mut timestep = None;
         for (k, v) in kws {
-            if let Some(m) = Self::classify_kws(&k, current_version, par, gate) {
+            if let Some(m) = Self::partition_extra_keywords(&k, current_version, par, gate) {
                 match m {
                     ExtraKeywordClass::HyperPar => {
                         hyper_par_es.push(HyperParError::new(par, k));
@@ -3137,8 +3133,11 @@ macro_rules! kw_meta {
 
 macro_rules! kw_meas {
     ($t:ident, $sfx:expr) => {
-        impl crate::validated::keys::IndexedKey for $t {
-            const STD: $crate::validated::keys::PrefixSuffix = PrefixSuffix::Meas($sfx);
+        impl $crate::validated::keys::IndexedKey for $t {
+            const STD: $crate::validated::keys::PrefixSuffix =
+                $crate::validated::keys::PrefixSuffix::Meas(
+                    fireflow_types::std_key::MeasKeyBase::Param($sfx),
+                );
         }
     };
 }
@@ -3380,24 +3379,24 @@ kw_req_meta!(ByteOrd2_0, RootKey::Byteord); // 2.0/3.0
 kw_req_meta!(ByteOrd3_1, RootKey::Byteord); // 3.1+
 
 // all versions
-kw_req_meas!(Width, MeasKeySuffix::B);
-kw_opt_meas_string!(Filter, MeasKeySuffix::F);
-kw_opt_meas!(Power, MeasKeySuffix::O, Option<Self>);
-kw_opt_meas!(PercentEmitted, MeasKeySuffix::P, Option<Self>);
-kw_req_meas!(TextRange, MeasKeySuffix::R);
-kw_opt_meas_string!(Longname, MeasKeySuffix::S);
-kw_opt_meas_string!(DetectorType, MeasKeySuffix::T);
-kw_opt_meas!(DetectorVoltage, MeasKeySuffix::V, Option<Self>);
+kw_req_meas!(Width, ParamKeySuffix::B);
+kw_opt_meas_string!(Filter, ParamKeySuffix::F);
+kw_opt_meas!(Power, ParamKeySuffix::O, Option<Self>);
+kw_opt_meas!(PercentEmitted, ParamKeySuffix::P, Option<Self>);
+kw_req_meas!(TextRange, ParamKeySuffix::R);
+kw_opt_meas_string!(Longname, ParamKeySuffix::S);
+kw_opt_meas_string!(DetectorType, ParamKeySuffix::T);
+kw_opt_meas!(DetectorVoltage, ParamKeySuffix::V, Option<Self>);
 
 // 3.0+
-kw_opt_meas!(Gain, MeasKeySuffix::G, Option<Self>);
+kw_opt_meas!(Gain, ParamKeySuffix::G, Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, MeasKeySuffix::D, Option<Self>);
+kw_opt_meas!(Display, ParamKeySuffix::D, Option<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, MeasKeySuffix::Feature, Option<Self>);
-meas_opt_zst!(TemporalType, MeasKeySuffix::Type, TemporalTypeInner);
+kw_opt_meas!(Feature, ParamKeySuffix::Feature, Option<Self>);
+meas_opt_zst!(TemporalType, ParamKeySuffix::Type, TemporalTypeInner);
 
 impl FromStr for TemporalType {
     type Err = TemporalTypeError;
@@ -3409,21 +3408,21 @@ impl FromStr for TemporalType {
     }
 }
 
-kw_opt_meas!(NumType, MeasKeySuffix::Datatype, Option<Self>);
-kw_opt_meas_string!(Analyte, MeasKeySuffix::Analyte);
-kw_opt_meas_string!(Tag, MeasKeySuffix::Tag);
-kw_opt_meas_string!(DetectorName, MeasKeySuffix::Det);
+kw_opt_meas!(NumType, ParamKeySuffix::Datatype, Option<Self>);
+kw_opt_meas_string!(Analyte, ParamKeySuffix::Analyte);
+kw_opt_meas_string!(Tag, ParamKeySuffix::Tag);
+kw_opt_meas_string!(DetectorName, ParamKeySuffix::Det);
 
-kw_opt_meas!(OpticalType, MeasKeySuffix::T, Self);
+kw_opt_meas!(OpticalType, ParamKeySuffix::T, Self);
 
 // version specific
-kw_opt_meas!(Shortname, MeasKeySuffix::N, Option<Self>); // optional for 2.0/3.0
+kw_opt_meas!(Shortname, ParamKeySuffix::N, Option<Self>); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, MeasKeySuffix::S, Option<Self>); // optional for 2.0
+kw_opt_meas!(Scale, ParamKeySuffix::S, Option<Self>); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
-meas_opt_zst!(TemporalScale2_0, MeasKeySuffix::S, TemporalScaleInner); // optional for 2.0
+meas_opt_zst!(TemporalScale2_0, ParamKeySuffix::S, TemporalScaleInner); // optional for 2.0
 
 impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
@@ -3453,19 +3452,19 @@ impl FromStrWith for TemporalScale2_0 {
 }
 
 // required for 3.0+
-kw_req_meas!(TemporalScale3_0, MeasKeySuffix::S);
+kw_req_meas!(TemporalScale3_0, ParamKeySuffix::S);
 
 // scaler in 2.0/3.0
-kw_opt_meas!(Wavelength, MeasKeySuffix::L, Option<Self>);
+kw_opt_meas!(Wavelength, ParamKeySuffix::L, Option<Self>);
 
 // vector in 3.1+
-kw_opt_meas!(Wavelengths, MeasKeySuffix::L, Self);
+kw_opt_meas!(Wavelengths, ParamKeySuffix::L, Self);
 
 // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_1, MeasKeySuffix::Calibration, Option<Self>);
+kw_opt_meas!(Calibration3_1, ParamKeySuffix::Calibration, Option<Self>);
 
 // 3.2+ includes offset
-kw_opt_meas!(Calibration3_2, MeasKeySuffix::Calibration, Option<Self>);
+kw_opt_meas!(Calibration3_2, ParamKeySuffix::Calibration, Option<Self>);
 
 // 2.0 compensation matrix
 #[derive(Clone, Copy, Debug, FromStr, Default, Into, Delegate, PartialEq)]
@@ -3528,7 +3527,7 @@ newtype_int!(PeakBin, u32);
 opt_meas!(PeakBin, Option<Self>);
 
 impl IndexedKey for PeakBin {
-    const STD: PrefixSuffix = PrefixSuffix::Peak(PeakKeyPrefix::Pk);
+    const STD: PrefixSuffix = PrefixSuffix::Meas(MeasKeyBase::Peak(PeakKeyPrefix::Pk));
 }
 
 // $PKNn (2.0-3.1)
@@ -3536,7 +3535,7 @@ newtype_int!(PeakIndex, MeasIndex);
 opt_meas!(PeakIndex, Option<Self>);
 
 impl IndexedKey for PeakIndex {
-    const STD: PrefixSuffix = PrefixSuffix::Peak(PeakKeyPrefix::Pkn);
+    const STD: PrefixSuffix = PrefixSuffix::Meas(MeasKeyBase::Peak(PeakKeyPrefix::Pkn));
 }
 
 // 2.0-3.1 gating parameters
@@ -4077,8 +4076,7 @@ enum ModeValue {
 enum AnyKeywordClass {
     Root(RootKeywordClass),
     Meas(MeasIndex, MeasKeywordClass),
-    // TODO why measindex?
-    CSVFlag(MeasIndex),
+    CSVFlag(SubsetIndex),
     Peak(MeasIndex),
     Dfc(MeasIndex, MeasIndex),
     GateOptLE3_1(GateIndex),
@@ -4126,46 +4124,41 @@ impl AnyKeywordClass {
                     RootKey::Comp | RootKey::Unicode => RootKeywordClass::OptEQ3_0,
                     _ => RootKeywordClass::Generic,
                 };
-                AnyKeywordClass::Root(c)
+                Self::Root(c)
             }
-            StdKey::Meas(k) => match k {
-                AnyMeasKey::Meas(mk) => {
-                    let c = match mk.id {
-                        MeasKeySuffix::E => MeasKeywordClass::Scale,
-                        MeasKeySuffix::N => MeasKeywordClass::Shortname,
-                        MeasKeySuffix::B => MeasKeywordClass::Width,
-                        MeasKeySuffix::L => MeasKeywordClass::Wavelength,
-                        MeasKeySuffix::G => MeasKeywordClass::OptGE3_0,
-                        MeasKeySuffix::D | MeasKeySuffix::Calibration => MeasKeywordClass::OptGE3_1,
-                        MeasKeySuffix::Feature
-                        | MeasKeySuffix::Type
-                        | MeasKeySuffix::Datatype
-                        | MeasKeySuffix::Analyte
-                        | MeasKeySuffix::Tag
-                        | MeasKeySuffix::Det => MeasKeywordClass::OptGE3_2,
+            StdKey::Meas(k) => match k.id {
+                MeasKeyBase::Param(mk) => {
+                    let c = match mk {
+                        ParamKeySuffix::E => MeasKeywordClass::Scale,
+                        ParamKeySuffix::N => MeasKeywordClass::Shortname,
+                        ParamKeySuffix::B => MeasKeywordClass::Width,
+                        ParamKeySuffix::L => MeasKeywordClass::Wavelength,
+                        ParamKeySuffix::G => MeasKeywordClass::OptGE3_0,
+                        ParamKeySuffix::D | ParamKeySuffix::Calibration => {
+                            MeasKeywordClass::OptGE3_1
+                        }
+                        ParamKeySuffix::Feature
+                        | ParamKeySuffix::Type
+                        | ParamKeySuffix::Datatype
+                        | ParamKeySuffix::Analyte
+                        | ParamKeySuffix::Tag
+                        | ParamKeySuffix::Det => MeasKeywordClass::OptGE3_2,
                         _ => MeasKeywordClass::OptAny,
                     };
-                    AnyKeywordClass::Meas(mk.index, c)
+                    Self::Meas(k.index, c)
                 }
-                AnyMeasKey::Peak(pk) => AnyKeywordClass::Peak(pk.index),
+                MeasKeyBase::Peak(_) => Self::Peak(k.index),
             },
-            StdKey::Gate(k) => AnyKeywordClass::GateOptLE3_1(k.index),
+            StdKey::Gate(k) => Self::GateOptLE3_1(k.index),
             StdKey::Region(k) => match k.id {
                 RegionKeySuffix::I => Self::RegionIndex,
                 RegionKeySuffix::W => Self::RegionWindow,
             },
             StdKey::Dfc(k) => Self::Dfc(k.index0, k.index1),
-            StdKey::CsvFlag(k) => Self::CSVFlag(k.index.into()),
+            StdKey::CsvFlag(k) => Self::CSVFlag(k.index),
         }
     }
 }
-
-pub(crate) const MEAS_KW_PREFIX: &NEStr = ne_str!("P");
-pub(crate) const GATE_KW_PREFIX: &NEStr = ne_str!("G");
-pub(crate) const REGION_KW_PREFIX: &NEStr = ne_str!("R");
-
-pub(crate) const REGION_INDEX_KW_SUFFIX: &NEStr = ne_str!("I");
-pub(crate) const REGION_WINDOW_KW_SUFFIX: &NEStr = ne_str!("W");
 
 const TIME: &NEStr = ne_str!("Time");
 const DATETIME_FMT: &str = "%d-%b-%Y %H:%M:%S";

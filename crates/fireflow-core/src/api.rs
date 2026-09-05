@@ -1005,13 +1005,6 @@ pub enum ParseKeywordsIssue {
     Leading(LeadingDelimError),
 }
 
-/// Error denoting that pseudostandard keyword was found.
-#[derive(Debug, Error, PartialEq, Clone)]
-#[error("pseudostandard keyword found: {0}")]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
-pub struct PseudostandardError(pub StdKey);
-
 /// Error when TEXT delimiter is not ASCII
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error("delimiter must be ASCII character 1-126 inclusive, got {0}")]
@@ -1881,8 +1874,7 @@ impl FlatTEXTOutput {
                         .nowarn_into_warn()
                         .map_errors(ParseFlatTEXTError::from);
 
-                    // TODO process pseudostandard here
-                    let vkws = ValidKeywords::new(kws.std, kws.pstd, kws.nonstd);
+                    let vkws = ValidKeywords::new(kws.std, kws.nonstd);
 
                     let text_read_end = Instant::now();
 

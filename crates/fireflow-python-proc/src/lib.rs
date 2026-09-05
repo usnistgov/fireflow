@@ -868,19 +868,17 @@ pub fn impl_py_valid_keywords(input: TokenStream) -> TokenStream {
     let name = path.segments.last().unwrap().ident.clone();
 
     let std = DocArg::new_std_keywords_param().into_ro(|_, _| quote!(self.0.std.clone().into()));
-    let pstd =
-        DocArg::new_pstd_keywords_param().into_ro(|_, _| quote!(self.0.pseudostd.clone().into()));
     let nonstd =
         DocArg::new_nonstd_keywords_param().into_ro(|_, _| quote!(self.0.nonstd.clone().into()));
 
-    let args = [std, pstd, nonstd];
+    let args = [std, nonstd];
 
     let doc = DocString::new_class("Standard and non-standard keywords.").args(args);
 
     let new = |fun_args| {
         quote! {
             fn new(#fun_args) -> Self {
-                #path::new(std, pseudostd, nonstd).into()
+                #path::new(std, nonstd).into()
             }
 
             // /// Dump this class as a dictionary.
@@ -2149,6 +2147,13 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
         |_, _| quote!(self.0.optional.clone()),
     );
 
+    let pseudostandard = DocArgROIvar::new_ivar_ro(
+        "pseudostandard",
+        PyAlias::new_std_keywords(),
+        format!("Keywords which start with {DOLLAR_STR} but are not part of the standard."),
+        |_, _| quote!(self.0.pseudostandard.clone()),
+    );
+
     let hyper_par = DocArgROIvar::new_ivar_ro(
         "hyper_par",
         PyAlias::new_std_keywords(),
@@ -2303,6 +2308,7 @@ pub fn impl_py_std_diagnostics(input: TokenStream) -> TokenStream {
     let doc =
         DocString::new_class(format!("Diagnostic output from {TEXT} standardization.")).args([
             optional,
+            pseudostandard,
             hyper_par,
             hyper_gate,
             other_version,
@@ -4762,11 +4768,7 @@ pub fn impl_coretext_from_kws(input: TokenStream) -> TokenStream {
             #[allow(clippy::too_many_arguments)]
             #doc
             fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
-                let kws = fireflow_core::validated::keys::ValidKeywords {
-                    std,
-                    pseudostd: hashbrown::HashMap::new(),
-                    nonstd
-                };
+                let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let standard = #std_conf {
                     #(#std_recs,)*
@@ -4865,11 +4867,7 @@ pub fn impl_coredataset_from_kws(input: TokenStream) -> TokenStream {
             #[allow(clippy::too_many_arguments)]
             #doc
             fn from_kws(_: &Bound<'_, pyo3::types::PyType>, #fun_args) -> #ret_path {
-                let kws = fireflow_core::validated::keys::ValidKeywords {
-                    std,
-                    pseudostd: hashbrown::HashMap::new(),
-                    nonstd
-                };
+                let kws = fireflow_core::validated::keys::ValidKeywords { std, nonstd };
                 #[allow(clippy::needless_update)]
                 let offset = #offset_conf {
                     #(#offset_recs,)*
@@ -8889,14 +8887,6 @@ impl<E: From<PyException>> PyAlias<E> {
             .set_default(PyDict::new_dummy())
     }
 
-    fn new_pstd_keywords() -> Self {
-        let keypath: Path = parse_quote!(fireflow_types::std_key::PseudoStdKey);
-        let valpath: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
-        Self::new_py(["typing"], "PseudoStdKeywords")
-            .rstype(parse_quote!(hashbrown::HashMap::<#keypath, #valpath>))
-            .set_default(PyDict::new_dummy())
-    }
-
     fn new_nonstd_keywords() -> Self {
         let keypath: Path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
         let valpath: Path = parse_quote!(fireflow_types::nonempty_string::NEString);
@@ -8906,27 +8896,9 @@ impl<E: From<PyException>> PyAlias<E> {
             .set_default(PyDict::new_dummy())
     }
 
-    // fn new_std_truncated() -> Self {
-    //     let keypath: Path = parse_quote!(fireflow_core::validated::keys::StdKey);
-    //     let valpath: Path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
-    //     Self::new_py(["typing"], "StdKeywords").rstype(parse_quote!(Vec::<(#keypath, #valpath)>))
-    // }
-
-    // fn new_nonstd_truncated() -> Self {
-    //     let keypath: Path = parse_quote!(fireflow_core::validated::keys::NonStdKey);
-    //     let valpath: Path = parse_quote!(fireflow_core::validated::keys::TruncatedNEString);
-    //     Self::new_py(["typing"], "NonStdKeywords").rstype(parse_quote!(Vec::<(#keypath, #valpath)>))
-    // }
-
     fn new_std_keyword() -> Self {
         let path = parse_quote!(fireflow_types::std_key::StdKey);
         Self::new_py(["typing"], "StdKey").rstype(path)
-        // let d = format!(
-        //     "if {ARG_TOKEN} is empty, does not start with {DOLLAR_STR}, \
-        //      or is only a {DOLLAR_STR}"
-        // );
-        // let e = PyException::new_pyreflow(PyreflowError::ParseKey).desc(d);
-        // Self::default().rstype(path).exc(e)
     }
 
     fn new_nonstd_keyword() -> Self {
@@ -9928,14 +9900,6 @@ impl DocArgParam {
         Self::new_param("std", PyAlias::new_std_keywords(), "Standard keywords.")
     }
 
-    fn new_pstd_keywords_param() -> Self {
-        Self::new_param(
-            "pseudostd",
-            PyAlias::new_pstd_keywords(),
-            "Standard keywords.",
-        )
-    }
-
     fn new_nonstd_keywords_param() -> Self {
         let desc = "Non-standard keywords.";
         Self::new_param("nonstd", PyAlias::new_nonstd_keywords(), desc)
@@ -10257,7 +10221,6 @@ impl DocArgParam {
             Self::new_allow_supp_text_own_delim(),
             Self::new_allow_missing_nextdata(),
             Self::new_trim_value_whitespace(),
-            Self::new_process_pseudostandard_param(),
         ];
         let js = ps.iter().map(IsDocArg::record_into).collect();
         (conf, ps, js)
@@ -10283,6 +10246,7 @@ impl DocArgParam {
             Self::new_datetime_pattern_param(),
             Self::new_last_modified_pattern_param(),
             Self::new_allow_other_feature_param(),
+            Self::new_process_pseudostandard_param(),
             Self::new_process_hyper_par_param(),
             Self::new_process_other_version_param(),
             Self::new_process_extra_timestep_param(),

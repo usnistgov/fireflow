@@ -1540,9 +1540,6 @@ fn get_header_and_text_config(s: &ArgMatches) -> tc::ReadHeaderAndTEXTConfig {
     get_opt(s, ta::TRIM_VALUE_WHITESPACE, |x| {
         c.trim_value_whitespace = x;
     });
-    get_opt(s, ta::PROCESS_PSEUDOSTANDARD, |x| {
-        c.process_pseudostandard = x;
-    });
 
     c
 }
@@ -1586,6 +1583,9 @@ fn get_std_kws_config(s: &ArgMatches) -> cfg::ReadStdKeywordsConfig {
         c.last_modified_pattern = Selector::Root(x);
     });
     get_flag(s, ta::ALLOW_OTHER_FEATURE, |x| c.allow_other_feature = x);
+    get_opt(s, ta::PROCESS_PSEUDOSTANDARD, |x| {
+        c.process_pseudostandard = x;
+    });
     get_opt(s, ta::PROCESS_HYPER_PAR, |x| c.process_hyper_par = x);
     get_opt(s, ta::PROCESS_OTHER_VERSION, |x| {
         c.process_other_version = x;

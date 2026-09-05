@@ -2897,6 +2897,7 @@ impl_from_str_with_delim!(UnstainedCenters, ParseUnstainedCenterError);
 #[derive(Clone, new, PartialEq)]
 #[cfg_attr(feature = "python", derive(IntoPyObject))]
 pub struct ExtraStdKeywords {
+    pub pseudostandard: StdKeywords,
     pub hyper_par: StdKeywords,
     pub hyper_gate: StdKeywords,
     pub other_version: StdKeywords,
@@ -2912,6 +2913,7 @@ pub(crate) enum ExtraKeywordClass {
 
 #[derive(new)]
 pub(crate) struct ExtraKeywordOutput {
+    pub(crate) pseudo: Vec<PseudostandardError>,
     pub(crate) hyper_par: Vec<HyperParError>,
     pub(crate) hyper_gate: Vec<HyperGateError>,
     pub(crate) other_version: Vec<KeywordOtherVersionError>,
@@ -2975,9 +2977,11 @@ impl ExtraStdKeywords {
         par: Par,
         gate: Gate,
     ) -> (Self, ExtraKeywordOutput) {
+        let mut pseudo = HashMap::new();
         let mut hyper_par = HashMap::new();
         let mut hyper_gate = HashMap::new();
         let mut other_version = HashMap::new();
+        let mut pseudo_es = vec![];
         let mut hyper_par_es = vec![];
         let mut hyper_gate_es = vec![];
         let mut other_version_es = vec![];
@@ -2986,29 +2990,43 @@ impl ExtraStdKeywords {
             if let Some(m) = Self::classify_kws(&k, current_version, par, gate) {
                 match m {
                     ExtraKeywordClass::HyperPar => {
-                        hyper_par_es.push(HyperParError::new(par, k.clone()));
+                        hyper_par_es.push(HyperParError::new(par, k));
                         hyper_par.insert(k, v);
                     }
                     ExtraKeywordClass::HyperGate => {
-                        hyper_gate_es.push(HyperGateError::new(gate, k.clone()));
+                        hyper_gate_es.push(HyperGateError::new(gate, k));
                         hyper_gate.insert(k, v);
                     }
                     ExtraKeywordClass::Version(vs) => {
-                        let e = KeywordOtherVersionError::new(k.clone(), current_version, vs);
+                        let e = KeywordOtherVersionError::new(k, current_version, vs);
                         other_version_es.push(e);
                         other_version.insert(k, v);
                     }
+                    // TODO pstd is already separated so need to pull from the
+                    // struct here when applicable
+                    //
+                    // ExtraKeywordClass::Pseudostandard => {
+                    //     pseudo_es.push(PseudostandardError(k.clone()));
+                    //     pseudo.insert(k, v);
+                    // }
                     ExtraKeywordClass::UnusedTimestep => {
                         timestep = Some(v);
                     }
                 }
             }
         }
-        let ret = Self::new(hyper_par, hyper_gate, other_version, timestep);
-        let out = ExtraKeywordOutput::new(hyper_par_es, hyper_gate_es, other_version_es);
+        let ret = Self::new(pseudo, hyper_par, hyper_gate, other_version, timestep);
+        let out = ExtraKeywordOutput::new(pseudo_es, hyper_par_es, hyper_gate_es, other_version_es);
         (ret, out)
     }
 }
+
+/// Error denoting that pseudostandard keyword was found.
+#[derive(Debug, Error, PartialEq, Clone)]
+#[error("pseudostandard keyword found: {0}")]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ExtraKeywordError))]
+pub struct PseudostandardError(pub StdKey);
 
 /// Error denoting that measurement keyword within standard but above $PAR was found
 #[derive(Debug, Error, new, PartialEq, Clone)]
@@ -3506,10 +3524,6 @@ impl IndexedKey for CSVFlag {
     const STD: PrefixSuffix = PrefixSuffix::CsvFlag;
 }
 
-// $PKn (2.0-3.1)
-const PKN_VERS: VersionMembership =
-    VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1]);
-
 newtype_int!(PeakBin, u32);
 opt_meas!(PeakBin, Option<Self>);
 
@@ -3577,7 +3591,7 @@ opt_meta!(Nextdata, Option<Self>);
 // TODO this won't allow pseudoempty TEXT offsets like 0,-1 which might happen
 // in real files and there is a config to fix if encountered
 macro_rules! kw_offset {
-    ($(#[$attr:meta])* $t:ident, $key:expr, $m:expr) => {
+    ($(#[$attr:meta])* $t:ident, $key:expr) => {
         $(#[$attr])*
         #[derive(From, Into, FromStr, Debug, Clone, Copy, Delegate, PartialEq)]
         #[delegate(ToDisplayNE<'a>, generics = "'a")]
@@ -3591,38 +3605,32 @@ macro_rules! kw_offset {
 kw_offset!(
     /// Value for $BEGINANALYSIS key (3.0-3.2)
     Beginanalysis,
-    RootKey::Beginanalysis,
-    tk::BEGINANALYSIS_VERS
+    RootKey::Beginanalysis
 );
 kw_offset!(
     /// Value for $BEGINDATA key (3.0-3.2)
     Begindata,
-    RootKey::Begindata,
-    tk::BEGINDATA_VERS
+    RootKey::Begindata
 );
 kw_offset!(
     /// Value for $BEGINSTEXT key (3.0-3.2)
     Beginstext,
-    RootKey::Beginstext,
-    tk::BEGINSTEXT_VERS
+    RootKey::Beginstext
 );
 kw_offset!(
     /// Value for $ENDANALYSIS key (3.0-3.2)
     Endanalysis,
-    RootKey::Endanalysis,
-    tk::ENDANALYSIS_VERS
+    RootKey::Endanalysis
 );
 kw_offset!(
     /// Value for $ENDDATA key (3.0-3.2)
     Enddata,
-    RootKey::Enddata,
-    tk::ENDDATA_VERS
+    RootKey::Enddata
 );
 kw_offset!(
     /// Value for $ENDSTEXT (3.0-3.2)
     Endstext,
-    RootKey::Endstext,
-    tk::ENDSTEXT_VERS
+    RootKey::Endstext
 );
 
 opt_meta!(Beginanalysis, Option<Self>);

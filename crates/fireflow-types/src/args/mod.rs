@@ -68,7 +68,6 @@ macro_rules! make_args {
         pub const ALLOW_SUPP_TEXT_OWN_DELIM: &str = header_text_arg!(allow_supp_text_own_delim);
         pub const ALLOW_MISSING_NEXTDATA: &str = header_text_arg!(allow_missing_nextdata);
         pub const TRIM_VALUE_WHITESPACE: &str = header_text_arg!(trim_value_whitespace);
-        pub const PROCESS_PSEUDOSTANDARD: &str = header_text_arg!(process_pseudostandard);
 
         // std keyword config flags
 
@@ -95,6 +94,7 @@ macro_rules! make_args {
         pub const DATETIME_PATTERN: &str = std_kw_arg!(datetime_pattern);
         pub const LAST_MODIFIED_PATTERN: &str = std_kw_arg!(last_modified_pattern);
         pub const ALLOW_OTHER_FEATURE: &str = std_kw_arg!(allow_other_feature);
+        pub const PROCESS_PSEUDOSTANDARD: &str = std_kw_arg!(process_pseudostandard);
         pub const PROCESS_HYPER_PAR: &str = std_kw_arg!(process_hyper_par);
         pub const PROCESS_OTHER_VERSION: &str = std_kw_arg!(process_other_version);
         pub const PROCESS_EXTRA_TIMESTEP: &str = std_kw_arg!(process_extra_timestep);

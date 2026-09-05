@@ -1434,21 +1434,18 @@ impl ParsedKeywordsDiagnostic {
 
 impl ValidKeywords {
     pub(crate) fn get_any(&self, k: &AnyKey) -> Option<&NEString> {
-        match k {
-            AnyKey::Std(k0) => match k0 {
-                RealOrPseudoStdKey::Real(k1) => self.get_std(k1),
-                RealOrPseudoStdKey::Pseudo(k1) => self.get_pstd(k1),
-            },
-            AnyKey::NonStd(k0) => self.get_nonstd(k0),
-        }
+        unimplemented!()
+        // match k {
+        //     AnyKey::Std(k0) => match k0 {
+        //         RealOrPseudoStdKey::Real(k1) => self.get_std(k1),
+        //         RealOrPseudoStdKey::Pseudo(k1) => self.get_pstd(k1),
+        //     },
+        //     AnyKey::NonStd(k0) => self.get_nonstd(k0),
+        // }
     }
 
     pub(crate) fn get_std(&self, k: &StdKey) -> Option<&NEString> {
         self.std.get(k)
-    }
-
-    pub(crate) fn get_pstd(&self, k: &PseudoStdKey) -> Option<&NEString> {
-        self.pseudostd.get(k)
     }
 
     pub(crate) fn get_nonstd(&self, k: &NonStdKey) -> Option<&NEString> {
@@ -1467,139 +1464,140 @@ impl ValidKeywords {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
     {
-        let matchers = AllKeyMatchers::from_config(conf);
-        let mut ignored = vec![];
-        let mut non_unique_std = vec![];
-        let mut non_unique_nonstd = vec![];
-        let mut removed = vec![];
-        let mut replaced = vec![];
-        let mut renamed = vec![];
-        let mut subbed = vec![];
-        let mut demoted = vec![];
-        let mut promoted = vec![];
+        unimplemented!()
+        // let matchers = AllKeyMatchers::from_config(conf);
+        // let mut ignored = vec![];
+        // let mut non_unique_std = vec![];
+        // let mut non_unique_nonstd = vec![];
+        // let mut removed = vec![];
+        // let mut replaced = vec![];
+        // let mut renamed = vec![];
+        // let mut subbed = vec![];
+        // let mut demoted = vec![];
+        // let mut promoted = vec![];
 
-        // Update standard keys
-        self.std = mem::take(&mut self.std)
-            .into_iter()
-            .filter_map(|(k, v)| {
-                // TODO this seem inefficient; every std key needs to be
-                // converted to a string to make this work, which doesn't seem
-                // right
-                let ks = k.as_keystring();
-                if matchers.ignore.is_match(&ks) {
-                    // First remove keys that should be flat-out ignored
-                    ignored.push((k, TruncatedNEString(v)));
-                    None
-                } else if matchers.demote.is_match(&ks) {
-                    // Next remove keys that should be demoted and put them
-                    // in non-std.
-                    let nsk = NonStdKey(ks);
-                    if self.nonstd.contains_key(&nsk) {
-                        non_unique_nonstd.push((nsk, TruncatedNEString(v)));
-                    } else {
-                        demoted.push(k);
-                        let _ = self.nonstd.insert(nsk, v);
-                    }
-                    None
-                } else if let Some(s) = matchers.subs.get(&ks) {
-                    // Next try to sub the value of keys with matches; this
-                    // might produce a blank key which will effectively remove
-                    // it.
-                    if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
-                        subbed.push((k.clone(), TruncatedNEString(v)));
-                        Some((k, vf))
-                    } else {
-                        removed.push((k, TruncatedNEString(v)));
-                        None
-                    }
-                } else {
-                    Some((k, v))
-                }
-            })
-            .map(|(k, v)| {
-                // After removing everything we can, update values as needed.
-                let replace = &conf.replace_standard_key_values;
-                let ks = k.as_keystring();
-                if let Some(vf) = replace.get(&ks).cloned() {
-                    replaced.push((k.clone(), TruncatedNEString(v)));
-                    (k, vf)
-                } else {
-                    (k, v)
-                }
-            })
-            .map(|(k, v)| {
-                // Finally, rename keys. Assume that this name mapping is
-                // validated such that we will never get a name collision.
-                let to_rename = conf.rename_standard_keys.as_ref();
-                let ks = k.as_keystring();
-                if let Some(kf) = to_rename.get(&ks).cloned().map(StdKey) {
-                    renamed.push((k, kf.clone()));
-                    (kf, v)
-                } else {
-                    (k, v)
-                }
-            })
-            .collect();
+        // // Update standard keys
+        // self.std = mem::take(&mut self.std)
+        //     .into_iter()
+        //     .filter_map(|(k, v)| {
+        //         // TODO this seem inefficient; every std key needs to be
+        //         // converted to a string to make this work, which doesn't seem
+        //         // right
+        //         let ks = k.as_keystring();
+        //         if matchers.ignore.is_match(&ks) {
+        //             // First remove keys that should be flat-out ignored
+        //             ignored.push((k, TruncatedNEString(v)));
+        //             None
+        //         } else if matchers.demote.is_match(&ks) {
+        //             // Next remove keys that should be demoted and put them
+        //             // in non-std.
+        //             let nsk = NonStdKey(ks);
+        //             if self.nonstd.contains_key(&nsk) {
+        //                 non_unique_nonstd.push((nsk, TruncatedNEString(v)));
+        //             } else {
+        //                 demoted.push(k);
+        //                 let _ = self.nonstd.insert(nsk, v);
+        //             }
+        //             None
+        //         } else if let Some(s) = matchers.subs.get(&ks) {
+        //             // Next try to sub the value of keys with matches; this
+        //             // might produce a blank key which will effectively remove
+        //             // it.
+        //             if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
+        //                 subbed.push((k.clone(), TruncatedNEString(v)));
+        //                 Some((k, vf))
+        //             } else {
+        //                 removed.push((k, TruncatedNEString(v)));
+        //                 None
+        //             }
+        //         } else {
+        //             Some((k, v))
+        //         }
+        //     })
+        //     .map(|(k, v)| {
+        //         // After removing everything we can, update values as needed.
+        //         let replace = &conf.replace_standard_key_values;
+        //         let ks = k.as_keystring();
+        //         if let Some(vf) = replace.get(&ks).cloned() {
+        //             replaced.push((k.clone(), TruncatedNEString(v)));
+        //             (k, vf)
+        //         } else {
+        //             (k, v)
+        //         }
+        //     })
+        //     .map(|(k, v)| {
+        //         // Finally, rename keys. Assume that this name mapping is
+        //         // validated such that we will never get a name collision.
+        //         let to_rename = conf.rename_standard_keys.as_ref();
+        //         let ks = k.as_keystring();
+        //         if let Some(kf) = to_rename.get(&ks).cloned().map(StdKey) {
+        //             renamed.push((k, kf.clone()));
+        //             (kf, v)
+        //         } else {
+        //             (k, v)
+        //         }
+        //     })
+        //     .collect();
 
-        // Update non-standard keys
-        let nonstd_removed = self
-            .nonstd
-            .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
+        // // Update non-standard keys
+        // let nonstd_removed = self
+        //     .nonstd
+        //     .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
 
-        for (k, v) in nonstd_removed {
-            let sk = StdKey(k.0);
-            if self.std.contains_key(&sk) {
-                non_unique_std.push((sk, TruncatedNEString(v)));
-            } else {
-                promoted.push(NonStdKey(sk.0.clone()));
-                let _ = self.std.insert(sk, v);
-            }
-        }
+        // for (k, v) in nonstd_removed {
+        //     let sk = StdKey(k.0);
+        //     if self.std.contains_key(&sk) {
+        //         non_unique_std.push((sk, TruncatedNEString(v)));
+        //     } else {
+        //         promoted.push(NonStdKey(sk.0.clone()));
+        //         let _ = self.std.insert(sk, v);
+        //     }
+        // }
 
-        let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
-            match self.std.entry(StdKey(k.clone())) {
-                Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
-                Entry::Vacant(e) => {
-                    e.insert(v.clone());
-                    None
-                }
-            }
-        });
-        non_unique_std.extend(non_unique_appended);
-        let res = match conf.allow_repair_non_unique.is_error() {
-            Some(is_err) => {
-                let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
-                let ns = non_unique_nonstd
-                    .iter()
-                    .cloned()
-                    .map(|(k, _)| AnyKey::NonStd(k));
-                let xs = ss.chain(ns).collect();
-                if let Some(ne) = NEVec::try_from_vec(xs) {
-                    let e = RepairCollisionError(ne);
-                    if is_err {
-                        LogResult::new_err(e)
-                    } else {
-                        LogResult::new_ok(()).set_commutative_warnings(Some(e))
-                    }
-                } else {
-                    LogResult::new_ok(())
-                }
-            }
-            None => LogResult::new_ok(()),
-        };
+        // let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
+        //     match self.std.entry(StdKey(k.clone())) {
+        //         Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
+        //         Entry::Vacant(e) => {
+        //             e.insert(v.clone());
+        //             None
+        //         }
+        //     }
+        // });
+        // non_unique_std.extend(non_unique_appended);
+        // let res = match conf.allow_repair_non_unique.is_error() {
+        //     Some(is_err) => {
+        //         let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
+        //         let ns = non_unique_nonstd
+        //             .iter()
+        //             .cloned()
+        //             .map(|(k, _)| AnyKey::NonStd(k));
+        //         let xs = ss.chain(ns).collect();
+        //         if let Some(ne) = NEVec::try_from_vec(xs) {
+        //             let e = RepairCollisionError(ne);
+        //             if is_err {
+        //                 LogResult::new_err(e)
+        //             } else {
+        //                 LogResult::new_ok(()).set_commutative_warnings(Some(e))
+        //             }
+        //         } else {
+        //             LogResult::new_ok(())
+        //         }
+        //     }
+        //     None => LogResult::new_ok(()),
+        // };
 
-        let ret = RepairDiagnostics {
-            non_unique_std,
-            non_unique_nonstd,
-            demoted,
-            promoted,
-            subbed,
-            replaced,
-            renamed,
-            ignored,
-            removed,
-        };
-        res.set_ok_value(ret)
+        // let ret = RepairDiagnostics {
+        //     non_unique_std,
+        //     non_unique_nonstd,
+        //     demoted,
+        //     promoted,
+        //     subbed,
+        //     replaced,
+        //     renamed,
+        //     ignored,
+        //     removed,
+        // };
+        // res.set_ok_value(ret)
     }
 
     pub(crate) fn remove_optical_only(

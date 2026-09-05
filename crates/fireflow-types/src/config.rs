@@ -1820,7 +1820,6 @@ impl_str_enum!(
     TruncateWarn => OVER_LIMIT_ACTION_TRUNCATE_WARN_LEVEL,
     /// Do nothing. This will disable all scanning which will save CPU cycles.
     None => OVER_LIMIT_ACTION_NONE_LEVEL
-
 );
 
 /// Choose what to do with values that exceed $PnR.

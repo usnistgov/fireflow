@@ -28,13 +28,14 @@ use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::keys::{
     AsStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey2, DollarKey, IndexedKey, Key1, Key2,
-    NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKey, StdKeywords, StdOptKeyword,
+    NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKeywords, StdOptKeyword,
     TruncatedNEString, ValidKeywords, VersionedKey,
 };
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
+use fireflow_types::std_key::DfcKey;
 use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
@@ -52,6 +53,10 @@ use fireflow_types::{
         NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
+    std_key::{
+        GateKeySuffix, MeasKey, MeasKeySuffix, ParamKeySuffix, PeakKeyPrefix, RegionKeySuffix,
+        RootKey, StdKey,
+    },
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 use fireflow_types::{impl_str_enum_kw, ne_str};
@@ -3133,7 +3138,7 @@ macro_rules! kw_meta {
     ($t:ident, $k:expr, $m:expr) => {
         impl_versioned_key!($t, $m);
         impl crate::validated::keys::Key for $t {
-            const C: &'static NEStr = ne_str!($k);
+            const STD: fireflow_types::std_key::RootKey = $k;
         }
     };
 }
@@ -3142,7 +3147,7 @@ macro_rules! kw_meas {
     ($t:ident, $sfx:expr, $m:expr) => {
         impl_versioned_key!($t, $m);
         impl crate::validated::keys::IndexedKey for $t {
-            const C: PrefixSuffix = PrefixSuffix::Both(MEAS_KW_PREFIX, ne_str!($sfx));
+            const STD: $crate::validated::keys::PrefixSuffix = PrefixSuffix::Meas($sfx);
         }
     };
 }
@@ -3274,7 +3279,7 @@ macro_rules! kw_opt_gate {
     ($t:ident, $sfx:expr, $outer:path) => {
         impl_versioned_key!($t, fireflow_types::keywords::VersionMembership::All);
         impl IndexedKey for $t {
-            const C: PrefixSuffix = PrefixSuffix::Both(GATE_KW_PREFIX, ne_str!($sfx));
+            const STD: PrefixSuffix = PrefixSuffix::Gate($sfx);
         }
         opt_meas!($t, $outer);
     };
@@ -3308,23 +3313,23 @@ macro_rules! kw_opt_meta_opt_u32 {
 }
 
 // all versions
-kw_req_meta!(AlphaNumType, tk::DATATYPE_KW, tk::DATATYPE_VERS);
-kw_opt_root_int!(Abrt, u32, tk::ABRT_KW, tk::ABRT_VERS);
-kw_opt_root_string!(Cytsn, tk::CYTSN_KW, tk::CYTSN_VERS);
-kw_opt_root_string!(Com, tk::COM_KW, tk::COM_VERS);
-kw_opt_root_string!(Cells, tk::CELLS_KW, tk::CELLS_VERS);
-kw_opt_meta!(FCSDate, tk::DATE_KW, tk::DATE_VERS, Option<Self>);
-kw_opt_root_string!(Exp, tk::EXP_KW, tk::EXP_VERS);
-kw_opt_root_string!(Inst, tk::INST_KW, tk::INST_VERS);
-kw_opt_root_int!(Lost, u32, tk::LOST_KW, tk::LOST_VERS);
-kw_opt_root_string!(Op, tk::OP_KW, tk::OP_VERS);
-kw_req_root_int!(Par, usize, tk::PAR_KW, tk::PAR_VERS);
-kw_opt_root_string!(Proj, tk::PROJ_KW, tk::PROJ_VERS);
-kw_opt_root_string!(Smno, tk::SMNO_KW, tk::SMNO_VERS);
-kw_opt_root_string!(Src, tk::SRC_KW, tk::SRC_VERS);
-kw_opt_root_string!(Sys, tk::SYS_KW, tk::SYS_VERS);
-kw_opt_meta!(Trigger, tk::TR_KW, tk::TR_VERS, Option<Self>);
-kw_opt_root_string!(Fil, tk::FIL_KW, tk::FIL_VERS);
+kw_req_meta!(AlphaNumType, RootKey::Datatype, tk::DATATYPE_VERS);
+kw_opt_root_int!(Abrt, u32, RootKey::Abrt, tk::ABRT_VERS);
+kw_opt_root_string!(Cytsn, RootKey::Cytsn, tk::CYTSN_VERS);
+kw_opt_root_string!(Com, RootKey::Com, tk::COM_VERS);
+kw_opt_root_string!(Cells, RootKey::Cells, tk::CELLS_VERS);
+kw_opt_meta!(FCSDate, RootKey::Date, tk::DATE_VERS, Option<Self>);
+kw_opt_root_string!(Exp, RootKey::Exp, tk::EXP_VERS);
+kw_opt_root_string!(Inst, RootKey::Inst, tk::INST_VERS);
+kw_opt_root_int!(Lost, u32, RootKey::Lost, tk::LOST_VERS);
+kw_opt_root_string!(Op, RootKey::Op, tk::OP_VERS);
+kw_req_root_int!(Par, usize, RootKey::Par, tk::PAR_VERS);
+kw_opt_root_string!(Proj, RootKey::Proj, tk::PROJ_VERS);
+kw_opt_root_string!(Smno, RootKey::Smno, tk::SMNO_VERS);
+kw_opt_root_string!(Src, RootKey::Src, tk::SRC_VERS);
+kw_opt_root_string!(Sys, RootKey::Sys, tk::SYS_VERS);
+kw_opt_meta!(Trigger, RootKey::Tr, tk::TR_VERS, Option<Self>);
+kw_opt_root_string!(Fil, RootKey::Fil, tk::FIL_VERS);
 
 // time for 2.0
 kw_time!(
@@ -3332,7 +3337,7 @@ kw_time!(
     Btim,
     FCSTime,
     FCSTimeError,
-    tk::BTIM_KW,
+    RootKey::Btim,
     tk::BTIM_VERS
 );
 kw_time!(
@@ -3340,7 +3345,7 @@ kw_time!(
     Etim,
     FCSTime,
     FCSTimeError,
-    tk::ETIM_KW,
+    RootKey::Etim,
     tk::ETIM_VERS
 );
 
@@ -3350,7 +3355,7 @@ kw_time!(
     Btim,
     FCSTime60,
     FCSTime60Error,
-    tk::BTIM_KW,
+    RootKey::Btim,
     tk::BTIM_VERS
 );
 kw_time!(
@@ -3358,7 +3363,7 @@ kw_time!(
     Etim,
     FCSTime60,
     FCSTime60Error,
-    tk::ETIM_KW,
+    RootKey::Etim,
     tk::ETIM_VERS
 );
 
@@ -3368,7 +3373,7 @@ kw_time!(
     Btim,
     FCSTime100,
     FCSTime100Error,
-    tk::BTIM_KW,
+    RootKey::Btim,
     tk::BTIM_VERS
 );
 kw_time!(
@@ -3376,122 +3381,142 @@ kw_time!(
     Etim,
     FCSTime100,
     FCSTime100Error,
-    tk::ETIM_KW,
+    RootKey::Etim,
     tk::ETIM_VERS
 );
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, tk::COMP_KW, tk::COMP_VERS, Option<Self>);
-kw_opt_meta!(Unicode, tk::UNICODE_KW, tk::UNICODE_VERS, Option<Self>);
+kw_opt_meta!(Compensation3_0, RootKey::Comp, tk::COMP_VERS, Option<Self>);
+kw_opt_meta!(Unicode, RootKey::Unicode, tk::UNICODE_VERS, Option<Self>);
 
 // for 3.0+
-kw_req_meta!(Timestep, tk::TIMESTEP_KW, tk::TIMESTEP_VERS);
+kw_req_meta!(Timestep, RootKey::Timestep, tk::TIMESTEP_VERS);
 
 // for 3.1+
-kw_opt_root_string!(LastModifier, tk::LAST_MODIFIER_KW, tk::LAST_MODIFIER_VERS);
+kw_opt_root_string!(LastModifier, RootKey::LastModifier, tk::LAST_MODIFIER_VERS);
 kw_opt_meta!(
     Originality,
-    tk::ORIGINALITY_KW,
+    RootKey::Originality,
     tk::ORIGINALITY_VERS,
     Option<Self>
 );
 kw_opt_meta!(
     LastModified,
-    tk::LAST_MODIFIED_KW,
+    RootKey::LastModified,
     tk::LAST_MODIFIED_VERS,
     Option<Self>
 );
 
-kw_opt_root_string!(Plateid, tk::PLATEID_KW, tk::PLATEID_VERS);
-kw_opt_root_string!(Platename, tk::PLATENAME_KW, tk::PLATENAME_VERS);
-kw_opt_root_string!(Wellid, tk::WELLID_KW, tk::WELLID_VERS);
+kw_opt_root_string!(Plateid, RootKey::Plateid, tk::PLATEID_VERS);
+kw_opt_root_string!(Platename, RootKey::Platename, tk::PLATENAME_VERS);
+kw_opt_root_string!(Wellid, RootKey::Wellid, tk::WELLID_VERS);
 
 kw_opt_meta!(
     Spillover,
-    tk::SPILLOVER_KW,
+    RootKey::Spillover,
     tk::SPILLOVER_VERS,
     Option<Self>
 );
 
-kw_opt_meta!(Vol, tk::VOL_KW, tk::VOL_VERS, Option<Self>);
+kw_opt_meta!(Vol, RootKey::Vol, tk::VOL_VERS, Option<Self>);
 
 // for 3.2+
-kw_opt_root_string!(Carrierid, tk::CARRIERID_KW, tk::CARRIERID_VERS);
-kw_opt_root_string!(Carriertype, tk::CARRIERTYPE_KW, tk::CARRIERTYPE_VERS);
-kw_opt_root_string!(Locationid, tk::LOCATIONID_KW, tk::LOCATIONID_VERS);
+kw_opt_root_string!(Carrierid, RootKey::CarrierId, tk::CARRIERID_VERS);
+kw_opt_root_string!(Carriertype, RootKey::CarrierType, tk::CARRIERTYPE_VERS);
+kw_opt_root_string!(Locationid, RootKey::LocationId, tk::LOCATIONID_VERS);
 
 kw_opt_meta!(
     BeginDateTime,
-    tk::BEGINDATETIME_KW,
+    RootKey::Begindatetime,
     tk::BEGINDATETIME_VERS,
     Option<Self>
 );
 kw_opt_meta!(
     EndDateTime,
-    tk::ENDDATETIME_KW,
+    RootKey::Enddatetime,
     tk::ENDDATETIME_VERS,
     Option<Self>
 );
 kw_opt_meta!(
     UnstainedCenters,
-    tk::UNSTAINEDCENTERS_KW,
+    RootKey::UnstainedCenters,
     tk::UNSTAINEDCENTERS_VERS,
     Self
 );
 
-kw_opt_root_string!(UnstainedInfo, tk::UNSTAINEDINFO_KW, tk::UNSTAINEDINFO_VERS);
+kw_opt_root_string!(
+    UnstainedInfo,
+    RootKey::UnstainedInfo,
+    tk::UNSTAINEDINFO_VERS
+);
 
-kw_opt_root_string!(Flowrate, tk::FLOWRATE_KW, tk::FLOWRATE_VERS);
+kw_opt_root_string!(Flowrate, RootKey::Flowrate, tk::FLOWRATE_VERS);
 
 // version-specific
-kw_opt_root_int!(Tot, usize, tk::TOT_KW, tk::TOT_VERS); // optional in 2.0
+kw_opt_root_int!(Tot, usize, RootKey::Tot, tk::TOT_VERS); // optional in 2.0
 req_meta!(Tot); // required in 3.0+
 
-kw_req_meta!(Mode, tk::MODE_KW, tk::MODE_VERS); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, tk::MODE_KW, tk::MODE_VERS, Option<Self>); // for 3.2+
+kw_req_meta!(Mode, RootKey::Mode, tk::MODE_VERS); // for 2.0-3.1
+kw_opt_meta!(Mode3_2, RootKey::Mode, tk::MODE_VERS, Option<Self>); // for 3.2+
 
-kw_opt_root_string!(Cyt, tk::CYT_KW, tk::CYT_VERS); // optional for 2.0-3.1
-kw_req_meta!(Cyt3_2, tk::CYT_KW, tk::CYT_VERS); // required for 3.2+
+kw_opt_root_string!(Cyt, RootKey::Cyt, tk::CYT_VERS); // optional for 2.0-3.1
+kw_req_meta!(Cyt3_2, RootKey::Cyt, tk::CYT_VERS); // required for 3.2+
 
-kw_req_meta!(ByteOrd2_0, tk::BYTEORD_KW, tk::BYTEORD_VERS); // 2.0/3.0
-kw_req_meta!(ByteOrd3_1, tk::BYTEORD_KW, tk::BYTEORD_VERS); // 3.1+
+kw_req_meta!(ByteOrd2_0, RootKey::Byteord, tk::BYTEORD_VERS); // 2.0/3.0
+kw_req_meta!(ByteOrd3_1, RootKey::Byteord, tk::BYTEORD_VERS); // 3.1+
 
 // all versions
-kw_req_meas!(Width, tk::WIDTH_KW_SUFFIX, tk::PNB_VERS);
-kw_opt_meas_string!(Filter, tk::FILTER_KW_SUFFIX, tk::PNF_VERS);
-kw_opt_meas!(Power, tk::POWER_KW_SUFFIX, tk::PNO_VERS, Option<Self>);
+kw_req_meas!(Width, MeasKeySuffix::B, tk::PNB_VERS);
+kw_opt_meas_string!(
+    Filter,
+    MeasKeySuffix::Param(ParamKeySuffix::F),
+    tk::PNF_VERS
+);
+kw_opt_meas!(Power, MeasKeySuffix::O, tk::PNO_VERS, Option<Self>);
 kw_opt_meas!(
     PercentEmitted,
-    tk::PERCENT_EMITTED_KW_SUFFIX,
+    MeasKeySuffix::Param(ParamKeySuffix::P),
     tk::PNP_VERS,
     Option<Self>
 );
-kw_req_meas!(TextRange, tk::RANGE_KW_SUFFIX, tk::PNR_VERS);
-kw_opt_meas_string!(Longname, tk::LONGNAME_KW_SUFFIX, tk::PNL_VERS);
-kw_opt_meas_string!(DetectorType, tk::DET_TYPE_KW_SUFFIX, tk::PNT_VERS);
+kw_req_meas!(
+    TextRange,
+    MeasKeySuffix::Param(ParamKeySuffix::R),
+    tk::PNR_VERS
+);
+kw_opt_meas_string!(
+    Longname,
+    MeasKeySuffix::Param(ParamKeySuffix::S),
+    tk::PNL_VERS
+);
+kw_opt_meas_string!(
+    DetectorType,
+    MeasKeySuffix::Param(ParamKeySuffix::T),
+    tk::PNT_VERS
+);
 kw_opt_meas!(
     DetectorVoltage,
-    tk::DET_VOLTAGE_KW_SUFFIX,
+    MeasKeySuffix::Param(ParamKeySuffix::V),
     tk::PNV_VERS,
     Option<Self>
 );
 
 // 3.0+
-kw_opt_meas!(Gain, tk::GAIN_KW_SUFFIX, tk::PNG_VERS, Option<Self>);
+kw_opt_meas!(Gain, MeasKeySuffix::G, tk::PNG_VERS, Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, tk::DISPLAY_KW_SUFFIX, tk::PND_VERS, Option<Self>);
+kw_opt_meas!(Display, MeasKeySuffix::D, tk::PND_VERS, Option<Self>);
 
 // 3.2+
 kw_opt_meas!(
     Feature,
-    tk::FEATURE_KW_SUFFIX,
+    MeasKeySuffix::Feature,
     tk::PNFEATURE_VERS,
     Option<Self>
 );
 meas_opt_zst!(
     TemporalType,
-    tk::TYPE_KW_SUFFIX,
+    MeasKeySuffix::Type,
     tk::PNTYPE_VERS,
     TemporalTypeInner
 );
@@ -3508,31 +3533,41 @@ impl FromStr for TemporalType {
 
 kw_opt_meas!(
     NumType,
-    tk::DATATYPE_KW_SUFFIX,
+    MeasKeySuffix::Datatype,
     tk::PNDATATYPE_VERS,
     Option<Self>
 );
-kw_opt_meas_string!(Analyte, tk::ANALYTE_KW_SUFFIX, tk::PNANALYTE_VERS);
-kw_opt_meas_string!(Tag, tk::TAG_KW_SUFFIX, tk::PNTAG_VERS);
-kw_opt_meas_string!(DetectorName, tk::DET_NAME_KW_SUFFIX, tk::PNDET_VERS);
+kw_opt_meas_string!(Analyte, MeasKeySuffix::Analyte, tk::PNANALYTE_VERS);
+kw_opt_meas_string!(Tag, MeasKeySuffix::Tag, tk::PNTAG_VERS);
+kw_opt_meas_string!(DetectorName, MeasKeySuffix::Det, tk::PNDET_VERS);
 
-kw_opt_meas!(OpticalType, tk::TYPE_KW_SUFFIX, tk::PNTYPE_VERS, Self);
+kw_opt_meas!(
+    OpticalType,
+    MeasKeySuffix::Param(ParamKeySuffix::T),
+    tk::PNTYPE_VERS,
+    Self
+);
 
 // version specific
 kw_opt_meas!(
     Shortname,
-    tk::SHORTNAME_KW_SUFFIX,
+    MeasKeySuffix::Param(ParamKeySuffix::N),
     tk::PNN_VERS,
     Option<Self>
 ); // optional for 2.0/3.0
 req_meas!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, tk::SCALE_KW_SUFFIX, tk::PNS_VERS, Option<Self>); // optional for 2.0
+kw_opt_meas!(
+    Scale,
+    MeasKeySuffix::Param(ParamKeySuffix::S),
+    tk::PNS_VERS,
+    Option<Self>
+); // optional for 2.0
 req_meas!(Scale); // required for 3.0+
 
 meas_opt_zst!(
     TemporalScale2_0,
-    tk::SCALE_KW_SUFFIX,
+    MeasKeySuffix::Param(ParamKeySuffix::S),
     tk::PNS_VERS,
     TemporalScaleInner
 ); // optional for 2.0
@@ -3565,23 +3600,22 @@ impl FromStrWith for TemporalScale2_0 {
 }
 
 // required for 3.0+
-kw_req_meas!(TemporalScale3_0, tk::SCALE_KW_SUFFIX, tk::PNS_VERS);
-
-// scaler in 2.0/3.0
-kw_opt_meas!(
-    Wavelength,
-    tk::WAVELENGTH_KW_SUFFIX,
-    tk::PNL_VERS,
-    Option<Self>
+kw_req_meas!(
+    TemporalScale3_0,
+    MeasKeySuffix::Param(ParamKeySuffix::S),
+    tk::PNS_VERS
 );
 
+// scaler in 2.0/3.0
+kw_opt_meas!(Wavelength, MeasKeySuffix::L, tk::PNL_VERS, Option<Self>);
+
 // vector in 3.1+
-kw_opt_meas!(Wavelengths, tk::WAVELENGTH_KW_SUFFIX, tk::PNL_VERS, Self);
+kw_opt_meas!(Wavelengths, MeasKeySuffix::L, tk::PNL_VERS, Self);
 
 // 3.1 doesn't have offset
 kw_opt_meas!(
     Calibration3_1,
-    tk::CALIBRATION_KW_SUFFIX,
+    MeasKeySuffix::Calibration,
     tk::PNCALIBRATION_VERS,
     Option<Self>
 );
@@ -3589,7 +3623,7 @@ kw_opt_meas!(
 // 3.2+ includes offset
 kw_opt_meas!(
     Calibration3_2,
-    tk::CALIBRATION_KW_SUFFIX,
+    MeasKeySuffix::Calibration,
     tk::PNCALIBRATION_VERS,
     Option<Self>
 );
@@ -3602,8 +3636,14 @@ pub struct Dfc(pub f32);
 impl_versioned_key!(Dfc, VersionMembership::One(Version::FCS2_0));
 
 impl BiIndexedKey for Dfc {
-    const PREFIX: &'static NEStr = ne_str!("DFC");
-    const MIDDLE: &'static NEStr = ne_str!("TO");
+    type Std = DfcKey;
+
+    fn std_inner(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self::Std {
+        DfcKey {
+            index0: MeasIndex::from(i.into()),
+            index1: MeasIndex::from(j.into()),
+        }
+    }
 }
 
 impl Dfc {
@@ -3634,10 +3674,10 @@ impl Dfc {
 pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc, BiIndex>;
 
 // 3.0/3.1 subsets
-kw_opt_root_int!(CSMode, usize, tk::CSMODE_KW, tk::CSMODE_VERS);
+kw_opt_root_int!(CSMode, usize, RootKey::Csmode, tk::CSMODE_VERS);
 
-kw_opt_meta_opt_u32!(CSTot, tk::CSTOT_KW, tk::CSTOT_VERS);
-kw_opt_meta_opt_u32!(CSVBits, tk::CSVBITS_KW, tk::CSVBITS_VERS);
+kw_opt_meta_opt_u32!(CSTot, RootKey::Cstot, tk::CSTOT_VERS);
+kw_opt_meta_opt_u32!(CSVBits, RootKey::Csvbits, tk::CSVBITS_VERS);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
@@ -3650,7 +3690,7 @@ impl VersionedKey for CSVFlag {
 }
 
 impl IndexedKey for CSVFlag {
-    const C: PrefixSuffix = PrefixSuffix::Both(ne_str!("CSV"), ne_str!("FLAG"));
+    const STD: PrefixSuffix = PrefixSuffix::CsvFlag;
 }
 
 // $PKn (2.0-3.1)
@@ -3665,7 +3705,7 @@ impl VersionedKey for PeakBin {
 }
 
 impl IndexedKey for PeakBin {
-    const C: PrefixSuffix = PrefixSuffix::Prefix(ne_str!("PK"));
+    const STD: PrefixSuffix = PrefixSuffix::Peak(PeakKeyPrefix::Pk);
 }
 
 // $PKNn (2.0-3.1)
@@ -3677,40 +3717,39 @@ impl VersionedKey for PeakIndex {
 }
 
 impl IndexedKey for PeakIndex {
-    const C: PrefixSuffix = PrefixSuffix::Prefix(ne_str!("PKN"));
+    const STD: PrefixSuffix = PrefixSuffix::Peak(PeakKeyPrefix::Pkn);
 }
 
 // 2.0-3.1 gating parameters
-kw_opt_root_int!(Gate, usize, tk::GATE_KW, tk::GATE_VERS);
+kw_opt_root_int!(Gate, usize, RootKey::Gate, tk::GATE_VERS);
 
-kw_opt_gate_other!(GateScale, tk::SCALE_KW_SUFFIX);
-kw_opt_gate_string!(GateFilter, tk::FILTER_KW_SUFFIX);
-kw_opt_gate_other!(GatePercentEmitted, tk::PERCENT_EMITTED_KW_SUFFIX);
-kw_opt_gate_other!(GateRange, tk::RANGE_KW_SUFFIX);
-kw_opt_gate_other!(GateShortname, tk::SHORTNAME_KW_SUFFIX);
-kw_opt_gate_string!(GateLongname, tk::LONGNAME_KW_SUFFIX);
-kw_opt_gate_string!(GateDetectorType, tk::DET_TYPE_KW_SUFFIX);
-kw_opt_gate_other!(GateDetectorVoltage, tk::DET_VOLTAGE_KW_SUFFIX);
-kw_opt_meta!(Gating, tk::GATING_KW, tk::GATING_VERS, Option<Self>);
+kw_opt_gate_other!(GateScale, GateKeySuffix::S);
+kw_opt_gate_string!(GateFilter, GateKeySuffix::F);
+kw_opt_gate_other!(GatePercentEmitted, GateKeySuffix::P);
+kw_opt_gate_other!(GateRange, GateKeySuffix::R);
+kw_opt_gate_other!(GateShortname, GateKeySuffix::N);
+kw_opt_gate_string!(GateLongname, GateKeySuffix::S);
+kw_opt_gate_string!(GateDetectorType, GateKeySuffix::T);
+kw_opt_gate_other!(GateDetectorVoltage, GateKeySuffix::V);
+kw_opt_meta!(Gating, RootKey::Gating, tk::GATING_VERS, Option<Self>);
 
 impl VersionedKey for RegionWindow {
     const VERS: VersionMembership = VersionMembership::All;
 }
 
 impl IndexedKey for RegionWindow {
-    const C: PrefixSuffix = PrefixSuffix::Both(REGION_KW_PREFIX, REGION_WINDOW_KW_SUFFIX);
+    const STD: PrefixSuffix = PrefixSuffix::Region(RegionKeySuffix::W);
 }
 
 opt_meas!(RegionWindow, Option<Self>);
 
-const REGION_INDEX_PRE_SUF: PrefixSuffix =
-    PrefixSuffix::Both(REGION_KW_PREFIX, REGION_INDEX_KW_SUFFIX);
+const REGION_INDEX_PRE_SUF: PrefixSuffix = PrefixSuffix::Region(RegionKeySuffix::I);
 
 macro_rules! impl_region_index {
     ($t:path, $m:expr) => {
         impl_versioned_key!($t, $m);
         impl crate::validated::keys::IndexedKey for $t {
-            const C: PrefixSuffix = REGION_INDEX_PRE_SUF;
+            const STD: PrefixSuffix = REGION_INDEX_PRE_SUF;
         }
         impl Optional for $t {
             type Outer = Option<Self>;
@@ -3729,11 +3768,11 @@ impl_region_index!(RegionGateIndex3_2, VersionMembership::One(Version::FCS3_2));
 // dummy to help print stuff
 impl_versioned_key!(RegionGateIndex<()>, VersionMembership::All);
 impl IndexedKey for RegionGateIndex<()> {
-    const C: PrefixSuffix = REGION_INDEX_PRE_SUF;
+    const STD: PrefixSuffix = REGION_INDEX_PRE_SUF;
 }
 
 // offsets for all versions
-kw_req_meta!(Nextdata, tk::NEXTDATA_KW, tk::NEXTDATA_VERS);
+kw_req_meta!(Nextdata, RootKey::Nextdata, tk::NEXTDATA_VERS);
 opt_meta!(Nextdata, Option<Self>);
 
 // TODO this won't allow pseudoempty TEXT offsets like 0,-1 which might happen
@@ -3753,37 +3792,37 @@ macro_rules! kw_offset {
 kw_offset!(
     /// Value for $BEGINANALYSIS key (3.0-3.2)
     Beginanalysis,
-    tk::BEGINANALYSIS_KW,
+    RootKey::Beginanalysis,
     tk::BEGINANALYSIS_VERS
 );
 kw_offset!(
     /// Value for $BEGINDATA key (3.0-3.2)
     Begindata,
-    tk::BEGINDATA_KW,
+    RootKey::Begindata,
     tk::BEGINDATA_VERS
 );
 kw_offset!(
     /// Value for $BEGINSTEXT key (3.0-3.2)
     Beginstext,
-    tk::BEGINSTEXT_KW,
+    RootKey::Beginstext,
     tk::BEGINSTEXT_VERS
 );
 kw_offset!(
     /// Value for $ENDANALYSIS key (3.0-3.2)
     Endanalysis,
-    tk::ENDANALYSIS_KW,
+    RootKey::Endanalysis,
     tk::ENDANALYSIS_VERS
 );
 kw_offset!(
     /// Value for $ENDDATA key (3.0-3.2)
     Enddata,
-    tk::ENDDATA_KW,
+    RootKey::Enddata,
     tk::ENDDATA_VERS
 );
 kw_offset!(
     /// Value for $ENDSTEXT (3.0-3.2)
     Endstext,
-    tk::ENDSTEXT_KW,
+    RootKey::Endstext,
     tk::ENDSTEXT_VERS
 );
 
@@ -4230,6 +4269,7 @@ enum ModeValue {
 enum AnyKeywordClass {
     Root(RootKeywordClass),
     Meas(MeasIndex, MeasKeywordClass),
+    // TODO why measindex?
     CSVFlag(MeasIndex),
     Peak(MeasIndex),
     Dfc(MeasIndex, MeasIndex),
@@ -4240,106 +4280,178 @@ enum AnyKeywordClass {
 }
 
 impl AnyKeywordClass {
+    // fn classify_keyword(key: &StdKey) -> Self {
+    //     fn split_index_and_suffix(xs: &str) -> Option<(usize, &str)> {
+    //         let mut index = 0_usize;
+    //         let mut it = xs.as_bytes().iter();
+    //         // read first character, only continue if a digit 1-9 (no leading
+    //         // zeros)
+    //         if let Some(x) = it.by_ref().next()
+    //             && (49..58).contains(x)
+    //         {
+    //             index += usize::from(*x) - 48;
+    //             let mut k = 1;
+    //             for y in it.take_while(|&&z| (48..58).contains(&z)) {
+    //                 index = 10 * index + (usize::from(*y) - 48);
+    //                 k += 1;
+    //             }
+    //             debug_assert!(index > 0, "index should be greater than 0 here");
+    //             Some((index - 1, xs.split_at(k).1))
+    //         } else {
+    //             None
+    //         }
+    //     }
+
+    //     fn starts_with_icase<'a>(haystack: &'a str, prefix: &str) -> Option<&'a str> {
+    //         let n = prefix.len();
+    //         if n > haystack.len() {
+    //             None
+    //         } else {
+    //             let (x, y) = haystack.split_at(n);
+    //             x.eq_ignore_ascii_case(prefix).then_some(y)
+    //         }
+    //     }
+
+    //     let s = key.as_ascii_str();
+    //     let ss: &str = key.as_ref();
+
+    //     debug_assert!(s.is_ascii(), "key is not ASCII");
+
+    //     if let Some(rc) = tk::KW_MAP.get(&s) {
+    //         Self::Root(*rc)
+    //     } else if let Some(rest) = starts_with_icase(ss, "P") {
+    //         // $Pn* keywords or $PKn or $PKNn
+    //         if let Some((index, suffix)) =
+    //             starts_with_icase(rest, "KN").and_then(|r| split_index_and_suffix(r))
+    //             && suffix.is_empty()
+    //         {
+    //             // $PKNn
+    //             Self::Peak(index.into())
+    //         } else if let Some((index, suffix)) =
+    //             starts_with_icase(rest, "K").and_then(|r| split_index_and_suffix(r))
+    //             && suffix.is_empty()
+    //         {
+    //             // $PKn
+    //             Self::Peak(index.into())
+    //         } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
+    //             // $Pn*
+    //             let j = index.into();
+    //             if let Some(vc) = tk::MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
+    //                 Self::Meas(j, *vc)
+    //             } else {
+    //                 Self::NonStandard
+    //             }
+    //         } else {
+    //             Self::NonStandard
+    //         }
+    //     } else if let Some((index, suffix)) =
+    //         starts_with_icase(ss, "G").and_then(|r| split_index_and_suffix(r))
+    //         && tk::GATE_SUFFIX_SET.contains(&Ascii::new(suffix))
+    //     {
+    //         // $Gn* keywords
+    //         Self::GateOptLE3_1(index.into())
+    //     } else if let Some((_, suffix)) =
+    //         starts_with_icase(ss, "R").and_then(|r| split_index_and_suffix(r))
+    //     {
+    //         // $Rn* keywords
+    //         if REGION_INDEX_KW_SUFFIX.as_ref().eq_ignore_ascii_case(suffix) {
+    //             Self::RegionIndex
+    //         } else if REGION_WINDOW_KW_SUFFIX
+    //             .as_ref()
+    //             .eq_ignore_ascii_case(suffix)
+    //         {
+    //             Self::RegionWindow
+    //         } else {
+    //             Self::NonStandard
+    //         }
+    //     } else if let Some((index, suffix)) =
+    //         starts_with_icase(ss, "CSV").and_then(|r| split_index_and_suffix(r))
+    //         && suffix.eq_ignore_ascii_case("FLAG")
+    //     {
+    //         // $CSVnFLAG
+    //         Self::CSVFlag(index.into())
+    //     } else if let Some((i0, i1, suffix)) = starts_with_icase(ss, "DFC")
+    //         .and_then(|r| split_index_and_suffix(r))
+    //         .and_then(|(index, suffix)| starts_with_icase(suffix, "TO").map(|r| (index, r)))
+    //         .and_then(|(i0, r)| split_index_and_suffix(r).map(|(i1, rr)| (i0, i1, rr)))
+    //         && suffix.is_empty()
+    //     {
+    //         // $DFCmTOn
+    //         Self::Dfc(i0.into(), i1.into())
+    //     } else {
+    //         Self::NonStandard
+    //     }
+    // }
+
     fn classify_keyword(key: &StdKey) -> Self {
-        fn split_index_and_suffix(xs: &str) -> Option<(usize, &str)> {
-            let mut index = 0_usize;
-            let mut it = xs.as_bytes().iter();
-            // read first character, only continue if a digit 1-9 (no leading
-            // zeros)
-            if let Some(x) = it.by_ref().next()
-                && (49..58).contains(x)
-            {
-                index += usize::from(*x) - 48;
-                let mut k = 1;
-                for y in it.take_while(|&&z| (48..58).contains(&z)) {
-                    index = 10 * index + (usize::from(*y) - 48);
-                    k += 1;
-                }
-                debug_assert!(index > 0, "index should be greater than 0 here");
-                Some((index - 1, xs.split_at(k).1))
-            } else {
-                None
+        // TODO what about required?
+        match key {
+            StdKey::Root(k) => {
+                let c = match k {
+                    RootKey::Mode => RootKeywordClass::Mode,
+                    RootKey::Cyt => RootKeywordClass::Cyt,
+                    RootKey::Tot => RootKeywordClass::Tot,
+                    RootKey::Timestep => RootKeywordClass::Timestep,
+                    RootKey::Byteord => RootKeywordClass::Byteord,
+                    RootKey::Begindata => RootKeywordClass::Begindata,
+                    RootKey::Enddata => RootKeywordClass::Enddata,
+                    RootKey::Beginanalysis => RootKeywordClass::Beginanalysis,
+                    RootKey::Endanalysis => RootKeywordClass::Endanalysis,
+                    RootKey::Beginstext => RootKeywordClass::Beginstext,
+                    RootKey::Endstext => RootKeywordClass::Endstext,
+                    RootKey::LastModifier
+                    | RootKey::LastModified
+                    | RootKey::Originality
+                    | RootKey::Plateid
+                    | RootKey::Platename
+                    | RootKey::Wellid
+                    | RootKey::Spillover
+                    | RootKey::Vol => RootKeywordClass::OptGE3_1,
+                    RootKey::CarrierId
+                    | RootKey::CarrierType
+                    | RootKey::LocationId
+                    | RootKey::Begindatetime
+                    | RootKey::Enddatetime
+                    | RootKey::UnstainedCenters
+                    | RootKey::UnstainedInfo
+                    | RootKey::Flowrate => RootKeywordClass::OptGE3_2,
+                    RootKey::Gate => RootKeywordClass::OptLE3_1,
+                    RootKey::Csmode | RootKey::Cstot | RootKey::Csvbits => {
+                        RootKeywordClass::OptEQ3_0or3_1
+                    }
+                    RootKey::Comp | RootKey::Unicode => RootKeywordClass::OptEQ3_0,
+                };
+                AnyKeywordClass::Root(c)
             }
-        }
-
-        fn starts_with_icase<'a>(haystack: &'a str, prefix: &str) -> Option<&'a str> {
-            let n = prefix.len();
-            if n > haystack.len() {
-                None
-            } else {
-                let (x, y) = haystack.split_at(n);
-                x.eq_ignore_ascii_case(prefix).then_some(y)
+            StdKey::Meas(k) => {
+                let c = match k.id {
+                    MeasKeySuffix::Param(pk) => match pk {
+                        ParamKeySuffix::E => MeasKeywordClass::Scale,
+                        ParamKeySuffix::N => MeasKeywordClass::Shortname,
+                        _ => MeasKeywordClass::OptAny,
+                    },
+                    MeasKeySuffix::B => MeasKeywordClass::Width,
+                    MeasKeySuffix::L => MeasKeywordClass::Wavelength,
+                    MeasKeySuffix::G => MeasKeywordClass::OptGE3_0,
+                    MeasKeySuffix::D | MeasKeySuffix::Calibration => MeasKeywordClass::OptGE3_1,
+                    MeasKeySuffix::Feature
+                    | MeasKeySuffix::Type
+                    | MeasKeySuffix::Datatype
+                    | MeasKeySuffix::Analyte
+                    | MeasKeySuffix::Tag
+                    | MeasKeySuffix::Det => MeasKeywordClass::OptGE3_2,
+                    MeasKeySuffix::O => MeasKeywordClass::OptAny,
+                };
+                AnyKeywordClass::Meas(k.index, c)
             }
-        }
-
-        let s = key.as_ascii_str();
-        let ss: &str = key.as_ref();
-
-        debug_assert!(s.is_ascii(), "key is not ASCII");
-
-        if let Some(rc) = tk::KW_MAP.get(&s) {
-            Self::Root(*rc)
-        } else if let Some(rest) = starts_with_icase(ss, "P") {
-            // $Pn* keywords or $PKn or $PKNn
-            if let Some((index, suffix)) =
-                starts_with_icase(rest, "KN").and_then(|r| split_index_and_suffix(r))
-                && suffix.is_empty()
-            {
-                // $PKNn
-                Self::Peak(index.into())
-            } else if let Some((index, suffix)) =
-                starts_with_icase(rest, "K").and_then(|r| split_index_and_suffix(r))
-                && suffix.is_empty()
-            {
-                // $PKn
-                Self::Peak(index.into())
-            } else if let Some((index, suffix)) = split_index_and_suffix(rest) {
-                // $Pn*
-                let j = index.into();
-                if let Some(vc) = tk::MEAS_SUFFIX_MAP.get(&Ascii::new(suffix)) {
-                    Self::Meas(j, *vc)
-                } else {
-                    Self::NonStandard
-                }
-            } else {
-                Self::NonStandard
-            }
-        } else if let Some((index, suffix)) =
-            starts_with_icase(ss, "G").and_then(|r| split_index_and_suffix(r))
-            && tk::GATE_SUFFIX_SET.contains(&Ascii::new(suffix))
-        {
-            // $Gn* keywords
-            Self::GateOptLE3_1(index.into())
-        } else if let Some((_, suffix)) =
-            starts_with_icase(ss, "R").and_then(|r| split_index_and_suffix(r))
-        {
-            // $Rn* keywords
-            if REGION_INDEX_KW_SUFFIX.as_ref().eq_ignore_ascii_case(suffix) {
-                Self::RegionIndex
-            } else if REGION_WINDOW_KW_SUFFIX
-                .as_ref()
-                .eq_ignore_ascii_case(suffix)
-            {
-                Self::RegionWindow
-            } else {
-                Self::NonStandard
-            }
-        } else if let Some((index, suffix)) =
-            starts_with_icase(ss, "CSV").and_then(|r| split_index_and_suffix(r))
-            && suffix.eq_ignore_ascii_case("FLAG")
-        {
-            // $CSVnFLAG
-            Self::CSVFlag(index.into())
-        } else if let Some((i0, i1, suffix)) = starts_with_icase(ss, "DFC")
-            .and_then(|r| split_index_and_suffix(r))
-            .and_then(|(index, suffix)| starts_with_icase(suffix, "TO").map(|r| (index, r)))
-            .and_then(|(i0, r)| split_index_and_suffix(r).map(|(i1, rr)| (i0, i1, rr)))
-            && suffix.is_empty()
-        {
-            // $DFCmTOn
-            Self::Dfc(i0.into(), i1.into())
-        } else {
-            Self::NonStandard
+            StdKey::Peak(k) => AnyKeywordClass::Peak(k.index),
+            StdKey::Gate(k) => AnyKeywordClass::GateOptLE3_1(k.index),
+            StdKey::Region(k) => match k.id {
+                RegionKeySuffix::I => Self::RegionIndex,
+                RegionKeySuffix::W => Self::RegionWindow,
+            },
+            StdKey::Dfc(k) => Self::Dfc(k.index0, k.index1),
+            StdKey::CsvFlag(k) => Self::CSVFlag(k.index.into()),
         }
     }
 }

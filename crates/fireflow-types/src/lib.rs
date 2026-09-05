@@ -14,6 +14,7 @@ pub mod other_width;
 pub mod python;
 pub mod ranged_float;
 pub mod segment;
+pub mod std_key;
 pub mod sub_pattern;
 pub mod textdelim;
 pub mod timepattern;

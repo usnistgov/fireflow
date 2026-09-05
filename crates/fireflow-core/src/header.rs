@@ -32,13 +32,14 @@ use crate::validated::header_offsets::{
 use crate::validated::keys::{DKey0, Key as _, StdKeywords};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
+use fireflow_types::std_key::RootKey;
 use fireflow_types::{
     config::{
         AppendableFlag, ConfigFlag as _, EnumStrIter as _, ReadHeaderInnerConfig, ReadOffsetConfig,
         SelectVersionStrategy, VersionOverride,
     },
     keywords::{Version, VersionFormatError},
-    nonempty_string::{NEStr, NEString},
+    nonempty_string::NEString,
     textdelim::{DelimCollisionError, HasDelim as _},
 };
 
@@ -787,19 +788,20 @@ pub(crate) const OFFSET_VAL_LEN: u64 = 20;
 pub(crate) const MAX_HEADER_OFFSET: u32 = 99_999_999;
 
 /// Number of bytes consumed by $NEXTDATA keyword + value + delimiters
-const NEXTDATA_LEN: u64 = std_key_len(Nextdata::C) + OFFSET_VAL_LEN + 2;
+const NEXTDATA_LEN: u64 = std_key_len(Nextdata::STD) + OFFSET_VAL_LEN + 2;
 
 /// The number of bytes each offset is expected to take.
 ///
 /// These are the length of each keyword + 2 since there should be two
 /// delimiters counting toward its byte real estate.
-const DATA_LEN: u64 = std_key_len(Begindata::C) + std_key_len(Enddata::C) + OFFSET_VAL_LEN * 2 + 4;
+const DATA_LEN: u64 =
+    std_key_len(Begindata::STD) + std_key_len(Enddata::STD) + OFFSET_VAL_LEN * 2 + 4;
 
 const ANALYSIS_LEN: u64 =
-    std_key_len(Beginanalysis::C) + std_key_len(Endanalysis::C) + OFFSET_VAL_LEN * 2 + 4;
+    std_key_len(Beginanalysis::STD) + std_key_len(Endanalysis::STD) + OFFSET_VAL_LEN * 2 + 4;
 
 const STEXT_LEN: u64 =
-    std_key_len(Beginstext::C) + std_key_len(Endstext::C) + OFFSET_VAL_LEN * 2 + 4;
+    std_key_len(Beginstext::STD) + std_key_len(Endstext::STD) + OFFSET_VAL_LEN * 2 + 4;
 
 /// The total number of bytes offset keywords are expected to take.
 ///
@@ -812,8 +814,8 @@ const OFFSETS_LEN_3_0: u64 = DATA_LEN + ANALYSIS_LEN + STEXT_LEN + NEXTDATA_LEN;
 ///
 /// Assume key does not have '$' on the front, so add 1.
 #[allow(clippy::as_conversions)]
-const fn std_key_len(s: &NEStr) -> u64 {
-    (s.len().get() + 1) as u64
+const fn std_key_len(s: RootKey) -> u64 {
+    (s.as_ne_str().len().get() + 1) as u64
 }
 
 fn fil_to_kw(f: &NEString) -> OptKeyword<'_> {

@@ -41,13 +41,14 @@ use crate::text::keywords::{
 };
 use crate::text::spillover::Spillover;
 use crate::validated::keys::{
-    BiIndex, DollarKey, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKey,
+    BiIndex, DollarKey, IndexedKey as _, Key, NonStdKeywords, NonStdKeywordsExt as _,
 };
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::{
     index::{IndexFromOne, MeasIndex, RegionIndex},
     nonempty_string::NEString,
+    std_key::StdKey,
 };
 
 use derive_more::{AsRef, Display, From};

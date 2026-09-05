@@ -10,6 +10,7 @@ use fireflow_types::{
     keystring_pairs::KeyStringPairs,
     ne_str,
     nonempty_string::{NEStr, NEString},
+    std_key::StdKey,
     timepattern::TimePattern,
 };
 use hashbrown::HashMap;
@@ -128,7 +129,7 @@ impl AppendableSelector<KeyPatterns> {
             once("/SPILL(?:OVER)?/".parse::<KeyStringOrPattern>().unwrap())
                 .map(|x| (x, ()))
                 .collect();
-        let kw_test = KeyTest::HasKey(Spillover::std().into());
+        let kw_test = KeyTest::HasKey(AnyKey::Std(StdKey::Root(Spillover::STD)));
         let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pats));
         self.push(new);

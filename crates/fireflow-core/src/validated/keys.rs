@@ -11,6 +11,10 @@ use crate::text::keyword_enum::{
 };
 use crate::text::keywords as kws;
 
+use fireflow_types::std_key::{
+    AnyStdKey, CsvFlag, GateKey, GateKeySuffix, MeasKey, MeasKeySuffix, PeakKey, PeakKeyPrefix,
+    RegionKey, RegionKeySuffix, RootKey, STD_PREFIX,
+};
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
@@ -18,13 +22,14 @@ use fireflow_types::{
         ReadHeaderAndTEXTConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
     },
     index::{IndexFromOne, MeasIndex},
-    keystring::{AsciiStringError, KeyString, KeyStringOrPattern, KeyStringsOrPatterns},
+    keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
     keywords::{Version, VersionMembership},
     ne_str,
     nonempty_string::{
         DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr,
         NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
     },
+    std_key::StdKey,
     sub_pattern::SubPattern,
 };
 
@@ -61,23 +66,23 @@ use {
     pyo3::prelude::*,
 };
 
-/// A key from TEXT which is codified by the FCS standard.
-///
-/// These may only contain ASCII and must start with `"$"`. The `"$"` is not
-/// actually stored but will be appended when converting to a [`String`].
-#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
-#[cfg_attr(feature = "serde", derive(Serialize))]
-#[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
-#[as_ref(KeyString, str, NEStr)]
-#[display("${_0}")]
-pub struct StdKey(KeyString);
+// /// A key from TEXT which is codified by the FCS standard.
+// ///
+// /// These may only contain ASCII and must start with `"$"`. The `"$"` is not
+// /// actually stored but will be appended when converting to a [`String`].
+// #[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, AsRef, Display)]
+// #[cfg_attr(feature = "serde", derive(Serialize))]
+// #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
+// #[as_ref(KeyString, str, NEStr)]
+// #[display("${_0}")]
+// pub struct StdKey(KeyString);
 
-impl<'a> ToDisplayNE<'a> for StdKey {
-    type NE = NEConcat<char, ToNE<&'a KeyString>>;
-    fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new('$', ToNE(&self.0))
-    }
-}
+// impl<'a> ToDisplayNE<'a> for StdKey {
+//     type NE = NEConcat<char, ToNE<&'a KeyString>>;
+//     fn to_ne(&'a self) -> Self::NE {
+//         NEConcat::new('$', ToNE(&self.0))
+//     }
+// }
 
 /// A key from TEXT which is not codified by the FCS standard.
 ///
@@ -325,18 +330,21 @@ impl From<TruncatedNEString> for TruncatedString {
 ///
 /// Used to implement the const term for [`IndexedKey`].
 pub enum PrefixSuffix {
-    Prefix(&'static NEStr),
-    Both(&'static NEStr, &'static NEStr),
+    Peak(PeakKeyPrefix),
+    Meas(MeasKeySuffix),
+    Gate(GateKeySuffix),
+    Region(RegionKeySuffix),
+    CsvFlag,
 }
 
-impl PrefixSuffix {
-    const fn as_str(&self) -> (&'static str, &'static str) {
-        match self {
-            Self::Prefix(x) => (x.as_str(), ""),
-            Self::Both(x, y) => (x.as_str(), y.as_str()),
-        }
-    }
-}
+// impl PrefixSuffix {
+//     const fn as_str(&self) -> (&'static str, &'static str) {
+//         match self {
+//             Self::Peak(x) => (x.as_str(), ""),
+//             Self::Both(x, y) => (x.as_str(), y.as_str()),
+//         }
+//     }
+// }
 
 /// A key with no indices.
 pub type Key0<T> = SpecificKey<T, ()>;
@@ -348,15 +356,15 @@ impl<T> Default for Key0<T> {
 }
 
 impl<T: Key> ToDisplayNE<'_> for Key0<T> {
-    type NE = &'static NEStr;
-    fn to_ne(&self) -> &'static NEStr {
-        T::C
+    type NE = ToNE<StdKey>;
+    fn to_ne(&self) -> Self::NE {
+        ToNE(StdKey::Root(T::STD))
     }
 }
 
 impl<T: Key> fmt::Display for Key0<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", T::C)
+        write!(f, "{}", T::STD.as_ne_str())
     }
 }
 
@@ -370,20 +378,15 @@ impl<T> Key1<T> {
 }
 
 impl<T: IndexedKey> ToDisplayNE<'_> for Key1<T> {
-    type NE = NEConcatR<NEConcat<&'static NEStr, ToNE<IndexFromOne>>, &'static NEStr>;
+    type NE = ToNE<StdKey>;
     fn to_ne(&self) -> Self::NE {
-        let (pre, suf) = match T::C {
-            PrefixSuffix::Both(pre, suf) => (pre, Some(suf)),
-            PrefixSuffix::Prefix(pre) => (pre, None),
-        };
-        NEConcat::new(pre, ToNE(self.index)).append(suf)
+        ToNE(T::std(self.index))
     }
 }
 
 impl<T: IndexedKey> fmt::Display for Key1<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let (s0, s1) = T::C.as_str();
-        write!(f, "{s0}{}{s1}", self.index)
+        write!(f, "{}", self.as_displayable())
     }
 }
 
@@ -397,19 +400,15 @@ impl<T> Key2<T> {
 }
 
 impl<T: BiIndexedKey> ToDisplayNE<'_> for Key2<T> {
-    type NE = NEConcat4<&'static NEStr, ToNE<IndexFromOne>, &'static NEStr, ToNE<IndexFromOne>>;
+    type NE = ToNE<StdKey>;
     fn to_ne(&self) -> Self::NE {
-        let i = &self.index;
-        NEConcat::new(T::PREFIX, ToNE(i.i0))
-            .append(T::MIDDLE)
-            .append(ToNE(i.i1))
+        ToNE(T::std(self.index.i0, self.index.i1))
     }
 }
 
 impl<T: BiIndexedKey> fmt::Display for Key2<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let i = &self.index;
-        write!(f, "{}{}{}{}", T::PREFIX, i.i0, T::MIDDLE, i.i1)
+        write!(f, "{}", self.as_displayable())
     }
 }
 
@@ -526,26 +525,13 @@ pub(crate) enum StdOptKeyword<'a> {
     Meas(OptMeasKeyword<'a>),
 }
 
-/// Error when parsing [`StdKey`] from string
-#[derive(From, PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum StdKeyError {
-    #[error("{0}")]
-    Ascii(AsciiStringError),
-    #[error("standard key must start with '$', found '{0}'")]
-    Prefix(KeyString),
-    #[error("standard key must not be empty, got '$'")]
-    Empty,
-}
-
 /// Error when parsing [`NonStdKey`] from string
 #[derive(From, PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
 pub enum NonStdKeyError {
     #[error("{0}")]
-    Ascii(AsciiStringError),
+    Ascii(NEAsciiStringError),
     #[error("non-standard key must not start with '$', found '{0}'")]
     Prefix(KeyString),
 }
@@ -711,31 +697,17 @@ pub(crate) struct ParsedKeywordsDiagnostic {
 // TODO const_trait_impl will be able to clean this up once stable
 pub trait VersionedKey: Sized {
     const VERS: VersionMembership;
-
-    fn is_version(&self, version: Version) -> bool {
-        version.is_member(Self::VERS)
-    }
 }
 
 /// A [`StdKey`] without an index
 ///
 /// The constant traits is validated to only contain ASCII characters.
 pub trait Key: VersionedKey {
-    const C: &'static NEStr;
-
-    const _CHECK: () = {
-        assert!(
-            is_alpha_underscore_str(Self::C.as_str()),
-            "C must only be letters"
-        );
-    };
+    const STD: RootKey;
 
     #[must_use]
-    #[allow(path_statements)]
     fn std() -> StdKey {
-        Self::_CHECK;
-        let key = Key0::<Self>::default();
-        StdKey::new(key.as_string().as_str())
+        StdKey::Root(Self::STD)
     }
 
     fn self_std(&self) -> StdKey {
@@ -747,20 +719,17 @@ pub trait Key: VersionedKey {
 ///
 /// The constant traits are validated to only contain ASCII characters.
 pub trait IndexedKey: VersionedKey {
-    const C: PrefixSuffix;
+    const STD: PrefixSuffix;
 
-    const _CHECK: () = {
-        let (s0, s1) = Self::C.as_str();
-        assert!(is_alpha_underscore_str(s0), "prefix must only be letters");
-        assert!(is_alpha_underscore_str(s1), "suffix must only be letters");
-    };
-
-    #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
-        // trigger compile time error if pre/suffix are anything but letters/underscore
-        Self::_CHECK;
-        let key = Key1::<Self>::new_i1(i.into());
-        StdKey::new(key.as_string().as_str())
+        let j = i.into();
+        match Self::STD {
+            PrefixSuffix::CsvFlag => StdKey::CsvFlag(CsvFlag { index: j }),
+            PrefixSuffix::Gate(s) => StdKey::Gate(GateKey::new(j.into(), s)),
+            PrefixSuffix::Meas(s) => StdKey::Meas(MeasKey::new(j.into(), s)),
+            PrefixSuffix::Region(s) => StdKey::Region(RegionKey::new(j.into(), s)),
+            PrefixSuffix::Peak(p) => StdKey::Peak(PeakKey::new(j.into(), p)),
+        }
     }
 
     fn self_std(&self, i: impl Into<IndexFromOne>) -> StdKey {
@@ -770,8 +739,9 @@ pub trait IndexedKey: VersionedKey {
     #[cfg(feature = "serde")]
     #[must_use]
     fn std_blank() -> String {
-        let (s0, s1) = Self::C.as_str();
-        format!("${s0}n{s1}")
+        unimplemented!()
+        // let (s0, s1) = Self::STD.as_str();
+        // format!("${s0}n{s1}")
     }
 
     // #[cfg(feature = "serde")]
@@ -804,52 +774,36 @@ pub trait IndexedKey: VersionedKey {
 ///
 /// The constant traits are validated to only contain ASCII characters.
 pub trait BiIndexedKey: VersionedKey {
-    const PREFIX: &'static NEStr;
-    const MIDDLE: &'static NEStr;
-    // we could add a suffix for completion's sake, but so far the only keyword
-    // that requires this trait is DFCmTOn which doesn't have a suffix
+    type Std: Into<StdKey>;
 
-    const _CHECK: () = {
-        assert!(
-            is_alpha_underscore_str(Self::PREFIX.as_str()),
-            "PREFIX must only be letters"
-        );
-        assert!(
-            is_alpha_underscore_str(Self::MIDDLE.as_str()),
-            "MIDDLE must only be letters"
-        );
-    };
+    fn std_inner(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self::Std;
 
-    #[allow(path_statements)]
     fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
-        // trigger compile time error if pre/mid/suffix are anything but letters/underscore
-        Self::_CHECK;
-        let key = Key2::<Self>::new_i2(i.into(), j.into());
-        StdKey::new(key.as_string().as_str())
+        Self::std_inner(i, j).into()
     }
 
-    /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
-    #[must_use]
-    fn regexp() -> CaseInsRegex {
-        let mut s = String::new();
-        s.push_str(Self::PREFIX.as_str());
-        s.push_str("([1-9][0-9]*)");
-        s.push_str(Self::MIDDLE.as_str());
-        s.push_str("([1-9][0-9]*)");
-        // ASSUME this will never fail because pre/suffix should only be letters
-        CaseInsRegex::from_str(s.as_str()).unwrap()
-    }
+    // /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
+    // #[must_use]
+    // fn regexp() -> CaseInsRegex {
+    //     let mut s = String::new();
+    //     s.push_str(Self::PREFIX.as_str());
+    //     s.push_str("([1-9][0-9]*)");
+    //     s.push_str(Self::MIDDLE.as_str());
+    //     s.push_str("([1-9][0-9]*)");
+    //     // ASSUME this will never fail because pre/suffix should only be letters
+    //     CaseInsRegex::from_str(s.as_str()).unwrap()
+    // }
 
-    fn matches(other: &StdKey) -> Option<(usize, usize)> {
-        static RE: OnceLock<CaseInsRegex> = OnceLock::new();
-        let c = RE
-            .get_or_init(|| Self::regexp())
-            .as_ref()
-            .captures(other.as_ref())?;
-        let (_, [m, n]) = c.extract();
-        // ASSUME these won't fail because we match only digits
-        Some((m.parse::<usize>().unwrap(), n.parse::<usize>().unwrap()))
-    }
+    // fn matches(other: &StdKey) -> Option<(usize, usize)> {
+    //     static RE: OnceLock<CaseInsRegex> = OnceLock::new();
+    //     let c = RE
+    //         .get_or_init(|| Self::regexp())
+    //         .as_ref()
+    //         .captures(other.as_ref())?;
+    //     let (_, [m, n]) = c.extract();
+    //     // ASSUME these won't fail because we match only digits
+    //     Some((m.parse::<usize>().unwrap(), n.parse::<usize>().unwrap()))
+    // }
 
     // fn std_blank() -> String {
     //     // reserve enough space for '$', prefix, middle, suffix, and 'n'/'m'
@@ -911,7 +865,7 @@ pub(crate) trait NonStdKeywordsExt {
 
 impl NonStdKeywordsExt for NonStdKeywords {
     fn insert_demoted(&mut self, key: StdKey, value: NEString) {
-        let mut k = NonStdKey(key.0);
+        let mut k = NonStdKey(key.as_keystring());
         while self.contains_key(&k) {
             k.0.disambiguate();
         }
@@ -919,58 +873,7 @@ impl NonStdKeywordsExt for NonStdKeywords {
     }
 }
 
-// Implement methods for std/nonstd key wrappers
-
-impl StdKey {
-    pub(crate) fn as_ascii_str(&self) -> Ascii<&str> {
-        Ascii::new(self.0.as_str())
-    }
-
-    fn new(s: &str) -> Self {
-        let ks = s
-            .parse::<KeyString>()
-            .expect("standard key should be valid");
-        Self(ks)
-    }
-
-    pub(crate) fn from_temporal_optical_key(x: OpticalOnlyKey, i: MeasIndex) -> Self {
-        match x {
-            OpticalOnlyKey::Gain => kws::Gain::std(i),
-            OpticalOnlyKey::Filter => kws::Filter::std(i),
-            // NOTE this is $PnL for all versions
-            OpticalOnlyKey::Wavelength => kws::Wavelength::std(i),
-            OpticalOnlyKey::Power => kws::Power::std(i),
-            OpticalOnlyKey::DetectorType => kws::DetectorType::std(i),
-            OpticalOnlyKey::DetectorVoltage => kws::DetectorVoltage::std(i),
-            OpticalOnlyKey::PercentEmitted => kws::PercentEmitted::std(i),
-            // NOTE this is $PnCALIBRATION for all versions
-            OpticalOnlyKey::Calibration => kws::Calibration3_1::std(i),
-            OpticalOnlyKey::DetectorName => kws::DetectorName::std(i),
-            OpticalOnlyKey::Tag => kws::Tag::std(i),
-            OpticalOnlyKey::Feature => kws::Feature::std(i),
-            OpticalOnlyKey::Analyte => kws::Analyte::std(i),
-        }
-    }
-}
-
-impl FromStr for StdKey {
-    type Err = StdKeyError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let ks = s.parse::<KeyString>().map_err(StdKeyError::Ascii)?;
-        let ne = ks.as_ne_str().as_ne_bytes();
-        let (y, ys) = ne.split_first();
-        if *y != STD_PREFIX {
-            Err(StdKeyError::Prefix(ks))
-        } else if let Some(zs) = NESlice::try_from_slice(ys) {
-            // SAFETY: this will not fail because we know the string has only
-            // ASCII bytes
-            Ok(Self(unsafe { KeyString::from_bytes(&zs) }))
-        } else {
-            Err(StdKeyError::Empty)
-        }
-    }
-}
+// Implement methods for nonstd key wrappers
 
 impl FromStr for NonStdKey {
     type Err = NonStdKeyError;
@@ -989,11 +892,12 @@ impl FromStr for NonStdKey {
 
 impl KeyMatcher<'_, ()> {
     fn is_match(&self, other: &KeyString) -> bool {
-        self.literal.contains_key(other)
-            || self
-                .pattern
-                .iter()
-                .any(|p| p.0.as_ref().is_match(other.as_ref()))
+        unimplemented!()
+        // self.literal.contains_key(other)
+        //     || self
+        //         .pattern
+        //         .iter()
+        //         .any(|p| p.0.as_ref().is_match(other.as_ref()))
     }
 }
 
@@ -1058,14 +962,22 @@ impl ParsedKeywords {
             BothInvalid(TruncatedNEBytes, TruncatedNEBytes),
         }
 
+        enum ParsedKey {
+            Std(AnyStdKey),
+            NonStd(KeyString),
+        }
+
         let parse_key = |s: &NESlice<u8>| {
             let single_byte = matches!(encoding, Encoding::Single);
-            if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first()
-                && let Some(sn) = NESlice::try_from_slice(rest)
-            {
-                Some((true, KeyString::from_bytes_maybe(&sn, single_byte)?))
+            if let Some((&STD_PREFIX, rest)) = s.as_ref().split_first() {
+                // TODO we may wish to distinguish an error between non-ASCII
+                // and only a '$' keyword
+                let ne = NESlice::try_from_slice(rest)?;
+                let k = AnyStdKey::from_bytes_maybe(&ne)?;
+                Some(ParsedKey::Std(k))
             } else {
-                Some((false, KeyString::from_bytes_maybe(s, single_byte)?))
+                let k = KeyString::from_bytes_maybe(s, single_byte)?;
+                Some(ParsedKey::NonStd(k))
             }
         };
 
@@ -1113,31 +1025,34 @@ impl ParsedKeywords {
             }
         };
 
-        let kv_res = if let Some((is_std, kstr)) = parse_key(key) {
-            if is_std {
-                let ak = AnyKey::Std(StdKey(kstr));
-                if let Some(trim_res) = parse_value() {
-                    match trim_res {
-                        TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
-                        TrimResult::Trimmed(value, was_trimmed) => {
-                            KeyValueResult::NonEmpty(ak, value, was_trimmed)
+        let kv_res = if let Some(parsed) = parse_key(key) {
+            match parsed {
+                ParsedKey::Std(k) => {
+                    let ak = AnyKey::Std(k);
+                    if let Some(trim_res) = parse_value() {
+                        match trim_res {
+                            TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
+                            TrimResult::Trimmed(value, was_trimmed) => {
+                                KeyValueResult::NonEmpty(ak, value, was_trimmed)
+                            }
                         }
+                    } else {
+                        KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                     }
-                } else {
-                    KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                 }
-            } else {
-                // Non-standard key: does not start with '$' and is ASCII
-                let ak = AnyKey::NonStd(NonStdKey(kstr));
-                if let Some(trim_res) = parse_value() {
-                    match trim_res {
-                        TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
-                        TrimResult::Trimmed(value, was_trimmed) => {
-                            KeyValueResult::NonEmpty(ak, value, was_trimmed)
+                ParsedKey::NonStd(kstr) => {
+                    // Non-standard key: does not start with '$' and is ASCII
+                    let ak = AnyKey::NonStd(NonStdKey(kstr));
+                    if let Some(trim_res) = parse_value() {
+                        match trim_res {
+                            TrimResult::Empty(flag) => KeyValueResult::Empty(ak.into(), flag),
+                            TrimResult::Trimmed(value, was_trimmed) => {
+                                KeyValueResult::NonEmpty(ak, value, was_trimmed)
+                            }
                         }
+                    } else {
+                        KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                     }
-                } else {
-                    KeyValueResult::NonUtf8Value(ak, TruncatedNEBytes::from(val))
                 }
             }
         } else {
@@ -1167,7 +1082,7 @@ impl ParsedKeywords {
                 }
                 let vo = v.into_owned();
                 match k {
-                    AnyKey::Std(StdKey(kstr)) => self.insert_nonunique_std(kstr, vo, conf),
+                    AnyKey::Std(sk) => self.insert_nonunique_std(sk, vo, conf),
                     AnyKey::NonStd(NonStdKey(kstr)) => self.insert_nonunique_nonstd(kstr, vo, conf),
                 }
             }
@@ -1197,17 +1112,34 @@ impl ParsedKeywords {
 
     fn insert_nonunique_std(
         &mut self,
-        k: KeyString,
+        k: AnyStdKey,
         value: NEString,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> Option<(KeywordInsertError, bool)> {
-        Self::insert_nonunique(
-            &mut self.std,
-            &mut self.diag.non_unique_std_keywords,
-            StdKey(k),
-            value,
-            conf,
-        )
+        // Self::insert_nonunique(
+        //     &mut self.std,
+        //     &mut self.diag.non_unique_std_keywords,
+        //     k,
+        //     value,
+        //     conf,
+        // )
+
+        let flag = conf.allow_nonunique;
+        match self.std.entry(k) {
+            Entry::Occupied(ent) => {
+                let key = ent.key().clone();
+                let err = KeyPresent {
+                    key: key.clone(),
+                    value: value.clone(),
+                };
+                nonunique.push((key, TruncatedNEString(value)));
+                flag.is_error().map(|is_err| (err.into(), is_err))
+            }
+            Entry::Vacant(ent) => {
+                ent.insert(value);
+                None
+            }
+        }
     }
 
     fn insert_nonunique_nonstd(
@@ -1375,135 +1307,137 @@ impl ValidKeywords {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> WarningAndErrorResult<RepairDiagnostics, (), RepairCollisionError, RepairCollisionError>
     {
-        let matchers = AllKeyMatchers::from_config(conf);
-        let mut ignored = vec![];
-        let mut non_unique_std = vec![];
-        let mut non_unique_nonstd = vec![];
-        let mut removed = vec![];
-        let mut replaced = vec![];
-        let mut renamed = vec![];
-        let mut subbed = vec![];
-        let mut demoted = vec![];
-        let mut promoted = vec![];
+        unimplemented!()
+        // let matchers = AllKeyMatchers::from_config(conf);
+        // let mut ignored = vec![];
+        // let mut non_unique_std = vec![];
+        // let mut non_unique_nonstd = vec![];
+        // let mut removed = vec![];
+        // let mut replaced = vec![];
+        // let mut renamed = vec![];
+        // let mut subbed = vec![];
+        // let mut demoted = vec![];
+        // let mut promoted = vec![];
 
-        // Update standard keys
-        self.std = mem::take(&mut self.std)
-            .into_iter()
-            .filter_map(|(k, v)| {
-                if matchers.ignore.is_match(k.as_ref()) {
-                    // First remove keys that should be flat-out ignored
-                    ignored.push((k, TruncatedNEString(v)));
-                    None
-                } else if matchers.demote.is_match(k.as_ref()) {
-                    // Next remove keys that should be demoted and put them
-                    // in non-std.
-                    let nsk = NonStdKey(k.0);
-                    if self.nonstd.contains_key(&nsk) {
-                        non_unique_nonstd.push((nsk, TruncatedNEString(v)));
-                    } else {
-                        demoted.push(StdKey(nsk.0.clone()));
-                        let _ = self.nonstd.insert(nsk, v);
-                    }
-                    None
-                } else if let Some(s) = matchers.subs.get(k.as_ref()) {
-                    // Next try to sub the value of keys with matches; this
-                    // might produce a blank key which will effectively remove
-                    // it.
-                    if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
-                        subbed.push((k.clone(), TruncatedNEString(v)));
-                        Some((k, vf))
-                    } else {
-                        removed.push((k, TruncatedNEString(v)));
-                        None
-                    }
-                } else {
-                    Some((k, v))
-                }
-            })
-            .map(|(k, v)| {
-                // After removing everything we can, update values as needed.
-                let replace = &conf.replace_standard_key_values;
-                let kr: &KeyString = k.as_ref();
-                if let Some(vf) = replace.get(kr).cloned() {
-                    replaced.push((k.clone(), TruncatedNEString(v)));
-                    (k, vf)
-                } else {
-                    (k, v)
-                }
-            })
-            .map(|(k, v)| {
-                // Finally, rename keys. Assume that this name mapping is
-                // validated such that we will never get a name collision.
-                let to_rename = conf.rename_standard_keys.as_ref();
-                let ks: &KeyString = k.as_ref();
-                if let Some(kf) = to_rename.get(ks).cloned().map(StdKey) {
-                    renamed.push((k, kf.clone()));
-                    (kf, v)
-                } else {
-                    (k, v)
-                }
-            })
-            .collect();
+        // // Update standard keys
+        // self.std = mem::take(&mut self.std)
+        //     .into_iter()
+        //     .filter_map(|(k, v)| {
+        //         let ks = k.as_cow_keystring();
+        //         if matchers.ignore.is_match(k.as_cow_ne_str().as_ref()) {
+        //             // First remove keys that should be flat-out ignored
+        //             ignored.push((k, TruncatedNEString(v)));
+        //             None
+        //         } else if matchers.demote.is_match(k.as_ref()) {
+        //             // Next remove keys that should be demoted and put them
+        //             // in non-std.
+        //             let nsk = NonStdKey(k.0);
+        //             if self.nonstd.contains_key(&nsk) {
+        //                 non_unique_nonstd.push((nsk, TruncatedNEString(v)));
+        //             } else {
+        //                 demoted.push(StdKey(nsk.0.clone()));
+        //                 let _ = self.nonstd.insert(nsk, v);
+        //             }
+        //             None
+        //         } else if let Some(s) = matchers.subs.get(k.as_ref()) {
+        //             // Next try to sub the value of keys with matches; this
+        //             // might produce a blank key which will effectively remove
+        //             // it.
+        //             if let Ok(vf) = NEString::try_from(s.sub(v.as_str())) {
+        //                 subbed.push((k.clone(), TruncatedNEString(v)));
+        //                 Some((k, vf))
+        //             } else {
+        //                 removed.push((k, TruncatedNEString(v)));
+        //                 None
+        //             }
+        //         } else {
+        //             Some((k, v))
+        //         }
+        //     })
+        //     .map(|(k, v)| {
+        //         // After removing everything we can, update values as needed.
+        //         let replace = &conf.replace_standard_key_values;
+        //         let kr: &KeyString = k.as_ref();
+        //         if let Some(vf) = replace.get(kr).cloned() {
+        //             replaced.push((k.clone(), TruncatedNEString(v)));
+        //             (k, vf)
+        //         } else {
+        //             (k, v)
+        //         }
+        //     })
+        //     .map(|(k, v)| {
+        //         // Finally, rename keys. Assume that this name mapping is
+        //         // validated such that we will never get a name collision.
+        //         let to_rename = conf.rename_standard_keys.as_ref();
+        //         let ks: &KeyString = k.as_ref();
+        //         if let Some(kf) = to_rename.get(ks).cloned().map(StdKey) {
+        //             renamed.push((k, kf.clone()));
+        //             (kf, v)
+        //         } else {
+        //             (k, v)
+        //         }
+        //     })
+        //     .collect();
 
-        // Update non-standard keys
-        let nonstd_removed = self
-            .nonstd
-            .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
+        // // Update non-standard keys
+        // let nonstd_removed = self
+        //     .nonstd
+        //     .extract_if(|k, _| matchers.promote.is_match(k.as_ref()));
 
-        for (k, v) in nonstd_removed {
-            let sk = StdKey(k.0);
-            if self.std.contains_key(&sk) {
-                non_unique_std.push((sk, TruncatedNEString(v)));
-            } else {
-                promoted.push(NonStdKey(sk.0.clone()));
-                let _ = self.std.insert(sk, v);
-            }
-        }
+        // for (k, v) in nonstd_removed {
+        //     let sk = StdKey(k.0);
+        //     if self.std.contains_key(&sk) {
+        //         non_unique_std.push((sk, TruncatedNEString(v)));
+        //     } else {
+        //         promoted.push(NonStdKey(sk.0.clone()));
+        //         let _ = self.std.insert(sk, v);
+        //     }
+        // }
 
-        let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
-            match self.std.entry(StdKey(k.clone())) {
-                Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
-                Entry::Vacant(e) => {
-                    e.insert(v.clone());
-                    None
-                }
-            }
-        });
-        non_unique_std.extend(non_unique_appended);
-        let res = match conf.allow_repair_non_unique.is_error() {
-            Some(is_err) => {
-                let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
-                let ns = non_unique_nonstd
-                    .iter()
-                    .cloned()
-                    .map(|(k, _)| AnyKey::NonStd(k));
-                let xs = ss.chain(ns).collect();
-                if let Some(ne) = NEVec::try_from_vec(xs) {
-                    let e = RepairCollisionError(ne);
-                    if is_err {
-                        LogResult::new_err(e)
-                    } else {
-                        LogResult::new_ok(()).set_commutative_warnings(Some(e))
-                    }
-                } else {
-                    LogResult::new_ok(())
-                }
-            }
-            None => LogResult::new_ok(()),
-        };
+        // let non_unique_appended = conf.append_standard_keywords.iter().filter_map(|(k, v)| {
+        //     match self.std.entry(StdKey(k.clone())) {
+        //         Entry::Occupied(e) => Some((e.key().clone(), TruncatedNEString(v.clone()))),
+        //         Entry::Vacant(e) => {
+        //             e.insert(v.clone());
+        //             None
+        //         }
+        //     }
+        // });
+        // non_unique_std.extend(non_unique_appended);
+        // let res = match conf.allow_repair_non_unique.is_error() {
+        //     Some(is_err) => {
+        //         let ss = non_unique_std.iter().cloned().map(|(k, _)| AnyKey::Std(k));
+        //         let ns = non_unique_nonstd
+        //             .iter()
+        //             .cloned()
+        //             .map(|(k, _)| AnyKey::NonStd(k));
+        //         let xs = ss.chain(ns).collect();
+        //         if let Some(ne) = NEVec::try_from_vec(xs) {
+        //             let e = RepairCollisionError(ne);
+        //             if is_err {
+        //                 LogResult::new_err(e)
+        //             } else {
+        //                 LogResult::new_ok(()).set_commutative_warnings(Some(e))
+        //             }
+        //         } else {
+        //             LogResult::new_ok(())
+        //         }
+        //     }
+        //     None => LogResult::new_ok(()),
+        // };
 
-        let ret = RepairDiagnostics {
-            non_unique_std,
-            non_unique_nonstd,
-            demoted,
-            promoted,
-            subbed,
-            replaced,
-            renamed,
-            ignored,
-            removed,
-        };
-        res.set_ok_value(ret)
+        // let ret = RepairDiagnostics {
+        //     non_unique_std,
+        //     non_unique_nonstd,
+        //     demoted,
+        //     promoted,
+        //     subbed,
+        //     replaced,
+        //     renamed,
+        //     ignored,
+        //     removed,
+        // };
+        // res.set_ok_value(ret)
     }
 
     pub(crate) fn remove_optical_only(
@@ -1517,7 +1451,7 @@ impl ValidKeywords {
         let mut ws = vec![];
         let mut pairs = vec![];
         for t in targets {
-            let k = StdKey::from_temporal_optical_key(*t, i);
+            let k = StdKey::from_optical_only_key(*t, i);
             let (demote, warn) = match flag {
                 ProcessOpticalOnlyKeys::DemoteWarn => (true, true),
                 ProcessOpticalOnlyKeys::DemoteSilent => (true, false),
@@ -1630,7 +1564,6 @@ const fn is_alpha_underscore_str(s: &str) -> bool {
     true
 }
 
-pub(crate) const STD_PREFIX: u8 = 36; // '$'
 const TRUNCATED_BYTES_LIMIT: usize = 20;
 const TRUNCATED_STR_LIMIT: usize = 20;
 
@@ -1659,7 +1592,7 @@ mod serialize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fireflow_types::keystring::AsciiStringError;
+    use fireflow_types::keystring::NEAsciiStringError;
     use nonempty_collections::NESlice;
 
     use proptest::prelude::*;
@@ -1748,7 +1681,7 @@ mod tests {
     fn fromstr_std_key_nonascii() {
         let s = "$花冷え。"; // sugarsugarsugarsugarsugarsugarrrrrrrrr...
         let k = s.parse::<StdKey>();
-        let e = StdKeyError::Ascii(AsciiStringError::Ascii(s.parse().unwrap()));
+        let e = StdKeyError::Ascii(NEAsciiStringError::Ascii(s.parse().unwrap()));
         assert_eq!(Err(e), k);
     }
 
@@ -1765,7 +1698,7 @@ mod tests {
     fn fromstr_std_key_blank() {
         let s = "";
         let k = s.parse::<StdKey>();
-        assert_eq!(Err(StdKeyError::Ascii(AsciiStringError::Empty)), k);
+        assert_eq!(Err(StdKeyError::Ascii(NEAsciiStringError::Empty)), k);
     }
 
     #[test]
@@ -1779,7 +1712,7 @@ mod tests {
     fn fromstr_nonstd_key_nonascii() {
         let s = "サイ";
         let k = s.parse::<NonStdKey>();
-        let e = NonStdKeyError::Ascii(AsciiStringError::Ascii(s.parse().unwrap()));
+        let e = NonStdKeyError::Ascii(NEAsciiStringError::Ascii(s.parse().unwrap()));
         assert_eq!(Err(e), k);
     }
 
@@ -1796,6 +1729,6 @@ mod tests {
     fn fromstr_nonstd_key_blank() {
         let s = "";
         let k = s.parse::<NonStdKey>();
-        assert_eq!(Err(NonStdKeyError::Ascii(AsciiStringError::Empty)), k);
+        assert_eq!(Err(NonStdKeyError::Ascii(NEAsciiStringError::Empty)), k);
     }
 }

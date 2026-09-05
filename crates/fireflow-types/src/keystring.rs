@@ -1,5 +1,5 @@
 use crate::case_ins_regex::{LiteralOrPattern, LiteralOrPatternError};
-use crate::nonempty_string::{NEStr, NEString, ToDisplayNE};
+use crate::nonempty_string::{DisplayNE, NEStr, NEString, ToDisplayNE};
 
 use derive_more::{AsRef, Display};
 use hashbrown::HashMap;
@@ -10,7 +10,8 @@ use nonempty_collections::{
 use thiserror::Error;
 use unicase::Ascii;
 
-use std::{collections::HashSet, fmt, hash::Hash, str::FromStr};
+use std::borrow::Cow;
+use std::{borrow::Borrow, collections::HashSet, fmt, hash::Hash, str::FromStr};
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -30,11 +31,30 @@ use {
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 pub struct KeyString(Ascii<NEString>);
 
+/// The borrowed internal string for a key (standard or nonstandard).
+///
+/// Must be non-empty and contain only ASCII characters. Comparisons will be
+/// case-insensitive.
+#[derive(Clone, Debug)]
+pub struct CowKeyString<'a>(Ascii<Cow<'a, NEStr>>);
+
+impl Borrow<str> for KeyString {
+    fn borrow(&self) -> &str {
+        self.as_ref()
+    }
+}
+
+impl AsRef<str> for CowKeyString<'_> {
+    fn as_ref(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
 /// Either a literal string or regexp which matches a [`StdKey`]/[`NonStdKey`].
 pub type KeyStringOrPattern = LiteralOrPattern<KeyString>;
 
 /// Error when parsing literal keys or pattern strings when building [`KeyStringsOrPatterns`]
-pub type KeyStringsOrPatternsError = LiteralOrPatternError<AsciiStringError>;
+pub type KeyStringsOrPatternsError = LiteralOrPatternError<NEAsciiStringError>;
 
 /// A list of patterns that match [`StdKey`]s or [`NonStdKey`]s.
 #[derive(Clone, PartialEq)]
@@ -50,12 +70,19 @@ impl<T> Default for KeyStringsOrPatterns<T> {
 #[derive(PartialEq, Debug, Error, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum AsciiStringError {
-    #[error("string should only have ASCII characters, found '{0}'")]
-    Ascii(String),
+pub enum NEAsciiStringError {
+    #[error("{0}")]
+    Ascii(AsciiStringError),
     #[error("key string must not be empty")]
     Empty,
 }
+
+/// Error when parsing [`KeyString`] from string
+#[derive(PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+#[error("string should only have ASCII characters, found '{0}'")]
+pub struct AsciiStringError(String);
 
 /// Error when creating a new hashtable with non-unique keys.
 #[derive(Debug, Error, Display, PartialEq, Clone)]
@@ -83,17 +110,39 @@ impl AsRef<NEStr> for KeyString {
 }
 
 impl FromStr for KeyString {
-    type Err = AsciiStringError;
+    type Err = NEAsciiStringError;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         if let Ok(ne) = s.parse::<NEString>() {
             if is_printable_ascii(s.as_ref()) {
                 Ok(Self(Ascii::new(ne)))
             } else {
-                Err(AsciiStringError::Ascii(s.into()))
+                Err(NEAsciiStringError::Ascii(AsciiStringError(s.into())))
             }
         } else {
-            Err(AsciiStringError::Empty)
+            Err(NEAsciiStringError::Empty)
+        }
+    }
+}
+
+impl<'a> TryFrom<NEString> for CowKeyString<'a> {
+    type Error = AsciiStringError;
+    fn try_from(value: NEString) -> Result<Self, Self::Error> {
+        if is_printable_ascii(value.as_str().as_bytes()) {
+            Ok(Self(Ascii::new(Cow::Owned(value))))
+        } else {
+            Err(AsciiStringError(value.into()))
+        }
+    }
+}
+
+impl<'a> TryFrom<&'a NEStr> for CowKeyString<'a> {
+    type Error = AsciiStringError;
+    fn try_from(value: &'a NEStr) -> Result<Self, Self::Error> {
+        if is_printable_ascii(value.as_str().as_bytes()) {
+            Ok(Self(Ascii::new(Cow::Borrowed(value))))
+        } else {
+            Err(AsciiStringError(value.to_string()))
         }
     }
 }
@@ -140,6 +189,13 @@ impl KeyString {
         let ne = xs.nonempty_iter().copied().collect();
         // SAFETY: this function is marked unsafe since the caller must check
         Self::new_unchecked(unsafe { NEString::from_utf8_unchecked(ne) })
+    }
+}
+
+impl<'a> CowKeyString<'a> {
+    #[must_use]
+    pub fn into_keystring(self) -> KeyString {
+        KeyString::new_unchecked(self.0.into_inner().into_owned())
     }
 }
 

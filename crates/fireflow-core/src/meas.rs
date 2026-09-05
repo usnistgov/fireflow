@@ -44,7 +44,7 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::keys::{IndexedKey as _, Key1, StdKey, StdKeywords, ValidKeywords};
+use crate::validated::keys::{IndexedKey as _, Key1, StdKeywords, ValidKeywords};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::{
@@ -56,6 +56,7 @@ use fireflow_types::{
     keywords::{HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty_string::{DisplayableNE as _, NEString},
     ranged_float::PositiveFloat,
+    std_key::StdKey,
 };
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _};

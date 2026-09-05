@@ -1,5 +1,49 @@
 /// Implement a enum with variants that map to defined string literals.
 ///
+/// This will make 3 things:
+/// 1. the enum itself (with docs as given)
+/// 2. a FromStr impl that maps each variant to a string literal
+/// 4. an array that contains all string literals in the order given
+#[macro_export]
+macro_rules! impl_str_enum_base {
+    (@count) => { 0_usize };
+
+    (@count $head:expr $(, $tail:expr)*) => {
+        1_usize + $crate::impl_str_enum_noerr!(@count $($tail),*)
+    };
+
+    ($(#[$flag_meta:meta])* $flag_vis:vis $flag_name:ident,
+     $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
+    ) => {
+        $(#[$flag_meta])*
+        #[derive(Clone, Copy)]
+        $flag_vis enum $flag_name {
+            $(
+                $(#[$var_meta])*
+                $var,
+            )*
+        }
+
+        impl $crate::config::EnumStrIter<{ $crate::impl_str_enum!(@count $($var),*) }> for $flag_name {
+            const ITEMS: [Self; { $crate::impl_str_enum!(@count $($var),*) }] = [$(Self::$var),*];
+
+            fn as_ne_str(&self) -> &'static $crate::nonempty_string::NEStr {
+                match self {
+                    $(Self::$var => $strlit,)*
+                }
+            }
+        }
+
+        impl From<$flag_name> for &'static str {
+            fn from(s: $flag_name) -> Self {
+                $crate::config::EnumStrIter::as_ne_str(&s).as_str()
+            }
+        }
+    };
+}
+
+/// Implement a enum with variants that map to defined string literals.
+///
 /// This will make 4 things:
 /// 1. the enum itself (with docs as given)
 /// 2. a FromStr impl that maps each variant to a string literal
@@ -17,14 +61,10 @@ macro_rules! impl_str_enum {
      $(#[$error_meta:meta])* $error_vis:vis $error_name:ident,
      $($(#[$var_meta:meta])* $var:ident => $strlit:expr),+
     ) => {
-        $(#[$flag_meta])*
-        #[derive(Clone, Copy)]
-        $flag_vis enum $flag_name {
-            $(
-                $(#[$var_meta])*
-                $var,
-            )*
-        }
+        $crate::impl_str_enum_base!(
+            $(#[$flag_meta])* $flag_vis $flag_name,
+            $($(#[$var_meta])* $var => $strlit),*
+        );
 
         impl std::str::FromStr for $flag_name {
             type Err = $error_name;
@@ -36,16 +76,6 @@ macro_rules! impl_str_enum {
                     }
                 )*
                     Err($error_name(s.to_owned()))
-            }
-        }
-
-        impl $crate::config::EnumStrIter<{ $crate::impl_str_enum!(@count $($var),*) }> for $flag_name {
-            const ITEMS: [Self; { $crate::impl_str_enum!(@count $($var),*) }] = [$(Self::$var),*];
-
-            fn as_ne_str(&self) -> &'static $crate::nonempty_string::NEStr {
-                match self {
-                    $(Self::$var => $strlit,)*
-                }
             }
         }
 
@@ -72,13 +102,6 @@ macro_rules! impl_str_enum {
                 }
             }
         }
-
-        impl From<$flag_name> for &'static str {
-            fn from(s: $flag_name) -> Self {
-                $crate::config::EnumStrIter::as_ne_str(&s).as_str()
-            }
-        }
-
     };
 }
 

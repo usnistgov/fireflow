@@ -113,7 +113,7 @@ use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
     DKey0, DKey2, IndexedKey as _, Key as _, NonStdKeywords, NonStdKeywordsExt as _,
-    RepairCollisionError, RepairDiagnostics, StdKey, StdKeywords, StringOrBytes, ValidKeywords,
+    RepairCollisionError, RepairDiagnostics, StdKeywords, StringOrBytes, ValidKeywords,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -135,6 +135,7 @@ use fireflow_types::{
     },
     nonempty_string::{NESliceExt as _, NEStr, NEString},
     segment::{AnalysisSegmentId, DataSegmentId},
+    std_key::StdKey,
     textdelim::TEXTDelim,
     timepattern::TimePattern,
 };

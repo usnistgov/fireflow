@@ -1,6 +1,6 @@
 use crate::{
     config::OpticalOnlyKey,
-    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
+    index::{GateIndex, MeasIndex, RegionIndex, SubsetIndex},
     keystring::{CowKeyString, KeyString},
     keywords::{Version, VersionMembership},
     ne_str,
@@ -50,7 +50,7 @@ pub enum StdKey {
     Meas(MeasKey),
     Gate(GateKey),
     Region(RegionKey),
-    CsvFlag(CsvFlag),
+    CsvFlag(CsvFlagKey),
     Dfc(DfcKey),
 }
 
@@ -133,7 +133,7 @@ pub struct DfcKey {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct CsvFlag {
+pub struct CsvFlagKey {
     pub index: SubsetIndex,
 }
 
@@ -297,7 +297,7 @@ impl StdKey {
 
 type NEStdKey = NEAlt<
     NEAlt<ToNE<RootKey>, NEAlt<ToNE<MeasKey>, ToNE<GateKey>>>,
-    NEAlt<ToNE<RegionKey>, NEAlt<ToNE<CsvFlag>, ToNE<DfcKey>>>,
+    NEAlt<ToNE<RegionKey>, NEAlt<ToNE<CsvFlagKey>, ToNE<DfcKey>>>,
 >;
 
 impl<'a> ToDisplayNE<'a> for StdKey {
@@ -350,7 +350,7 @@ impl<'a> ToDisplayNE<'a> for RegionKey {
     }
 }
 
-impl<'a> ToDisplayNE<'a> for CsvFlag {
+impl<'a> ToDisplayNE<'a> for CsvFlagKey {
     type NE = NEConcat3<&'static NEStr, ToNE<SubsetIndex>, &'static NEStr>;
     fn to_ne(&'a self) -> Self::NE {
         NEConcat::new(
@@ -501,7 +501,7 @@ impl RealOrPseudoStdKey {
     unsafe fn from_ascii_bytes_nonparam(bytes: &NESlice<'_, u8>) -> Self {
         if let Some(rk) = RootKey::from_bytes(bytes.as_ref()) {
             Self::Real(StdKey::Root(rk))
-        } else if let Some(csv) = CsvFlag::from_bytes(bytes.as_ref()) {
+        } else if let Some(csv) = CsvFlagKey::from_bytes(bytes.as_ref()) {
             Self::Real(StdKey::CsvFlag(csv))
         } else if let Some(dfc) = DfcKey::from_bytes(bytes.as_ref()) {
             Self::Real(StdKey::Dfc(dfc))
@@ -977,7 +977,7 @@ impl DfcKey {
     }
 }
 
-impl CsvFlag {
+impl CsvFlagKey {
     pub const BLANK: &NEStr = ne_str!("CSVnFLAG");
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {

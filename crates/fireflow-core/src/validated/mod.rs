@@ -11,4 +11,5 @@ pub mod keys;
 pub mod read_state;
 pub mod row_buffer;
 pub mod shortname;
+pub mod std_kws;
 pub mod unaligned;

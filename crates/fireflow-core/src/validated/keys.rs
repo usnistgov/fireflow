@@ -12,7 +12,7 @@ use crate::text::keyword_enum::{
 use crate::text::keywords as kws;
 
 use fireflow_types::std_key::{
-    CsvFlag, GateKey, GateKeySuffix, MeasKey, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
+    CsvFlagKey, GateKey, GateKeySuffix, MeasKey, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
     PseudoStdKey, RealOrPseudoStdKey, RegionKey, RegionKeySuffix, RootKey, STD_PREFIX,
 };
 use fireflow_types::{
@@ -195,139 +195,6 @@ pub struct ValidKeywords {
     pub std: StdKeywords,
     #[cfg_attr(feature = "serde", serde(serialize_with = "serialize::ordered_map"))]
     pub nonstd: NonStdKeywords,
-}
-
-#[derive(Default)]
-pub(crate) struct ParsedRootKeywords {
-    byteord: RootKeyValue,
-    datatype: RootKeyValue,
-    mode: RootKeyValue,
-    par: RootKeyValue,
-    tot: RootKeyValue,
-    cyt: RootKeyValue,
-    abrt: RootKeyValue,
-    cells: RootKeyValue,
-    com: RootKeyValue,
-    exp: RootKeyValue,
-    fil: RootKeyValue,
-    inst: RootKeyValue,
-    lost: RootKeyValue,
-    op: RootKeyValue,
-    proj: RootKeyValue,
-    smno: RootKeyValue,
-    src: RootKeyValue,
-    sys: RootKeyValue,
-    tr: RootKeyValue,
-    cytsn: RootKeyValue,
-    timestep: RootKeyValue,
-    vol: RootKeyValue,
-    unicode: RootKeyValue,
-    flowrate: RootKeyValue,
-    begindata: RootKeyValue,
-    beginanalysis: RootKeyValue,
-    beginstext: RootKeyValue,
-    enddata: RootKeyValue,
-    endanalysis: RootKeyValue,
-    endstext: RootKeyValue,
-    nextdata: RootKeyValue,
-    btim: RootKeyValue,
-    etim: RootKeyValue,
-    date: RootKeyValue,
-    begindatetime: RootKeyValue,
-    enddatetime: RootKeyValue,
-    comp: RootKeyValue,
-    spillover: RootKeyValue,
-    lastmodified: RootKeyValue,
-    lastmodifier: RootKeyValue,
-    originality: RootKeyValue,
-    plateid: RootKeyValue,
-    platename: RootKeyValue,
-    wellid: RootKeyValue,
-    unstainedcenters: RootKeyValue,
-    unstainedinfo: RootKeyValue,
-    carrierid: RootKeyValue,
-    carriertype: RootKeyValue,
-    locationid: RootKeyValue,
-    csmode: RootKeyValue,
-    csvbits: RootKeyValue,
-    cstot: RootKeyValue,
-    gating: RootKeyValue,
-    gate: RootKeyValue,
-}
-
-#[derive(Default)]
-pub(crate) struct RootKeyValue(String);
-
-impl RootKeyValue {
-    fn put(&mut self, value: NEString) -> Option<NEString> {
-        if self.0.is_empty() {
-            self.0 = value.into();
-            None
-        } else {
-            Some(value)
-        }
-    }
-}
-
-impl ParsedRootKeywords {
-    fn insert(&mut self, key: RootKey, value: NEString) -> Option<NEString> {
-        match key {
-            RootKey::Byteord => self.byteord.put(value),
-            RootKey::Datatype => self.datatype.put(value),
-            RootKey::Mode => self.mode.put(value),
-            RootKey::Par => self.par.put(value),
-            RootKey::Tot => self.tot.put(value),
-            RootKey::Cyt => self.cyt.put(value),
-            RootKey::Abrt => self.abrt.put(value),
-            RootKey::Cells => self.cells.put(value),
-            RootKey::Com => self.com.put(value),
-            RootKey::Exp => self.exp.put(value),
-            RootKey::Fil => self.fil.put(value),
-            RootKey::Inst => self.inst.put(value),
-            RootKey::Lost => self.lost.put(value),
-            RootKey::Op => self.op.put(value),
-            RootKey::Proj => self.proj.put(value),
-            RootKey::Smno => self.smno.put(value),
-            RootKey::Src => self.src.put(value),
-            RootKey::Sys => self.sys.put(value),
-            RootKey::Tr => self.tr.put(value),
-            RootKey::Cytsn => self.cytsn.put(value),
-            RootKey::Timestep => self.timestep.put(value),
-            RootKey::Vol => self.vol.put(value),
-            RootKey::Unicode => self.unicode.put(value),
-            RootKey::Flowrate => self.flowrate.put(value),
-            RootKey::Begindata => self.begindata.put(value),
-            RootKey::Beginanalysis => self.beginanalysis.put(value),
-            RootKey::Beginstext => self.beginstext.put(value),
-            RootKey::Enddata => self.enddata.put(value),
-            RootKey::Endanalysis => self.endanalysis.put(value),
-            RootKey::Endstext => self.endstext.put(value),
-            RootKey::Nextdata => self.nextdata.put(value),
-            RootKey::Btim => self.btim.put(value),
-            RootKey::Etim => self.etim.put(value),
-            RootKey::Date => self.date.put(value),
-            RootKey::Begindatetime => self.begindatetime.put(value),
-            RootKey::Enddatetime => self.enddatetime.put(value),
-            RootKey::Comp => self.comp.put(value),
-            RootKey::Spillover => self.spillover.put(value),
-            RootKey::LastModified => self.lastmodified.put(value),
-            RootKey::LastModifier => self.lastmodifier.put(value),
-            RootKey::Originality => self.originality.put(value),
-            RootKey::Plateid => self.plateid.put(value),
-            RootKey::Platename => self.platename.put(value),
-            RootKey::Wellid => self.wellid.put(value),
-            RootKey::UnstainedCenters => self.unstainedcenters.put(value),
-            RootKey::UnstainedInfo => self.unstainedinfo.put(value),
-            RootKey::CarrierId => self.carrierid.put(value),
-            RootKey::CarrierType => self.carriertype.put(value),
-            RootKey::LocationId => self.locationid.put(value),
-            RootKey::Csmode => self.csmode.put(value),
-            RootKey::Csvbits => self.csvbits.put(value),
-            RootKey::Cstot => self.cstot.put(value),
-            RootKey::Gating => self.gating.put(value),
-            RootKey::Gate => self.gate.put(value),
-        }
-    }
 }
 
 /// A string that should be used as the header in the measurement table.
@@ -868,7 +735,7 @@ pub trait IndexedKey {
     fn std(i: impl Into<IndexFromOne>) -> StdKey {
         let j = i.into();
         match Self::STD {
-            PrefixSuffix::CsvFlag => StdKey::CsvFlag(CsvFlag { index: j.into() }),
+            PrefixSuffix::CsvFlag => StdKey::CsvFlag(CsvFlagKey { index: j.into() }),
             PrefixSuffix::Gate(s) => StdKey::Gate(GateKey::new(j.into(), s)),
             PrefixSuffix::Meas(s) => StdKey::Meas(MeasKey::new(j.into(), s)),
             PrefixSuffix::Region(s) => StdKey::Region(RegionKey::new(j.into(), s)),
@@ -883,7 +750,7 @@ pub trait IndexedKey {
     #[must_use]
     fn std_blank() -> &'static NEStr {
         match Self::STD {
-            PrefixSuffix::CsvFlag => CsvFlag::BLANK,
+            PrefixSuffix::CsvFlag => CsvFlagKey::BLANK,
             PrefixSuffix::Gate(s) => s.blank(),
             PrefixSuffix::Meas(s) => s.blank(),
             PrefixSuffix::Region(s) => s.blank(),

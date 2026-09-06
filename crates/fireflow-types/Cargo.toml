@@ -8,7 +8,7 @@ Simple types and constants used throughout other fireflow crates.
 
 [dependencies]
 chrono = { workspace = true }
-derive_more = { workspace = true, features = ["from", "into", "display", "from_str"] }
+derive_more = { workspace = true, features = ["from", "into", "display", "from_str", "try_into"] }
 thiserror = { workspace = true }
 const_format = { workspace = true }
 pyo3 = { workspace = true, optional = true, features = ["macros", "hashbrown"] }
@@ -27,6 +27,8 @@ num-traits = { workspace = true }
 regex = { workspace = true }
 itertools = { workspace = true }
 hashbrown = { workspace = true }
+strum = { workspace = true }
+strum_macros = { workspace = true }
 
 [features]
 python = ["dep:pyo3", "dep:fireflow-core-proc"]

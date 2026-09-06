@@ -10,11 +10,15 @@ use crate::{
     },
 };
 
-use derive_more::{AsRef, Display, From};
+use derive_more::{AsRef, Display, From, TryInto};
 use derive_new::new;
 use nonempty_collections::NESlice;
+use num_enum::IntoPrimitive;
+use strum::{EnumCount, IntoEnumIterator};
+use strum_macros::{EnumCount as EnumCount_, EnumIter};
 use thiserror::Error;
 
+use std::iter;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -42,7 +46,7 @@ pub enum RealOrPseudoStdKey {
 #[as_ref(KeyString)]
 pub struct PseudoStdKey(pub KeyString);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Display, From, TryInto)]
 #[cfg_attr(feature = "python", derive(FromPyString, IntoPyString))]
 #[display("${}", self.as_displayable())]
 pub enum StdKey {
@@ -54,7 +58,10 @@ pub enum StdKey {
     Dfc(DfcKey),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
+)]
+#[repr(usize)]
 pub enum RootKey {
     Byteord,
     Datatype,
@@ -126,13 +133,13 @@ pub struct IndexedKey<I, K> {
     pub id: K,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DfcKey {
     pub index0: MeasIndex,
     pub index1: MeasIndex,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CsvFlagKey {
     pub index: SubsetIndex,
 }
@@ -147,7 +154,19 @@ pub enum MeasKeyBase {
     Peak(PeakKeyPrefix),
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+impl MeasKeyBase {
+    #[must_use]
+    pub fn iter() -> impl Iterator<Item = Self> {
+        let a = ParamKeySuffix::iter().map(Self::from);
+        let b = PeakKeyPrefix::iter().map(Self::from);
+        a.chain(b)
+    }
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
+)]
+#[repr(usize)]
 pub enum ParamKeySuffix {
     N,
     R,
@@ -171,13 +190,19 @@ pub enum ParamKeySuffix {
     Calibration,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
+)]
+#[repr(usize)]
 pub enum PeakKeyPrefix {
     Pk,
     Pkn,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
+)]
+#[repr(usize)]
 pub enum GateKeySuffix {
     N,
     R,
@@ -189,7 +214,10 @@ pub enum GateKeySuffix {
     V,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
+)]
+#[repr(usize)]
 pub enum RegionKeySuffix {
     I,
     W,
@@ -706,16 +734,45 @@ impl RootKey {
     }
 }
 
+impl<I, K> IndexedKey<I, K> {
+    pub fn offset(&self) -> usize
+    where
+        K: EnumCount + Into<usize> + Copy,
+        I: Into<usize> + Copy,
+    {
+        K::COUNT * self.index.into() + self.id.into()
+    }
+
+    pub fn keys_at(index: I) -> impl Iterator<Item = Self>
+    where
+        K: IntoEnumIterator,
+        I: Clone,
+    {
+        K::iter()
+            .zip(iter::repeat(index))
+            .map(|(b, i)| Self::new(i, b))
+    }
+}
+
 impl MeasKey {
+    // TODO this seems brittle
+    pub fn meas_offset(&self) -> usize {
+        const LEN: usize = ParamKeySuffix::COUNT + PeakKeyPrefix::COUNT;
+        match self.id {
+            MeasKeyBase::Param(p) => LEN * usize::from(self.index) + usize::from(p),
+            MeasKeyBase::Peak(p) => {
+                LEN * usize::from(self.index) + usize::from(p) + ParamKeySuffix::COUNT
+            }
+        }
+    }
+
     const fn membership(&self) -> VersionMembership {
         match self.id {
             MeasKeyBase::Param(k) => k.membership(),
             MeasKeyBase::Peak(k) => k.membership(),
         }
     }
-}
 
-impl MeasKey {
     fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
         Self::new(i, ParamKeySuffix::from_optical_only_key(k).into())
     }
@@ -954,6 +1011,10 @@ impl RegionKeySuffix {
 }
 
 impl DfcKey {
+    pub fn offset(&self, matrix_size: usize) -> usize {
+        usize::from(self.index0) * matrix_size + usize::from(self.index1)
+    }
+
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
         if bytes.len() >= 7
             && bytes[0..3].eq_ignore_ascii_case(b"DFC")
@@ -963,10 +1024,7 @@ impl DfcKey {
             && let Some((i1, rest1)) = split_index_and_suffix(&rest0[2..])
             && rest1.is_empty()
         {
-            Some(Self {
-                index0: i0.into(),
-                index1: i1.into(),
-            })
+            Some(Self::new(i0.into(), i1.into()))
         } else {
             None
         }
@@ -986,7 +1044,7 @@ impl CsvFlagKey {
             && let Some((i, rest)) = split_index_and_suffix(&bytes[3..])
             && rest.eq_ignore_ascii_case(b"FLAG")
         {
-            Some(Self { index: i.into() })
+            Some(Self::new(i.into()))
         } else {
             None
         }

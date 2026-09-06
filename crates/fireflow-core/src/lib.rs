@@ -1,3 +1,4 @@
+pub mod std_index;
 pub mod api;
 pub mod config;
 pub mod convert;

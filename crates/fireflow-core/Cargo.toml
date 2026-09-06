@@ -43,6 +43,7 @@ type_families = { path = "../type_families" }
 fireflow-core-proc = { path = "../fireflow-core-proc" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, optional = true }
+strum = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

@@ -3475,10 +3475,7 @@ impl BiIndexedKey for Dfc {
     type Std = DfcKey;
 
     fn std_inner(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self::Std {
-        DfcKey {
-            index0: MeasIndex::from(i.into()),
-            index1: MeasIndex::from(j.into()),
-        }
+        DfcKey::new(MeasIndex::from(i.into()), MeasIndex::from(j.into()))
     }
 }
 

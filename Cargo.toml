@@ -29,6 +29,8 @@ const_format = "0.2.36"
 hashbrown = "0.16.1"
 bytemuck = "1.25.0"
 crc-fast = "1.10.0"
+strum = "0.28.0"
+strum_macros = "0.28.0"
 
 # serde
 serde = "1.0.228"

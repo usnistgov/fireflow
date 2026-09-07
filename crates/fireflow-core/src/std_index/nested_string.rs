@@ -3,6 +3,7 @@ use crate::validated::dataframe::HasLen;
 use fireflow_types::nonempty_string::NEStr;
 
 use derive_new::new;
+use fireflow_types::std_key::EnumIndex;
 use itertools::Itertools as _;
 use strum::{EnumCount, IntoEnumIterator};
 
@@ -39,33 +40,28 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     // are same length
     pub(crate) fn iter_keys(&self) -> impl Iterator<Item = (K, &str)>
     where
-        K: EnumCount + IntoEnumIterator,
+        K: EnumIndex<LEN>,
     {
-        assert_eq!(
-            K::COUNT,
-            LEN,
-            "array does not match enum length, this should not happen"
-        );
         K::iter().zip(self.iter())
     }
 
     pub(crate) unsafe fn set_keys<'a>(&mut self, pairs: impl IntoIterator<Item = (K, &'a NEStr)>)
     where
-        K: Into<usize>,
+        K: EnumIndex<LEN>,
     {
         for (k, v) in pairs {
-            self.indices[k.into()] = self.inner.len();
+            self.indices[k.index()] = self.inner.len();
             self.inner.extend(v.as_str().as_bytes());
         }
     }
 
     pub(crate) unsafe fn set_key(&mut self, key: K, val: &NEStr)
     where
-        K: Into<usize>,
+        K: EnumIndex<LEN>,
     {
         let start = self.inner.len();
         self.inner.extend(val.as_str().as_bytes());
-        self.indices[key.into()] = start
+        self.indices[key.index()] = start
     }
 }
 

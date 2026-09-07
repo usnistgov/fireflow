@@ -10,15 +10,18 @@ use crate::{
     },
 };
 
+use bytemuck::{NoUninit, must_cast_ref};
+use const_format::formatcp;
 use derive_more::{AsRef, Display, From, TryInto};
 use derive_new::new;
 use nonempty_collections::NESlice;
 use num_enum::IntoPrimitive;
-use strum::{EnumCount, IntoEnumIterator};
-use strum_macros::{EnumCount as EnumCount_, EnumIter};
+use strum::{EnumCount, IntoEnumIterator, VariantArray};
+use strum_macros::{EnumCount as EnumCount_, EnumIter, VariantArray};
 use thiserror::Error;
 
 use std::iter;
+use std::slice::Iter;
 use std::str::FromStr;
 
 #[cfg(feature = "serde")]
@@ -59,7 +62,7 @@ pub enum StdKey {
 }
 
 #[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
 pub enum RootKey {
@@ -128,7 +131,7 @@ pub enum RootKey {
 }
 
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct IndexedKey<I, K> {
+pub struct IndexedKey<const LEN: usize, I, K> {
     pub index: I,
     pub id: K,
 }
@@ -147,9 +150,9 @@ pub struct CsvFlagKeyMarker;
 
 pub struct DfcKeyMarker;
 
-pub type MeasKey = IndexedKey<MeasIndex, MeasKeyBase>;
-pub type GateKey = IndexedKey<GateIndex, GateKeySuffix>;
-pub type RegionKey = IndexedKey<RegionIndex, RegionKeySuffix>;
+pub type MeasKey = IndexedKey<20, MeasIndex, MeasKeyBase>;
+pub type GateKey = IndexedKey<8, GateIndex, GateKeySuffix>;
+pub type RegionKey = IndexedKey<2, RegionIndex, RegionKeySuffix>;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
 pub enum MeasKeyBase {
@@ -157,10 +160,140 @@ pub enum MeasKeyBase {
     Peak(PeakKeyPrefix),
 }
 
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
+)]
+#[repr(usize)]
+pub enum ParamKeySuffix {
+    N,
+    R,
+    E,
+    S,
+    F,
+    T,
+    P,
+    V,
+    B,
+    L,
+    O,
+    G,
+    D,
+    Det,
+    Tag,
+    Type,
+    Feature,
+    Analyte,
+    Datatype,
+    Calibration,
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
+)]
+#[repr(usize)]
+pub enum PeakKeyPrefix {
+    Pk,
+    Pkn,
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
+)]
+#[repr(usize)]
+pub enum GateKeySuffix {
+    N,
+    R,
+    E,
+    S,
+    F,
+    T,
+    P,
+    V,
+}
+
+#[derive(
+    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
+)]
+#[repr(usize)]
+pub enum RegionKeySuffix {
+    I,
+    W,
+}
+
+/// Error when parsing [`StdKey`] from string
+#[derive(PartialEq, Debug, Error, Clone)]
+#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
+#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
+pub enum StdKeyError {
+    #[error("key is not printable ASCII, got {0}")]
+    NonAscii(String),
+    #[error("key is not standard, got {0}")]
+    Pseudo(PseudoStdKey),
+    #[error("key was just a '$' character")]
+    Dollar,
+    #[error("prefix must be '$', got {0}")]
+    Prefix(char),
+    #[error("standard key must not be empty")]
+    Empty,
+}
+
+/// An enum which can be used to index into an array.
+///
+/// The following properties must hold:
+///
+/// * Enum must be repr(usize).
+/// * Enum must have no fields.
+/// * Enum variants must map to 0-N in order.
+/// * The supplied constant must match the number of variants.
+///
+/// The constant parameter is meant to be used to enforce array lengths since
+/// Rust does not allow using associated constants in const/type definitions
+/// (yet).
+pub trait EnumIndex<const LEN: usize>: VariantArray + EnumCount + NoUninit {
+    const _CHECK: () = {
+        assert!(LEN == Self::COUNT, "const does not match var count");
+        assert!(
+            is_zero_to_n_usize(Self::VARIANTS),
+            "all variants must be monotonically increasing usize starting from 0",
+        );
+    };
+
+    #[allow(path_statements)]
+    fn iter_ref() -> Iter<'static, Self> {
+        Self::_CHECK;
+        Self::VARIANTS.iter()
+    }
+
+    fn iter() -> iter::Copied<Iter<'static, Self>> {
+        Self::iter_ref().copied()
+    }
+
+    fn index(&self) -> usize {
+        *must_cast_ref(self)
+    }
+}
+
 pub trait ToStd {
     type Index;
 
     fn to_std(&self, index: &Self::Index) -> StdKey;
+}
+
+impl EnumIndex<52> for RootKey {}
+impl EnumIndex<20> for ParamKeySuffix {}
+impl EnumIndex<2> for PeakKeyPrefix {}
+impl EnumIndex<8> for GateKeySuffix {}
+impl EnumIndex<2> for RegionKeySuffix {}
+
+macro_rules! match_bytes {
+    ($src:expr, $($bytes:expr => $var:path),*) => {{
+        $(
+            if $src.eq_ignore_ascii_case($bytes.as_str().as_bytes()) {
+                return Some($var)
+            }
+        )*
+        None
+    }};
 }
 
 impl ToStd for RootKey {
@@ -227,95 +360,6 @@ impl MeasKeyBase {
         a.chain(b)
     }
 }
-
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
-)]
-#[repr(usize)]
-pub enum ParamKeySuffix {
-    N,
-    R,
-    E,
-    S,
-    F,
-    T,
-    P,
-    V,
-    B,
-    L,
-    O,
-    G,
-    D,
-    Det,
-    Tag,
-    Type,
-    Feature,
-    Analyte,
-    Datatype,
-    Calibration,
-}
-
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
-)]
-#[repr(usize)]
-pub enum PeakKeyPrefix {
-    Pk,
-    Pkn,
-}
-
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
-)]
-#[repr(usize)]
-pub enum GateKeySuffix {
-    N,
-    R,
-    E,
-    S,
-    F,
-    T,
-    P,
-    V,
-}
-
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, IntoPrimitive, EnumCount_, EnumIter,
-)]
-#[repr(usize)]
-pub enum RegionKeySuffix {
-    I,
-    W,
-}
-
-/// Error when parsing [`StdKey`] from string
-#[derive(PartialEq, Debug, Error, Clone)]
-#[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
-#[cfg_attr(feature = "python", pyerr(py::ParseKeyError))]
-pub enum StdKeyError {
-    #[error("key is not printable ASCII, got {0}")]
-    NonAscii(String),
-    #[error("key is not standard, got {0}")]
-    Pseudo(PseudoStdKey),
-    #[error("key was just a '$' character")]
-    Dollar,
-    #[error("prefix must be '$', got {0}")]
-    Prefix(char),
-    #[error("standard key must not be empty")]
-    Empty,
-}
-
-macro_rules! match_bytes {
-    ($src:expr, $($bytes:expr => $var:path),*) => {{
-        $(
-            if $src.eq_ignore_ascii_case($bytes.as_str().as_bytes()) {
-                return Some($var)
-            }
-        )*
-        None
-    }};
-}
-
 impl FromStr for StdKey {
     type Err = StdKeyError;
 
@@ -803,18 +847,18 @@ impl RootKey {
     }
 }
 
-impl<I, K> IndexedKey<I, K> {
+impl<const LEN: usize, I, K> IndexedKey<LEN, I, K> {
     pub fn offset(&self) -> usize
     where
-        K: EnumCount + Into<usize> + Copy,
+        K: EnumIndex<LEN>,
         I: Into<usize> + Copy,
     {
-        K::COUNT * self.index.into() + self.id.into()
+        K::COUNT * self.index.into() + self.id.index()
     }
 
     pub fn keys_at(index: I) -> impl Iterator<Item = Self>
     where
-        K: IntoEnumIterator,
+        K: EnumIndex<LEN>,
         I: Clone,
     {
         iter::repeat(index)
@@ -828,9 +872,9 @@ impl MeasKey {
     pub fn meas_offset(&self) -> usize {
         const LEN: usize = ParamKeySuffix::COUNT + PeakKeyPrefix::COUNT;
         match self.id {
-            MeasKeyBase::Param(p) => LEN * usize::from(self.index) + usize::from(p),
+            MeasKeyBase::Param(p) => LEN * usize::from(self.index) + p.index(),
             MeasKeyBase::Peak(p) => {
-                LEN * usize::from(self.index) + usize::from(p) + ParamKeySuffix::COUNT
+                LEN * usize::from(self.index) + p.index() + ParamKeySuffix::COUNT
             }
         }
     }
@@ -1138,6 +1182,20 @@ pub const RNW: &NEStr = ne_str!("$RNW");
 
 pub const REGION_I_KW_PREFIX: &NEStr = ne_str!("I");
 pub const REGION_W_KW_PREFIX: &NEStr = ne_str!("W");
+
+const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
+    let mut i = 0_usize;
+
+    while i < xs.len() {
+        let x: &usize = must_cast_ref(&xs[i]);
+        if *x != i {
+            return false;
+        }
+        i += 1;
+    }
+
+    true
+}
 
 #[cfg(feature = "serde")]
 impl Serialize for StdKey {

@@ -29,6 +29,7 @@ itertools = { workspace = true }
 hashbrown = { workspace = true }
 strum = { workspace = true }
 strum_macros = { workspace = true }
+bytemuck = { workspace = true, features = [ "must_cast", "derive" ] }
 
 [features]
 python = ["dep:pyo3", "dep:fireflow-core-proc"]

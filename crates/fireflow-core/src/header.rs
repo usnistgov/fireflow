@@ -24,7 +24,7 @@ use crate::text::keywords::{
     Beginanalysis, Begindata, Beginstext, Endanalysis, Enddata, Endstext, KeywordOptimizer,
     KeywordVersionScore, Nextdata, Par,
 };
-use crate::text::lookup::ReqMetarootKey as _;
+use crate::text::lookup::ReqValue as _;
 use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZeroPad20};
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,

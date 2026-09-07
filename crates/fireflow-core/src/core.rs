@@ -84,7 +84,7 @@ use crate::text::keywords::{
     Wellid,
 };
 use crate::text::lookup::{
-    Diagnosed, OptKeyError, OptMetarootKey as _, OptStKeyError, ReqKeyError, ReqMetarootKey as _,
+    Diagnosed, OptKeyError, OptValue as _, OptStKeyError, ReqKeyError, ReqValue as _,
 };
 use crate::text::named_vec::{
     Element, ElementIndexError, IndexedElement, InputLengthError, KeyIsOptical, NameMapping,

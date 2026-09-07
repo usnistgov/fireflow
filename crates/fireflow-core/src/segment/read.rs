@@ -12,8 +12,8 @@ use crate::logging::{
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::text::lookup::{
-    MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ParseKeyError_, ReqKeyErrorInner,
-    ReqKeyErrorInner_, ReqMetarootKey,
+    MissingKeyError, OptValue, ParseKeyError, ParseKeyError_, ReqKeyErrorInner, ReqKeyErrorInner_,
+    ReqValue,
 };
 use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
 use crate::validated::header_offsets::{
@@ -887,8 +887,8 @@ macro_rules! lookup_req {
 /// Operations to obtain required segment from TEXT keywords
 pub(crate) trait KeyedReqSegment: KeyedSegmentInner
 where
-    Self::B: ReqMetarootKey,
-    Self::E: ReqMetarootKey,
+    Self::B: ReqValue,
+    Self::E: ReqValue,
 {
     #[allow(clippy::type_complexity)]
     #[allow(clippy::result_large_err)]
@@ -953,8 +953,8 @@ impl KeyedReqSegment for SupplementalTextSegmentId {}
 pub(crate) trait KeyedReqSegmentWithDefault
 where
     Self: KeyedReqSegment + HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()>,
-    Self::B: ReqMetarootKey,
-    Self::E: ReqMetarootKey,
+    Self::B: ReqValue,
+    Self::E: ReqValue,
 {
     type IgnoreFlag: ConfigFlag;
     type OtherDataId: HasRegion;
@@ -1166,8 +1166,8 @@ macro_rules! lookup_opt {
 /// Operations to obtain optional segment from TEXT keywords
 pub(crate) trait KeyedOptSegment: KeyedSegmentInner
 where
-    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
-    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
+    Self::B: OptValue<Outer = Option<Self::B>>,
+    Self::E: OptValue<Outer = Option<Self::E>>,
 {
     #[allow(clippy::result_large_err)]
     #[allow(clippy::type_complexity)]
@@ -1233,8 +1233,8 @@ impl KeyedOptSegment for SupplementalTextSegmentId {}
 pub(crate) trait KeyedOptSegmentWithDefault
 where
     Self: KeyedOptSegment + HasRegion + AreNamedOffsets<TextOffsetsName, Params = ()>,
-    Self::B: OptMetarootKey + Optional<Outer = Option<Self::B>>,
-    Self::E: OptMetarootKey + Optional<Outer = Option<Self::E>>,
+    Self::B: OptValue<Outer = Option<Self::B>>,
+    Self::E: OptValue<Outer = Option<Self::E>>,
 {
     type IgnoreFlag: ConfigFlag;
     type OtherDataId: HasRegion;

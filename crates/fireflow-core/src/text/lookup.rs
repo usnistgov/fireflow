@@ -1,8 +1,8 @@
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
-    DollarKey, DollarKey_, ValueToStdKey, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
-    TruncatedNEString, ValidKeywords,
+    DollarKey, DollarKey_, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, TruncatedNEString,
+    ValidKeywords, ValueToStdKey,
 };
 
 use fireflow_types::{
@@ -237,8 +237,8 @@ macro_rules! impl_from_str_with_delim {
 
 pub(crate) use impl_from_str_with_delim;
 
-/// Any required key
-pub(crate) trait Required: Sized {
+/// A required key
+pub(crate) trait ReqValue: Sized + ValueToStdKey {
     fn get_req(kws: &StdKeywords, i: Self::Index) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
         Self: FromStr + ValueToStdKey,
@@ -320,10 +320,54 @@ pub(crate) trait Required: Sized {
             None => Err(MissingKeyError::new1(i)),
         }
     }
+
+    fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self>
+    where
+        Self: ValueToStdKey<Index = ()> + FromStr,
+    {
+        Self::get_req(kws, ())
+    }
+
+    fn remove_metaroot_req(kws: &mut StdKeywords) -> ReqResult<Self>
+    where
+        Self: ValueToStdKey<Index = ()> + FromStr,
+    {
+        Self::remove_req(kws, ())
+    }
+
+    fn get_meas_req(kws: &StdKeywords, i: Self::Index) -> ReqResult<Self>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        Self::get_req(kws, i)
+    }
+
+    fn remove_meas_req(kws: &mut StdKeywords, i: Self::Index) -> ReqResult<Self>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        Self::remove_req(kws, i)
+    }
+
+    fn remove_meas_req_with(
+        kws: &mut StdKeywords,
+        i: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqStKeyError<Self>>
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+        Self::Diagnostic: Default,
+    {
+        Self::remove_req_with(kws, i, data, conf)
+    }
 }
 
-/// Any optional key
-pub(crate) trait Optional: Sized {
+/// An optional key
+pub(crate) trait OptValue: Sized + ValueToStdKey {
     type Outer: Default + From<Self> + Into<Option<Self>>;
 
     fn get_opt(
@@ -466,57 +510,7 @@ pub(crate) trait Optional: Sized {
             rconf.process_optional_failure,
         )
     }
-}
 
-/// A required metaroot key
-pub(crate) trait ReqMetarootKey: Sized + Required + ValueToStdKey {
-    fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self>
-    where
-        Self: ValueToStdKey<Index = ()> + FromStr,
-    {
-        Self::get_req(kws, ())
-    }
-
-    fn remove_metaroot_req(kws: &mut StdKeywords) -> ReqResult<Self>
-    where
-        Self: ValueToStdKey<Index = ()> + FromStr,
-    {
-        Self::remove_req(kws, ())
-    }
-
-    fn get_meas_req(kws: &StdKeywords, i: Self::Index) -> ReqResult<Self>
-    where
-        Self: FromStr,
-        Self::Index: Copy,
-    {
-        Self::get_req(kws, i)
-    }
-
-    fn remove_meas_req(kws: &mut StdKeywords, i: Self::Index) -> ReqResult<Self>
-    where
-        Self: FromStr,
-        Self::Index: Copy,
-    {
-        Self::remove_req(kws, i)
-    }
-
-    fn remove_meas_req_with(
-        kws: &mut StdKeywords,
-        i: Self::Index,
-        data: Self::Payload<'_>,
-        conf: &Self::Config,
-    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqStKeyError<Self>>
-    where
-        Self: FromStrWith,
-        Self::Index: Copy,
-        Self::Diagnostic: Default,
-    {
-        Self::remove_req_with(kws, i, data, conf)
-    }
-}
-
-/// An optional metaroot key
-pub(crate) trait OptMetarootKey: Sized + Optional + ValueToStdKey {
     fn get_root_opt(kws: &StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
         Self: ValueToStdKey<Index = ()> + FromStr,

@@ -133,7 +133,7 @@ use crate::text::keywords::{
     AlphaNumType, ByteOrd2_0, ByteOrd3_1, LogScale, NumType, Par, RangeToIntError,
     RangeToIntErrorKind, TextRange, Tot, Width,
 };
-use crate::text::lookup::{OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _};
+use crate::text::lookup::{OptKeyError, OptValue as _, ReqKeyError, ReqValue as _};
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{

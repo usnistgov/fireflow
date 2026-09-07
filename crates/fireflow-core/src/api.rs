@@ -36,7 +36,7 @@ use crate::text::keywords::{
     AlphaNumType, Begindata, Beginstext, Cyt, Enddata, Endstext, LookupNextdataError, Nextdata,
     ReadNextdataError, Tot,
 };
-use crate::text::lookup::ReqMetarootKey as _;
+use crate::text::lookup::ReqValue as _;
 use crate::validated::dataframe::PrimitiveDataFrame;
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, OffsetsValidationError, PrimaryTEXTOverflowError,

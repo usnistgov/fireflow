@@ -3,7 +3,7 @@ use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword,
 };
-use crate::text::lookup::{Diagnosed, FromStrWith, OptMetarootKey, OptStKeyError, Optional};
+use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords, ValueToStdKey};
 
 use fireflow_types::{
@@ -214,8 +214,8 @@ impl<X> Timestamps<X> {
         LookupTimestampsError<X, X::Err>,
     >
     where
-        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>> + ValueToStdKey<Index = ()>,
-        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>> + ValueToStdKey<Index = ()>,
+        Btim<X>: OptValue<Outer = Option<Btim<X>>> + ValueToStdKey<Index = ()>,
+        Etim<X>: OptValue<Outer = Option<Etim<X>>> + ValueToStdKey<Index = ()>,
         X: PartialOrd + FromStr + From<NaiveTime>,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> OptRootKeyword<'a>: From<SplitKeyword<Btim<X>>> + From<SplitKeyword<Etim<X>>>,

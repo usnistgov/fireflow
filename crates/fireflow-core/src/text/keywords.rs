@@ -8,9 +8,8 @@ use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, N
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, OptRootKeyword, SplitKeyword_};
 use crate::text::lookup::{
-    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptMetarootKey, Optional,
-    ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqMetarootKey, Required, Trimmed,
-    impl_from_str_with_delim,
+    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptValue as _,
+    ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqValue as _, Trimmed, impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
@@ -3128,11 +3127,11 @@ macro_rules! kw_meta {
 }
 
 macro_rules! kw_meas {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:ident) => {
         impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = MeasIndex;
             type Id = fireflow_types::std_key::ParamKeySuffix;
-            const STD: Self::Id = $sfx;
+            const STD: Self::Id = fireflow_types::std_key::ParamKeySuffix::$sfx;
         }
     };
 }
@@ -3152,97 +3151,79 @@ macro_rules! kw_meta_int {
 }
 
 macro_rules! kw_meas_string {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:ident) => {
         newtype_string!($t);
         kw_meas!($t, $sfx);
     };
 }
 
-macro_rules! req_meta {
+macro_rules! req {
     ($t:ident) => {
-        impl Required for $t {}
-        impl ReqMetarootKey for $t {}
+        impl $crate::text::lookup::ReqValue for $t {}
     };
 }
 
-macro_rules! opt_meta {
+macro_rules! opt {
     ($t:ident, $outer:path) => {
-        impl Optional for $t {
+        impl $crate::text::lookup::OptValue for $t {
             type Outer = $outer;
         }
-        impl OptMetarootKey for $t {}
-    };
-}
-
-macro_rules! req_meas {
-    ($t:ident) => {
-        impl Required for $t {}
-        impl ReqMetarootKey for $t {}
-    };
-}
-
-macro_rules! opt_meas {
-    ($t:ident, $index:ident, $outer:path) => {
-        impl Optional for $t {
-            type Outer = $outer;
-        }
-        impl OptMetarootKey for $t {}
     };
 }
 
 macro_rules! kw_req_meta {
     ($t:ident, $k:expr) => {
         kw_meta!($t, $k);
-        req_meta!($t);
+        req!($t);
     };
 }
 
 macro_rules! kw_opt_meta {
     ($t:ident, $k:expr, $outer:path) => {
         kw_meta!($t, $k);
-        opt_meta!($t, $outer);
+        opt!($t, $outer);
     };
 }
 
 macro_rules! kw_req_meas {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:ident) => {
         kw_meas!($t, $sfx);
-        req_meas!($t);
+        req!($t);
     };
 }
 
 macro_rules! kw_opt_meas {
-    ($t:ident, $sfx:expr, $outer:path) => {
+    ($t:ident, $sfx:ident, $outer:path) => {
         kw_meas!($t, $sfx);
-        opt_meas!($t, MeasIndex, $outer);
+        opt!($t, $outer);
     };
 }
 
 macro_rules! kw_opt_root_string {
     ($t:ident, $k:expr) => {
         kw_meta_string!($t, $k);
-        opt_meta!($t, Self);
+        opt!($t, Self);
     };
 }
 
 macro_rules! kw_opt_meas_string {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:ident) => {
         kw_meas_string!($t, $sfx);
-        opt_meas!($t, MeasIndex, Self);
+        opt!($t, Self);
     };
 }
 
 macro_rules! kw_req_root_int {
     ($t:ident, $type:ident, $k:expr) => {
         kw_meta_int!($t, $type, $k);
-        req_meta!($t);
+        req!($t);
     };
 }
 
 macro_rules! kw_opt_root_int {
     ($t:ident, $type:ident, $k:expr) => {
         kw_meta_int!($t, $type, $k);
-        opt_meta!($t, Option<Self>);
+        opt!($t, Option<Self>);
     };
 }
 
@@ -3261,31 +3242,31 @@ macro_rules! kw_time {
 }
 
 macro_rules! kw_opt_gate {
-    ($t:ident, $sfx:expr, $outer:path) => {
+    ($t:ident, $sfx:ident, $outer:path) => {
         impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::GateIndex;
             type Id = fireflow_types::std_key::GateKeySuffix;
-            const STD: Self::Id = $sfx;
+            const STD: Self::Id = fireflow_types::std_key::GateKeySuffix::$sfx;
         }
-        opt_meas!($t, GateIndex, $outer);
+        opt!($t, $outer);
     };
 }
 
 macro_rules! kw_opt_gate_other {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:ident) => {
         kw_opt_gate!($t, $sfx, Option<Self>);
     };
 }
 
 macro_rules! kw_opt_gate_string {
-    ($t:ident, $sfx:expr) => {
+    ($t:ident, $sfx:ident) => {
         newtype_string!($t);
         kw_opt_gate!($t, $sfx, Self);
     };
 }
 
 macro_rules! meas_opt_zst {
-    ($t:ident, $sym:expr, $inner:ident) => {
+    ($t:ident, $sym:ident, $inner:ident) => {
         newtype_opt_bool!($t, $inner);
         kw_opt_meas!($t, $sym, Self);
     };
@@ -3364,7 +3345,7 @@ kw_opt_root_string!(Flowrate, RootKey::Flowrate);
 
 // version-specific
 kw_opt_root_int!(Tot, usize, RootKey::Tot); // optional in 2.0
-req_meta!(Tot); // required in 3.0+
+req!(Tot); // required in 3.0+
 
 kw_req_meta!(Mode, RootKey::Mode); // for 2.0-3.1
 kw_opt_meta!(Mode3_2, RootKey::Mode, Option<Self>); // for 3.2+
@@ -3376,24 +3357,24 @@ kw_req_meta!(ByteOrd2_0, RootKey::Byteord); // 2.0/3.0
 kw_req_meta!(ByteOrd3_1, RootKey::Byteord); // 3.1+
 
 // all versions
-kw_req_meas!(Width, ParamKeySuffix::B);
-kw_opt_meas_string!(Filter, ParamKeySuffix::F);
-kw_opt_meas!(Power, ParamKeySuffix::O, Option<Self>);
-kw_opt_meas!(PercentEmitted, ParamKeySuffix::P, Option<Self>);
-kw_req_meas!(TextRange, ParamKeySuffix::R);
-kw_opt_meas_string!(Longname, ParamKeySuffix::S);
-kw_opt_meas_string!(DetectorType, ParamKeySuffix::T);
-kw_opt_meas!(DetectorVoltage, ParamKeySuffix::V, Option<Self>);
+kw_req_meas!(Width, B);
+kw_opt_meas_string!(Filter, F);
+kw_opt_meas!(Power, O, Option<Self>);
+kw_opt_meas!(PercentEmitted, P, Option<Self>);
+kw_req_meas!(TextRange, R);
+kw_opt_meas_string!(Longname, S);
+kw_opt_meas_string!(DetectorType, T);
+kw_opt_meas!(DetectorVoltage, V, Option<Self>);
 
 // 3.0+
-kw_opt_meas!(Gain, ParamKeySuffix::G, Option<Self>);
+kw_opt_meas!(Gain, G, Option<Self>);
 
 // 3.1+
-kw_opt_meas!(Display, ParamKeySuffix::D, Option<Self>);
+kw_opt_meas!(Display, D, Option<Self>);
 
 // 3.2+
-kw_opt_meas!(Feature, ParamKeySuffix::Feature, Option<Self>);
-meas_opt_zst!(TemporalType, ParamKeySuffix::Type, TemporalTypeInner);
+kw_opt_meas!(Feature, Feature, Option<Self>);
+meas_opt_zst!(TemporalType, Type, TemporalTypeInner);
 
 impl FromStr for TemporalType {
     type Err = TemporalTypeError;
@@ -3405,21 +3386,21 @@ impl FromStr for TemporalType {
     }
 }
 
-kw_opt_meas!(NumType, ParamKeySuffix::Datatype, Option<Self>);
-kw_opt_meas_string!(Analyte, ParamKeySuffix::Analyte);
-kw_opt_meas_string!(Tag, ParamKeySuffix::Tag);
-kw_opt_meas_string!(DetectorName, ParamKeySuffix::Det);
+kw_opt_meas!(NumType, Datatype, Option<Self>);
+kw_opt_meas_string!(Analyte, Analyte);
+kw_opt_meas_string!(Tag, Tag);
+kw_opt_meas_string!(DetectorName, Det);
 
-kw_opt_meas!(OpticalType, ParamKeySuffix::T, Self);
+kw_opt_meas!(OpticalType, T, Self);
 
 // version specific
-kw_opt_meas!(Shortname, ParamKeySuffix::N, Option<Self>); // optional for 2.0/3.0
-req_meas!(Shortname); // required for 3.1+
+kw_opt_meas!(Shortname, N, Option<Self>); // optional for 2.0/3.0
+req!(Shortname); // required for 3.1+
 
-kw_opt_meas!(Scale, ParamKeySuffix::S, Option<Self>); // optional for 2.0
-req_meas!(Scale); // required for 3.0+
+kw_opt_meas!(Scale, S, Option<Self>); // optional for 2.0
+req!(Scale); // required for 3.0+
 
-meas_opt_zst!(TemporalScale2_0, ParamKeySuffix::S, TemporalScaleInner); // optional for 2.0
+meas_opt_zst!(TemporalScale2_0, S, TemporalScaleInner); // optional for 2.0
 
 impl FromStrWith for TemporalScale2_0 {
     type Err = TemporalScaleError;
@@ -3449,19 +3430,19 @@ impl FromStrWith for TemporalScale2_0 {
 }
 
 // required for 3.0+
-kw_req_meas!(TemporalScale3_0, ParamKeySuffix::S);
+kw_req_meas!(TemporalScale3_0, S);
 
 // scaler in 2.0/3.0
-kw_opt_meas!(Wavelength, ParamKeySuffix::L, Option<Self>);
+kw_opt_meas!(Wavelength, L, Option<Self>);
 
 // vector in 3.1+
-kw_opt_meas!(Wavelengths, ParamKeySuffix::L, Self);
+kw_opt_meas!(Wavelengths, L, Self);
 
 // 3.1 doesn't have offset
-kw_opt_meas!(Calibration3_1, ParamKeySuffix::Calibration, Option<Self>);
+kw_opt_meas!(Calibration3_1, Calibration, Option<Self>);
 
 // 3.2+ includes offset
-kw_opt_meas!(Calibration3_2, ParamKeySuffix::Calibration, Option<Self>);
+kw_opt_meas!(Calibration3_2, Calibration, Option<Self>);
 
 // 2.0 compensation matrix
 #[derive(Clone, Copy, Debug, FromStr, Default, Into, Delegate, PartialEq)]
@@ -3510,7 +3491,7 @@ kw_opt_meta_opt_u32!(CSVBits, RootKey::Csvbits);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
-opt_meas!(CSVFlag, SubsetIndex, Option<Self>);
+opt!(CSVFlag, Option<Self>);
 
 impl ValueToStdKey for CSVFlag {
     type Index = SubsetIndex;
@@ -3519,7 +3500,7 @@ impl ValueToStdKey for CSVFlag {
 }
 
 newtype_int!(PeakBin, u32);
-opt_meas!(PeakBin, MeasIndex, Option<Self>);
+opt!(PeakBin, Option<Self>);
 
 impl ValueToStdKey for PeakBin {
     type Index = MeasIndex;
@@ -3529,7 +3510,7 @@ impl ValueToStdKey for PeakBin {
 
 // $PKNn (2.0-3.1)
 newtype_int!(PeakIndex, MeasIndex);
-opt_meas!(PeakIndex, MeasIndex, Option<Self>);
+opt!(PeakIndex, Option<Self>);
 
 impl ValueToStdKey for PeakIndex {
     type Index = MeasIndex;
@@ -3540,14 +3521,14 @@ impl ValueToStdKey for PeakIndex {
 // 2.0-3.1 gating parameters
 kw_opt_root_int!(Gate, usize, RootKey::Gate);
 
-kw_opt_gate_other!(GateScale, GateKeySuffix::S);
-kw_opt_gate_string!(GateFilter, GateKeySuffix::F);
-kw_opt_gate_other!(GatePercentEmitted, GateKeySuffix::P);
-kw_opt_gate_other!(GateRange, GateKeySuffix::R);
-kw_opt_gate_other!(GateShortname, GateKeySuffix::N);
-kw_opt_gate_string!(GateLongname, GateKeySuffix::S);
-kw_opt_gate_string!(GateDetectorType, GateKeySuffix::T);
-kw_opt_gate_other!(GateDetectorVoltage, GateKeySuffix::V);
+kw_opt_gate_other!(GateScale, S);
+kw_opt_gate_string!(GateFilter, F);
+kw_opt_gate_other!(GatePercentEmitted, P);
+kw_opt_gate_other!(GateRange, R);
+kw_opt_gate_other!(GateShortname, N);
+kw_opt_gate_string!(GateLongname, S);
+kw_opt_gate_string!(GateDetectorType, T);
+kw_opt_gate_other!(GateDetectorVoltage, V);
 kw_opt_meta!(Gating, RootKey::Gating, Option<Self>);
 
 impl ValueToStdKey for RegionWindow {
@@ -3556,37 +3537,26 @@ impl ValueToStdKey for RegionWindow {
     const STD: Self::Id = RegionKeySuffix::W;
 }
 
-opt_meas!(RegionWindow, RegionIndex, Option<Self>);
+opt!(RegionWindow, Option<Self>);
 
 macro_rules! impl_region_index {
-    ($t:path, $m:expr) => {
+    ($t:ident) => {
         impl crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::RegionIndex;
             type Id = fireflow_types::std_key::RegionKeySuffix;
             const STD: Self::Id = fireflow_types::std_key::RegionKeySuffix::I;
         }
-        impl Optional for $t {
-            type Outer = Option<Self>;
-        }
-        impl OptMetarootKey for $t {}
+        opt!($t, Option<Self>);
     };
 }
 
-impl_region_index!(RegionGateIndex2_0, VersionMembership::One(Version::FCS2_0));
-impl_region_index!(
-    RegionGateIndex3_0,
-    VersionMembership::Two([Version::FCS3_0, Version::FCS3_1])
-);
-impl_region_index!(RegionGateIndex3_2, VersionMembership::One(Version::FCS3_2));
-
-// dummy to help print stuff
-// impl Key<RegionIndex> for RegionGateIndex<()> {
-//     const STD: PrefixSuffix = REGION_INDEX_PRE_SUF;
-// }
+impl_region_index!(RegionGateIndex2_0);
+impl_region_index!(RegionGateIndex3_0);
+impl_region_index!(RegionGateIndex3_2);
 
 // offsets for all versions
 kw_req_meta!(Nextdata, RootKey::Nextdata);
-opt_meta!(Nextdata, Option<Self>);
+opt!(Nextdata, Option<Self>);
 
 // TODO this won't allow pseudoempty TEXT offsets like 0,-1 which might happen
 // in real files and there is a config to fix if encountered
@@ -3633,10 +3603,10 @@ kw_offset!(
     RootKey::Endstext
 );
 
-opt_meta!(Beginanalysis, Option<Self>);
-opt_meta!(Endanalysis, Option<Self>);
-opt_meta!(Beginstext, Option<Self>);
-opt_meta!(Endstext, Option<Self>);
+opt!(Beginanalysis, Option<Self>);
+opt!(Endanalysis, Option<Self>);
+opt!(Beginstext, Option<Self>);
+opt!(Endstext, Option<Self>);
 
 /// Score generated when guessing version from keywords.
 #[derive(Default, PartialEq, Clone, new)]

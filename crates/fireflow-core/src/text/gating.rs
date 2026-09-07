@@ -16,13 +16,13 @@ use crate::text::keywords::{
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, RegionWindowRef, ScaleFix, UniGate, Vertex,
 };
-use crate::text::lookup::{OptKeyError, OptMetarootKey as _, OptStKeyError, Optional};
+use crate::text::lookup::{OptKeyError, OptStKeyError, OptValue as _};
 use crate::text::relational::{
     BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
     KeyToIndexLinkError, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
-    DollarKey, ValueToStdKey, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, ValidKeywords,
+    DollarKey, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, ValidKeywords, ValueToStdKey,
 };
 
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeySuffix};
@@ -52,7 +52,7 @@ use thiserror::Error;
 use serde::Serialize;
 
 use super::keyword_enum::SplitKeyword_;
-use super::lookup::{Diagnosed, OptMetarootKey};
+use super::lookup::{Diagnosed, OptValue};
 
 #[cfg(feature = "python")]
 use {
@@ -348,9 +348,8 @@ impl<I> AppliedGatesPre3_2<I> {
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>
-            + OptMetarootKey
-            + Optional<Outer = Option<RegionGateIndex<I>>>,
+        RegionGateIndex<I>:
+            ValueToStdKey<Index = RegionIndex> + OptValue<Outer = Option<RegionGateIndex<I>>>,
     {
         let ag = GatingScheme::lookup(kws, dropped, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
@@ -772,9 +771,8 @@ impl<I> GatingScheme<I> {
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>
-            + OptMetarootKey
-            + Optional<Outer = Option<RegionGateIndex<I>>>,
+        RegionGateIndex<I>:
+            ValueToStdKey<Index = RegionIndex> + OptValue<Outer = Option<RegionGateIndex<I>>>,
     {
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
@@ -923,9 +921,8 @@ impl<I> Region<I> {
         I: FromStr + LinkedMeasIndex + PartialEq,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
         for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>
-            + OptMetarootKey
-            + Optional<Outer = Option<RegionGateIndex<I>>>,
+        RegionGateIndex<I>:
+            ValueToStdKey<Index = RegionIndex> + OptValue<Outer = Option<RegionGateIndex<I>>>,
     {
         let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(kws, dropped, ri, (), conf)
             .map_switchable_errors(LookupRegionError::Region)

@@ -33,7 +33,7 @@ use crate::text::keywords::{
     Timestep, TimestepAdded, Wavelength, Wavelengths, WavelengthsLossError,
 };
 use crate::text::lookup::{
-    Diagnosed, OptKeyError, OptMetarootKey as _, OptStKeyError, ReqKeyError, ReqMetarootKey as _,
+    Diagnosed, OptKeyError, OptValue as _, OptStKeyError, ReqKeyError, ReqValue as _,
     ReqStKeyError,
 };
 use crate::text::named_vec::{

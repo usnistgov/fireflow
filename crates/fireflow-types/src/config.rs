@@ -1476,6 +1476,31 @@ impl OpticalOnlyKeys {
 // These are not special except for the fact that multiple flags follow the same
 // pattern, hence macro.
 
+pub trait KeywordFailureFlag: Into<ProcessKeywordFailure> + Copy {
+    fn as_triflag(&self) -> DummyTriFlag {
+        let flag = match (*self).into() {
+            ProcessKeywordFailure::Error => TriFlag::False,
+            ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DropWarn => TriFlag::True,
+            ProcessKeywordFailure::DemoteSilent | ProcessKeywordFailure::DropSilent => {
+                TriFlag::Silent
+            }
+        };
+        flag.into()
+    }
+
+    fn is_demote(&self) -> bool {
+        self.is_demote_or_drop() == Some(true)
+    }
+
+    fn is_demote_or_drop(&self) -> Option<bool> {
+        match (*self).into() {
+            ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DemoteSilent => Some(true),
+            ProcessKeywordFailure::DropWarn | ProcessKeywordFailure::DropSilent => Some(false),
+            ProcessKeywordFailure::Error => None,
+        }
+    }
+}
+
 macro_rules! impl_proc_key_fail {
     ($t:ident) => {
         #[derive(Clone, Copy, Default, FromStr, Display, Into, From)]
@@ -1489,36 +1514,7 @@ macro_rules! impl_proc_key_fail {
             }
         }
 
-        impl $t {
-            pub fn as_triflag(self) -> DummyTriFlag {
-                let flag = match self.0 {
-                    ProcessKeywordFailure::Error => TriFlag::False,
-                    ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DropWarn => {
-                        TriFlag::True
-                    }
-                    ProcessKeywordFailure::DemoteSilent | ProcessKeywordFailure::DropSilent => {
-                        TriFlag::Silent
-                    }
-                };
-                flag.into()
-            }
-
-            pub fn is_demote(self) -> bool {
-                self.is_demote_or_drop() == Some(true)
-            }
-
-            pub fn is_demote_or_drop(self) -> Option<bool> {
-                match self.0 {
-                    ProcessKeywordFailure::DemoteWarn | ProcessKeywordFailure::DemoteSilent => {
-                        Some(true)
-                    }
-                    ProcessKeywordFailure::DropWarn | ProcessKeywordFailure::DropSilent => {
-                        Some(false)
-                    }
-                    ProcessKeywordFailure::Error => None,
-                }
-            }
-        }
+        impl KeywordFailureFlag for $t {}
     };
 }
 

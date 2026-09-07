@@ -150,9 +150,9 @@ pub struct CsvFlagKeyMarker;
 
 pub struct DfcKeyMarker;
 
-pub type MeasKey = IndexedKey<22, MeasIndex, MeasKeyId>;
-pub type GateKey = IndexedKey<8, GateIndex, GateKeyId>;
-pub type RegionKey = IndexedKey<2, RegionIndex, RegionKeyId>;
+pub type MeasKey = IndexedKey<N_MEAS, MeasIndex, MeasKeyId>;
+pub type GateKey = IndexedKey<N_GATE, GateIndex, GateKeyId>;
+pub type RegionKey = IndexedKey<N_REGION, RegionIndex, RegionKeyId>;
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
@@ -266,10 +266,15 @@ pub trait ToStd {
     fn to_std(&self, index: &Self::Index) -> StdKey;
 }
 
-impl EnumIndex<52> for RootKey {}
-impl EnumIndex<22> for MeasKeyId {}
-impl EnumIndex<8> for GateKeyId {}
-impl EnumIndex<2> for RegionKeyId {}
+impl EnumIndex<N_ROOT> for RootKey {}
+impl EnumIndex<N_MEAS> for MeasKeyId {}
+impl EnumIndex<N_GATE> for GateKeyId {}
+impl EnumIndex<N_REGION> for RegionKeyId {}
+
+pub const N_ROOT: usize = 52;
+pub const N_MEAS: usize = 22;
+pub const N_GATE: usize = 8;
+pub const N_REGION: usize = 2;
 
 macro_rules! match_bytes {
     ($src:expr, $($bytes:expr => $var:path),*) => {{

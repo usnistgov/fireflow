@@ -123,9 +123,10 @@ use crate::validated::shortname::Shortname;
 use fireflow_types::{
     config::{
         AllowLoss, AppendFlag, AppendableFlag, ComputeWriteCRC, ConfigFlag as _, DummyTriFlag,
-        IncludeReqOrOpt, IncludeRootOrMeas, OverBitmaskAction, OverRangeAction,
-        OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig, ReadOffsetConfig,
-        ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
+        IncludeReqOrOpt, IncludeRootOrMeas, KeywordFailureFlag as _, OverBitmaskAction,
+        OverRangeAction, OverlapCorrectionLimit, ReadDatasetConfig, ReadHeaderAndTEXTConfig,
+        ReadOffsetConfig, ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig,
+        WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
     index::MeasIndex,

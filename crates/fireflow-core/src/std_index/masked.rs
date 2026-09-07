@@ -38,29 +38,25 @@ impl<M: Default + Copy> MaskedVariableString<M> {
 }
 
 impl<I, K, C, M> MaskedString<I, K, C, M> {
-    pub fn get_with<F>(&self, i: usize, f: F) -> (&M, &str)
+    pub fn get_value(&self, i: usize) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
-        C: Index<usize, Output = M>,
-        for<'a, 'b> F: FnOnce(&'a M, &'b str) -> (&'a M, &'b str),
     {
-        let m0 = self.get_mask(i);
-        let e0 = self.inner.get(i);
-        f(m0, e0)
+        self.inner.get(i)
     }
 
-    pub fn get_with_mut<F, X>(&mut self, i: usize, f: F) -> X
-    where
-        I: HasLen + Index<usize, Output = usize>,
-        C: Index<usize, Output = M> + IndexMut<usize, Output = M>,
-        F: FnOnce(&M, &str) -> (M, X),
-    {
-        let m0 = self.get_mask(i);
-        let e0 = self.inner.get(i);
-        let (m1, out) = f(m0, e0);
-        self.set_mask(i, m1);
-        out
-    }
+    // pub fn get_with<F, X>(&mut self, i: usize, f: F) -> X
+    // where
+    //     I: HasLen + Index<usize, Output = usize>,
+    //     C: Index<usize, Output = M> + IndexMut<usize, Output = M>,
+    //     for<'a> F: FnOnce(&M, &'a str) -> (M, X),
+    // {
+    //     let m0 = self.get_mask(i);
+    //     let e0 = self.inner.get(i);
+    //     let (m1, out) = f(m0, e0);
+    //     self.set_mask(i, m1);
+    //     out
+    // }
 
     pub fn get_mask(&self, i: usize) -> &M
     where

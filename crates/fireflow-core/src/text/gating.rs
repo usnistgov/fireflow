@@ -16,7 +16,7 @@ use crate::text::keywords::{
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, RegionWindowRef, ScaleFix, UniGate, Vertex,
 };
-use crate::text::lookup::{OptKeyError, OptStKeyError, OptValue as _};
+use crate::text::lookup::{OptKeyError, OptStKeyError};
 use crate::text::relational::{
     BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
     KeyToIndexLinkError, RemovedGateLink, RemovedGating, RemovedLink,
@@ -27,7 +27,7 @@ use crate::validated::keys::{
 
 use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
-    config::AllowLoss,
+    config::{AllowLoss, KeywordFailureFlag as _},
     index::{GateIndex, MeasIndex, RegionIndex},
     nonempty_string::{DisplayNE as _, ToNE},
     std_key::StdKey,

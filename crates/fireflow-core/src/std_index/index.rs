@@ -3,14 +3,14 @@ use super::nested_string::{NestedEnumString, NestedStringSize, NestedVariableStr
 use fireflow_types::{
     index::BiMeasIndex,
     nonempty_string::NEStr,
-    std_key::{CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, RegionKey, RootKey, StdKey},
+    std_key::{
+        CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, N_ROOT, RegionKey, RootKey, StdKey,
+    },
 };
 
 use std::iter;
 
-pub type NestedRoot = NestedEnumString<N_ROOT_KWS, RootKey>;
-
-pub(crate) const N_ROOT_KWS: usize = 52;
+pub type NestedRoot = NestedEnumString<N_ROOT, RootKey>;
 
 pub struct StdIndex {
     root: NestedRoot,
@@ -34,11 +34,11 @@ impl StdIndex {
     pub fn get(&self, k: &StdKey) -> &str {
         match k {
             StdKey::Root(rk) => self.root.get(rk.index()),
-            StdKey::Meas(mk) => self.root.get(mk.offset()),
-            StdKey::Gate(gk) => self.root.get(gk.offset()),
-            StdKey::Region(rk) => self.root.get(rk.offset()),
-            StdKey::CsvFlag(ck) => self.root.get(ck.index.into()),
-            StdKey::Dfc(dk) => self.root.get(dk.offset(self.dfc_matrix_size)),
+            StdKey::Meas(mk) => self.meas.get(mk.offset()),
+            StdKey::Gate(gk) => self.gate.get(gk.offset()),
+            StdKey::Region(rk) => self.region.get(rk.offset()),
+            StdKey::CsvFlag(ck) => self.csv_flag.get(ck.index.into()),
+            StdKey::Dfc(dk) => self.dfc.get(dk.offset(self.dfc_matrix_size)),
         }
     }
 

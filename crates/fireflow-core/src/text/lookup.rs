@@ -1,12 +1,16 @@
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
+use crate::std_index::tx::{KeywordAction, StdIndexTx};
 use crate::validated::keys::{
     DollarKey, DollarKey_, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, TruncatedNEString,
     ValidKeywords, ValueToStdKey,
 };
 
 use fireflow_types::{
-    config::{ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, TrimIntraValueWhitespace},
+    config::{
+        ConfigFlag as _, DummyTriFlag, KeywordFailureFlag as _, ProcessOptionalFailure,
+        TrimIntraValueWhitespace,
+    },
     nonempty_string::{NEStr, NEString},
     std_key::StdKey,
 };
@@ -241,7 +245,7 @@ pub(crate) use impl_from_str_with_delim;
 pub(crate) trait ReqValue: Sized + ValueToStdKey {
     fn get_req(kws: &StdKeywords, i: Self::Index) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStr + ValueToStdKey,
+        Self: FromStr,
         Self::Index: Copy,
     {
         let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
@@ -258,7 +262,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStrWith + ValueToStdKey,
+        Self: FromStrWith,
         Self::Index: Copy,
     {
         let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
@@ -272,7 +276,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
         i: Self::Index,
     ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStr + ValueToStdKey,
+        Self: FromStr,
         Self::Index: Copy,
     {
         let v = Self::remove_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
@@ -289,7 +293,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
     where
-        Self: FromStrWith + ValueToStdKey,
+        Self: FromStrWith,
         Self::Index: Copy,
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
@@ -298,10 +302,10 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
             .map_err(ReqKeyErrorInner::from)
     }
 
-    fn get_req_inner(kws: &StdKeywords, i: Self::Index) -> Result<&NEString, MissingKeyError<Self>>
-    where
-        Self: ValueToStdKey,
-    {
+    fn get_req_inner(
+        kws: &StdKeywords,
+        i: Self::Index,
+    ) -> Result<&NEString, MissingKeyError<Self>> {
         match kws.get(&Self::std(&i)) {
             Some(v) => Ok(v),
             None => Err(MissingKeyError::new1(i)),
@@ -311,10 +315,7 @@ pub(crate) trait ReqValue: Sized + ValueToStdKey {
     fn remove_req_inner(
         kws: &mut StdKeywords,
         i: Self::Index,
-    ) -> Result<NEString, MissingKeyError<Self>>
-    where
-        Self: ValueToStdKey,
-    {
+    ) -> Result<NEString, MissingKeyError<Self>> {
         match kws.remove(&Self::std(&i)) {
             Some(v) => Ok(v),
             None => Err(MissingKeyError::new1(i)),
@@ -375,7 +376,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         k: Self::Index,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + ValueToStdKey,
+        Self: FromStr,
     {
         kws.get(&Self::std(&k))
             .map(|v| {
@@ -413,7 +414,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + ValueToStdKey,
+        Self: FromStr,
     {
         Self::get_opt(kws, k).into_deferred_switchable(conf.process_optional_failure)
     }
@@ -423,7 +424,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         k: Self::Index,
     ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + ValueToStdKey,
+        Self: FromStr,
     {
         kws.remove(&Self::std(&k))
             .map(|v| {
@@ -442,7 +443,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         conf: &Self::Config,
     ) -> Result<Diagnosed<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStrWith + ValueToStdKey,
+        Self: FromStrWith,
         Self::Diagnostic: Default,
     {
         kws.remove(&Self::std(&k))
@@ -456,7 +457,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
 
     fn remove_opt_nofail(kws: &mut StdKeywords, i: Self::Index) -> Self::Outer
     where
-        Self: FromStr<Err = Infallible> + ValueToStdKey,
+        Self: FromStr<Err = Infallible>,
     {
         let Ok(res) = Self::remove_opt(kws, i);
         res
@@ -469,7 +470,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self>>
     where
-        Self: FromStr + ValueToStdKey,
+        Self: FromStr,
         Self::Index: Copy,
     {
         let res = Self::remove_opt(&mut kws.std, k);
@@ -495,7 +496,7 @@ pub(crate) trait OptValue: Sized + ValueToStdKey {
         ParseKeyError<Self::Err, Self>,
     >
     where
-        Self: FromStrWith + ValueToStdKey,
+        Self: FromStrWith,
         Self::Index: Copy,
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
@@ -643,5 +644,379 @@ where
             }
             LogResult::new_deferred_switchable3(X::default(), e, triflag)
         }
+    }
+}
+
+// NEW STUFF
+
+/// A required key
+trait ReqValue0: Sized + ValueToStdKey {
+    fn get_req(kws: &StdIndexTx, i: Self::Index) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
+        v.parse()
+            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
+            .map_err(ReqKeyErrorInner::from)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn get_req_with(
+        kws: &StdIndexTx,
+        i: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+    {
+        let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
+        Self::from_str_with(v, data, conf)
+            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
+            .map_err(ReqKeyErrorInner::from)
+    }
+
+    fn remove_req(
+        kws: &mut StdIndexTx,
+        i: Self::Index,
+    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        let v = Self::remove_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
+        v.parse()
+            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
+            .map_err(ReqKeyErrorInner::from)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn remove_req_with(
+        kws: &mut StdIndexTx,
+        k: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+    {
+        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
+        Self::from_str_with(v, data, conf)
+            .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v.to_owned())))
+            .map_err(ReqKeyErrorInner::from)
+    }
+
+    fn get_req_inner(kws: &StdIndexTx, i: Self::Index) -> Result<&NEStr, MissingKeyError<Self>> {
+        match kws.read::<Self>(&i) {
+            Some(v) => Ok(v),
+            None => Err(MissingKeyError::new1(i)),
+        }
+    }
+
+    fn remove_req_inner(
+        kws: &mut StdIndexTx,
+        i: Self::Index,
+    ) -> Result<&NEStr, MissingKeyError<Self>> {
+        match kws.remove::<Self>(&i) {
+            Some(v) => Ok(v),
+            None => Err(MissingKeyError::new1(i)),
+        }
+    }
+
+    fn get_metaroot_req(kws: &StdIndexTx) -> ReqResult<Self>
+    where
+        Self: ValueToStdKey<Index = ()> + FromStr,
+    {
+        Self::get_req(kws, ())
+    }
+
+    fn remove_metaroot_req(kws: &mut StdIndexTx) -> ReqResult<Self>
+    where
+        Self: ValueToStdKey<Index = ()> + FromStr,
+    {
+        Self::remove_req(kws, ())
+    }
+
+    fn get_meas_req(kws: &StdIndexTx, i: Self::Index) -> ReqResult<Self>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        Self::get_req(kws, i)
+    }
+
+    fn remove_meas_req(kws: &mut StdIndexTx, i: Self::Index) -> ReqResult<Self>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        Self::remove_req(kws, i)
+    }
+
+    fn remove_meas_req_with(
+        kws: &mut StdIndexTx,
+        i: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &Self::Config,
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqStKeyError<Self>>
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+        Self::Diagnostic: Default,
+    {
+        Self::remove_req_with(kws, i, data, conf)
+    }
+}
+
+/// An optional key
+trait OptValue0: Sized + ValueToStdKey {
+    type Outer: Default + From<Self> + Into<Option<Self>>;
+
+    fn get_opt(
+        kws: &StdIndexTx,
+        k: Self::Index,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
+    where
+        Self: FromStr,
+    {
+        kws.read::<Self>(&k)
+            .map(|v| {
+                v.parse()
+                    .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v.to_owned())))
+            })
+            .transpose()
+            .map(|x| x.map(Self::Outer::from).unwrap_or_default())
+    }
+
+    // #[allow(clippy::type_complexity)]
+    // fn get_opt_with<I>(
+    //     kws: &StdIndexTx,
+    //     k: SpecificKey<Self, Self::Index>,
+    //     data: Self::Payload<'_>,
+    //     conf: &Self::Config,
+    // ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, Self::Index>>
+    // where
+    //     SpecificKey<Self, Self::Index>: AsStdKey,
+    //     Self: FromStrWith,
+    //     Self::Diagnostic: Default,
+    // {
+    //     kws.get(&k.as_std_key())
+    //         .map(|v| {
+    //             Self::from_str_with(v, data, conf)
+    //                 .map_err(|e| ParseKeyError::new(e, k, TruncatedString(v.to_owned())))
+    //         })
+    //         .transpose()
+    //         .map(|x| x.map_or(DiagnosedKeyword::default(), BifunctorOnce::first_into_once))
+    // }
+
+    fn get_or_ignore_opt(
+        kws: &StdIndexTx,
+        k: Self::Index,
+        conf: &EvaledReadDataKeywordsConfig,
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
+    where
+        Self: FromStr,
+    {
+        Self::get_opt(kws, k).into_deferred_switchable(conf.process_optional_failure)
+    }
+
+    fn remove_or_transfer_opt(
+        kws: &mut StdIndexTx,
+        k: Self::Index,
+        conf: &EvaledReadDataKeywordsConfig,
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self>>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        let flag = conf.process_optional_failure;
+        Self::remove_opt(kws, k, flag)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn remove_or_transfer_opt_with<C>(
+        kws: &mut StdIndexTx,
+        k: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &C,
+    ) -> DeferredSwitchableError<
+        Diagnosed<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        ParseKeyError<Self::Err, Self>,
+    >
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+        Self::Diagnostic: Default,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
+    {
+        let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
+        let flag = rconf.process_optional_failure;
+        Self::remove_opt_with(kws, k, data, flag, conf.as_ref())
+    }
+
+    fn get_root_opt(kws: &StdIndexTx) -> Result<Self::Outer, OptKeyError<Self>>
+    where
+        Self: ValueToStdKey<Index = ()> + FromStr,
+    {
+        Self::get_opt(kws, ())
+    }
+
+    fn remove_root_opt_nofail(kws: &mut StdIndexTx) -> Self::Outer
+    where
+        Self: ValueToStdKey<Index = ()> + FromStr<Err = Infallible>,
+    {
+        Self::remove_opt_nofail(kws, ())
+    }
+
+    fn remove_or_drop_root_opt(
+        kws: &mut StdIndexTx,
+        conf: &EvaledReadDataKeywordsConfig,
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
+    where
+        Self: ValueToStdKey<Index = ()> + FromStr,
+    {
+        Self::remove_or_transfer_opt(kws, (), conf)
+    }
+
+    fn remove_or_drop_root_opt_with<C>(
+        kws: &mut StdIndexTx,
+        data: Self::Payload<'_>,
+        conf: &C,
+    ) -> DeferredSwitchableError<
+        Diagnosed<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        OptStKeyError<Self>,
+    >
+    where
+        Self: ValueToStdKey<Index = ()> + FromStrWith,
+        Self::Diagnostic: Default,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
+    {
+        Self::remove_or_transfer_opt_with(kws, (), data, conf)
+    }
+
+    // pub(crate) trait OptIndexedKey: Sized + Optional + Key<MeasIndex> {
+    // fn get_meas_opt(
+    //     kws: &StdIndexTx,
+    //     i: impl Into<IndexFromOne>,
+    // ) -> Result<Self::Outer, OptIndexedKeyError<Self>>
+    // where
+    //     Self: FromStr,
+    // {
+    //     Self::get_opt(kws, SpecificKey::new_i1(i.into()))
+    // }
+
+    fn get_or_ignore_meas_opt(
+        std: &StdIndexTx,
+        i: Self::Index,
+        conf: &EvaledReadDataKeywordsConfig,
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
+    where
+        Self: FromStr,
+    {
+        Self::get_or_ignore_opt(std, i, conf)
+    }
+
+    fn remove_meas_opt_nofail(kws: &mut StdIndexTx, i: Self::Index) -> Self::Outer
+    where
+        Self: FromStr<Err = Infallible>,
+    {
+        Self::remove_opt_nofail(kws, i)
+    }
+
+    fn remove_or_drop_meas_opt(
+        kws: &mut StdIndexTx,
+        i: Self::Index,
+        conf: &EvaledReadDataKeywordsConfig,
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        Self::remove_or_transfer_opt(kws, i, conf)
+    }
+
+    fn remove_or_drop_meas_opt_with<C>(
+        kws: &mut StdIndexTx,
+        i: Self::Index,
+        data: Self::Payload<'_>,
+        conf: &C,
+    ) -> DeferredSwitchableError<
+        Diagnosed<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        OptStKeyError<Self>,
+    >
+    where
+        Self: FromStrWith,
+        Self::Index: Copy,
+        Self::Diagnostic: Default,
+        C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
+    {
+        Self::remove_or_transfer_opt_with(kws, i, data, conf)
+    }
+
+    fn remove_opt(
+        kws: &mut StdIndexTx,
+        k: Self::Index,
+        flag: ProcessOptionalFailure,
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self>>
+    where
+        Self: FromStr,
+    {
+        let triflag = flag.as_triflag();
+        let action = KeywordAction::from_flag(flag);
+        kws.remove_and_parse::<_, _, Self>(&k, |v| match v.parse() {
+            Ok(x) => (None, Ok(x)),
+            Err(e) => (action, Err((e, TruncatedNEString(v.to_owned())))),
+        })
+        .transpose()
+        .map(|x| x.map(Self::Outer::from).unwrap_or_default())
+        .map_err(|(e, v)| ParseKeyError::new1(e, k, v))
+        .into_deferred_switchable3(triflag)
+    }
+
+    #[allow(clippy::type_complexity)]
+    fn remove_opt_with(
+        kws: &mut StdIndexTx,
+        k: Self::Index,
+        data: Self::Payload<'_>,
+        flag: ProcessOptionalFailure,
+        conf: &Self::Config,
+    ) -> DeferredSwitchableError<
+        Diagnosed<Self::Outer, Self::Diagnostic>,
+        DummyTriFlag,
+        ParseKeyError<Self::Err, Self>,
+    >
+    where
+        Self: FromStrWith,
+        Self::Diagnostic: Default,
+    {
+        let triflag = flag.as_triflag();
+        let action = KeywordAction::from_flag(flag);
+        kws.remove_and_parse::<_, _, Self>(&k, |v| match Self::from_str_with(v, data, conf) {
+            Ok(x) => (None, Ok(x)),
+            Err(e) => (action, Err((e, TruncatedNEString(v.to_owned())))),
+        })
+        .transpose()
+        .map(|x| x.map_or(Diagnosed::default(), |y| y.first_once(Self::Outer::from)))
+        .map_err(|(e, v)| ParseKeyError::new1(e, k, v))
+        .into_deferred_switchable3(triflag)
+    }
+
+    fn remove_opt_nofail(kws: &mut StdIndexTx, i: Self::Index) -> Self::Outer
+    where
+        Self: FromStr<Err = Infallible>,
+    {
+        kws.remove_and_parse::<_, _, Self>(&i, |v| {
+            let Ok(x) = v.parse();
+            (None, x)
+        })
+        .map(Self::Outer::from)
+        .unwrap_or_default()
     }
 }

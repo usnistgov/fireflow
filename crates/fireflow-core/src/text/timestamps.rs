@@ -7,7 +7,9 @@ use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords, ValueToStdKey};
 
 use fireflow_types::{
-    config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0},
+    config::{
+        BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0, KeywordFailureFlag as _,
+    },
     datepattern::DatePattern,
     nonempty_string::{NEStr, NEString, ToDisplayNE, ambassador_impl_ToDisplayNE},
     timepattern::{ParseWithTimePatternError, TimePattern},

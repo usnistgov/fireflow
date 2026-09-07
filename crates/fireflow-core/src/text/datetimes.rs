@@ -5,7 +5,7 @@ use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptValue as _};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
 
 use fireflow_types::{
-    config::ConfigFlag as _,
+    config::{ConfigFlag as _, KeywordFailureFlag as _},
     keywords::{
         ISO_DATETIME_NO_TZ, ISO_DATETIME_TZ_HH, ISO_DATETIME_TZ_HH_MAYBE_MM, ISO_DATETIME_TZ_HH_MM,
     },

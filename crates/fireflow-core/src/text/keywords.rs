@@ -36,8 +36,8 @@ use crate::validated::unaligned::{U24, U40, U48, U56};
 use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
-        ConfigFlag as _, DummyTriFlag, ForceLinearScale, NumericByteWidth, OpticalOnlyKey,
-        ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
+        ConfigFlag as _, DummyTriFlag, ForceLinearScale, KeywordFailureFlag as _, NumericByteWidth,
+        OpticalOnlyKey, ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
         TrimIntraValueWhitespace,
     },
     index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},

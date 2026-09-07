@@ -3,9 +3,7 @@ use super::nested_string::{NestedEnumString, NestedStringSize, NestedVariableStr
 use fireflow_types::{
     index::BiMeasIndex,
     nonempty_string::NEStr,
-    std_key::{
-        CsvFlagKey, DfcKey, GateKey, IndexedKey, MeasKey, MeasKeyId, RegionKey, RootKey, StdKey,
-    },
+    std_key::{CsvFlagKey, DfcKey, EnumIndex as _, GateKey, MeasKey, RegionKey, RootKey, StdKey},
 };
 
 use std::iter;
@@ -32,6 +30,18 @@ pub struct StdIndex {
 }
 
 impl StdIndex {
+    #[must_use]
+    pub fn get(&self, k: &StdKey) -> &str {
+        match k {
+            StdKey::Root(rk) => self.root.get(rk.index()),
+            StdKey::Meas(mk) => self.root.get(mk.offset()),
+            StdKey::Gate(gk) => self.root.get(gk.offset()),
+            StdKey::Region(rk) => self.root.get(rk.offset()),
+            StdKey::CsvFlag(ck) => self.root.get(ck.index.into()),
+            StdKey::Dfc(dk) => self.root.get(dk.offset(self.dfc_matrix_size)),
+        }
+    }
+
     // #[must_use]
     // pub fn get_root(&self, k: RootKey) -> &str {
     //     self.root.get(usize::from(k))

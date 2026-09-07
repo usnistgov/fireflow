@@ -5,7 +5,6 @@ use fireflow_types::nonempty_string::NEStr;
 use derive_new::new;
 use fireflow_types::std_key::EnumIndex;
 use itertools::Itertools as _;
-use strum::{EnumCount, IntoEnumIterator};
 
 use std::iter::once;
 use std::marker::PhantomData;
@@ -61,7 +60,7 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
     {
         let start = self.inner.len();
         self.inner.extend(val.as_str().as_bytes());
-        self.indices[key.index()] = start
+        self.indices[key.index()] = start;
     }
 }
 

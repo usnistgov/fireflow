@@ -19,7 +19,7 @@ use crate::text::relational::{
     RemovedIndexLink, RemovedLink, RemovedNamedLink, TemporalNamedLinkError,
 };
 use crate::text::spillover::Spillover;
-use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
+use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100};
 use crate::validated::ascii_range::AsciiRangeValue;
 use crate::validated::ascii_uint::UintZeroPad20;
 use crate::validated::bitmask::BitmaskValue;
@@ -48,7 +48,7 @@ use fireflow_types::{
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
     std_key::{
-        CsvFlagKeyMarker, DfcKeyMarker, GateKeySuffix, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
+        CsvFlagKeyMarker, DfcKeyMarker, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
         RegionKeySuffix, RootKey, StdKey, ToStd as _,
     },
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
@@ -59,7 +59,7 @@ use type_families::{BifunctorOnce, impl_functor, impl_kind1};
 
 use ambassador::Delegate;
 use bigdecimal::{BigDecimal, ParseBigDecimalError, Signed as _};
-use chrono::{NaiveDateTime, NaiveTime, Timelike as _};
+use chrono::{NaiveDateTime, Timelike as _};
 use derive_more::{Add, AsMut, AsRef, Display, From, FromStr, Into, Sub};
 use derive_new::new;
 use hashbrown::HashMap;
@@ -3117,11 +3117,11 @@ macro_rules! newtype_opt_bool {
 }
 
 macro_rules! kw_meta {
-    ($t:ident, $k:expr) => {
+    ($t:ident, $k:ident) => {
         impl crate::validated::keys::ValueToStdKey for $t {
             type Index = ();
             type Id = fireflow_types::std_key::RootKey;
-            const STD: Self::Id = $k;
+            const STD: Self::Id = fireflow_types::std_key::RootKey::$k;
         }
     };
 }
@@ -3129,7 +3129,7 @@ macro_rules! kw_meta {
 macro_rules! kw_meas {
     ($t:ident, $sfx:ident) => {
         impl $crate::validated::keys::ValueToStdKey for $t {
-            type Index = MeasIndex;
+            type Index = fireflow_types::index::MeasIndex;
             type Id = fireflow_types::std_key::ParamKeySuffix;
             const STD: Self::Id = fireflow_types::std_key::ParamKeySuffix::$sfx;
         }
@@ -3137,14 +3137,14 @@ macro_rules! kw_meas {
 }
 
 macro_rules! kw_meta_string {
-    ($t:ident, $k:expr) => {
+    ($t:ident, $k:ident) => {
         kw_meta!($t, $k);
         newtype_string!($t);
     };
 }
 
 macro_rules! kw_meta_int {
-    ($t:ident, $type:ident, $k:expr) => {
+    ($t:ident, $type:ident, $k:ident) => {
         kw_meta!($t, $k);
         newtype_int!($t, $type);
     };
@@ -3172,14 +3172,14 @@ macro_rules! opt {
 }
 
 macro_rules! kw_req_meta {
-    ($t:ident, $k:expr) => {
+    ($t:ident, $k:ident) => {
         kw_meta!($t, $k);
         req!($t);
     };
 }
 
 macro_rules! kw_opt_meta {
-    ($t:ident, $k:expr, $outer:path) => {
+    ($t:ident, $k:ident, $outer:path) => {
         kw_meta!($t, $k);
         opt!($t, $outer);
     };
@@ -3200,7 +3200,7 @@ macro_rules! kw_opt_meas {
 }
 
 macro_rules! kw_opt_root_string {
-    ($t:ident, $k:expr) => {
+    ($t:ident, $k:ident) => {
         kw_meta_string!($t, $k);
         opt!($t, Self);
     };
@@ -3214,28 +3214,28 @@ macro_rules! kw_opt_meas_string {
 }
 
 macro_rules! kw_req_root_int {
-    ($t:ident, $type:ident, $k:expr) => {
+    ($t:ident, $type:ident, $k:ident) => {
         kw_meta_int!($t, $type, $k);
         req!($t);
     };
 }
 
 macro_rules! kw_opt_root_int {
-    ($t:ident, $type:ident, $k:expr) => {
+    ($t:ident, $type:ident, $k:ident) => {
         kw_meta_int!($t, $type, $k);
         opt!($t, Option<Self>);
     };
 }
 
 macro_rules! kw_time {
-    ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:expr) => {
+    ($outer:ident, $wrap:ident, $inner:ident, $err:ident, $key:ident) => {
         pub(crate) type $outer = $wrap<$inner>;
 
         kw_opt_meta!($outer, $key, Option<Self>);
 
-        impl From<NaiveTime> for $outer {
-            fn from(value: NaiveTime) -> Self {
-                Xtim($inner(value))
+        impl From<chrono::NaiveTime> for $outer {
+            fn from(value: chrono::NaiveTime) -> Self {
+                $crate::text::timestamps::Xtim($inner(value))
             }
         }
     };
@@ -3273,88 +3273,88 @@ macro_rules! meas_opt_zst {
 }
 
 macro_rules! kw_opt_meta_opt_u32 {
-    ($t:ident, $k:expr) => {
+    ($t:ident, $k:ident) => {
         newtype_opt_u32!($t);
         kw_opt_meta!($t, $k, Self);
     };
 }
 
 // all versions
-kw_req_meta!(AlphaNumType, RootKey::Datatype);
-kw_opt_root_int!(Abrt, u32, RootKey::Abrt);
-kw_opt_root_string!(Cytsn, RootKey::Cytsn);
-kw_opt_root_string!(Com, RootKey::Com);
-kw_opt_root_string!(Cells, RootKey::Cells);
-kw_opt_meta!(FCSDate, RootKey::Date, Option<Self>);
-kw_opt_root_string!(Exp, RootKey::Exp);
-kw_opt_root_string!(Inst, RootKey::Inst);
-kw_opt_root_int!(Lost, u32, RootKey::Lost);
-kw_opt_root_string!(Op, RootKey::Op);
-kw_req_root_int!(Par, usize, RootKey::Par);
-kw_opt_root_string!(Proj, RootKey::Proj);
-kw_opt_root_string!(Smno, RootKey::Smno);
-kw_opt_root_string!(Src, RootKey::Src);
-kw_opt_root_string!(Sys, RootKey::Sys);
-kw_opt_meta!(Trigger, RootKey::Tr, Option<Self>);
-kw_opt_root_string!(Fil, RootKey::Fil);
+kw_req_meta!(AlphaNumType, Datatype);
+kw_opt_root_int!(Abrt, u32, Abrt);
+kw_opt_root_string!(Cytsn, Cytsn);
+kw_opt_root_string!(Com, Com);
+kw_opt_root_string!(Cells, Cells);
+kw_opt_meta!(FCSDate, Date, Option<Self>);
+kw_opt_root_string!(Exp, Exp);
+kw_opt_root_string!(Inst, Inst);
+kw_opt_root_int!(Lost, u32, Lost);
+kw_opt_root_string!(Op, Op);
+kw_req_root_int!(Par, usize, Par);
+kw_opt_root_string!(Proj, Proj);
+kw_opt_root_string!(Smno, Smno);
+kw_opt_root_string!(Src, Src);
+kw_opt_root_string!(Sys, Sys);
+kw_opt_meta!(Trigger, Tr, Option<Self>);
+kw_opt_root_string!(Fil, Fil);
 
 // time for 2.0
-kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, RootKey::Btim);
-kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, RootKey::Etim);
+kw_time!(Btim2_0, Btim, FCSTime, FCSTimeError, Btim);
+kw_time!(Etim2_0, Etim, FCSTime, FCSTimeError, Etim);
 
 // time for 3.0
-kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, RootKey::Btim);
-kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, RootKey::Etim);
+kw_time!(Btim3_0, Btim, FCSTime60, FCSTime60Error, Btim);
+kw_time!(Etim3_0, Etim, FCSTime60, FCSTime60Error, Etim);
 
 // time for 3.1-3.2
-kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, RootKey::Btim);
-kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, RootKey::Etim);
+kw_time!(Btim3_1, Btim, FCSTime100, FCSTime100Error, Btim);
+kw_time!(Etim3_1, Etim, FCSTime100, FCSTime100Error, Etim);
 
 // 3.0 only
-kw_opt_meta!(Compensation3_0, RootKey::Comp, Option<Self>);
-kw_opt_meta!(Unicode, RootKey::Unicode, Option<Self>);
+kw_opt_meta!(Compensation3_0, Comp, Option<Self>);
+kw_opt_meta!(Unicode, Unicode, Option<Self>);
 
 // for 3.0+
-kw_req_meta!(Timestep, RootKey::Timestep);
+kw_req_meta!(Timestep, Timestep);
 
 // for 3.1+
-kw_opt_root_string!(LastModifier, RootKey::LastModifier);
-kw_opt_meta!(Originality, RootKey::Originality, Option<Self>);
-kw_opt_meta!(LastModified, RootKey::LastModified, Option<Self>);
+kw_opt_root_string!(LastModifier, LastModifier);
+kw_opt_meta!(Originality, Originality, Option<Self>);
+kw_opt_meta!(LastModified, LastModified, Option<Self>);
 
-kw_opt_root_string!(Plateid, RootKey::Plateid);
-kw_opt_root_string!(Platename, RootKey::Platename);
-kw_opt_root_string!(Wellid, RootKey::Wellid);
+kw_opt_root_string!(Plateid, Plateid);
+kw_opt_root_string!(Platename, Platename);
+kw_opt_root_string!(Wellid, Wellid);
 
-kw_opt_meta!(Spillover, RootKey::Spillover, Option<Self>);
+kw_opt_meta!(Spillover, Spillover, Option<Self>);
 
-kw_opt_meta!(Vol, RootKey::Vol, Option<Self>);
+kw_opt_meta!(Vol, Vol, Option<Self>);
 
 // for 3.2+
-kw_opt_root_string!(Carrierid, RootKey::CarrierId);
-kw_opt_root_string!(Carriertype, RootKey::CarrierType);
-kw_opt_root_string!(Locationid, RootKey::LocationId);
+kw_opt_root_string!(Carrierid, CarrierId);
+kw_opt_root_string!(Carriertype, CarrierType);
+kw_opt_root_string!(Locationid, LocationId);
 
-kw_opt_meta!(BeginDateTime, RootKey::Begindatetime, Option<Self>);
-kw_opt_meta!(EndDateTime, RootKey::Enddatetime, Option<Self>);
-kw_opt_meta!(UnstainedCenters, RootKey::UnstainedCenters, Self);
+kw_opt_meta!(BeginDateTime, Begindatetime, Option<Self>);
+kw_opt_meta!(EndDateTime, Enddatetime, Option<Self>);
+kw_opt_meta!(UnstainedCenters, UnstainedCenters, Self);
 
-kw_opt_root_string!(UnstainedInfo, RootKey::UnstainedInfo);
+kw_opt_root_string!(UnstainedInfo, UnstainedInfo);
 
-kw_opt_root_string!(Flowrate, RootKey::Flowrate);
+kw_opt_root_string!(Flowrate, Flowrate);
 
 // version-specific
-kw_opt_root_int!(Tot, usize, RootKey::Tot); // optional in 2.0
+kw_opt_root_int!(Tot, usize, Tot); // optional in 2.0
 req!(Tot); // required in 3.0+
 
-kw_req_meta!(Mode, RootKey::Mode); // for 2.0-3.1
-kw_opt_meta!(Mode3_2, RootKey::Mode, Option<Self>); // for 3.2+
+kw_req_meta!(Mode, Mode); // for 2.0-3.1
+kw_opt_meta!(Mode3_2, Mode, Option<Self>); // for 3.2+
 
-kw_opt_root_string!(Cyt, RootKey::Cyt); // optional for 2.0-3.1
-kw_req_meta!(Cyt3_2, RootKey::Cyt); // required for 3.2+
+kw_opt_root_string!(Cyt, Cyt); // optional for 2.0-3.1
+kw_req_meta!(Cyt3_2, Cyt); // required for 3.2+
 
-kw_req_meta!(ByteOrd2_0, RootKey::Byteord); // 2.0/3.0
-kw_req_meta!(ByteOrd3_1, RootKey::Byteord); // 3.1+
+kw_req_meta!(ByteOrd2_0, Byteord); // 2.0/3.0
+kw_req_meta!(ByteOrd3_1, Byteord); // 3.1+
 
 // all versions
 kw_req_meas!(Width, B);
@@ -3484,10 +3484,10 @@ impl Dfc {
 pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc>;
 
 // 3.0/3.1 subsets
-kw_opt_root_int!(CSMode, usize, RootKey::Csmode);
+kw_opt_root_int!(CSMode, usize, Csmode);
 
-kw_opt_meta_opt_u32!(CSTot, RootKey::Cstot);
-kw_opt_meta_opt_u32!(CSVBits, RootKey::Csvbits);
+kw_opt_meta_opt_u32!(CSTot, Cstot);
+kw_opt_meta_opt_u32!(CSVBits, Csvbits);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
@@ -3519,7 +3519,7 @@ impl ValueToStdKey for PeakIndex {
 }
 
 // 2.0-3.1 gating parameters
-kw_opt_root_int!(Gate, usize, RootKey::Gate);
+kw_opt_root_int!(Gate, usize, Gate);
 
 kw_opt_gate_other!(GateScale, S);
 kw_opt_gate_string!(GateFilter, F);
@@ -3529,7 +3529,7 @@ kw_opt_gate_other!(GateShortname, N);
 kw_opt_gate_string!(GateLongname, S);
 kw_opt_gate_string!(GateDetectorType, T);
 kw_opt_gate_other!(GateDetectorVoltage, V);
-kw_opt_meta!(Gating, RootKey::Gating, Option<Self>);
+kw_opt_meta!(Gating, Gating, Option<Self>);
 
 impl ValueToStdKey for RegionWindow {
     type Index = RegionIndex;
@@ -3555,13 +3555,13 @@ impl_region_index!(RegionGateIndex3_0);
 impl_region_index!(RegionGateIndex3_2);
 
 // offsets for all versions
-kw_req_meta!(Nextdata, RootKey::Nextdata);
+kw_req_meta!(Nextdata, Nextdata);
 opt!(Nextdata, Option<Self>);
 
 // TODO this won't allow pseudoempty TEXT offsets like 0,-1 which might happen
 // in real files and there is a config to fix if encountered
 macro_rules! kw_offset {
-    ($(#[$attr:meta])* $t:ident, $key:expr) => {
+    ($(#[$attr:meta])* $t:ident, $key:ident) => {
         $(#[$attr])*
         #[derive(From, Into, FromStr, Debug, Clone, Copy, Delegate, PartialEq)]
         #[delegate(ToDisplayNE<'a>, generics = "'a")]
@@ -3575,32 +3575,32 @@ macro_rules! kw_offset {
 kw_offset!(
     /// Value for $BEGINANALYSIS key (3.0-3.2)
     Beginanalysis,
-    RootKey::Beginanalysis
+    Beginanalysis
 );
 kw_offset!(
     /// Value for $BEGINDATA key (3.0-3.2)
     Begindata,
-    RootKey::Begindata
+    Begindata
 );
 kw_offset!(
     /// Value for $BEGINSTEXT key (3.0-3.2)
     Beginstext,
-    RootKey::Beginstext
+    Beginstext
 );
 kw_offset!(
     /// Value for $ENDANALYSIS key (3.0-3.2)
     Endanalysis,
-    RootKey::Endanalysis
+    Endanalysis
 );
 kw_offset!(
     /// Value for $ENDDATA key (3.0-3.2)
     Enddata,
-    RootKey::Enddata
+    Enddata
 );
 kw_offset!(
     /// Value for $ENDSTEXT (3.0-3.2)
     Endstext,
-    RootKey::Endstext
+    Endstext
 );
 
 opt!(Beginanalysis, Option<Self>);

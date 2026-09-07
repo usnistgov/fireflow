@@ -84,7 +84,7 @@ use crate::text::keywords::{
     Wellid,
 };
 use crate::text::lookup::{
-    Diagnosed, OptKeyError, OptValue as _, OptStKeyError, ReqKeyError, ReqValue as _,
+    Diagnosed, OptKeyError, OptStKeyError, OptValue as _, ReqKeyError, ReqValue as _,
 };
 use crate::text::named_vec::{
     Element, ElementIndexError, IndexedElement, InputLengthError, KeyIsOptical, NameMapping,
@@ -111,8 +111,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DollarKey, ValueToStdKey as _, NonStdKeywords, NonStdKeywordsExt as _, RepairCollisionError,
-    RepairDiagnostics, StdKeywords, StringOrBytes, ValidKeywords,
+    DollarKey, NonStdKeywords, NonStdKeywordsExt as _, RepairCollisionError, RepairDiagnostics,
+    StdKeywords, StringOrBytes, ValidKeywords, ValueToStdKey as _,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -170,7 +170,7 @@ use {
     crate::text::keywords as kws,
     fireflow_types::{
         ne_str,
-        std_key::{BlankKeyword as _, ParamKeySuffix, PeakKeyPrefix},
+        std_key::{BlankKeyword as _, MeasKeyId},
     },
     ndarray::Array2,
     serde::Serialize,
@@ -5485,20 +5485,20 @@ where
 
         let common = [
             INDEX,
-            ParamKeySuffix::N.blank(),
-            ParamKeySuffix::S.blank(),
-            ParamKeySuffix::B.blank(),
-            ParamKeySuffix::R.blank(),
-            ParamKeySuffix::S.blank(),
-            ParamKeySuffix::F.blank(),
-            ParamKeySuffix::L.blank(),
-            ParamKeySuffix::O.blank(),
-            ParamKeySuffix::T.blank(),
-            ParamKeySuffix::P.blank(),
-            ParamKeySuffix::V.blank(),
+            MeasKeyId::N.blank(),
+            MeasKeyId::S.blank(),
+            MeasKeyId::B.blank(),
+            MeasKeyId::R.blank(),
+            MeasKeyId::S.blank(),
+            MeasKeyId::F.blank(),
+            MeasKeyId::L.blank(),
+            MeasKeyId::O.blank(),
+            MeasKeyId::T.blank(),
+            MeasKeyId::P.blank(),
+            MeasKeyId::V.blank(),
         ];
 
-        let peak = [PeakKeyPrefix::Pk.blank(), PeakKeyPrefix::Pkn.blank()];
+        let peak = [MeasKeyId::Pk.blank(), MeasKeyId::Pkn.blank()];
 
         header.extend(common);
 
@@ -5507,25 +5507,25 @@ where
                 header.extend(peak);
             }
             Version::FCS3_0 => {
-                header.push(ParamKeySuffix::G.blank());
+                header.push(MeasKeyId::G.blank());
                 header.extend(peak);
             }
             Version::FCS3_1 => {
-                header.push(ParamKeySuffix::G.blank());
-                header.push(ParamKeySuffix::Calibration.blank());
-                header.push(ParamKeySuffix::D.blank());
+                header.push(MeasKeyId::G.blank());
+                header.push(MeasKeyId::Calibration.blank());
+                header.push(MeasKeyId::D.blank());
                 header.extend(peak);
             }
             Version::FCS3_2 => {
-                header.push(ParamKeySuffix::G.blank());
-                header.push(ParamKeySuffix::Calibration.blank());
-                header.push(ParamKeySuffix::D.blank());
-                header.push(ParamKeySuffix::Det.blank());
-                header.push(ParamKeySuffix::Tag.blank());
-                header.push(ParamKeySuffix::Type.blank());
-                header.push(ParamKeySuffix::Feature.blank());
-                header.push(ParamKeySuffix::Analyte.blank());
-                header.push(ParamKeySuffix::Type.blank());
+                header.push(MeasKeyId::G.blank());
+                header.push(MeasKeyId::Calibration.blank());
+                header.push(MeasKeyId::D.blank());
+                header.push(MeasKeyId::Det.blank());
+                header.push(MeasKeyId::Tag.blank());
+                header.push(MeasKeyId::Type.blank());
+                header.push(MeasKeyId::Feature.blank());
+                header.push(MeasKeyId::Analyte.blank());
+                header.push(MeasKeyId::Type.blank());
             }
         }
 

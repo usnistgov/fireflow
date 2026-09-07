@@ -8,7 +8,7 @@ use crate::text::byteord::WidthToFixedError;
 use crate::text::keywords::{RangeToIntError, TextRange, Width};
 use crate::validated::keys::ValueToStdKey as _;
 
-use fireflow_types::std_key::{ParamKeySuffix, ToStd as _};
+use fireflow_types::std_key::{MeasKeyId, ToStd as _};
 use fireflow_types::{config::DisallowRangeTrunc, index::MeasIndex, other_width::MAX_CHARS};
 
 use derive_more::{Display, From, Into};
@@ -275,7 +275,7 @@ pub struct IndexedWidthToCharsError(IndexedError<MeasIndex, WidthToFixedError<Ch
 
 impl fmt::Display for IndexedWidthToCharsError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let k = ParamKeySuffix::B.to_std(&self.0.index);
+        let k = MeasKeyId::B.to_std(&self.0.index);
         match &self.0.error {
             WidthToFixedError::Fixed(e) => {
                 write!(f, "could not convert {k} to chars because {e}")
@@ -291,8 +291,8 @@ impl fmt::Display for IndexedWidthToCharsError {
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "{pnr} ({r}) is longer than {b} digits allowed by {pnb}",
-    pnr = ParamKeySuffix::R.to_std(&_0.index),
-    pnb = ParamKeySuffix::B.to_std(&_0.index),
+    pnr = MeasKeyId::R.to_std(&_0.index),
+    pnb = MeasKeyId::B.to_std(&_0.index),
     r = _0.error.value,
     b = _0.error.chars,
 )]

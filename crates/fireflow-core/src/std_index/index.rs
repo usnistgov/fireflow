@@ -4,7 +4,7 @@ use fireflow_types::{
     index::BiMeasIndex,
     nonempty_string::NEStr,
     std_key::{
-        CsvFlagKey, DfcKey, GateKey, IndexedKey, MeasKey, MeasKeyBase, RegionKey, RootKey, StdKey,
+        CsvFlagKey, DfcKey, GateKey, IndexedKey, MeasKey, MeasKeyId, RegionKey, RootKey, StdKey,
     },
 };
 
@@ -65,8 +65,7 @@ impl StdIndex {
     pub fn iter_keys(&self) -> impl Iterator<Item = (StdKey, &str)> {
         let root = self.root.iter_keys().map(|(k, v)| (StdKey::Root(k), v));
         let meas_keys = (0..)
-            .flat_map(|i| iter::repeat(i.into()).zip(MeasKeyBase::iter()))
-            .map(|(i, b)| IndexedKey::new(i, b))
+            .flat_map(|i| MeasKey::keys_at(i.into()))
             .map(StdKey::Meas);
         let gate_keys = (0..)
             .flat_map(|i| GateKey::keys_at(i.into()))
@@ -158,7 +157,7 @@ impl StdIndex {
         let meas_it = it
             .by_ref()
             .take(meas_size.n_strings)
-            .map(|(k, v)| (MeasKey::try_from(k).unwrap().meas_offset(), v));
+            .map(|(k, v)| (MeasKey::try_from(k).unwrap().offset(), v));
         // SAFETY: input is sorted and deduplicated
         unsafe {
             meas.extend_pairs(meas_it);

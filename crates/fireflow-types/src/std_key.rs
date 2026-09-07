@@ -150,21 +150,15 @@ pub struct CsvFlagKeyMarker;
 
 pub struct DfcKeyMarker;
 
-pub type MeasKey = IndexedKey<20, MeasIndex, MeasKeyBase>;
-pub type GateKey = IndexedKey<8, GateIndex, GateKeySuffix>;
-pub type RegionKey = IndexedKey<2, RegionIndex, RegionKeySuffix>;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, From)]
-pub enum MeasKeyBase {
-    Param(ParamKeySuffix),
-    Peak(PeakKeyPrefix),
-}
+pub type MeasKey = IndexedKey<22, MeasIndex, MeasKeyId>;
+pub type GateKey = IndexedKey<8, GateIndex, GateKeyId>;
+pub type RegionKey = IndexedKey<2, RegionIndex, RegionKeyId>;
 
 #[derive(
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
-pub enum ParamKeySuffix {
+pub enum MeasKeyId {
     N,
     R,
     E,
@@ -185,13 +179,6 @@ pub enum ParamKeySuffix {
     Analyte,
     Datatype,
     Calibration,
-}
-
-#[derive(
-    Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
-)]
-#[repr(usize)]
-pub enum PeakKeyPrefix {
     Pk,
     Pkn,
 }
@@ -200,7 +187,7 @@ pub enum PeakKeyPrefix {
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
-pub enum GateKeySuffix {
+pub enum GateKeyId {
     N,
     R,
     E,
@@ -215,7 +202,7 @@ pub enum GateKeySuffix {
     Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, EnumCount_, VariantArray, NoUninit,
 )]
 #[repr(usize)]
-pub enum RegionKeySuffix {
+pub enum RegionKeyId {
     I,
     W,
 }
@@ -280,10 +267,9 @@ pub trait ToStd {
 }
 
 impl EnumIndex<52> for RootKey {}
-impl EnumIndex<20> for ParamKeySuffix {}
-impl EnumIndex<2> for PeakKeyPrefix {}
-impl EnumIndex<8> for GateKeySuffix {}
-impl EnumIndex<2> for RegionKeySuffix {}
+impl EnumIndex<22> for MeasKeyId {}
+impl EnumIndex<8> for GateKeyId {}
+impl EnumIndex<2> for RegionKeyId {}
 
 macro_rules! match_bytes {
     ($src:expr, $($bytes:expr => $var:path),*) => {{
@@ -304,23 +290,15 @@ impl ToStd for RootKey {
     }
 }
 
-impl ToStd for ParamKeySuffix {
+impl ToStd for MeasKeyId {
     type Index = MeasIndex;
 
     fn to_std(&self, index: &Self::Index) -> StdKey {
-        IndexedKey::new(*index, MeasKeyBase::from(*self)).into()
+        IndexedKey::new(*index, *self).into()
     }
 }
 
-impl ToStd for PeakKeyPrefix {
-    type Index = MeasIndex;
-
-    fn to_std(&self, index: &Self::Index) -> StdKey {
-        IndexedKey::new(*index, MeasKeyBase::from(*self)).into()
-    }
-}
-
-impl ToStd for GateKeySuffix {
+impl ToStd for GateKeyId {
     type Index = GateIndex;
 
     fn to_std(&self, index: &Self::Index) -> StdKey {
@@ -328,7 +306,7 @@ impl ToStd for GateKeySuffix {
     }
 }
 
-impl ToStd for RegionKeySuffix {
+impl ToStd for RegionKeyId {
     type Index = RegionIndex;
 
     fn to_std(&self, index: &Self::Index) -> StdKey {
@@ -352,14 +330,6 @@ impl ToStd for DfcKeyMarker {
     }
 }
 
-impl MeasKeyBase {
-    #[must_use]
-    pub fn iter() -> impl Iterator<Item = Self> {
-        let a = ParamKeySuffix::iter().map(Self::from);
-        let b = PeakKeyPrefix::iter().map(Self::from);
-        a.chain(b)
-    }
-}
 impl FromStr for StdKey {
     type Err = StdKeyError;
 
@@ -416,14 +386,14 @@ impl StdKey {
 
     #[must_use]
     pub fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
-        Self::Meas(MeasKey::from_optical_only_key(k, i))
+        Self::Meas(MeasKey::new(i, MeasKeyId::from_optical_only_key(k)))
     }
 
     #[must_use]
     pub const fn membership(&self) -> VersionMembership {
         match self {
             Self::Root(k) => k.membership(),
-            Self::Meas(k) => k.membership(),
+            Self::Meas(k) => k.id.membership(),
             Self::Gate(k) => k.id.membership(),
             Self::Region(k) => k.id.membership(),
             Self::Dfc(k) => k.membership(),
@@ -465,10 +435,10 @@ impl<'a> ToDisplayNE<'a> for MeasKey {
         NEConcat<&'static NEStr, ToNE<MeasIndex>>,
     >;
     fn to_ne(&'a self) -> Self::NE {
-        let i = self.index;
-        match self.id {
-            MeasKeyBase::Param(x) => NEAlt::Left(NEConcat::new('P', ToNE(i)).append(x.into())),
-            MeasKeyBase::Peak(x) => NEAlt::Right(NEConcat::new(x.into(), ToNE(self.index))),
+        let i = ToNE(self.index);
+        match self.id.prefix_or_suffix() {
+            PrefixOrSuffix::Suffix(s) => NEAlt::Left(NEConcat::new('P', i).append(s.into())),
+            PrefixOrSuffix::Prefix(p) => NEAlt::Right(NEConcat::new(p.into(), i)),
         }
     }
 }
@@ -476,14 +446,14 @@ impl<'a> ToDisplayNE<'a> for MeasKey {
 impl<'a> ToDisplayNE<'a> for GateKey {
     type NE = NEConcat3<char, ToNE<GateIndex>, &'static NEStr>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(NEConcat::new('G', ToNE(self.index)), self.id.into())
+        NEConcat::new(NEConcat::new('G', ToNE(self.index)), self.id.suffix())
     }
 }
 
 impl<'a> ToDisplayNE<'a> for RegionKey {
     type NE = NEConcat3<char, ToNE<RegionIndex>, &'static NEStr>;
     fn to_ne(&'a self) -> Self::NE {
-        NEConcat::new(NEConcat::new('R', ToNE(self.index)), self.id.into())
+        NEConcat::new(NEConcat::new('R', ToNE(self.index)), self.id.suffix())
     }
 }
 
@@ -516,29 +486,23 @@ impl From<RootKey> for &'static NEStr {
     }
 }
 
-impl From<ParamKeySuffix> for &'static NEStr {
-    fn from(value: ParamKeySuffix) -> Self {
-        value.as_ne_str()
-    }
-}
+// impl From<MeasKeyId> for &'static NEStr {
+//     fn from(value: MeasKeyId) -> Self {
+//         value.as_ne_str()
+//     }
+// }
 
-impl From<PeakKeyPrefix> for &'static NEStr {
-    fn from(value: PeakKeyPrefix) -> Self {
-        value.as_ne_str()
-    }
-}
+// impl From<GateKeyId> for &'static NEStr {
+//     fn from(value: GateKeyId) -> Self {
+//         value.as_ne_str()
+//     }
+// }
 
-impl From<GateKeySuffix> for &'static NEStr {
-    fn from(value: GateKeySuffix) -> Self {
-        value.as_ne_str()
-    }
-}
-
-impl From<RegionKeySuffix> for &'static NEStr {
-    fn from(value: RegionKeySuffix) -> Self {
-        value.to_ne_str()
-    }
-}
+// impl From<RegionKeyId> for &'static NEStr {
+//     fn from(value: RegionKeyId) -> Self {
+//         value.to_ne_str()
+//     }
+// }
 
 impl RealOrPseudoStdKey {
     #[must_use]
@@ -569,13 +533,13 @@ impl RealOrPseudoStdKey {
                         && rest.is_empty()
                     {
                         // $PKNn
-                        let k = MeasKey::new(i.into(), PeakKeyPrefix::Pkn.into());
+                        let k = MeasKey::new(i.into(), MeasKeyId::Pkn.into());
                         Self::Real(StdKey::Meas(k))
                     } else if let Some((i, rest)) = split_index_and_suffix(bs1)
                         && rest.is_empty()
                     {
                         // $PKn
-                        let k = MeasKey::new(i.into(), PeakKeyPrefix::Pk.into());
+                        let k = MeasKey::new(i.into(), MeasKeyId::Pk.into());
                         Self::Real(StdKey::Meas(k))
                     } else {
                         // something else
@@ -585,7 +549,7 @@ impl RealOrPseudoStdKey {
                     }
                 } else if let Some((i, rest)) = split_index_and_suffix(bs)
                     && let Some(mid) = NESlice::try_from_slice(rest)
-                        .and_then(|suffix| ParamKeySuffix::from_suffix(&suffix))
+                        .and_then(|suffix| MeasKeyId::from_suffix(&suffix))
                 {
                     // $Pn*
                     let k = MeasKey::new(i.into(), mid.into());
@@ -601,7 +565,7 @@ impl RealOrPseudoStdKey {
             b'G' => {
                 if let Some((i, rest)) = split_index_and_suffix(bs)
                     && rest.len() == 1
-                    && let Some(gid) = GateKeySuffix::from_byte(rest[0])
+                    && let Some(gid) = GateKeyId::from_byte(rest[0])
                 {
                     let k = GateKey::new(i.into(), gid);
                     Self::Real(StdKey::Gate(k))
@@ -614,7 +578,7 @@ impl RealOrPseudoStdKey {
             b'R' => {
                 if let Some((i, rest)) = split_index_and_suffix(bs)
                     && rest.len() == 1
-                    && let Some(rid) = RegionKeySuffix::from_byte(rest[0])
+                    && let Some(rid) = RegionKeyId::from_byte(rest[0])
                 {
                     let k = RegionKey::new(i.into(), rid);
                     Self::Real(StdKey::Region(k))
@@ -867,53 +831,36 @@ impl<const LEN: usize, I, K> IndexedKey<LEN, I, K> {
     }
 }
 
-impl MeasKey {
-    // TODO this seems brittle
-    pub fn meas_offset(&self) -> usize {
-        const LEN: usize = ParamKeySuffix::COUNT + PeakKeyPrefix::COUNT;
-        match self.id {
-            MeasKeyBase::Param(p) => LEN * usize::from(self.index) + p.index(),
-            MeasKeyBase::Peak(p) => {
-                LEN * usize::from(self.index) + p.index() + ParamKeySuffix::COUNT
-            }
-        }
-    }
-
-    const fn membership(&self) -> VersionMembership {
-        match self.id {
-            MeasKeyBase::Param(k) => k.membership(),
-            MeasKeyBase::Peak(k) => k.membership(),
-        }
-    }
-
-    fn from_optical_only_key(k: OpticalOnlyKey, i: MeasIndex) -> Self {
-        Self::new(i, ParamKeySuffix::from_optical_only_key(k).into())
-    }
+enum PrefixOrSuffix {
+    Prefix(&'static NEStr),
+    Suffix(&'static NEStr),
 }
 
-impl ParamKeySuffix {
-    const fn as_ne_str(self) -> &'static NEStr {
+impl MeasKeyId {
+    const fn prefix_or_suffix(self) -> PrefixOrSuffix {
         match self {
-            Self::N => N_KW_SUFFIX,
-            Self::R => R_KW_SUFFIX,
-            Self::E => E_KW_SUFFIX,
-            Self::S => S_KW_SUFFIX,
-            Self::F => F_KW_SUFFIX,
-            Self::T => T_KW_SUFFIX,
-            Self::P => P_KW_SUFFIX,
-            Self::V => V_KW_SUFFIX,
-            Self::B => B_KW_SUFFIX,
-            Self::L => L_KW_SUFFIX,
-            Self::O => O_KW_SUFFIX,
-            Self::G => G_KW_SUFFIX,
-            Self::D => D_KW_SUFFIX,
-            Self::Det => DET_KW_SUFFIX,
-            Self::Tag => TAG_KW_SUFFIX,
-            Self::Type => TYPE_KW_SUFFIX,
-            Self::Feature => FEATURE_KW_SUFFIX,
-            Self::Analyte => ANALYTE_KW_SUFFIX,
-            Self::Datatype => DATATYPE_KW_SUFFIX,
-            Self::Calibration => CALIBRATION_KW_SUFFIX,
+            Self::N => PrefixOrSuffix::Suffix(N_KW_SUFFIX),
+            Self::R => PrefixOrSuffix::Suffix(R_KW_SUFFIX),
+            Self::E => PrefixOrSuffix::Suffix(E_KW_SUFFIX),
+            Self::S => PrefixOrSuffix::Suffix(S_KW_SUFFIX),
+            Self::F => PrefixOrSuffix::Suffix(F_KW_SUFFIX),
+            Self::T => PrefixOrSuffix::Suffix(T_KW_SUFFIX),
+            Self::P => PrefixOrSuffix::Suffix(P_KW_SUFFIX),
+            Self::V => PrefixOrSuffix::Suffix(V_KW_SUFFIX),
+            Self::B => PrefixOrSuffix::Suffix(B_KW_SUFFIX),
+            Self::L => PrefixOrSuffix::Suffix(L_KW_SUFFIX),
+            Self::O => PrefixOrSuffix::Suffix(O_KW_SUFFIX),
+            Self::G => PrefixOrSuffix::Suffix(G_KW_SUFFIX),
+            Self::D => PrefixOrSuffix::Suffix(D_KW_SUFFIX),
+            Self::Det => PrefixOrSuffix::Suffix(DET_KW_SUFFIX),
+            Self::Tag => PrefixOrSuffix::Suffix(TAG_KW_SUFFIX),
+            Self::Type => PrefixOrSuffix::Suffix(TYPE_KW_SUFFIX),
+            Self::Feature => PrefixOrSuffix::Suffix(FEATURE_KW_SUFFIX),
+            Self::Analyte => PrefixOrSuffix::Suffix(ANALYTE_KW_SUFFIX),
+            Self::Datatype => PrefixOrSuffix::Suffix(DATATYPE_KW_SUFFIX),
+            Self::Calibration => PrefixOrSuffix::Suffix(CALIBRATION_KW_SUFFIX),
+            Self::Pk => PrefixOrSuffix::Prefix(PK_KW_PREFIX),
+            Self::Pkn => PrefixOrSuffix::Prefix(PKN_KW_PREFIX),
         }
     }
 
@@ -927,6 +874,9 @@ impl ParamKeySuffix {
             }
             Self::Det | Self::Tag | Self::Type | Self::Feature | Self::Analyte | Self::Datatype => {
                 VersionMembership::One(Version::FCS3_2)
+            }
+            Self::Pk | Self::Pkn => {
+                VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
             }
             _ => VersionMembership::All,
         }
@@ -990,29 +940,12 @@ impl ParamKeySuffix {
     }
 }
 
-impl PeakKeyPrefix {
-    pub fn to_std(&self, i: MeasIndex) -> StdKey {
-        IndexedKey::new(i, MeasKeyBase::from(*self)).into()
-    }
-
-    const fn as_ne_str(self) -> &'static NEStr {
-        match self {
-            Self::Pk => PK_KW_PREFIX,
-            Self::Pkn => PKN_KW_PREFIX,
-        }
-    }
-
-    const fn membership(self) -> VersionMembership {
-        VersionMembership::Three([Version::FCS2_0, Version::FCS3_0, Version::FCS3_1])
-    }
-}
-
-impl GateKeySuffix {
+impl GateKeyId {
     pub fn to_std(&self, i: GateIndex) -> StdKey {
         IndexedKey::new(i, *self).into()
     }
 
-    const fn as_ne_str(self) -> &'static NEStr {
+    const fn suffix(self) -> &'static NEStr {
         match self {
             Self::N => N_KW_SUFFIX,
             Self::R => R_KW_SUFFIX,
@@ -1058,15 +991,15 @@ impl GateKeySuffix {
     }
 }
 
-impl RegionKeySuffix {
+impl RegionKeyId {
     pub fn to_std(&self, i: RegionIndex) -> StdKey {
         IndexedKey::new(i, *self).into()
     }
 
-    const fn to_ne_str(self) -> &'static NEStr {
+    const fn suffix(self) -> &'static NEStr {
         match self {
-            Self::I => REGION_I_KW_PREFIX,
-            Self::W => REGION_W_KW_PREFIX,
+            Self::I => REGION_I_KW_SUFFIX,
+            Self::W => REGION_W_KW_SUFFIX,
         }
     }
 
@@ -1081,8 +1014,8 @@ impl RegionKeySuffix {
     const fn from_byte(b: u8) -> Option<Self> {
         match_bytes!(
             [b],
-            REGION_I_KW_PREFIX => Self::I,
-            REGION_W_KW_PREFIX => Self::W
+            REGION_I_KW_SUFFIX => Self::I,
+            REGION_W_KW_SUFFIX => Self::W
         )
     }
 
@@ -1180,8 +1113,8 @@ pub const PKN_KW_PREFIX: &NEStr = ne_str!("PKN");
 pub const RNI: &NEStr = ne_str!("$RNI");
 pub const RNW: &NEStr = ne_str!("$RNW");
 
-pub const REGION_I_KW_PREFIX: &NEStr = ne_str!("I");
-pub const REGION_W_KW_PREFIX: &NEStr = ne_str!("W");
+pub const REGION_I_KW_SUFFIX: &NEStr = ne_str!("I");
+pub const REGION_W_KW_SUFFIX: &NEStr = ne_str!("W");
 
 const fn is_zero_to_n_usize<X: NoUninit>(xs: &[X]) -> bool {
     let mut i = 0_usize;
@@ -1213,27 +1146,7 @@ pub trait BlankKeyword {
 }
 
 #[cfg(feature = "serde")]
-impl BlankKeyword for MeasKeyBase {
-    fn blank(&self) -> &'static NEStr {
-        match self {
-            Self::Param(x) => x.blank(),
-            Self::Peak(x) => x.blank(),
-        }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl BlankKeyword for PeakKeyPrefix {
-    fn blank(&self) -> &'static NEStr {
-        match self {
-            Self::Pk => PKN,
-            Self::Pkn => PKNN,
-        }
-    }
-}
-
-#[cfg(feature = "serde")]
-impl BlankKeyword for ParamKeySuffix {
+impl BlankKeyword for MeasKeyId {
     fn blank(&self) -> &'static NEStr {
         match self {
             Self::N => PNN,
@@ -1256,6 +1169,8 @@ impl BlankKeyword for ParamKeySuffix {
             Self::Analyte => PNANALYTE,
             Self::Datatype => PNDATATYPE,
             Self::Calibration => PNCALIBRATION,
+            Self::Pk => PKN,
+            Self::Pkn => PKNN,
         }
     }
 }

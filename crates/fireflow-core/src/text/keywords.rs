@@ -48,8 +48,7 @@ use fireflow_types::{
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
     std_key::{
-        CsvFlagKeyMarker, DfcKeyMarker, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
-        RegionKeySuffix, RootKey, StdKey, ToStd as _,
+        CsvFlagKeyMarker, DfcKeyMarker, MeasKeyId, RegionKeyId, RootKey, StdKey, ToStd as _,
     },
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
@@ -505,7 +504,7 @@ pub enum LookupTemporalGainError {
 
 /// Error when time measurement has [`Gain`] ($PnG)
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("{} must be 1.0 or not set for temporal measurement", ParamKeySuffix::G.to_std(&self.0))]
+#[error("{} must be 1.0 or not set for temporal measurement", MeasKeyId::G.to_std(&self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct TemporalGainError(MeasIndex);
@@ -1222,7 +1221,7 @@ impl Calibration3_2 {
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "{k} has offset {o} which will be lost upon conversion",
-    k = ParamKeySuffix::Calibration.to_std(&self.0),
+    k = MeasKeyId::Calibration.to_std(&self.0),
     o = self.1,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -3130,8 +3129,8 @@ macro_rules! kw_meas {
     ($t:ident, $sfx:ident) => {
         impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::MeasIndex;
-            type Id = fireflow_types::std_key::ParamKeySuffix;
-            const STD: Self::Id = fireflow_types::std_key::ParamKeySuffix::$sfx;
+            type Id = fireflow_types::std_key::MeasKeyId;
+            const STD: Self::Id = fireflow_types::std_key::MeasKeyId::$sfx;
         }
     };
 }
@@ -3245,8 +3244,8 @@ macro_rules! kw_opt_gate {
     ($t:ident, $sfx:ident, $outer:path) => {
         impl $crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::GateIndex;
-            type Id = fireflow_types::std_key::GateKeySuffix;
-            const STD: Self::Id = fireflow_types::std_key::GateKeySuffix::$sfx;
+            type Id = fireflow_types::std_key::GateKeyId;
+            const STD: Self::Id = fireflow_types::std_key::GateKeyId::$sfx;
         }
         opt!($t, $outer);
     };
@@ -3499,24 +3498,13 @@ impl ValueToStdKey for CSVFlag {
     const STD: Self::Id = CsvFlagKeyMarker;
 }
 
+// $PKn (2.0-3.1)
 newtype_int!(PeakBin, u32);
-opt!(PeakBin, Option<Self>);
-
-impl ValueToStdKey for PeakBin {
-    type Index = MeasIndex;
-    type Id = PeakKeyPrefix;
-    const STD: Self::Id = PeakKeyPrefix::Pk;
-}
+kw_opt_meas!(PeakBin, Pk, Option<Self>);
 
 // $PKNn (2.0-3.1)
 newtype_int!(PeakIndex, MeasIndex);
-opt!(PeakIndex, Option<Self>);
-
-impl ValueToStdKey for PeakIndex {
-    type Index = MeasIndex;
-    type Id = PeakKeyPrefix;
-    const STD: Self::Id = PeakKeyPrefix::Pkn;
-}
+kw_opt_meas!(PeakIndex, Pkn, Option<Self>);
 
 // 2.0-3.1 gating parameters
 kw_opt_root_int!(Gate, usize, Gate);
@@ -3533,8 +3521,8 @@ kw_opt_meta!(Gating, Gating, Option<Self>);
 
 impl ValueToStdKey for RegionWindow {
     type Index = RegionIndex;
-    type Id = RegionKeySuffix;
-    const STD: Self::Id = RegionKeySuffix::W;
+    type Id = RegionKeyId;
+    const STD: Self::Id = RegionKeyId::W;
 }
 
 opt!(RegionWindow, Option<Self>);
@@ -3543,8 +3531,8 @@ macro_rules! impl_region_index {
     ($t:ident) => {
         impl crate::validated::keys::ValueToStdKey for $t {
             type Index = fireflow_types::index::RegionIndex;
-            type Id = fireflow_types::std_key::RegionKeySuffix;
-            const STD: Self::Id = fireflow_types::std_key::RegionKeySuffix::I;
+            type Id = fireflow_types::std_key::RegionKeyId;
+            const STD: Self::Id = fireflow_types::std_key::RegionKeyId::I;
         }
         opt!($t, Option<Self>);
     };
@@ -4097,33 +4085,31 @@ impl AnyKeywordClass {
                 };
                 Self::Root(c)
             }
-            StdKey::Meas(k) => match k.id {
-                MeasKeyBase::Param(mk) => {
-                    let c = match mk {
-                        ParamKeySuffix::E => MeasKeywordClass::Scale,
-                        ParamKeySuffix::N => MeasKeywordClass::Shortname,
-                        ParamKeySuffix::B => MeasKeywordClass::Width,
-                        ParamKeySuffix::L => MeasKeywordClass::Wavelength,
-                        ParamKeySuffix::G => MeasKeywordClass::OptGE3_0,
-                        ParamKeySuffix::D | ParamKeySuffix::Calibration => {
-                            MeasKeywordClass::OptGE3_1
-                        }
-                        ParamKeySuffix::Feature
-                        | ParamKeySuffix::Type
-                        | ParamKeySuffix::Datatype
-                        | ParamKeySuffix::Analyte
-                        | ParamKeySuffix::Tag
-                        | ParamKeySuffix::Det => MeasKeywordClass::OptGE3_2,
-                        _ => MeasKeywordClass::OptAny,
-                    };
-                    Self::Meas(k.index, c)
+            StdKey::Meas(k) => {
+                let i = k.index;
+                match k.id {
+                    MeasKeyId::E => Self::Meas(i, MeasKeywordClass::Scale),
+                    MeasKeyId::N => Self::Meas(i, MeasKeywordClass::Shortname),
+                    MeasKeyId::B => Self::Meas(i, MeasKeywordClass::Width),
+                    MeasKeyId::L => Self::Meas(i, MeasKeywordClass::Wavelength),
+                    MeasKeyId::G => Self::Meas(i, MeasKeywordClass::OptGE3_0),
+                    MeasKeyId::D | MeasKeyId::Calibration => {
+                        Self::Meas(i, MeasKeywordClass::OptGE3_1)
+                    }
+                    MeasKeyId::Pk | MeasKeyId::Pkn => Self::Peak(i),
+                    MeasKeyId::Feature
+                    | MeasKeyId::Type
+                    | MeasKeyId::Datatype
+                    | MeasKeyId::Analyte
+                    | MeasKeyId::Tag
+                    | MeasKeyId::Det => Self::Meas(i, MeasKeywordClass::OptGE3_2),
+                    _ => Self::Meas(i, MeasKeywordClass::OptAny),
                 }
-                MeasKeyBase::Peak(_) => Self::Peak(k.index),
-            },
+            }
             StdKey::Gate(k) => Self::GateOptLE3_1(k.index),
             StdKey::Region(k) => match k.id {
-                RegionKeySuffix::I => Self::RegionIndex,
-                RegionKeySuffix::W => Self::RegionWindow,
+                RegionKeyId::I => Self::RegionIndex,
+                RegionKeyId::W => Self::RegionWindow,
             },
             StdKey::Dfc(k) => Self::Dfc(k.index),
             StdKey::CsvFlag(k) => Self::CSVFlag(k.index),

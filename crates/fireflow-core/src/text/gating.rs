@@ -25,7 +25,7 @@ use crate::validated::keys::{
     DollarKey, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, ValidKeywords, ValueToStdKey,
 };
 
-use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeySuffix};
+use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     config::AllowLoss,
     index::{GateIndex, MeasIndex, RegionIndex},
@@ -638,7 +638,7 @@ impl<I> GatingScheme<I> {
             g.region_indices()
                 .into_iter()
                 .filter(|ri| !regions.contains_key(ri))
-                .map(|ri| StdKey::from(RegionKey::new(ri, RegionKeySuffix::I)))
+                .map(|ri| StdKey::from(RegionKey::new(ri, RegionKeyId::I)))
                 .try_into_nonempty_iter()
         }) {
             Err(DependentKeyError::new1(ris.collect()))
@@ -939,7 +939,7 @@ impl<I> Region<I> {
             ns.insert_demoted_keyword(k);
         };
         let demote_window = |w: RegionWindow, ns: &mut NonStdKeywords| {
-            let k = StdKey::from(RegionKey::new(ri, RegionKeySuffix::I));
+            let k = StdKey::from(RegionKey::new(ri, RegionKeyId::I));
             let v = ToNE(w).to_ne_string();
             ns.insert_demoted(k, v);
         };
@@ -947,7 +947,7 @@ impl<I> Region<I> {
             OptRootKeyword::from(RegionKeyword::from_value(gi, ri)).insert_unique(dr);
         };
         let drop_window = |w: RegionWindow, dr: &mut StdKeywords| {
-            let k = StdKey::from(RegionKey::new(ri, RegionKeySuffix::W));
+            let k = StdKey::from(RegionKey::new(ri, RegionKeyId::W));
             let v = ToNE(w).to_ne_string();
             dr.insert(k, v);
         };
@@ -1296,7 +1296,7 @@ impl<I> ConvertIndexForRegionError<I> {
     where
         I: fmt::Display,
     {
-        let region_key = StdKey::from(IndexedKey::new(self.0.index, RegionKeySuffix::I));
+        let region_key = StdKey::from(IndexedKey::new(self.0.index, RegionKeyId::I));
         let keys = |i: &I, is_plural: bool, is_gate: bool| {
             let prefix = if is_gate { "G" } else { "P" };
             let key = format!("{prefix}{}*", i);

@@ -167,7 +167,7 @@ use fireflow_types::{
     },
     index::MeasIndex,
     nonempty_string::DisplayableNE as _,
-    std_key::{ParamKeySuffix, ToStd as _},
+    std_key::{MeasKeyId, ToStd as _},
 };
 
 use type_families::{
@@ -981,7 +981,7 @@ pub enum NewMixedRangeWarning {
 #[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "could not use {k} in float layout because {e}",
-    k = ParamKeySuffix::R.to_std(&_0.index),
+    k = MeasKeyId::R.to_std(&_0.index),
     e = _0.error
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]

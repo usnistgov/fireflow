@@ -43,7 +43,7 @@ use crate::text::spillover::Spillover;
 use crate::validated::keys::{DollarKey, DollarKey_, ValueToStdKey, NonStdKeywords, NonStdKeywordsExt as _};
 use crate::validated::shortname::Shortname;
 
-use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeySuffix};
+use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeyId};
 use fireflow_types::{
     index::{MeasIndex, RegionIndex},
     nonempty_string::NEString,
@@ -421,8 +421,8 @@ impl RemovedLink {
             Self::GatingRegion3_2(x) => go_gate!(es, x),
             Self::Gating(x) => {
                 let ks = x.region_indices.into_nonempty_iter().flat_map(|ri| {
-                    let k0 = StdKey::from(RegionKey::new(ri, RegionKeySuffix::I));
-                    let k1 = StdKey::from(RegionKey::new(ri, RegionKeySuffix::W));
+                    let k0 = StdKey::from(RegionKey::new(ri, RegionKeyId::I));
+                    let k1 = StdKey::from(RegionKey::new(ri, RegionKeyId::W));
                     [k0, k1]
                 });
                 let e = DependentKeyError::<Gating>::new1(ks.collect());
@@ -527,7 +527,7 @@ impl<I> RemovedGateLink<I> {
         RegionGateIndex<I>: ValueToStdKey<Index = RegionIndex>,
     {
         let ri = self.region_index;
-        let region_key = IndexedKey::new(ri, RegionKeySuffix::I).into();
+        let region_key = IndexedKey::new(ri, RegionKeyId::I).into();
         let k = DollarKey::new(ri);
         let e0 = KeyToIndexLinkError::new(self.meas_indices.into(), k);
         let e1 = DependentKeyError::<RegionWindow>::new2(ri, NEVec::new(region_key));

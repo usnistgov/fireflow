@@ -1,6 +1,6 @@
 use crate::{
     config::OpticalOnlyKey,
-    index::{GateIndex, MeasIndex, RegionIndex, SubsetIndex},
+    index::{BiMeasIndex, GateIndex, MeasIndex, RegionIndex, SubsetIndex},
     keystring::{CowKeyString, KeyString},
     keywords::{Version, VersionMembership},
     ne_str,
@@ -135,14 +135,17 @@ pub struct IndexedKey<I, K> {
 
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct DfcKey {
-    pub index0: MeasIndex,
-    pub index1: MeasIndex,
+    pub index: BiMeasIndex,
 }
 
 #[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct CsvFlagKey {
     pub index: SubsetIndex,
 }
+
+pub struct CsvFlagKeyMarker;
+
+pub struct DfcKeyMarker;
 
 pub type MeasKey = IndexedKey<MeasIndex, MeasKeyBase>;
 pub type GateKey = IndexedKey<GateIndex, GateKeySuffix>;
@@ -152,6 +155,68 @@ pub type RegionKey = IndexedKey<RegionIndex, RegionKeySuffix>;
 pub enum MeasKeyBase {
     Param(ParamKeySuffix),
     Peak(PeakKeyPrefix),
+}
+
+pub trait ToStd {
+    type Index;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey;
+}
+
+impl ToStd for RootKey {
+    type Index = ();
+
+    fn to_std(&self, (): &Self::Index) -> StdKey {
+        (*self).into()
+    }
+}
+
+impl ToStd for ParamKeySuffix {
+    type Index = MeasIndex;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey {
+        IndexedKey::new(*index, MeasKeyBase::from(*self)).into()
+    }
+}
+
+impl ToStd for PeakKeyPrefix {
+    type Index = MeasIndex;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey {
+        IndexedKey::new(*index, MeasKeyBase::from(*self)).into()
+    }
+}
+
+impl ToStd for GateKeySuffix {
+    type Index = GateIndex;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey {
+        IndexedKey::new(*index, *self).into()
+    }
+}
+
+impl ToStd for RegionKeySuffix {
+    type Index = RegionIndex;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey {
+        IndexedKey::new(*index, *self).into()
+    }
+}
+
+impl ToStd for CsvFlagKeyMarker {
+    type Index = SubsetIndex;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey {
+        CsvFlagKey::new(*index).into()
+    }
+}
+
+impl ToStd for DfcKeyMarker {
+    type Index = BiMeasIndex;
+
+    fn to_std(&self, index: &Self::Index) -> StdKey {
+        DfcKey::new(*index).into()
+    }
 }
 
 impl MeasKeyBase {
@@ -393,10 +458,10 @@ impl<'a> ToDisplayNE<'a> for DfcKey {
     fn to_ne(&'a self) -> Self::NE {
         NEConcat::new(
             NEConcat::new(
-                NEConcat::new(ne_str!("DFC"), ToNE(self.index0)),
+                NEConcat::new(ne_str!("DFC"), ToNE(self.index.i0)),
                 ne_str!("TO"),
             ),
-            ToNE(self.index1),
+            ToNE(self.index.i1),
         )
     }
 }
@@ -542,6 +607,10 @@ impl RealOrPseudoStdKey {
 }
 
 impl RootKey {
+    pub fn std(&self) -> StdKey {
+        self.to_std(&())
+    }
+
     #[must_use]
     pub const fn as_ne_str(&self) -> &'static NEStr {
         match self {
@@ -748,9 +817,9 @@ impl<I, K> IndexedKey<I, K> {
         K: IntoEnumIterator,
         I: Clone,
     {
-        K::iter()
-            .zip(iter::repeat(index))
-            .map(|(b, i)| Self::new(i, b))
+        iter::repeat(index)
+            .zip(K::iter())
+            .map(|(i, b)| Self::new(i, b))
     }
 }
 
@@ -778,16 +847,6 @@ impl MeasKey {
     }
 }
 
-impl MeasKeyBase {
-    #[must_use]
-    pub const fn blank(self) -> &'static NEStr {
-        match self {
-            Self::Param(x) => x.blank(),
-            Self::Peak(x) => x.blank(),
-        }
-    }
-}
-
 impl ParamKeySuffix {
     const fn as_ne_str(self) -> &'static NEStr {
         match self {
@@ -811,32 +870,6 @@ impl ParamKeySuffix {
             Self::Analyte => ANALYTE_KW_SUFFIX,
             Self::Datatype => DATATYPE_KW_SUFFIX,
             Self::Calibration => CALIBRATION_KW_SUFFIX,
-        }
-    }
-
-    #[must_use]
-    pub const fn blank(self) -> &'static NEStr {
-        match self {
-            Self::N => PNN,
-            Self::R => PNR,
-            Self::E => PNE,
-            Self::S => PNS,
-            Self::F => PNF,
-            Self::T => PNT,
-            Self::P => PNP,
-            Self::V => PNV,
-            Self::B => PNB,
-            Self::L => PNL,
-            Self::O => PNO,
-            Self::G => PNG,
-            Self::D => PND,
-            Self::Det => PNDET,
-            Self::Tag => PNTAG,
-            Self::Type => PNTYPE,
-            Self::Feature => PNFEATURE,
-            Self::Analyte => PNANALYTE,
-            Self::Datatype => PNDATATYPE,
-            Self::Calibration => PNCALIBRATION,
         }
     }
 
@@ -914,18 +947,14 @@ impl ParamKeySuffix {
 }
 
 impl PeakKeyPrefix {
+    pub fn to_std(&self, i: MeasIndex) -> StdKey {
+        IndexedKey::new(i, MeasKeyBase::from(*self)).into()
+    }
+
     const fn as_ne_str(self) -> &'static NEStr {
         match self {
             Self::Pk => PK_KW_PREFIX,
             Self::Pkn => PKN_KW_PREFIX,
-        }
-    }
-
-    #[must_use]
-    pub const fn blank(self) -> &'static NEStr {
-        match self {
-            Self::Pk => PKN,
-            Self::Pkn => PKNN,
         }
     }
 
@@ -935,6 +964,10 @@ impl PeakKeyPrefix {
 }
 
 impl GateKeySuffix {
+    pub fn to_std(&self, i: GateIndex) -> StdKey {
+        IndexedKey::new(i, *self).into()
+    }
+
     const fn as_ne_str(self) -> &'static NEStr {
         match self {
             Self::N => N_KW_SUFFIX,
@@ -982,6 +1015,10 @@ impl GateKeySuffix {
 }
 
 impl RegionKeySuffix {
+    pub fn to_std(&self, i: RegionIndex) -> StdKey {
+        IndexedKey::new(i, *self).into()
+    }
+
     const fn to_ne_str(self) -> &'static NEStr {
         match self {
             Self::I => REGION_I_KW_PREFIX,
@@ -1012,7 +1049,7 @@ impl RegionKeySuffix {
 
 impl DfcKey {
     pub fn offset(&self, matrix_size: usize) -> usize {
-        usize::from(self.index0) * matrix_size + usize::from(self.index1)
+        usize::from(self.index.i0) * matrix_size + usize::from(self.index.i1)
     }
 
     fn from_bytes(bytes: &[u8]) -> Option<Self> {
@@ -1024,7 +1061,7 @@ impl DfcKey {
             && let Some((i1, rest1)) = split_index_and_suffix(&rest0[2..])
             && rest1.is_empty()
         {
-            Some(Self::new(i0.into(), i1.into()))
+            Some(Self::new(BiMeasIndex::new(i0.into(), i1.into())))
         } else {
             None
         }
@@ -1084,16 +1121,6 @@ fn is_printable_ascii(xs: &[u8]) -> bool {
     xs.iter().all(|x| 32 <= *x && *x <= 126)
 }
 
-#[cfg(feature = "serde")]
-impl Serialize for StdKey {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.collect_str(self)
-    }
-}
-
 pub const STD_PREFIX: u8 = 36; // '$'
 
 // Load list of all keyword constants from build script
@@ -1111,3 +1138,66 @@ pub const RNW: &NEStr = ne_str!("$RNW");
 
 pub const REGION_I_KW_PREFIX: &NEStr = ne_str!("I");
 pub const REGION_W_KW_PREFIX: &NEStr = ne_str!("W");
+
+#[cfg(feature = "serde")]
+impl Serialize for StdKey {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.collect_str(self)
+    }
+}
+
+#[cfg(feature = "serde")]
+pub trait BlankKeyword {
+    fn blank(&self) -> &'static NEStr;
+}
+
+#[cfg(feature = "serde")]
+impl BlankKeyword for MeasKeyBase {
+    fn blank(&self) -> &'static NEStr {
+        match self {
+            Self::Param(x) => x.blank(),
+            Self::Peak(x) => x.blank(),
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl BlankKeyword for PeakKeyPrefix {
+    fn blank(&self) -> &'static NEStr {
+        match self {
+            Self::Pk => PKN,
+            Self::Pkn => PKNN,
+        }
+    }
+}
+
+#[cfg(feature = "serde")]
+impl BlankKeyword for ParamKeySuffix {
+    fn blank(&self) -> &'static NEStr {
+        match self {
+            Self::N => PNN,
+            Self::R => PNR,
+            Self::E => PNE,
+            Self::S => PNS,
+            Self::F => PNF,
+            Self::T => PNT,
+            Self::P => PNP,
+            Self::V => PNV,
+            Self::B => PNB,
+            Self::L => PNL,
+            Self::O => PNO,
+            Self::G => PNG,
+            Self::D => PND,
+            Self::Det => PNDET,
+            Self::Tag => PNTAG,
+            Self::Type => PNTYPE,
+            Self::Feature => PNFEATURE,
+            Self::Analyte => PNANALYTE,
+            Self::Datatype => PNDATATYPE,
+            Self::Calibration => PNCALIBRATION,
+        }
+    }
+}

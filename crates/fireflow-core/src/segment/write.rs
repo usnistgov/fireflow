@@ -1,7 +1,7 @@
 //! Types and methods to deal with offsets when writing FCS files.
 
 use super::KeyedOffsets;
-use crate::text::keyword_enum::{Keyword0FromValue as _, OffsetKeyword, SplitKeyword0};
+use crate::text::keyword_enum::{Keyword0FromValue as _, OffsetKeyword, SplitKeyword};
 use crate::validated::ascii_uint::{UintSpacePad8, UintZeroPad20};
 
 use fireflow_types::segment::{
@@ -115,7 +115,7 @@ impl<I> TEXTOffsetsToWrite<I> {
         I: KeyedOffsets,
         I::B: From<UintZeroPad20>,
         I::E: From<UintZeroPad20>,
-        OffsetKeyword: From<SplitKeyword0<I::B>> + From<SplitKeyword0<I::E>>,
+        OffsetKeyword: From<SplitKeyword<I::B>> + From<SplitKeyword<I::E>>,
     {
         [
             OffsetKeyword::from_value(I::B::from(self.begin)),

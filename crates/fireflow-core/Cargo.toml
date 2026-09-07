@@ -17,7 +17,7 @@ derive_more.features = [
     "as_ref",
     "add",
     "mul",
-    "into_iterator"
+    "into_iterator",
 ]
 
 chrono = { workspace = true, features = ["clock"] }
@@ -44,6 +44,7 @@ fireflow-core-proc = { path = "../fireflow-core-proc" }
 pyo3 = { workspace = true, optional = true }
 numpy = { workspace = true, optional = true }
 strum = { workspace = true }
+derive-where = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }

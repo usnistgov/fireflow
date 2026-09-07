@@ -33,8 +33,8 @@ use crate::text::keywords::{
     Timestep, TimestepAdded, Wavelength, Wavelengths, WavelengthsLossError,
 };
 use crate::text::lookup::{
-    Diagnosed, OptIndexedKey as _, OptIndexedKeyError, OptIndexedKeyStError, ReqIndexedKey as _,
-    ReqIndexedKeyError, ReqIndexedStKeyError, ReqKeyError,
+    Diagnosed, OptKeyError, OptMetarootKey as _, OptStKeyError, ReqKeyError, ReqMetarootKey as _,
+    ReqStKeyError,
 };
 use crate::text::named_vec::{
     Either, Eithers, Element, ElementIndexError, IndexedElement, InputLengthError,
@@ -44,7 +44,7 @@ use crate::text::named_vec::{
 };
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::dataframe::PrimitiveDataFrame;
-use crate::validated::keys::{IndexedKey as _, Key1, StdKeywords, ValidKeywords};
+use crate::validated::keys::{DollarKey, StdKeywords, ValidKeywords};
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::{
@@ -56,7 +56,7 @@ use fireflow_types::{
     keywords::{HasVersion, OpticalFeature, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty_string::{DisplayableNE as _, NEString},
     ranged_float::PositiveFloat,
-    std_key::StdKey,
+    std_key::{ParamKeySuffix, StdKey, ToStd as _},
 };
 
 use type_families::{ApplyOnce as _, BifunctorOnce as _};
@@ -582,8 +582,8 @@ impl PartialEq for MissingTimeError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupShortnameError {
-    Req(ReqIndexedKeyError<Shortname>),
-    Opt(OptIndexedKeyError<Shortname>),
+    Req(ReqKeyError<Shortname>),
+    Opt(OptKeyError<Shortname>),
 }
 
 /// Error when parsing any optical or scale keyword
@@ -607,7 +607,7 @@ pub enum LookupScaledOpticalWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalError {
     New(NewOpticalScaleError),
-    Lookup(ReqIndexedStKeyError<Scale>),
+    Lookup(ReqStKeyError<Scale>),
     Warn(LookupOpticalWarning),
 }
 
@@ -615,16 +615,16 @@ pub enum LookupOpticalError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupOpticalWarning {
-    Feature(OptIndexedKeyStError<Feature>),
-    Wavelengths(OptIndexedKeyStError<Wavelengths>),
-    Wavelength(OptIndexedKeyError<Wavelength>),
-    Calibration3_1(OptIndexedKeyStError<Calibration3_1>),
-    Calibration3_2(OptIndexedKeyStError<Calibration3_2>),
-    OpticalType(OptIndexedKeyError<OpticalType>),
-    Display(OptIndexedKeyStError<Display>),
-    Power(OptIndexedKeyError<Power>),
-    PercentEmitted(OptIndexedKeyError<PercentEmitted>),
-    DetectorVoltage(OptIndexedKeyError<DetectorVoltage>),
+    Feature(OptStKeyError<Feature>),
+    Wavelengths(OptStKeyError<Wavelengths>),
+    Wavelength(OptKeyError<Wavelength>),
+    Calibration3_1(OptStKeyError<Calibration3_1>),
+    Calibration3_2(OptStKeyError<Calibration3_2>),
+    OpticalType(OptKeyError<OpticalType>),
+    Display(OptStKeyError<Display>),
+    Power(OptKeyError<Power>),
+    PercentEmitted(OptKeyError<PercentEmitted>),
+    DetectorVoltage(OptKeyError<DetectorVoltage>),
     Peak(LookupPeakError),
 }
 
@@ -633,7 +633,7 @@ pub enum LookupOpticalWarning {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupScaleError {
     New(NewOpticalScaleError),
-    Lookup(ReqIndexedStKeyError<Scale>),
+    Lookup(ReqStKeyError<Scale>),
     Warn(LookupScaleWarning),
 }
 
@@ -641,8 +641,8 @@ pub enum LookupScaleError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupScaleWarning {
-    Scale(OptIndexedKeyStError<Scale>),
-    Gain(OptIndexedKeyError<Gain>),
+    Scale(OptStKeyError<Scale>),
+    Gain(OptKeyError<Gain>),
 }
 
 /// Error when $PnE is log and $PnG is not 1.0 or None
@@ -664,7 +664,7 @@ pub struct NewOpticalScaleError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalError {
-    TemporalScale(ReqIndexedStKeyError<TemporalScale3_0>),
+    TemporalScale(ReqStKeyError<TemporalScale3_0>),
     Timestep(ReqKeyError<Timestep>),
     Warn(LookupTemporalWarning),
 }
@@ -673,10 +673,10 @@ pub enum LookupTemporalError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalWarning {
-    TemporalScale(OptIndexedKeyStError<TemporalScale2_0>),
+    TemporalScale(OptStKeyError<TemporalScale2_0>),
     TemporalGain(LookupTemporalGainError),
-    TemporalType(OptIndexedKeyError<TemporalType>),
-    Display(OptIndexedKeyStError<Display>),
+    TemporalType(OptKeyError<TemporalType>),
+    Display(OptStKeyError<Display>),
     Peak(LookupPeakError),
     Optical(TemporalHasOpticalKeyError),
 }
@@ -685,8 +685,8 @@ pub enum LookupTemporalWarning {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupPeakError {
-    Bin(OptIndexedKeyError<PeakBin>),
-    Index(OptIndexedKeyError<PeakIndex>),
+    Bin(OptKeyError<PeakBin>),
+    Index(OptKeyError<PeakIndex>),
 }
 
 /// Error when converting [`CoreMeasurements`] to new FCS version
@@ -753,7 +753,7 @@ pub enum ScaleConvertError {
 #[error("{0} is required in target version but missing in current version")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-pub struct NameConversionError(Key1<Shortname>);
+pub struct NameConversionError(DollarKey<Shortname>);
 
 /// Error when replacing temporal measurement by index
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
@@ -821,11 +821,11 @@ pub struct ScaleDatatypeMismatchError {
 impl fmt::Display for ScaleDatatypeMismatchError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         let i = self.index;
-        let ekey = Scale::std(i);
+        let ekey = ParamKeySuffix::E.to_std(&i);
         let dt = self.datatype.as_displayable();
         let s = self.scale.as_displayable();
         let g = if self.has_gain {
-            let gkey = Gain::std(i);
+            let gkey = ParamKeySuffix::G.to_std(&i);
             format!(" and {gkey} 1.0 or not set")
         } else {
             String::new()
@@ -868,7 +868,7 @@ pub type OpticalToTemporalError = AnyOpticalToTemporalKeyLossError;
 
 /// Error when $PnE is not set on optical measurement and target version requires it
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("{} must be set before converting measurement", Scale::std(self.0))]
+#[error("{} must be set before converting measurement", ParamKeySuffix::E.to_std(&self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 pub struct NoScaleError(MeasIndex);
@@ -1766,7 +1766,7 @@ impl OpticalFromTemporal<InnerTemporal3_2> for InnerOptical3_2 {
 // Implement method to look up $PnN from a hash table
 
 type LookupShortnameResult<V> =
-    WarningAndErrorResult<V, (), OptIndexedKeyError<Shortname>, LookupShortnameError>;
+    WarningAndErrorResult<V, (), OptKeyError<Shortname>, LookupShortnameError>;
 
 pub trait LookupShortname: Sized {
     fn lookup_shortname(
@@ -1963,9 +1963,9 @@ impl LookupOptical for InnerOptical3_1 {
             .zip4_commutative(go!(cal), go!(dpy), peak)
             .map_errors(LookupOpticalError::from)
             .map_ok_value(|(w_out, c_out, d_out, p)| {
-                let (w, w_trimmed) = w_out.into_indexed_pair(i);
-                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i.into());
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
+                let (w, w_trimmed) = w_out.into_indexed_pair(&i);
+                let (c, c_trimmed) = c_out.into_opt_indexed_pair(&i);
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(&i);
                 let ret = Self::new(w, c, d, p);
                 let trimmed = w_trimmed
                     .into_iter()
@@ -2009,9 +2009,9 @@ impl LookupOptical for InnerOptical3_2 {
         go!(wave)
             .zip5_commutative(go!(cal), go!(dpy), go!(meas), go!(feat))
             .map_ok_value(|(w_out, c_out, d_out, m, f)| {
-                let (w, w_trimmed) = w_out.into_indexed_pair(i);
-                let (c, c_trimmed) = c_out.into_opt_indexed_pair(i.into());
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
+                let (w, w_trimmed) = w_out.into_indexed_pair(&i);
+                let (c, c_trimmed) = c_out.into_opt_indexed_pair(&i);
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(&i);
                 let ret = Self::new(w, c, d, anal, f.inner, m, tag, det_name);
                 let trimmed = c_trimmed
                     .into_iter()
@@ -2150,7 +2150,7 @@ impl LookupTemporal for InnerTemporal3_1 {
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
             .map_ok_value(|((_, d_out, p, tmp_opt_pairs), (s, t))| {
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(&i);
                 let trimmed = d_trimmed.into_iter().collect();
                 let ret = Self::new(t.inner, d, p);
                 DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
@@ -2197,7 +2197,7 @@ impl LookupTemporal for InnerTemporal3_2 {
             .map_errors(LookupTemporalError::from)
             .zip_commutative(req_res)
             .map_ok_value(|((_, d_out, m, tmp_opt_pairs), (s, t))| {
-                let (d, d_trimmed) = d_out.into_opt_indexed_pair(i.into());
+                let (d, d_trimmed) = d_out.into_opt_indexed_pair(&i);
                 let trimmed = d_trimmed.into_iter().collect();
                 let ret = Self::new(t.inner, d, m);
                 DiagnosedTemporal::new(ret, s.diagnostic, trimmed, tmp_opt_pairs, t.diagnostic)
@@ -2226,7 +2226,7 @@ impl ConvertFromShortname<Option<Shortname>> for Identity<Shortname> {
         i: MeasIndex,
     ) -> Result<Self, NameConversionError> {
         value
-            .ok_or_else(|| NameConversionError(Key1::new_i1(i)))
+            .ok_or_else(|| NameConversionError(DollarKey::new(i)))
             .map(Identity)
     }
 }

@@ -6,18 +6,18 @@ use crate::macros::impl_newtype_try_from;
 use crate::segment::read::{IsOffsetPair as _, PrimaryTextOffsets};
 use crate::text::byteord::{ArrayByteOrd, BitsOrChars, Endian, NewByteOrdError, NoByteOrd};
 use crate::text::datetimes::{BeginDateTime, EndDateTime};
-use crate::text::keyword_enum::AsStdKeywordPair as _;
+use crate::text::keyword_enum::{AsStdKeywordPair as _, OptRootKeyword, SplitKeyword_};
 use crate::text::lookup::{
-    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptIndexedKey, OptIndexedKeyError,
-    OptMetarootKey, Optional, ParseKeyError, ReqIndexedKey, ReqKeyError, ReqKeyErrorInner,
-    ReqMetarootKey, Required, Trimmed, impl_from_str_with_delim,
+    Diagnosed, FromStrDelim, FromStrWith, FromStrWithResult, OptKeyError, OptMetarootKey,
+    Optional, ParseKeyError, ReqKeyError, ReqKeyErrorInner, ReqMetarootKey, Required, Trimmed,
+    impl_from_str_with_delim,
 };
 use crate::text::named_vec::{NameMapping, NamedSet, NamedSetMembership};
 use crate::text::optional::OptionalZST;
 use crate::text::relational::{
-    BiIndexedKeyToIndexLinkError, ExistingNamedLinkError, KeyToIndexLinkError, KeyToNameLinkError,
-    LinkName, OpticalNamedLinkError, OpticalNamesToRemove, RemovedIndexLink, RemovedNamedLink,
-    TemporalNamedLinkError,
+    Comp2_0Missing, ExistingIndexedLinkError, ExistingNamedLinkError, KeyToIndexLinkError,
+    KeyToNameLinkError, LinkName, OpticalNamedLinkError, OpticalNamesToRemove, RemovedComp2_0Cell,
+    RemovedIndexLink, RemovedLink, RemovedNamedLink, TemporalNamedLinkError,
 };
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::{Btim, Etim, FCSDate, FCSTime, FCSTime60, FCSTime100, Xtim};
@@ -27,16 +27,13 @@ use crate::validated::bitmask::BitmaskValue;
 use crate::validated::compensation::{Compensation, NewCompError};
 use crate::validated::finite_float::{DecimalToFloatError, FiniteFloat};
 use crate::validated::keys::{
-    AsStdKey as _, BiIndex, BiIndexedKey, DKey0, DKey2, DollarKey, IndexedKey, Key1, Key2,
-    NonStdKeywordsExt as _, PrefixSuffix, SpecificKey, StdKeywords, StdOptKeyword,
-    TruncatedNEString, ValidKeywords,
+    DollarKey, Key, NonStdKeywordsExt as _, StdKeywords, StdOptKeyword, TruncatedNEString,
+    ValidKeywords,
 };
 use crate::validated::read_state::{FileLen, HeaderReadState, TEXTReadState};
 use crate::validated::shortname::Shortname;
 use crate::validated::unaligned::{U24, U40, U48, U56};
 
-use fireflow_types::index::SubsetIndex;
-use fireflow_types::std_key::{DfcKey, MeasKeyBase};
 use fireflow_types::{
     byteord::ConfigByteOrd,
     config::{
@@ -44,14 +41,17 @@ use fireflow_types::{
         ProcessOptionalFailure, ReadHeaderAndTEXTConfig, TriErrorFlag as _,
         TrimIntraValueWhitespace,
     },
-    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
+    index::{BiMeasIndex, GateIndex, IndexFromOne, MeasIndex, RegionIndex, SubsetIndex},
     keywords::{MeasKeywordClass, OpticalFeature, OpticalFeatureError, RootKeywordClass, Version},
     nonempty_string::{
         DisplayableNE as _, NEAlt, NEConcat, NEConcat3, NEConcat5, NEDelim, NESliceExt as _, NEStr,
         NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
     },
     ranged_float::{NonNegFloat, PositiveFloat, RangedFloatError},
-    std_key::{GateKeySuffix, ParamKeySuffix, PeakKeyPrefix, RegionKeySuffix, RootKey, StdKey},
+    std_key::{
+        CsvFlagKeyMarker, DfcKeyMarker, GateKeySuffix, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
+        RegionKeySuffix, RootKey, StdKey, ToStd as _,
+    },
     textdelim::{DelimCollisionError, HasDelim, TEXTDelim},
 };
 use fireflow_types::{impl_str_enum_kw, ne_str};
@@ -80,11 +80,6 @@ use std::str::FromStr;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
-
-use super::keyword_enum::{OptRootKeyword, SplitKeyword, SplitKeyword2};
-use super::relational::{
-    Comp2_0Missing, ExistingIndexedLinkError, RemovedComp2_0Cell, RemovedLink,
-};
 
 #[cfg(feature = "python")]
 use {
@@ -160,9 +155,8 @@ impl Nextdata {
         kws: &StdKeywords,
         conf: &ReadHeaderAndTEXTConfig,
     ) -> WarningAndErrorResult<Option<Self>, (), ReadNextdataError, ReadNextdataError> {
-        let k = SpecificKey::default();
         if let Some(is_err) = conf.allow_missing_nextdata.is_error() {
-            let res = Self::get_req_with(kws, k, (), conf).map(|x| Some(x.inner));
+            let res = Self::get_req_with(kws, (), (), conf).map(|x| Some(x.inner));
             if is_err {
                 res.into_log()
             } else {
@@ -170,7 +164,7 @@ impl Nextdata {
             }
         } else {
             let ret = kws
-                .get(&k.as_std_key())
+                .get(&RootKey::Nextdata.std())
                 .and_then(|v| Self::from_str_with(v.as_ne_str(), (), conf).ok())
                 .map(|x| x.inner);
             LogResult::new_ok(ret)
@@ -206,7 +200,7 @@ pub enum LookupNextdataError {
     PrimaryTEXT(NextdataInPrimaryError),
 }
 
-pub type ReadNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata, ()>;
+pub type ReadNextdataError = ReqKeyErrorInner<ParseNextdataError, Nextdata>;
 
 /// Error when parsing [`Nextdata`] from [`String`]
 #[derive(Debug, Display, From, Error, PartialEq, Clone)]
@@ -489,7 +483,7 @@ impl Gain {
             .process_optional_failure
             .as_triflag();
         if ignore.0.contains(&OpticalOnlyKey::Gain) {
-            kws.transfer_demoted(Self::std(i));
+            kws.transfer_demoted(Self::std(&i));
             LogResult::new_switchable_ok(None, drop_flag)
         } else {
             Self::remove_or_drop_meas_opt(kws, dropped, i, conf.as_ref())
@@ -506,13 +500,13 @@ impl Gain {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupTemporalGainError {
-    Parse(OptIndexedKeyError<Gain>),
+    Parse(OptKeyError<Gain>),
     HasGain(TemporalGainError),
 }
 
 /// Error when time measurement has [`Gain`] ($PnG)
 #[derive(Debug, Error, PartialEq, Clone)]
-#[error("{} must be 1.0 or not set for temporal measurement", Gain::std(self.0))]
+#[error("{} must be 1.0 or not set for temporal measurement", ParamKeySuffix::G.to_std(&self.0))]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
 pub struct TemporalGainError(MeasIndex);
@@ -586,10 +580,10 @@ impl Trigger {
     pub(crate) fn existing_link_error(
         &self,
         names: &OpticalNamesToRemove<'_>,
-    ) -> Option<ExistingNamedLinkError<Self, ()>> {
+    ) -> Option<ExistingNamedLinkError<Self>> {
         let m = &self.measurement;
         (names.as_ref().contains(m))
-            .then(|| ExistingNamedLinkError::new(DKey0::default(), NEVec::new(m.clone())))
+            .then(|| ExistingNamedLinkError::new(DollarKey::default(), NEVec::new(m.clone())))
     }
 
     pub(crate) fn invalid_link_error(
@@ -1229,7 +1223,7 @@ impl Calibration3_2 {
 #[derive(Debug, Error, PartialEq, Clone)]
 #[error(
     "{k} has offset {o} which will be lost upon conversion",
-    k = Calibration3_2::std(self.0),
+    k = ParamKeySuffix::Calibration.to_std(&self.0),
     o = self.1,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1307,7 +1301,7 @@ impl Wavelengths {
     ) -> DeferredError<Option<Wavelength>, WavelengthsLossError> {
         NEVec::try_from_vec(self.0).map_or(LogResult::new_ok(None), |ws| {
             let n = ws.len();
-            let k = Key1::new_i1(i);
+            let k = DollarKey::new(i);
             let e = WavelengthsLossError(k, n);
             let wl = Some(Wavelength(ws.into_nonempty_iter().next().0));
             LogResult::new_deferred_if(usize::from(n) == 1, wl, e)
@@ -1326,7 +1320,7 @@ impl Wavelengths {
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-pub struct WavelengthsLossError(Key1<Wavelengths>, NonZeroUsize);
+pub struct WavelengthsLossError(DollarKey<Wavelengths>, NonZeroUsize);
 
 /// Error when parsing [`Wavelengths`] from string
 #[derive(Debug, Error, PartialEq, Clone)]
@@ -1460,8 +1454,8 @@ impl Compensation2_0 {
         let (xs, warnings): (Vec<_>, Vec<_>) = (0..n)
             .cartesian_product(0..n)
             .map(|(r, c)| {
-                let k = SpecificKey::new_i2(c, r);
-                match Dfc::lookup(kws, k, dropped, flag) {
+                let i = BiMeasIndex::new(c.into(), r.into());
+                match Dfc::lookup(kws, i, dropped, flag) {
                     Ok(x) => (x, None),
                     Err(w) => (None, Some(LookupComp2_0Error::Dfc(w))),
                 }
@@ -1489,8 +1483,8 @@ impl Compensation2_0 {
                             let ncols = m.ncols();
                             let row = i / ncols;
                             let col = i % ncols;
-                            let k = DKey2::new_i2(col, row);
-                            SplitKeyword2::new(k, Dfc(value))
+                            let k = DollarKey::new(BiMeasIndex::new(col.into(), row.into()));
+                            SplitKeyword_::new(k, Dfc(value))
                         });
                     match flag.is_demote_or_drop() {
                         Some(true) => {
@@ -1535,7 +1529,7 @@ impl Compensation2_0 {
     pub(crate) fn invalid_link_errors(
         &self,
         par: &Par,
-    ) -> impl Iterator<Item = BiIndexedKeyToIndexLinkError<Dfc>> {
+    ) -> impl Iterator<Item = KeyToIndexLinkError<Dfc>> {
         // If $PAR is 1 or matrix is smaller than $PAR, use a cutoff of zero
         // since the entire matrix must be removed.
         self.non_zero_indices().filter_map(|kw| {
@@ -1543,14 +1537,14 @@ impl Compensation2_0 {
             let n = self.0.matrix().nrows();
             let bad_matrix = n < par.0 || par.0 < 2;
             let cutoff = if bad_matrix { 0 } else { par.0 };
-            let k = DKey2::new_i2(kw.col, kw.row);
+            let k = DollarKey::new_i2(kw.col, kw.row);
             let r = (usize::from(kw.row) >= cutoff).then_some(kw.row);
             let c = (usize::from(kw.col) >= cutoff).then_some(kw.col);
             [r, c]
                 .into_iter()
                 .flatten()
                 .try_into_nonempty_iter()
-                .map(|js| BiIndexedKeyToIndexLinkError::new(js.collect(), k))
+                .map(|js| KeyToIndexLinkError::new(js.collect(), k))
         })
     }
 
@@ -1576,7 +1570,7 @@ impl Compensation2_0 {
                 (false, false) => None,
             };
             let k = DollarKey::new_i2(kw.row, kw.col);
-            which.map(|b| RemovedComp2_0Cell::new(SplitKeyword::new(k, kw.value), b))
+            which.map(|b| RemovedComp2_0Cell::new(SplitKeyword_::new(k, kw.value), b))
         });
         let ret = es
             .try_into_nonempty_iter()
@@ -1588,10 +1582,10 @@ impl Compensation2_0 {
 
     pub(crate) fn existing_links(
         &self,
-    ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, BiIndex>> {
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<Dfc, MeasIndex>> {
         self.non_zero_indices().map(|kw| {
-            let xs = [kw.col.into(), kw.row.into()].into_nonempty_vec();
-            ExistingIndexedLinkError::new(DKey2::new_i2(kw.col, kw.row), xs)
+            let xs = [kw.col, kw.row].into_nonempty_vec();
+            ExistingIndexedLinkError::new(DollarKey::new_i2(kw.col, kw.row), xs)
         })
     }
 
@@ -2817,13 +2811,13 @@ impl UnstainedCenters {
     pub(crate) fn existing_link_error(
         &self,
         names: &OpticalNamesToRemove<'_>,
-    ) -> Option<ExistingNamedLinkError<Self, ()>> {
+    ) -> Option<ExistingNamedLinkError<Self>> {
         self.0
             .keys()
             .filter(|n| names.as_ref().contains(n))
             .cloned()
             .try_into_nonempty_iter()
-            .map(|js| ExistingNamedLinkError::new(DKey0::default(), js.collect()))
+            .map(|js| ExistingNamedLinkError::new(DollarKey::default(), js.collect()))
     }
 
     /// Return error if any names in matrix are not in measurement vector
@@ -2953,8 +2947,8 @@ impl ExtraStdKeywords {
             // TODO we could also flag these as outside of $CSTOT but hardly
             // anyone uses these so probably not worth it
             AnyKeywordClass::CSVFlag(_) => if_invalid_version(),
-            AnyKeywordClass::Dfc(x, y) => {
-                if usize::from(x) >= par.0 || usize::from(y) >= par.0 {
+            AnyKeywordClass::Dfc(i) => {
+                if usize::from(i.i0) >= par.0 || usize::from(i.i1) >= par.0 {
                     Some(ExtraKeywordClass::HyperPar)
                 } else {
                     if_invalid_version()
@@ -3126,18 +3120,19 @@ macro_rules! newtype_opt_bool {
 macro_rules! kw_meta {
     ($t:ident, $k:expr) => {
         impl crate::validated::keys::Key for $t {
-            const STD: fireflow_types::std_key::RootKey = $k;
+            type Index = ();
+            type Id = fireflow_types::std_key::RootKey;
+            const STD: Self::Id = $k;
         }
     };
 }
 
 macro_rules! kw_meas {
     ($t:ident, $sfx:expr) => {
-        impl $crate::validated::keys::IndexedKey for $t {
-            const STD: $crate::validated::keys::PrefixSuffix =
-                $crate::validated::keys::PrefixSuffix::Meas(
-                    fireflow_types::std_key::MeasKeyBase::Param($sfx),
-                );
+        impl $crate::validated::keys::Key for $t {
+            type Index = MeasIndex;
+            type Id = fireflow_types::std_key::ParamKeySuffix;
+            const STD: Self::Id = $sfx;
         }
     };
 }
@@ -3182,16 +3177,16 @@ macro_rules! opt_meta {
 macro_rules! req_meas {
     ($t:ident) => {
         impl Required for $t {}
-        impl ReqIndexedKey for $t {}
+        impl ReqMetarootKey for $t {}
     };
 }
 
 macro_rules! opt_meas {
-    ($t:ident, $outer:path) => {
+    ($t:ident, $index:ident, $outer:path) => {
         impl Optional for $t {
             type Outer = $outer;
         }
-        impl OptIndexedKey for $t {}
+        impl OptMetarootKey for $t {}
     };
 }
 
@@ -3219,7 +3214,7 @@ macro_rules! kw_req_meas {
 macro_rules! kw_opt_meas {
     ($t:ident, $sfx:expr, $outer:path) => {
         kw_meas!($t, $sfx);
-        opt_meas!($t, $outer);
+        opt_meas!($t, MeasIndex, $outer);
     };
 }
 
@@ -3233,7 +3228,7 @@ macro_rules! kw_opt_root_string {
 macro_rules! kw_opt_meas_string {
     ($t:ident, $sfx:expr) => {
         kw_meas_string!($t, $sfx);
-        opt_meas!($t, Self);
+        opt_meas!($t, MeasIndex, Self);
     };
 }
 
@@ -3267,10 +3262,12 @@ macro_rules! kw_time {
 
 macro_rules! kw_opt_gate {
     ($t:ident, $sfx:expr, $outer:path) => {
-        impl IndexedKey for $t {
-            const STD: PrefixSuffix = PrefixSuffix::Gate($sfx);
+        impl $crate::validated::keys::Key for $t {
+            type Index = fireflow_types::index::GateIndex;
+            type Id = fireflow_types::std_key::GateKeySuffix;
+            const STD: Self::Id = $sfx;
         }
-        opt_meas!($t, $outer);
+        opt_meas!($t, GateIndex, $outer);
     };
 }
 
@@ -3471,40 +3468,39 @@ kw_opt_meas!(Calibration3_2, ParamKeySuffix::Calibration, Option<Self>);
 #[delegate(ToDisplayNE<'a>, generics = "'a")]
 pub struct Dfc(pub f32);
 
-impl BiIndexedKey for Dfc {
-    type Std = DfcKey;
-
-    fn std_inner(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self::Std {
-        DfcKey::new(MeasIndex::from(i.into()), MeasIndex::from(j.into()))
-    }
+impl Key for Dfc {
+    type Index = BiMeasIndex;
+    type Id = DfcKeyMarker;
+    const STD: Self::Id = DfcKeyMarker;
 }
 
 impl Dfc {
     pub(crate) fn lookup(
         kws: &mut ValidKeywords,
-        k: Key2<Self>,
+        i: BiMeasIndex,
         dropped: &mut StdKeywords,
         flag: ProcessOptionalFailure,
     ) -> Result<Option<Self>, LookupDfcError> {
+        let sk = Self::std(&i);
         kws.std
-            .remove(&k.as_std_key())
+            .remove(&sk)
             .map_or(Ok(None), |v| {
                 v.parse::<Self>()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.clone())))
+                    .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.clone())))
                     .map(Some)
             })
             .inspect_err(|e| match flag.is_demote_or_drop() {
-                Some(true) => kws.nonstd.insert_demoted(k.as_std_key(), e.value.0.clone()),
+                Some(true) => kws.nonstd.insert_demoted(sk, e.value.0.clone()),
                 Some(false) => {
-                    let out = dropped.insert(k.as_std_key(), e.value.0.clone());
-                    assert!(out.is_none(), "key was already dropped, {}", k.as_std_key());
+                    let out = dropped.insert(sk, e.value.0.clone());
+                    assert!(out.is_none(), "key was already dropped, {sk}");
                 }
                 None => (),
             })
     }
 }
 
-pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc, BiIndex>;
+pub type LookupDfcError = ParseKeyError<ParseFloatError, Dfc>;
 
 // 3.0/3.1 subsets
 kw_opt_root_int!(CSMode, usize, RootKey::Csmode);
@@ -3514,25 +3510,31 @@ kw_opt_meta_opt_u32!(CSVBits, RootKey::Csvbits);
 
 // $CSVnFLAG (3.0/3.1)
 newtype_int!(CSVFlag, u32);
-opt_meas!(CSVFlag, Option<Self>);
+opt_meas!(CSVFlag, SubsetIndex, Option<Self>);
 
-impl IndexedKey for CSVFlag {
-    const STD: PrefixSuffix = PrefixSuffix::CsvFlag;
+impl Key for CSVFlag {
+    type Index = SubsetIndex;
+    type Id = CsvFlagKeyMarker;
+    const STD: Self::Id = CsvFlagKeyMarker;
 }
 
 newtype_int!(PeakBin, u32);
-opt_meas!(PeakBin, Option<Self>);
+opt_meas!(PeakBin, MeasIndex, Option<Self>);
 
-impl IndexedKey for PeakBin {
-    const STD: PrefixSuffix = PrefixSuffix::Meas(MeasKeyBase::Peak(PeakKeyPrefix::Pk));
+impl Key for PeakBin {
+    type Index = MeasIndex;
+    type Id = PeakKeyPrefix;
+    const STD: Self::Id = PeakKeyPrefix::Pk;
 }
 
 // $PKNn (2.0-3.1)
 newtype_int!(PeakIndex, MeasIndex);
-opt_meas!(PeakIndex, Option<Self>);
+opt_meas!(PeakIndex, MeasIndex, Option<Self>);
 
-impl IndexedKey for PeakIndex {
-    const STD: PrefixSuffix = PrefixSuffix::Meas(MeasKeyBase::Peak(PeakKeyPrefix::Pkn));
+impl Key for PeakIndex {
+    type Index = MeasIndex;
+    type Id = PeakKeyPrefix;
+    const STD: Self::Id = PeakKeyPrefix::Pkn;
 }
 
 // 2.0-3.1 gating parameters
@@ -3548,23 +3550,25 @@ kw_opt_gate_string!(GateDetectorType, GateKeySuffix::T);
 kw_opt_gate_other!(GateDetectorVoltage, GateKeySuffix::V);
 kw_opt_meta!(Gating, RootKey::Gating, Option<Self>);
 
-impl IndexedKey for RegionWindow {
-    const STD: PrefixSuffix = PrefixSuffix::Region(RegionKeySuffix::W);
+impl Key for RegionWindow {
+    type Index = RegionIndex;
+    type Id = RegionKeySuffix;
+    const STD: Self::Id = RegionKeySuffix::W;
 }
 
-opt_meas!(RegionWindow, Option<Self>);
-
-const REGION_INDEX_PRE_SUF: PrefixSuffix = PrefixSuffix::Region(RegionKeySuffix::I);
+opt_meas!(RegionWindow, RegionIndex, Option<Self>);
 
 macro_rules! impl_region_index {
     ($t:path, $m:expr) => {
-        impl crate::validated::keys::IndexedKey for $t {
-            const STD: PrefixSuffix = REGION_INDEX_PRE_SUF;
+        impl crate::validated::keys::Key for $t {
+            type Index = fireflow_types::index::RegionIndex;
+            type Id = fireflow_types::std_key::RegionKeySuffix;
+            const STD: Self::Id = fireflow_types::std_key::RegionKeySuffix::I;
         }
         impl Optional for $t {
             type Outer = Option<Self>;
         }
-        impl OptIndexedKey for $t {}
+        impl OptMetarootKey for $t {}
     };
 }
 
@@ -3576,9 +3580,9 @@ impl_region_index!(
 impl_region_index!(RegionGateIndex3_2, VersionMembership::One(Version::FCS3_2));
 
 // dummy to help print stuff
-impl IndexedKey for RegionGateIndex<()> {
-    const STD: PrefixSuffix = REGION_INDEX_PRE_SUF;
-}
+// impl Key<RegionIndex> for RegionGateIndex<()> {
+//     const STD: PrefixSuffix = REGION_INDEX_PRE_SUF;
+// }
 
 // offsets for all versions
 kw_req_meta!(Nextdata, RootKey::Nextdata);
@@ -4025,8 +4029,8 @@ impl KeywordOptimizer {
                     self.n_any += 1;
                 }
             }
-            AnyKeywordClass::Dfc(i, j) => {
-                if usize::from(i) < p && usize::from(j) < p {
+            AnyKeywordClass::Dfc(i) => {
+                if usize::from(i.i0) < p && usize::from(i.i1) < p {
                     self.n_dfc += 1;
                 } else {
                     self.n_any += 1;
@@ -4075,7 +4079,7 @@ enum AnyKeywordClass {
     Meas(MeasIndex, MeasKeywordClass),
     CSVFlag(SubsetIndex),
     Peak(MeasIndex),
-    Dfc(MeasIndex, MeasIndex),
+    Dfc(BiMeasIndex),
     GateOptLE3_1(GateIndex),
     RegionIndex,
     RegionWindow,
@@ -4151,7 +4155,7 @@ impl AnyKeywordClass {
                 RegionKeySuffix::I => Self::RegionIndex,
                 RegionKeySuffix::W => Self::RegionWindow,
             },
-            StdKey::Dfc(k) => Self::Dfc(k.index0, k.index1),
+            StdKey::Dfc(k) => Self::Dfc(k.index),
             StdKey::CsvFlag(k) => Self::CSVFlag(k.index),
         }
     }

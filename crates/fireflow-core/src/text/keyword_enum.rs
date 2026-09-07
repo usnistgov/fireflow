@@ -9,12 +9,14 @@ use crate::text::keywords as kws;
 use crate::text::spillover::Spillover;
 use crate::text::timestamps::FCSDate;
 use crate::validated::keys::{
-    AsStdKey, DKey0, DKey1, DKey2, DollarKey, NonStdKey, SpecificKey, StdKeywords, WritableKey,
+    DollarKey, DollarKey_, NonStdKey, SpecificKey_, StdKeywords, WritableKey,
 };
 use crate::validated::shortname::Shortname;
 
+#[cfg(feature = "serde")]
+use fireflow_types::std_key::BlankKeyword;
 use fireflow_types::{
-    index::{IndexFromOne, MeasIndex, RegionIndex},
+    index::{MeasIndex, RegionIndex},
     keywords::{Version, VersionMembership},
     nonempty_string::{DisplayNE as _, DisplayableNE as _, NEStr, NEString, ToDisplayNE, ToNE},
     std_key::StdKey,
@@ -31,7 +33,7 @@ use std::fmt::{self, Write as _};
 use std::num::NonZeroU32;
 
 #[cfg(feature = "serde")]
-use crate::validated::keys::IndexedKey;
+use crate::validated::keys::Key;
 
 #[cfg(feature = "python")]
 use {
@@ -43,13 +45,13 @@ use {
 #[derive(Clone, From, Delegate)]
 #[delegate(DisplayEscaped)]
 pub(crate) enum OffsetKeyword {
-    Nextdata(SplitKeyword0<kws::Nextdata>),
-    Begindata(SplitKeyword0<kws::Begindata>),
-    Enddata(SplitKeyword0<kws::Enddata>),
-    Beginanalysis(SplitKeyword0<kws::Beginanalysis>),
-    Endanalysis(SplitKeyword0<kws::Endanalysis>),
-    Beginstext(SplitKeyword0<kws::Beginstext>),
-    Endstext(SplitKeyword0<kws::Endstext>),
+    Nextdata(SplitKeyword<kws::Nextdata>),
+    Begindata(SplitKeyword<kws::Begindata>),
+    Enddata(SplitKeyword<kws::Enddata>),
+    Beginanalysis(SplitKeyword<kws::Beginanalysis>),
+    Endanalysis(SplitKeyword<kws::Endanalysis>),
+    Beginstext(SplitKeyword<kws::Beginstext>),
+    Endstext(SplitKeyword<kws::Endstext>),
 }
 
 /// Any (non-offset) keyword type
@@ -97,13 +99,13 @@ pub(crate) enum StdOrNonStdOptRootKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum ReqRootKeyword<'a> {
-    ByteOrd2_0(SplitKeyword0<kws::ByteOrd2_0>),
-    ByteOrd3_1(SplitKeyword0<kws::ByteOrd3_1>),
-    Par(SplitKeyword0<kws::Par>),
-    Tot(SplitKeyword0<kws::Tot>),
-    Datatype(SplitKeyword0<kws::AlphaNumType>),
-    Mode(SplitKeyword0<kws::Mode>),
-    Cyt(RefKeyword0<'a, kws::Cyt3_2>),
+    ByteOrd2_0(SplitKeyword<kws::ByteOrd2_0>),
+    ByteOrd3_1(SplitKeyword<kws::ByteOrd3_1>),
+    Par(SplitKeyword<kws::Par>),
+    Tot(SplitKeyword<kws::Tot>),
+    Datatype(SplitKeyword<kws::AlphaNumType>),
+    Mode(SplitKeyword<kws::Mode>),
+    Cyt(RefKeyword<'a, kws::Cyt3_2>),
 }
 
 /// Any optional root keyword type
@@ -114,54 +116,54 @@ pub enum ReqRootKeyword<'a> {
 pub enum OptRootKeyword<'a> {
     GateMeas(GateMeasKeyword<'a>),
     GateRegion(RegionKeyword<'a>),
-    Dfc(SplitKeyword2<kws::Dfc>),
-    UnstainedCenters(SplitKeyword<DKey0<kws::UnstainedCenters>, kws::NEUnstainedCenters>),
-    CSMode(SplitKeyword0<kws::CSMode>),
-    CSVFlag(SplitKeyword1<kws::CSVFlag>),
-    CSVBits(NonZeroU32Keyword0<kws::CSVBits>),
-    CSTot(NonZeroU32Keyword0<kws::CSTot>),
-    Btim2_0(SplitKeyword0<kws::Btim2_0>),
-    Btim3_0(SplitKeyword0<kws::Btim3_0>),
-    Btim3_1(SplitKeyword0<kws::Btim3_1>),
-    Etim2_0(SplitKeyword0<kws::Etim2_0>),
-    Etim3_0(SplitKeyword0<kws::Etim3_0>),
-    Etim3_1(SplitKeyword0<kws::Etim3_1>),
-    Date(SplitKeyword0<FCSDate>),
-    Begindatetime(SplitKeyword0<BeginDateTime>),
-    Enddatetime(SplitKeyword0<EndDateTime>),
-    Gate(SplitKeyword0<kws::Gate>),
-    Gating(RefKeyword0<'a, kws::Gating>),
-    Comp(RefKeyword0<'a, kws::Compensation3_0>),
-    Unicode(RefKeyword0<'a, kws::Unicode>),
-    Abrt(SplitKeyword0<kws::Abrt>),
-    Lost(SplitKeyword0<kws::Lost>),
-    Tr(RefKeyword0<'a, kws::Trigger>),
-    Vol(SplitKeyword0<kws::Vol>),
-    LastModified(SplitKeyword0<kws::LastModified>),
-    Originality(SplitKeyword0<kws::Originality>),
-    Mode3_2(SplitKeyword0<kws::Mode3_2>),
-    Spillover(RefKeyword0<'a, Spillover>),
-    Cyt(NEStringKeyword0<'a, kws::Cyt>),
-    Cytsn(NEStringKeyword0<'a, kws::Cytsn>),
-    Com(NEStringKeyword0<'a, kws::Com>),
-    Cells(NEStringKeyword0<'a, kws::Cells>),
-    Exp(NEStringKeyword0<'a, kws::Exp>),
-    Fil(NEStringKeyword0<'a, kws::Fil>),
-    Inst(NEStringKeyword0<'a, kws::Inst>),
-    Op(NEStringKeyword0<'a, kws::Op>),
-    Proj(NEStringKeyword0<'a, kws::Proj>),
-    Smno(NEStringKeyword0<'a, kws::Smno>),
-    Src(NEStringKeyword0<'a, kws::Src>),
-    Sys(NEStringKeyword0<'a, kws::Sys>),
-    Flowrate(NEStringKeyword0<'a, kws::Flowrate>),
-    LastModifier(NEStringKeyword0<'a, kws::LastModifier>),
-    UnstainedInfo(NEStringKeyword0<'a, kws::UnstainedInfo>),
-    Carrierid(NEStringKeyword0<'a, kws::Carrierid>),
-    Carriertype(NEStringKeyword0<'a, kws::Carriertype>),
-    Locationid(NEStringKeyword0<'a, kws::Locationid>),
-    Plateid(NEStringKeyword0<'a, kws::Plateid>),
-    Platename(NEStringKeyword0<'a, kws::Platename>),
-    Wellid(NEStringKeyword0<'a, kws::Wellid>),
+    Dfc(SplitKeyword<kws::Dfc>),
+    UnstainedCenters(SplitKeyword_<DollarKey<kws::UnstainedCenters>, kws::NEUnstainedCenters>),
+    CSMode(SplitKeyword<kws::CSMode>),
+    CSVFlag(SplitKeyword<kws::CSVFlag>),
+    CSVBits(NonZeroU32Keyword<kws::CSVBits>),
+    CSTot(NonZeroU32Keyword<kws::CSTot>),
+    Btim2_0(SplitKeyword<kws::Btim2_0>),
+    Btim3_0(SplitKeyword<kws::Btim3_0>),
+    Btim3_1(SplitKeyword<kws::Btim3_1>),
+    Etim2_0(SplitKeyword<kws::Etim2_0>),
+    Etim3_0(SplitKeyword<kws::Etim3_0>),
+    Etim3_1(SplitKeyword<kws::Etim3_1>),
+    Date(SplitKeyword<FCSDate>),
+    Begindatetime(SplitKeyword<BeginDateTime>),
+    Enddatetime(SplitKeyword<EndDateTime>),
+    Gate(SplitKeyword<kws::Gate>),
+    Gating(RefKeyword<'a, kws::Gating>),
+    Comp(RefKeyword<'a, kws::Compensation3_0>),
+    Unicode(RefKeyword<'a, kws::Unicode>),
+    Abrt(SplitKeyword<kws::Abrt>),
+    Lost(SplitKeyword<kws::Lost>),
+    Tr(RefKeyword<'a, kws::Trigger>),
+    Vol(SplitKeyword<kws::Vol>),
+    LastModified(SplitKeyword<kws::LastModified>),
+    Originality(SplitKeyword<kws::Originality>),
+    Mode3_2(SplitKeyword<kws::Mode3_2>),
+    Spillover(RefKeyword<'a, Spillover>),
+    Cyt(NEStringKeyword<'a, kws::Cyt>),
+    Cytsn(NEStringKeyword<'a, kws::Cytsn>),
+    Com(NEStringKeyword<'a, kws::Com>),
+    Cells(NEStringKeyword<'a, kws::Cells>),
+    Exp(NEStringKeyword<'a, kws::Exp>),
+    Fil(NEStringKeyword<'a, kws::Fil>),
+    Inst(NEStringKeyword<'a, kws::Inst>),
+    Op(NEStringKeyword<'a, kws::Op>),
+    Proj(NEStringKeyword<'a, kws::Proj>),
+    Smno(NEStringKeyword<'a, kws::Smno>),
+    Src(NEStringKeyword<'a, kws::Src>),
+    Sys(NEStringKeyword<'a, kws::Sys>),
+    Flowrate(NEStringKeyword<'a, kws::Flowrate>),
+    LastModifier(NEStringKeyword<'a, kws::LastModifier>),
+    UnstainedInfo(NEStringKeyword<'a, kws::UnstainedInfo>),
+    Carrierid(NEStringKeyword<'a, kws::Carrierid>),
+    Carriertype(NEStringKeyword<'a, kws::Carriertype>),
+    Locationid(NEStringKeyword<'a, kws::Locationid>),
+    Plateid(NEStringKeyword<'a, kws::Plateid>),
+    Platename(NEStringKeyword<'a, kws::Platename>),
+    Wellid(NEStringKeyword<'a, kws::Wellid>),
 }
 
 /// Any required measurement keyword type
@@ -170,11 +172,11 @@ pub enum OptRootKeyword<'a> {
 #[delegate(DisplayEscaped)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum ReqMeasKeyword<'a> {
-    Shortname(RefKeyword1<'a, Shortname>),
-    Scale(SplitKeyword1<kws::Scale>),
-    TemporalScale3_0(SplitKeyword1<kws::TemporalScale3_0>),
-    Width(SplitKeyword1<kws::Width>),
-    Range(SplitKeyword1<kws::TextRange>),
+    Shortname(RefKeyword<'a, Shortname>),
+    Scale(SplitKeyword<kws::Scale>),
+    TemporalScale3_0(SplitKeyword<kws::TemporalScale3_0>),
+    Width(SplitKeyword<kws::Width>),
+    Range(SplitKeyword<kws::TextRange>),
 }
 
 /// Any optional measurement keyword type
@@ -182,8 +184,8 @@ pub enum ReqMeasKeyword<'a> {
 #[delegate(AsStdKeywordPair)]
 #[delegate(DisplayEscaped)]
 pub enum OptMeasKeyword<'a> {
-    Shortname(RefKeyword1<'a, Shortname>),
-    NumType(SplitKeyword1<kws::NumType>),
+    Shortname(RefKeyword<'a, Shortname>),
+    NumType(SplitKeyword<kws::NumType>),
     Optical(OptScaledOpticalKeyword<'a>),
     Temporal(OptTemporalKeyword<'a>),
 }
@@ -206,8 +208,8 @@ pub enum OptScaledOpticalKeyword<'a> {
 #[delegate(HasMembership)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptScaleKeyword {
-    Scale(SplitKeyword1<kws::Scale>),
-    Gain(SplitKeyword1<kws::Gain>),
+    Scale(SplitKeyword<kws::Scale>),
+    Gain(SplitKeyword<kws::Gain>),
 }
 
 /// Any optional optical keyword type
@@ -217,22 +219,22 @@ pub enum OptScaleKeyword {
 #[delegate(HasMembership)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptOpticalKeyword<'a> {
-    Longname(NEStringKeyword1<'a, kws::Longname>),
-    Filter(NEStringKeyword1<'a, kws::Filter>),
-    DetectorType(NEStringKeyword1<'a, kws::DetectorType>),
-    DetectorName(NEStringKeyword1<'a, kws::DetectorName>),
-    Tag(NEStringKeyword1<'a, kws::Tag>),
-    Analyte(NEStringKeyword1<'a, kws::Analyte>),
-    OpticalType(NEStringKeyword1<'a, kws::OpticalType>),
-    Wavelengths(SplitKeyword<DKey1<kws::Wavelengths>, kws::NEWavelengths<'a>>),
-    Power(SplitKeyword1<kws::Power>),
-    PercentEmitted(SplitKeyword1<kws::PercentEmitted>),
-    DetectorVoltage(SplitKeyword1<kws::DetectorVoltage>),
-    Wavelength(SplitKeyword1<kws::Wavelength>),
-    Display(SplitKeyword1<kws::Display>),
-    Feature(RefKeyword1<'a, kws::Feature>),
-    Calibration3_1(RefKeyword1<'a, kws::Calibration3_1>),
-    Calibration3_2(RefKeyword1<'a, kws::Calibration3_2>),
+    Longname(NEStringKeyword<'a, kws::Longname>),
+    Filter(NEStringKeyword<'a, kws::Filter>),
+    DetectorType(NEStringKeyword<'a, kws::DetectorType>),
+    DetectorName(NEStringKeyword<'a, kws::DetectorName>),
+    Tag(NEStringKeyword<'a, kws::Tag>),
+    Analyte(NEStringKeyword<'a, kws::Analyte>),
+    OpticalType(NEStringKeyword<'a, kws::OpticalType>),
+    Wavelengths(SplitKeyword_<DollarKey<kws::Wavelengths>, kws::NEWavelengths<'a>>),
+    Power(SplitKeyword<kws::Power>),
+    PercentEmitted(SplitKeyword<kws::PercentEmitted>),
+    DetectorVoltage(SplitKeyword<kws::DetectorVoltage>),
+    Wavelength(SplitKeyword<kws::Wavelength>),
+    Display(SplitKeyword<kws::Display>),
+    Feature(RefKeyword<'a, kws::Feature>),
+    Calibration3_1(RefKeyword<'a, kws::Calibration3_1>),
+    Calibration3_2(RefKeyword<'a, kws::Calibration3_2>),
     Peak(OptPeakKeyword),
 }
 
@@ -242,7 +244,7 @@ pub enum OptOpticalKeyword<'a> {
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
 pub enum OptTemporalKeyword<'a> {
-    Timestep(SplitKeyword0<kws::Timestep>),
+    Timestep(SplitKeyword<kws::Timestep>),
     Meas(OptMeasTemporalKeyword<'a>),
 }
 
@@ -253,10 +255,10 @@ pub enum OptTemporalKeyword<'a> {
 #[delegate(HasMembership)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptMeasTemporalKeyword<'a> {
-    Longname(NEStringKeyword1<'a, kws::Longname>),
-    TemporalType(OptZSTKeyword1<kws::TemporalType, kws::TemporalTypeInner>),
-    TemporalScale2_0(OptZSTKeyword1<kws::TemporalScale2_0, kws::TemporalScaleInner>),
-    Display(SplitKeyword1<kws::Display>),
+    Longname(NEStringKeyword<'a, kws::Longname>),
+    TemporalType(OptZSTKeyword<kws::TemporalType, kws::TemporalTypeInner>),
+    TemporalScale2_0(OptZSTKeyword<kws::TemporalScale2_0, kws::TemporalScaleInner>),
+    Display(SplitKeyword<kws::Display>),
     Peak(OptPeakKeyword),
 }
 
@@ -267,8 +269,8 @@ pub enum OptMeasTemporalKeyword<'a> {
 #[delegate(HasMembership)]
 #[cfg_attr(feature = "serde", delegate(AsHeader))]
 pub enum OptPeakKeyword {
-    PeakBin(SplitKeyword1<kws::PeakBin>),
-    PeakIndex(SplitKeyword1<kws::PeakIndex>),
+    PeakBin(SplitKeyword<kws::PeakBin>),
+    PeakIndex(SplitKeyword<kws::PeakIndex>),
 }
 
 /// Any $Gn* keyword type
@@ -277,14 +279,14 @@ pub enum OptPeakKeyword {
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
 pub enum GateMeasKeyword<'a> {
-    Scale(SplitKeyword1<kws::GateScale>),
-    Shortname(RefKeyword1<'a, kws::GateShortname>),
-    PercentEmitted(SplitKeyword1<kws::GatePercentEmitted>),
-    Range(RefKeyword1<'a, kws::GateRange>),
-    DetectorVoltage(SplitKeyword1<kws::GateDetectorVoltage>),
-    Filter(NEStringKeyword1<'a, kws::GateFilter>),
-    Longname(NEStringKeyword1<'a, kws::GateLongname>),
-    DetectorType(NEStringKeyword1<'a, kws::GateDetectorType>),
+    Scale(SplitKeyword<kws::GateScale>),
+    Shortname(RefKeyword<'a, kws::GateShortname>),
+    PercentEmitted(SplitKeyword<kws::GatePercentEmitted>),
+    Range(RefKeyword<'a, kws::GateRange>),
+    DetectorVoltage(SplitKeyword<kws::GateDetectorVoltage>),
+    Filter(NEStringKeyword<'a, kws::GateFilter>),
+    Longname(NEStringKeyword<'a, kws::GateLongname>),
+    DetectorType(NEStringKeyword<'a, kws::GateDetectorType>),
 }
 
 /// Any $Rn* keyword type
@@ -293,79 +295,88 @@ pub enum GateMeasKeyword<'a> {
 #[delegate(DisplayEscaped)]
 #[delegate(HasMembership)]
 pub enum RegionKeyword<'a> {
-    GateIndex2_0(SplitKeyword1<kws::RegionGateIndex2_0>),
-    GateIndex3_0(SplitKeyword1<kws::RegionGateIndex3_0>),
-    GateIndex3_2(SplitKeyword1<kws::RegionGateIndex3_2>),
+    GateIndex2_0(SplitKeyword<kws::RegionGateIndex2_0>),
+    GateIndex3_0(SplitKeyword<kws::RegionGateIndex3_0>),
+    GateIndex3_2(SplitKeyword<kws::RegionGateIndex3_2>),
     Window(RegionWindowSplitKeyword<'a>),
 }
 
 /// A non-standard keyword.
-pub(crate) type NonStdKeyword<'a> = SplitKeyword<&'a NonStdKey, &'a NEStr>;
+pub(crate) type NonStdKeyword<'a> = SplitKeyword_<&'a NonStdKey, &'a NEStr>;
 
 /// A keyword-value pair as two individual types.
 #[derive(Clone, new)]
-pub struct SplitKeyword<K, V> {
+pub struct SplitKeyword_<K, V> {
     pub(crate) key: K,
     pub(crate) value: V,
 }
 
-pub type SplitKeyword0<T> = SplitKeyword<DKey0<T>, T>;
-pub type SplitKeyword1<T> = SplitKeyword<DKey1<T>, T>;
-pub type SplitKeyword2<T> = SplitKeyword<DKey2<T>, T>;
+pub type SplitKeyword<T> = SplitKeyword_<DollarKey<T>, T>;
 
-pub type RefKeyword0<'a, T> = SplitKeyword<DKey0<T>, &'a T>;
-pub type RefKeyword1<'a, T> = SplitKeyword<DKey1<T>, &'a T>;
+// pub type SplitKeyword0<T> = SplitKeyword<DKey0<T>, T>;
+// pub type SplitKeywordMeas<T> = SplitKeyword<SpecificMeasKey<T>, T>;
+// pub type SplitKeyword2<T> = SplitKeyword<DKey2<T>, T>;
 
-pub type OptZSTKeyword1<K, T> = SplitKeyword<DKey1<K>, T>;
+pub type RefKeyword<'a, T> = SplitKeyword_<DollarKey<T>, &'a T>;
 
-pub type NEStringKeyword0<'a, T> = NEStringKeyword<'a, DKey0<T>>;
-pub type NEStringKeyword1<'a, T> = NEStringKeyword<'a, DKey1<T>>;
+// pub type RefKeyword0<'a, T> = SplitKeyword_<DKey0<T>, &'a T>;
+// pub type RefKeyword1<'a, T> = SplitKeyword_<SpecificMeasKey<T>, &'a T>;
 
-pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<DKey0<T>>;
+pub type OptZSTKeyword<K, T> = SplitKeyword_<DollarKey<K>, T>;
+// pub type OptZSTKeyword1<K, T> = SplitKeyword_<SpecificMeasKey<K>, T>;
 
-pub type NEStringKeyword<'a, K> = SplitKeyword<K, &'a NEStr>;
-pub type NonZeroU32Keyword<K> = SplitKeyword<K, NonZeroU32>;
+pub type NEStringKeyword<'a, T> = NEStringKeyword_<'a, DollarKey<T>>;
+
+// pub type NEStringKeyword0<'a, T> = NEStringKeyword<'a, DKey0<T>>;
+// pub type NEStringKeyword1<'a, T> = NEStringKeyword<'a, SpecificMeasKey<T>>;
+
+pub type NonZeroU32Keyword<T> = NonZeroU32Keyword_<DollarKey<T>>;
+
+// pub type NonZeroU32Keyword0<T> = NonZeroU32Keyword<DKey0<T>>;
+
+pub type NEStringKeyword_<'a, K> = SplitKeyword_<K, &'a NEStr>;
+pub type NonZeroU32Keyword_<K> = SplitKeyword_<K, NonZeroU32>;
 
 pub type RegionWindowSplitKeyword<'a> =
-    SplitKeyword<DKey1<kws::RegionWindow>, kws::RegionWindowRef<'a>>;
+    SplitKeyword_<DollarKey<kws::RegionWindow>, kws::RegionWindowRef<'a>>;
 
 /// Error when a metaroot keyword will be lost when converting versions
 #[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyMetarootKeyLossError {
-    Cytsn(Key0LossError<kws::Cytsn>),
-    Unicode(Key0LossError<kws::Unicode>),
-    Vol(Key0LossError<kws::Vol>),
-    Flowrate(Key0LossError<kws::Flowrate>),
-    Comp2_0(Key2LossError<kws::Dfc>),
-    Comp3_0(Key0LossError<kws::Compensation3_0>),
-    Spillover(Key0LossError<Spillover>),
-    Begin(Key0LossError<BeginDateTime>),
-    End(Key0LossError<EndDateTime>),
-    Bits(Key0LossError<kws::CSVBits>),
-    Tot(Key0LossError<kws::CSTot>),
-    CSMode(Key0LossError<kws::CSMode>),
-    CSVFlag(Key1LossError<kws::CSVFlag>),
-    Carrierid(Key0LossError<kws::Carrierid>),
-    Locationid(Key0LossError<kws::Locationid>),
-    Carriertype(Key0LossError<kws::Carriertype>),
-    Platename(Key0LossError<kws::Platename>),
-    Plateid(Key0LossError<kws::Plateid>),
-    Wellid(Key0LossError<kws::Wellid>),
-    LastModifier(Key0LossError<kws::LastModifier>),
-    LastModified(Key0LossError<kws::LastModified>),
-    Originality(Key0LossError<kws::Originality>),
-    UnstainedCenters(Key0LossError<kws::UnstainedCenters>),
-    UnstainedInfo(Key0LossError<kws::UnstainedInfo>),
-    Gate(Key0LossError<kws::Gate>),
-    GateScale(Key1LossError<kws::GateScale>),
-    GateFilter(Key1LossError<kws::GateFilter>),
-    GateShortname(Key1LossError<kws::GateShortname>),
-    GatePEmit(Key1LossError<kws::GatePercentEmitted>),
-    GateRange(Key1LossError<kws::GateRange>),
-    GateLongname(Key1LossError<kws::GateLongname>),
-    GateDetType(Key1LossError<kws::GateDetectorType>),
-    GateDetVolt(Key1LossError<kws::GateDetectorVoltage>),
+    Cytsn(KeyLossError<kws::Cytsn>),
+    Unicode(KeyLossError<kws::Unicode>),
+    Vol(KeyLossError<kws::Vol>),
+    Flowrate(KeyLossError<kws::Flowrate>),
+    Comp2_0(KeyLossError<kws::Dfc>),
+    Comp3_0(KeyLossError<kws::Compensation3_0>),
+    Spillover(KeyLossError<Spillover>),
+    Begin(KeyLossError<BeginDateTime>),
+    End(KeyLossError<EndDateTime>),
+    Bits(KeyLossError<kws::CSVBits>),
+    Tot(KeyLossError<kws::CSTot>),
+    CSMode(KeyLossError<kws::CSMode>),
+    CSVFlag(KeyLossError<kws::CSVFlag>),
+    Carrierid(KeyLossError<kws::Carrierid>),
+    Locationid(KeyLossError<kws::Locationid>),
+    Carriertype(KeyLossError<kws::Carriertype>),
+    Platename(KeyLossError<kws::Platename>),
+    Plateid(KeyLossError<kws::Plateid>),
+    Wellid(KeyLossError<kws::Wellid>),
+    LastModifier(KeyLossError<kws::LastModifier>),
+    LastModified(KeyLossError<kws::LastModified>),
+    Originality(KeyLossError<kws::Originality>),
+    UnstainedCenters(KeyLossError<kws::UnstainedCenters>),
+    UnstainedInfo(KeyLossError<kws::UnstainedInfo>),
+    Gate(KeyLossError<kws::Gate>),
+    GateScale(KeyLossError<kws::GateScale>),
+    GateFilter(KeyLossError<kws::GateFilter>),
+    GateShortname(KeyLossError<kws::GateShortname>),
+    GatePEmit(KeyLossError<kws::GatePercentEmitted>),
+    GateRange(KeyLossError<kws::GateRange>),
+    GateLongname(KeyLossError<kws::GateLongname>),
+    GateDetType(KeyLossError<kws::GateDetectorType>),
+    GateDetVolt(KeyLossError<kws::GateDetectorVoltage>),
     Region(RegionLossError),
     Gating(GatingLossError),
 }
@@ -410,15 +421,15 @@ pub struct GatingLossError {
 #[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalKeyLossError {
-    MeasType(Key1LossError<kws::OpticalType>),
-    Analyte(Key1LossError<kws::Analyte>),
-    Tag(Key1LossError<kws::Tag>),
+    MeasType(KeyLossError<kws::OpticalType>),
+    Analyte(KeyLossError<kws::Analyte>),
+    Tag(KeyLossError<kws::Tag>),
     Gain(GainLossError),
-    Display(Key1LossError<kws::Display>),
-    DetectorName(Key1LossError<kws::DetectorName>),
-    Feature(Key1LossError<kws::Feature>),
-    Calibration3_1(Key1LossError<kws::Calibration3_1>),
-    Calibration3_2(Key1LossError<kws::Calibration3_2>),
+    Display(KeyLossError<kws::Display>),
+    DetectorName(KeyLossError<kws::DetectorName>),
+    Feature(KeyLossError<kws::Feature>),
+    Calibration3_1(KeyLossError<kws::Calibration3_1>),
+    Calibration3_2(KeyLossError<kws::Calibration3_2>),
     Peak(PeakLossError),
 }
 
@@ -426,8 +437,8 @@ pub enum AnyOpticalKeyLossError {
 #[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalKeyLossError {
-    TempType(Key1LossError<kws::TemporalType>),
-    Display(Key1LossError<kws::Display>),
+    TempType(KeyLossError<kws::TemporalType>),
+    Display(KeyLossError<kws::Display>),
     Timestamp(TimestepLossError),
     Peak(PeakLossError),
 }
@@ -446,22 +457,22 @@ pub struct TimestepLossError;
 #[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyOpticalToTemporalKeyLossError {
-    Filter(Key1LossError<kws::Filter>),
-    Power(Key1LossError<kws::Power>),
-    DetectorType(Key1LossError<kws::DetectorType>),
-    PercentEmitted(Key1LossError<kws::PercentEmitted>),
-    DetectorVoltage(Key1LossError<kws::DetectorVoltage>),
-    Wavelength(Key1LossError<kws::Wavelength>),
-    Wavelengths(Key1LossError<kws::Wavelengths>),
-    MeasType(Key1LossError<kws::OpticalType>),
-    Analyte(Key1LossError<kws::Analyte>),
-    Tag(Key1LossError<kws::Tag>),
+    Filter(KeyLossError<kws::Filter>),
+    Power(KeyLossError<kws::Power>),
+    DetectorType(KeyLossError<kws::DetectorType>),
+    PercentEmitted(KeyLossError<kws::PercentEmitted>),
+    DetectorVoltage(KeyLossError<kws::DetectorVoltage>),
+    Wavelength(KeyLossError<kws::Wavelength>),
+    Wavelengths(KeyLossError<kws::Wavelengths>),
+    MeasType(KeyLossError<kws::OpticalType>),
+    Analyte(KeyLossError<kws::Analyte>),
+    Tag(KeyLossError<kws::Tag>),
     Scale(NonLinearScaleError),
     Gain(NonUnitGainError),
-    DetectorName(Key1LossError<kws::DetectorName>),
-    Feature(Key1LossError<kws::Feature>),
-    Calibration3_1(Key1LossError<kws::Calibration3_1>),
-    Calibration3_2(Key1LossError<kws::Calibration3_2>),
+    DetectorName(KeyLossError<kws::DetectorName>),
+    Feature(KeyLossError<kws::Feature>),
+    Calibration3_1(KeyLossError<kws::Calibration3_1>),
+    Calibration3_2(KeyLossError<kws::Calibration3_2>),
 }
 
 /// Error when the $PnG is not 1.0 for temporal measurement conversion.
@@ -482,15 +493,15 @@ pub struct NonUnitGainError(pub(crate) MeasIndex);
 #[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AnyTemporalToOpticalKeyLossError {
-    TempType(Key1LossError<kws::TemporalType>),
+    TempType(KeyLossError<kws::TemporalType>),
 }
 
 /// Error when $PKn and $PKNn keywords would be lost due to version change
 #[derive(From, Display, Debug, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum PeakLossError {
-    Bin(Key1LossError<kws::PeakBin>),
-    Number(Key1LossError<kws::PeakIndex>),
+    Bin(KeyLossError<kws::PeakBin>),
+    Number(KeyLossError<kws::PeakIndex>),
 }
 
 /// Error when key would be lost upon conversion
@@ -500,68 +511,72 @@ pub enum PeakLossError {
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
 #[cfg_attr(feature = "python", bound(K: fmt::Display))]
-pub struct KeyLossError<K>(pub K);
+pub struct KeyLossError_<K>(pub K);
 
-pub type Key0LossError<T> = KeyLossError<DKey0<T>>;
-pub type Key1LossError<T> = KeyLossError<DKey1<T>>;
-pub type Key2LossError<T> = KeyLossError<DKey2<T>>;
+pub type KeyLossError<T> = KeyLossError_<DollarKey<T>>;
+// pub type KeyLossError<T> = KeyLossError<SpecificMeasKey<T>>;
+// pub type Key2LossError<T> = KeyLossError<DKey2<T>>;
 
 pub(crate) trait Keyword0FromValue<'a> {
     fn from_value<T>(x: T) -> Self
     where
-        Self: From<SplitKeyword0<T>>,
+        T: Key<Index = ()>,
+        Self: From<SplitKeyword<T>>,
     {
-        Self::from(SplitKeyword0::from_value0(x))
+        Self::from(SplitKeyword::from_value0(x))
     }
 
     fn from_ref<T>(x: &'a T) -> Self
     where
-        Self: From<RefKeyword0<'a, T>>,
+        T: Key<Index = ()>,
+        Self: From<RefKeyword<'a, T>>,
     {
-        Self::from(RefKeyword0::from_ref0(x))
+        Self::from(RefKeyword::from_ref0(x))
     }
 
     fn from_str<T>(x: &'a T) -> Option<Self>
     where
-        T: AsRef<str>,
-        Self: From<NEStringKeyword0<'a, T>>,
+        T: Key<Index = ()> + AsRef<str>,
+        Self: From<NEStringKeyword<'a, T>>,
     {
-        NEStringKeyword0::try_new_ne_str0(x).map(Self::from)
+        NEStringKeyword::try_new_ne_str0(x).map(Self::from)
     }
 }
 
 pub(crate) trait Keyword1FromValue<'a> {
-    fn from_value<T>(x: T, i: impl Into<IndexFromOne>) -> Self
+    fn from_value<T>(x: T, i: T::Index) -> Self
     where
-        Self: From<SplitKeyword1<T>>,
+        T: Key,
+        Self: From<SplitKeyword<T>>,
     {
-        Self::from(SplitKeyword1::from_value1(x, i))
+        Self::from(SplitKeyword::from_value1(x, i))
     }
 
-    fn from_ref<T>(x: &'a T, i: impl Into<IndexFromOne>) -> Self
+    fn from_ref<T>(x: &'a T, i: T::Index) -> Self
     where
-        Self: From<RefKeyword1<'a, T>>,
+        T: Key,
+        Self: From<RefKeyword<'a, T>>,
     {
-        Self::from(RefKeyword1::from_ref1(x, i))
+        Self::from(RefKeyword::from_ref1(x, i))
     }
 
-    fn from_str<T>(x: &'a T, i: impl Into<IndexFromOne>) -> Option<Self>
+    fn from_str<T>(x: &'a T, i: T::Index) -> Option<Self>
     where
-        T: AsRef<str>,
-        Self: From<NEStringKeyword1<'a, T>>,
+        T: Key + AsRef<str>,
+        Self: From<NEStringKeyword<'a, T>>,
     {
-        NEStringKeyword1::try_new_ne_str1(x, i).map(Self::from)
+        NEStringKeyword::try_new_ne_str1(x, i).map(Self::from)
     }
 
-    fn from_opt_zst<T, Z>(x: T, i: MeasIndex) -> Option<Self>
+    fn from_opt_zst<T, Z>(x: T, i: T::Index) -> Option<Self>
     where
         Z: Copy,
-        T: AsRef<Option<Z>>,
-        Self: From<OptZSTKeyword1<T, Z>>,
+        T: Key + AsRef<Option<Z>>,
+        Self: From<OptZSTKeyword<T, Z>>,
     {
         let y: &Option<Z> = x.as_ref();
         let z = y.as_ref().copied()?;
-        let ret = SplitKeyword::new(DKey1::<T>::new_i1(i), z);
+        let ret = SplitKeyword_::new(DollarKey::new(i), z);
         Some(Self::from(ret))
     }
 }
@@ -607,77 +622,80 @@ trait DisplayEscaped {
     fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<T> SplitKeyword0<T> {
-    pub(crate) fn from_value0(value: T) -> Self {
-        Self::new(DKey0::<T>::default(), value)
+impl<T: Key> SplitKeyword<T> {
+    pub(crate) fn from_value0(value: T) -> Self
+    where
+        T: Key<Index = ()>,
+    {
+        Self::new(DollarKey::<T>::default(), value)
+    }
+
+    pub(crate) fn from_value1(value: T, i: T::Index) -> Self {
+        Self::new(DollarKey::new(i), value)
     }
 }
 
-impl<T> SplitKeyword1<T> {
-    pub(crate) fn from_value1(value: T, i: impl Into<IndexFromOne>) -> Self {
-        Self::new(DKey1::<T>::new_i1(i.into()), value)
+impl<'a, T: Key> RefKeyword<'a, T> {
+    pub(crate) fn from_ref0(value: &'a T) -> Self
+    where
+        T: Key<Index = ()>,
+    {
+        Self::new(DollarKey::<T>::default(), value)
+    }
+
+    pub(crate) fn from_ref1(value: &'a T, i: T::Index) -> Self {
+        Self::new(DollarKey::<T>::new(i), value)
     }
 }
 
-impl<'a, T> RefKeyword0<'a, T> {
-    pub(crate) fn from_ref0(value: &'a T) -> Self {
-        Self::new(DKey0::<T>::default(), value)
-    }
-}
-
-impl<'a, T> RefKeyword1<'a, T> {
-    pub(crate) fn from_ref1(value: &'a T, i: impl Into<IndexFromOne>) -> Self {
-        Self::new(DKey1::<T>::new_i1(i.into()), value)
-    }
-}
-
-impl<'a, T> NEStringKeyword0<'a, T> {
+impl<'a, T: Key> NEStringKeyword<'a, T> {
     pub(crate) fn try_new_ne_str0(kw: &'a T) -> Option<Self>
     where
-        T: AsRef<str>,
+        T: Key<Index = ()> + AsRef<str>,
     {
         let value = NEStr::try_new(kw.as_ref())?;
-        Some(Self::new(DKey0::<T>::default(), value))
+        Some(Self::new(DollarKey::<T>::default(), value))
     }
-}
 
-impl<'a, T> NEStringKeyword1<'a, T> {
-    pub(crate) fn try_new_ne_str1(kw: &'a T, i: impl Into<IndexFromOne>) -> Option<Self>
+    pub(crate) fn try_new_ne_str1(kw: &'a T, i: T::Index) -> Option<Self>
     where
         T: AsRef<str>,
     {
         let value = NEStr::try_new(kw.as_ref())?;
-        Some(Self::new(DKey1::<T>::new_i1(i.into()), value))
+        Some(Self::new(DollarKey::<T>::new(i), value))
     }
 }
 
-impl<T> NonZeroU32Keyword0<T> {
+impl<T: Key> NonZeroU32Keyword<T> {
     pub(crate) fn try_new_nz_u32(kw: &T) -> Option<Self>
     where
-        T: AsRef<u32>,
+        T: Key<Index = ()> + AsRef<u32>,
     {
         let value = NonZeroU32::new(*kw.as_ref())?;
-        Some(Self::new(DKey0::<T>::default(), value))
+        Some(Self::new(DollarKey::<T>::default(), value))
     }
 }
 
 impl<'a> OptRootKeyword<'a> {
     pub(crate) fn from_u32<T>(x: &T) -> Option<Self>
     where
-        T: AsRef<u32>,
-        Self: From<NonZeroU32Keyword0<T>>,
+        T: Key<Index = ()> + AsRef<u32>,
+        Self: From<NonZeroU32Keyword<T>>,
     {
-        NonZeroU32Keyword0::try_new_nz_u32(x).map(Self::from)
+        NonZeroU32Keyword::try_new_nz_u32(x).map(Self::from)
     }
 
     pub(crate) fn from_unstainedcenters(x: &'a kws::UnstainedCenters) -> Option<Self> {
-        Some(Self::from(SplitKeyword::new(DKey0::default(), x.try_ne()?)))
+        Some(Self::from(SplitKeyword_::new(
+            DollarKey::default(),
+            x.try_ne()?,
+        )))
     }
 }
 
 impl<'a> OptOpticalKeyword<'a> {
     pub(crate) fn from_wavelengths(x: &'a kws::Wavelengths, i: MeasIndex) -> Option<Self> {
-        let ret = SplitKeyword::new(DKey1::new_i1(i), x.try_ne()?);
+        let ret = SplitKeyword_::new(DollarKey::new(i), x.try_ne()?);
         Some(Self::from(ret))
     }
 }
@@ -695,13 +713,12 @@ impl Keyword1FromValue<'_> for OptPeakKeyword {}
 impl<'a> Keyword1FromValue<'a> for GateMeasKeyword<'a> {}
 impl Keyword1FromValue<'_> for RegionKeyword<'_> {}
 
-impl<K, V> AsStdKeywordPair for SplitKeyword<K, V>
+impl<T: Key, V> AsStdKeywordPair for SplitKeyword_<DollarKey<T>, V>
 where
-    K: AsStdKey,
     for<'a> V: ToDisplayNE<'a>,
 {
     fn as_std_key_pair(&self) -> (StdKey, NEString) {
-        (self.key.as_std_key(), ToNE(&self.value).to_ne_string())
+        (StdKey::from(&self.key.0), ToNE(&self.value).to_ne_string())
     }
 }
 
@@ -718,9 +735,9 @@ impl AsKeywordPair for NonStdKeyword<'_> {
     }
 }
 
-impl<I, V, X> HasMembership for SplitKeyword<DollarKey<V, I>, X>
+impl<I, V, X> HasMembership for SplitKeyword_<DollarKey_<V, I>, X>
 where
-    SpecificKey<V, I>: Into<StdKey> + Copy,
+    SpecificKey_<V, I>: Into<StdKey> + Copy,
 {
     fn membership(&self) -> VersionMembership {
         self.key.0.into().membership()
@@ -728,19 +745,22 @@ where
 }
 
 #[cfg(feature = "serde")]
-impl<I, V: IndexedKey, X> AsHeader for SplitKeyword<DollarKey<V, I>, X> {
+impl<V: Key, X> AsHeader for SplitKeyword_<DollarKey<V>, X>
+where
+    V::Id: BlankKeyword,
+{
     fn std_blank(&self) -> &'static NEStr {
-        V::std_blank()
+        V::STD.blank()
     }
 }
 
-impl<I, V: HasDelim> HasDelim for SplitKeyword<DollarKey<V, I>, V> {
+impl<I, V: HasDelim> HasDelim for SplitKeyword_<DollarKey_<V, I>, V> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         self.value.has_delim(d)
     }
 }
 
-impl<I, V: HasDelim> HasDelim for SplitKeyword<DollarKey<V, I>, &V> {
+impl<I, V: HasDelim> HasDelim for SplitKeyword_<DollarKey_<V, I>, &V> {
     fn has_delim(&self, d: TEXTDelim) -> Option<DelimCollisionError> {
         self.value.has_delim(d)
     }
@@ -913,40 +933,40 @@ impl OptRootKeyword<'_> {
         };
         let ret = match self {
             Self::GateMeas(kw) => match kw {
-                GateMeasKeyword::Scale(x) => KeyLossError(x.key).into(),
-                GateMeasKeyword::Shortname(x) => KeyLossError(x.key).into(),
-                GateMeasKeyword::PercentEmitted(x) => KeyLossError(x.key).into(),
-                GateMeasKeyword::Range(x) => KeyLossError(x.key).into(),
-                GateMeasKeyword::DetectorVoltage(x) => KeyLossError(x.key).into(),
-                GateMeasKeyword::Filter(x) => KeyLossError(x.key).into(),
-                GateMeasKeyword::Longname(x) => KeyLossError(x.key).into(),
-                GateMeasKeyword::DetectorType(x) => KeyLossError(x.key).into(),
+                GateMeasKeyword::Scale(x) => KeyLossError_(x.key).into(),
+                GateMeasKeyword::Shortname(x) => KeyLossError_(x.key).into(),
+                GateMeasKeyword::PercentEmitted(x) => KeyLossError_(x.key).into(),
+                GateMeasKeyword::Range(x) => KeyLossError_(x.key).into(),
+                GateMeasKeyword::DetectorVoltage(x) => KeyLossError_(x.key).into(),
+                GateMeasKeyword::Filter(x) => KeyLossError_(x.key).into(),
+                GateMeasKeyword::Longname(x) => KeyLossError_(x.key).into(),
+                GateMeasKeyword::DetectorType(x) => KeyLossError_(x.key).into(),
             },
-            Self::Gate(kw) => KeyLossError(kw.key).into(),
-            Self::Dfc(kw) => KeyLossError(kw.key).into(),
-            Self::UnstainedCenters(kw) => KeyLossError(kw.key).into(),
-            Self::UnstainedInfo(kw) => KeyLossError(kw.key).into(),
-            Self::CSMode(kw) => KeyLossError(kw.key).into(),
-            Self::CSVFlag(kw) => KeyLossError(kw.key).into(),
-            Self::CSVBits(kw) => KeyLossError(kw.key).into(),
-            Self::CSTot(kw) => KeyLossError(kw.key).into(),
-            Self::Begindatetime(kw) => KeyLossError(kw.key).into(),
-            Self::Enddatetime(kw) => KeyLossError(kw.key).into(),
-            Self::Comp(kw) => KeyLossError(kw.key).into(),
-            Self::Unicode(kw) => KeyLossError(kw.key).into(),
-            Self::Vol(kw) => KeyLossError(kw.key).into(),
-            Self::LastModified(kw) => KeyLossError(kw.key).into(),
-            Self::Originality(kw) => KeyLossError(kw.key).into(),
-            Self::LastModifier(kw) => KeyLossError(kw.key).into(),
-            Self::Spillover(kw) => KeyLossError(kw.key).into(),
-            Self::Flowrate(kw) => KeyLossError(kw.key).into(),
-            Self::Carrierid(kw) => KeyLossError(kw.key).into(),
-            Self::Carriertype(kw) => KeyLossError(kw.key).into(),
-            Self::Locationid(kw) => KeyLossError(kw.key).into(),
-            Self::Plateid(kw) => KeyLossError(kw.key).into(),
-            Self::Platename(kw) => KeyLossError(kw.key).into(),
-            Self::Wellid(kw) => KeyLossError(kw.key).into(),
-            Self::Cytsn(kw) => KeyLossError(kw.key).into(),
+            Self::Gate(kw) => KeyLossError_(kw.key).into(),
+            Self::Dfc(kw) => KeyLossError_(kw.key).into(),
+            Self::UnstainedCenters(kw) => KeyLossError_(kw.key).into(),
+            Self::UnstainedInfo(kw) => KeyLossError_(kw.key).into(),
+            Self::CSMode(kw) => KeyLossError_(kw.key).into(),
+            Self::CSVFlag(kw) => KeyLossError_(kw.key).into(),
+            Self::CSVBits(kw) => KeyLossError_(kw.key).into(),
+            Self::CSTot(kw) => KeyLossError_(kw.key).into(),
+            Self::Begindatetime(kw) => KeyLossError_(kw.key).into(),
+            Self::Enddatetime(kw) => KeyLossError_(kw.key).into(),
+            Self::Comp(kw) => KeyLossError_(kw.key).into(),
+            Self::Unicode(kw) => KeyLossError_(kw.key).into(),
+            Self::Vol(kw) => KeyLossError_(kw.key).into(),
+            Self::LastModified(kw) => KeyLossError_(kw.key).into(),
+            Self::Originality(kw) => KeyLossError_(kw.key).into(),
+            Self::LastModifier(kw) => KeyLossError_(kw.key).into(),
+            Self::Spillover(kw) => KeyLossError_(kw.key).into(),
+            Self::Flowrate(kw) => KeyLossError_(kw.key).into(),
+            Self::Carrierid(kw) => KeyLossError_(kw.key).into(),
+            Self::Carriertype(kw) => KeyLossError_(kw.key).into(),
+            Self::Locationid(kw) => KeyLossError_(kw.key).into(),
+            Self::Plateid(kw) => KeyLossError_(kw.key).into(),
+            Self::Platename(kw) => KeyLossError_(kw.key).into(),
+            Self::Wellid(kw) => KeyLossError_(kw.key).into(),
+            Self::Cytsn(kw) => KeyLossError_(kw.key).into(),
             Self::GateRegion(kw) => return go_region(kw),
             // $GATING follows the same pattern as $RnI/$RnW above
             Self::Gating(_) => match (current_version, target_version) {
@@ -989,18 +1009,18 @@ impl OptRootKeyword<'_> {
 impl OptOpticalKeyword<'_> {
     pub(crate) fn as_loss_error(&self) -> Option<AnyOpticalKeyLossError> {
         let ret = match self {
-            Self::DetectorName(kw) => KeyLossError(kw.key).into(),
-            Self::Tag(kw) => KeyLossError(kw.key).into(),
-            Self::Analyte(kw) => KeyLossError(kw.key).into(),
-            Self::OpticalType(kw) => KeyLossError(kw.key).into(),
-            Self::Display(kw) => KeyLossError(kw.key).into(),
-            Self::Feature(kw) => KeyLossError(kw.key).into(),
-            Self::Calibration3_1(kw) => KeyLossError(kw.key).into(),
-            Self::Calibration3_2(kw) => KeyLossError(kw.key).into(),
+            Self::DetectorName(kw) => KeyLossError_(kw.key).into(),
+            Self::Tag(kw) => KeyLossError_(kw.key).into(),
+            Self::Analyte(kw) => KeyLossError_(kw.key).into(),
+            Self::OpticalType(kw) => KeyLossError_(kw.key).into(),
+            Self::Display(kw) => KeyLossError_(kw.key).into(),
+            Self::Feature(kw) => KeyLossError_(kw.key).into(),
+            Self::Calibration3_1(kw) => KeyLossError_(kw.key).into(),
+            Self::Calibration3_2(kw) => KeyLossError_(kw.key).into(),
             Self::Peak(kw) => {
                 let ret = match kw {
-                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError(k.key)),
-                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError(k.key)),
+                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError_(k.key)),
+                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError_(k.key)),
                 };
                 ret.into()
             }
@@ -1025,20 +1045,20 @@ impl OptOpticalKeyword<'_> {
 
     pub(crate) fn as_temporal_loss_error(&self) -> Option<AnyOpticalToTemporalKeyLossError> {
         let ret = match self {
-            Self::DetectorName(kw) => KeyLossError(kw.key).into(),
-            Self::Tag(kw) => KeyLossError(kw.key).into(),
-            Self::Analyte(kw) => KeyLossError(kw.key).into(),
-            Self::OpticalType(kw) => KeyLossError(kw.key).into(),
-            Self::Feature(kw) => KeyLossError(kw.key).into(),
-            Self::Calibration3_1(kw) => KeyLossError(kw.key).into(),
-            Self::Calibration3_2(kw) => KeyLossError(kw.key).into(),
-            Self::Wavelength(kw) => KeyLossError(kw.key).into(),
-            Self::Wavelengths(kw) => KeyLossError(kw.key).into(),
-            Self::Filter(kw) => KeyLossError(kw.key).into(),
-            Self::DetectorType(kw) => KeyLossError(kw.key).into(),
-            Self::Power(kw) => KeyLossError(kw.key).into(),
-            Self::PercentEmitted(kw) => KeyLossError(kw.key).into(),
-            Self::DetectorVoltage(kw) => KeyLossError(kw.key).into(),
+            Self::DetectorName(kw) => KeyLossError_(kw.key).into(),
+            Self::Tag(kw) => KeyLossError_(kw.key).into(),
+            Self::Analyte(kw) => KeyLossError_(kw.key).into(),
+            Self::OpticalType(kw) => KeyLossError_(kw.key).into(),
+            Self::Feature(kw) => KeyLossError_(kw.key).into(),
+            Self::Calibration3_1(kw) => KeyLossError_(kw.key).into(),
+            Self::Calibration3_2(kw) => KeyLossError_(kw.key).into(),
+            Self::Wavelength(kw) => KeyLossError_(kw.key).into(),
+            Self::Wavelengths(kw) => KeyLossError_(kw.key).into(),
+            Self::Filter(kw) => KeyLossError_(kw.key).into(),
+            Self::DetectorType(kw) => KeyLossError_(kw.key).into(),
+            Self::Power(kw) => KeyLossError_(kw.key).into(),
+            Self::PercentEmitted(kw) => KeyLossError_(kw.key).into(),
+            Self::DetectorVoltage(kw) => KeyLossError_(kw.key).into(),
             // These are shared b/t temporal and optical so cannot result in
             // loss.
             Self::Peak(_) | Self::Display(_) | Self::Longname(_) => return None,
@@ -1075,7 +1095,7 @@ impl OptScaledOpticalKeyword<'_> {
 
 impl OptTemporalKeyword<'_> {
     pub(crate) fn from_timestep(x: kws::Timestep) -> Self {
-        let ret = SplitKeyword::new(DKey0::default(), x);
+        let ret = SplitKeyword_::new(DollarKey::default(), x);
         Self::from(ret)
     }
 
@@ -1101,12 +1121,12 @@ impl OptTemporalKeyword<'_> {
 impl OptMeasTemporalKeyword<'_> {
     pub(crate) fn as_loss_error(&self) -> Option<AnyTemporalKeyLossError> {
         let ret = match self {
-            Self::TemporalType(kw) => KeyLossError(kw.key).into(),
-            Self::Display(kw) => KeyLossError(kw.key).into(),
+            Self::TemporalType(kw) => KeyLossError_(kw.key).into(),
+            Self::Display(kw) => KeyLossError_(kw.key).into(),
             Self::Peak(kw) => {
                 let ret = match kw {
-                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError(k.key)),
-                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError(k.key)),
+                    OptPeakKeyword::PeakBin(k) => PeakLossError::from(KeyLossError_(k.key)),
+                    OptPeakKeyword::PeakIndex(k) => PeakLossError::from(KeyLossError_(k.key)),
                 };
                 ret.into()
             }
@@ -1119,7 +1139,7 @@ impl OptMeasTemporalKeyword<'_> {
 
     pub(crate) fn as_optical_loss_error(&self) -> Option<AnyTemporalToOpticalKeyLossError> {
         let ret = match self {
-            Self::TemporalType(kw) => KeyLossError(kw.key).into(),
+            Self::TemporalType(kw) => KeyLossError_(kw.key).into(),
             // These are shared with optical so cannot result in loss. $TIMESTEP
             // is dealt with separately since it is usually either moved to a
             // new measurement or returned and thus is not lossy.
@@ -1198,9 +1218,9 @@ impl fmt::Write for EscapedFormatter<'_, '_> {
     }
 }
 
-impl<K, I, V> DisplayEscaped for SplitKeyword<DollarKey<K, I>, V>
+impl<K: Key, V> DisplayEscaped for SplitKeyword_<DollarKey<K>, V>
 where
-    for<'a> DollarKey<K, I>: ToDisplayNE<'a>,
+    for<'a> DollarKey<K>: ToDisplayNE<'a>,
     for<'a> V: ToDisplayNE<'a>,
 {
     fn fmt_escaped(&self, delim: TEXTDelim, f: &mut fmt::Formatter<'_>) -> fmt::Result {

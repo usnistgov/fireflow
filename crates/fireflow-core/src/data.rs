@@ -127,17 +127,13 @@ use crate::text::byteord::{
     VariableWidthError, VecToSizedError, WidthToFixedError,
 };
 use crate::text::keyword_enum::{
-    Keyword0FromValue as _, Keyword1FromValue as _, ReqMeasKeyword, ReqRootKeyword, SplitKeyword0,
-    SplitKeyword1,
+    Keyword0FromValue as _, Keyword1FromValue as _, ReqMeasKeyword, ReqRootKeyword, SplitKeyword,
 };
 use crate::text::keywords::{
     AlphaNumType, ByteOrd2_0, ByteOrd3_1, LogScale, NumType, Par, RangeToIntError,
     RangeToIntErrorKind, TextRange, Tot, Width,
 };
-use crate::text::lookup::{
-    OptIndexedKey as _, OptIndexedKeyError, ReqIndexedKey as _, ReqIndexedKeyError, ReqKeyError,
-    ReqMetarootKey as _,
-};
+use crate::text::lookup::{OptKeyError, OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _};
 use crate::text::named_vec::{NamedVec, NewNamedVecError};
 use crate::text::optional::{Identity, MightHave, Nothing};
 use crate::validated::ascii_range::{
@@ -156,7 +152,7 @@ use crate::validated::finite_float::{
     DecimalToFloatError, FiniteF32, FiniteF64, FiniteF64toF32Error, FiniteFloat,
     U64ToFiniteFloatError,
 };
-use crate::validated::keys::{IndexedKey as _, StdKeywords, ValidKeywords};
+use crate::validated::keys::{Key, StdKeywords, ValidKeywords};
 use crate::validated::read_state::WriteFCSDigest;
 use crate::validated::row_buffer::{ReadBuffer, WriteBuffer};
 use crate::validated::unaligned::{DstIndex, FCSRepr, SrcIndex, U24, U40, U48, U56};
@@ -169,8 +165,9 @@ use fireflow_types::{
         DummyTriFlag, IntWidthOverride, NumericByteWidth, OverBitmaskAction, OverLimitMode,
         OverRangeAction, ReadDatasetConfig, TriErrorFlag as _, WriteDatasetInnerConfig,
     },
-    index::{IndexFromOne, MeasIndex},
+    index::MeasIndex,
     nonempty_string::DisplayableNE as _,
+    std_key::{ParamKeySuffix, ToStd as _},
 };
 
 use type_families::{
@@ -984,12 +981,12 @@ pub enum NewMixedRangeWarning {
 #[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "could not use {k} in float layout because {e}",
-    k = TextRange::std(_0.index),
+    k = ParamKeySuffix::R.to_std(&_0.index),
     e = _0.error
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct IndexedFloatRangeError(IndexedError<DecimalToFloatError>);
+pub struct IndexedFloatRangeError(IndexedError<MeasIndex, DecimalToFloatError>);
 
 /// Error when using $PnB or $PnR to make a new [`Bitmask`]
 #[derive(From, Display, Debug, PartialEq, Clone)]
@@ -1003,21 +1000,23 @@ pub enum NewUintTypeError {
 #[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "{} is variable ('*') when a fixed integer is expected",
-    Width::std(self.0.index),
+    Width::std(&self.0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct IndexedWidthToFixedError(IndexedError<VariableWidthError>);
+pub struct IndexedWidthToFixedError(IndexedError<MeasIndex, VariableWidthError>);
 
 /// Error when converting $PnB (in bits) to [`Bytes`]
 #[derive(From, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct IndexedWidthToBytesError(IndexedError<WidthToFixedError<FixedWidthToBytesError>>);
+pub struct IndexedWidthToBytesError(
+    IndexedError<MeasIndex, WidthToFixedError<FixedWidthToBytesError>>,
+);
 
 impl fmt::Display for IndexedWidthToBytesError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let k = Width::std(self.0.index);
+        let k = Width::std(&self.0.index);
         match &self.0.error {
             WidthToFixedError::Fixed(e) => {
                 write!(f, "could not convert {k} to bytes because {e}")
@@ -1042,11 +1041,11 @@ pub enum FloatWidthError {
 #[derive(From, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct IndexedBitmaskError(IndexedError<RangeToBitmaskError>);
+pub struct IndexedBitmaskError(IndexedError<MeasIndex, RangeToBitmaskError>);
 
 impl fmt::Display for IndexedBitmaskError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let i = self.0.index;
+        let i = &self.0.index;
         let rng = TextRange::std(i);
         let width = Width::std(i);
         let e = match &self.0.error {
@@ -1100,12 +1099,12 @@ impl<T> From<RangeToIntError<T>> for RangeToBitmaskError {
 #[derive(From, Debug, Error, PartialEq, Clone)]
 #[error(
     "{k} could not be converted to integer ASCII upper bound because {e}",
-    k = TextRange::std(_0.index),
+    k = TextRange::std(&_0.index),
     e = _0.error,
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
-pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<RangeToAsciiError>);
+pub struct IndexedRangeToAsciiError(pub(crate) IndexedError<MeasIndex, RangeToAsciiError>);
 
 /// Inner error for [`IndexedRangeToAsciiError`] without the index
 #[derive(Debug, Error, PartialEq, Clone)]
@@ -1137,7 +1136,7 @@ impl<T> From<RangeToIntError<T>> for RangeToAsciiError {
 #[derive(Debug, Display, new, PartialEq, Clone)]
 #[display(
     "expected {k} to be {expected} but got {width} when determining float type",
-    k = TextRange::std(self.index),
+    k = TextRange::std(&self.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::RelationalError))]
@@ -1198,20 +1197,20 @@ pub enum LookupDataSchemaError {
 pub enum LookupDataSchemaWarning {
     New(NewMixedRangeWarning),
     Datatype(ReqKeyError<AlphaNumType>),
-    Meas(OptIndexedKeyError<NumType>),
+    Meas(OptKeyError<NumType>),
 }
 
 type LookupMeasLayoutResult<T> = WarningsAndErrorsResult<
     Vec<DataSchemaKeywordValues<T>>,
     (),
-    OptIndexedKeyError<NumType>,
+    OptKeyError<NumType>,
     LookupMeasLayoutError,
 >;
 
 type LookupOneMeasLayoutResult<T> = WarningsAndErrorsResult<
     DataSchemaKeywordValues<T>,
     (),
-    OptIndexedKeyError<NumType>,
+    OptKeyError<NumType>,
     LookupMeasLayoutError,
 >;
 
@@ -1219,9 +1218,9 @@ type LookupOneMeasLayoutResult<T> = WarningsAndErrorsResult<
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMeasLayoutError {
-    Width(ReqIndexedKeyError<Width>),
-    Range(ReqIndexedKeyError<TextRange>),
-    NumType(OptIndexedKeyError<NumType>),
+    Width(ReqKeyError<Width>),
+    Range(ReqKeyError<TextRange>),
+    NumType(OptKeyError<NumType>),
 }
 
 /// Error when reading DATA segment and checking ranges
@@ -1262,7 +1261,7 @@ pub enum ReadDataframeWarning {
 #[display(
     "event value in column {column} and row {row}, exceeds {what}{pnr} ({})",
     range.as_displayable(),
-    pnr = TextRange::std(self.column.0),
+    pnr = TextRange::std(&self.column),
     what = if matches!(self.trunc_type, ExceededRange::Bitmask) { "bitmask implied by " } else { "" }
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
@@ -1430,12 +1429,12 @@ pub enum LayoutConvertError {
     "{b} and {r} encoding {from}-byte integers are incompatible with {to}-byte integer layout",
     from = _0.error.from,
     to = _0.error.to,
-    b = Width::std(_0.index),
-    r = TextRange::std(_0.index),
+    b = Width::std(&_0.index),
+    r = TextRange::std(&_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
+pub struct UintEndianToOrderedLayoutError(IndexedError<MeasIndex, UintToUintError>);
 
 /// Error when converting a [`DataSchema3_2`] to a [`NonMixedDataSchema`]
 ///
@@ -1446,13 +1445,13 @@ pub struct UintEndianToOrderedLayoutError(IndexedError<UintToUintError>);
     "{b} and {r} when {p}='{from}' are incompatible in layout with $DATATYPE='{to}'",
     from = _0.error.src.as_displayable(),
     to = _0.error.dest.as_displayable(),
-    p = NumType::std(_0.index),
-    b = Width::std(_0.index),
-    r = TextRange::std(_0.index),
+    p = NumType::std(&_0.index),
+    b = Width::std(&_0.index),
+    r = TextRange::std(&_0.index),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-pub struct MixedToNonMixedLayoutError(IndexedError<MixedToNonMixedError>);
+pub struct MixedToNonMixedLayoutError(IndexedError<MeasIndex, MixedToNonMixedError>);
 
 /// Error when converting [`DataSchema3_2`] to [`AnyOrderedDataSchema`]
 ///
@@ -1658,16 +1657,16 @@ pub type CastSeriesErrors = ErrorGroup<IndexedCastSeriesError, CastSeriesSummary
 #[error("{} for column {}", self.0.error, self.0.index)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::DataLossError))]
-pub struct IndexedCastSeriesError(IndexedError<CastSeriesError>);
+pub struct IndexedCastSeriesError(IndexedError<MeasIndex, CastSeriesError>);
 
-/// Inner helper type to add index data to an error message.
+/// Inner helper type to add measurement index data to an error message.
 ///
 /// This does not implement any error-specific functions on its own because
 /// the index will be used in a context-specific manner.
 #[derive(new, Debug, PartialEq, Clone)]
-pub(crate) struct IndexedError<E> {
+pub(crate) struct IndexedError<I, E> {
     #[new(into)]
-    pub(crate) index: IndexFromOne,
+    pub(crate) index: I,
     pub(crate) error: E,
 }
 
@@ -2434,8 +2433,9 @@ where
     C: AsRef<[I::Inner]>,
     I::Inner: ColumnHasDatatype + ColumnSchemaAsWidth + Clone,
     L: Copy + HasByteOrd,
-    for<'c> ReqRootKeyword<'c>: From<SplitKeyword0<L::ByteOrd>>,
+    for<'c> ReqRootKeyword<'c>: From<SplitKeyword<L::ByteOrd>>,
     TextRange: From<I::Inner>,
+    L::ByteOrd: Key<Index = ()>,
 {
     fn byteord_keyword(&self) -> ReqRootKeyword<'_> {
         ReqRootKeyword::from_value(self.byteord.into())
@@ -2447,8 +2447,8 @@ where
             .iter()
             .enumerate()
             .map(|(i, c)| {
-                let w = ReqMeasKeyword::from_value(c.as_width(), i);
-                let r = ReqMeasKeyword::from_value(TextRange::from(c.clone()), i);
+                let w = ReqMeasKeyword::from_value(c.as_width(), i.into());
+                let r = ReqMeasKeyword::from_value(TextRange::from(c.clone()), i.into());
                 [w, r]
             })
             .collect()
@@ -2583,14 +2583,14 @@ pub trait LayoutOptMeasKeywords {
     ///
     /// Vector length will equal DATA column number. `None` will be returned
     /// if $PnDATATYPE is not provided. For pre-3.2 layouts, all will be `None`.
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>>;
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword<NumType>>>;
 }
 
 impl<C, I, F, S, M, const ORD: bool> LayoutOptMeasKeywords for Layout<C, F, I, S, M, ORD>
 where
     Self: LayoutWidth,
 {
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword<NumType>>> {
         vec![None; self.width()]
     }
 }
@@ -2603,7 +2603,7 @@ where
     Self: LayoutDatatype,
     N: LayoutWidth,
 {
-    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword1<NumType>>> {
+    fn opt_meas_keywords(&self) -> Vec<Option<SplitKeyword<NumType>>> {
         let dt = self.datatype();
         match self {
             Self::NonMixed(x) => vec![None; x.width()],
@@ -2616,7 +2616,7 @@ where
                     NumType::try_from(c.col_datatype())
                         .ok()
                         .and_then(|y| (AlphaNumType::from(y) != dt).then_some(y))
-                        .map(|v| SplitKeyword1::from_value1(v, i))
+                        .map(|v| SplitKeyword::from_value1(v, i.into()))
                 })
                 .collect(),
         }
@@ -6722,13 +6722,13 @@ pub trait IsNumType: Sized {
         dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>;
+    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>;
 
     fn lookup_datatype_ro(
         kws: &StdKeywords,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>;
+    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>;
 
     fn lookup_all(
         kws: &mut ValidKeywords,
@@ -6777,13 +6777,9 @@ pub trait IsNumType: Sized {
     }
 
     fn make_meas(
-        width: Result<Width, ReqIndexedKeyError<Width>>,
-        range: Result<TextRange, ReqIndexedKeyError<TextRange>>,
-        datatype: DeferredWarningAndError<
-            Self,
-            OptIndexedKeyError<NumType>,
-            OptIndexedKeyError<NumType>,
-        >,
+        width: Result<Width, ReqKeyError<Width>>,
+        range: Result<TextRange, ReqKeyError<TextRange>>,
+        datatype: DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>>,
     ) -> LookupOneMeasLayoutResult<Self> {
         let w = width.map_err(LookupMeasLayoutError::from).into_log();
         let r = range.map_err(LookupMeasLayoutError::from).into_log();
@@ -6801,8 +6797,7 @@ impl IsNumType for Nothing<NumType> {
         _: &mut StdKeywords,
         _: MeasIndex,
         _: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
-    {
+    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
         LogResult::new_ok(Self::default())
     }
 
@@ -6810,8 +6805,7 @@ impl IsNumType for Nothing<NumType> {
         _: &StdKeywords,
         _: MeasIndex,
         _: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
-    {
+    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
         LogResult::new_ok(Self::default())
     }
 }
@@ -6822,8 +6816,7 @@ impl IsNumType for Option<NumType> {
         dropped: &mut StdKeywords,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
-    {
+    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
         NumType::remove_or_drop_meas_opt(kws, dropped, i, conf).switchable_into_commutative()
     }
 
@@ -6831,8 +6824,7 @@ impl IsNumType for Option<NumType> {
         kws: &StdKeywords,
         i: MeasIndex,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredWarningAndError<Self, OptIndexedKeyError<NumType>, OptIndexedKeyError<NumType>>
-    {
+    ) -> DeferredWarningAndError<Self, OptKeyError<NumType>, OptKeyError<NumType>> {
         NumType::get_or_ignore_meas_opt(kws, i, conf).switchable_into_commutative()
     }
 }

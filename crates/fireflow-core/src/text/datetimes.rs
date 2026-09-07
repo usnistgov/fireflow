@@ -1,7 +1,7 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword};
-use crate::text::lookup::{Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey as _};
+use crate::text::lookup::{Diagnosed, FromStrWith, OptStKeyError, OptMetarootKey as _};
 use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
 
 use fireflow_types::{
@@ -309,8 +309,8 @@ pub enum FCSDateTimeError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupDatetimesError {
-    Begindatetime(OptKeyStError<BeginDateTime>),
-    Enddatetime(OptKeyStError<EndDateTime>),
+    Begindatetime(OptStKeyError<BeginDateTime>),
+    Enddatetime(OptStKeyError<EndDateTime>),
     Datetime(ReversedDatetimesError),
 }
 

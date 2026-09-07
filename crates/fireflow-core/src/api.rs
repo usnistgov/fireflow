@@ -61,7 +61,7 @@ use fireflow_types::{
     keywords::{Version, Version2_0, Version3_0, Version3_1, Version3_2},
     nonempty_string::NESliceExt as _,
     segment::{OffsetsFromTEXT, SupplementalTextSegmentId},
-    std_key::StdKey,
+    std_key::{RootKey, StdKey},
 };
 
 use type_families::{ApplyOnce as _, BifunctorOnce, Functor as _, FunctorOnce as _};
@@ -2538,8 +2538,10 @@ impl SuppTEXTOffsetsOutput {
             None => header.version,
             Some(VersionOverride::Force(v)) => v,
             Some(VersionOverride::AutoDetect { .. }) => {
-                if kws.contains_key(&Begindata::std()) || kws.contains_key(&Enddata::std()) {
-                    if kws.contains_key(&Cyt::std()) {
+                if kws.contains_key(&RootKey::Begindata.std())
+                    || kws.contains_key(&RootKey::Enddata.std())
+                {
+                    if kws.contains_key(&RootKey::Cyt.std()) {
                         Version::FCS3_2
                     } else {
                         Version::FCS3_1

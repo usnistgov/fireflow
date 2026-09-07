@@ -9,33 +9,28 @@ use crate::segment::read::HeaderOffsetsOverflow;
 use crate::text::keyword_enum::{
     AsStdKeywordPair, OptMeasKeyword, OptRootKeyword, ambassador_impl_AsStdKeywordPair,
 };
-use crate::text::keywords as kws;
 
-use fireflow_types::std_key::{
-    CsvFlagKey, GateKey, GateKeySuffix, MeasKey, MeasKeyBase, ParamKeySuffix, PeakKeyPrefix,
-    PseudoStdKey, RealOrPseudoStdKey, RegionKey, RegionKeySuffix, RootKey, STD_PREFIX,
-};
 use fireflow_types::{
     case_ins_regex::CaseInsRegex,
     config::{
         DummyTriFlag, Encoding, OpticalOnlyKey, OpticalOnlyKeys, ProcessOpticalOnlyKeys,
         ReadHeaderAndTEXTConfig, TemporalHasOpticalKeyError, TriErrorFlag as _,
     },
-    index::{IndexFromOne, MeasIndex},
+    index::{BiMeasIndex, MeasIndex},
     keystring::{KeyString, KeyStringOrPattern, KeyStringsOrPatterns, NEAsciiStringError},
-    keywords::{Version, VersionMembership},
     ne_str,
     nonempty_string::{
-        DisplayableNE as _, NEAlt, NEConcat, NEConcat4, NEConcatR, NESliceExt as _, NEStr,
-        NEString, ToDisplayNE, ToNE, ambassador_impl_ToDisplayNE,
+        NEAlt, NEConcat, NESliceExt as _, NEStr, NEString, ToDisplayNE, ToNE,
+        ambassador_impl_ToDisplayNE,
     },
-    std_key::StdKey,
+    std_key::{PseudoStdKey, RealOrPseudoStdKey, STD_PREFIX, StdKey, ToStd},
     sub_pattern::SubPattern,
 };
 
-use ambassador::{Delegate, delegatable_trait};
+use ambassador::Delegate;
 use derive_more::{AsRef, Display, From, Into};
 use derive_new::new;
+use derive_where::derive_where;
 use hashbrown::HashMap;
 use hashbrown::hash_map::Entry;
 use itertools::Itertools as _;
@@ -43,16 +38,13 @@ use nonempty_collections::{
     IntoIteratorExt as _, IntoNonEmptyIterator as _, NESlice, NEVec, iter::NonEmptyIterator as _,
 };
 use thiserror::Error;
-use unicase::Ascii;
 
 use std::borrow::Cow;
 use std::fmt;
 use std::hash::Hash;
 use std::marker::PhantomData;
-use std::mem;
 use std::str::FromStr;
 use std::string::ToString;
-use std::sync::OnceLock;
 
 #[cfg(feature = "serde")]
 use serde::Serialize;
@@ -341,105 +333,6 @@ impl From<TruncatedNEString> for TruncatedString {
     }
 }
 
-/// Either a single prefix or both a prefix and suffix.
-///
-/// Used to implement the const term for [`IndexedKey`].
-pub enum PrefixSuffix {
-    Meas(MeasKeyBase),
-    Gate(GateKeySuffix),
-    Region(RegionKeySuffix),
-    CsvFlag,
-}
-
-// impl PrefixSuffix {
-//     const fn as_str(&self) -> (&'static str, &'static str) {
-//         match self {
-//             Self::Peak(x) => (x.as_str(), ""),
-//             Self::Both(x, y) => (x.as_str(), y.as_str()),
-//         }
-//     }
-// }
-
-/// A key with no indices.
-pub type Key0<T> = SpecificKey<T, ()>;
-
-impl<T> Default for Key0<T> {
-    fn default() -> Self {
-        Self::new(())
-    }
-}
-
-impl<T: Key> From<Key0<T>> for StdKey {
-    fn from(_: Key0<T>) -> Self {
-        T::std()
-    }
-}
-
-/// A key with one index.
-pub type Key1<T> = SpecificKey<T, IndexFromOne>;
-
-impl<T> Key1<T> {
-    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
-        Self::new(i.into())
-    }
-}
-
-impl<T: IndexedKey> From<Key1<T>> for StdKey {
-    fn from(value: Key1<T>) -> Self {
-        T::std(value.index)
-    }
-}
-
-/// A key with two indices.
-pub type Key2<T> = SpecificKey<T, BiIndex>;
-
-impl<T> Key2<T> {
-    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
-        Self::new(BiIndex::new(i.into(), j.into()))
-    }
-}
-
-impl<T: BiIndexedKey> From<Key2<T>> for StdKey {
-    fn from(value: Key2<T>) -> Self {
-        T::std(value.index.i0, value.index.i1)
-    }
-}
-
-/// A dollarised key with no indices.
-pub type DKey0<T> = DollarKey<T, ()>;
-
-impl<T> Default for DKey0<T> {
-    fn default() -> Self {
-        Self(Key0::default())
-    }
-}
-
-/// A dollarised key with one index.
-pub type DKey1<T> = DollarKey<T, IndexFromOne>;
-
-impl<T> DKey1<T> {
-    pub(crate) fn new_i1(i: impl Into<IndexFromOne>) -> Self {
-        Self(Key1::new_i1(i))
-    }
-
-    pub(crate) fn index(self) -> IndexFromOne {
-        self.0.index
-    }
-}
-
-/// A dollarised key with two indices.
-pub type DKey2<T> = DollarKey<T, BiIndex>;
-
-impl<T> DKey2<T> {
-    pub(crate) fn new_i2(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self {
-        Self(Key2::new_i2(i, j))
-    }
-
-    pub(crate) fn index(&self) -> BiIndex {
-        self.0.index
-    }
-}
-
 /// A type representing a [`StdKey`].
 ///
 /// This is useful because the value of the key is not actually stored, so this
@@ -448,29 +341,16 @@ impl<T> DKey2<T> {
 /// this because the value of each [`StdKey`] is entirely encoded by the
 /// [`Key`], [`IndexedKey`], and [`BiIndexedKey`] traits (with an index in the
 /// latter two cases).
-#[derive(Debug, new)]
-pub struct SpecificKey<T, I> {
+#[derive(new)]
+#[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
+pub struct SpecificKey_<T, I> {
     index: I,
     _key: PhantomData<T>,
 }
 
-impl<T, I: PartialEq> PartialEq for SpecificKey<T, I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.index == other.index
-    }
-}
+pub type SpecificKey<T> = SpecificKey_<T, <T as Key>::Index>;
 
-impl<T, I: Clone> Clone for SpecificKey<T, I> {
-    fn clone(&self) -> Self {
-        Self::new(self.index.clone())
-    }
-}
-
-impl<T, I: Eq> Eq for SpecificKey<T, I> {}
-
-impl<T, I: Copy> Copy for SpecificKey<T, I> {}
-
-impl<T, I> ToDisplayNE<'_> for SpecificKey<T, I>
+impl<T: Key> ToDisplayNE<'_> for SpecificKey<T>
 where
     Self: Into<StdKey> + Copy,
 {
@@ -480,52 +360,71 @@ where
     }
 }
 
-impl<T, I> fmt::Display for SpecificKey<T, I>
+impl<T: Key> fmt::Display for SpecificKey<T>
 where
-    Self: Into<StdKey> + Copy,
+    for<'a> &'a Self: Into<StdKey>,
 {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", (*self).into())
+        write!(f, "{}", self.into())
+    }
+}
+
+impl<T: Key> From<SpecificKey<T>> for StdKey {
+    fn from(value: SpecificKey<T>) -> Self {
+        T::std(&value.index)
+    }
+}
+
+impl<'a, T: Key> From<&'a SpecificKey<T>> for StdKey {
+    fn from(value: &'a SpecificKey<T>) -> Self {
+        T::std(&value.index)
+    }
+}
+
+impl<T> SpecificKey_<T, BiMeasIndex> {
+    pub(crate) fn new_i2(i: MeasIndex, j: MeasIndex) -> Self {
+        Self::new(BiMeasIndex::new(i, j))
     }
 }
 
 /// A [`SpecificKey`] which is prefixed with '$' when displayed.
-#[derive(Display, From, Delegate, Debug)]
+#[derive(Display, From)]
 #[display("${_0}")]
-#[delegate(AsStdKey)]
-pub struct DollarKey<T, I>(pub SpecificKey<T, I>);
+#[derive_where(Clone, Copy, Default, PartialEq, Eq, Debug; I)]
+pub struct DollarKey_<T, I>(pub SpecificKey_<T, I>);
 
-impl<T, I: PartialEq> PartialEq for DollarKey<T, I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
+pub type DollarKey<T> = DollarKey_<T, <T as Key>::Index>;
+
+impl<T: Key> From<DollarKey<T>> for StdKey {
+    fn from(value: DollarKey<T>) -> Self {
+        value.0.into()
     }
 }
 
-impl<T, I: Eq> Eq for DollarKey<T, I> {}
-
-impl<T, I: Clone> Clone for DollarKey<T, I> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
-    }
-}
-
-impl<T, I: Copy> Copy for DollarKey<T, I> {}
-
-impl<K, I> ToDisplayNE<'_> for DollarKey<K, I>
+impl<K: Key> ToDisplayNE<'_> for DollarKey<K>
 where
-    SpecificKey<K, I>: for<'b> ToDisplayNE<'b> + Copy,
+    SpecificKey<K>: for<'b> ToDisplayNE<'b> + Copy,
 {
-    type NE = NEConcat<&'static NEStr, ToNE<SpecificKey<K, I>>>;
+    type NE = NEConcat<&'static NEStr, ToNE<SpecificKey<K>>>;
     fn to_ne(&self) -> Self::NE {
         NEConcat::new(ne_str!("$"), ToNE(self.0))
     }
 }
 
-/// Composite index for [`StdKey`] with two index values
-#[derive(Debug, Clone, Copy, new, PartialEq)]
-pub struct BiIndex {
-    pub i0: IndexFromOne,
-    pub i1: IndexFromOne,
+impl<T, I> DollarKey_<T, I> {
+    pub(crate) fn new(i: I) -> Self {
+        Self(SpecificKey_::new(i))
+    }
+
+    pub(crate) fn index(self) -> I {
+        self.0.index
+    }
+}
+
+impl<T> DollarKey_<T, BiMeasIndex> {
+    pub(crate) fn new_i2(i: MeasIndex, j: MeasIndex) -> Self {
+        Self(SpecificKey_::new_i2(i, j))
+    }
 }
 
 pub type NonStdKeywords = HashMap<NonStdKey, NEString>;
@@ -710,152 +609,14 @@ pub(crate) struct ParsedKeywordsDiagnostic {
 
 // Declare traits which map rust values to standardized keywords.
 
-/// A [`StdKey`] without an index
-///
-/// The constant traits is validated to only contain ASCII characters.
 pub trait Key {
-    const STD: RootKey;
+    type Index;
+    type Id: ToStd<Index = Self::Index>;
+    const STD: Self::Id;
 
     #[must_use]
-    fn std() -> StdKey {
-        StdKey::Root(Self::STD)
-    }
-
-    fn self_std(&self) -> StdKey {
-        Self::std()
-    }
-}
-
-/// A [`StdKey`] with one index
-///
-/// The constant traits are validated to only contain ASCII characters.
-pub trait IndexedKey {
-    const STD: PrefixSuffix;
-
-    fn std(i: impl Into<IndexFromOne>) -> StdKey {
-        let j = i.into();
-        match Self::STD {
-            PrefixSuffix::CsvFlag => StdKey::CsvFlag(CsvFlagKey { index: j.into() }),
-            PrefixSuffix::Gate(s) => StdKey::Gate(GateKey::new(j.into(), s)),
-            PrefixSuffix::Meas(s) => StdKey::Meas(MeasKey::new(j.into(), s)),
-            PrefixSuffix::Region(s) => StdKey::Region(RegionKey::new(j.into(), s)),
-        }
-    }
-
-    fn self_std(&self, i: impl Into<IndexFromOne>) -> StdKey {
-        Self::std(i)
-    }
-
-    #[cfg(feature = "serde")]
-    #[must_use]
-    fn std_blank() -> &'static NEStr {
-        match Self::STD {
-            PrefixSuffix::CsvFlag => CsvFlagKey::BLANK,
-            PrefixSuffix::Gate(s) => s.blank(),
-            PrefixSuffix::Meas(s) => s.blank(),
-            PrefixSuffix::Region(s) => s.blank(),
-        }
-    }
-
-    // #[cfg(feature = "serde")]
-    // #[must_use]
-    // fn self_std_blank(&self) -> String {
-    //     Self::std_blank()
-    // }
-
-    // /// Build regexp matching `"<PREFIX>n<SUFFIX>"`
-    // #[must_use]
-    // fn regexp() -> CaseInsRegex {
-    //     let mut s = String::new();
-    //     let (s0, s1) = Self::C.as_str();
-    //     s.push_str(s0);
-    //     s.push_str("[1-9][0-9]*");
-    //     s.push_str(s1);
-    //     // ASSUME this will never fail because pre/suffix should only be letters
-    //     CaseInsRegex::from_str(s.as_str()).unwrap()
-    // }
-
-    // fn matches(other: &StdKey) -> bool {
-    //     static RE: OnceLock<CaseInsRegex> = OnceLock::new();
-    //     RE.get_or_init(|| Self::regexp())
-    //         .as_ref()
-    //         .is_match(other.as_ref())
-    // }
-}
-
-/// A [`StdKey`] with two indices
-///
-/// The constant traits are validated to only contain ASCII characters.
-pub trait BiIndexedKey {
-    type Std: Into<StdKey>;
-
-    fn std_inner(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> Self::Std;
-
-    fn std(i: impl Into<IndexFromOne>, j: impl Into<IndexFromOne>) -> StdKey {
-        Self::std_inner(i, j).into()
-    }
-
-    // /// Build regexp matching `"<PREFIX>m<MIDDLE>n<SUFFIX>"`
-    // #[must_use]
-    // fn regexp() -> CaseInsRegex {
-    //     let mut s = String::new();
-    //     s.push_str(Self::PREFIX.as_str());
-    //     s.push_str("([1-9][0-9]*)");
-    //     s.push_str(Self::MIDDLE.as_str());
-    //     s.push_str("([1-9][0-9]*)");
-    //     // ASSUME this will never fail because pre/suffix should only be letters
-    //     CaseInsRegex::from_str(s.as_str()).unwrap()
-    // }
-
-    // fn matches(other: &StdKey) -> Option<(usize, usize)> {
-    //     static RE: OnceLock<CaseInsRegex> = OnceLock::new();
-    //     let c = RE
-    //         .get_or_init(|| Self::regexp())
-    //         .as_ref()
-    //         .captures(other.as_ref())?;
-    //     let (_, [m, n]) = c.extract();
-    //     // ASSUME these won't fail because we match only digits
-    //     Some((m.parse::<usize>().unwrap(), n.parse::<usize>().unwrap()))
-    // }
-
-    // fn std_blank() -> String {
-    //     // reserve enough space for '$', prefix, middle, suffix, and 'n'/'m'
-    //     let n = Self::PREFIX.len() + 2 + Self::SUFFIX.len();
-    //     let mut s = String::new();
-    //     s.reserve_exact(n);
-    //     s.push('$');
-    //     s.push_str(Self::PREFIX);
-    //     s.push('m');
-    //     s.push_str(Self::MIDDLE);
-    //     s.push('n');
-    //     s.push_str(Self::SUFFIX);
-    //     s
-    // }
-}
-
-// Implement trait to convert ZSTs representing keywords to actual keyword values.
-
-#[delegatable_trait]
-pub(crate) trait AsStdKey {
-    fn as_std_key(&self) -> StdKey;
-}
-
-impl<T: Key> AsStdKey for SpecificKey<T, ()> {
-    fn as_std_key(&self) -> StdKey {
-        T::std()
-    }
-}
-
-impl<T: IndexedKey> AsStdKey for SpecificKey<T, IndexFromOne> {
-    fn as_std_key(&self) -> StdKey {
-        T::std(self.index)
-    }
-}
-
-impl<T: BiIndexedKey> AsStdKey for SpecificKey<T, BiIndex> {
-    fn as_std_key(&self) -> StdKey {
-        let i = &self.index;
-        T::std(i.i0, i.i1)
+    fn std(index: &Self::Index) -> StdKey {
+        Self::STD.to_std(index)
     }
 }
 
@@ -1570,22 +1331,6 @@ fn trunc_str(s: &str) -> String {
 
 fn has_no_std_prefix(xs: &[u8]) -> bool {
     xs.first().is_some_and(|x| *x != STD_PREFIX)
-}
-
-const fn is_alpha_underscore_str(s: &str) -> bool {
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i];
-        let upper = c >= b'A' && c <= b'Z';
-        let lower = c >= b'a' && c <= b'z';
-        let underscore = c == b'_';
-        if !(upper || lower || underscore) {
-            return false;
-        }
-        i += 1;
-    }
-    true
 }
 
 const TRUNCATED_BYTES_LIMIT: usize = 20;

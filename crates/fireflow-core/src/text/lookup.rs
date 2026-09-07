@@ -1,13 +1,12 @@
 use crate::config::EvaledReadDataKeywordsConfig;
 use crate::logging::{DeferredSwitchableError, LogResult, ResultExt as _};
 use crate::validated::keys::{
-    AsStdKey, DollarKey, IndexedKey, Key, NonStdKeywords, NonStdKeywordsExt as _, SpecificKey,
-    StdKeywords, TruncatedNEString, ValidKeywords,
+    DollarKey, DollarKey_, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
+    TruncatedNEString, ValidKeywords,
 };
 
 use fireflow_types::{
     config::{ConfigFlag as _, DummyTriFlag, ProcessOptionalFailure, TrimIntraValueWhitespace},
-    index::{IndexFromOne, MeasIndex},
     nonempty_string::{NEStr, NEString},
     std_key::StdKey,
 };
@@ -16,6 +15,7 @@ use type_families::{BifunctorOnce, Sibling2, impl_kind2};
 
 use derive_more::{Display, From};
 use derive_new::new;
+use derive_where::derive_where;
 use thiserror::Error;
 
 use std::convert::Infallible;
@@ -29,103 +29,72 @@ use {
 };
 
 /// An error caused when parsing a required non-indexed standard key
-pub type ReqKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T, ()>;
-
-/// An error caused when parsing a required indexed standard key
-pub type ReqIndexedKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T, IndexFromOne>;
+pub type ReqKeyError<T> = ReqKeyErrorInner<<T as FromStr>::Err, T>;
 
 /// An error caused when parsing a required indexed standard key with external state
-pub type ReqIndexedStKeyError<T> = ReqKeyErrorInner<<T as FromStrWith>::Err, T, IndexFromOne>;
+pub type ReqStKeyError<T> = ReqKeyErrorInner<<T as FromStrWith>::Err, T>;
 
 /// A parse key error for an optional non-indexed key.
-pub type OptKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, ()>;
-
-/// A parse key error for an optional indexed key.
-pub type OptIndexedKeyError<T> = ParseKeyError<<T as FromStr>::Err, T, IndexFromOne>;
+pub type OptKeyError<T> = ParseKeyError<<T as FromStr>::Err, T>;
 
 /// A parse key error for an optional non-indexed key when parsing with external state.
-pub type OptKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, ()>;
-
-/// A parse key error for an optional indexed key when parsing with external state.
-pub type OptIndexedKeyStError<T> = ParseKeyError<<T as FromStrWith>::Err, T, IndexFromOne>;
+pub type OptStKeyError<T> = ParseKeyError<<T as FromStrWith>::Err, T>;
 
 /// An error caused when parsing a required standard key
-#[derive(From, Display, Debug, Error)]
+#[derive(From, Display, Error)]
+#[derive_where(Clone, Debug, PartialEq; E, I)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 #[cfg_attr(feature = "python", bound(E: Display))]
-#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
-pub enum ReqKeyErrorInner<E, T, I> {
+#[cfg_attr(feature = "python", bound(DollarKey_<T, I>: Display))]
+pub enum ReqKeyErrorInner_<E, T, I> {
     /// Error due to parsing
-    Parse(ParseKeyError<E, T, I>),
+    Parse(ParseKeyError_<E, T, I>),
 
     /// Error due to absence
-    Missing(MissingKeyError<T, I>),
+    Missing(MissingKeyError_<T, I>),
 }
 
-impl<E: Clone, T, I: Clone> Clone for ReqKeyErrorInner<E, T, I> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Parse(a) => Self::Parse(a.clone()),
-            Self::Missing(a) => Self::Missing(a.clone()),
-        }
-    }
-}
-
-impl<E: PartialEq, T, I: PartialEq> PartialEq for ReqKeyErrorInner<E, T, I> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Parse(a), Self::Parse(b)) => a == b,
-            (Self::Missing(a), Self::Missing(b)) => a == b,
-            _ => false,
-        }
-    }
-}
+pub type ReqKeyErrorInner<E, T> = ReqKeyErrorInner_<E, T, <T as Key>::Index>;
 
 /// An error caused by parsing a string incorrectly for a standard key value.
-#[derive(new, Debug, Error)]
+#[derive(new, Error)]
+#[derive_where(Clone, Debug, PartialEq; E, I)]
 #[error("key '{key}' with value '{value}' could not be parsed: {error}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-#[cfg_attr(feature = "python", bound(ParseKeyError<E, T, I>: Display))]
-pub struct ParseKeyError<E, T, I> {
+#[cfg_attr(feature = "python", bound(ParseKeyError_<E, T, I>: Display))]
+pub struct ParseKeyError_<E, T, I> {
     pub error: E,
-    pub key: DollarKey<T, I>,
+    pub key: DollarKey_<T, I>,
     pub value: TruncatedNEString,
 }
 
-impl<E: Clone, T, I: Clone> Clone for ParseKeyError<E, T, I> {
-    fn clone(&self) -> Self {
-        Self::new(self.error.clone(), self.key.clone(), self.value.clone())
-    }
-}
+pub type ParseKeyError<E, T> = ParseKeyError_<E, T, <T as Key>::Index>;
 
-impl<E: PartialEq, T, I: PartialEq> PartialEq for ParseKeyError<E, T, I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.error == other.error && self.key == other.key && self.value == other.value
+impl<E, T: Key> ParseKeyError<E, T> {
+    pub(crate) fn new1(error: E, index: T::Index, value: TruncatedNEString) -> Self {
+        Self::new(error, DollarKey::new(index), value)
     }
 }
 
 /// An error caused by a required standard key being missing
-#[derive(Debug, Error)]
+#[derive(Error, new)]
+#[derive_where(Clone, Debug, PartialEq; I)]
 #[error("missing required key: {0}")]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ParseKeywordValueError))]
-#[cfg_attr(feature = "python", bound(DollarKey<T, I>: Display))]
-pub struct MissingKeyError<T, I>(pub DollarKey<T, I>);
+#[cfg_attr(feature = "python", bound(DollarKey_<T, I>: Display))]
+pub struct MissingKeyError_<T, I>(pub DollarKey_<T, I>);
 
-impl<T, I: Clone> Clone for MissingKeyError<T, I> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
+pub type MissingKeyError<T> = MissingKeyError_<T, <T as Key>::Index>;
+
+impl<T: Key> MissingKeyError<T> {
+    fn new1(index: T::Index) -> Self {
+        Self(DollarKey::new(index))
     }
 }
 
-impl<T, I: PartialEq> PartialEq for MissingKeyError<T, I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0
-    }
-}
-
-type ReqResult<T, I> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T, I>>;
+type ReqResult<T> = Result<T, ReqKeyErrorInner<<T as FromStr>::Err, T>>;
 
 pub type Trimmed = Option<NEString>;
 
@@ -148,14 +117,14 @@ impl<T> Diagnosed<T, ()> {
 impl<T> Diagnosed<T, Trimmed> {
     pub(crate) fn into_root_pair(self) -> (T, Option<(StdKey, NEString)>)
     where
-        T: Key,
+        T: Key<Index = ()>,
     {
-        (self.inner, self.diagnostic.map(|t| (T::std(), t)))
+        (self.inner, self.diagnostic.map(|t| (T::std(&()), t)))
     }
 
-    pub(crate) fn into_indexed_pair(self, i: MeasIndex) -> (T, Option<(StdKey, NEString)>)
+    pub(crate) fn into_indexed_pair(self, i: &T::Index) -> (T, Option<(StdKey, NEString)>)
     where
-        T: IndexedKey,
+        T: Key,
     {
         (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
     }
@@ -164,17 +133,17 @@ impl<T> Diagnosed<T, Trimmed> {
 impl<T> Diagnosed<Option<T>, Trimmed> {
     pub(crate) fn into_opt_root_pair(self) -> (Option<T>, Option<(StdKey, NEString)>)
     where
-        T: Key,
+        T: Key<Index = ()>,
     {
-        (self.inner, self.diagnostic.map(|t| (T::std(), t)))
+        (self.inner, self.diagnostic.map(|t| (T::std(&()), t)))
     }
 
     pub(crate) fn into_opt_indexed_pair(
         self,
-        i: IndexFromOne,
+        i: &T::Index,
     ) -> (Option<T>, Option<(StdKey, NEString)>)
     where
-        T: IndexedKey,
+        T: Key,
     {
         (self.inner, self.diagnostic.map(|t| (T::std(i), t)))
     }
@@ -270,91 +239,85 @@ pub(crate) use impl_from_str_with_delim;
 
 /// Any required key
 pub(crate) trait Required: Sized {
-    fn get_req<I>(
-        kws: &StdKeywords,
-        k: SpecificKey<Self, I>,
-    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
+    fn get_req(kws: &StdKeywords, i: Self::Index) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey + Copy,
-        Self: FromStr,
+        Self: FromStr + Key,
+        Self::Index: Copy,
     {
-        let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
+        let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
             .map_err(ReqKeyErrorInner::from)
     }
 
     #[allow(clippy::type_complexity)]
-    fn get_req_with<I>(
+    fn get_req_with(
         kws: &StdKeywords,
-        k: SpecificKey<Self, I>,
+        i: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey + Copy,
-        Self: FromStrWith,
+        Self: FromStrWith + Key,
+        Self::Index: Copy,
     {
-        let v = Self::get_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
+        let v = Self::get_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(v.as_ne_str(), data, conf)
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
+            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v.to_owned())))
             .map_err(ReqKeyErrorInner::from)
     }
 
-    fn remove_req<I>(
+    fn remove_req(
         kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
-    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self, I>>
+        i: Self::Index,
+    ) -> Result<Self, ReqKeyErrorInner<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey + Copy,
-        Self: FromStr,
+        Self: FromStr + Key,
+        Self::Index: Copy,
     {
-        let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
+        let v = Self::remove_req_inner(kws, i).map_err(ReqKeyErrorInner::from)?;
         v.parse()
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
+            .map_err(|e| ParseKeyError::new1(e, i, TruncatedNEString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
     #[allow(clippy::type_complexity)]
-    fn remove_req_with<I>(
+    fn remove_req_with(
         kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
+        k: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self, I>>
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqKeyErrorInner<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey + Copy,
-        Self: FromStrWith,
+        Self: FromStrWith + Key,
+        Self::Index: Copy,
     {
         let v = Self::remove_req_inner(kws, k).map_err(ReqKeyErrorInner::from)?;
         Self::from_str_with(v.as_ne_str(), data, conf)
-            .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
+            .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v)))
             .map_err(ReqKeyErrorInner::from)
     }
 
-    fn get_req_inner<I>(
-        kws: &StdKeywords,
-        k: SpecificKey<Self, I>,
-    ) -> Result<&NEString, MissingKeyError<Self, I>>
+    fn get_req_inner(kws: &StdKeywords, i: Self::Index) -> Result<&NEString, MissingKeyError<Self>>
     where
-        SpecificKey<Self, I>: AsStdKey,
+        Self: Key,
     {
-        match kws.get(&k.as_std_key()) {
+        match kws.get(&Self::std(&i)) {
             Some(v) => Ok(v),
-            None => Err(MissingKeyError(k.into())),
+            None => Err(MissingKeyError::new1(i)),
         }
     }
 
-    fn remove_req_inner<I>(
+    fn remove_req_inner(
         kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
-    ) -> Result<NEString, MissingKeyError<Self, I>>
+        i: Self::Index,
+    ) -> Result<NEString, MissingKeyError<Self>>
     where
-        SpecificKey<Self, I>: AsStdKey,
+        Self: Key,
     {
-        match kws.remove(&k.as_std_key()) {
+        match kws.remove(&Self::std(&i)) {
             Some(v) => Ok(v),
-            None => Err(MissingKeyError(k.into())),
+            None => Err(MissingKeyError::new1(i)),
         }
     }
 }
@@ -363,18 +326,17 @@ pub(crate) trait Required: Sized {
 pub(crate) trait Optional: Sized {
     type Outer: Default + From<Self> + Into<Option<Self>>;
 
-    fn get_opt<I>(
+    fn get_opt(
         kws: &StdKeywords,
-        k: SpecificKey<Self, I>,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+        k: Self::Index,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey,
-        Self: FromStr,
+        Self: FromStr + Key,
     {
-        kws.get(&k.as_std_key())
+        kws.get(&Self::std(&k))
             .map(|v| {
                 v.parse()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
+                    .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v.to_owned())))
             })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
@@ -383,12 +345,12 @@ pub(crate) trait Optional: Sized {
     // #[allow(clippy::type_complexity)]
     // fn get_opt_with<I>(
     //     kws: &StdKeywords,
-    //     k: SpecificKey<Self, I>,
+    //     k: SpecificKey<Self, Self::Index>,
     //     data: Self::Payload<'_>,
     //     conf: &Self::Config,
-    // ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    // ) -> Result<DiagnosedKeyword<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, Self::Index>>
     // where
-    //     SpecificKey<Self, I>: AsStdKey,
+    //     SpecificKey<Self, Self::Index>: AsStdKey,
     //     Self: FromStrWith,
     //     Self::Diagnostic: Default,
     // {
@@ -401,83 +363,75 @@ pub(crate) trait Optional: Sized {
     //         .map(|x| x.map_or(DiagnosedKeyword::default(), BifunctorOnce::first_into_once))
     // }
 
-    fn get_or_ignore_opt<I>(
+    fn get_or_ignore_opt(
         kws: &StdKeywords,
-        k: SpecificKey<Self, I>,
+        k: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<
-        Self::Outer,
-        ProcessOptionalFailure,
-        ParseKeyError<Self::Err, Self, I>,
-    >
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, ParseKeyError<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey,
-        Self: FromStr,
+        Self: FromStr + Key,
     {
         Self::get_opt(kws, k).into_deferred_switchable(conf.process_optional_failure)
     }
 
-    fn remove_opt<I>(
+    fn remove_opt(
         kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
-    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self, I>>
+        k: Self::Index,
+    ) -> Result<Self::Outer, ParseKeyError<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey,
-        Self: FromStr,
+        Self: FromStr + Key,
     {
-        kws.remove(&k.as_std_key())
+        kws.remove(&Self::std(&k))
             .map(|v| {
                 v.parse()
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
+                    .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v)))
             })
             .transpose()
             .map(|x| x.map(Self::Outer::from).unwrap_or_default())
     }
 
     #[allow(clippy::type_complexity)]
-    fn remove_opt_with<I>(
+    fn remove_opt_with(
         kws: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
+        k: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<Diagnosed<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self, I>>
+    ) -> Result<Diagnosed<Self::Outer, Self::Diagnostic>, ParseKeyError<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey,
-        Self: FromStrWith,
+        Self: FromStrWith + Key,
         Self::Diagnostic: Default,
     {
-        kws.remove(&k.as_std_key())
+        kws.remove(&Self::std(&k))
             .map(|v| {
                 Self::from_str_with(v.as_ne_str(), data, conf)
-                    .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v)))
+                    .map_err(|e| ParseKeyError::new1(e, k, TruncatedNEString(v)))
             })
             .transpose()
             .map(|x| x.map_or(Diagnosed::default(), |y| y.first_once(Self::Outer::from)))
     }
 
-    fn remove_opt_nofail<I>(kws: &mut StdKeywords, k: SpecificKey<Self, I>) -> Self::Outer
+    fn remove_opt_nofail(kws: &mut StdKeywords, i: Self::Index) -> Self::Outer
     where
-        SpecificKey<Self, I>: AsStdKey,
-        Self: FromStr<Err = Infallible>,
+        Self: FromStr<Err = Infallible> + Key,
     {
-        let Ok(res) = Self::remove_opt(kws, k);
+        let Ok(res) = Self::remove_opt(kws, i);
         res
     }
 
-    fn remove_or_transfer_opt<I>(
+    fn remove_or_transfer_opt(
         kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
+        k: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self, I>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, ParseKeyError<Self::Err, Self>>
     where
-        SpecificKey<Self, I>: AsStdKey + Copy,
-        Self: FromStr,
+        Self: FromStr + Key,
+        Self::Index: Copy,
     {
         let res = Self::remove_opt(&mut kws.std, k);
         process_opt_key(
             res,
-            k,
+            &k,
             &mut kws.nonstd,
             dropped,
             conf.process_optional_failure,
@@ -485,20 +439,20 @@ pub(crate) trait Optional: Sized {
     }
 
     #[allow(clippy::type_complexity)]
-    fn remove_or_transfer_opt_with<C, I>(
+    fn remove_or_transfer_opt_with<C>(
         kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
-        k: SpecificKey<Self, I>,
+        k: Self::Index,
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
         Diagnosed<Self::Outer, Self::Diagnostic>,
         DummyTriFlag,
-        ParseKeyError<Self::Err, Self, I>,
+        ParseKeyError<Self::Err, Self>,
     >
     where
-        SpecificKey<Self, I>: AsStdKey + Copy,
-        Self: FromStrWith,
+        Self: FromStrWith + Key,
+        Self::Index: Copy,
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
@@ -506,7 +460,7 @@ pub(crate) trait Optional: Sized {
         let res = Self::remove_opt_with(&mut kws.std, k, data, conf.as_ref());
         process_opt_key(
             res,
-            k,
+            &k,
             &mut kws.nonstd,
             dropped,
             rconf.process_optional_failure,
@@ -516,51 +470,48 @@ pub(crate) trait Optional: Sized {
 
 /// A required metaroot key
 pub(crate) trait ReqMetarootKey: Sized + Required + Key {
-    fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self, ()>
+    fn get_metaroot_req(kws: &StdKeywords) -> ReqResult<Self>
     where
-        Self: FromStr,
+        Self: Key<Index = ()> + FromStr,
     {
-        Self::get_req(kws, SpecificKey::default())
+        Self::get_req(kws, ())
     }
 
-    fn remove_metaroot_req(kws: &mut StdKeywords) -> ReqResult<Self, ()>
+    fn remove_metaroot_req(kws: &mut StdKeywords) -> ReqResult<Self>
     where
-        Self: FromStr,
+        Self: Key<Index = ()> + FromStr,
     {
-        Self::remove_req(kws, SpecificKey::default())
-    }
-}
-
-/// Any required key with one index
-pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
-    fn get_meas_req(kws: &StdKeywords, i: impl Into<IndexFromOne>) -> ReqResult<Self, IndexFromOne>
-    where
-        Self: FromStr,
-    {
-        Self::get_req(kws, SpecificKey::new_i1(i.into()))
+        Self::remove_req(kws, ())
     }
 
-    fn remove_meas_req(
-        kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
-    ) -> ReqResult<Self, IndexFromOne>
+    fn get_meas_req(kws: &StdKeywords, i: Self::Index) -> ReqResult<Self>
     where
         Self: FromStr,
+        Self::Index: Copy,
     {
-        Self::remove_req(kws, SpecificKey::new_i1(i.into()))
+        Self::get_req(kws, i)
+    }
+
+    fn remove_meas_req(kws: &mut StdKeywords, i: Self::Index) -> ReqResult<Self>
+    where
+        Self: FromStr,
+        Self::Index: Copy,
+    {
+        Self::remove_req(kws, i)
     }
 
     fn remove_meas_req_with(
         kws: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
+        i: Self::Index,
         data: Self::Payload<'_>,
         conf: &Self::Config,
-    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqIndexedStKeyError<Self>>
+    ) -> Result<Diagnosed<Self, Self::Diagnostic>, ReqStKeyError<Self>>
     where
         Self: FromStrWith,
+        Self::Index: Copy,
         Self::Diagnostic: Default,
     {
-        Self::remove_req_with(kws, SpecificKey::new_i1(i.into()), data, conf)
+        Self::remove_req_with(kws, i, data, conf)
     }
 }
 
@@ -568,16 +519,16 @@ pub(crate) trait ReqIndexedKey: Sized + Required + IndexedKey {
 pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     fn get_root_opt(kws: &StdKeywords) -> Result<Self::Outer, OptKeyError<Self>>
     where
-        Self: FromStr,
+        Self: Key<Index = ()> + FromStr,
     {
-        Self::get_opt(kws, SpecificKey::default())
+        Self::get_opt(kws, ())
     }
 
     fn remove_root_opt_nofail(kws: &mut StdKeywords) -> Self::Outer
     where
-        Self: FromStr<Err = Infallible>,
+        Self: Key<Index = ()> + FromStr<Err = Infallible>,
     {
-        Self::remove_opt_nofail(kws, SpecificKey::default())
+        Self::remove_opt_nofail(kws, ())
     }
 
     fn remove_or_drop_root_opt(
@@ -586,9 +537,9 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
         conf: &EvaledReadDataKeywordsConfig,
     ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
-        Self: FromStr,
+        Self: Key<Index = ()> + FromStr,
     {
-        Self::remove_or_transfer_opt(kws, dropped, SpecificKey::default(), conf)
+        Self::remove_or_transfer_opt(kws, dropped, (), conf)
     }
 
     fn remove_or_drop_root_opt_with<C>(
@@ -599,19 +550,17 @@ pub(crate) trait OptMetarootKey: Sized + Optional + Key {
     ) -> DeferredSwitchableError<
         Diagnosed<Self::Outer, Self::Diagnostic>,
         DummyTriFlag,
-        OptKeyStError<Self>,
+        OptStKeyError<Self>,
     >
     where
-        Self: FromStrWith,
+        Self: Key<Index = ()> + FromStrWith,
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        Self::remove_or_transfer_opt_with(kws, dropped, SpecificKey::default(), data, conf)
+        Self::remove_or_transfer_opt_with(kws, dropped, (), data, conf)
     }
-}
 
-/// Any optional key with an index
-pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
+    // pub(crate) trait OptIndexedKey: Sized + Optional + Key<MeasIndex> {
     // fn get_meas_opt(
     //     kws: &StdKeywords,
     //     i: impl Into<IndexFromOne>,
@@ -624,74 +573,77 @@ pub(crate) trait OptIndexedKey: Sized + Optional + IndexedKey {
 
     fn get_or_ignore_meas_opt(
         std: &StdKeywords,
-        i: impl Into<IndexFromOne>,
+        i: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, ProcessOptionalFailure, OptKeyError<Self>>
     where
         Self: FromStr,
     {
-        Self::get_or_ignore_opt(std, SpecificKey::new_i1(i.into()), conf)
+        Self::get_or_ignore_opt(std, i, conf)
     }
 
-    fn remove_meas_opt_nofail(kws: &mut StdKeywords, i: impl Into<IndexFromOne>) -> Self::Outer
+    fn remove_meas_opt_nofail(kws: &mut StdKeywords, i: Self::Index) -> Self::Outer
     where
         Self: FromStr<Err = Infallible>,
     {
-        Self::remove_opt_nofail(kws, SpecificKey::new_i1(i.into()))
+        Self::remove_opt_nofail(kws, i)
     }
 
     fn remove_or_drop_meas_opt(
         kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
+        i: Self::Index,
         conf: &EvaledReadDataKeywordsConfig,
-    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptIndexedKeyError<Self>>
+    ) -> DeferredSwitchableError<Self::Outer, DummyTriFlag, OptKeyError<Self>>
     where
         Self: FromStr,
+        Self::Index: Copy,
     {
-        Self::remove_or_transfer_opt(kws, dropped, SpecificKey::new_i1(i.into()), conf)
+        Self::remove_or_transfer_opt(kws, dropped, i, conf)
     }
 
     fn remove_or_drop_meas_opt_with<C>(
         kws: &mut ValidKeywords,
         dropped: &mut StdKeywords,
-        i: impl Into<IndexFromOne>,
+        i: Self::Index,
         data: Self::Payload<'_>,
         conf: &C,
     ) -> DeferredSwitchableError<
         Diagnosed<Self::Outer, Self::Diagnostic>,
         DummyTriFlag,
-        OptIndexedKeyStError<Self>,
+        OptStKeyError<Self>,
     >
     where
         Self: FromStrWith,
+        Self::Index: Copy,
         Self::Diagnostic: Default,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<Self::Config>,
     {
-        Self::remove_or_transfer_opt_with(kws, dropped, SpecificKey::new_i1(i.into()), data, conf)
+        Self::remove_or_transfer_opt_with(kws, dropped, i, data, conf)
     }
 }
 
-fn process_opt_key<E, I, K, X>(
-    res: Result<X, ParseKeyError<E, K, I>>,
-    k: SpecificKey<K, I>,
+fn process_opt_key<E, K, X>(
+    res: Result<X, ParseKeyError<E, K>>,
+    i: &K::Index,
     nonstd: &mut NonStdKeywords,
     dropped: &mut StdKeywords,
     flag: ProcessOptionalFailure,
-) -> DeferredSwitchableError<X, DummyTriFlag, ParseKeyError<E, K, I>>
+) -> DeferredSwitchableError<X, DummyTriFlag, ParseKeyError<E, K>>
 where
-    SpecificKey<K, I>: AsStdKey + Copy,
+    K: Key,
     X: Default,
 {
     let triflag = flag.as_triflag();
+    let k = K::std(i);
     match res {
         Ok(x) => LogResult::new_switchable_ok(x, triflag),
         Err(e) => {
             match flag.is_demote_or_drop() {
-                Some(true) => nonstd.insert_demoted(k.as_std_key(), e.value.0.clone()),
+                Some(true) => nonstd.insert_demoted(k, e.value.0.clone()),
                 Some(false) => {
-                    let out = dropped.insert(k.as_std_key(), e.value.0.clone());
-                    assert!(out.is_none(), "key was already dropped, {}", k.as_std_key());
+                    let out = dropped.insert(k, e.value.0.clone());
+                    assert!(out.is_none(), "key was already dropped, {k}");
                 }
                 None => (),
             }

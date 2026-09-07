@@ -7,6 +7,7 @@ use crate::text::optional::MightHave;
 use crate::text::relational::{
     KeyToNameLinkError, LinkName, OpticalNamedLinkError, TemporalNamedLinkError,
 };
+use crate::validated::keys::Key;
 use crate::validated::shortname::Shortname;
 
 use fireflow_types::index::{BoundaryIndexError, IndexError, IndexFromOne, MeasIndex};
@@ -1800,7 +1801,7 @@ impl NamedSet<'_> {
         (t, ns)
     }
 
-    pub(crate) fn invalid_link_errors<'a, T>(
+    pub(crate) fn invalid_link_errors<'a, T: Key<Index = ()>>(
         &self,
         names: impl IntoIterator<Item = &'a Shortname>,
     ) -> impl Iterator<Item = KeyToNameLinkError<T>> {

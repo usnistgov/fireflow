@@ -17,7 +17,6 @@ pub type NestedVariableString = NestedString<Vec<usize>, ()>;
 pub struct NestedString<I, K> {
     inner: Vec<u8>,
     indices: I,
-    // size: NestedStringSize,
     _key: PhantomData<K>,
 }
 
@@ -32,7 +31,6 @@ impl<const LEN: usize, K> NestedEnumString<LEN, K> {
         Self {
             inner: Vec::with_capacity(n_bytes),
             indices: [0; LEN],
-            // size: NestedStringSize::new(n_bytes, LEN),
             _key: PhantomData,
         }
     }
@@ -76,7 +74,6 @@ impl NestedVariableString {
         Self {
             inner: Vec::with_capacity(size.n_bytes),
             indices: Vec::with_capacity(size.n_strings),
-            // size,
             _key: PhantomData,
         }
     }
@@ -119,15 +116,18 @@ impl NestedVariableString {
 }
 
 impl<I, K> NestedString<I, K> {
-    // pub fn n_bytes(&self) -> usize {
-    //     self.size.n_bytes
-    // }
+    pub fn n_bytes(&self) -> usize {
+        self.inner.len()
+    }
 
-    // pub fn n_strings(&self) -> usize {
-    //     self.size.n_strings
-    // }
+    pub fn n_strings(&self) -> usize
+    where
+        I: HasLen,
+    {
+        self.indices.len()
+    }
 
-    fn get(&self, i: usize) -> &str
+    pub fn get(&self, i: usize) -> &str
     where
         I: HasLen + Index<usize, Output = usize>,
     {

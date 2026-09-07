@@ -17,7 +17,7 @@ use crate::segment::write::{
     TEXTDataOffsetsToWrite,
 };
 use crate::text::keyword_enum::{
-    AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword0, OffsetKeyword, OptKeyword,
+    AnyKeyword, Escaped, Keyword0FromValue as _, NEStringKeyword, OffsetKeyword, OptKeyword,
     OptRootKeyword, ReqKeyword, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
@@ -29,7 +29,7 @@ use crate::validated::ascii_uint::{HeaderString, Uint8DigitOverflowError, UintZe
 use crate::validated::header_offsets::{
     FinalHeaderOffsets, HEADER_LEN, HeaderOffsetsValidationError,
 };
-use crate::validated::keys::{DKey0, Key as _, StdKeywords};
+use crate::validated::keys::{DollarKey, Key as _, StdKeywords};
 use crate::validated::read_state::{DatasetOffset, HeaderReadState, WriteFCSDigest};
 
 use fireflow_types::std_key::RootKey;
@@ -819,7 +819,7 @@ const fn std_key_len(s: RootKey) -> u64 {
 }
 
 fn fil_to_kw(f: &NEString) -> OptKeyword<'_> {
-    let a = NEStringKeyword0::new(DKey0::default(), f.as_ne_str());
+    let a = NEStringKeyword::new(DollarKey::default(), f.as_ne_str());
     let b = StdOrNonStdOptRootKeyword::Std(OptRootKeyword::Fil(a));
     OptKeyword::Root(b)
 }

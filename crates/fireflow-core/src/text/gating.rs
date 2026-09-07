@@ -9,30 +9,28 @@ use crate::logging::{
 use crate::nonempty::FcsNEVec;
 use crate::text::keyword_enum::{
     AsStdKeywordPair as _, GateMeasKeyword, Keyword0FromValue as _, Keyword1FromValue as _,
-    OptRootKeyword, RegionKeyword, SplitKeyword, SplitKeyword1,
+    OptRootKeyword, RegionKeyword, SplitKeyword,
 };
 use crate::text::keywords::{
     Gate, GateDetectorType, GateDetectorVoltage, GateFilter, GateLongname, GatePercentEmitted,
     GateRange, GateScale, GateShortname, Gating, IndexPair, MeasOrGateIndex, Par,
     PrefixedMeasIndex, RegionGateIndex, RegionWindow, RegionWindowRef, ScaleFix, UniGate, Vertex,
 };
-use crate::text::lookup::{
-    OptIndexedKey, OptIndexedKeyError, OptIndexedKeyStError, OptKeyError, OptMetarootKey as _,
-    Optional,
-};
+use crate::text::lookup::{OptKeyError, OptMetarootKey as _, OptStKeyError, Optional};
 use crate::text::relational::{
-    BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndexedKeyToIndexLinkError,
-    IndicesToRemove, RemovedGateLink, RemovedGating, RemovedLink,
+    BrokenRegionLinkError, DependentKeyError, ExistingIndexedLinkError, IndicesToRemove,
+    KeyToIndexLinkError, RemovedGateLink, RemovedGating, RemovedLink,
 };
 use crate::validated::keys::{
-    AsStdKey as _, DKey1, IndexedKey as _, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords,
-    ValidKeywords,
+    DollarKey, Key, NonStdKeywords, NonStdKeywordsExt as _, StdKeywords, ValidKeywords,
 };
 
+use fireflow_types::std_key::{IndexedKey, RegionKey, RegionKeySuffix};
 use fireflow_types::{
     config::AllowLoss,
-    index::{GateIndex, IndexFromOne, MeasIndex, RegionIndex},
+    index::{GateIndex, MeasIndex, RegionIndex},
     nonempty_string::{DisplayNE as _, ToNE},
+    std_key::StdKey,
 };
 
 use type_families::{
@@ -53,7 +51,8 @@ use thiserror::Error;
 #[cfg(feature = "serde")]
 use serde::Serialize;
 
-use super::lookup::Diagnosed;
+use super::keyword_enum::SplitKeyword_;
+use super::lookup::{Diagnosed, OptMetarootKey};
 
 #[cfg(feature = "python")]
 use {
@@ -305,18 +304,18 @@ impl<I> AppliedGatesPre3_2<I> {
         }
     }
 
-    pub fn try_new1(
-        gated_measurements: Vec<GatedMeasurement>,
-        regions: HashMap<RegionIndex, Region<I>>,
-        gating: Option<Gating>,
-    ) -> Result<Self, NewAppliedGatesWithSchemeError>
-    where
-        I: Copy,
-        GateIndex: TryFrom<I>,
-    {
-        let scheme = GatingScheme::try_new(gating, regions)?;
-        Ok(Self::try_new(gated_measurements, scheme)?)
-    }
+    // pub fn try_new1(
+    //     gated_measurements: Vec<GatedMeasurement>,
+    //     regions: HashMap<RegionIndex, Region<I>>,
+    //     gating: Option<Gating>,
+    // ) -> Result<Self, NewAppliedGatesWithSchemeError>
+    // where
+    //     I: Copy,
+    //     GateIndex: TryFrom<I>,
+    // {
+    //     let scheme = GatingScheme::try_new(gating, regions)?;
+    //     Ok(Self::try_new(gated_measurements, scheme)?)
+    // }
 
     #[must_use]
     pub fn split(
@@ -348,8 +347,10 @@ impl<I> AppliedGatesPre3_2<I> {
         GateIndex: TryFrom<I>,
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
-        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>
+            + OptMetarootKey
+            + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
         let ag = GatingScheme::lookup(kws, dropped, conf)
             .map_errors(LookupAppliedGatesError::Scheme)
@@ -386,7 +387,8 @@ impl<I> AppliedGatesPre3_2<I> {
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         I: Copy,
-        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         let gate = self
             .gated_measurements
@@ -428,7 +430,7 @@ impl AppliedGates3_0 {
     pub(crate) fn existing_link_errors(
         &self,
         indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<MeasOrGateIndex>, IndexFromOne>>
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<MeasOrGateIndex>, MeasIndex>>
     {
         self.scheme.existing_link_errors(indices)
     }
@@ -498,7 +500,7 @@ impl AppliedGates3_2 {
     pub(crate) fn existing_link_errors(
         &self,
         indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<PrefixedMeasIndex>, IndexFromOne>>
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<PrefixedMeasIndex>, MeasIndex>>
     {
         self.0.existing_link_errors(indices)
     }
@@ -637,7 +639,7 @@ impl<I> GatingScheme<I> {
             g.region_indices()
                 .into_iter()
                 .filter(|ri| !regions.contains_key(ri))
-                .map(RegionGateIndex::<()>::std)
+                .map(|ri| StdKey::from(RegionKey::new(ri, RegionKeySuffix::I)))
                 .try_into_nonempty_iter()
         }) {
             Err(DependentKeyError::new1(ris.collect()))
@@ -676,15 +678,16 @@ impl<I> GatingScheme<I> {
     pub(crate) fn existing_link_errors(
         &self,
         indices: &IndicesToRemove,
-    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<I>, IndexFromOne>>
+    ) -> impl Iterator<Item = ExistingIndexedLinkError<RegionGateIndex<I>, MeasIndex>>
     where
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
         I: LinkedMeasIndex,
     {
         self.meas_indices()
             .filter(|(_, mi)| indices.as_ref().contains(mi))
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi.into());
-                ExistingIndexedLinkError::new(DKey1::new_i1(ri), js)
+                ExistingIndexedLinkError::new(DollarKey::new(ri.into()), js)
             })
     }
 
@@ -693,13 +696,14 @@ impl<I> GatingScheme<I> {
         par: &Par,
     ) -> impl Iterator<Item = BrokenRegionLinkError<I>>
     where
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
         I: LinkedMeasIndex,
     {
         self.meas_indices()
             .filter(|(_, mi)| usize::from(*mi) >= par.0)
             .map(|(ri, mi)| {
                 let js = NEVec::new(mi);
-                IndexedKeyToIndexLinkError::new(js, DKey1::new_i1(ri))
+                KeyToIndexLinkError::new(js, DollarKey::new(ri.into()))
             })
     }
 
@@ -767,8 +771,10 @@ impl<I> GatingScheme<I> {
     where
         I: FromStr + LinkedMeasIndex + PartialEq + Copy,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
-        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>
+            + OptMetarootKey
+            + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
         let rconf: &EvaledReadDataKeywordsConfig = conf.as_ref();
         let flag = rconf.process_optional_failure;
@@ -809,7 +815,8 @@ impl<I> GatingScheme<I> {
     fn demote_keywords(self, nonstd: &mut NonStdKeywords)
     where
         I: Copy,
-        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
             r.demote_keywords(ri, nonstd);
@@ -825,7 +832,8 @@ impl<I> GatingScheme<I> {
     fn drop_keywords(self, dropped: &mut StdKeywords)
     where
         I: Copy,
-        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for (ri, r) in self.regions {
             r.drop_keywords(ri, dropped);
@@ -838,7 +846,8 @@ impl<I> GatingScheme<I> {
     pub(crate) fn opt_keywords<'a>(&'a self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         I: Copy,
-        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         let gating = self.gating.as_ref().map(OptRootKeyword::from_ref);
         self.regions
@@ -848,10 +857,10 @@ impl<I> GatingScheme<I> {
             .chain(gating)
     }
 
-    fn convert_indices<J0, J1, const GATE_IS_INDEX: bool>(
+    fn convert_indices<J0, J1>(
         self,
         flag: AllowLoss,
-    ) -> DeferredSwitchableErrors<GatingScheme<J0>, AllowLoss, ConvertSchemeError<J1, GATE_IS_INDEX>>
+    ) -> DeferredSwitchableErrors<GatingScheme<J0>, AllowLoss, ConvertSchemeError<J1>>
     where
         I: Copy,
         J0: TryFrom<I, Error = UniIndexForRegionError<J1>>,
@@ -913,8 +922,10 @@ impl<I> Region<I> {
     where
         I: FromStr + LinkedMeasIndex + PartialEq,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
-        for<'a> RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
-        RegionGateIndex<I>: OptIndexedKey + Optional<Outer = Option<RegionGateIndex<I>>>,
+        for<'a> RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>
+            + OptMetarootKey
+            + Optional<Outer = Option<RegionGateIndex<I>>>,
     {
         let index_res = RegionGateIndex::remove_or_drop_meas_opt_with(kws, dropped, ri, (), conf)
             .map_switchable_errors(LookupRegionError::Region)
@@ -931,7 +942,7 @@ impl<I> Region<I> {
             ns.insert_demoted_keyword(k);
         };
         let demote_window = |w: RegionWindow, ns: &mut NonStdKeywords| {
-            let k = DKey1::<RegionWindow>::new_i1(ri).as_std_key();
+            let k = StdKey::from(RegionKey::new(ri, RegionKeySuffix::I));
             let v = ToNE(w).to_ne_string();
             ns.insert_demoted(k, v);
         };
@@ -939,7 +950,7 @@ impl<I> Region<I> {
             OptRootKeyword::from(RegionKeyword::from_value(gi, ri)).insert_unique(dr);
         };
         let drop_window = |w: RegionWindow, dr: &mut StdKeywords| {
-            let k = DKey1::<RegionWindow>::new_i1(ri).as_std_key();
+            let k = StdKey::from(RegionKey::new(ri, RegionKeySuffix::W));
             let v = ToNE(w).to_ne_string();
             dr.insert(k, v);
         };
@@ -951,8 +962,8 @@ impl<I> Region<I> {
                 // they are both the same type (uni/bi-variate). If anything
                 // fails, return none, log an error (or warning if we allow
                 // dropping), and demote the keywords if applicable.
-                let (gi_val, gi_trimmed) = gi_out.into_opt_indexed_pair(ri.into());
-                let (w_val, w_trimmed) = w_out.into_opt_indexed_pair(ri.into());
+                let (gi_val, gi_trimmed) = gi_out.into_opt_indexed_pair(&ri.into());
+                let (w_val, w_trimmed) = w_out.into_opt_indexed_pair(&ri.into());
                 let trimmed = gi_trimmed.into_iter().chain(w_trimmed).collect();
                 let res = match (gi_val, w_val) {
                     (Some(gi), Some(w)) => match Self::try_new(gi, w) {
@@ -1006,7 +1017,8 @@ impl<I> Region<I> {
     pub(crate) fn demote_keywords<'a>(&'a self, i: RegionIndex, nonstd: &mut NonStdKeywords)
     where
         I: Copy,
-        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for r in self.opt_keywords(i) {
             let kw = OptRootKeyword::from(r).into();
@@ -1017,7 +1029,8 @@ impl<I> Region<I> {
     pub(crate) fn drop_keywords<'a>(&'a self, i: RegionIndex, dropped: &mut StdKeywords)
     where
         I: Copy,
-        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         for r in self.opt_keywords(i) {
             OptRootKeyword::from(r).insert_unique(dropped);
@@ -1027,7 +1040,8 @@ impl<I> Region<I> {
     pub(crate) fn opt_keywords<'a>(&'a self, i: RegionIndex) -> [RegionKeyword<'a>; 2]
     where
         I: Copy,
-        RegionKeyword<'a>: From<SplitKeyword1<RegionGateIndex<I>>>,
+        RegionGateIndex<I>: Key<Index = RegionIndex>,
+        RegionKeyword<'a>: From<SplitKeyword<RegionGateIndex<I>>>,
     {
         let ri = match self {
             Self::Univariate(r) => RegionGateIndex::Univariate(r.index),
@@ -1038,8 +1052,8 @@ impl<I> Region<I> {
             Self::Bivariate(r) => RegionWindowRef::Bivariate(r.vertices.0.as_nonempty_slice()),
         };
         let x0 = RegionKeyword::from_value(ri, i);
-        let rk = DKey1::new_i1(i);
-        let x1 = RegionKeyword::Window(SplitKeyword::new(rk, rw));
+        let rk = DollarKey::new(i);
+        let x1 = RegionKeyword::Window(SplitKeyword_::new(rk, rw));
         [x0, x1]
     }
 
@@ -1235,12 +1249,12 @@ pub enum NewAppliedGatesWithSchemeError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum AppliedGates3_0To2_0Error {
-    Scheme(ConvertSchemeError<MeasIndex, false>),
+    Scheme(ConvertSchemeError<MeasIndex>),
     Link(GateMeasurementLinkError),
 }
 
 /// Error when converting gating keywords from 3.0/3.1 to 3.2
-pub type AppliedGates3_0To3_2Error = ConvertSchemeError<GateIndex, true>;
+pub type AppliedGates3_0To3_2Error = ConvertSchemeError<GateIndex>;
 
 /// Error when converting $GATING/$RnI/$RnW keywords to new version.
 ///
@@ -1251,9 +1265,9 @@ pub type AppliedGates3_0To3_2Error = ConvertSchemeError<GateIndex, true>;
 /// no longer valid as described above.
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(I: Into<IndexFromOne> + Copy))]
-pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
-    Region(ConvertIndexForRegionError<I, INDEX_IS_GATE>),
+#[cfg_attr(feature = "python", bound(ConvertIndexForRegionError<I>: fmt::Display))]
+pub enum ConvertSchemeError<I> {
+    Region(ConvertIndexForRegionError<I>),
     Scheme(DependentKeyError<Gating>),
 }
 
@@ -1265,29 +1279,40 @@ pub enum ConvertSchemeError<I, const INDEX_IS_GATE: bool> {
 #[derive(Debug, Display, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConversionError))]
-#[cfg_attr(feature = "python", bound(I: Into<IndexFromOne> + Copy))]
-pub struct ConvertIndexForRegionError<I, const INDEX_IS_GATE: bool>(
-    IndexedError<AnyIndexForRegionError<I>>,
-);
+#[cfg_attr(feature = "python", bound(ConvertIndexForRegionError<I>: fmt::Display))]
+pub struct ConvertIndexForRegionError<I>(IndexedError<RegionIndex, AnyIndexForRegionError<I>>);
 
-impl<I: Into<IndexFromOne> + Copy, const INDEX_IS_GATE: bool> fmt::Display
-    for ConvertIndexForRegionError<I, INDEX_IS_GATE>
-{
+impl fmt::Display for ConvertIndexForRegionError<GateIndex> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        let region_key = RegionGateIndex::<()>::std(self.0.index);
-        let keys = |i: I, is_plural: bool, is_gate: bool| {
+        self.fmt(true, f)
+    }
+}
+
+impl fmt::Display for ConvertIndexForRegionError<MeasIndex> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
+        self.fmt(false, f)
+    }
+}
+
+impl<I> ConvertIndexForRegionError<I> {
+    fn fmt(&self, index_is_gate: bool, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error>
+    where
+        I: fmt::Display,
+    {
+        let region_key = StdKey::from(IndexedKey::new(self.0.index, RegionKeySuffix::I));
+        let keys = |i: &I, is_plural: bool, is_gate: bool| {
             let prefix = if is_gate { "G" } else { "P" };
-            let key = format!("{prefix}{}*", i.into());
+            let key = format!("{prefix}{}*", i);
             if is_plural {
                 format!("{key} keywords")
             } else {
                 format!("a {key} keyword")
             }
         };
-        let target_keys = |i: I, is_plural: bool| {
+        let target_keys = |i: &I, is_plural: bool| {
             let meas = keys(i, is_plural, false);
             let gate = keys(i, is_plural, true);
-            if INDEX_IS_GATE {
+            if index_is_gate {
                 (gate, meas)
             } else {
                 (meas, gate)
@@ -1295,14 +1320,14 @@ impl<I: Into<IndexFromOne> + Copy, const INDEX_IS_GATE: bool> fmt::Display
         };
         let (which, (from, to)) = match &self.0.error {
             AnyIndexForRegionError::Univariate(UniIndexForRegionError(i)) => {
-                ("index", target_keys(*i, false))
+                ("index", target_keys(i, false))
             }
             AnyIndexForRegionError::Bivariate(b) => match b {
-                BiIndexForRegionError::LeftBivariate(i) => ("left index", target_keys(*i, true)),
-                BiIndexForRegionError::RightBivariate(i) => ("right index", target_keys(*i, true)),
+                BiIndexForRegionError::LeftBivariate(i) => ("left index", target_keys(i, true)),
+                BiIndexForRegionError::RightBivariate(i) => ("right index", target_keys(i, true)),
                 BiIndexForRegionError::Bivariate(i0, i1) => {
-                    let (from0, to0) = target_keys(*i0, true);
-                    let (from1, to1) = target_keys(*i1, true);
+                    let (from0, to0) = target_keys(i0, true);
+                    let (from1, to1) = target_keys(i1, true);
                     let from = format!("{from0} and {from1}");
                     let to = format!("{to0} and {to1}");
                     ("indices", (from, to))
@@ -1365,7 +1390,7 @@ pub type LookupAppliedGates3_2Error =
     LookupGatingSchemeError<LookupRegionIndexError<PrefixedMeasIndex>>;
 
 /// Error when parsing $RnI keyword (generic)
-pub type LookupRegionIndexError<I> = OptIndexedKeyStError<RegionGateIndex<I>>;
+pub type LookupRegionIndexError<I> = OptStKeyError<RegionGateIndex<I>>;
 
 /// Error when parsing $GATING/$RnI/$RnW/$Gn*/$GATE keywords
 #[derive(Display, Debug, Error, PartialEq, Clone)]
@@ -1400,7 +1425,7 @@ pub enum LookupGatingSchemeError<E> {
 pub enum LookupRegionError<E> {
     Mismatch(IndexWindowMismatchError),
     Region(E),
-    Window(OptIndexedKeyStError<RegionWindow>),
+    Window(OptStKeyError<RegionWindow>),
 }
 
 /// Error when $RnI and $RnW keywords mismatch
@@ -1428,9 +1453,9 @@ pub enum LookupGatedMeasurementsError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupGatedMeasError {
-    Scale(OptIndexedKeyStError<GateScale>),
-    Shortname(OptIndexedKeyError<GateShortname>),
-    PercentEmitted(OptIndexedKeyError<GatePercentEmitted>),
-    Range(OptIndexedKeyError<GateRange>),
-    DetectorVoltage(OptIndexedKeyError<GateDetectorVoltage>),
+    Scale(OptStKeyError<GateScale>),
+    Shortname(OptKeyError<GateShortname>),
+    PercentEmitted(OptKeyError<GatePercentEmitted>),
+    Range(OptKeyError<GateRange>),
+    DetectorVoltage(OptKeyError<GateDetectorVoltage>),
 }

@@ -886,6 +886,7 @@ impl<T> HasWidth for DataFrame<T> {
 
 // Implement length property for various useful things with length
 
+// TODO move this to a different mod, it is very general
 #[delegatable_trait]
 #[allow(clippy::len_without_is_empty)]
 pub trait HasLen {
@@ -915,6 +916,12 @@ impl<T> HasLen for Vec<T> {
 impl<T> HasLen for &[T] {
     fn len(&self) -> usize {
         self[..].len()
+    }
+}
+
+impl<T, const LEN: usize> HasLen for [T; LEN] {
+    fn len(&self) -> usize {
+        LEN
     }
 }
 

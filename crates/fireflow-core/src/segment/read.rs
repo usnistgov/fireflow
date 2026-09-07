@@ -12,15 +12,14 @@ use crate::logging::{
     SwitchableErrorsResult, WarningsAndErrorsResult, WarningsAndIOGroupResult, io_to_log,
 };
 use crate::text::lookup::{
-    MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ReqKeyErrorInner, ReqMetarootKey,
+    MissingKeyError, OptMetarootKey, Optional, ParseKeyError, ParseKeyError_, ReqKeyErrorInner,
+    ReqKeyErrorInner_, ReqMetarootKey,
 };
 use crate::validated::ascii_uint::{ParseFixedUintError, UintSpacePad20, ascii_str_from_bytes};
 use crate::validated::header_offsets::{
     FinalOtherOffsets, HEADER_LEN, TextToHeaderOrSuppOffsetsValidationError,
 };
-use crate::validated::keys::{
-    AsStdKey as _, Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString,
-};
+use crate::validated::keys::{Key, NEStringOrBytes, SpecificKey, StdKeywords, TruncatedNEString};
 use crate::validated::read_state::{
     DatasetOffset, HeaderReadState, ReadDatasetState, TEXTReadState,
 };
@@ -39,6 +38,7 @@ use fireflow_types::{
         OffsetsFromTEXT, OtherSegmentId, PrimaryTextSegmentId, SupplementalTextSegmentId,
         TEXTCorrection,
     },
+    std_key::StdKey,
 };
 
 use nonempty_collections::IntoNonEmptyIterator as _;
@@ -49,6 +49,7 @@ use type_families::{
 
 use derive_more::{Display, From};
 use derive_new::new;
+use derive_where::derive_where;
 use itertools::Itertools as _;
 use nonempty_collections::{
     IntoIteratorExt as _, NESlice, NEVec, NonEmptyArrayExt as _,
@@ -448,115 +449,43 @@ pub struct InHeaderError<N>(pub NamedOffsets<N>);
 pub struct DatasetOverflowError<N>(pub OffsetsOverflow<N>);
 
 /// Error when parsing or creating required segment offsets from TEXT
-#[derive(Display, Debug, Error)]
+#[derive(Clone, Debug, PartialEq, Display, Error)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
+#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
 pub enum ReqOffsetsError<B, E> {
     Key(ReqSegmentKeyError<B, E>),
     Segment(SegmentOffsetError),
 }
 
-impl<B, E> Clone for ReqOffsetsError<B, E> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Key(x) => Self::Key(x.clone()),
-            Self::Segment(x) => Self::Segment(x.clone()),
-        }
-    }
-}
-
-impl<B, E> PartialEq for ReqOffsetsError<B, E> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Key(a), Self::Key(b)) => a == b,
-            (Self::Segment(a), Self::Segment(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
 /// Error when parsing required segment offsets from TEXT
-#[derive(Display, Debug, Error)]
+#[derive(Clone, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
+#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
 pub enum ReqSegmentKeyError<B, E> {
-    Begin(ReqKeyErrorInner<ParseIntError, B, ()>),
-    End(ReqKeyErrorInner<ParseIntError, E, ()>),
-}
-
-impl<B, E> Clone for ReqSegmentKeyError<B, E> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Begin(x) => Self::Begin(x.clone()),
-            Self::End(x) => Self::End(x.clone()),
-        }
-    }
-}
-
-impl<B, E> PartialEq for ReqSegmentKeyError<B, E> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Begin(a), Self::Begin(b)) => a == b,
-            (Self::End(a), Self::End(b)) => a == b,
-            _ => false,
-        }
-    }
+    Begin(ReqKeyErrorInner_<ParseIntError, B, ()>),
+    End(ReqKeyErrorInner_<ParseIntError, E, ()>),
 }
 
 /// Error when parsing optional segment offsets from TEXT
-#[derive(Display, Debug, Error)]
+#[derive(Clone, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
+#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
 pub enum OptOffsetsError<B, E> {
     Key(OptSegmentKeyError<B, E>),
     Segment(SegmentOffsetError),
 }
 
-impl<B, E> Clone for OptOffsetsError<B, E> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Key(x) => Self::Key(x.clone()),
-            Self::Segment(x) => Self::Segment(x.clone()),
-        }
-    }
-}
-
-impl<B, E> PartialEq for OptOffsetsError<B, E> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Key(a), Self::Key(b)) => a == b,
-            (Self::Segment(a), Self::Segment(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
 /// Error when parsing or creating optional segment offsets from TEXT
-#[derive(Display, Debug, Error)]
+#[derive(Clone, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(B: Key), bound(E: Key))]
+#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
 pub enum OptSegmentKeyError<B, E> {
-    Begin(ParseKeyError<ParseIntError, B, ()>),
-    End(ParseKeyError<ParseIntError, E, ()>),
-}
-
-impl<B, E> Clone for OptSegmentKeyError<B, E> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Begin(x) => Self::Begin(x.clone()),
-            Self::End(x) => Self::End(x.clone()),
-        }
-    }
-}
-
-impl<B, E> PartialEq for OptSegmentKeyError<B, E> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Begin(a), Self::Begin(b)) => a == b,
-            (Self::End(a), Self::End(b)) => a == b,
-            _ => false,
-        }
-    }
+    Begin(ParseKeyError_<ParseIntError, B, ()>),
+    End(ParseKeyError_<ParseIntError, E, ()>),
 }
 
 /// Error when parsing a segment from HEADER
@@ -655,7 +584,8 @@ pub struct ParseOffsetError {
 }
 
 /// Error when TEXT offsets are overridden using corresponding offsets from HEADER
-#[derive(Debug, Error, Display)]
+#[derive(Error, Display)]
+#[derive_where(Clone, Debug, Default, PartialEq)]
 #[display(bound(I: HasRegion))]
 #[display(
     "could not obtain {} segment offset from TEXT, using offsets from HEADER",
@@ -666,26 +596,8 @@ pub struct ParseOffsetError {
 #[cfg_attr(feature = "python", bound(I: HasRegion))]
 pub struct SegmentOffsetsDefaultWarning<I>(PhantomData<I>);
 
-impl<I> Clone for SegmentOffsetsDefaultWarning<I> {
-    fn clone(&self) -> Self {
-        Self::default()
-    }
-}
-
-impl<I> PartialEq for SegmentOffsetsDefaultWarning<I> {
-    fn eq(&self, _: &Self) -> bool {
-        true
-    }
-}
-
-impl<I> Default for SegmentOffsetsDefaultWarning<I> {
-    fn default() -> Self {
-        Self(PhantomData)
-    }
-}
-
 /// Error when offsets from TEXT and HEADER do not match
-#[derive(Debug, Error, Display, new)]
+#[derive(Clone, Debug, Error, Display, PartialEq, new)]
 #[display(bound(I: HasRegion))]
 #[display(
     "offsets differ in HEADER {header} and TEXT {text} for {}{}",
@@ -702,24 +614,12 @@ pub struct OffsetsMismatchError<I> {
     _region: PhantomData<I>,
 }
 
-impl<I> Clone for OffsetsMismatchError<I> {
-    fn clone(&self) -> Self {
-        Self::new(self.header, self.text, self.use_header)
-    }
-}
-
-impl<I> PartialEq for OffsetsMismatchError<I> {
-    fn eq(&self, other: &Self) -> bool {
-        self.header == other.header
-            && self.text == other.text
-            && self.use_header == other.use_header
-    }
-}
-
 /// Error when parsing required offsets from TEXT when HEADER is allowed to override
-#[derive(From, Display, Debug, Error)]
+#[derive(Clone, From, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
+#[cfg_attr(feature = "python", bound(I: HasRegion))]
+#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
 pub enum ReqOffsetsWithDefaultErrorInner<I, B, E> {
     Req(ReqOffsetsError<B, E>),
     Mismatch(OffsetsMismatchError<I>),
@@ -727,89 +627,28 @@ pub enum ReqOffsetsWithDefaultErrorInner<I, B, E> {
     Nextdata(DatasetOverflowError<TextOffsetsName>),
 }
 
-impl<I, B, E> Clone for ReqOffsetsWithDefaultErrorInner<I, B, E> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Req(x) => Self::Req(x.clone()),
-            Self::Mismatch(x) => Self::Mismatch(x.clone()),
-            Self::Validation(x) => Self::Validation(x.clone()),
-            Self::Nextdata(x) => Self::Nextdata(x.clone()),
-        }
-    }
-}
-
-impl<I, B, E> PartialEq for ReqOffsetsWithDefaultErrorInner<I, B, E> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Req(a), Self::Req(b)) => a == b,
-            (Self::Mismatch(a), Self::Mismatch(b)) => a == b,
-            (Self::Validation(a), Self::Validation(b)) => a == b,
-            (Self::Nextdata(a), Self::Nextdata(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
 /// Warning when parsing required offsets from TEXT when HEADER is allowed to override
-#[derive(From, Display, Debug, Error)]
+#[derive(Clone, From, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
+#[cfg_attr(feature = "python", bound(I: HasRegion))]
+#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
 pub enum ReqOffsetsWithDefaultWarning_<I, B, E> {
     Error(ReqOffsetsWithDefaultErrorInner<I, B, E>),
     Default(SegmentOffsetsDefaultWarning<I>),
 }
 
-impl<I, B, E> Clone for ReqOffsetsWithDefaultWarning_<I, B, E> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Error(x) => Self::Error(x.clone()),
-            Self::Default(x) => Self::Default(x.clone()),
-        }
-    }
-}
-
-impl<I, B, E> PartialEq for ReqOffsetsWithDefaultWarning_<I, B, E> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Error(a), Self::Error(b)) => a == b,
-            (Self::Default(a), Self::Default(b)) => a == b,
-            _ => false,
-        }
-    }
-}
-
 /// Warning when parsing optional offsets from TEXT when HEADER is allowed to override
-#[derive(From, Display, Debug, Error)]
+#[derive(Clone, From, Display, Debug, Error, PartialEq)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
-#[cfg_attr(feature = "python", bound(I: HasRegion), bound(B: Key), bound(E: Key))]
+#[cfg_attr(feature = "python", bound(I: HasRegion))]
+#[cfg_attr(feature = "python", bound(B: Key<Index = ()>))]
+#[cfg_attr(feature = "python", bound(E: Key<Index = ()>))]
 pub enum OptOffsetsWithDefaultWarningInner<I, B, E> {
     Opt(OptOffsetsError<B, E>),
     Mismatch(OffsetsMismatchError<I>),
     Validation(TextToHeaderOrSuppOffsetsValidationError),
     Nextdata(DatasetOverflowError<TextOffsetsName>),
-}
-
-impl<I, B, E> Clone for OptOffsetsWithDefaultWarningInner<I, B, E> {
-    fn clone(&self) -> Self {
-        match self {
-            Self::Opt(x) => Self::Opt(x.clone()),
-            Self::Mismatch(x) => Self::Mismatch(x.clone()),
-            Self::Validation(x) => Self::Validation(x.clone()),
-            Self::Nextdata(x) => Self::Nextdata(x.clone()),
-        }
-    }
-}
-
-impl<I, B, E> PartialEq for OptOffsetsWithDefaultWarningInner<I, B, E> {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::Opt(a), Self::Opt(b)) => a == b,
-            (Self::Mismatch(a), Self::Mismatch(b)) => a == b,
-            (Self::Validation(a), Self::Validation(b)) => a == b,
-            (Self::Nextdata(a), Self::Nextdata(b)) => a == b,
-            _ => false,
-        }
-    }
 }
 
 /// Error when width of OTHER offsets could not be guessed.
@@ -1033,12 +872,12 @@ type ReqPair<B, E> = Result<(i128, i128), OneOrTwo<ReqSegmentKeyError<B, E>>>;
 macro_rules! lookup_req {
     ($kws:ident, $fun:ident) => {{
         let k = SpecificKey::default();
-        match $kws.$fun(&k.as_std_key()) {
+        match $kws.$fun(&fireflow_types::std_key::StdKey::from(k)) {
             Some(v) => v
                 .parse::<i128>()
                 .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
                 .map_err(ReqKeyErrorInner::from),
-            None => Err(ReqKeyErrorInner::from(MissingKeyError(k.into()))),
+            None => Err(ReqKeyErrorInner::from(MissingKeyError::new(k.into()))),
         }
     }};
 }
@@ -1086,16 +925,16 @@ where
         OneOrTwo::from_results(x0, x1)
     }
 
-    fn get_req<K>(kws: &StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
+    fn get_req<K>(kws: &StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
-        K: Key,
+        K: Key<Index = ()>,
     {
         lookup_req!(kws, get)
     }
 
-    fn remove_req<K>(kws: &mut StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K, ()>>
+    fn remove_req<K>(kws: &mut StdKeywords) -> Result<i128, ReqKeyErrorInner<ParseIntError, K>>
     where
-        K: Key,
+        K: Key<Index = ()>,
     {
         lookup_req!(kws, remove)
     }
@@ -1313,7 +1152,7 @@ type OptPair<B, E> = Result<Option<(i128, i128)>, OneOrTwo<OptSegmentKeyError<B,
 macro_rules! lookup_opt {
     ($kws:ident, $fun:ident) => {{
         let k = SpecificKey::default();
-        $kws.$fun(&k.as_std_key())
+        $kws.$fun(&StdKey::from(&k))
             .map(|v| {
                 v.parse::<i128>()
                     .map_err(|e| ParseKeyError::new(e, k.into(), TruncatedNEString(v.to_owned())))
@@ -1367,18 +1206,16 @@ where
         OneOrTwo::from_results(x0, x1).map(|(x, y)| x.zip(y))
     }
 
-    fn get_opt<K>(kws: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
+    fn get_opt<K>(kws: &StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
-        K: Key,
+        K: Key<Index = ()>,
     {
         lookup_opt!(kws, get)
     }
 
-    fn remove_opt<K>(
-        kws: &mut StdKeywords,
-    ) -> Result<Option<i128>, ParseKeyError<ParseIntError, K, ()>>
+    fn remove_opt<K>(kws: &mut StdKeywords) -> Result<Option<i128>, ParseKeyError<ParseIntError, K>>
     where
-        K: Key,
+        K: Key<Index = ()>,
     {
         lookup_opt!(kws, remove)
     }

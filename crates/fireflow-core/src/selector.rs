@@ -10,7 +10,7 @@ use fireflow_types::{
     keystring_pairs::KeyStringPairs,
     ne_str,
     nonempty_string::{NEStr, NEString},
-    std_key::{RealOrPseudoStdKey, StdKey},
+    std_key::{RealOrPseudoStdKey, RootKey, StdKey, ToStd},
     timepattern::TimePattern,
 };
 use hashbrown::HashMap;
@@ -150,7 +150,7 @@ impl AppendableSelector<KeyStringPairs> {
         let to = "SPILLOVER".parse::<KeyString>().unwrap();
         hm.insert(from, to);
         let pairs = KeyStringPairs::try_from(hm).unwrap();
-        let kw_test = KeyTest::HasKey(RealOrPseudoStdKey::Real(Spillover::std()).into());
+        let kw_test = KeyTest::HasKey(RealOrPseudoStdKey::Real(RootKey::Spillover.into()).into());
         let cond = Condition::Not(Condition::Root(kw_test).into());
         let new = Selector::if_then(cond, Selector::root(pairs));
         self.push(new);
@@ -167,7 +167,7 @@ impl Selector<TimeMeasNamePattern> {
     pub fn new_time_meas_pattern() -> Self {
         let hdr_tm_regex = "^HDR-T(M)$".parse::<TimeMeasNamePattern>().unwrap();
         let is_macsquant = KeyTest::KeyIs(
-            RealOrPseudoStdKey::Real(Cyt::std()).into(),
+            RealOrPseudoStdKey::Real(RootKey::Cyt.into()).into(),
             ne_str!("MACSQuant").to_owned(),
         );
         let cond = Condition::Root(is_macsquant);
@@ -367,12 +367,15 @@ impl Condition {
 impl KeyTest {
     #[must_use]
     pub fn cyt_is(cyt: &NEStr) -> Self {
-        Self::KeyIs(RealOrPseudoStdKey::Real(Cyt::std()).into(), cyt.to_owned())
+        Self::KeyIs(
+            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std(&())).into(),
+            cyt.to_owned(),
+        )
     }
 
     pub fn cyt_matches(pat: &str) -> Result<Self, ValueRegexError> {
         Ok(Self::KeyMatches(
-            RealOrPseudoStdKey::Real(Cyt::std()).into(),
+            RealOrPseudoStdKey::Real(RootKey::Cyt.to_std(&())).into(),
             pat.parse()?,
         ))
     }

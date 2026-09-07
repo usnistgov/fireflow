@@ -71,7 +71,7 @@ use crate::text::keyword_enum::{
     AnyKeyword, AnyMetarootKeyLossError, AnyTemporalToOpticalKeyLossError, AsKeywordPair as _,
     HasMembership as _, Keyword0FromValue as _, Keyword1FromValue as _, NonStdKeyword, OptKeyword,
     OptMeasKeyword, OptRootKeyword, ReqKeyword, ReqMeasKeyword, ReqRootKeyword, SplitKeyword,
-    SplitKeyword1, StdOrNonStdOptRootKeyword,
+    SplitKeyword_, StdOrNonStdOptRootKeyword,
 };
 use crate::text::keywords::{
     Abrt, AlphaNumType, AnyMeasScaleFix, CSMode, CSTot, CSVBits, CSVFlag, Carrierid, Carriertype,
@@ -84,8 +84,7 @@ use crate::text::keywords::{
     Wellid,
 };
 use crate::text::lookup::{
-    Diagnosed, OptIndexedKey as _, OptIndexedKeyError, OptKeyError, OptKeyStError,
-    OptMetarootKey as _, ReqKeyError, ReqMetarootKey as _,
+    Diagnosed, OptKeyError, OptMetarootKey as _, OptStKeyError, ReqKeyError, ReqMetarootKey as _,
 };
 use crate::text::named_vec::{
     Element, ElementIndexError, IndexedElement, InputLengthError, KeyIsOptical, NameMapping,
@@ -112,8 +111,8 @@ use crate::validated::compensation::Compensation;
 use crate::validated::dataframe::{AnyPrimitiveSeries, PrimitiveDataFrame};
 use crate::validated::header_offsets::FinalHeaderOffsets;
 use crate::validated::keys::{
-    DKey0, DKey2, IndexedKey as _, Key as _, NonStdKeywords, NonStdKeywordsExt as _,
-    RepairCollisionError, RepairDiagnostics, StdKeywords, StringOrBytes, ValidKeywords,
+    DollarKey, Key as _, NonStdKeywords, NonStdKeywordsExt as _, RepairCollisionError,
+    RepairDiagnostics, StdKeywords, StringOrBytes, ValidKeywords,
 };
 use crate::validated::read_state::{
     CRC_LEN, CRCError, DatasetLen, DatasetLenEOFError, DatasetOffset, DatasetOffsetError,
@@ -129,7 +128,7 @@ use fireflow_types::{
         ReadSharedConfig, WriteDatasetInnerConfig, WriteMultiConfig, WriteTEXTInnerConfig,
     },
     datepattern::DatePattern,
-    index::{IndexFromOne, MeasIndex},
+    index::MeasIndex,
     keywords::{
         HasVersion, OpticalFeature, Version, Version2_0, Version3_0, Version3_1, Version3_2,
     },
@@ -166,10 +165,13 @@ use std::time::{Duration, Instant};
 use {
     crate::text::keyword_enum::{
         AsHeader as _, OptMeasTemporalKeyword, OptScaledOpticalKeyword, OptTemporalKeyword,
-        RefKeyword1,
+        RefKeyword,
     },
     crate::text::keywords as kws,
-    fireflow_types::ne_str,
+    fireflow_types::{
+        ne_str,
+        std_key::{BlankKeyword as _, ParamKeySuffix, PeakKeyPrefix},
+    },
     ndarray::Array2,
     serde::Serialize,
     std::string::ToString as _,
@@ -1401,7 +1403,7 @@ pub enum StdTEXTFromFlatTEXTWarning {
     New(NewCoreWarning),
     Metaroot(LookupMetarootWarning),
     Meas(LookupMeasurementWarning),
-    Shortname(OptIndexedKeyError<Shortname>),
+    Shortname(OptKeyError<Shortname>),
     DataSchema(LookupDataSchemaWarning),
     Offsets(LookupTEXTOffsetsWarning),
     Timestep(TimestepFoundError),
@@ -1609,18 +1611,18 @@ pub enum LookupMetarootError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupMetarootWarning {
-    Trigger(OptKeyStError<Trigger>),
+    Trigger(OptStKeyError<Trigger>),
     Comp2_0(LookupComp2_0Error),
-    Comp3_0(OptKeyStError<Compensation3_0>),
+    Comp3_0(OptStKeyError<Compensation3_0>),
     Timestamps2_0(LookupTimestampsError<FCSTime, FCSTimeError>),
     Timestamps3_0(LookupTimestampsError<FCSTime60, FCSTime60Error>),
     Timestamps3_1(LookupTimestampsError<FCSTime100, FCSTime100Error>),
     Datetimes(LookupDatetimesError),
     Modified(LookupModifiedDataError),
-    UnstainedCenter(OptKeyStError<UnstainedCenters>),
+    UnstainedCenter(OptStKeyError<UnstainedCenters>),
     Mode3_2(OptKeyError<Mode3_2>),
-    Unicode(OptKeyStError<Unicode>),
-    Spillover(OptKeyStError<Spillover>),
+    Unicode(OptStKeyError<Unicode>),
+    Spillover(OptStKeyError<Spillover>),
     Gate2_0(LookupAppliedGates2_0Error),
     Gate3_0(LookupAppliedGates3_0Error),
     Gate3_2(LookupAppliedGates3_2Error),
@@ -1648,7 +1650,7 @@ pub enum LookupMeasurementError {
 #[error(
     "Time pattern matched {k} with name {1} but a previous measurement already \
      matched; adjust time pattern so it only matches one $PnN",
-    k = Shortname::std(self.0),
+    k = Shortname::std(&self.0),
 )]
 #[cfg_attr(feature = "python", derive(DisplayAsPyErr))]
 #[cfg_attr(feature = "python", pyerr(py::ConfigError))]
@@ -1677,7 +1679,7 @@ pub enum LookupSubsetError {
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupCSVFlagsError {
     Mode(OptKeyError<CSMode>),
-    Flag(OptIndexedKeyError<CSVFlag>),
+    Flag(OptKeyError<CSVFlag>),
 }
 
 /// Error when parsing keywords for $LAST_MODIFIED or $ORIGINALITY
@@ -1686,7 +1688,7 @@ pub enum LookupCSVFlagsError {
 #[derive(From, Display, Debug, Error, PartialEq, Clone)]
 #[cfg_attr(feature = "python", derive(AllIntoPyErr))]
 pub enum LookupModifiedDataError {
-    LastModTime(OptKeyStError<LastModified>),
+    LastModTime(OptStKeyError<LastModified>),
     Originality(OptKeyError<Originality>),
 }
 
@@ -3144,7 +3146,7 @@ impl VersionedRootMeta for InnerRootMeta2_0 {
             .map(Compensation2_0::non_zero_indices)
             .into_iter()
             .flatten()
-            .map(|x| SplitKeyword::new(DKey2::new_i2(x.col, x.row), x.value))
+            .map(|x| SplitKeyword_::new(DollarKey::new_i2(x.col, x.row), x.value))
             .map(OptRootKeyword::from)
             .chain(cyt)
             .chain(self.applied_gates.opt_keywords())
@@ -3204,11 +3206,12 @@ impl VersionedRootMeta for InnerRootMeta3_0 {
     ) -> impl Iterator<Item = AnyExistingIndexLinkError> {
         // don't check specific indices for $COMP since this keyword links
         // all indices
+        let k = DollarKey::<Compensation3_0>::default();
         let comp = self.comp.as_ref().and_then(|_| {
             (0..par.0)
-                .map(IndexFromOne::from)
+                .map(MeasIndex::from)
                 .try_into_nonempty_iter()
-                .map(|js| ExistingIndexedLinkError::new(DKey0::default(), js.collect()))
+                .map(|js| ExistingIndexedLinkError::new(k, js.collect()))
                 .map(AnyExistingIndexLinkError::from)
         });
         let ag = self
@@ -5351,7 +5354,7 @@ where
                     .opt_names()
                     .flatten()
                     .enumerate()
-                    .map(|(i, v)| OptMeasKeyword::from_ref(v, i))
+                    .map(|(i, v)| OptMeasKeyword::from_ref(v, i.into()))
             })
             .into_iter()
             .flatten();
@@ -5392,7 +5395,7 @@ where
                     .opt_names()
                     .flatten()
                     .enumerate()
-                    .map(|(i, v)| ReqMeasKeyword::from_ref(v, i))
+                    .map(|(i, v)| ReqMeasKeyword::from_ref(v, i.into()))
             })
             .into_iter()
             .flatten();
@@ -5444,7 +5447,7 @@ where
             Req(ReqMeasKeyword<'a>),
             Optical(OptScaledOpticalKeyword<'a>),
             Temporal(OptMeasTemporalKeyword<'a>),
-            NumType(SplitKeyword1<kws::NumType>),
+            NumType(SplitKeyword<kws::NumType>),
         }
 
         impl<'a> MeasKeyword<'a> {
@@ -5482,21 +5485,20 @@ where
 
         let common = [
             INDEX,
-            Shortname::std_blank(),
-            kws::Longname::std_blank(),
-            kws::Width::std_blank(),
-            kws::TextRange::std_blank(),
-            kws::Scale::std_blank(),
-            kws::Filter::std_blank(),
-            // NOTE same for Wavelengths
-            kws::Wavelength::std_blank(),
-            kws::Power::std_blank(),
-            kws::DetectorType::std_blank(),
-            kws::PercentEmitted::std_blank(),
-            kws::DetectorVoltage::std_blank(),
+            ParamKeySuffix::N.blank(),
+            ParamKeySuffix::S.blank(),
+            ParamKeySuffix::B.blank(),
+            ParamKeySuffix::R.blank(),
+            ParamKeySuffix::S.blank(),
+            ParamKeySuffix::F.blank(),
+            ParamKeySuffix::L.blank(),
+            ParamKeySuffix::O.blank(),
+            ParamKeySuffix::T.blank(),
+            ParamKeySuffix::P.blank(),
+            ParamKeySuffix::V.blank(),
         ];
 
-        let peak = [kws::PeakBin::std_blank(), kws::PeakIndex::std_blank()];
+        let peak = [PeakKeyPrefix::Pk.blank(), PeakKeyPrefix::Pkn.blank()];
 
         header.extend(common);
 
@@ -5505,30 +5507,30 @@ where
                 header.extend(peak);
             }
             Version::FCS3_0 => {
-                header.push(kws::Gain::std_blank());
+                header.push(ParamKeySuffix::G.blank());
                 header.extend(peak);
             }
             Version::FCS3_1 => {
-                header.push(kws::Gain::std_blank());
-                header.push(kws::Calibration3_1::std_blank());
-                header.push(kws::Display::std_blank());
+                header.push(ParamKeySuffix::G.blank());
+                header.push(ParamKeySuffix::Calibration.blank());
+                header.push(ParamKeySuffix::D.blank());
                 header.extend(peak);
             }
             Version::FCS3_2 => {
-                header.push(kws::Gain::std_blank());
-                header.push(kws::Calibration3_2::std_blank());
-                header.push(kws::Display::std_blank());
-                header.push(kws::DetectorName::std_blank());
-                header.push(kws::Tag::std_blank());
-                header.push(kws::OpticalType::std_blank());
-                header.push(kws::Feature::std_blank());
-                header.push(kws::Analyte::std_blank());
-                header.push(kws::NumType::std_blank());
+                header.push(ParamKeySuffix::G.blank());
+                header.push(ParamKeySuffix::Calibration.blank());
+                header.push(ParamKeySuffix::D.blank());
+                header.push(ParamKeySuffix::Det.blank());
+                header.push(ParamKeySuffix::Tag.blank());
+                header.push(ParamKeySuffix::Type.blank());
+                header.push(ParamKeySuffix::Feature.blank());
+                header.push(ParamKeySuffix::Analyte.blank());
+                header.push(ParamKeySuffix::Type.blank());
             }
         }
 
         let shortname = |n: Option<&'a Shortname>, index: MeasIndex| {
-            n.map(|v| RefKeyword1::from_ref1(v, index))
+            n.map(|v| RefKeyword::from_ref1(v, index))
                 .map(ReqMeasKeyword::from)
                 .map(MeasKeyword::from)
         };
@@ -5645,7 +5647,7 @@ where
     ) -> WarningsAndErrorsResult<
         (Vec<V::Name>, Vec<Option<Shortname>>),
         (),
-        OptIndexedKeyError<Shortname>,
+        OptKeyError<Shortname>,
         LookupShortnameError,
     >
     where
@@ -5996,7 +5998,7 @@ impl<V: VersionSet> VersionedCoreTEXT<V> {
                     {
                         core.0
                             .nonstandard_keywords
-                            .insert_demoted(Timestep::std(), t);
+                            .insert_demoted(Timestep::std(&()), t);
                     }
                     core
                 });
@@ -7209,7 +7211,7 @@ impl UnstainedData {
     ) -> DeferredSwitchableError<
         DiagnosedUnstainedData<Self>,
         DummyTriFlag,
-        OptKeyStError<UnstainedCenters>,
+        OptStKeyError<UnstainedCenters>,
     >
     where
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
@@ -7279,7 +7281,7 @@ impl CSVFlags {
                 let n = m.map(|x| x.0).unwrap_or_default();
                 (0..n)
                     .map(|i| {
-                        CSVFlag::remove_or_drop_meas_opt(kws, dropped, i, conf)
+                        CSVFlag::remove_or_drop_meas_opt(kws, dropped, i.into(), conf)
                             .map_switchable_errors(LookupCSVFlagsError::from)
                             .switchable_into_commutative()
                             .into_semigroup()
@@ -7295,7 +7297,7 @@ impl CSVFlags {
         xs.iter()
             .flatten()
             .enumerate()
-            .map(|(i, k)| SplitKeyword1::from_value1(*k, i))
+            .map(|(i, k)| SplitKeyword::from_value1(*k, i.into()))
             .map(OptRootKeyword::from)
             .chain(mode)
     }

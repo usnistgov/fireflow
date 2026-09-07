@@ -1,12 +1,12 @@
 use crate::config::{EvaledReadDataKeywordsConfig, EvaledReadStdKeywordsConfig};
 use crate::logging::{ErrorResult, LogResult, WarningsAndErrorsResult};
 use crate::text::keyword_enum::{
-    AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword0,
+    AsStdKeywordPair as _, Keyword0FromValue as _, OptRootKeyword, SplitKeyword,
 };
 use crate::text::lookup::{
-    Diagnosed, FromStrWith, OptKeyStError, OptMetarootKey, Optional, ParseKeyError,
+    Diagnosed, FromStrWith, OptStKeyError, OptMetarootKey, Optional, ParseKeyError,
 };
-use crate::validated::keys::{NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
+use crate::validated::keys::{Key, NonStdKeywordsExt as _, StdKeywords, ValidKeywords};
 
 use fireflow_types::{
     config::{BASE_TIME_FORMAT, DEFAULT_DATE_FORMAT, DEFAULT_TIME_FORMAT_2_0},
@@ -214,11 +214,11 @@ impl<X> Timestamps<X> {
         LookupTimestampsError<X, X::Err>,
     >
     where
-        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>>,
-        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>>,
+        Btim<X>: OptMetarootKey + Optional<Outer = Option<Btim<X>>> + Key<Index = ()>,
+        Etim<X>: OptMetarootKey + Optional<Outer = Option<Etim<X>>> + Key<Index = ()>,
         X: PartialOrd + FromStr + From<NaiveTime>,
         C: AsRef<EvaledReadDataKeywordsConfig> + AsRef<EvaledReadStdKeywordsConfig>,
-        for<'a> OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
+        for<'a> OptRootKeyword<'a>: From<SplitKeyword<Btim<X>>> + From<SplitKeyword<Etim<X>>>,
     {
         macro_rules! go {
             ($x:expr) => {
@@ -269,7 +269,9 @@ impl<X> Timestamps<X> {
     pub(crate) fn opt_keywords<'a>(&self) -> impl Iterator<Item = OptRootKeyword<'a>>
     where
         X: Copy,
-        OptRootKeyword<'a>: From<SplitKeyword0<Btim<X>>> + From<SplitKeyword0<Etim<X>>>,
+        Btim<X>: Key<Index = ()>,
+        Etim<X>: Key<Index = ()>,
+        OptRootKeyword<'a>: From<SplitKeyword<Btim<X>>> + From<SplitKeyword<Etim<X>>>,
     {
         let a = self.btim.map(OptRootKeyword::from_value);
         let b = self.etim.map(OptRootKeyword::from_value);
@@ -540,13 +542,19 @@ pub struct FCSTime100Error;
 #[cfg_attr(
     feature = "python",
     derive(AllIntoPyErr),
-    bound(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>: Into<Self>),
-    bound(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>: Into<Self>)
+    bound(ParseKeyError<FCSFixedTimeError<E>, Btim<T>>: Into<Self>),
+    bound(ParseKeyError<FCSFixedTimeError<E>, Etim<T>>: Into<Self>),
+    bound(Btim<T>: Key<Index = ()>),
+    bound(Etim<T>: Key<Index = ()>)
 )]
-pub enum LookupTimestampsError<T, E> {
-    Date(OptKeyStError<FCSDate>),
-    Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>, ()>),
-    Etim(ParseKeyError<FCSFixedTimeError<E>, Etim<T>, ()>),
+pub enum LookupTimestampsError<T, E>
+where
+    Btim<T>: Key<Index = ()>,
+    Etim<T>: Key<Index = ()>,
+{
+    Date(OptStKeyError<FCSDate>),
+    Btim(ParseKeyError<FCSFixedTimeError<E>, Btim<T>>),
+    Etim(ParseKeyError<FCSFixedTimeError<E>, Etim<T>>),
     Reversed(ReversedTimestampsError),
 }
 

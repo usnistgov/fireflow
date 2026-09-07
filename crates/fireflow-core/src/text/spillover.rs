@@ -1,7 +1,7 @@
 use crate::config::EvaledReadStdKeywordsConfig;
 use crate::core::TrimmedKeyword;
 use crate::text::relational::{KeyToIndexLinkError, RemovedNamedLink};
-use crate::validated::keys::{DKey0, Key as _};
+use crate::validated::keys::{DollarKey, Key as _};
 use crate::validated::shortname::Shortname;
 
 use super::lookup::{Diagnosed, FromStrWith, FromStrWithResult};
@@ -77,14 +77,14 @@ impl Spillover {
     pub(crate) fn existing_link_error(
         &self,
         names: &OpticalNamesToRemove<'_>,
-    ) -> Option<ExistingNamedLinkError<Self, ()>> {
+    ) -> Option<ExistingNamedLinkError<Self>> {
         let ns = self
             .measurements
             .iter()
             .filter(|n| names.as_ref().contains(n))
             .cloned()
             .try_into_nonempty_iter();
-        ns.map(|js| ExistingNamedLinkError::new(DKey0::default(), js.collect()))
+        ns.map(|js| ExistingNamedLinkError::new(DollarKey::default(), js.collect()))
     }
 
     /// Return error if any names in matrix are not in measurement vector
@@ -247,7 +247,7 @@ impl FromStrWith for Spillover {
     ) -> FromStrWithResult<Self> {
         let trim_flag = conf.trim_intra_value_whitespace;
         let (m, was_trimmed) = GenericSpillover::from_str(s.as_str(), trim_flag)?;
-        let trimmed = was_trimmed.then(|| (Self::std(), s.to_owned()));
+        let trimmed = was_trimmed.then(|| (Self::std(&()), s.to_owned()));
         let use_indices = match conf.spillover_measurement_mode {
             SpilloverMeasurementMode::Guess => m.measurements.iter().all(|x| {
                 if let Ok(i) = x.parse::<MeasIndex>() {

@@ -12,8 +12,8 @@ use std::str::FromStr;
 
 /// Operations to obtain optional segment from TEXT keywords
 pub trait KeyedOffsets: Sized + Copy {
-    type B: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
-    type E: Key + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
+    type B: Key<Index = ()> + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
+    type E: Key<Index = ()> + Into<UintZeroPad20> + FromStr<Err = ParseIntError>;
 }
 
 impl KeyedOffsets for AnalysisSegmentId {

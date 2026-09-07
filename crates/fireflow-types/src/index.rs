@@ -91,6 +91,13 @@ newtype_index!(
     SubsetIndex
 );
 
+/// The 'm' and 'n' in keywords with two indices
+#[derive(new, Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct BiMeasIndex {
+    pub i0: MeasIndex,
+    pub i1: MeasIndex,
+}
+
 /// Error when index referring to position of elements is out of range.
 ///
 /// Used internally for creating more specific errors
